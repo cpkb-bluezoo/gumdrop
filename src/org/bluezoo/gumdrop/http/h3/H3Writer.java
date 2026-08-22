@@ -22,7 +22,9 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.quic.packet.VarInt;
 
 /**
@@ -44,6 +46,25 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
 public final class H3Writer {
 
     private H3Writer() {
+    }
+
+    /**
+     * Returns the uncompressed field-section size under RFC 9114
+     * section 4.2.2 accounting: name length + value length + 32 octets
+     * per field line (the same model as RFC 7541 section 4.1 /
+     * {@code SETTINGS_MAX_HEADER_LIST_SIZE}).
+     *
+     * @param fields the decoded field lines
+     * @return the size in octets
+     */
+    public static long fieldSectionSize(List<Header> fields) {
+        long size = 0;
+        for (int i = 0; i < fields.size(); i++) {
+            Header field = fields.get(i);
+            String value = field.getValue();
+            size += field.getName().length() + (value != null ? value.length() : 0) + 32L;
+        }
+        return size;
     }
 
     /**

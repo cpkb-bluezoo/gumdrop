@@ -25,6 +25,7 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
@@ -39,6 +40,7 @@ import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.HTTPServerMetrics;
+import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.PriorityParams;
 import org.bluezoo.gumdrop.http.Rfc9218NonIncrementalSlots;
@@ -128,6 +130,11 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     private final Map<Long, H3Stream> requestStreams = new HashMap<Long, H3Stream>();
     private final Rfc9218NonIncrementalSlots nonIncSlots = new Rfc9218NonIncrementalSlots();
 
+    // RFC 9114 section 4.2.2 / 7.2.4.1: peer's advertised
+    // SETTINGS_MAX_FIELD_SECTION_SIZE. Unlimited (the RFC default)
+    // until the peer's SETTINGS arrives.
+    private long peerMaxFieldSectionSize = Long.MAX_VALUE;
+
     /**
      * Creates a new HTTP/3 server handler on top of an existing
      * QUIC connection.
@@ -176,7 +183,8 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     private void openControlStream() {
         final long[] settings = {
             H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1,
-            H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY, DEFAULT_QPACK_TABLE_CAPACITY
+            H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY, DEFAULT_QPACK_TABLE_CAPACITY,
+            H3FrameHandler.SETTINGS_MAX_FIELD_SECTION_SIZE, H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE
         };
         quicConnection.openUnidirectionalStream(new ProtocolHandler() {
             @Override
@@ -342,9 +350,32 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
                 qpackEncoder.setCapacity(instructions, capacity);
                 instructions.flip();
                 flushQpackEncoderInstructions(instructions);
-                break;
+            } else if (settings[i] == H3FrameHandler.SETTINGS_MAX_FIELD_SECTION_SIZE) {
+                peerMaxFieldSectionSize = settings[i + 1];
             }
         }
+    }
+
+    /**
+     * Returns this endpoint's advertised {@code SETTINGS_MAX_FIELD_SECTION_SIZE}
+     * (RFC 9114 section 4.2.2), enforced on inbound HEADERS.
+     *
+     * @return the local receive ceiling in octets
+     */
+    long getLocalMaxFieldSectionSize() {
+        return H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE;
+    }
+
+    /**
+     * Returns whether {@code fields} exceeds the peer's advertised
+     * {@code SETTINGS_MAX_FIELD_SECTION_SIZE}. The RFC default when the
+     * peer omitted the parameter is unlimited.
+     *
+     * @param fields the field section about to be sent
+     * @return true if this section must not be sent
+     */
+    boolean exceedsPeerFieldSectionLimit(List<Header> fields) {
+        return H3Writer.fieldSectionSize(fields) > peerMaxFieldSectionSize;
     }
 
     // RFC 9114 section 5.2: GOAWAY for graceful shutdown. Record the

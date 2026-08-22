@@ -272,6 +272,25 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         }
     }
 
+    /**
+     * Aborts this stream with {@link H3ErrorCode#H3_EXCESSIVE_LOAD}
+     * (RFC 9114 section 4.2.2) and notifies the response handler.
+     *
+     * @param reason a human-readable reason for {@link HTTPResponseHandler#failed}
+     */
+    void abortExcessiveLoad(String reason) {
+        state = State.CLOSED;
+        if (endpoint instanceof QuicStreamEndpoint) {
+            ((QuicStreamEndpoint) endpoint).resetStream(H3ErrorCode.H3_EXCESSIVE_LOAD);
+        }
+        IOException ex = new IOException(reason);
+        if (wsHandler != null) {
+            wsHandler.error(ex);
+        } else if (responseHandler != null) {
+            responseHandler.failed(ex);
+        }
+    }
+
     // ── H3FrameHandler ──
 
     @Override
@@ -291,6 +310,12 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             return;
         }
         headersDecoded = true;
+        if (connection != null
+                && H3Writer.fieldSectionSize(fields) > connection.getLocalMaxFieldSectionSize()) {
+            abortExcessiveLoad("response field section exceeds SETTINGS_MAX_FIELD_SECTION_SIZE");
+            connection.flushQpackDecoderInstructions();
+            return;
+        }
         onHeaders(fields);
         // connection is only ever null in a test that constructs this
         // class directly (see H3ClientStreamTest).

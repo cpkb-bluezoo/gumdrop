@@ -66,6 +66,15 @@ public interface H3FrameHandler {
 
     /** RFC 9114 section 7.2.4.1. */
     long SETTINGS_MAX_FIELD_SECTION_SIZE = 0x06;
+    /**
+     * Advertised {@code SETTINGS_MAX_FIELD_SECTION_SIZE} (RFC 9114
+     * section 4.2.2), matching HTTP/2's default
+     * {@code SETTINGS_MAX_HEADER_LIST_SIZE} of 8192. The RFC default
+     * when the parameter is absent is unlimited; this is the ceiling
+     * this implementation both advertises and enforces on inbound
+     * field sections.
+     */
+    long DEFAULT_MAX_FIELD_SECTION_SIZE = 8192;
     /** RFC 9204 section 5 (QPACK). */
     long SETTINGS_QPACK_MAX_TABLE_CAPACITY = 0x01;
     /** RFC 9204 section 5 (QPACK). */

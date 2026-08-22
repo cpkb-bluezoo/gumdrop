@@ -271,6 +271,15 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
             return;
         }
         headersDecoded = true;
+        if (H3Writer.fieldSectionSize(fields) > localMaxFieldSectionSize()) {
+            // RFC 9114 section 4.2.2 / 10.5.1: refuse oversized field
+            // sections with a stream error rather than hanging the peer.
+            abortExcessiveLoad();
+            if (connection != null) {
+                connection.flushQpackDecoderInstructions();
+            }
+            return;
+        }
         Headers headers = new Headers();
         for (Header field : fields) {
             headers.add(field);
@@ -806,6 +815,30 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         endpoint.resetStream(H3ErrorCode.H3_REQUEST_CANCELLED);
     }
 
+    /**
+     * Aborts this stream with {@link H3ErrorCode#H3_EXCESSIVE_LOAD}
+     * (RFC 9114 section 4.2.2 / 8.1) because a field section exceeded
+     * {@code SETTINGS_MAX_FIELD_SECTION_SIZE}.
+     */
+    private void abortExcessiveLoad() {
+        if (span != null && !span.isEnded()) {
+            span.recordError(ErrorCategory.PROTOCOL_ERROR, "Excessive field section size");
+            span.end();
+        }
+        state = State.CLOSED;
+        handler = null;
+        if (endpoint != null) {
+            endpoint.resetStream(H3ErrorCode.H3_EXCESSIVE_LOAD);
+        }
+    }
+
+    private long localMaxFieldSectionSize() {
+        if (connection == null) {
+            return H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE;
+        }
+        return connection.getLocalMaxFieldSectionSize();
+    }
+
     // ── Telemetry ──
 
     /**
@@ -977,6 +1010,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     // "additional headers" (informational/trailers) from the initial
     // response at the frame level -- it's just another HEADERS frame.
     private void sendHeaderFrame(List<Header> fields, boolean fin) {
+        if (connection != null && connection.exceedsPeerFieldSectionLimit(fields)) {
+            abortExcessiveLoad();
+            return;
+        }
         ByteBuffer fieldSection = ByteBuffer.allocate(estimateFieldSectionCapacity(fields));
         ByteBuffer encoderInstructions = ByteBuffer.allocate(estimateFieldSectionCapacity(fields));
         qpackEncoder.encode(fieldSection, encoderInstructions, streamId, fields);

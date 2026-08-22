@@ -131,6 +131,32 @@ public class H3StreamTest {
     }
 
     /**
+     * RFC 9114 section 4.2.2: an uncompressed field section larger
+     * than the advertised {@code SETTINGS_MAX_FIELD_SECTION_SIZE}
+     * aborts the stream with {@code H3_EXCESSIVE_LOAD} rather than
+     * being delivered to the request handler.
+     */
+    @Test
+    public void testOversizedFieldSectionAbortsWithExcessiveLoad() throws Exception {
+        H3Stream stream = createStream();
+
+        StringBuilder pad = new StringBuilder();
+        for (int i = 0; i < (int) H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE; i++) {
+            pad.append('x');
+        }
+        stream.headersFrameReceived(encodeLarge(
+                ":method", "GET",
+                ":scheme", "https",
+                ":path", "/",
+                ":authority", "example.com",
+                "x-pad", pad.toString()));
+
+        assertEquals("CLOSED", getState(stream));
+        assertNull("oversized field section must not create a request handler",
+                getField(stream, "handler"));
+    }
+
+    /**
      * A QUIC-level error close (e.g. the peer's CONNECTION_CLOSE, or a
      * local transport error) on a plain (non-WebSocket) request must
      * reach the application's {@link
@@ -190,6 +216,19 @@ public class H3StreamTest {
         }
         SimpleEncoder encoder = new SimpleEncoder();
         ByteBuffer buf = ByteBuffer.allocate(4096);
+        encoder.encode(buf, headers);
+        buf.flip();
+        return buf;
+    }
+
+    private static ByteBuffer encodeLarge(String... pairs) {
+        List<Header> headers = new ArrayList<Header>();
+        for (int i = 0; i < pairs.length; i += 2) {
+            headers.add(new Header(pairs[i], pairs[i + 1]));
+        }
+        SimpleEncoder encoder = new SimpleEncoder();
+        encoder.setAutoHuffman(false);
+        ByteBuffer buf = ByteBuffer.allocate(16384);
         encoder.encode(buf, headers);
         buf.flip();
         return buf;
