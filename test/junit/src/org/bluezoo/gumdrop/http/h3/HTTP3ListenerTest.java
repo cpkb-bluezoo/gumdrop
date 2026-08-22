@@ -11,6 +11,8 @@ package org.bluezoo.gumdrop.http.h3;
 import java.lang.reflect.Field;
 
 import org.junit.Test;
+import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+
 import static org.junit.Assert.*;
 
 public class HTTP3ListenerTest {
@@ -88,6 +90,42 @@ public class HTTP3ListenerTest {
         HTTP3Listener listener = new HTTP3Listener();
         listener.setPort(8443);
         assertEquals(8443, listener.getPort());
+    }
+
+    @Test
+    public void testRequireRetryEnabledByDefault() {
+        HTTP3Listener listener = new HTTP3Listener();
+        assertTrue(listener.isRequireRetry());
+    }
+
+    @Test
+    public void testSetRequireRetry() {
+        HTTP3Listener listener = new HTTP3Listener();
+        listener.setRequireRetry(false);
+        assertFalse(listener.isRequireRetry());
+    }
+
+    @Test
+    public void testCreateTransportFactoryEnablesRetryByDefault() throws Exception {
+        HTTP3Listener listener = new HTTP3Listener();
+        QuicTransportFactory factory = invokeCreateTransportFactory(listener);
+        assertTrue(factory.isRequireRetry());
+    }
+
+    @Test
+    public void testCreateTransportFactoryHonoursRetryOptOut() throws Exception {
+        HTTP3Listener listener = new HTTP3Listener();
+        listener.setRequireRetry(false);
+        QuicTransportFactory factory = invokeCreateTransportFactory(listener);
+        assertFalse(factory.isRequireRetry());
+    }
+
+    private static QuicTransportFactory invokeCreateTransportFactory(
+            HTTP3Listener listener) throws Exception {
+        java.lang.reflect.Method method =
+                HTTP3Listener.class.getDeclaredMethod("createTransportFactory");
+        method.setAccessible(true);
+        return (QuicTransportFactory) method.invoke(listener);
     }
 
     private long getField(HTTP3Listener listener, String name) throws Exception {

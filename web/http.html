@@ -275,6 +275,7 @@ are failed with a retryable error so the caller can reconnect.</li>
 <li><code>quic-max-stream-data-uni</code> &ndash; per-stream flow control for unidirectional streams (bytes)</li>
 <li><code>quic-max-streams-bidi</code> &ndash; max concurrent bidirectional streams</li>
 <li><code>quic-max-streams-uni</code> &ndash; max concurrent unidirectional streams</li>
+<li><code>require-retry</code> &ndash; require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
 </ul>
 
 <h3 id="http2">HTTP/2 Support</h3>
@@ -816,6 +817,7 @@ uses PEM files instead of a keystore:
 <li><code>quic-max-stream-data-uni</code> &ndash; stream flow control, unidirectional (bytes)</li>
 <li><code>quic-max-streams-bidi</code> &ndash; max concurrent bidi streams</li>
 <li><code>quic-max-streams-uni</code> &ndash; max concurrent uni streams</li>
+<li><code>require-retry</code> &ndash; require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
 </ul>
 
 <h4>Combined HTTP/3 + HTTP/2 + HTTP/1.1</h4>

@@ -58,6 +58,10 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  * {@link QuicTransportFactory}, and manages {@link QuicEngine}
  * instances directly.
  *
+ * <p>Retry-based address validation (RFC 9000 section 8.1.2) is on
+ * by default; set {@code require-retry} to {@code false} for a
+ * trusted path.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoQStreamHandler
  * @see DNSService
@@ -76,6 +80,11 @@ public class DoQListener extends TCPListener
 
     private Path certFile;
     private Path keyFile;
+
+    // RFC 9000 section 8.1.2: Retry-based address validation. Default
+    // on for public-facing listeners; set false for a trusted network
+    // that already anti-spoofs.
+    private boolean requireRetry = true;
 
     private SelectorLoop selectorLoop;
     private final List<QuicEngine> engines = new ArrayList<>();
@@ -144,6 +153,28 @@ public class DoQListener extends TCPListener
     }
 
     /**
+     * Sets whether this listener requires RFC 9000 section 8.1.2 Retry
+     * before accepting a new connection. Default {@code true}. Set
+     * {@code false} for lab / loopback / already-anti-spoofed paths.
+     * XML: {@code require-retry}
+     *
+     * @param requireRetry whether to send Retry to unvalidated Initials
+     */
+    public void setRequireRetry(boolean requireRetry) {
+        this.requireRetry = requireRetry;
+    }
+
+    /**
+     * Returns whether this listener requires Retry-based address
+     * validation (RFC 9000 section 8.1.2).
+     *
+     * @return true if Retry is required (the default)
+     */
+    public boolean isRequireRetry() {
+        return requireRetry;
+    }
+
+    /**
      * Returns the SelectorLoop used for QUIC datagram I/O.
      *
      * @return the selector loop, or null if not yet assigned
@@ -179,6 +210,7 @@ public class DoQListener extends TCPListener
         if (keyFile != null) {
             factory.setKeyFile(keyFile);
         }
+        factory.setRequireRetry(requireRetry);
         return factory;
     }
 

@@ -89,9 +89,10 @@ import org.bluezoo.util.ByteArrays;
  * silently dropped rather than answered with a Version Negotiation
  * packet (RFC 9000 section 6).
  *
- * <p>When {@link QuicTransportFactory#isRequireRetry} is set, a new
- * client Initial with no valid Retry Token is answered with a stateless
- * Retry packet (RFC 9000 section 8.1.2) instead of being accepted --
+     * <p>When {@link QuicTransportFactory#isRequireRetry} is set (the
+     * default on {@code HTTP3Listener} and {@code DoQListener}), a new
+     * client Initial with no valid Retry Token is answered with a stateless
+     * Retry packet (RFC 9000 section 8.1.2) instead of being accepted --
  * see {@link #sendRetry} and {@link RetryToken}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

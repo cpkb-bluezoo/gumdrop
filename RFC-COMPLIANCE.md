@@ -927,6 +927,7 @@ The QUIC transport layer uses the **quiche** native library for all protocol pro
 | QUIC v2 support | RFC 9369 | Compliant | `QUICHE_PROTOCOL_VERSION_2 = 0x6b3343cf` |
 | Handshake (server accepts) | 7 | Compliant (quiche) | `QuicEngine.acceptConnection()` creates quiche connection |
 | Handshake (client initiates) | 7 | Compliant (quiche) | `QuicEngine.connectTo()` sends Initial packet |
+| Retry-based address validation | 8.1.2 | Compliant | `QuicEngine.sendRetry`; `HTTP3Listener` / `DoQListener` enable Retry by default; `require-retry=false` opts into the permissive (no-Retry) mode for trusted networks |
 | HANDSHAKE_DONE confirmation | 7.3 | Compliant (quiche) | `QuicConnection.checkEstablished()` detects established state |
 | TLS 1.3 via BoringSSL | RFC 9001 | Compliant (quiche) | SSL context created per connection |
 | Idle timeout | 10.1 | Compliant (quiche) | `QuicConnection.scheduleTimeout()` uses quiche timeout |

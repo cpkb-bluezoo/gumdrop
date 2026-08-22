@@ -318,9 +318,11 @@ public class QuicTransportFactory extends TransportFactory {
     /**
      * Sets whether this server requires address validation via a Retry
      * packet (RFC 9000 section 8.1.2) before accepting a new connection.
-     * Default {@code false} -- Retry adds a mandatory extra round trip to
-     * every handshake, so this is an opt-in DDoS-hardening posture, not a
-     * default-on behaviour. Has no effect on client-mode engines.
+     * Default {@code false} on the factory itself so programmatic and
+     * test engines stay opt-in; {@code HTTP3Listener} and
+     * {@code DoQListener} turn Retry <em>on</em> by default and expose
+     * {@code require-retry} to opt into a more permissive (no-Retry)
+     * mode for trusted networks. Has no effect on client-mode engines.
      *
      * @param require the new state
      */

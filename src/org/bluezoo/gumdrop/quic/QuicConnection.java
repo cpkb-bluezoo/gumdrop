@@ -91,8 +91,9 @@ import org.bluezoo.gumdrop.quic.tls.StreamReassembler;
  * <p>{@link #flush} coalesces every encryption level with pending data
  * into a single UDP datagram (RFC 9000 section 12.2) rather than sending
  * one packet per level. RFC 9000 section 8.1's address validation is
- * implemented both ways: the anti-amplification byte limit, and the
- * optional Retry-packet mechanism (see {@link QuicTransportFactory#setRequireRetry}).
+     * implemented both ways: the anti-amplification byte limit, and the
+     * Retry-packet mechanism (see {@link QuicTransportFactory#setRequireRetry};
+     * QUIC listeners enable Retry by default).
  *
  * <p>Connection migration (RFC 9000 section 9) is implemented in a
  * deliberately narrowed, passive/reactive form: {@link #receive} detects

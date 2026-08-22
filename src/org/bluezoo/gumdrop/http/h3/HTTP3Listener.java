@@ -57,7 +57,9 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  * {@link org.bluezoo.gumdrop.http.HTTPRequestHandler} API.
  *
  * <p>Per RFC 9114 section 3, HTTP/3 runs exclusively over QUIC
- * (RFC 9000) with mandatory TLS 1.3 (RFC 9001).
+ * (RFC 9000) with mandatory TLS 1.3 (RFC 9001). Retry-based address
+ * validation (RFC 9000 section 8.1.2) is on by default; set
+ * {@code require-retry} to {@code false} for a trusted path.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTP3ServerHandler
@@ -83,6 +85,12 @@ public class HTTP3Listener extends TCPListener
 
     private Path certFile;
     private Path keyFile;
+
+    // RFC 9000 section 8.1.2: Retry-based address validation. Default
+    // on for public-facing listeners; set false for a trusted network
+    // that already anti-spoofs (the factory itself still defaults off
+    // so programmatic/test engines are unchanged).
+    private boolean requireRetry = true;
 
     // RFC 9000 section 18: configurable QUIC transport parameters
     private long quicMaxIdleTimeout = -1;
@@ -221,6 +229,28 @@ public class HTTP3Listener extends TCPListener
         this.selectorLoop = loop;
     }
 
+    /**
+     * Sets whether this listener requires RFC 9000 section 8.1.2 Retry
+     * before accepting a new connection. Default {@code true}. Set
+     * {@code false} for lab / loopback / already-anti-spoofed paths.
+     * XML: {@code require-retry}
+     *
+     * @param requireRetry whether to send Retry to unvalidated Initials
+     */
+    public void setRequireRetry(boolean requireRetry) {
+        this.requireRetry = requireRetry;
+    }
+
+    /**
+     * Returns whether this listener requires Retry-based address
+     * validation (RFC 9000 section 8.1.2).
+     *
+     * @return true if Retry is required (the default)
+     */
+    public boolean isRequireRetry() {
+        return requireRetry;
+    }
+
     // ── RFC 9000 section 18: QUIC transport parameter setters ──
 
     /** XML: {@code quic-max-idle-timeout} (milliseconds) */
@@ -256,6 +286,7 @@ public class HTTP3Listener extends TCPListener
         if (keyFile != null) {
             factory.setKeyFile(keyFile);
         }
+        factory.setRequireRetry(requireRetry);
         // RFC 9000 section 18: apply configured transport parameters
         if (quicMaxIdleTimeout >= 0) { factory.setMaxIdleTimeout(quicMaxIdleTimeout); }
         if (quicMaxData >= 0) { factory.setMaxData(quicMaxData); }
