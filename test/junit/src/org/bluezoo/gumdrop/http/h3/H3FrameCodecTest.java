@@ -190,6 +190,20 @@ public class H3FrameCodecTest {
     }
 
     @Test
+    public void testSettingsH3Datagram() {
+        long[] settings = { H3FrameHandler.SETTINGS_H3_DATAGRAM, 1 };
+        ByteBuffer buf = ByteBuffer.allocate(H3Writer.settingsLength(settings));
+        H3Writer.writeSettings(buf, settings);
+        buf.flip();
+
+        RecordingHandler handler = new RecordingHandler();
+        new H3Parser(handler).receive(buf);
+
+        assertEquals(1, handler.events.size());
+        assertEquals("settings:51,1", handler.events.get(0));
+    }
+
+    @Test
     public void testFieldSectionSizeAccounting() {
         List<Header> fields = new ArrayList<Header>();
         fields.add(new Header(":method", "GET"));

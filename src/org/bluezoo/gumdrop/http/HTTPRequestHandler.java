@@ -182,5 +182,40 @@ public interface HTTPRequestHandler {
         // Default: do nothing
     }
 
+    /**
+     * Returns whether this request accepts HTTP Datagrams (RFC 9297).
+     * Default {@code false}: an HTTP/3 Datagram with no known semantics
+     * aborts the request stream with {@code H3_DATAGRAM_ERROR}.
+     *
+     * @return true if {@link #datagramReceived} should be called
+     */
+    default boolean wantsDatagrams() {
+        return false;
+    }
+
+    /**
+     * An HTTP Datagram associated with this request (QUIC DATAGRAM
+     * demuxed by quarter-stream-ID, or a DATAGRAM capsule). Only called
+     * when {@link #wantsDatagrams()} is true.
+     *
+     * @param state the response state
+     * @param data the datagram payload; valid only during this call
+     */
+    default void datagramReceived(HTTPResponseState state, ByteBuffer data) {
+        // Default: do nothing
+    }
+
+    /**
+     * A Capsule Protocol capsule other than DATAGRAM (RFC 9297
+     * section 3.2). Unknown types should usually be ignored.
+     *
+     * @param state the response state
+     * @param type the Capsule Type
+     * @param value the Capsule Value; valid only during this call
+     */
+    default void capsuleReceived(HTTPResponseState state, long type, ByteBuffer value) {
+        // Default: do nothing
+    }
+
 }
 

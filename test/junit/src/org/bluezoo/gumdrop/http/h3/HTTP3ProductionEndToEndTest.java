@@ -62,6 +62,7 @@ import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 import org.bluezoo.gumdrop.quic.SessionTicketCache;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -290,6 +291,214 @@ public class HTTP3ProductionEndToEndTest {
         } finally {
             // Stop the loop thread first so closing the engines from this
             // (test) thread doesn't race its own concurrent I/O processing.
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
+     * RFC 9297 section 2.1: after both peers advertise
+     * {@code SETTINGS_H3_DATAGRAM=1}, an HTTP Datagram is demuxed by
+     * quarter-stream-ID onto the request stream and can be echoed
+     * without tearing the connection down.
+     */
+    @Test
+    public void testHttpDatagramRoundTrip() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+                @Override
+                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                    return new HTTPRequestHandler() {
+                        @Override
+                        public boolean wantsDatagrams() {
+                            return true;
+                        }
+
+                        @Override
+                        public void datagramReceived(HTTPResponseState state, ByteBuffer data) {
+                            byte[] copy = new byte[data.remaining()];
+                            data.get(copy);
+                            state.sendDatagram(ByteBuffer.wrap(copy));
+                        }
+
+                        @Override
+                        public void headers(HTTPResponseState state, Headers headers) {
+                            Headers response = new Headers();
+                            response.add(":status", "200");
+                            state.headers(response);
+                            // Flush HEADERS without FIN so the stream
+                            // remains registered for HTTP Datagram demux.
+                            state.startResponseBody();
+                        }
+
+                        @Override
+                        public void startRequestBody(HTTPResponseState state) {
+                        }
+
+                        @Override
+                        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void endRequestBody(HTTPResponseState state) {
+                        }
+
+                        @Override
+                        public void requestComplete(HTTPResponseState state) {
+                        }
+                    };
+                }
+            };
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch headersLatch = new CountDownLatch(1);
+            final CountDownLatch datagramLatch = new CountDownLatch(1);
+            final AtomicReference<byte[]> echoed = new AtomicReference<byte[]>();
+            final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+            final AtomicReference<HTTP3ClientHandler> h3Ref =
+                    new AtomicReference<HTTP3ClientHandler>();
+            final AtomicReference<Long> streamIdRef = new AtomicReference<Long>();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            final HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            h3Ref.set(h3);
+                            h3.whenConnectProtocolKnown(new Runnable() {
+                                @Override
+                                public void run() {
+                                    Headers requestHeaders = new Headers();
+                                    requestHeaders.add(":method", "GET");
+                                    requestHeaders.add(":scheme", "https");
+                                    requestHeaders.add(":authority", SERVER_NAME);
+                                    requestHeaders.add(":path", "/dgram");
+                                    long streamId = h3.sendRequest(requestHeaders,
+                                            new HTTPResponseHandler() {
+                                                @Override
+                                                public boolean wantsDatagrams() {
+                                                    return true;
+                                                }
+
+                                                @Override
+                                                public void datagramReceived(ByteBuffer data) {
+                                                    byte[] copy = new byte[data.remaining()];
+                                                    data.get(copy);
+                                                    echoed.set(copy);
+                                                    datagramLatch.countDown();
+                                                }
+
+                                                @Override
+                                                public void ok(HTTPResponse response) {
+                                                    headersLatch.countDown();
+                                                }
+
+                                                @Override
+                                                public void error(HTTPResponse response) {
+                                                    failure.set(new IOException(
+                                                            "Unexpected error status: "
+                                                                    + response.getStatus()));
+                                                    headersLatch.countDown();
+                                                }
+
+                                                @Override
+                                                public void header(String name, String value) {
+                                                }
+
+                                                @Override
+                                                public void startResponseBody() {
+                                                }
+
+                                                @Override
+                                                public void responseBodyContent(ByteBuffer data) {
+                                                }
+
+                                                @Override
+                                                public void endResponseBody() {
+                                                }
+
+                                                @Override
+                                                public void pushPromise(PushPromise promise) {
+                                                }
+
+                                                @Override
+                                                public void close() {
+                                                }
+
+                                                @Override
+                                                public void failed(Exception ex) {
+                                                    failure.set(ex);
+                                                    headersLatch.countDown();
+                                                    datagramLatch.countDown();
+                                                }
+                                            }, true);
+                                    streamIdRef.set(Long.valueOf(streamId));
+                                }
+                            });
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Response headers should arrive within 5s",
+                    headersLatch.await(5, TimeUnit.SECONDS));
+            if (failure.get() != null) {
+                throw failure.get();
+            }
+            assertNotNull(streamIdRef.get());
+            assertTrue("sendRequest should have granted a stream ID",
+                    streamIdRef.get().longValue() >= 0);
+
+            final byte[] ping = "ping".getBytes(StandardCharsets.US_ASCII);
+            h3Ref.get().execute(new Runnable() {
+                @Override
+                public void run() {
+                    boolean queued = h3Ref.get().sendDatagram(
+                            streamIdRef.get().longValue(), ByteBuffer.wrap(ping));
+                    if (!queued) {
+                        failure.set(new IOException("sendDatagram returned false"));
+                        datagramLatch.countDown();
+                    }
+                }
+            });
+
+            assertTrue("Echoed datagram should arrive within 5s",
+                    datagramLatch.await(5, TimeUnit.SECONDS));
+            if (failure.get() != null) {
+                throw failure.get();
+            }
+            assertArrayEquals(ping, echoed.get());
+        } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
             if (clientEngine != null) {

@@ -33,6 +33,7 @@ import java.util.Date;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.ResourceBundle;
@@ -178,6 +179,9 @@ class Stream implements HTTPResponseState {
     private boolean handlerBodyStarted = false;
     private boolean handlerBodyEnded = false;
     private boolean requestBodyRejected = false;
+
+    private boolean capsuleMode;
+    private final CapsuleParser capsuleParser = new CapsuleParser();
 
     /**
      * Reusable header handler for HPACK decoding. Delegates to
@@ -667,6 +671,7 @@ class Stream implements HTTPResponseState {
                 }
                 if (handler != null) {
                     handler.headers(this, headers);
+                    capsuleMode = Capsule.capsuleProtocolEnabled(headers);
                 }
                 // If handler is null, factory may have sent a response (401, 404, etc.)
             } else {
@@ -862,6 +867,12 @@ class Stream implements HTTPResponseState {
             return;
         }
 
+        if (capsuleMode) {
+            dispatchCapsules(buf);
+            buf.position(buf.limit());
+            return;
+        }
+
         if (requestBodyRejected) {
             buf.position(buf.limit());
             return;
@@ -888,6 +899,30 @@ class Stream implements HTTPResponseState {
 
         // Consume any remaining data (handler may not have consumed it)
         buf.position(buf.limit());
+    }
+
+    private void dispatchCapsules(ByteBuffer buf) {
+        List<Capsule> capsules;
+        try {
+            capsules = capsuleParser.push(buf);
+        } catch (CapsuleParser.CapsuleException e) {
+            try {
+                sendError(400);
+            } catch (ProtocolException ignored) {
+            }
+            return;
+        }
+        for (int i = 0; i < capsules.size(); i++) {
+            Capsule capsule = capsules.get(i);
+            if (capsule.getType() == Capsule.TYPE_DATAGRAM) {
+                if (handler != null && handler.wantsDatagrams()) {
+                    handler.datagramReceived(this, ByteBuffer.wrap(capsule.getValue()));
+                }
+            } else if (handler != null) {
+                handler.capsuleReceived(this, capsule.getType(),
+                        ByteBuffer.wrap(capsule.getValue()));
+            }
+        }
     }
 
     private void rejectRequestBodyTooLarge() {
@@ -939,6 +974,15 @@ class Stream implements HTTPResponseState {
         
         // Dispatch to handler if present
         if (handler != null) {
+            if (capsuleMode && !capsuleParser.finish()) {
+                try {
+                    sendError(400);
+                } catch (ProtocolException e) {
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString("warn.truncated_capsule"), e.getMessage()));
+                }
+                return;
+            }
             if (handlerBodyStarted && !handlerBodyEnded) {
                 // Body was started but not ended (no trailers)
                 handlerBodyEnded = true;
@@ -1547,6 +1591,41 @@ class Stream implements HTTPResponseState {
         responseState = ResponseState.BODY_COMPLETE;
         // Clear buffered headers for potential trailers
         bufferedResponseHeaders = null;
+    }
+
+    @Override
+    public boolean sendDatagram(ByteBuffer data) {
+        if (data == null) {
+            return false;
+        }
+        byte[] copy = new byte[data.remaining()];
+        data.get(copy);
+        if (capsuleMode) {
+            return sendCapsule(Capsule.TYPE_DATAGRAM, ByteBuffer.wrap(copy));
+        }
+        return false;
+    }
+
+    @Override
+    public boolean sendCapsule(long type, ByteBuffer value) {
+        if (value == null) {
+            return false;
+        }
+        byte[] copy = new byte[value.remaining()];
+        value.get(copy);
+        byte[] encoded = new Capsule(type, copy).encode();
+        try {
+            if (responseState == ResponseState.INITIAL) {
+                startResponseBody();
+            }
+            if (responseState != ResponseState.IN_BODY) {
+                return false;
+            }
+            sendResponseBody(ByteBuffer.wrap(encoded), false);
+            return true;
+        } catch (ProtocolException e) {
+            return false;
+        }
     }
 
     // ── Backpressure / flow control ──

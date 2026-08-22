@@ -817,6 +817,7 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 | TLS 1.3 mandatory | 3 | Compliant (quiche) | QUIC mandates TLS 1.3 via BoringSSL |
 | SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | SETTINGS_MAX_FIELD_SECTION_SIZE | 4.2.2 / 7.2.4.1 | Compliant | Advertised as 8192 (matching HTTP/2); inbound HEADERS over the ceiling abort the stream with `H3_EXCESSIVE_LOAD`; outbound HEADERS honour the peer's advertised value |
+| SETTINGS_H3_DATAGRAM | RFC 9297 2.1.1 | Compliant | Always advertised as 1; value > 1 is `H3_SETTINGS_ERROR`; `=1` without peer `max_datagram_frame_size > 0` is `H3_SETTINGS_ERROR` |
 | QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` configured via JNI |
 | Unidirectional control streams | 6.2 | Compliant (quiche) | quiche manages control, QPACK encoder/decoder streams |
 
@@ -864,6 +865,7 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 | QUIC transport parameter tuning | RFC 9000 18 | Compliant | `HTTP3Listener` exposes `setQuicMax*()` setters that delegate to `QuicTransportFactory` |
 | Authentication | RFC 9110 11 | Compliant | `H3Stream.onHeaders()` checks Authorization header via `HTTPAuthenticationProvider` |
 | Telemetry / tracing | — | Compliant | `H3Stream.initTelemetrySpan()` / `endTelemetrySpan()` with OpenTelemetry attributes |
+| HTTP Datagrams | RFC 9297 | Compliant | `SETTINGS_H3_DATAGRAM=1`; quarter-stream-ID demux of QUIC DATAGRAM; Capsule Protocol (`DATAGRAM` capsule + `Capsule-Protocol`) on H1/H2/H3 data streams |
 
 ---
 
@@ -877,6 +879,7 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 | TLS 1.3 mandatory | 3 | Compliant (quiche) | QUIC mandates TLS 1.3 via BoringSSL |
 | SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | SETTINGS_MAX_FIELD_SECTION_SIZE | 4.2.2 / 7.2.4.1 | Compliant | Advertised as 8192; inbound response HEADERS over the ceiling abort the stream with `H3_EXCESSIVE_LOAD`; outbound request HEADERS honour the peer's advertised value |
+| SETTINGS_H3_DATAGRAM | RFC 9297 2.1.1 | Compliant | Always advertised as 1; same SETTINGS validation as the server |
 | QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` configured via JNI |
 | Alt-Svc discovery | 3.1 | Compliant | `HTTPClient.altSvcReceived()` parses `h3="host:port"` and initiates QUIC connection |
 
@@ -967,6 +970,18 @@ The QUIC transport layer uses the **quiche** native library for all protocol pro
 | Receipt without advertising support → PROTOCOL_VIOLATION | 4 | Compliant | Same if the received frame exceeds the advertised max |
 | Ack-eliciting, congestion-controlled, not retransmitted | 5 | Compliant | Packed into 1-RTT packets; lost DATAGRAMs are not requeued |
 | Application API | — | Compliant | `Endpoint.sendDatagram` / `QuicConnection.sendDatagram`; `ProtocolHandler.datagramReceived` via `QuicConnection.setDatagramHandler` |
+
+### HTTP Datagrams and Capsule Protocol — RFC 9297
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| `SETTINGS_H3_DATAGRAM` (0x33) | 2.1.1 / 4 | Compliant | Always advertised as 1 (client and server) so the setting does not stick out; value > 1 is `H3_SETTINGS_ERROR` |
+| Require QUIC DATAGRAM support | 2.1.1 | Compliant | `SETTINGS_H3_DATAGRAM=1` without peer `max_datagram_frame_size > 0` is `H3_SETTINGS_ERROR` |
+| HTTP/3 Datagram format | 2.1 | Compliant | QUIC DATAGRAM payload is Quarter Stream ID varint + HTTP Datagram payload (`H3Datagram`); stream ID must be client-initiated bidi (0 mod 4) |
+| Demultiplex by stream ID | 2.1 | Compliant | `HTTP3ServerHandler` / `HTTP3ClientHandler` `setDatagramHandler`; unknown stream ID is dropped; a known stream whose handler does not `wantsDatagrams()` is reset with `H3_DATAGRAM_ERROR` |
+| Datagrams before SETTINGS | 2.1.1 | Compliant | HTTP Datagram received before `SETTINGS_H3_DATAGRAM=1` closes the connection with `H3_DATAGRAM_ERROR` |
+| Capsule Protocol | 3 | Compliant | `Capsule-Protocol: ?1` (`?1` / `1` / `true`) parses DATA as capsules; `DATAGRAM` capsule type 0x00; other types via `capsuleReceived`; truncated capsule on FIN is a stream error |
+| Send path | 2.1 / 3.5 | Compliant | HTTP/3 uses QUIC DATAGRAM when the peer advertised SETTINGS; otherwise a DATAGRAM capsule if capsule mode is on. HTTP/1.1 and HTTP/2 send capsules only |
 
 ## IMAP Server — RFC 9051
 

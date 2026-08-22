@@ -122,6 +122,9 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
     // until the peer's SETTINGS arrives.
     private long peerMaxFieldSectionSize = Long.MAX_VALUE;
 
+    // RFC 9297 section 2.1.1: peer advertised SETTINGS_H3_DATAGRAM=1.
+    private boolean peerH3Datagram;
+
     /**
      * Creates a new HTTP/3 client handler on top of an existing
      * QUIC connection.
@@ -140,6 +143,32 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         });
         openControlStream();
         openQpackStreams();
+        quicConnection.setDatagramHandler(new ProtocolHandler() {
+            @Override
+            public void receive(ByteBuffer data) {
+            }
+
+            @Override
+            public void connected(Endpoint endpoint) {
+            }
+
+            @Override
+            public void disconnected() {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void error(Exception cause) {
+            }
+
+            @Override
+            public void datagramReceived(ByteBuffer data) {
+                onHttpDatagram(data);
+            }
+        });
 
         if (readyCallback != null) {
             Runnable cb = readyCallback;
@@ -156,7 +185,8 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         final long[] settings = {
             H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1,
             H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY, DEFAULT_QPACK_TABLE_CAPACITY,
-            H3FrameHandler.SETTINGS_MAX_FIELD_SECTION_SIZE, H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE
+            H3FrameHandler.SETTINGS_MAX_FIELD_SECTION_SIZE, H3FrameHandler.DEFAULT_MAX_FIELD_SECTION_SIZE,
+            H3FrameHandler.SETTINGS_H3_DATAGRAM, 1
         };
         quicConnection.openUnidirectionalStream(new ProtocolHandler() {
             @Override
@@ -625,6 +655,19 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
                 peerEnablesConnectProtocol = settings[i + 1] == 1;
             } else if (settings[i] == H3FrameHandler.SETTINGS_MAX_FIELD_SECTION_SIZE) {
                 peerMaxFieldSectionSize = settings[i + 1];
+            } else if (settings[i] == H3FrameHandler.SETTINGS_H3_DATAGRAM) {
+                long value = settings[i + 1];
+                if (value > 1) {
+                    closeWithApplicationError(H3ErrorCode.H3_SETTINGS_ERROR,
+                            "SETTINGS_H3_DATAGRAM must be 0 or 1");
+                    return;
+                }
+                if (value == 1 && quicConnection.getPeerMaxDatagramFrameSize() <= 0) {
+                    closeWithApplicationError(H3ErrorCode.H3_SETTINGS_ERROR,
+                            "SETTINGS_H3_DATAGRAM=1 without QUIC DATAGRAM");
+                    return;
+                }
+                peerH3Datagram = value == 1;
             }
         }
         if (!initialSettingsReceived) {
@@ -657,6 +700,58 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      */
     boolean exceedsPeerFieldSectionLimit(List<Header> fields) {
         return H3Writer.fieldSectionSize(fields) > peerMaxFieldSectionSize;
+    }
+
+    boolean peerH3Datagram() {
+        return peerH3Datagram;
+    }
+
+    /**
+     * Sends an HTTP Datagram (RFC 9297 section 2.1) associated with
+     * {@code streamId}. The peer must have advertised
+     * {@code SETTINGS_H3_DATAGRAM=1}.
+     *
+     * @param streamId the client-initiated bidirectional stream ID
+     * @param payload the HTTP Datagram payload
+     * @return true if queued
+     */
+    public boolean sendDatagram(long streamId, ByteBuffer payload) {
+        if (payload == null) {
+            return false;
+        }
+        byte[] copy = new byte[payload.remaining()];
+        payload.get(copy);
+        return sendHttpDatagram(streamId, copy);
+    }
+
+    boolean sendHttpDatagram(long streamId, byte[] payload) {
+        if (!peerH3Datagram) {
+            return false;
+        }
+        byte[] encoded = H3Datagram.encode(streamId, payload);
+        if (encoded == null) {
+            return false;
+        }
+        return quicConnection.sendDatagram(ByteBuffer.wrap(encoded));
+    }
+
+    private void onHttpDatagram(ByteBuffer data) {
+        if (!peerH3Datagram) {
+            closeWithApplicationError(H3ErrorCode.H3_DATAGRAM_ERROR,
+                    "HTTP Datagram before SETTINGS_H3_DATAGRAM=1");
+            return;
+        }
+        H3Datagram datagram = H3Datagram.decode(data);
+        if (datagram == null) {
+            closeWithApplicationError(H3ErrorCode.H3_DATAGRAM_ERROR,
+                    "malformed HTTP Datagram");
+            return;
+        }
+        H3ClientStream stream = streams.get(Long.valueOf(datagram.getStreamId()));
+        if (stream == null) {
+            return;
+        }
+        stream.httpDatagramReceived(ByteBuffer.wrap(datagram.getPayload()));
     }
 
     // RFC 9114 section 5.2: GOAWAY for graceful shutdown. The server
