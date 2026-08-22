@@ -56,4 +56,21 @@ public class QuicTransportFactoryTest {
         assertFalse("0-RTT should be disabled after toggle",
                 factory.isEarlyDataEnabled());
     }
+
+    @Test
+    public void testRequireRetryDisabledByDefaultOnFactory() {
+        // Listeners turn Retry on; the factory itself stays opt-in so
+        // programmatic/test engines are unchanged.
+        QuicTransportFactory factory = new QuicTransportFactory();
+        assertFalse(factory.isRequireRetry());
+    }
+
+    @Test
+    public void testSetRequireRetry() {
+        QuicTransportFactory factory = new QuicTransportFactory();
+        factory.setRequireRetry(true);
+        assertTrue(factory.isRequireRetry());
+        factory.setRequireRetry(false);
+        assertFalse(factory.isRequireRetry());
+    }
 }

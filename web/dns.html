@@ -594,6 +594,7 @@ DoQ uses QUIC (TLS 1.3 with PEM certs), like the HTTP/3 listener. Use
 <ul>
 <li><code>cert-file</code> - path to certificate chain (PEM)</li>
 <li><code>key-file</code> - path to private key (PEM)</li>
+<li><code>require-retry</code> - require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
 </ul>
 
 <h4>Example Configuration</h4>
