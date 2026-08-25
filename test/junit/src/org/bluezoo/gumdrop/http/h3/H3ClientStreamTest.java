@@ -192,8 +192,60 @@ public class H3ClientStreamTest {
         assertEquals("server going away", delivered.getReason());
     }
 
+    /**
+     * RFC 9114 section 4.2: connection-specific header fields are
+     * stripped on response ingest (matching H3Stream), not delivered
+     * to the application.
+     */
+    @Test
+    public void testHttp1FramingHeadersAreStrippedFromResponse() throws Exception {
+        StubResponseHandler handler = new StubResponseHandler();
+        H3ClientStream stream = createStream(handler);
+
+        stream.headersFrameReceived(encode(
+                ":status", "200",
+                "content-type", "text/plain",
+                "connection", "keep-alive",
+                "keep-alive", "timeout=5",
+                "transfer-encoding", "chunked",
+                "upgrade", "websocket",
+                "x-custom", "ok"));
+
+        assertNotNull(handler.okResponse);
+        assertTrue(handler.headerNames.contains("content-type"));
+        assertTrue(handler.headerNames.contains("x-custom"));
+        assertFalse(handler.headerNames.contains("connection"));
+        assertFalse(handler.headerNames.contains("keep-alive"));
+        assertFalse(handler.headerNames.contains("transfer-encoding"));
+        assertFalse(handler.headerNames.contains("upgrade"));
+    }
+
+    /**
+     * Content-Length is still captured for body validation even though
+     * stripHttp1FramingHeaders would remove it from the delivered set.
+     */
+    @Test
+    public void testContentLengthCapturedBeforeFramingStrip() throws Exception {
+        StubResponseHandler handler = new StubResponseHandler();
+        H3ClientStream stream = createStream(handler);
+
+        stream.headersFrameReceived(encode(
+                ":status", "200",
+                "content-length", "3",
+                "content-type", "text/plain"));
+
+        assertEquals(Long.valueOf(3L), getField(stream, "contentLength"));
+        assertFalse(handler.headerNames.contains("content-length"));
+        assertTrue(handler.headerNames.contains("content-type"));
+    }
+
     // ── Helpers ──
 
+    private static Object getField(H3ClientStream stream, String name) throws Exception {
+        Field f = H3ClientStream.class.getDeclaredField(name);
+        f.setAccessible(true);
+        return f.get(stream);
+    }
     private H3ClientStream createStream(HTTPResponseHandler handler) throws Exception {
         // connection is null: this test exercises response parsing in
         // isolation, without a real HTTP3ClientHandler/QuicConnection
@@ -237,12 +289,14 @@ public class H3ClientStreamTest {
         Exception failedException;
         String lastHeaderName;
         String lastHeaderValue;
+        final List<String> headerNames = new ArrayList<String>();
 
         @Override public void ok(HTTPResponse response) { okResponse = response; }
         @Override public void error(HTTPResponse response) { errorResponse = response; }
         @Override public void header(String name, String value) {
             lastHeaderName = name;
             lastHeaderValue = value;
+            headerNames.add(name);
         }
         @Override public void startResponseBody() {}
         @Override public void responseBodyContent(ByteBuffer data) {}

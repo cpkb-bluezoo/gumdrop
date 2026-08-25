@@ -1724,6 +1724,135 @@ public class HTTP3ProductionEndToEndTest {
         }
     }
 
+    /**
+     * RFC 9114 section 6.1: an HTTP/3 client MUST treat a
+     * server-initiated bidirectional stream as
+     * {@code H3_STREAM_CREATION_ERROR}.
+     */
+    @Test
+    public void testServerInitiatedBidiStreamIsStreamCreationError() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final CountDownLatch errorLatch = new CountDownLatch(1);
+            final AtomicReference<Exception> observedError = new AtomicReference<Exception>();
+            final AtomicBoolean opened = new AtomicBoolean(false);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            connection.setUnidirectionalStreamAcceptHandler(
+                                    new StreamAcceptHandler() {
+                                        @Override
+                                        public ProtocolHandler acceptStream(Endpoint stream) {
+                                            return new ProtocolHandler() {
+                                                @Override
+                                                public void connected(Endpoint endpoint) {
+                                                    if (!opened.compareAndSet(false, true)) {
+                                                        return;
+                                                    }
+                                                    // Open a server-initiated bidi stream
+                                                    // (forbidden for HTTP/3 clients).
+                                                    connection.openStream(new ProtocolHandler() {
+                                                        @Override
+                                                        public void connected(Endpoint sendEndpoint) {
+                                                            // A STREAM frame is required for the
+                                                            // peer to discover the stream.
+                                                            sendEndpoint.send(ByteBuffer.wrap(
+                                                                    new byte[] { 0x00 }));
+                                                        }
+
+                                                        @Override
+                                                        public void receive(ByteBuffer data) {
+                                                        }
+
+                                                        @Override
+                                                        public void securityEstablished(SecurityInfo info) {
+                                                        }
+
+                                                        @Override
+                                                        public void disconnected() {
+                                                        }
+
+                                                        @Override
+                                                        public void error(Exception cause) {
+                                                            observedError.set(cause);
+                                                            errorLatch.countDown();
+                                                        }
+                                                    });
+                                                }
+
+                                                @Override
+                                                public void receive(ByteBuffer data) {
+                                                }
+
+                                                @Override
+                                                public void securityEstablished(SecurityInfo info) {
+                                                }
+
+                                                @Override
+                                                public void disconnected() {
+                                                }
+
+                                                @Override
+                                                public void error(Exception cause) {
+                                                    observedError.set(cause);
+                                                    errorLatch.countDown();
+                                                }
+                                            };
+                                        }
+                                    });
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            new HTTP3ClientHandler(connection);
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Connection should close within 5s",
+                    errorLatch.await(5, TimeUnit.SECONDS));
+
+            Exception cause = observedError.get();
+            assertTrue("Cause should be a QuicConnectionCloseException, was: " + cause,
+                    cause instanceof QuicConnectionCloseException);
+            QuicConnectionCloseException qcce = (QuicConnectionCloseException) cause;
+            assertTrue("Should be an application-level close", qcce.isApplicationError());
+            assertEquals("RFC 9114 section 6.1 H3_STREAM_CREATION_ERROR",
+                    H3ErrorCode.H3_STREAM_CREATION_ERROR, qcce.getErrorCode());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
     private void assertRawClientSendClosesWith(boolean unidirectional, ByteBuffer payload,
             long expectedErrorCode, String assertionMessage) throws Exception {
         assertRawClientSendClosesWith(unidirectional, payload, expectedErrorCode, assertionMessage, false);

@@ -144,6 +144,16 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
                         true);
             }
         });
+        // RFC 9114 section 6.1: clients MUST NOT accept server-initiated
+        // bidirectional streams; receipt is H3_STREAM_CREATION_ERROR.
+        quicConnection.setStreamAcceptHandler(new StreamAcceptHandler() {
+            @Override
+            public ProtocolHandler acceptStream(Endpoint stream) {
+                closeWithApplicationError(H3ErrorCode.H3_STREAM_CREATION_ERROR,
+                        "server-initiated bidirectional stream");
+                return null;
+            }
+        });
         openControlStream();
         openQpackStreams();
         quicConnection.setDatagramHandler(new ProtocolHandler() {

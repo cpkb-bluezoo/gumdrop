@@ -41,6 +41,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HTTPStatus;
 import org.bluezoo.gumdrop.http.HTTPUtils;
+import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
@@ -386,11 +387,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             // CONNECT, so these are simply ignored in WebSocket mode.
             if (statusCode >= 100 && statusCode < 200) {
                 if (wsHandler == null) {
-                    for (Header field : fields) {
-                        if (!field.getName().startsWith(":")) {
-                            responseHandler.header(field.getName(), field.getValue());
-                        }
-                    }
+                    deliverStrippedHeaders(fields);
                 }
                 return;
             }
@@ -415,17 +412,17 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
                 responseHandler.error(response);
             }
 
-            for (Header field : fields) {
+            Headers hdrs = toHeaders(fields);
+            // Capture Content-Length before stripHttp1FramingHeaders removes
+            // it (same ordering as H3Stream / HTTP/2 Stream).
+            if (!captureContentLength(hdrs)) {
+                return;
+            }
+            HTTPVersion.stripHttp1FramingHeaders(hdrs);
+            for (Header field : hdrs) {
                 if (!field.getName().startsWith(":")) {
                     responseHandler.header(field.getName(), field.getValue());
                 }
-            }
-            Headers hdrs = new Headers();
-            for (int i = 0; i < fields.size(); i++) {
-                hdrs.add(fields.get(i));
-            }
-            if (!captureContentLength(hdrs)) {
-                return;
             }
             // RFC 9110 section 6.4.1 / 15.4.5 / 15.4.6: HEAD, 204, and
             // 304 responses must not carry a message body; Content-Length
@@ -438,12 +435,30 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
         // Trailer field section (or late headers after the final status).
         if (wsHandler == null) {
-            for (Header field : fields) {
-                if (!field.getName().startsWith(":")) {
-                    responseHandler.header(field.getName(), field.getValue());
-                }
+            deliverStrippedHeaders(fields);
+        }
+    }
+
+    /**
+     * Strips HTTP/1 framing headers (RFC 9114 section 4.2) and delivers
+     * the remaining non-pseudo fields to the response handler.
+     */
+    private void deliverStrippedHeaders(List<Header> fields) {
+        Headers hdrs = toHeaders(fields);
+        HTTPVersion.stripHttp1FramingHeaders(hdrs);
+        for (Header field : hdrs) {
+            if (!field.getName().startsWith(":")) {
+                responseHandler.header(field.getName(), field.getValue());
             }
         }
+    }
+
+    private static Headers toHeaders(List<Header> fields) {
+        Headers hdrs = new Headers();
+        for (int i = 0; i < fields.size(); i++) {
+            hdrs.add(fields.get(i));
+        }
+        return hdrs;
     }
 
     /**
