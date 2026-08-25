@@ -24,9 +24,20 @@ package org.bluezoo.gumdrop.amqp.rabbitmq;
 import org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.BasicProperties;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerTxCommitHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerTxRollbackHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerTxSelectHandler;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -94,12 +105,20 @@ public class RabbitMQPlaintextIntegrationTest {
     public void testConnectAndOpenChannel() throws Exception {
         client = newClient();
 
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channelRef.set(channel);
-            latch.countDown();
-        }));
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(ClientChannel channel) {
+                        channelRef.set(channel);
+                        latch.countDown();
+                    }
+                });
+            }
+        });
 
         ClientChannel channel = await(latch, channelRef);
         assertEquals(1, channel.getChannelId());
@@ -108,36 +127,56 @@ public class RabbitMQPlaintextIntegrationTest {
     @Test
     public void testDeclareBindPublishConsumeRoundTrip() throws Exception {
         client = newClient();
-        String exchange = unique("gumdrop-test-exchange");
-        String queue = unique("gumdrop-test-queue");
+        final String exchange = unique("gumdrop-test-exchange");
+        final String queue = unique("gumdrop-test-queue");
 
-        CountDownLatch deliveredLatch = new CountDownLatch(1);
-        AtomicReference<String> deliveredBody = new AtomicReference<>();
-        AtomicReference<String> deliveredContentType = new AtomicReference<>();
+        final CountDownLatch deliveredLatch = new CountDownLatch(1);
+        final AtomicReference<String> deliveredBody = new AtomicReference<>();
+        final AtomicReference<String> deliveredContentType = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channel.exchangeDeclare(exchange, "direct", false, true, null, () -> {
-                // durable=true (not false): RabbitMQ 4.x rejects non-durable,
-                // non-exclusive ("transient_nonexcl") queues by default as a
-                // deprecated feature -- every queueDeclare in this file uses
-                // durable=true for that reason, even though these are
-                // short-lived, auto-delete test queues where durability
-                // itself is otherwise irrelevant.
-                channel.queueDeclare(queue, true, false, true, null, (q, mc, cc) -> {
-                    channel.queueBind(queue, exchange, "test-key", null, () -> {
-                        channel.basicConsume(queue, "", false, false, null,
-                                new CollectingDeliveryHandler(deliveredBody, deliveredContentType, deliveredLatch),
-                                consumerTag -> {
-                                    BasicProperties props = new BasicProperties().withContentType("text/plain");
-                                    PublishBody body = channel.basicPublish(
-                                            exchange, "test-key", false, props, 11);
-                                    body.writeBody(ByteBuffer.wrap("hello world".getBytes(StandardCharsets.US_ASCII)));
-                                    body.complete();
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channel.exchangeDeclare(exchange, "direct", false, true, null, new ServerExchangeDeclareHandler() {
+                            // durable=true (not false): RabbitMQ 4.x rejects non-durable,
+                            // non-exclusive ("transient_nonexcl") queues by default as a
+                            // deprecated feature -- every queueDeclare in this file uses
+                            // durable=true for that reason, even though these are
+                            // short-lived, auto-delete test queues where durability
+                            // itself is otherwise irrelevant.
+                            @Override
+                            public void handleExchangeDeclareOk() {
+                                channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                                    @Override
+                                    public void handleQueueDeclareOk(String q, long mc, long cc) {
+                                        channel.queueBind(queue, exchange, "test-key", null, new ServerQueueBindHandler() {
+                                            @Override
+                                            public void handleQueueBindOk() {
+                                                channel.basicConsume(queue, "", false, false, null,
+                                                        new CollectingDeliveryHandler(deliveredBody, deliveredContentType, deliveredLatch),
+                                                        new ServerConsumeHandler() {
+                                                            @Override
+                                                            public void handleConsumeOk(String consumerTag) {
+                                                                BasicProperties props = new BasicProperties().withContentType("text/plain");
+                                                                PublishBody body = channel.basicPublish(
+                                                                        exchange, "test-key", false, props, 11);
+                                                                body.writeBody(ByteBuffer.wrap("hello world".getBytes(StandardCharsets.US_ASCII)));
+                                                                body.complete();
+                                                            }
+                                                        });
+                                            }
+                                        });
+                                    }
                                 });
-                    });
+                            }
+                        });
+                    }
                 });
-            });
-        }));
+            }
+        });
 
         assertEquals("hello world", await(deliveredLatch, deliveredBody));
         assertEquals("text/plain", deliveredContentType.get());
@@ -146,22 +185,36 @@ public class RabbitMQPlaintextIntegrationTest {
     @Test
     public void testDefaultExchangeRoutesByQueueName() throws Exception {
         client = newClient();
-        String queue = unique("gumdrop-test-direct-queue");
+        final String queue = unique("gumdrop-test-direct-queue");
 
-        CountDownLatch deliveredLatch = new CountDownLatch(1);
-        AtomicReference<String> deliveredBody = new AtomicReference<>();
+        final CountDownLatch deliveredLatch = new CountDownLatch(1);
+        final AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channel.queueDeclare(queue, true, false, true, null, (q, mc, cc) -> {
-                channel.basicConsume(queue, "", false, false, null,
-                        new CollectingDeliveryHandler(deliveredBody, new AtomicReference<>(), deliveredLatch),
-                        consumerTag -> {
-                            PublishBody body = channel.basicPublish("", queue, false, null, 3);
-                            body.writeBody(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
-                            body.complete();
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                            @Override
+                            public void handleQueueDeclareOk(String q, long mc, long cc) {
+                                channel.basicConsume(queue, "", false, false, null,
+                                        new CollectingDeliveryHandler(deliveredBody, new AtomicReference<String>(), deliveredLatch),
+                                        new ServerConsumeHandler() {
+                                            @Override
+                                            public void handleConsumeOk(String consumerTag) {
+                                                PublishBody body = channel.basicPublish("", queue, false, null, 3);
+                                                body.writeBody(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+                                                body.complete();
+                                            }
+                                        });
+                            }
                         });
-            });
-        }));
+                    }
+                });
+            }
+        });
 
         assertEquals("abc", await(deliveredLatch, deliveredBody));
     }
@@ -169,51 +222,65 @@ public class RabbitMQPlaintextIntegrationTest {
     @Test
     public void testRejectedMessageIsRedeliveredOnRequeue() throws Exception {
         client = newClient();
-        String queue = unique("gumdrop-test-requeue-queue");
+        final String queue = unique("gumdrop-test-requeue-queue");
 
-        CountDownLatch redeliveredLatch = new CountDownLatch(1);
-        AtomicReference<Boolean> wasRedelivered = new AtomicReference<>(Boolean.FALSE);
+        final CountDownLatch redeliveredLatch = new CountDownLatch(1);
+        final AtomicReference<Boolean> wasRedelivered = new AtomicReference<>(Boolean.FALSE);
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channel.queueDeclare(queue, true, false, true, null, (q, mc, cc) -> {
-                channel.basicConsume(queue, "", false, false, null,
-                        new DeliveryHandler() {
-                            private boolean firstDeliverySeen;
-
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
                             @Override
-                            public void onDeliveryStart(String consumerTag, long deliveryTag,
-                                    boolean redelivered, String exchange, String routingKey) {
-                                if (!firstDeliverySeen) {
-                                    firstDeliverySeen = true;
-                                    // Reject without acking; requeue=true asks the
-                                    // broker to redeliver rather than drop/DLQ it.
-                                    channel.basicReject(deliveryTag, true);
-                                } else {
-                                    wasRedelivered.set(redelivered);
-                                    channel.basicAck(deliveryTag, false);
-                                    redeliveredLatch.countDown();
-                                }
-                            }
+                            public void handleQueueDeclareOk(String q, long mc, long cc) {
+                                channel.basicConsume(queue, "", false, false, null,
+                                        new DeliveryHandler() {
+                                            private boolean firstDeliverySeen;
 
-                            @Override
-                            public void onDeliveryProperties(BasicProperties properties, long bodySize) {
-                            }
+                                            @Override
+                                            public void onDeliveryStart(String consumerTag, long deliveryTag,
+                                                    boolean redelivered, String exchange, String routingKey) {
+                                                if (!firstDeliverySeen) {
+                                                    firstDeliverySeen = true;
+                                                    // Reject without acking; requeue=true asks the
+                                                    // broker to redeliver rather than drop/DLQ it.
+                                                    channel.basicReject(deliveryTag, true);
+                                                } else {
+                                                    wasRedelivered.set(redelivered);
+                                                    channel.basicAck(deliveryTag, false);
+                                                    redeliveredLatch.countDown();
+                                                }
+                                            }
 
-                            @Override
-                            public void onDeliveryBodyChunk(ByteBuffer chunk) {
-                            }
+                                            @Override
+                                            public void onDeliveryProperties(BasicProperties properties, long bodySize) {
+                                            }
 
-                            @Override
-                            public void onDeliveryComplete() {
+                                            @Override
+                                            public void onDeliveryBodyChunk(ByteBuffer chunk) {
+                                            }
+
+                                            @Override
+                                            public void onDeliveryComplete() {
+                                            }
+                                        },
+                                        new ServerConsumeHandler() {
+                                            @Override
+                                            public void handleConsumeOk(String consumerTag) {
+                                                PublishBody body = channel.basicPublish("", queue, false, null, 3);
+                                                body.writeBody(ByteBuffer.wrap("xyz".getBytes(StandardCharsets.US_ASCII)));
+                                                body.complete();
+                                            }
+                                        });
                             }
-                        },
-                        consumerTag -> {
-                            PublishBody body = channel.basicPublish("", queue, false, null, 3);
-                            body.writeBody(ByteBuffer.wrap("xyz".getBytes(StandardCharsets.US_ASCII)));
-                            body.complete();
                         });
-            });
-        }));
+                    }
+                });
+            }
+        });
 
         assertTrue("expected the rejected message to be redelivered",
                 redeliveredLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -223,31 +290,45 @@ public class RabbitMQPlaintextIntegrationTest {
     @Test
     public void testPublisherConfirmsAckedByBroker() throws Exception {
         client = newClient();
-        String queue = unique("gumdrop-test-confirm-queue");
+        final String queue = unique("gumdrop-test-confirm-queue");
 
-        CountDownLatch confirmLatch = new CountDownLatch(1);
-        AtomicReference<Long> ackedSeq = new AtomicReference<>();
+        final CountDownLatch confirmLatch = new CountDownLatch(1);
+        final AtomicReference<Long> ackedSeq = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channel.queueDeclare(queue, true, false, true, null, (q, mc, cc) -> {
-                channel.confirmSelect(() -> {
-                    channel.setConfirmListener(new ConfirmListener() {
-                        @Override
-                        public void onAck(long sequenceNumber, boolean multiple) {
-                            ackedSeq.set(sequenceNumber);
-                            confirmLatch.countDown();
-                        }
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                            @Override
+                            public void handleQueueDeclareOk(String q, long mc, long cc) {
+                                channel.confirmSelect(new ServerConfirmSelectHandler() {
+                                    @Override
+                                    public void handleConfirmSelectOk() {
+                                        channel.setConfirmListener(new ConfirmListener() {
+                                            @Override
+                                            public void onAck(long sequenceNumber, boolean multiple) {
+                                                ackedSeq.set(sequenceNumber);
+                                                confirmLatch.countDown();
+                                            }
 
-                        @Override
-                        public void onNack(long sequenceNumber, boolean multiple) {
-                        }
-                    });
-                    PublishBody body = channel.basicPublish("", queue, false, null, 0);
-                    assertEquals(1L, body.getSequenceNumber());
-                    body.complete();
+                                            @Override
+                                            public void onNack(long sequenceNumber, boolean multiple) {
+                                            }
+                                        });
+                                        PublishBody body = channel.basicPublish("", queue, false, null, 0);
+                                        assertEquals(1L, body.getSequenceNumber());
+                                        body.complete();
+                                    }
+                                });
+                            }
+                        });
+                    }
                 });
-            });
-        }));
+            }
+        });
 
         assertEquals(Long.valueOf(1L), await(confirmLatch, ackedSeq));
     }
@@ -255,23 +336,44 @@ public class RabbitMQPlaintextIntegrationTest {
     @Test
     public void testTransactionCommitDeliversMessage() throws Exception {
         client = newClient();
-        String queue = unique("gumdrop-test-tx-commit-queue");
+        final String queue = unique("gumdrop-test-tx-commit-queue");
 
-        CountDownLatch deliveredLatch = new CountDownLatch(1);
-        AtomicReference<String> deliveredBody = new AtomicReference<>();
+        final CountDownLatch deliveredLatch = new CountDownLatch(1);
+        final AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channel.queueDeclare(queue, true, false, true, null, (q, mc, cc) -> {
-                channel.basicConsume(queue, "", false, false, null,
-                        new CollectingDeliveryHandler(deliveredBody, new AtomicReference<>(), deliveredLatch),
-                        consumerTag -> channel.txSelect(() -> {
-                            PublishBody body = channel.basicPublish("", queue, false, null, 9);
-                            body.writeBody(ByteBuffer.wrap("committed".getBytes(StandardCharsets.US_ASCII)));
-                            body.complete();
-                            channel.txCommit(() -> { });
-                        }));
-            });
-        }));
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                            @Override
+                            public void handleQueueDeclareOk(String q, long mc, long cc) {
+                                channel.basicConsume(queue, "", false, false, null,
+                                        new CollectingDeliveryHandler(deliveredBody, new AtomicReference<String>(), deliveredLatch),
+                                        new ServerConsumeHandler() {
+                                            @Override
+                                            public void handleConsumeOk(String consumerTag) {
+                                                channel.txSelect(new ServerTxSelectHandler() {
+                                                    @Override
+                                                    public void handleTxSelectOk() {
+                                                        PublishBody body = channel.basicPublish("", queue, false, null, 9);
+                                                        body.writeBody(ByteBuffer.wrap("committed".getBytes(StandardCharsets.US_ASCII)));
+                                                        body.complete();
+                                                        channel.txCommit(new ServerTxCommitHandler() {
+                                                            @Override public void handleTxCommitOk() { }
+                                                        });
+                                                    }
+                                                });
+                                            }
+                                        });
+                            }
+                        });
+                    }
+                });
+            }
+        });
 
         assertEquals("committed", await(deliveredLatch, deliveredBody));
     }
@@ -279,35 +381,59 @@ public class RabbitMQPlaintextIntegrationTest {
     @Test
     public void testTransactionRollbackNeverDeliversMessage() throws Exception {
         client = newClient();
-        String queue = unique("gumdrop-test-tx-rollback-queue");
+        final String queue = unique("gumdrop-test-tx-rollback-queue");
 
         // No message is ever expected: publish inside the transaction,
         // roll back, then publish a distinct sentinel outside any
         // transaction and confirm *that* is the only thing delivered.
-        CountDownLatch deliveredLatch = new CountDownLatch(1);
-        AtomicReference<String> deliveredBody = new AtomicReference<>();
+        final CountDownLatch deliveredLatch = new CountDownLatch(1);
+        final AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channel.queueDeclare(queue, true, false, true, null, (q, mc, cc) -> {
-                channel.basicConsume(queue, "", false, false, null,
-                        new CollectingDeliveryHandler(deliveredBody, new AtomicReference<>(), deliveredLatch),
-                        consumerTag -> channel.txSelect(() -> {
-                            PublishBody rolledBack = channel.basicPublish("", queue, false, null, 11);
-                            rolledBack.writeBody(ByteBuffer.wrap("rolled-back".getBytes(StandardCharsets.US_ASCII)));
-                            rolledBack.complete();
-                            channel.txRollback(() -> {
-                                // tx.rollback discards the pending publish but does not
-                                // exit transactional mode -- this sentinel publish is
-                                // itself still inside a transaction and needs its own
-                                // commit to actually be delivered.
-                                PublishBody sentinel = channel.basicPublish("", queue, false, null, 9);
-                                sentinel.writeBody(ByteBuffer.wrap("sentinel-".getBytes(StandardCharsets.US_ASCII)));
-                                sentinel.complete();
-                                channel.txCommit(() -> { });
-                            });
-                        }));
-            });
-        }));
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                            @Override
+                            public void handleQueueDeclareOk(String q, long mc, long cc) {
+                                channel.basicConsume(queue, "", false, false, null,
+                                        new CollectingDeliveryHandler(deliveredBody, new AtomicReference<String>(), deliveredLatch),
+                                        new ServerConsumeHandler() {
+                                            @Override
+                                            public void handleConsumeOk(String consumerTag) {
+                                                channel.txSelect(new ServerTxSelectHandler() {
+                                                    @Override
+                                                    public void handleTxSelectOk() {
+                                                        PublishBody rolledBack = channel.basicPublish("", queue, false, null, 11);
+                                                        rolledBack.writeBody(ByteBuffer.wrap("rolled-back".getBytes(StandardCharsets.US_ASCII)));
+                                                        rolledBack.complete();
+                                                        channel.txRollback(new ServerTxRollbackHandler() {
+                                                            @Override
+                                                            public void handleTxRollbackOk() {
+                                                                // tx.rollback discards the pending publish but does not
+                                                                // exit transactional mode -- this sentinel publish is
+                                                                // itself still inside a transaction and needs its own
+                                                                // commit to actually be delivered.
+                                                                PublishBody sentinel = channel.basicPublish("", queue, false, null, 9);
+                                                                sentinel.writeBody(ByteBuffer.wrap("sentinel-".getBytes(StandardCharsets.US_ASCII)));
+                                                                sentinel.complete();
+                                                                channel.txCommit(new ServerTxCommitHandler() {
+                                                                    @Override public void handleTxCommitOk() { }
+                                                                });
+                                                            }
+                                                        });
+                                                    }
+                                                });
+                                            }
+                                        });
+                            }
+                        });
+                    }
+                });
+            }
+        });
 
         assertEquals("only the post-rollback sentinel should have been delivered",
                 "sentinel-", await(deliveredLatch, deliveredBody));

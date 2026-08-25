@@ -66,37 +66,40 @@ public class DNSServiceTest {
         DatagramSocket mockUpstream = new DatagramSocket(0, InetAddress.getByName("127.0.0.1"));
         int mockPort = mockUpstream.getLocalPort();
 
-        Thread responder = new Thread(() -> {
-            try {
-                byte[] buf = new byte[512];
-                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
-                mockUpstream.setSoTimeout(3000);
-                mockUpstream.receive(pkt);
+        Thread responder = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    byte[] buf = new byte[512];
+                    DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                    mockUpstream.setSoTimeout(3000);
+                    mockUpstream.receive(pkt);
 
-                ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
-                DNSMessage query = DNSMessage.parse(queryBuf);
+                    ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
+                    DNSMessage query = DNSMessage.parse(queryBuf);
 
-                // Respond with a WRONG ID to simulate spoofing
-                int wrongId = (query.getId() + 1) & 0xFFFF;
-                DNSMessage badResponse = new DNSMessage(
-                        wrongId,
-                        DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA,
-                        query.getQuestions(),
-                        Collections.singletonList(
-                                DNSResourceRecord.a("example.com", 300,
-                                        InetAddress.getByName("1.2.3.4"))),
-                        Collections.emptyList(),
-                        Collections.emptyList());
+                    // Respond with a WRONG ID to simulate spoofing
+                    int wrongId = (query.getId() + 1) & 0xFFFF;
+                    DNSMessage badResponse = new DNSMessage(
+                            wrongId,
+                            DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA,
+                            query.getQuestions(),
+                            Collections.singletonList(
+                                    DNSResourceRecord.a("example.com", 300,
+                                            InetAddress.getByName("1.2.3.4"))),
+                            Collections.emptyList(),
+                            Collections.emptyList());
 
-                ByteBuffer resp = badResponse.serialize();
-                byte[] respBytes = new byte[resp.remaining()];
-                resp.get(respBytes);
-                DatagramPacket reply = new DatagramPacket(
-                        respBytes, respBytes.length,
-                        pkt.getAddress(), pkt.getPort());
-                mockUpstream.send(reply);
-            } catch (Exception e) {
-                // test will fail via timeout
+                    ByteBuffer resp = badResponse.serialize();
+                    byte[] respBytes = new byte[resp.remaining()];
+                    resp.get(respBytes);
+                    DatagramPacket reply = new DatagramPacket(
+                            respBytes, respBytes.length,
+                            pkt.getAddress(), pkt.getPort());
+                    mockUpstream.send(reply);
+                } catch (Exception e) {
+                    // test will fail via timeout
+                }
             }
         });
         responder.setDaemon(true);
@@ -134,35 +137,38 @@ public class DNSServiceTest {
         // Also start a TCP server for the fallback
         java.net.ServerSocket tcpServer = new java.net.ServerSocket(mockPort + 1, 1, InetAddress.getByName("127.0.0.1"));
 
-        Thread udpResponder = new Thread(() -> {
-            try {
-                byte[] buf = new byte[512];
-                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
-                mockUpstream.setSoTimeout(3000);
-                mockUpstream.receive(pkt);
+        Thread udpResponder = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    byte[] buf = new byte[512];
+                    DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                    mockUpstream.setSoTimeout(3000);
+                    mockUpstream.receive(pkt);
 
-                ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
-                DNSMessage query = DNSMessage.parse(queryBuf);
+                    ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
+                    DNSMessage query = DNSMessage.parse(queryBuf);
 
-                // Return a truncated response (TC bit set)
-                int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD
-                        | DNSMessage.FLAG_RA | DNSMessage.FLAG_TC;
-                DNSMessage truncated = new DNSMessage(
-                        query.getId(), flags,
-                        query.getQuestions(),
-                        Collections.emptyList(),
-                        Collections.emptyList(),
-                        Collections.emptyList());
+                    // Return a truncated response (TC bit set)
+                    int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD
+                            | DNSMessage.FLAG_RA | DNSMessage.FLAG_TC;
+                    DNSMessage truncated = new DNSMessage(
+                            query.getId(), flags,
+                            query.getQuestions(),
+                            Collections.emptyList(),
+                            Collections.emptyList(),
+                            Collections.emptyList());
 
-                ByteBuffer resp = truncated.serialize();
-                byte[] respBytes = new byte[resp.remaining()];
-                resp.get(respBytes);
-                DatagramPacket reply = new DatagramPacket(
-                        respBytes, respBytes.length,
-                        pkt.getAddress(), pkt.getPort());
-                mockUpstream.send(reply);
-            } catch (Exception e) {
-                // test will fail
+                    ByteBuffer resp = truncated.serialize();
+                    byte[] respBytes = new byte[resp.remaining()];
+                    resp.get(respBytes);
+                    DatagramPacket reply = new DatagramPacket(
+                            respBytes, respBytes.length,
+                            pkt.getAddress(), pkt.getPort());
+                    mockUpstream.send(reply);
+                } catch (Exception e) {
+                    // test will fail
+                }
             }
         });
         udpResponder.setDaemon(true);
@@ -206,36 +212,39 @@ public class DNSServiceTest {
         DatagramSocket mockUpstream = new DatagramSocket(0, InetAddress.getByName("127.0.0.1"));
         int mockPort = mockUpstream.getLocalPort();
 
-        Thread responder = new Thread(() -> {
-            try {
-                byte[] buf = new byte[512];
-                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
-                mockUpstream.setSoTimeout(3000);
-                mockUpstream.receive(pkt);
+        Thread responder = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    byte[] buf = new byte[512];
+                    DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                    mockUpstream.setSoTimeout(3000);
+                    mockUpstream.receive(pkt);
 
-                ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
-                DNSMessage query = DNSMessage.parse(queryBuf);
+                    ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
+                    DNSMessage query = DNSMessage.parse(queryBuf);
 
-                // Respond with correct ID
-                DNSMessage goodResponse = new DNSMessage(
-                        query.getId(),
-                        DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA,
-                        query.getQuestions(),
-                        Collections.singletonList(
-                                DNSResourceRecord.a("example.com", 300,
-                                        InetAddress.getByName("93.184.216.34"))),
-                        Collections.emptyList(),
-                        Collections.emptyList());
+                    // Respond with correct ID
+                    DNSMessage goodResponse = new DNSMessage(
+                            query.getId(),
+                            DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA,
+                            query.getQuestions(),
+                            Collections.singletonList(
+                                    DNSResourceRecord.a("example.com", 300,
+                                            InetAddress.getByName("93.184.216.34"))),
+                            Collections.emptyList(),
+                            Collections.emptyList());
 
-                ByteBuffer resp = goodResponse.serialize();
-                byte[] respBytes = new byte[resp.remaining()];
-                resp.get(respBytes);
-                DatagramPacket reply = new DatagramPacket(
-                        respBytes, respBytes.length,
-                        pkt.getAddress(), pkt.getPort());
-                mockUpstream.send(reply);
-            } catch (Exception e) {
-                // test will fail via assertion
+                    ByteBuffer resp = goodResponse.serialize();
+                    byte[] respBytes = new byte[resp.remaining()];
+                    resp.get(respBytes);
+                    DatagramPacket reply = new DatagramPacket(
+                            respBytes, respBytes.length,
+                            pkt.getAddress(), pkt.getPort());
+                    mockUpstream.send(reply);
+                } catch (Exception e) {
+                    // test will fail via assertion
+                }
             }
         });
         responder.setDaemon(true);
@@ -310,26 +319,29 @@ public class DNSServiceTest {
                 InetAddress.getByName("127.0.0.1"));
         int mockPort = mockUpstream.getLocalPort();
 
-        Thread responder = new Thread(() -> {
-            try {
-                byte[] buf = new byte[512];
-                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
-                mockUpstream.setSoTimeout(3000);
-                mockUpstream.receive(pkt);
+        Thread responder = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    byte[] buf = new byte[512];
+                    DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                    mockUpstream.setSoTimeout(3000);
+                    mockUpstream.receive(pkt);
 
-                ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
-                DNSMessage query = DNSMessage.parse(queryBuf);
-                DNSMessage goodResponse = query.createResponse(
-                        Collections.singletonList(
-                                DNSResourceRecord.a("example.com", 300,
-                                        InetAddress.getByName("1.2.3.4"))));
-                ByteBuffer resp = goodResponse.serialize();
-                byte[] respBytes = new byte[resp.remaining()];
-                resp.get(respBytes);
-                mockUpstream.send(new DatagramPacket(respBytes,
-                        respBytes.length, pkt.getAddress(), pkt.getPort()));
-            } catch (Exception e) {
-                // test will fail via assertion
+                    ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
+                    DNSMessage query = DNSMessage.parse(queryBuf);
+                    DNSMessage goodResponse = query.createResponse(
+                            Collections.singletonList(
+                                    DNSResourceRecord.a("example.com", 300,
+                                            InetAddress.getByName("1.2.3.4"))));
+                    ByteBuffer resp = goodResponse.serialize();
+                    byte[] respBytes = new byte[resp.remaining()];
+                    resp.get(respBytes);
+                    mockUpstream.send(new DatagramPacket(respBytes,
+                            respBytes.length, pkt.getAddress(), pkt.getPort()));
+                } catch (Exception e) {
+                    // test will fail via assertion
+                }
             }
         });
         responder.setDaemon(true);

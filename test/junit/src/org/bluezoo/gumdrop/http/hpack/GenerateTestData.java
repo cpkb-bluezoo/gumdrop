@@ -57,7 +57,12 @@ public class GenerateTestData {
 
         // Process each story file
         File rawDataDir = new File(RAW_DATA_DIR);
-        File[] storyFiles = rawDataDir.listFiles((dir, name) -> name.endsWith(".json"));
+        File[] storyFiles = rawDataDir.listFiles(new java.io.FilenameFilter() {
+            @Override
+            public boolean accept(File dir, String name) {
+                return name.endsWith(".json");
+            }
+        });
         
         if (storyFiles == null || storyFiles.length == 0) {
             System.err.println("No story files found in " + RAW_DATA_DIR);

@@ -24,7 +24,10 @@ package org.bluezoo.gumdrop.amqp.rabbitmq;
 import org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.RecoveryPolicy;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -80,10 +83,18 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channelRef.set(channel);
-            latch.countDown();
-        }));
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(ClientChannel channel) {
+                        channelRef.set(channel);
+                        latch.countDown();
+                    }
+                });
+            }
+        });
 
         assertEquals(1, await(latch, channelRef).getChannelId());
     }
@@ -98,10 +109,18 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channelRef.set(channel);
-            latch.countDown();
-        }));
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(ClientChannel channel) {
+                        channelRef.set(channel);
+                        latch.countDown();
+                    }
+                });
+            }
+        });
 
         assertEquals(1, await(latch, channelRef).getChannelId());
     }
@@ -121,7 +140,12 @@ public class RabbitMQAuthMechanismIntegrationTest {
                 failedLatch.countDown();
             }
         });
-        client.connect(connection -> connectedLatch.countDown());
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connectedLatch.countDown();
+            }
+        });
 
         assertTrue("expected the broker to reject bad credentials rather than hang or silently accept them",
                 failedLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -147,7 +171,12 @@ public class RabbitMQAuthMechanismIntegrationTest {
                 failedLatch.countDown();
             }
         });
-        client.connect(connection -> fail("should never reach onFirstConnect requesting EXTERNAL over a plain listener"));
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                fail("should never reach onFirstConnect requesting EXTERNAL over a plain listener");
+            }
+        });
 
         assertTrue("expected recovery to give up once EXTERNAL keeps being reported as unoffered",
                 failedLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));

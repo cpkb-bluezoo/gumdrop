@@ -91,8 +91,8 @@ public class FileHandlerTest {
             return;
         }
         if (Files.isDirectory(p)) {
-            try (java.util.stream.Stream<Path> s = Files.list(p)) {
-                for (Path child : (Iterable<Path>) s::iterator) {
+            try (java.nio.file.DirectoryStream<Path> children = Files.newDirectoryStream(p)) {
+                for (Path child : children) {
                     deleteRecursively(child);
                 }
             }

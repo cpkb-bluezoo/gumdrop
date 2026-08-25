@@ -108,13 +108,15 @@ public class FileSecurityTest {
         if (!Files.exists(path)) return;
         
         if (Files.isDirectory(path)) {
-            Files.list(path).forEach(child -> {
-                try {
-                    deleteRecursively(child);
-                } catch (IOException e) {
-                    // Ignore errors during cleanup
+            try (java.nio.file.DirectoryStream<Path> children = Files.newDirectoryStream(path)) {
+                for (Path child : children) {
+                    try {
+                        deleteRecursively(child);
+                    } catch (IOException e) {
+                        // Ignore errors during cleanup
+                    }
                 }
-            });
+            }
         }
         
         try {
@@ -352,16 +354,22 @@ public class FileSecurityTest {
             testHandler.testValidateAndResolvePath("/test\0file");
             
             // Verify security events are logged
-            boolean hasTraversalLog = logMessages.stream().anyMatch(msg -> 
-                msg.contains("dangerous path component") && msg.contains(".."));
+            boolean hasTraversalLog = false;
+            boolean hasDangerousLog = false;
+            boolean hasNullByteLog = false;
+            for (String msg : logMessages) {
+                if (msg.contains("dangerous path component") && msg.contains("..")) {
+                    hasTraversalLog = true;
+                }
+                if (msg.contains("dangerous path component") && msg.contains("CON")) {
+                    hasDangerousLog = true;
+                }
+                if (msg.contains("null bytes")) {
+                    hasNullByteLog = true;
+                }
+            }
             assertTrue("Should log directory traversal attempt: " + logMessages, hasTraversalLog);
-            
-            boolean hasDangerousLog = logMessages.stream().anyMatch(msg -> 
-                msg.contains("dangerous path component") && msg.contains("CON"));
             assertTrue("Should log dangerous path component: " + logMessages, hasDangerousLog);
-            
-            boolean hasNullByteLog = logMessages.stream().anyMatch(msg -> 
-                msg.contains("null bytes"));
             assertTrue("Should log null byte attack: " + logMessages, hasNullByteLog);
                       
         } finally {

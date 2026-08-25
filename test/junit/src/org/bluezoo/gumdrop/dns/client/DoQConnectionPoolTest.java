@@ -77,7 +77,9 @@ public class DoQConnectionPoolTest {
     @Test(expected = IllegalStateException.class)
     public void testScheduleTimerWithoutOpenThrows() {
         DoQConnectionPool pool = new DoQConnectionPool();
-        pool.scheduleTimer(1000, () -> {});
+        pool.scheduleTimer(1000, new Runnable() {
+            @Override public void run() { }
+        });
     }
 
     @Test

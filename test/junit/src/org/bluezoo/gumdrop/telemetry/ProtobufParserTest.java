@@ -29,7 +29,11 @@ public class ProtobufParserTest {
     @Test
     public void testParseVarintField() throws Exception {
         // Write field 1 = 150
-        ByteBuffer data = writeMessage(w -> w.writeVarintField(1, 150));
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeVarintField(1, 150);
+            }
+        });
 
         RecordingHandler handler = new RecordingHandler();
         ProtobufParser parser = new ProtobufParser(handler);
@@ -43,10 +47,12 @@ public class ProtobufParserTest {
 
     @Test
     public void testParseMultipleVarintFields() throws Exception {
-        ByteBuffer data = writeMessage(w -> {
-            w.writeVarintField(1, 42);
-            w.writeVarintField(2, 100);
-            w.writeVarintField(3, 256);
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeVarintField(1, 42);
+                w.writeVarintField(2, 100);
+                w.writeVarintField(3, 256);
+            }
         });
 
         RecordingHandler handler = new RecordingHandler();
@@ -65,9 +71,11 @@ public class ProtobufParserTest {
 
     @Test
     public void testParseBoolField() throws Exception {
-        ByteBuffer data = writeMessage(w -> {
-            w.writeBoolField(1, true);
-            w.writeBoolField(2, false);
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeBoolField(1, true);
+                w.writeBoolField(2, false);
+            }
         });
 
         RecordingHandler handler = new RecordingHandler();
@@ -82,7 +90,11 @@ public class ProtobufParserTest {
 
     @Test
     public void testParseFixed64Field() throws Exception {
-        ByteBuffer data = writeMessage(w -> w.writeFixed64Field(1, 0x0102030405060708L));
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeFixed64Field(1, 0x0102030405060708L);
+            }
+        });
 
         RecordingHandler handler = new RecordingHandler();
         ProtobufParser parser = new ProtobufParser(handler);
@@ -96,7 +108,11 @@ public class ProtobufParserTest {
 
     @Test
     public void testParseFixed32Field() throws Exception {
-        ByteBuffer data = writeMessage(w -> w.writeFixed32Field(1, 0x01020304));
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeFixed32Field(1, 0x01020304);
+            }
+        });
 
         RecordingHandler handler = new RecordingHandler();
         ProtobufParser parser = new ProtobufParser(handler);
@@ -110,7 +126,11 @@ public class ProtobufParserTest {
 
     @Test
     public void testParseStringField() throws Exception {
-        ByteBuffer data = writeMessage(w -> w.writeStringField(1, "hello"));
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeStringField(1, "hello");
+            }
+        });
 
         RecordingHandler handler = new RecordingHandler();
         ProtobufParser parser = new ProtobufParser(handler);
@@ -124,8 +144,12 @@ public class ProtobufParserTest {
 
     @Test
     public void testParseBytesField() throws Exception {
-        byte[] testData = new byte[] { 0x01, 0x02, 0x03, 0x04 };
-        ByteBuffer data = writeMessage(w -> w.writeBytesField(1, testData));
+        final byte[] testData = new byte[] { 0x01, 0x02, 0x03, 0x04 };
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeBytesField(1, testData);
+            }
+        });
 
         RecordingHandler handler = new RecordingHandler();
         ProtobufParser parser = new ProtobufParser(handler);
@@ -146,18 +170,22 @@ public class ProtobufParserTest {
 
     @Test
     public void testParseEmbeddedMessage() throws Exception {
-        ByteBuffer data = writeMessage(w -> {
-            w.writeVarintField(1, 42); // outer field
-            w.writeMessageField(2, inner -> {
-                inner.writeStringField(1, "nested");
-                inner.writeVarintField(2, 100);
-            });
-            w.writeVarintField(3, 99); // another outer field
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeVarintField(1, 42); // outer field
+                w.writeMessageField(2, new ProtobufWriter.MessageContent() {
+                    @Override public void writeTo(ProtobufWriter inner) throws IOException {
+                        inner.writeStringField(1, "nested");
+                        inner.writeVarintField(2, 100);
+                    }
+                });
+                w.writeVarintField(3, 99); // another outer field
+            }
         });
 
         MessageTrackingHandler handler = new MessageTrackingHandler();
         handler.messageFields.add(2); // field 2 is a message
-        
+
         ProtobufParser parser = new ProtobufParser(handler);
         parser.receive(data);
         parser.close();
@@ -175,19 +203,25 @@ public class ProtobufParserTest {
     @Test
     public void testParseNestedMessages() throws Exception {
         // Use different field numbers for messages vs leaf fields
-        ByteBuffer data = writeMessage(w -> {
-            w.writeMessageField(1, level1 -> {
-                level1.writeMessageField(2, level2 -> {
-                    level2.writeStringField(3, "deepest");
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeMessageField(1, new ProtobufWriter.MessageContent() {
+                    @Override public void writeTo(ProtobufWriter level1) throws IOException {
+                        level1.writeMessageField(2, new ProtobufWriter.MessageContent() {
+                            @Override public void writeTo(ProtobufWriter level2) throws IOException {
+                                level2.writeStringField(3, "deepest");
+                            }
+                        });
+                    }
                 });
-            });
+            }
         });
 
         MessageTrackingHandler handler = new MessageTrackingHandler();
         handler.messageFields.add(1); // field 1 is a message
         handler.messageFields.add(2); // field 2 is a message
         // field 3 is a string (not in messageFields)
-        
+
         ProtobufParser parser = new ProtobufParser(handler);
         parser.receive(data);
         parser.close();
@@ -202,7 +236,11 @@ public class ProtobufParserTest {
     @Test
     public void testUnderflowVarint() throws Exception {
         // Write a multi-byte varint, then split it
-        ByteBuffer data = writeMessage(w -> w.writeVarintField(1, 16384)); // 3-byte varint
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeVarintField(1, 16384); // 3-byte varint
+            }
+        });
 
         // Only provide partial data
         ByteBuffer partial = ByteBuffer.allocate(2);
@@ -221,9 +259,11 @@ public class ProtobufParserTest {
     @Test
     public void testUnderflowRecovery() throws Exception {
         // Write two fields
-        ByteBuffer data = writeMessage(w -> {
-            w.writeVarintField(1, 16384);
-            w.writeVarintField(2, 42);
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeVarintField(1, 16384);
+                w.writeVarintField(2, 42);
+            }
         });
 
         // Split after first partial tag
@@ -252,7 +292,11 @@ public class ProtobufParserTest {
 
     @Test
     public void testCloseWithUnderflowThrows() throws Exception {
-        ByteBuffer data = writeMessage(w -> w.writeStringField(1, "hello world"));
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeStringField(1, "hello world");
+            }
+        });
 
         // Only provide partial data
         ByteBuffer partial = ByteBuffer.allocate(3);
@@ -319,8 +363,16 @@ public class ProtobufParserTest {
 
     @Test
     public void testReset() throws Exception {
-        ByteBuffer data1 = writeMessage(w -> w.writeVarintField(1, 42));
-        ByteBuffer data2 = writeMessage(w -> w.writeVarintField(1, 99));
+        ByteBuffer data1 = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeVarintField(1, 42);
+            }
+        });
+        ByteBuffer data2 = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeVarintField(1, 99);
+            }
+        });
 
         RecordingHandler handler = new RecordingHandler();
         ProtobufParser parser = new ProtobufParser(handler);

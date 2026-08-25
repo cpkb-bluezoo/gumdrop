@@ -47,11 +47,19 @@ public class MboxMailboxTest {
 
     @After
     public void tearDown() throws IOException {
-        Files.walk(tempDir)
-                .sorted(java.util.Comparator.reverseOrder())
-                .forEach(p -> {
-                    try { Files.delete(p); } catch (IOException e) { /* ignore */ }
-                });
+        Files.walkFileTree(tempDir, new java.nio.file.SimpleFileVisitor<Path>() {
+            @Override
+            public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                try { Files.delete(file); } catch (IOException e) { /* ignore */ }
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+                try { Files.delete(dir); } catch (IOException e) { /* ignore */ }
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
     }
 
     private MboxMailbox openSampleMailbox(boolean readOnly) throws IOException {
@@ -493,12 +501,15 @@ public class MboxMailboxTest {
         final java.util.concurrent.atomic.AtomicReference<Throwable> secondError =
                 new java.util.concurrent.atomic.AtomicReference<>();
 
-        Thread opener = new Thread(() -> {
-            secondStarted.countDown();
-            try {
-                secondRef.set(new MboxMailbox(mboxFile, "test", true));
-            } catch (Throwable t) {
-                secondError.set(t);
+        Thread opener = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                secondStarted.countDown();
+                try {
+                    secondRef.set(new MboxMailbox(mboxFile, "test", true));
+                } catch (Throwable t) {
+                    secondError.set(t);
+                }
             }
         });
         opener.start();

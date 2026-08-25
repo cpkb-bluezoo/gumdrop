@@ -23,8 +23,13 @@ package org.bluezoo.gumdrop.amqp.rabbitmq;
 
 import org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -142,10 +147,18 @@ public class RabbitMQTlsIntegrationTest {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channelRef.set(channel);
-            latch.countDown();
-        }));
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(ClientChannel channel) {
+                        channelRef.set(channel);
+                        latch.countDown();
+                    }
+                });
+            }
+        });
 
         ClientChannel channel = await(latch, channelRef);
         assertEquals(1, channel.getChannelId());
@@ -159,45 +172,59 @@ public class RabbitMQTlsIntegrationTest {
         CountDownLatch deliveredLatch = new CountDownLatch(1);
         AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            // durable=true: RabbitMQ 4.x rejects non-durable, non-exclusive
-            // "transient_nonexcl" queues by default -- see the equivalent
-            // comment in RabbitMQPlaintextIntegrationTest.
-            channel.queueDeclare(queue, true, false, true, null, (q, mc, cc) -> {
-                channel.basicConsume(queue, "", false, false, null,
-                        new DeliveryHandler() {
-                            private final StringBuilder body = new StringBuilder();
-
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        // durable=true: RabbitMQ 4.x rejects non-durable, non-exclusive
+                        // "transient_nonexcl" queues by default -- see the equivalent
+                        // comment in RabbitMQPlaintextIntegrationTest.
+                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
                             @Override
-                            public void onDeliveryStart(String consumerTag, long deliveryTag,
-                                    boolean redelivered, String exchange, String routingKey) {
-                            }
+                            public void handleQueueDeclareOk(String q, long mc, long cc) {
+                                channel.basicConsume(queue, "", false, false, null,
+                                        new DeliveryHandler() {
+                                            private final StringBuilder body = new StringBuilder();
 
-                            @Override
-                            public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.client.BasicProperties properties,
-                                    long bodySize) {
-                            }
+                                            @Override
+                                            public void onDeliveryStart(String consumerTag, long deliveryTag,
+                                                    boolean redelivered, String exchange, String routingKey) {
+                                            }
 
-                            @Override
-                            public void onDeliveryBodyChunk(ByteBuffer chunk) {
-                                byte[] b = new byte[chunk.remaining()];
-                                chunk.get(b);
-                                body.append(new String(b, StandardCharsets.US_ASCII));
-                            }
+                                            @Override
+                                            public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.client.BasicProperties properties,
+                                                    long bodySize) {
+                                            }
 
-                            @Override
-                            public void onDeliveryComplete() {
-                                deliveredBody.set(body.toString());
-                                deliveredLatch.countDown();
+                                            @Override
+                                            public void onDeliveryBodyChunk(ByteBuffer chunk) {
+                                                byte[] b = new byte[chunk.remaining()];
+                                                chunk.get(b);
+                                                body.append(new String(b, StandardCharsets.US_ASCII));
+                                            }
+
+                                            @Override
+                                            public void onDeliveryComplete() {
+                                                deliveredBody.set(body.toString());
+                                                deliveredLatch.countDown();
+                                            }
+                                        },
+                                        new ServerConsumeHandler() {
+                                            @Override
+                                            public void handleConsumeOk(String consumerTag) {
+                                                PublishBody body = channel.basicPublish("", queue, false, null, 14);
+                                                body.writeBody(ByteBuffer.wrap("hello over tls".getBytes(StandardCharsets.US_ASCII)));
+                                                body.complete();
+                                            }
+                                        });
                             }
-                        },
-                        consumerTag -> {
-                            PublishBody body = channel.basicPublish("", queue, false, null, 14);
-                            body.writeBody(ByteBuffer.wrap("hello over tls".getBytes(StandardCharsets.US_ASCII)));
-                            body.complete();
                         });
-            });
-        }));
+                    }
+                });
+            }
+        });
 
         assertEquals("hello over tls", await(deliveredLatch, deliveredBody));
     }

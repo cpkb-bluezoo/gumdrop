@@ -195,63 +195,69 @@ public class TLSConcurrentWriteTest extends AbstractServerIntegrationTest {
             CountDownLatch doneLatch = new CountDownLatch(NUM_THREADS);
             
             // Start reader thread
-            Thread readerThread = new Thread(() -> {
-                try {
-                    StringBuilder current = new StringBuilder();
-                    int received = 0;
-                    while (received < TOTAL_MESSAGES) {
-                        int b = in.read();
-                        if (b == -1) break;
-                        
-                        if (b == '\n') {
-                            String line = current.toString();
-                            int colonPos = line.indexOf(':');
-                            if (colonPos > 0) {
-                                String tag = line.substring(0, colonPos);
-                                receivedTags.add(tag);
-                                
-                                // Check for corruption (tag should match format)
-                                if (!tag.matches("T[0-4]M\\d{2}")) {
-                                    System.err.println("CORRUPTED: " + line);
-                                    corruptCount.incrementAndGet();
+            Thread readerThread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        StringBuilder current = new StringBuilder();
+                        int received = 0;
+                        while (received < TOTAL_MESSAGES) {
+                            int b = in.read();
+                            if (b == -1) break;
+
+                            if (b == '\n') {
+                                String line = current.toString();
+                                int colonPos = line.indexOf(':');
+                                if (colonPos > 0) {
+                                    String tag = line.substring(0, colonPos);
+                                    receivedTags.add(tag);
+
+                                    // Check for corruption (tag should match format)
+                                    if (!tag.matches("T[0-4]M\\d{2}")) {
+                                        System.err.println("CORRUPTED: " + line);
+                                        corruptCount.incrementAndGet();
+                                    }
                                 }
+                                received++;
+                                current.setLength(0);
+                            } else {
+                                current.append((char) b);
                             }
-                            received++;
-                            current.setLength(0);
-                        } else {
-                            current.append((char) b);
                         }
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
-                } catch (Exception e) {
-                    e.printStackTrace();
                 }
             });
             readerThread.start();
-            
+
             // Start writer threads
             ExecutorService executor = Executors.newFixedThreadPool(NUM_THREADS);
             for (int t = 0; t < NUM_THREADS; t++) {
                 final int threadId = t;
-                executor.submit(() -> {
-                    try {
-                        startLatch.await(); // Wait for all threads to be ready
-                        
-                        for (int m = 0; m < MESSAGES_PER_THREAD; m++) {
-                            String tag = "T" + threadId + "M" + String.format("%02d", m);
-                            String message = tag + ":Data from thread " + threadId + " msg " + m + "\n";
-                            sentTags.add(tag);
-                            
-                            // Synchronized write to prevent interleaving
-                            synchronized (out) {
-                                out.write(message.getBytes("UTF-8"));
-                                out.flush();
+                executor.submit(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            startLatch.await(); // Wait for all threads to be ready
+
+                            for (int m = 0; m < MESSAGES_PER_THREAD; m++) {
+                                String tag = "T" + threadId + "M" + String.format("%02d", m);
+                                String message = tag + ":Data from thread " + threadId + " msg " + m + "\n";
+                                sentTags.add(tag);
+
+                                // Synchronized write to prevent interleaving
+                                synchronized (out) {
+                                    out.write(message.getBytes("UTF-8"));
+                                    out.flush();
+                                }
+                                sendCount.incrementAndGet();
                             }
-                            sendCount.incrementAndGet();
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        } finally {
+                            doneLatch.countDown();
                         }
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    } finally {
-                        doneLatch.countDown();
                     }
                 });
             }
@@ -305,34 +311,37 @@ public class TLSConcurrentWriteTest extends AbstractServerIntegrationTest {
             AtomicInteger corruptCount = new AtomicInteger(0);
             
             // Start reader thread
-            Thread readerThread = new Thread(() -> {
-                try {
-                    StringBuilder current = new StringBuilder();
-                    int received = 0;
-                    while (received < NUM_MESSAGES) {
-                        int b = in.read();
-                        if (b == -1) break;
-                        
-                        if (b == '\n') {
-                            String line = current.toString();
-                            int colonPos = line.indexOf(':');
-                            if (colonPos > 0) {
-                                String tag = line.substring(0, colonPos);
-                                receivedTags.add(tag);
-                                
-                                if (!tag.matches("RAPID\\d{3}")) {
-                                    System.err.println("CORRUPTED: " + line);
-                                    corruptCount.incrementAndGet();
+            Thread readerThread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        StringBuilder current = new StringBuilder();
+                        int received = 0;
+                        while (received < NUM_MESSAGES) {
+                            int b = in.read();
+                            if (b == -1) break;
+
+                            if (b == '\n') {
+                                String line = current.toString();
+                                int colonPos = line.indexOf(':');
+                                if (colonPos > 0) {
+                                    String tag = line.substring(0, colonPos);
+                                    receivedTags.add(tag);
+
+                                    if (!tag.matches("RAPID\\d{3}")) {
+                                        System.err.println("CORRUPTED: " + line);
+                                        corruptCount.incrementAndGet();
+                                    }
                                 }
+                                received++;
+                                current.setLength(0);
+                            } else {
+                                current.append((char) b);
                             }
-                            received++;
-                            current.setLength(0);
-                        } else {
-                            current.append((char) b);
                         }
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
-                } catch (Exception e) {
-                    e.printStackTrace();
                 }
             });
             readerThread.start();

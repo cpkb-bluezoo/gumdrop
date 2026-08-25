@@ -289,10 +289,23 @@ public class PostfixSmtpIntegrationTest {
                     public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
                             List<String> authMethods, boolean pipelining) {
                         session.mailFrom(email(senderAddress()), simpleMailFromHandler(error, doneLatch,
-                                envelope -> envelope.rcptTo(email(recipientAddress()), simpleRcptHandler(error, doneLatch,
-                                        ready -> ready.data(simpleDataHandler(error, doneLatch, data -> {
-                                            writeInChunks(data, messageBytes, 4096, error, doneLatch);
-                                        }))))));
+                                new MailFromOk() {
+                                    @Override
+                                    public void accept(ClientEnvelope envelope) {
+                                        envelope.rcptTo(email(recipientAddress()), simpleRcptHandler(error, doneLatch,
+                                                new RcptToOk() {
+                                                    @Override
+                                                    public void accept(ClientEnvelopeReady ready) {
+                                                        ready.data(simpleDataHandler(error, doneLatch, new DataReady() {
+                                                            @Override
+                                                            public void accept(ClientMessageData data) {
+                                                                writeInChunks(data, messageBytes, 4096, error, doneLatch);
+                                                            }
+                                                        }));
+                                                    }
+                                                }));
+                                    }
+                                }));
                     }
 
                     @Override
@@ -353,38 +366,46 @@ public class PostfixSmtpIntegrationTest {
     /** Writes content across many small writeContent() calls, pacing via onWriteReady. */
     private void writeInChunks(ClientMessageData data, byte[] content, int chunkSize,
             AtomicReference<Exception> error, CountDownLatch doneLatch) {
-        int[] offset = {0};
-        Runnable[] writeNext = new Runnable[1];
-        writeNext[0] = () -> {
-            if (offset[0] >= content.length) {
-                data.endMessage(new ServerMessageReplyHandler() {
-                    @Override
-                    public void handleMessageAccepted(String queueId, ClientSession s) {
-                        s.quit();
-                        doneLatch.countDown();
-                    }
+        final int[] offset = {0};
+        final Runnable[] writeNext = new Runnable[1];
+        writeNext[0] = new Runnable() {
+            @Override
+            public void run() {
+                if (offset[0] >= content.length) {
+                    data.endMessage(new ServerMessageReplyHandler() {
+                        @Override
+                        public void handleMessageAccepted(String queueId, ClientSession s) {
+                            s.quit();
+                            doneLatch.countDown();
+                        }
 
-                    @Override
-                    public void handleTemporaryFailure(ClientSession s) {
-                        fail(error, doneLatch, "temp failure at end of chunked DATA");
-                    }
+                        @Override
+                        public void handleTemporaryFailure(ClientSession s) {
+                            fail(error, doneLatch, "temp failure at end of chunked DATA");
+                        }
 
-                    @Override
-                    public void handlePermanentFailure(String msg, ClientSession s) {
-                        fail(error, doneLatch, "permanent failure at end of chunked DATA: " + msg);
-                    }
+                        @Override
+                        public void handlePermanentFailure(String msg, ClientSession s) {
+                            fail(error, doneLatch, "permanent failure at end of chunked DATA: " + msg);
+                        }
 
+                        @Override
+                        public void handleServiceClosing(String msg) {
+                            fail(error, doneLatch, "service closing: " + msg);
+                        }
+                    });
+                    return;
+                }
+                int len = Math.min(chunkSize, content.length - offset[0]);
+                data.writeContent(ByteBuffer.wrap(content, offset[0], len));
+                offset[0] += len;
+                data.onWriteReady(new Runnable() {
                     @Override
-                    public void handleServiceClosing(String msg) {
-                        fail(error, doneLatch, "service closing: " + msg);
+                    public void run() {
+                        writeNext[0].run();
                     }
                 });
-                return;
             }
-            int len = Math.min(chunkSize, content.length - offset[0]);
-            data.writeContent(ByteBuffer.wrap(content, offset[0], len));
-            offset[0] += len;
-            data.onWriteReady(() -> writeNext[0].run());
         };
         writeNext[0].run();
     }
@@ -425,32 +446,45 @@ public class PostfixSmtpIntegrationTest {
                                     public void handleEhlo(ClientSession session2, boolean starttls2, long maxSize2,
                                             List<String> authMethods2, boolean pipelining2) {
                                         session2.mailFrom(email(senderAddress()), simpleMailFromHandler(error, doneLatch,
-                                                envelope -> envelope.rcptTo(email(recipientAddress()), simpleRcptHandler(error, doneLatch,
-                                                        ready -> ready.data(simpleDataHandler(error, doneLatch, data -> {
-                                                            data.writeContent(ByteBuffer.wrap(body.getBytes(StandardCharsets.US_ASCII)));
-                                                            data.endMessage(new ServerMessageReplyHandler() {
-                                                                @Override
-                                                                public void handleMessageAccepted(String queueId, ClientSession s) {
-                                                                    s.quit();
-                                                                    doneLatch.countDown();
-                                                                }
+                                                new MailFromOk() {
+                                                    @Override
+                                                    public void accept(ClientEnvelope envelope) {
+                                                        envelope.rcptTo(email(recipientAddress()), simpleRcptHandler(error, doneLatch,
+                                                                new RcptToOk() {
+                                                                    @Override
+                                                                    public void accept(ClientEnvelopeReady ready) {
+                                                                        ready.data(simpleDataHandler(error, doneLatch, new DataReady() {
+                                                                            @Override
+                                                                            public void accept(ClientMessageData data) {
+                                                                                data.writeContent(ByteBuffer.wrap(body.getBytes(StandardCharsets.US_ASCII)));
+                                                                                data.endMessage(new ServerMessageReplyHandler() {
+                                                                                    @Override
+                                                                                    public void handleMessageAccepted(String queueId, ClientSession s) {
+                                                                                        s.quit();
+                                                                                        doneLatch.countDown();
+                                                                                    }
 
-                                                                @Override
-                                                                public void handleTemporaryFailure(ClientSession s) {
-                                                                    fail(error, doneLatch, "temp failure at end of DATA (tls)");
-                                                                }
+                                                                                    @Override
+                                                                                    public void handleTemporaryFailure(ClientSession s) {
+                                                                                        fail(error, doneLatch, "temp failure at end of DATA (tls)");
+                                                                                    }
 
-                                                                @Override
-                                                                public void handlePermanentFailure(String msg, ClientSession s) {
-                                                                    fail(error, doneLatch, "permanent failure at end of DATA (tls): " + msg);
-                                                                }
+                                                                                    @Override
+                                                                                    public void handlePermanentFailure(String msg, ClientSession s) {
+                                                                                        fail(error, doneLatch, "permanent failure at end of DATA (tls): " + msg);
+                                                                                    }
 
-                                                                @Override
-                                                                public void handleServiceClosing(String msg) {
-                                                                    fail(error, doneLatch, "service closing: " + msg);
-                                                                }
-                                                            });
-                                                        }))))));
+                                                                                    @Override
+                                                                                    public void handleServiceClosing(String msg) {
+                                                                                        fail(error, doneLatch, "service closing: " + msg);
+                                                                                    }
+                                                                                });
+                                                                            }
+                                                                        }));
+                                                                    }
+                                                                }));
+                                                    }
+                                                }));
                                     }
 
                                     @Override

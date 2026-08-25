@@ -61,17 +61,21 @@ public class MailboxIndexerTest {
 
     @Test
     public void ensureFreshBlocking_runsWorkAndReturns() throws Exception {
-        AtomicInteger ran = new AtomicInteger();
-        indexer.ensureFreshBlocking(key("/tmp/a"), true, 0L, ran::incrementAndGet);
+        final AtomicInteger ran = new AtomicInteger();
+        indexer.ensureFreshBlocking(key("/tmp/a"), true, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { ran.incrementAndGet(); }
+        });
         assertEquals(1, ran.get());
     }
 
     @Test
     public void ensureFreshBlocking_propagatesIOException() {
-        IOException expected = new IOException("boom");
+        final IOException expected = new IOException("boom");
         try {
-            indexer.ensureFreshBlocking(key("/tmp/a"), true, 0L, () -> {
-                throw expected;
+            indexer.ensureFreshBlocking(key("/tmp/a"), true, 0L, new MailboxIndexer.IndexWork() {
+                @Override public void run() throws Exception {
+                    throw expected;
+                }
             });
             fail("Expected IOException");
         } catch (IOException e) {
@@ -84,8 +88,10 @@ public class MailboxIndexerTest {
     @Test
     public void ensureFreshBlocking_rethrowsRuntimeExceptionUnwrapped() {
         try {
-            indexer.ensureFreshBlocking(key("/tmp/a"), true, 0L, () -> {
-                throw new IllegalStateException("bad state");
+            indexer.ensureFreshBlocking(key("/tmp/a"), true, 0L, new MailboxIndexer.IndexWork() {
+                @Override public void run() {
+                    throw new IllegalStateException("bad state");
+                }
             });
             fail("Expected IllegalStateException");
         } catch (IllegalStateException e) {
@@ -97,8 +103,10 @@ public class MailboxIndexerTest {
 
     @Test
     public void submitBackground_runsAsynchronously() throws Exception {
-        CountDownLatch ran = new CountDownLatch(1);
-        indexer.submitBackground(key("/tmp/a"), true, 0L, ran::countDown);
+        final CountDownLatch ran = new CountDownLatch(1);
+        indexer.submitBackground(key("/tmp/a"), true, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { ran.countDown(); }
+        });
         assertTrue("background job should run", ran.await(5, TimeUnit.SECONDS));
     }
 
@@ -106,19 +114,24 @@ public class MailboxIndexerTest {
     public void submitBackground_deduplicatesQueuedJobsForSameKey() throws Exception {
         // Block the worker so both submissions are still queued (not yet
         // started) when the second one arrives - only then does dedup apply.
-        CountDownLatch blockerRunning = new CountDownLatch(1);
-        CountDownLatch releaseBlocker = new CountDownLatch(1);
-        indexer.submitBackground(key("/tmp/blocker"), false, 0L, () -> {
-            blockerRunning.countDown();
-            releaseBlocker.await();
+        final CountDownLatch blockerRunning = new CountDownLatch(1);
+        final CountDownLatch releaseBlocker = new CountDownLatch(1);
+        indexer.submitBackground(key("/tmp/blocker"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() throws Exception {
+                blockerRunning.countDown();
+                releaseBlocker.await();
+            }
         });
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
-        AtomicInteger count = new AtomicInteger();
+        final AtomicInteger count = new AtomicInteger();
         MailboxIndexKey k = key("/tmp/dup");
-        indexer.submitBackground(k, false, 0L, count::incrementAndGet);
-        indexer.submitBackground(k, false, 0L, count::incrementAndGet);
-        indexer.submitBackground(k, false, 0L, count::incrementAndGet);
+        MailboxIndexer.IndexWork incrementCount = new MailboxIndexer.IndexWork() {
+            @Override public void run() { count.incrementAndGet(); }
+        };
+        indexer.submitBackground(k, false, 0L, incrementCount);
+        indexer.submitBackground(k, false, 0L, incrementCount);
+        indexer.submitBackground(k, false, 0L, incrementCount);
 
         releaseBlocker.countDown();
 
@@ -137,30 +150,38 @@ public class MailboxIndexerTest {
 
     @Test
     public void liveJob_cancelsQueuedBackgroundJobForSameKey() throws Exception {
-        CountDownLatch blockerRunning = new CountDownLatch(1);
-        CountDownLatch releaseBlocker = new CountDownLatch(1);
-        indexer.submitBackground(key("/tmp/blocker2"), false, 0L, () -> {
-            blockerRunning.countDown();
-            releaseBlocker.await();
+        final CountDownLatch blockerRunning = new CountDownLatch(1);
+        final CountDownLatch releaseBlocker = new CountDownLatch(1);
+        indexer.submitBackground(key("/tmp/blocker2"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() throws Exception {
+                blockerRunning.countDown();
+                releaseBlocker.await();
+            }
         });
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
         MailboxIndexKey k = key("/tmp/live-cancel");
-        AtomicInteger backgroundRuns = new AtomicInteger();
-        indexer.submitBackground(k, false, 0L, backgroundRuns::incrementAndGet);
+        final AtomicInteger backgroundRuns = new AtomicInteger();
+        indexer.submitBackground(k, false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { backgroundRuns.incrementAndGet(); }
+        });
 
-        AtomicInteger liveRuns = new AtomicInteger();
+        final AtomicInteger liveRuns = new AtomicInteger();
         // Release the blocker concurrently with the live call so the live
         // job is queued while the background job for k is still pending.
-        new Thread(() -> {
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException ignored) {
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException ignored) {
+                }
+                releaseBlocker.countDown();
             }
-            releaseBlocker.countDown();
         }).start();
 
-        indexer.ensureFreshBlocking(k, false, 0L, liveRuns::incrementAndGet);
+        indexer.ensureFreshBlocking(k, false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { liveRuns.incrementAndGet(); }
+        });
 
         Thread.sleep(200);
         assertEquals(1, liveRuns.get());
@@ -170,29 +191,39 @@ public class MailboxIndexerTest {
 
     @Test
     public void livePriority_runsBeforeQueuedBackgroundJobs() throws Exception {
-        CountDownLatch blockerRunning = new CountDownLatch(1);
-        CountDownLatch releaseBlocker = new CountDownLatch(1);
-        indexer.submitBackground(key("/tmp/blocker3"), false, 0L, () -> {
-            blockerRunning.countDown();
-            releaseBlocker.await();
+        final CountDownLatch blockerRunning = new CountDownLatch(1);
+        final CountDownLatch releaseBlocker = new CountDownLatch(1);
+        indexer.submitBackground(key("/tmp/blocker3"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() throws Exception {
+                blockerRunning.countDown();
+                releaseBlocker.await();
+            }
         });
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
-        List<String> order = new CopyOnWriteArrayList<>();
-        indexer.submitBackground(key("/tmp/bg1"), false, 0L, () -> order.add("bg1"));
-        indexer.submitBackground(key("/tmp/bg2"), false, 0L, () -> order.add("bg2"));
+        final List<String> order = new CopyOnWriteArrayList<>();
+        indexer.submitBackground(key("/tmp/bg1"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { order.add("bg1"); }
+        });
+        indexer.submitBackground(key("/tmp/bg2"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { order.add("bg2"); }
+        });
 
         // Enqueue the live job on its own thread *before* releasing the
         // blocker, so it is genuinely queued behind bg1/bg2 (not started
         // after them) when the worker becomes free to pick a job.
-        CountDownLatch liveDone = new CountDownLatch(1);
-        new Thread(() -> {
-            try {
-                indexer.ensureFreshBlocking(key("/tmp/live"), false, 0L, () -> order.add("live"));
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                liveDone.countDown();
+        final CountDownLatch liveDone = new CountDownLatch(1);
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    indexer.ensureFreshBlocking(key("/tmp/live"), false, 0L, new MailboxIndexer.IndexWork() {
+                        @Override public void run() { order.add("live"); }
+                    });
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    liveDone.countDown();
+                }
             }
         }).start();
         Thread.sleep(100);
@@ -211,17 +242,23 @@ public class MailboxIndexerTest {
 
     @Test
     public void backgroundPriority_inboxBeforeNonInbox() throws Exception {
-        CountDownLatch blockerRunning = new CountDownLatch(1);
-        CountDownLatch releaseBlocker = new CountDownLatch(1);
-        indexer.submitBackground(key("/tmp/blocker4"), false, 0L, () -> {
-            blockerRunning.countDown();
-            releaseBlocker.await();
+        final CountDownLatch blockerRunning = new CountDownLatch(1);
+        final CountDownLatch releaseBlocker = new CountDownLatch(1);
+        indexer.submitBackground(key("/tmp/blocker4"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() throws Exception {
+                blockerRunning.countDown();
+                releaseBlocker.await();
+            }
         });
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
-        List<String> order = new CopyOnWriteArrayList<>();
-        indexer.submitBackground(key("/tmp/other"), false, 100L, () -> order.add("other"));
-        indexer.submitBackground(key("/tmp/inbox"), true, 0L, () -> order.add("inbox"));
+        final List<String> order = new CopyOnWriteArrayList<>();
+        indexer.submitBackground(key("/tmp/other"), false, 100L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { order.add("other"); }
+        });
+        indexer.submitBackground(key("/tmp/inbox"), true, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { order.add("inbox"); }
+        });
 
         releaseBlocker.countDown();
 
@@ -236,17 +273,23 @@ public class MailboxIndexerTest {
 
     @Test
     public void backgroundPriority_mostRecentlyModifiedFirst() throws Exception {
-        CountDownLatch blockerRunning = new CountDownLatch(1);
-        CountDownLatch releaseBlocker = new CountDownLatch(1);
-        indexer.submitBackground(key("/tmp/blocker5"), false, 0L, () -> {
-            blockerRunning.countDown();
-            releaseBlocker.await();
+        final CountDownLatch blockerRunning = new CountDownLatch(1);
+        final CountDownLatch releaseBlocker = new CountDownLatch(1);
+        indexer.submitBackground(key("/tmp/blocker5"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() throws Exception {
+                blockerRunning.countDown();
+                releaseBlocker.await();
+            }
         });
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
-        List<String> order = new CopyOnWriteArrayList<>();
-        indexer.submitBackground(key("/tmp/old"), false, 1000L, () -> order.add("old"));
-        indexer.submitBackground(key("/tmp/new"), false, 9000L, () -> order.add("new"));
+        final List<String> order = new CopyOnWriteArrayList<>();
+        indexer.submitBackground(key("/tmp/old"), false, 1000L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { order.add("old"); }
+        });
+        indexer.submitBackground(key("/tmp/new"), false, 9000L, new MailboxIndexer.IndexWork() {
+            @Override public void run() { order.add("new"); }
+        });
 
         releaseBlocker.countDown();
 
@@ -263,10 +306,12 @@ public class MailboxIndexerTest {
     public void isCurrentThread_trueOnlyOnWorkerThread() throws Exception {
         assertFalse(indexer.isCurrentThread());
 
-        AtomicInteger sawTrue = new AtomicInteger();
-        indexer.ensureFreshBlocking(key("/tmp/thread-check"), false, 0L, () -> {
-            if (indexer.isCurrentThread()) {
-                sawTrue.incrementAndGet();
+        final AtomicInteger sawTrue = new AtomicInteger();
+        indexer.ensureFreshBlocking(key("/tmp/thread-check"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() {
+                if (indexer.isCurrentThread()) {
+                    sawTrue.incrementAndGet();
+                }
             }
         });
         assertEquals(1, sawTrue.get());
@@ -277,23 +322,29 @@ public class MailboxIndexerTest {
         // Block the worker forever (until shutdown), then queue a live job
         // behind it and shut down - the live caller must be released
         // rather than hang.
-        CountDownLatch blockerRunning = new CountDownLatch(1);
-        indexer.submitBackground(key("/tmp/blocker6"), false, 0L, () -> {
-            blockerRunning.countDown();
-            // Block until interrupted by shutdown().
-            new CountDownLatch(1).await();
+        final CountDownLatch blockerRunning = new CountDownLatch(1);
+        indexer.submitBackground(key("/tmp/blocker6"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override public void run() throws Exception {
+                blockerRunning.countDown();
+                // Block until interrupted by shutdown().
+                new CountDownLatch(1).await();
+            }
         });
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
-        CountDownLatch liveDone = new CountDownLatch(1);
-        boolean[] threw = new boolean[1];
-        new Thread(() -> {
-            try {
-                indexer.ensureFreshBlocking(key("/tmp/never-runs"), false, 0L, () -> { });
-            } catch (IOException | InterruptedException e) {
-                threw[0] = true;
-            } finally {
-                liveDone.countDown();
+        final CountDownLatch liveDone = new CountDownLatch(1);
+        final boolean[] threw = new boolean[1];
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    indexer.ensureFreshBlocking(key("/tmp/never-runs"), false, 0L, new MailboxIndexer.IndexWork() {
+                        @Override public void run() { }
+                    });
+                } catch (IOException | InterruptedException e) {
+                    threw[0] = true;
+                } finally {
+                    liveDone.countDown();
+                }
             }
         }).start();
 

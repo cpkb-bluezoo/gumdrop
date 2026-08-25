@@ -106,8 +106,12 @@ public class VsftpdFtpIntegrationTest {
                         pass.pass(VsftpdTestSupport.PASSWORD, new TestPassHandler(doneLatch, error) {
                             @Override
                             public void handleAuthenticated(ClientAuthenticatedState auth) {
-                                upload(auth, fileName, content, doneLatch, error, a2 ->
-                                        download(a2, fileName, doneLatch, error, downloaded));
+                                upload(auth, fileName, content, doneLatch, error, new AuthCallback() {
+                                    @Override
+                                    public void accept(ClientAuthenticatedState a2) {
+                                        download(a2, fileName, doneLatch, error, downloaded);
+                                    }
+                                });
                             }
                         });
                     }
@@ -140,8 +144,12 @@ public class VsftpdFtpIntegrationTest {
                         pass.pass(VsftpdTestSupport.PASSWORD, new TestPassHandler(doneLatch, error) {
                             @Override
                             public void handleAuthenticated(ClientAuthenticatedState auth) {
-                                upload(auth, fileName, "listing test", doneLatch, error, a2 ->
-                                        list(a2, fileName, doneLatch, error, entriesRef));
+                                upload(auth, fileName, "listing test", doneLatch, error, new AuthCallback() {
+                                    @Override
+                                    public void accept(ClientAuthenticatedState a2) {
+                                        list(a2, fileName, doneLatch, error, entriesRef);
+                                    }
+                                });
                             }
                         });
                     }
@@ -200,8 +208,12 @@ public class VsftpdFtpIntegrationTest {
                                                 a.prot("P", new TestSimpleHandler(doneLatch, error) {
                                                     @Override
                                                     public void handleOk(ClientAuthenticatedState a2) {
-                                                        upload(a2, fileName, content, doneLatch, error, a3 ->
-                                                                download(a3, fileName, doneLatch, error, downloaded));
+                                                        upload(a2, fileName, content, doneLatch, error, new AuthCallback() {
+                                                            @Override
+                                                            public void accept(ClientAuthenticatedState a3) {
+                                                                download(a3, fileName, doneLatch, error, downloaded);
+                                                            }
+                                                        });
                                                     }
                                                 });
                                             }

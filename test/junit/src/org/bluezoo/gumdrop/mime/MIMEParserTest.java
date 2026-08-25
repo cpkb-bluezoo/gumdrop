@@ -612,7 +612,14 @@ public class MIMEParserTest {
         parseWithCompact(parser, splitAt(content, endBoundary + 6)); // between trailing --
         
         assertEquals(2, handler.entityCount);
-        assertTrue(handler.events.stream().anyMatch(e -> e.contains("endEntity:abc")));
+        boolean hasEndEntityAbc = false;
+        for (String e : handler.events) {
+            if (e.contains("endEntity:abc")) {
+                hasEndEntityAbc = true;
+                break;
+            }
+        }
+        assertTrue(hasEndEntityAbc);
     }
 
     @Test

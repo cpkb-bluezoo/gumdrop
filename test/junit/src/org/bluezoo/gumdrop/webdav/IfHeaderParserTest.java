@@ -321,7 +321,12 @@ public class IfHeaderParserTest {
         private final java.util.Map<String, java.util.Set<Path>> validTokens = new java.util.HashMap<>();
 
         void addValidToken(Path path, String token) {
-            validTokens.computeIfAbsent(token, k -> new java.util.HashSet<>()).add(path);
+            java.util.Set<Path> paths = validTokens.get(token);
+            if (paths == null) {
+                paths = new java.util.HashSet<>();
+                validTokens.put(token, paths);
+            }
+            paths.add(path);
         }
 
         @Override

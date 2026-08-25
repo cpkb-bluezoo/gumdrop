@@ -96,8 +96,9 @@ public class DoHClientTransportTest {
     public void testScheduleTimer() throws Exception {
         DoHClientTransport transport = new DoHClientTransport();
         final CountDownLatch latch = new CountDownLatch(1);
-        TimerHandle handle = transport.scheduleTimer(50,
-                latch::countDown);
+        TimerHandle handle = transport.scheduleTimer(50, new Runnable() {
+            @Override public void run() { latch.countDown(); }
+        });
         assertNotNull(handle);
         assertFalse(handle.isCancelled());
         assertTrue("Timer should fire within 2 seconds",
@@ -107,8 +108,11 @@ public class DoHClientTransportTest {
     @Test
     public void testScheduleTimerCancel() {
         DoHClientTransport transport = new DoHClientTransport();
-        TimerHandle handle = transport.scheduleTimer(60_000, () -> {
-            fail("Cancelled timer should not fire");
+        TimerHandle handle = transport.scheduleTimer(60_000, new Runnable() {
+            @Override
+            public void run() {
+                fail("Cancelled timer should not fire");
+            }
         });
         handle.cancel();
         assertTrue(handle.isCancelled());

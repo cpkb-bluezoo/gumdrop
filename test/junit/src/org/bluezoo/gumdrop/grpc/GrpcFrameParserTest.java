@@ -49,7 +49,11 @@ public class GrpcFrameParserTest {
 
         assertTrue(parser.isMessageCompleted());
         assertEquals(2, chunkSizes.size());
-        assertEquals(5, chunkSizes.stream().mapToInt(Integer::intValue).sum());
+        int totalChunkSize = 0;
+        for (int size : chunkSizes) {
+            totalChunkSize += size;
+        }
+        assertEquals(5, totalChunkSize);
     }
 
     @Test

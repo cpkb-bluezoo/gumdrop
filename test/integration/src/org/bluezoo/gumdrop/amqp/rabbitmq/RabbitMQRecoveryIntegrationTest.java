@@ -24,9 +24,14 @@ package org.bluezoo.gumdrop.amqp.rabbitmq;
 import org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.RecoveryPolicy;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -131,24 +136,40 @@ public class RabbitMQRecoveryIntegrationTest {
             }
         };
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channelRef.set(channel);
-            // durable=true, not auto-delete: the connection that declared
-            // it is about to be forcibly severed, and a non-durable
-            // auto-delete queue disappears the moment its declaring
-            // connection goes away -- which would make this a test of
-            // queue.declare on reconnect, not of whether the *original*
-            // queue and consumer are still usable afterwards. (durable
-            // is also required here regardless: RabbitMQ 4.x rejects
-            // non-durable, non-exclusive "transient_nonexcl" queues by
-            // default -- see the equivalent comment in
-            // RabbitMQPlaintextIntegrationTest.)
-            channel.queueDeclare(queue, true, false, false, null, (q, mc, cc) -> {
-                channel.basicConsume(queue, "", false, false, null,
-                        deliveryHandler,
-                        consumerTag -> firstConsumeOk.countDown());
-            });
-        }));
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channelRef.set(channel);
+                        // durable=true, not auto-delete: the connection that declared
+                        // it is about to be forcibly severed, and a non-durable
+                        // auto-delete queue disappears the moment its declaring
+                        // connection goes away -- which would make this a test of
+                        // queue.declare on reconnect, not of whether the *original*
+                        // queue and consumer are still usable afterwards. (durable
+                        // is also required here regardless: RabbitMQ 4.x rejects
+                        // non-durable, non-exclusive "transient_nonexcl" queues by
+                        // default -- see the equivalent comment in
+                        // RabbitMQPlaintextIntegrationTest.)
+                        channel.queueDeclare(queue, true, false, false, null, new ServerQueueDeclareHandler() {
+                            @Override
+                            public void handleQueueDeclareOk(String q, long mc, long cc) {
+                                channel.basicConsume(queue, "", false, false, null,
+                                        deliveryHandler,
+                                        new ServerConsumeHandler() {
+                                            @Override
+                                            public void handleConsumeOk(String consumerTag) {
+                                                firstConsumeOk.countDown();
+                                            }
+                                        });
+                            }
+                        });
+                    }
+                });
+            }
+        });
 
         assertTrue("initial connect/declare/consume did not complete in time",
                 firstConsumeOk.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));

@@ -439,7 +439,12 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
         // that failure mode fails this test instead of passing silently.
         final List<Throwable> uncaught = new CopyOnWriteArrayList<>();
         Thread.UncaughtExceptionHandler previousHandler = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((t, e) -> uncaught.add(e));
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread t, Throwable e) {
+                uncaught.add(e);
+            }
+        });
         try {
             for (int i = 0; i < numThreads; i++) {
                 final int index = i;

@@ -22,9 +22,17 @@
 package org.bluezoo.gumdrop.amqp.client;
 
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -83,12 +91,20 @@ public class AMQPClientIntegrationTest {
     public void testConnectAndOpenChannel() throws Exception {
         client = new AMQPClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
 
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channelRef.set(channel);
-            latch.countDown();
-        }));
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(ClientChannel channel) {
+                        channelRef.set(channel);
+                        latch.countDown();
+                    }
+                });
+            }
+        });
 
         ClientChannel channel = await(latch, channelRef);
         assertEquals(1, channel.getChannelId());
@@ -102,12 +118,20 @@ public class AMQPClientIntegrationTest {
                 .credentials("appuser", "s3cret")
                 .mechanism("AMQPLAIN");
 
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channelRef.set(channel);
-            latch.countDown();
-        }));
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(ClientChannel channel) {
+                        channelRef.set(channel);
+                        latch.countDown();
+                    }
+                });
+            }
+        });
 
         ClientChannel channel = await(latch, channelRef);
         assertEquals(1, channel.getChannelId());
@@ -121,14 +145,19 @@ public class AMQPClientIntegrationTest {
                 .mechanism("X-NOT-OFFERED")
                 .recoveryPolicy(new RecoveryPolicy().withMaxAttempts(1));
 
-        CountDownLatch failedLatch = new CountDownLatch(1);
+        final CountDownLatch failedLatch = new CountDownLatch(1);
         client.recoveryListener(new RecoveryListener() {
             @Override
             public void onRecoveryFailed(Exception cause) {
                 failedLatch.countDown();
             }
         });
-        client.connect(connection -> fail("should never reach onFirstConnect with an unoffered mechanism"));
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                fail("should never reach onFirstConnect with an unoffered mechanism");
+            }
+        });
 
         assertTrue("expected recovery to give up after the unoffered mechanism keeps failing",
                 failedLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -138,56 +167,76 @@ public class AMQPClientIntegrationTest {
     public void testDeclareBindPublishConsumeRoundTrip() throws Exception {
         client = new AMQPClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
 
-        CountDownLatch deliveredLatch = new CountDownLatch(1);
-        AtomicReference<String> deliveredBody = new AtomicReference<>();
-        AtomicReference<String> deliveredContentType = new AtomicReference<>();
+        final CountDownLatch deliveredLatch = new CountDownLatch(1);
+        final AtomicReference<String> deliveredBody = new AtomicReference<>();
+        final AtomicReference<String> deliveredContentType = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channel.exchangeDeclare("test-exchange", "direct", false, false, null, () -> {
-                channel.queueDeclare("test-queue", false, false, false, null, (queue, mc, cc) -> {
-                    channel.queueBind("test-queue", "test-exchange", "test-key", null, () -> {
-                        channel.basicConsume("test-queue", "", false, false, null,
-                                new DeliveryHandler() {
-                                    private final StringBuilder body = new StringBuilder();
-                                    private BasicProperties props;
-
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channel.exchangeDeclare("test-exchange", "direct", false, false, null, new ServerExchangeDeclareHandler() {
+                            @Override
+                            public void handleExchangeDeclareOk() {
+                                channel.queueDeclare("test-queue", false, false, false, null, new ServerQueueDeclareHandler() {
                                     @Override
-                                    public void onDeliveryStart(String consumerTag, long deliveryTag,
-                                            boolean redelivered, String exchange, String routingKey) {
-                                    }
+                                    public void handleQueueDeclareOk(String queue, long mc, long cc) {
+                                        channel.queueBind("test-queue", "test-exchange", "test-key", null, new ServerQueueBindHandler() {
+                                            @Override
+                                            public void handleQueueBindOk() {
+                                                channel.basicConsume("test-queue", "", false, false, null,
+                                                        new DeliveryHandler() {
+                                                            private final StringBuilder body = new StringBuilder();
+                                                            private BasicProperties props;
 
-                                    @Override
-                                    public void onDeliveryProperties(BasicProperties properties, long bodySize) {
-                                        this.props = properties;
-                                    }
+                                                            @Override
+                                                            public void onDeliveryStart(String consumerTag, long deliveryTag,
+                                                                    boolean redelivered, String exchange, String routingKey) {
+                                                            }
 
-                                    @Override
-                                    public void onDeliveryBodyChunk(ByteBuffer chunk) {
-                                        byte[] b = new byte[chunk.remaining()];
-                                        chunk.get(b);
-                                        body.append(new String(b, StandardCharsets.US_ASCII));
-                                    }
+                                                            @Override
+                                                            public void onDeliveryProperties(BasicProperties properties, long bodySize) {
+                                                                this.props = properties;
+                                                            }
 
-                                    @Override
-                                    public void onDeliveryComplete() {
-                                        deliveredContentType.set(props.getContentType());
-                                        deliveredBody.set(body.toString());
-                                        deliveredLatch.countDown();
+                                                            @Override
+                                                            public void onDeliveryBodyChunk(ByteBuffer chunk) {
+                                                                byte[] b = new byte[chunk.remaining()];
+                                                                chunk.get(b);
+                                                                body.append(new String(b, StandardCharsets.US_ASCII));
+                                                            }
+
+                                                            @Override
+                                                            public void onDeliveryComplete() {
+                                                                deliveredContentType.set(props.getContentType());
+                                                                deliveredBody.set(body.toString());
+                                                                deliveredLatch.countDown();
+                                                            }
+                                                        },
+                                                        new ServerConsumeHandler() {
+                                                            @Override
+                                                            public void handleConsumeOk(String consumerTag) {
+                                                                // Now that a consumer is registered, publish.
+                                                                BasicProperties props = new BasicProperties().withContentType("text/plain");
+                                                                PublishBody publishBody = channel.basicPublish(
+                                                                        "test-exchange", "test-key", false, props, 11);
+                                                                publishBody.writeBody(
+                                                                        ByteBuffer.wrap("hello world".getBytes(StandardCharsets.US_ASCII)));
+                                                                publishBody.complete();
+                                                            }
+                                                        });
+                                            }
+                                        });
                                     }
-                                },
-                                consumerTag -> {
-                                    // Now that a consumer is registered, publish.
-                                    BasicProperties props = new BasicProperties().withContentType("text/plain");
-                                    PublishBody publishBody = channel.basicPublish(
-                                            "test-exchange", "test-key", false, props, 11);
-                                    publishBody.writeBody(
-                                            ByteBuffer.wrap("hello world".getBytes(StandardCharsets.US_ASCII)));
-                                    publishBody.complete();
                                 });
-                    });
+                            }
+                        });
+                    }
                 });
-            });
-        }));
+            }
+        });
 
         assertEquals("hello world", await(deliveredLatch, deliveredBody));
         assertEquals("text/plain", deliveredContentType.get());
@@ -197,21 +246,35 @@ public class AMQPClientIntegrationTest {
     public void testDefaultExchangeRoutesByQueueName() throws Exception {
         client = new AMQPClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
 
-        CountDownLatch deliveredLatch = new CountDownLatch(1);
-        AtomicReference<String> deliveredBody = new AtomicReference<>();
+        final CountDownLatch deliveredLatch = new CountDownLatch(1);
+        final AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channel.queueDeclare("direct-queue", false, false, false, null, (queue, mc, cc) -> {
-                channel.basicConsume("direct-queue", "", false, false, null,
-                        new SimpleDeliveryHandler(deliveredBody, deliveredLatch),
-                        consumerTag -> {
-                            // Default exchange ("") routes directly to the queue named by the routing key.
-                            PublishBody body = channel.basicPublish("", "direct-queue", false, null, 3);
-                            body.writeBody(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
-                            body.complete();
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channel.queueDeclare("direct-queue", false, false, false, null, new ServerQueueDeclareHandler() {
+                            @Override
+                            public void handleQueueDeclareOk(String queue, long mc, long cc) {
+                                channel.basicConsume("direct-queue", "", false, false, null,
+                                        new SimpleDeliveryHandler(deliveredBody, deliveredLatch),
+                                        new ServerConsumeHandler() {
+                                            @Override
+                                            public void handleConsumeOk(String consumerTag) {
+                                                // Default exchange ("") routes directly to the queue named by the routing key.
+                                                PublishBody body = channel.basicPublish("", "direct-queue", false, null, 3);
+                                                body.writeBody(ByteBuffer.wrap("abc".getBytes(StandardCharsets.US_ASCII)));
+                                                body.complete();
+                                            }
+                                        });
+                            }
                         });
-            });
-        }));
+                    }
+                });
+            }
+        });
 
         assertEquals("abc", await(deliveredLatch, deliveredBody));
     }
@@ -220,27 +283,38 @@ public class AMQPClientIntegrationTest {
     public void testPublisherConfirmsAckedByBroker() throws Exception {
         client = new AMQPClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
 
-        CountDownLatch confirmLatch = new CountDownLatch(1);
-        AtomicReference<Long> ackedSeq = new AtomicReference<>();
+        final CountDownLatch confirmLatch = new CountDownLatch(1);
+        final AtomicReference<Long> ackedSeq = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channel.confirmSelect(() -> {
-                channel.setConfirmListener(new org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener() {
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
                     @Override
-                    public void onAck(long sequenceNumber, boolean multiple) {
-                        ackedSeq.set(sequenceNumber);
-                        confirmLatch.countDown();
-                    }
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channel.confirmSelect(new ServerConfirmSelectHandler() {
+                            @Override
+                            public void handleConfirmSelectOk() {
+                                channel.setConfirmListener(new org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener() {
+                                    @Override
+                                    public void onAck(long sequenceNumber, boolean multiple) {
+                                        ackedSeq.set(sequenceNumber);
+                                        confirmLatch.countDown();
+                                    }
 
-                    @Override
-                    public void onNack(long sequenceNumber, boolean multiple) {
+                                    @Override
+                                    public void onNack(long sequenceNumber, boolean multiple) {
+                                    }
+                                });
+                                PublishBody body = channel.basicPublish("", "some-queue", false, null, 0);
+                                assertEquals(1L, body.getSequenceNumber());
+                                body.complete();
+                            }
+                        });
                     }
                 });
-                PublishBody body = channel.basicPublish("", "some-queue", false, null, 0);
-                assertEquals(1L, body.getSequenceNumber());
-                body.complete();
-            });
-        }));
+            }
+        });
 
         assertEquals(Long.valueOf(1L), await(confirmLatch, ackedSeq));
     }
@@ -251,23 +325,39 @@ public class AMQPClientIntegrationTest {
                 .credentials("guest", "guest")
                 .recoveryPolicy(new RecoveryPolicy().withInitialDelayMs(200L).withMaxDelayMs(500L));
 
-        CountDownLatch firstConsumeOk = new CountDownLatch(1);
-        AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
+        final CountDownLatch firstConsumeOk = new CountDownLatch(1);
+        final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
 
-        client.connect(connection -> connection.channelOpen(1, channel -> {
-            channelRef.set(channel);
-            channel.queueDeclare("recovery-queue", false, false, false, null, (queue, mc, cc) -> {
-                channel.basicConsume("recovery-queue", "", false, false, null,
-                        new NoopDeliveryHandler(),
-                        consumerTag -> firstConsumeOk.countDown());
-            });
-        }));
+        client.connect(new RecoveryHandler() {
+            @Override
+            public void onFirstConnect(ClientConnection connection) {
+                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                    @Override
+                    public void handleChannelOpenOk(final ClientChannel channel) {
+                        channelRef.set(channel);
+                        channel.queueDeclare("recovery-queue", false, false, false, null, new ServerQueueDeclareHandler() {
+                            @Override
+                            public void handleQueueDeclareOk(String queue, long mc, long cc) {
+                                channel.basicConsume("recovery-queue", "", false, false, null,
+                                        new NoopDeliveryHandler(),
+                                        new ServerConsumeHandler() {
+                                            @Override
+                                            public void handleConsumeOk(String consumerTag) {
+                                                firstConsumeOk.countDown();
+                                            }
+                                        });
+                            }
+                        });
+                    }
+                });
+            }
+        });
 
         assertTrue(firstConsumeOk.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
         assertEquals(1, broker.connectionCount());
 
-        List<Boolean> recovered = new CopyOnWriteArrayList<>();
-        CountDownLatch recoveredLatch = new CountDownLatch(1);
+        final List<Boolean> recovered = new CopyOnWriteArrayList<>();
+        final CountDownLatch recoveredLatch = new CountDownLatch(1);
         client.recoveryListener(new RecoveryListener() {
             @Override
             public void onRecovered() {

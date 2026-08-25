@@ -26,8 +26,11 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -61,23 +64,37 @@ public class MailboxWatcherTest {
         if (!Files.exists(dir)) {
             return;
         }
-        Files.walk(dir)
-                .sorted((a, b) -> b.getNameCount() - a.getNameCount())
-                .forEach(p -> {
-                    try {
-                        Files.deleteIfExists(p);
-                    } catch (IOException ignored) {
-                    }
-                });
+        Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                try {
+                    Files.deleteIfExists(file);
+                } catch (IOException ignored) {
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path visited, IOException exc) {
+                try {
+                    Files.deleteIfExists(visited);
+                } catch (IOException ignored) {
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 
     @Test
     public void register_notifiesOnMatchingFileCreated() throws Exception {
-        CountDownLatch notified = new CountDownLatch(1);
-        List<String> names = new CopyOnWriteArrayList<>();
-        watcher.register(tempDir, "target.txt", name -> {
-            names.add(name);
-            notified.countDown();
+        final CountDownLatch notified = new CountDownLatch(1);
+        final List<String> names = new CopyOnWriteArrayList<>();
+        watcher.register(tempDir, "target.txt", new MailboxWatcher.ChangeListener() {
+            @Override
+            public void onChange(String name) {
+                names.add(name);
+                notified.countDown();
+            }
         });
 
         Files.createFile(tempDir.resolve("target.txt"));
@@ -88,8 +105,10 @@ public class MailboxWatcherTest {
 
     @Test
     public void register_ignoresNonMatchingFile() throws Exception {
-        CountDownLatch notified = new CountDownLatch(1);
-        watcher.register(tempDir, "target.txt", name -> notified.countDown());
+        final CountDownLatch notified = new CountDownLatch(1);
+        watcher.register(tempDir, "target.txt", new MailboxWatcher.ChangeListener() {
+            @Override public void onChange(String name) { notified.countDown(); }
+        });
 
         Files.createFile(tempDir.resolve("other.txt"));
 
@@ -99,11 +118,14 @@ public class MailboxWatcherTest {
 
     @Test
     public void register_nullFilterMatchesAnyFile() throws Exception {
-        CountDownLatch notified = new CountDownLatch(1);
-        List<String> names = new CopyOnWriteArrayList<>();
-        watcher.register(tempDir, null, name -> {
-            names.add(name);
-            notified.countDown();
+        final CountDownLatch notified = new CountDownLatch(1);
+        final List<String> names = new CopyOnWriteArrayList<>();
+        watcher.register(tempDir, null, new MailboxWatcher.ChangeListener() {
+            @Override
+            public void onChange(String name) {
+                names.add(name);
+                notified.countDown();
+            }
         });
 
         Files.createFile(tempDir.resolve("anything.txt"));
@@ -114,10 +136,14 @@ public class MailboxWatcherTest {
 
     @Test
     public void register_multipleListenersOnSameDirectoryAllNotified() throws Exception {
-        CountDownLatch first = new CountDownLatch(1);
-        CountDownLatch second = new CountDownLatch(1);
-        watcher.register(tempDir, "shared.txt", name -> first.countDown());
-        watcher.register(tempDir, "shared.txt", name -> second.countDown());
+        final CountDownLatch first = new CountDownLatch(1);
+        final CountDownLatch second = new CountDownLatch(1);
+        watcher.register(tempDir, "shared.txt", new MailboxWatcher.ChangeListener() {
+            @Override public void onChange(String name) { first.countDown(); }
+        });
+        watcher.register(tempDir, "shared.txt", new MailboxWatcher.ChangeListener() {
+            @Override public void onChange(String name) { second.countDown(); }
+        });
 
         Files.createFile(tempDir.resolve("shared.txt"));
 
@@ -130,8 +156,10 @@ public class MailboxWatcherTest {
         Path target = tempDir.resolve("modme.txt");
         Files.createFile(target);
 
-        CountDownLatch notified = new CountDownLatch(1);
-        watcher.register(tempDir, "modme.txt", name -> notified.countDown());
+        final CountDownLatch notified = new CountDownLatch(1);
+        watcher.register(tempDir, "modme.txt", new MailboxWatcher.ChangeListener() {
+            @Override public void onChange(String name) { notified.countDown(); }
+        });
 
         Files.write(target, "changed".getBytes());
 
@@ -141,8 +169,10 @@ public class MailboxWatcherTest {
 
     @Test
     public void shutdown_stopsDispatchingEvents() throws Exception {
-        CountDownLatch notified = new CountDownLatch(1);
-        watcher.register(tempDir, "afterShutdown.txt", name -> notified.countDown());
+        final CountDownLatch notified = new CountDownLatch(1);
+        watcher.register(tempDir, "afterShutdown.txt", new MailboxWatcher.ChangeListener() {
+            @Override public void onChange(String name) { notified.countDown(); }
+        });
 
         watcher.shutdown();
         Files.createFile(tempDir.resolve("afterShutdown.txt"));

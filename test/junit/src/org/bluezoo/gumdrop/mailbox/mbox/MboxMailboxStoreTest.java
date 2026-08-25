@@ -9,7 +9,6 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 
@@ -34,11 +33,19 @@ public class MboxMailboxStoreTest {
         try {
             store.close();
         } catch (IOException e) { /* ignore */ }
-        Files.walk(tempDir)
-                .sorted(Comparator.reverseOrder())
-                .forEach(p -> {
-                    try { Files.delete(p); } catch (IOException e) { /* ignore */ }
-                });
+        Files.walkFileTree(tempDir, new java.nio.file.SimpleFileVisitor<Path>() {
+            @Override
+            public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                try { Files.delete(file); } catch (IOException e) { /* ignore */ }
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+                try { Files.delete(dir); } catch (IOException e) { /* ignore */ }
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
     }
 
     @Test

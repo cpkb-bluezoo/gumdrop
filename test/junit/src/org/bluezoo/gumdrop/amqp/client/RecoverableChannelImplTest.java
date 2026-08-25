@@ -58,11 +58,19 @@ public class RecoverableChannelImplTest {
     @Test
     public void testDeclareCallsAreForwardedAndRecorded() {
         FakeClientChannel fake = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, () -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, new Runnable() {
+            @Override public void run() { }
+        });
 
-        ch.exchangeDeclare("ex", "topic", true, false, null, () -> { });
-        ch.queueDeclare("q", true, false, false, null, (queue, mc, cc) -> { });
-        ch.queueBind("q", "ex", "rk", null, () -> { });
+        ch.exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+            @Override public void handleExchangeDeclareOk() { }
+        });
+        ch.queueDeclare("q", true, false, false, null, new ServerQueueDeclareHandler() {
+            @Override public void handleQueueDeclareOk(String queue, long messageCount, long consumerCount) { }
+        });
+        ch.queueBind("q", "ex", "rk", null, new ServerQueueBindHandler() {
+            @Override public void handleQueueBindOk() { }
+        });
 
         assertEquals(1, fake.exchangeDeclares.size());
         assertEquals("ex", fake.exchangeDeclares.get(0));
@@ -78,12 +86,20 @@ public class RecoverableChannelImplTest {
         // plain append-only log, or a long-lived connection that does
         // this would leak memory without bound.
         FakeClientChannel fake = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, () -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, new Runnable() {
+            @Override public void run() { }
+        });
 
         for (int i = 0; i < 1000; i++) {
-            ch.exchangeDeclare("ex", "topic", true, false, null, () -> { });
-            ch.queueDeclare("q", true, false, false, null, (queue, mc, cc) -> { });
-            ch.queueBind("q", "ex", "rk", null, () -> { });
+            ch.exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+                @Override public void handleExchangeDeclareOk() { }
+            });
+            ch.queueDeclare("q", true, false, false, null, new ServerQueueDeclareHandler() {
+                @Override public void handleQueueDeclareOk(String queue, long messageCount, long consumerCount) { }
+            });
+            ch.queueBind("q", "ex", "rk", null, new ServerQueueBindHandler() {
+                @Override public void handleQueueBindOk() { }
+            });
         }
 
         FakeClientChannel second = new FakeClientChannel();
@@ -99,10 +115,16 @@ public class RecoverableChannelImplTest {
     @Test
     public void testCancelledConsumerIsNotReplayed() {
         FakeClientChannel fake = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, () -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, new Runnable() {
+            @Override public void run() { }
+        });
 
-        ch.basicConsume("q", "tag-1", false, false, null, new NoopDeliveryHandler(), tag -> { });
-        ch.basicCancel("tag-1", tag -> { });
+        ch.basicConsume("q", "tag-1", false, false, null, new NoopDeliveryHandler(), new ServerConsumeHandler() {
+            @Override public void handleConsumeOk(String consumerTag) { }
+        });
+        ch.basicCancel("tag-1", new ServerCancelHandler() {
+            @Override public void handleCancelOk(String consumerTag) { }
+        });
 
         FakeClientChannel second = new FakeClientChannel();
         ch.rebind(second);
@@ -116,8 +138,12 @@ public class RecoverableChannelImplTest {
         // consumer on a new channel); the stale tag -> key mapping from
         // the previous connection must be evicted, not accumulated.
         FakeClientChannel first = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, () -> { });
-        ch.basicConsume("q", "", false, false, null, new NoopDeliveryHandler(), tag -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, new Runnable() {
+            @Override public void run() { }
+        });
+        ch.basicConsume("q", "", false, false, null, new NoopDeliveryHandler(), new ServerConsumeHandler() {
+            @Override public void handleConsumeOk(String consumerTag) { }
+        });
 
         FakeClientChannel current = first;
         for (int i = 0; i < 50; i++) {
@@ -147,13 +173,23 @@ public class RecoverableChannelImplTest {
     @Test
     public void testRebindReplaysRecordedTopologyInOrder() {
         FakeClientChannel first = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, () -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, new Runnable() {
+            @Override public void run() { }
+        });
 
-        ch.exchangeDeclare("ex1", "topic", true, false, null, () -> { });
-        ch.queueDeclare("q1", true, false, false, null, (queue, mc, cc) -> { });
-        ch.queueBind("q1", "ex1", "rk1", null, () -> { });
+        ch.exchangeDeclare("ex1", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+            @Override public void handleExchangeDeclareOk() { }
+        });
+        ch.queueDeclare("q1", true, false, false, null, new ServerQueueDeclareHandler() {
+            @Override public void handleQueueDeclareOk(String queue, long messageCount, long consumerCount) { }
+        });
+        ch.queueBind("q1", "ex1", "rk1", null, new ServerQueueBindHandler() {
+            @Override public void handleQueueBindOk() { }
+        });
         DeliveryHandler deliveryHandler = new NoopDeliveryHandler();
-        ch.basicConsume("q1", "my-tag", false, false, null, deliveryHandler, tag -> { });
+        ch.basicConsume("q1", "my-tag", false, false, null, deliveryHandler, new ServerConsumeHandler() {
+            @Override public void handleConsumeOk(String consumerTag) { }
+        });
 
         FakeClientChannel second = new FakeClientChannel();
         ch.rebind(second);
@@ -174,14 +210,20 @@ public class RecoverableChannelImplTest {
     @Test
     public void testPublishAckNackRejectTxFlowAreNotReplayed() {
         FakeClientChannel first = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, () -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, new Runnable() {
+            @Override public void run() { }
+        });
 
         ch.basicPublish("ex", "rk", false, null, 0);
         ch.basicAck(1L, false);
         ch.basicNack(2L, false, true);
         ch.basicReject(3L, false);
-        ch.txSelect(() -> { });
-        ch.flow(true, active -> { });
+        ch.txSelect(new ServerTxSelectHandler() {
+            @Override public void handleTxSelectOk() { }
+        });
+        ch.flow(true, new ServerFlowHandler() {
+            @Override public void handleFlowOk(boolean active) { }
+        });
 
         FakeClientChannel second = new FakeClientChannel();
         ch.rebind(second);
@@ -192,7 +234,9 @@ public class RecoverableChannelImplTest {
     @Test(expected = IllegalStateException.class)
     public void testOperationsThrowWhileDisconnected() {
         FakeClientChannel fake = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, () -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, new Runnable() {
+            @Override public void run() { }
+        });
         ch.markDisconnected();
         ch.basicAck(1L, false);
     }
@@ -205,10 +249,14 @@ public class RecoverableChannelImplTest {
         // happens via the live call path, so a declare issued while
         // disconnected is not silently accepted either.
         FakeClientChannel fake = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, () -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, fake, new Runnable() {
+            @Override public void run() { }
+        });
         ch.markDisconnected();
         try {
-            ch.exchangeDeclare("ex", "topic", true, false, null, () -> { });
+            ch.exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+                @Override public void handleExchangeDeclareOk() { }
+            });
             fail("expected IllegalStateException");
         } catch (IllegalStateException expected) {
             // expected
@@ -218,10 +266,16 @@ public class RecoverableChannelImplTest {
     @Test
     public void testCloseClearsReplayLog() {
         FakeClientChannel first = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, () -> { });
-        ch.exchangeDeclare("ex", "topic", true, false, null, () -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, new Runnable() {
+            @Override public void run() { }
+        });
+        ch.exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+            @Override public void handleExchangeDeclareOk() { }
+        });
 
-        ch.close(200, "bye", () -> { });
+        ch.close(200, "bye", new ServerChannelCloseHandler() {
+            @Override public void handleChannelCloseOk() { }
+        });
 
         FakeClientChannel second = new FakeClientChannel();
         ch.rebind(second);
@@ -231,12 +285,22 @@ public class RecoverableChannelImplTest {
     @Test
     public void testCloseListenerAndFlowListenerForwardedOnRebind() {
         FakeClientChannel first = new FakeClientChannel();
-        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, () -> { });
+        RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, new Runnable() {
+            @Override public void run() { }
+        });
 
-        List<String> closeEvents = new ArrayList<>();
-        List<Boolean> flowEvents = new ArrayList<>();
-        ch.setCloseListener((code, text) -> closeEvents.add(code + " " + text));
-        ch.setFlowListener(active -> flowEvents.add(active));
+        final List<String> closeEvents = new ArrayList<>();
+        final List<Boolean> flowEvents = new ArrayList<>();
+        ch.setCloseListener(new ChannelClosedListener() {
+            @Override public void onChannelClosed(int replyCode, String replyText) {
+                closeEvents.add(replyCode + " " + replyText);
+            }
+        });
+        ch.setFlowListener(new FlowListener() {
+            @Override public void onFlow(boolean active) {
+                flowEvents.add(active);
+            }
+        });
 
         assertNotNull(first.closeListener);
         assertNotNull(first.flowListener);
@@ -254,8 +318,12 @@ public class RecoverableChannelImplTest {
         RecoverableConnectionImpl connection = new RecoverableConnectionImpl();
         connection.bind(fakeConnection);
 
-        List<ClientChannel> opened = new ArrayList<>();
-        connection.channelOpen(1, opened::add);
+        final List<ClientChannel> opened = new ArrayList<>();
+        connection.channelOpen(1, new ServerChannelOpenHandler() {
+            @Override public void handleChannelOpenOk(ClientChannel channel) {
+                opened.add(channel);
+            }
+        });
 
         assertEquals(1, opened.size());
         assertEquals(1, opened.get(0).getChannelId());
@@ -267,17 +335,31 @@ public class RecoverableChannelImplTest {
         RecoverableConnectionImpl connection = new RecoverableConnectionImpl();
         connection.bind(fakeConnection);
 
-        List<ClientChannel> opened = new ArrayList<>();
-        connection.channelOpen(1, opened::add);
-        connection.channelOpen(2, opened::add);
-        opened.get(0).close(200, "bye", () -> { });
+        final List<ClientChannel> opened = new ArrayList<>();
+        connection.channelOpen(1, new ServerChannelOpenHandler() {
+            @Override public void handleChannelOpenOk(ClientChannel channel) {
+                opened.add(channel);
+            }
+        });
+        connection.channelOpen(2, new ServerChannelOpenHandler() {
+            @Override public void handleChannelOpenOk(ClientChannel channel) {
+                opened.add(channel);
+            }
+        });
+        opened.get(0).close(200, "bye", new ServerChannelCloseHandler() {
+            @Override public void handleChannelCloseOk() { }
+        });
 
         connection.markDisconnected();
         FakeClientConnection reconnected = new FakeClientConnection();
         connection.bind(reconnected);
 
-        List<Boolean> completed = new ArrayList<>();
-        connection.reopenAndReplayAll(() -> completed.add(true));
+        final List<Boolean> completed = new ArrayList<>();
+        connection.reopenAndReplayAll(new Runnable() {
+            @Override public void run() {
+                completed.add(true);
+            }
+        });
 
         // Only channel 2 must be reopened; channel 1 was explicitly
         // closed and must not be tracked (or leaked) any further.
@@ -291,8 +373,12 @@ public class RecoverableChannelImplTest {
         RecoverableConnectionImpl connection = new RecoverableConnectionImpl();
         connection.bind(fakeConnection);
 
-        List<ClientChannel> opened = new ArrayList<>();
-        connection.channelOpen(1, opened::add);
+        final List<ClientChannel> opened = new ArrayList<>();
+        connection.channelOpen(1, new ServerChannelOpenHandler() {
+            @Override public void handleChannelOpenOk(ClientChannel channel) {
+                opened.add(channel);
+            }
+        });
         // Simulate the broker closing this channel unsolicited (channel-level
         // protocol error) while the connection itself stays up.
         fakeConnection.channelsByid.get(1).closeListener.onChannelClosed(404, "NOT_FOUND");
@@ -301,8 +387,12 @@ public class RecoverableChannelImplTest {
         FakeClientConnection reconnected = new FakeClientConnection();
         connection.bind(reconnected);
 
-        List<Boolean> completed = new ArrayList<>();
-        connection.reopenAndReplayAll(() -> completed.add(true));
+        final List<Boolean> completed = new ArrayList<>();
+        connection.reopenAndReplayAll(new Runnable() {
+            @Override public void run() {
+                completed.add(true);
+            }
+        });
 
         assertEquals(1, completed.size());
         assertTrue("an unsolicited-closed channel must not be replayed on reconnect",
@@ -315,18 +405,32 @@ public class RecoverableChannelImplTest {
         RecoverableConnectionImpl connection = new RecoverableConnectionImpl();
         connection.bind(fakeConnection);
 
-        List<ClientChannel> opened = new ArrayList<>();
-        connection.channelOpen(1, opened::add);
-        connection.channelOpen(2, opened::add);
-        opened.get(0).exchangeDeclare("ex", "topic", true, false, null, () -> { });
+        final List<ClientChannel> opened = new ArrayList<>();
+        connection.channelOpen(1, new ServerChannelOpenHandler() {
+            @Override public void handleChannelOpenOk(ClientChannel channel) {
+                opened.add(channel);
+            }
+        });
+        connection.channelOpen(2, new ServerChannelOpenHandler() {
+            @Override public void handleChannelOpenOk(ClientChannel channel) {
+                opened.add(channel);
+            }
+        });
+        opened.get(0).exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+            @Override public void handleExchangeDeclareOk() { }
+        });
 
         connection.markDisconnected();
 
         FakeClientConnection reconnected = new FakeClientConnection();
         connection.bind(reconnected);
 
-        List<Boolean> completed = new ArrayList<>();
-        connection.reopenAndReplayAll(() -> completed.add(true));
+        final List<Boolean> completed = new ArrayList<>();
+        connection.reopenAndReplayAll(new Runnable() {
+            @Override public void run() {
+                completed.add(true);
+            }
+        });
 
         assertEquals(1, completed.size());
         assertEquals(2, reconnected.openedChannelIds.size());

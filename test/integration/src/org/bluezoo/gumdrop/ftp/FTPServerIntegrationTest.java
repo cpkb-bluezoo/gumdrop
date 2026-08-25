@@ -196,15 +196,18 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<String> pwd = new AtomicReference<>();
 
-        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, auth -> {
-            auth.pwd(new TestPwdHandler(latch, error) {
-                @Override
-                public void handlePathname(String pathname, ClientAuthenticatedState a) {
-                    pwd.set(pathname);
-                    a.quit();
-                    latch.countDown();
-                }
-            });
+        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, new AuthContinuation() {
+            @Override
+            public void ready(ClientAuthenticatedState auth) {
+                auth.pwd(new TestPwdHandler(latch, error) {
+                    @Override
+                    public void handlePathname(String pathname, ClientAuthenticatedState a) {
+                        pwd.set(pathname);
+                        a.quit();
+                        latch.countDown();
+                    }
+                });
+            }
         });
 
         assertTrue("Should complete within timeout",
@@ -256,27 +259,30 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<String> cwdPath = new AtomicReference<>();
         String dirName = "sub-" + System.nanoTime();
 
-        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, auth -> {
-            auth.mkd(dirName, new TestMkdHandler(latch, error) {
-                @Override
-                public void handlePathname(String pathname, ClientAuthenticatedState a) {
-                    assertTrue("On-disk directory should now exist",
-                            new File(dataDir, dirName).isDirectory());
-                    a.cwd(dirName, new TestCwdHandler(latch, error) {
-                        @Override
-                        public void handleOk(ClientAuthenticatedState a2) {
-                            a2.pwd(new TestPwdHandler(latch, error) {
-                                @Override
-                                public void handlePathname(String p, ClientAuthenticatedState a3) {
-                                    cwdPath.set(p);
-                                    a3.quit();
-                                    latch.countDown();
-                                }
-                            });
-                        }
-                    });
-                }
-            });
+        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, new AuthContinuation() {
+            @Override
+            public void ready(ClientAuthenticatedState auth) {
+                auth.mkd(dirName, new TestMkdHandler(latch, error) {
+                    @Override
+                    public void handlePathname(String pathname, ClientAuthenticatedState a) {
+                        assertTrue("On-disk directory should now exist",
+                                new File(dataDir, dirName).isDirectory());
+                        a.cwd(dirName, new TestCwdHandler(latch, error) {
+                            @Override
+                            public void handleOk(ClientAuthenticatedState a2) {
+                                a2.pwd(new TestPwdHandler(latch, error) {
+                                    @Override
+                                    public void handlePathname(String p, ClientAuthenticatedState a3) {
+                                        cwdPath.set(p);
+                                        a3.quit();
+                                        latch.countDown();
+                                    }
+                                });
+                            }
+                        });
+                    }
+                });
+            }
         });
 
         assertTrue("Should complete within timeout",
@@ -297,15 +303,18 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         File dir = new File(dataDir, dirName);
         assertTrue("Setup: directory should be created directly", dir.mkdir());
 
-        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, auth -> {
-            auth.rmd(dirName, new TestSimpleHandler(latch, error) {
-                @Override
-                public void handleOk(ClientAuthenticatedState a) {
-                    removed.set(true);
-                    a.quit();
-                    latch.countDown();
-                }
-            });
+        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, new AuthContinuation() {
+            @Override
+            public void ready(ClientAuthenticatedState auth) {
+                auth.rmd(dirName, new TestSimpleHandler(latch, error) {
+                    @Override
+                    public void handleOk(ClientAuthenticatedState a) {
+                        removed.set(true);
+                        a.quit();
+                        latch.countDown();
+                    }
+                });
+            }
         });
 
         assertTrue("Should complete within timeout",
@@ -328,31 +337,34 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         String fileName = "stor-" + System.nanoTime() + ".txt";
         String content = "Server-side STOR verification.";
 
-        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, auth -> {
-            auth.type("I", new TestSimpleHandler(latch, error) {
-                @Override
-                public void handleOk(ClientAuthenticatedState a) {
-                    a.pasv(new TestPasvHandler(latch, error) {
-                        @Override
-                        public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a2) {
-                            a2.stor(fileName, addr, new TestStorHandler(latch, error) {
-                                @Override
-                                public void handleReadyToSend(ClientDataSink sink) {
-                                    sink.write(ByteBuffer.wrap(
-                                            content.getBytes(StandardCharsets.UTF_8)));
-                                    sink.finish();
-                                }
+        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, new AuthContinuation() {
+            @Override
+            public void ready(ClientAuthenticatedState auth) {
+                auth.type("I", new TestSimpleHandler(latch, error) {
+                    @Override
+                    public void handleOk(ClientAuthenticatedState a) {
+                        a.pasv(new TestPasvHandler(latch, error) {
+                            @Override
+                            public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a2) {
+                                a2.stor(fileName, addr, new TestStorHandler(latch, error) {
+                                    @Override
+                                    public void handleReadyToSend(ClientDataSink sink) {
+                                        sink.write(ByteBuffer.wrap(
+                                                content.getBytes(StandardCharsets.UTF_8)));
+                                        sink.finish();
+                                    }
 
-                                @Override
-                                public void handleTransferComplete(ClientAuthenticatedState a3) {
-                                    a3.quit();
-                                    latch.countDown();
-                                }
-                            });
-                        }
-                    });
-                }
-            });
+                                    @Override
+                                    public void handleTransferComplete(ClientAuthenticatedState a3) {
+                                        a3.quit();
+                                        latch.countDown();
+                                    }
+                                });
+                            }
+                        });
+                    }
+                });
+            }
         });
 
         assertTrue("Should complete within timeout",
@@ -376,31 +388,34 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         Files.write(new File(dataDir, fileName).toPath(),
                 content.getBytes(StandardCharsets.UTF_8));
 
-        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, auth -> {
-            auth.type("I", new TestSimpleHandler(latch, error) {
-                @Override
-                public void handleOk(ClientAuthenticatedState a) {
-                    a.pasv(new TestPasvHandler(latch, error) {
-                        @Override
-                        public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a2) {
-                            StringBuilder received = new StringBuilder();
-                            a2.retr(fileName, addr, new TestRetrHandler(latch, error) {
-                                @Override
-                                public void handleContent(ByteBuffer data) {
-                                    received.append(decode(data));
-                                }
+        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, new AuthContinuation() {
+            @Override
+            public void ready(ClientAuthenticatedState auth) {
+                auth.type("I", new TestSimpleHandler(latch, error) {
+                    @Override
+                    public void handleOk(ClientAuthenticatedState a) {
+                        a.pasv(new TestPasvHandler(latch, error) {
+                            @Override
+                            public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a2) {
+                                StringBuilder received = new StringBuilder();
+                                a2.retr(fileName, addr, new TestRetrHandler(latch, error) {
+                                    @Override
+                                    public void handleContent(ByteBuffer data) {
+                                        received.append(decode(data));
+                                    }
 
-                                @Override
-                                public void handleTransferComplete(ClientAuthenticatedState a3) {
-                                    downloaded.set(received.toString());
-                                    a3.quit();
-                                    latch.countDown();
-                                }
-                            });
-                        }
-                    });
-                }
-            });
+                                    @Override
+                                    public void handleTransferComplete(ClientAuthenticatedState a3) {
+                                        downloaded.set(received.toString());
+                                        a3.quit();
+                                        latch.countDown();
+                                    }
+                                });
+                            }
+                        });
+                    }
+                });
+            }
         });
 
         assertTrue("Should complete within timeout",
@@ -421,21 +436,24 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         Files.write(new File(dataDir, fileName).toPath(),
                 "for listing".getBytes(StandardCharsets.UTF_8));
 
-        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, auth -> {
-            auth.pasv(new TestPasvHandler(latch, error) {
-                @Override
-                public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a) {
-                    a.list(null, addr, new TestListHandler(latch, error) {
-                        @Override
-                        public void handleEntries(List<FTPFileEntry> entries,
-                                ClientAuthenticatedState a2) {
-                            entriesRef.set(entries);
-                            a2.quit();
-                            latch.countDown();
-                        }
-                    });
-                }
-            });
+        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, new AuthContinuation() {
+            @Override
+            public void ready(ClientAuthenticatedState auth) {
+                auth.pasv(new TestPasvHandler(latch, error) {
+                    @Override
+                    public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a) {
+                        a.list(null, addr, new TestListHandler(latch, error) {
+                            @Override
+                            public void handleEntries(List<FTPFileEntry> entries,
+                                    ClientAuthenticatedState a2) {
+                                entriesRef.set(entries);
+                                a2.quit();
+                                latch.countDown();
+                            }
+                        });
+                    }
+                });
+            }
         });
 
         assertTrue("Should complete within timeout",
@@ -484,21 +502,24 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<List<FTPFileEntry>> entriesRef = new AtomicReference<>();
 
-        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, auth -> {
-            auth.pasv(new TestPasvHandler(latch, error) {
-                @Override
-                public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a) {
-                    a.list(subdirName, addr, new TestListHandler(latch, error) {
-                        @Override
-                        public void handleEntries(List<FTPFileEntry> entries,
-                                ClientAuthenticatedState a2) {
-                            entriesRef.set(entries);
-                            a2.quit();
-                            latch.countDown();
-                        }
-                    });
-                }
-            });
+        loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, new AuthContinuation() {
+            @Override
+            public void ready(ClientAuthenticatedState auth) {
+                auth.pasv(new TestPasvHandler(latch, error) {
+                    @Override
+                    public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a) {
+                        a.list(subdirName, addr, new TestListHandler(latch, error) {
+                            @Override
+                            public void handleEntries(List<FTPFileEntry> entries,
+                                    ClientAuthenticatedState a2) {
+                                entriesRef.set(entries);
+                                a2.quit();
+                                latch.countDown();
+                            }
+                        });
+                    }
+                });
+            }
         });
 
         assertTrue("Should complete within timeout",

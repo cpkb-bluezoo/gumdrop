@@ -23,15 +23,29 @@ package org.bluezoo.gumdrop.amqp.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.amqp.client.handler.ChannelClosedListener;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientTuned;
 import org.bluezoo.gumdrop.amqp.client.handler.ConnectionReady;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.FlowListener;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerCancelHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelCloseHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerFlowHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerTuneHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerTxCommitHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerTxRollbackHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ServerTxSelectHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -82,8 +96,21 @@ public class AMQPClientProtocolHandlerTest {
         final List<ClientChannel> opened = new ArrayList<>();
         connect();
         feed(serverStartFrame());
-        recording.lastHandshake.startOk("guest", "guest", (channelMax, frameMax, heartbeat, tuned) -> {
-            tuned.open("/", connection -> connection.channelOpen(1, opened::add));
+        recording.lastHandshake.startOk("guest", "guest", new ServerTuneHandler() {
+            @Override
+            public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) {
+                tuned.open("/", new ServerOpenHandler() {
+                    @Override
+                    public void handleOpenOk(ClientConnection connection) {
+                        connection.channelOpen(1, new ServerChannelOpenHandler() {
+                            @Override
+                            public void handleChannelOpenOk(ClientChannel channel) {
+                                opened.add(channel);
+                            }
+                        });
+                    }
+                });
+            }
         });
         feed(serverTuneFrame(0, 131072, 0));
         feed(serverOpenOkFrame());
@@ -185,7 +212,10 @@ public class AMQPClientProtocolHandlerTest {
         connect();
         feed(serverStartFrame());
         recording.lastHandshake.startOk("guest", "guest",
-                (channelMax, frameMax, heartbeat, state) -> { });
+                new ServerTuneHandler() {
+                    @Override
+                    public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned state) { }
+                });
 
         ByteBuffer sent = lastSentFrame();
         // Skip the AMQP frame header to inspect the method payload.
@@ -201,7 +231,10 @@ public class AMQPClientProtocolHandlerTest {
     public void testTuneOkSentAutomaticallyOnTune() {
         connect();
         feed(serverStartFrame());
-        recording.lastHandshake.startOk("guest", "guest", (channelMax, frameMax, heartbeat, state) -> { });
+        recording.lastHandshake.startOk("guest", "guest", new ServerTuneHandler() {
+            @Override
+            public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned state) { }
+        });
 
         feed(serverTuneFrame(2047, 131072, 60));
 
@@ -220,8 +253,16 @@ public class AMQPClientProtocolHandlerTest {
 
         connect();
         feed(serverStartFrame());
-        recording.lastHandshake.startOk("guest", "guest", (channelMax, frameMax, heartbeat, tuned) -> {
-            tuned.open("/", connection -> connections.add(connection));
+        recording.lastHandshake.startOk("guest", "guest", new ServerTuneHandler() {
+            @Override
+            public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) {
+                tuned.open("/", new ServerOpenHandler() {
+                    @Override
+                    public void handleOpenOk(ClientConnection connection) {
+                        connections.add(connection);
+                    }
+                });
+            }
         });
         feed(serverTuneFrame(2047, 131072, 60));
         feed(serverOpenOkFrame());
@@ -235,9 +276,21 @@ public class AMQPClientProtocolHandlerTest {
 
         connect();
         feed(serverStartFrame());
-        recording.lastHandshake.startOk("guest", "guest", (channelMax, frameMax, heartbeat, tuned) -> {
-            tuned.open("/", connection -> connection.channelOpen(1,
-                    channel -> openedChannels.add(channel)));
+        recording.lastHandshake.startOk("guest", "guest", new ServerTuneHandler() {
+            @Override
+            public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) {
+                tuned.open("/", new ServerOpenHandler() {
+                    @Override
+                    public void handleOpenOk(ClientConnection connection) {
+                        connection.channelOpen(1, new ServerChannelOpenHandler() {
+                            @Override
+                            public void handleChannelOpenOk(ClientChannel channel) {
+                                openedChannels.add(channel);
+                            }
+                        });
+                    }
+                });
+            }
         });
         feed(serverTuneFrame(0, 131072, 0));
         feed(serverOpenOkFrame());
@@ -253,9 +306,21 @@ public class AMQPClientProtocolHandlerTest {
 
         connect();
         feed(serverStartFrame());
-        recording.lastHandshake.startOk("guest", "guest", (channelMax, frameMax, heartbeat, tuned) -> {
-            tuned.open("/", connection -> connection.channelOpen(1,
-                    channel -> openedChannels.add(channel)));
+        recording.lastHandshake.startOk("guest", "guest", new ServerTuneHandler() {
+            @Override
+            public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) {
+                tuned.open("/", new ServerOpenHandler() {
+                    @Override
+                    public void handleOpenOk(ClientConnection connection) {
+                        connection.channelOpen(1, new ServerChannelOpenHandler() {
+                            @Override
+                            public void handleChannelOpenOk(ClientChannel channel) {
+                                openedChannels.add(channel);
+                            }
+                        });
+                    }
+                });
+            }
         });
         feed(serverTuneFrame(0, 131072, 0));
         feed(serverOpenOkFrame());
@@ -263,9 +328,12 @@ public class AMQPClientProtocolHandlerTest {
 
         final int[] closedCode = new int[1];
         final String[] closedText = new String[1];
-        openedChannels.get(0).setCloseListener((code, text) -> {
-            closedCode[0] = code;
-            closedText[0] = text;
+        openedChannels.get(0).setCloseListener(new ChannelClosedListener() {
+            @Override
+            public void onChannelClosed(int code, String text) {
+                closedCode[0] = code;
+                closedText[0] = text;
+            }
         });
 
         feed(serverChannelCloseFrame(1, 404, "NOT_FOUND - no queue"));
@@ -391,8 +459,12 @@ public class AMQPClientProtocolHandlerTest {
         // Issue two RPCs back-to-back WITHOUT waiting for the first's reply
         // in between, exactly like RecoverableChannelImpl.rebind()'s replay
         // loop does.
-        channel.exchangeDeclare("ex", "topic", true, false, null, () -> exchangeOk[0] = true);
-        channel.queueDeclare("q", true, false, false, null, (queue, mc, cc) -> queueOk[0] = true);
+        channel.exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+            @Override public void handleExchangeDeclareOk() { exchangeOk[0] = true; }
+        });
+        channel.queueDeclare("q", true, false, false, null, new ServerQueueDeclareHandler() {
+            @Override public void handleQueueDeclareOk(String queue, long mc, long cc) { queueOk[0] = true; }
+        });
 
         feed(serverExchangeDeclareOkFrame(1));
         feed(serverQueueDeclareOkFrame(1, "q", 0, 0));
@@ -406,7 +478,9 @@ public class AMQPClientProtocolHandlerTest {
         ClientChannel channel = openChannel();
         final boolean[] ok = new boolean[1];
 
-        channel.exchangeDeclare("my-exchange", "topic", true, false, null, () -> ok[0] = true);
+        channel.exchangeDeclare("my-exchange", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+            @Override public void handleExchangeDeclareOk() { ok[0] = true; }
+        });
 
         lastSentMethodArgs(AMQPMethod.CLASS_EXCHANGE, AMQPMethod.EXCHANGE_DECLARE);
         assertFalse(ok[0]);
@@ -420,10 +494,13 @@ public class AMQPClientProtocolHandlerTest {
         final List<String> queueNames = new ArrayList<>();
         final long[] counts = new long[2];
 
-        channel.queueDeclare("my-queue", true, false, false, null, (queue, msgCount, consumerCount) -> {
-            queueNames.add(queue);
-            counts[0] = msgCount;
-            counts[1] = consumerCount;
+        channel.queueDeclare("my-queue", true, false, false, null, new ServerQueueDeclareHandler() {
+            @Override
+            public void handleQueueDeclareOk(String queue, long msgCount, long consumerCount) {
+                queueNames.add(queue);
+                counts[0] = msgCount;
+                counts[1] = consumerCount;
+            }
         });
 
         feed(serverQueueDeclareOkFrame(1, "my-queue", 7, 2));
@@ -438,7 +515,9 @@ public class AMQPClientProtocolHandlerTest {
         ClientChannel channel = openChannel();
         final boolean[] ok = new boolean[1];
 
-        channel.queueBind("my-queue", "my-exchange", "my.routing.key", null, () -> ok[0] = true);
+        channel.queueBind("my-queue", "my-exchange", "my.routing.key", null, new ServerQueueBindHandler() {
+            @Override public void handleQueueBindOk() { ok[0] = true; }
+        });
 
         lastSentMethodArgs(AMQPMethod.CLASS_QUEUE, AMQPMethod.QUEUE_BIND);
         feed(serverQueueBindOkFrame(1));
@@ -519,7 +598,9 @@ public class AMQPClientProtocolHandlerTest {
         final RecordingDeliveryHandler delivery = new RecordingDeliveryHandler();
 
         channel.basicConsume("my-queue", "", false, false, null, delivery,
-                consumeTags::add);
+                new ServerConsumeHandler() {
+                    @Override public void handleConsumeOk(String consumerTag) { consumeTags.add(consumerTag); }
+                });
         feed(serverConsumeOkFrame(1, "ctag-1"));
         assertEquals(List.of("ctag-1"), consumeTags);
 
@@ -548,7 +629,9 @@ public class AMQPClientProtocolHandlerTest {
     public void testConsumeWithZeroLengthBodyCompletesOnHeader() {
         ClientChannel channel = openChannel();
         RecordingDeliveryHandler delivery = new RecordingDeliveryHandler();
-        channel.basicConsume("q", "", false, false, null, delivery, tag -> { });
+        channel.basicConsume("q", "", false, false, null, delivery, new ServerConsumeHandler() {
+            @Override public void handleConsumeOk(String consumerTag) { }
+        });
         feed(serverConsumeOkFrame(1, "ctag-1"));
 
         feed(serverDeliverFrame(1, "ctag-1", 1L, false, "ex", "rk"));
@@ -576,11 +659,15 @@ public class AMQPClientProtocolHandlerTest {
     public void testCancelRoundTrip() {
         ClientChannel channel = openChannel();
         RecordingDeliveryHandler delivery = new RecordingDeliveryHandler();
-        channel.basicConsume("q", "", false, false, null, delivery, tag -> { });
+        channel.basicConsume("q", "", false, false, null, delivery, new ServerConsumeHandler() {
+            @Override public void handleConsumeOk(String consumerTag) { }
+        });
         feed(serverConsumeOkFrame(1, "ctag-1"));
 
         final List<String> cancelled = new ArrayList<>();
-        channel.basicCancel("ctag-1", cancelled::add);
+        channel.basicCancel("ctag-1", new ServerCancelHandler() {
+            @Override public void handleCancelOk(String consumerTag) { cancelled.add(consumerTag); }
+        });
         feed(serverCancelOkFrame(1, "ctag-1"));
 
         assertEquals(List.of("ctag-1"), cancelled);
@@ -608,19 +695,25 @@ public class AMQPClientProtocolHandlerTest {
         ClientChannel channel = openChannel();
 
         final boolean[] selected = new boolean[1];
-        channel.txSelect(() -> selected[0] = true);
+        channel.txSelect(new ServerTxSelectHandler() {
+            @Override public void handleTxSelectOk() { selected[0] = true; }
+        });
         lastSentMethodArgs(AMQPMethod.CLASS_TX, AMQPMethod.TX_SELECT);
         feed(serverTxOkFrame(1, AMQPMethod.TX_SELECT_OK));
         assertTrue(selected[0]);
 
         final boolean[] committed = new boolean[1];
-        channel.txCommit(() -> committed[0] = true);
+        channel.txCommit(new ServerTxCommitHandler() {
+            @Override public void handleTxCommitOk() { committed[0] = true; }
+        });
         lastSentMethodArgs(AMQPMethod.CLASS_TX, AMQPMethod.TX_COMMIT);
         feed(serverTxOkFrame(1, AMQPMethod.TX_COMMIT_OK));
         assertTrue(committed[0]);
 
         final boolean[] rolledBack = new boolean[1];
-        channel.txRollback(() -> rolledBack[0] = true);
+        channel.txRollback(new ServerTxRollbackHandler() {
+            @Override public void handleTxRollbackOk() { rolledBack[0] = true; }
+        });
         lastSentMethodArgs(AMQPMethod.CLASS_TX, AMQPMethod.TX_ROLLBACK);
         feed(serverTxOkFrame(1, AMQPMethod.TX_ROLLBACK_OK));
         assertTrue(rolledBack[0]);
@@ -657,7 +750,9 @@ public class AMQPClientProtocolHandlerTest {
     public void testBrokerInitiatedFlowIsAckedAndNotifiesListener() {
         ClientChannel channel = openChannel();
         final List<Boolean> flowEvents = new ArrayList<>();
-        channel.setFlowListener(active -> flowEvents.add(active));
+        channel.setFlowListener(new FlowListener() {
+            @Override public void onFlow(boolean active) { flowEvents.add(active); }
+        });
 
         feed(serverFlowFrame(1, false));
 
@@ -674,7 +769,9 @@ public class AMQPClientProtocolHandlerTest {
         ClientChannel channel = openChannel();
         final List<Boolean> results = new ArrayList<>();
 
-        channel.flow(false, active -> results.add(active));
+        channel.flow(false, new ServerFlowHandler() {
+            @Override public void handleFlowOk(boolean active) { results.add(active); }
+        });
         lastSentMethodArgs(AMQPMethod.CLASS_CHANNEL, AMQPMethod.CHANNEL_FLOW);
         feed(serverFlowOkFrame(1, false));
 
@@ -716,7 +813,9 @@ public class AMQPClientProtocolHandlerTest {
         ClientChannel channel = openChannel();
         final boolean[] ok = new boolean[1];
 
-        channel.confirmSelect(() -> ok[0] = true);
+        channel.confirmSelect(new ServerConfirmSelectHandler() {
+            @Override public void handleConfirmSelectOk() { ok[0] = true; }
+        });
         lastSentMethodArgs(AMQPMethod.CLASS_CONFIRM, AMQPMethod.CONFIRM_SELECT);
         assertFalse(ok[0]);
         feed(serverConfirmSelectOkFrame(1));
@@ -733,7 +832,9 @@ public class AMQPClientProtocolHandlerTest {
     @Test
     public void testPublishSequenceNumbersIncrementAfterConfirmSelect() {
         ClientChannel channel = openChannel();
-        channel.confirmSelect(() -> { });
+        channel.confirmSelect(new ServerConfirmSelectHandler() {
+            @Override public void handleConfirmSelectOk() { }
+        });
         feed(serverConfirmSelectOkFrame(1));
 
         PublishBody first = channel.basicPublish("ex", "rk", false, null, 0);
@@ -748,7 +849,9 @@ public class AMQPClientProtocolHandlerTest {
     @Test
     public void testConfirmAckAndNackRoutedToListener() {
         ClientChannel channel = openChannel();
-        channel.confirmSelect(() -> { });
+        channel.confirmSelect(new ServerConfirmSelectHandler() {
+            @Override public void handleConfirmSelectOk() { }
+        });
         feed(serverConfirmSelectOkFrame(1));
 
         final List<long[]> acks = new ArrayList<>();
@@ -781,7 +884,9 @@ public class AMQPClientProtocolHandlerTest {
     @Test
     public void testConfirmAckWithoutListenerDoesNotError() {
         ClientChannel channel = openChannel();
-        channel.confirmSelect(() -> { });
+        channel.confirmSelect(new ServerConfirmSelectHandler() {
+            @Override public void handleConfirmSelectOk() { }
+        });
         feed(serverConfirmSelectOkFrame(1));
         channel.basicPublish("ex", "rk", false, null, 0);
 

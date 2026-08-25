@@ -99,13 +99,16 @@ public class MosquittoClientIntegrationTest {
             public void subscribeAcknowledged(int packetId, int[] grantedQoS) {
                 subscribedLatch.countDown();
             }
-        }, (t, content, qos, retain) -> {
-            try {
-                received.set(new String(content.asByteArray(), StandardCharsets.UTF_8));
-            } finally {
-                content.release();
+        }, new MQTTMessageListener() {
+            @Override
+            public void messageReceived(String t, MQTTMessageContent content, int qos, boolean retain) {
+                try {
+                    received.set(new String(content.asByteArray(), StandardCharsets.UTF_8));
+                } finally {
+                    content.release();
+                }
+                messageLatch.countDown();
             }
-            messageLatch.countDown();
         });
 
         assertTrue("subscribe did not complete within timeout",
@@ -130,7 +133,12 @@ public class MosquittoClientIntegrationTest {
             public void publishComplete(int packetId) {
                 publishedLatch.countDown();
             }
-        }, (t, content, qos, retain) -> content.release());
+        }, new MQTTMessageListener() {
+            @Override
+            public void messageReceived(String t, MQTTMessageContent content, int qos, boolean retain) {
+                content.release();
+            }
+        });
 
         assertTrue("publish did not complete within timeout",
                 publishedLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -177,13 +185,16 @@ public class MosquittoClientIntegrationTest {
             public void subscribeAcknowledged(int packetId, int[] grantedQoS) {
                 client.publish(topic, payload, QoS.AT_LEAST_ONCE);
             }
-        }, (t, content, qos, retain) -> {
-            try {
-                received.set(new String(content.asByteArray(), StandardCharsets.UTF_8));
-            } finally {
-                content.release();
+        }, new MQTTMessageListener() {
+            @Override
+            public void messageReceived(String t, MQTTMessageContent content, int qos, boolean retain) {
+                try {
+                    received.set(new String(content.asByteArray(), StandardCharsets.UTF_8));
+                } finally {
+                    content.release();
+                }
+                doneLatch.countDown();
             }
-            doneLatch.countDown();
         });
 
         assertTrue("did not complete within timeout", doneLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -227,7 +238,12 @@ public class MosquittoClientIntegrationTest {
             @Override
             public void publishComplete(int packetId) {
             }
-        }, (t, content, qos, retain) -> content.release());
+        }, new MQTTMessageListener() {
+            @Override
+            public void messageReceived(String t, MQTTMessageContent content, int qos, boolean retain) {
+                content.release();
+            }
+        });
 
         assertTrue("did not complete within timeout", doneLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
         if (connackCode.get() != null) {

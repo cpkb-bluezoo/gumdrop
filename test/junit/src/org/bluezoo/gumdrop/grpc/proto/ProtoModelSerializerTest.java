@@ -144,10 +144,13 @@ public class ProtoModelSerializerTest {
 
         serializer.startMessage(writer, "example.v1.Outer");
         serializer.field(writer, "id", 1);
-        serializer.messageField(writer, "inner", "example.v1.Inner", (s, w2) -> {
-            s.startMessage(w2, "example.v1.Inner");
-            s.field(w2, "value", "nested");
-            s.endMessage();
+        serializer.messageField(writer, "inner", "example.v1.Inner", new ProtoModelSerializer.MessageContent() {
+            @Override
+            public void writeTo(ProtoModelSerializer s, ProtobufWriter w2) throws java.io.IOException {
+                s.startMessage(w2, "example.v1.Inner");
+                s.field(w2, "value", "nested");
+                s.endMessage();
+            }
         });
         serializer.endMessage();
 

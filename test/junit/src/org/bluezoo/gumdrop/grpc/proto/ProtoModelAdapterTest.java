@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.grpc.proto;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -62,12 +63,15 @@ public class ProtoModelAdapterTest {
     public void testRoundTripSimple() throws Exception {
         ProtoFile protoFile = ProtoFileParser.parse(PROTO_SIMPLE);
 
-        ByteBuffer serialized = serialize(protoFile, "example.v1.Simple", (s, w) -> {
-            s.startMessage(w, "example.v1.Simple");
-            s.field(w, "x", 42);
-            s.field(w, "s", "hello");
-            s.field(w, "b", true);
-            s.endMessage();
+        ByteBuffer serialized = serialize(protoFile, "example.v1.Simple", new SerializeCallback() {
+            @Override
+            public void serialize(ProtoModelSerializer s, ProtobufWriter w) throws Exception {
+                s.startMessage(w, "example.v1.Simple");
+                s.field(w, "x", 42);
+                s.field(w, "s", "hello");
+                s.field(w, "b", true);
+                s.endMessage();
+            }
         });
 
         RecordingHandler handler = new RecordingHandler();
@@ -95,15 +99,21 @@ public class ProtoModelAdapterTest {
     public void testRoundTripNested() throws Exception {
         ProtoFile protoFile = ProtoFileParser.parse(PROTO_NESTED);
 
-        ByteBuffer serialized = serialize(protoFile, "example.v1.Outer", (s, w) -> {
-            s.startMessage(w, "example.v1.Outer");
-            s.field(w, "id", 1);
-            s.messageField(w, "inner", "example.v1.Inner", (s2, w2) -> {
-                s2.startMessage(w2, "example.v1.Inner");
-                s2.field(w2, "value", "nested");
-                s2.endMessage();
-            });
-            s.endMessage();
+        ByteBuffer serialized = serialize(protoFile, "example.v1.Outer", new SerializeCallback() {
+            @Override
+            public void serialize(ProtoModelSerializer s, ProtobufWriter w) throws Exception {
+                s.startMessage(w, "example.v1.Outer");
+                s.field(w, "id", 1);
+                s.messageField(w, "inner", "example.v1.Inner", new ProtoModelSerializer.MessageContent() {
+                    @Override
+                    public void writeTo(ProtoModelSerializer s2, ProtobufWriter w2) throws IOException {
+                        s2.startMessage(w2, "example.v1.Inner");
+                        s2.field(w2, "value", "nested");
+                        s2.endMessage();
+                    }
+                });
+                s.endMessage();
+            }
         });
 
         RecordingHandler handler = new RecordingHandler();
@@ -122,10 +132,10 @@ public class ProtoModelAdapterTest {
         assertEquals("inner", handler.fieldStarts.get(0).name);
         assertEquals("example.v1.Inner", handler.fieldStarts.get(0).typeName);
         assertEquals(2, handler.fields.size());
-        FieldValue idField = handler.fields.stream().filter(f -> "id".equals(f.name)).findFirst().orElse(null);
+        FieldValue idField = findField(handler.fields, "id");
         assertNotNull(idField);
         assertEquals(1, ((Number) idField.value).intValue());
-        FieldValue valueField = handler.fields.stream().filter(f -> "value".equals(f.name)).findFirst().orElse(null);
+        FieldValue valueField = findField(handler.fields, "value");
         assertNotNull(valueField);
         assertEquals("nested", valueField.value);
         assertEquals(1, handler.fieldEnds);
@@ -136,9 +146,12 @@ public class ProtoModelAdapterTest {
     public void testParseEmptyMessage() throws Exception {
         ProtoFile protoFile = ProtoFileParser.parse(PROTO_SIMPLE);
 
-        ByteBuffer serialized = serialize(protoFile, "example.v1.Simple", (s, w) -> {
-            s.startMessage(w, "example.v1.Simple");
-            s.endMessage();
+        ByteBuffer serialized = serialize(protoFile, "example.v1.Simple", new SerializeCallback() {
+            @Override
+            public void serialize(ProtoModelSerializer s, ProtobufWriter w) throws Exception {
+                s.startMessage(w, "example.v1.Simple");
+                s.endMessage();
+            }
         });
 
         RecordingHandler handler = new RecordingHandler();
@@ -153,6 +166,15 @@ public class ProtoModelAdapterTest {
         assertEquals(1, handler.starts.size());
         assertEquals(0, handler.fields.size());
         assertEquals(1, handler.ends);
+    }
+
+    private static FieldValue findField(List<FieldValue> fields, String name) {
+        for (FieldValue f : fields) {
+            if (name.equals(f.name)) {
+                return f;
+            }
+        }
+        return null;
     }
 
     private ByteBuffer serialize(ProtoFile protoFile, String typeName,

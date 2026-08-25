@@ -9,6 +9,7 @@ package org.bluezoo.gumdrop.grpc.server;
 
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
+import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -19,7 +20,12 @@ import static org.junit.Assert.*;
 public class GrpcHandlerFactoryTest {
 
     private static final ProtoFile PROTO = ProtoFile.builder().build();
-    private static final GrpcService NOOP_SERVICE = (path, response) -> null;
+    private static final GrpcService NOOP_SERVICE = new GrpcService() {
+        @Override
+        public ProtoMessageHandler startUnaryCall(String path, GrpcResponseSender response) {
+            return null;
+        }
+    };
 
     @Test
     public void testDefaultMaxMessageSize() {

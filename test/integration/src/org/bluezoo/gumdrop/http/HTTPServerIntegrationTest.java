@@ -365,17 +365,20 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
         
         for (int i = 0; i < numThreads; i++) {
             final int index = i;
-            threads[i] = new Thread(() -> {
-                try {
-                    String request = "GET /concurrent" + index + " HTTP/1.1\r\n" +
-                                    "Host: localhost\r\n" +
-                                    "Connection: close\r\n" +
-                                    "\r\n";
-                    
-                    HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
-                    results[index] = (response.statusCode == 404);
-                } catch (Exception e) {
-                    results[index] = false;
+            threads[i] = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        String request = "GET /concurrent" + index + " HTTP/1.1\r\n" +
+                                        "Host: localhost\r\n" +
+                                        "Connection: close\r\n" +
+                                        "\r\n";
+
+                        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+                        results[index] = (response.statusCode == 404);
+                    } catch (Exception e) {
+                        results[index] = false;
+                    }
                 }
             });
             threads[i].start();

@@ -27,7 +27,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
-import java.util.Comparator;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.AfterClass;
@@ -100,9 +99,19 @@ public class QuicStreamEndToEndTest {
     @AfterClass
     public static void deleteServerCertificate() throws IOException {
         if (certsDirectory != null) {
-            Files.walk(certsDirectory)
-                    .sorted(Comparator.reverseOrder())
-                    .forEach(QuicStreamEndToEndTest::deleteQuietly);
+            Files.walkFileTree(certsDirectory, new java.nio.file.SimpleFileVisitor<Path>() {
+                @Override
+                public java.nio.file.FileVisitResult visitFile(Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                    deleteQuietly(file);
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public java.nio.file.FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+                    deleteQuietly(dir);
+                    return java.nio.file.FileVisitResult.CONTINUE;
+                }
+            });
         }
     }
 

@@ -85,7 +85,12 @@ final class FakeAMQPBroker implements AutoCloseable {
 
     FakeAMQPBroker() throws IOException {
         serverSocket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
-        acceptThread = new Thread(this::acceptLoop, "fake-amqp-broker-accept");
+        acceptThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                acceptLoop();
+            }
+        }, "fake-amqp-broker-accept");
         acceptThread.setDaemon(true);
         acceptThread.start();
     }
@@ -203,7 +208,12 @@ final class FakeAMQPBroker implements AutoCloseable {
     }
 
     private BrokerQueue queue(String name) {
-        return queues.computeIfAbsent(name, n -> new BrokerQueue());
+        return queues.computeIfAbsent(name, new java.util.function.Function<String, BrokerQueue>() {
+            @Override
+            public BrokerQueue apply(String n) {
+                return new BrokerQueue();
+            }
+        });
     }
 
     private void route(String exchange, String routingKey, BasicProperties properties, byte[] body) {
@@ -227,9 +237,21 @@ final class FakeAMQPBroker implements AutoCloseable {
     }
 
     private void bind(String queue, String exchange, String routingKey) {
-        bindings.computeIfAbsent(exchange, e -> new ConcurrentHashMap<String, List<String>>())
-                .computeIfAbsent(routingKey, rk -> new CopyOnWriteArrayList<String>())
-                .add(queue);
+        Map<String, List<String>> byRoutingKey = bindings.computeIfAbsent(exchange,
+                new java.util.function.Function<String, Map<String, List<String>>>() {
+                    @Override
+                    public Map<String, List<String>> apply(String e) {
+                        return new ConcurrentHashMap<String, List<String>>();
+                    }
+                });
+        List<String> boundQueues = byRoutingKey.computeIfAbsent(routingKey,
+                new java.util.function.Function<String, List<String>>() {
+                    @Override
+                    public List<String> apply(String rk) {
+                        return new CopyOnWriteArrayList<String>();
+                    }
+                });
+        boundQueues.add(queue);
     }
 
     // ── Per-connection protocol driver ──
