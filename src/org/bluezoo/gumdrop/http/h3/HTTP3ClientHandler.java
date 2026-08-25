@@ -712,7 +712,8 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         // RFC 9204 section 3.2.1/4.3.1: our own Encoder may not use more
         // dynamic-table capacity than the peer's declared receive-side
         // ceiling permits, whichever is smaller against our own default.
-        for (int i = 0; i + 1 < settings.length; i += 2) {
+        int max = settings.length - 1;
+        for (int i = 0; i < max; i += 2) {
             if (settings[i] == H3FrameHandler.SETTINGS_QPACK_MAX_TABLE_CAPACITY) {
                 int capacity = (int) Math.min(DEFAULT_QPACK_TABLE_CAPACITY, settings[i + 1]);
                 ByteBuffer instructions = ByteBuffer.allocate(16);

@@ -1424,7 +1424,8 @@ public final class IMAPClientProtocolHandler
                 data.lastIndexOf(')'));
         String[] tokens = resources.trim().split("\\s+");
         // triplets: resourceName usage limit
-        for (int i = 0; i + 2 < tokens.length; i += 3) {
+        int max = tokens.length - 2;
+        for (int i = 0; i < max; i += 3) {
             String resourceName = tokens[i];
             long usage = Long.parseLong(tokens[i + 1]);
             long limit = Long.parseLong(tokens[i + 2]);
