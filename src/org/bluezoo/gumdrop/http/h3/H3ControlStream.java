@@ -355,7 +355,8 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
                     "SETTINGS must not be sent more than once");
             return;
         }
-        for (int i = 0; i + 1 < settings.length; i += 2) {
+        int max = settings.length - 1;
+        for (int i = 0; i < max; i += 2) {
             long identifier = settings[i];
             long value = settings[i + 1];
             if (H3FrameHandler.isReservedHttp2Setting(identifier)) {
