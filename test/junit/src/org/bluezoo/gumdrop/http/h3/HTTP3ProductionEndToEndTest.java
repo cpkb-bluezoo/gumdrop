@@ -1143,6 +1143,116 @@ public class HTTP3ProductionEndToEndTest {
     }
 
     /**
+     * RFC 9114 section 7.2.6: server GOAWAY must be sent on the control
+     * stream (issue #224). {@link HTTP3ServerHandler#close} after a
+     * completed request must deliver GOAWAY to the client; the previous
+     * bug opened a fresh uni stream without a stream-type preamble, so
+     * the peer treated the bytes as an unknown uni stream and the client
+     * never saw GOAWAY.
+     */
+    @Test
+    public void testServerCloseSendsGoawayOnControlStream() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols("h3");
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+                @Override
+                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                    return new DefaultHTTPRequestHandler() {
+                        @Override
+                        public void headers(HTTPResponseState state, Headers headers) {
+                            Headers response = new Headers();
+                            response.add(":status", "200");
+                            state.headers(response);
+                            state.complete();
+                        }
+                    };
+                }
+            };
+
+            final AtomicReference<HTTP3ServerHandler> serverHandlerRef =
+                    new AtomicReference<HTTP3ServerHandler>();
+            final AtomicReference<QuicConnection> serverConnRef =
+                    new AtomicReference<QuicConnection>();
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            serverConnRef.set(connection);
+                            serverHandlerRef.set(new HTTP3ServerHandler(
+                                    connection, handlerFactory, null, null, null, false));
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols("h3");
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final AtomicReference<HTTP3ClientHandler> h3Ref =
+                    new AtomicReference<HTTP3ClientHandler>();
+            final CountDownLatch clientReady = new CountDownLatch(1);
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(QuicConnection connection) {
+                            h3Ref.set(new HTTP3ClientHandler(connection));
+                            clientReady.countDown();
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s",
+                    clientReady.await(5, TimeUnit.SECONDS));
+            HTTP3ClientHandler h3 = h3Ref.get();
+            sendGetAndAwait(h3, "/before-goaway", null, null);
+            assertFalse("Client must not be in GOAWAY state before server close",
+                    h3.isGoaway());
+
+            final HTTP3ServerHandler serverHandler = serverHandlerRef.get();
+            assertNotNull(serverHandler);
+            assertNotNull(serverConnRef.get());
+            // close()/sendGoaway touch the QuicConnection; run on its loop.
+            final CountDownLatch closed = new CountDownLatch(1);
+            serverConnRef.get().getSelectorLoop().invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    serverHandler.close();
+                    closed.countDown();
+                }
+            });
+            assertTrue(closed.await(5, TimeUnit.SECONDS));
+
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (!h3.isGoaway() && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertTrue("Server GOAWAY on the control stream must reach the client",
+                    h3.isGoaway());
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * RFC 9114 section 7.2.4: a second SETTINGS frame is
      * H3_FRAME_UNEXPECTED.
      */

@@ -119,6 +119,21 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     private Endpoint qpackEncoderStream;
     private Endpoint qpackDecoderStream;
 
+    /**
+     * Our local HTTP/3 control stream (RFC 9114 section 6.2.1). Retained
+     * so {@link #sendGoaway} can write GOAWAY there -- GOAWAY must not
+     * open a fresh unidirectional stream (RFC 9114 section 7.2.6).
+     */
+    private Endpoint controlStream;
+
+    /**
+     * GOAWAY queued because {@link #sendGoaway} ran before the control
+     * stream's {@code connected} callback (uni-stream credit not yet
+     * granted). Flushed immediately after SETTINGS once the endpoint
+     * exists -- SETTINGS must remain first on the control stream.
+     */
+    private Long pendingGoawayStreamId;
+
     private long highestClientStreamId = -1;
     private Trace trace;
     private boolean goaway;
@@ -208,7 +223,8 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     // RFC 9114 section 6.2.1 / 7.2.4: open our own control stream and
     // send SETTINGS as its first frame. The send lives in connected()
     // so a queued open (no uni-stream credit yet; RFC 9000 section 4.6)
-    // still emits SETTINGS once the peer grants the stream.
+    // still emits SETTINGS once the peer grants the stream. The endpoint
+    // is retained for later GOAWAY (RFC 9114 section 7.2.6).
     private void openControlStream() {
         final long[] settings = {
             H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1,
@@ -219,12 +235,17 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         quicConnection.openUnidirectionalStream(new ProtocolHandler() {
             @Override
             public void connected(Endpoint endpoint) {
+                controlStream = endpoint;
                 int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
                 ByteBuffer out = ByteBuffer.allocate(length);
                 H3Writer.writeStreamType(out, 0x00);
                 H3Writer.writeSettings(out, settings);
                 out.flip();
                 endpoint.send(out);
+                if (pendingGoawayStreamId != null) {
+                    writeGoawayFrame(pendingGoawayStreamId.longValue());
+                    pendingGoawayStreamId = null;
+                }
             }
 
             @Override
@@ -539,17 +560,27 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         }
     }
 
+    /**
+     * RFC 9114 section 7.2.6: GOAWAY is sent on the connection's
+     * control stream, after SETTINGS. Does not open a new unidirectional
+     * stream -- a GOAWAY anywhere else is {@code H3_FRAME_UNEXPECTED},
+     * and a fresh uni open also consumes stream-concurrency credit
+     * (RFC 9000 section 4.6).
+     */
     private void sendGoaway(long streamId) {
-        Endpoint controlStream = quicConnection.openUnidirectionalStream(new NullProtocolHandler());
         if (controlStream == null) {
+            pendingGoawayStreamId = Long.valueOf(streamId);
             return;
         }
+        writeGoawayFrame(streamId);
+    }
+
+    private void writeGoawayFrame(long streamId) {
         int length = H3Writer.goawayLength(streamId);
         ByteBuffer out = ByteBuffer.allocate(length);
         H3Writer.writeGoaway(out, streamId);
         out.flip();
         controlStream.send(out);
-        controlStream.close();
     }
 
     // ── Accessors for H3Stream ──
@@ -690,30 +721,6 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         }
         if (metrics != null) {
             metrics.connectionClosed();
-        }
-    }
-
-    /** A {@link ProtocolHandler} for our own send-only unidirectional streams, which never receive data. */
-    private static final class NullProtocolHandler implements ProtocolHandler {
-
-        @Override
-        public void connected(Endpoint endpoint) {
-        }
-
-        @Override
-        public void receive(ByteBuffer data) {
-        }
-
-        @Override
-        public void securityEstablished(SecurityInfo info) {
-        }
-
-        @Override
-        public void disconnected() {
-        }
-
-        @Override
-        public void error(Exception cause) {
         }
     }
 }
