@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
+import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
@@ -154,8 +155,8 @@ public class SPKIPinnedCertTrustManager implements X509TrustManager {
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(
                     TrustManagerFactory.getDefaultAlgorithm());
             tmf.init((KeyStore) null);
-            javax.net.ssl.TrustManager[] tms = tmf.getTrustManagers();
-            for (javax.net.ssl.TrustManager tm : tms) {
+            TrustManager[] tms = tmf.getTrustManagers();
+            for (TrustManager tm : tms) {
                 if (tm instanceof X509TrustManager) {
                     return (X509TrustManager) tm;
                 }

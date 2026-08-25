@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.servlet.jndi;
 
 import javax.ejb.EJB;
+import javax.naming.Context;
 import javax.naming.NamingException;
 
 /**
@@ -187,7 +188,7 @@ public final class EjbRef implements Injectable {
         return ejbLink;
     }
 
-    @Override public Object resolve(javax.naming.Context ctx) throws NamingException {
+    @Override public Object resolve(Context ctx) throws NamingException {
         // EJB 3.x lookup resolution order (EJB spec section 16.2.2):
         // 1. lookup attribute (if specified)
         // 2. ejb-link (direct reference to bean)
@@ -259,7 +260,7 @@ public final class EjbRef implements Injectable {
      * Attempts a JNDI lookup, returning null instead of throwing NamingException
      * if the name is not found.
      */
-    private Object safeLookup(javax.naming.Context ctx, String name) {
+    private Object safeLookup(Context ctx, String name) {
         if (name == null || name.isEmpty()) {
             return null;
         }

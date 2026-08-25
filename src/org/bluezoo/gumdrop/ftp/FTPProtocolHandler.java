@@ -33,6 +33,9 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.security.cert.Certificate;
 import java.text.MessageFormat;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -602,7 +605,7 @@ public final class FTPProtocolHandler
      * the outcome back on this control connection's loop thread.
      *
      * <p>Filesystem metadata ({@code stat}/{@code readdir}/{@code open}/…)
-     * and {@link java.nio.channels.AsynchronousFileChannel#open} must use
+     * and {@link AsynchronousFileChannel#open} must use
      * this helper — never run them directly on the loop.
      *
      * @param op the blocking work
@@ -2760,16 +2763,16 @@ public final class FTPProtocolHandler
                             L10N.getString("ftp.err.is_directory"), path));
                     return;
                 }
-                java.time.Instant modified = info.getLastModified();
+                Instant modified = info.getLastModified();
                 if (modified == null) {
                     replyQuietly(550, MessageFormat.format(
                             L10N.getString("ftp.err.file_not_found"), path));
                     return;
                 }
                 // RFC 3659 section 3: reply code 213, format YYYYMMDDhhmmss
-                String timestamp = java.time.format.DateTimeFormatter
+                String timestamp = DateTimeFormatter
                         .ofPattern("yyyyMMddHHmmss")
-                        .withZone(java.time.ZoneOffset.UTC)
+                        .withZone(ZoneOffset.UTC)
                         .format(modified);
                 replyQuietly(213, timestamp);
             }

@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.imap;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.CompletionHandler;
@@ -39,6 +40,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.SignStyle;
+import java.time.format.TextStyle;
 import java.time.temporal.ChronoField;
 import java.text.ParseException;
 import java.util.ArrayList;
@@ -704,7 +706,7 @@ public final class IMAPProtocolHandler
             try {
                 literalStr = generalLiteralBuffer.toString(
                         StandardCharsets.UTF_8.name());
-            } catch (java.io.UnsupportedEncodingException e) {
+            } catch (UnsupportedEncodingException e) {
                 literalStr = ""; // UTF-8 is always supported; unreachable
             }
             generalLiteralBuffer = null;
@@ -1294,17 +1296,17 @@ public final class IMAPProtocolHandler
 
     // RFC 2971 — ID command
     private void handleId(String tag, String args) throws IOException {
-        if (args != null && LOGGER.isLoggable(java.util.logging.Level.FINE)) {
+        if (args != null && LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Client ID: " + args);
         }
-        java.util.Map<String, String> fields = server.getServerIdFields();
+        Map<String, String> fields = server.getServerIdFields();
         StringBuilder sb = new StringBuilder("ID (");
         if (fields == null || fields.isEmpty()) {
             sb.append("\"name\" \"gumdrop\" \"version\" \"")
               .append(getServerVersion()).append('"');
         } else {
             boolean first = true;
-            for (java.util.Map.Entry<String, String> entry
+            for (Map.Entry<String, String> entry
                     : fields.entrySet()) {
                 if (!first) {
                     sb.append(' ');
@@ -3692,7 +3694,7 @@ public final class IMAPProtocolHandler
                             SignStyle.NOT_NEGATIVE)
                     .appendLiteral('-')
                     .appendText(ChronoField.MONTH_OF_YEAR,
-                            java.time.format.TextStyle.SHORT)
+                            TextStyle.SHORT)
                     .appendLiteral('-')
                     .appendValue(ChronoField.YEAR, 4)
                     .appendLiteral(' ')

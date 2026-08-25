@@ -51,7 +51,43 @@ This is enforced at compile time via the `--release` flag in `build.xml`.
 - Streams API (`java.util.stream`)
 - `Optional<T>`
 - `CompletableFuture` and `Future`
-- Default methods in interfaces (except when implementing J2EE APIs that require them)
+
+### Default Methods in Interfaces
+
+Default methods are permitted for **backward-compatible interface evolution**: adding a new, optional callback or accessor to an existing public interface (`ProtocolHandler`, `Endpoint`, `Mailbox`, `Realm`, and similar) without breaking every class that already implements it. A default method used this way should have a body that is either empty or a sensible, self-contained fallback — not business logic that belongs in a concrete class.
+
+They're also permitted when implementing J2EE APIs that require them.
+
+Default methods are **not** a substitute for an abstract class or a proper base implementation, and should not be used to share non-trivial logic between implementers — use composition or a shared helper class for that instead.
+
+**Good (optional callback, safe no-op default):**
+```java
+public interface ProtocolHandler {
+    void receive(ByteBuffer data);
+
+    // Optional: most handlers don't care about mid-stream flushes.
+    default void flushed() {
+    }
+}
+```
+
+**Bad (default method doing real work, not just evolution):**
+```java
+public interface Mailbox {
+    // BAD: this is a real algorithm, not a safe fallback -- put it in a
+    // shared helper class instead, so implementers can't accidentally
+    // inherit behaviour they didn't ask for.
+    default List<Message> search(SearchCriteria criteria) throws IOException {
+        List<Message> results = new ArrayList<Message>();
+        for (int i = 1; i <= getMessageCount(); i++) {
+            if (criteria.matches(getMessage(i))) {
+                results.add(getMessage(i));
+            }
+        }
+        return results;
+    }
+}
+```
 
 ## File Headers
 
@@ -149,7 +185,8 @@ public void process(java.util.List<String> items, java.util.Map<String, Object> 
 
 ## Annotations
 
-- Only `@Override` and `@Deprecated` are permitted in main source code
+- Only `@Override`, `@Deprecated`, and `@SuppressWarnings` are permitted in main source code
+- `@SuppressWarnings` must be as narrowly scoped as possible (method or variable, not class-level) and should carry a comment explaining why the warning is a false positive or otherwise unavoidable, unless the reason is already obvious at the call site (e.g. a `@SuppressWarnings("unchecked")` immediately after an array-based generic cast)
 - Other annotations may be used in:
   - Example code demonstrating annotation support (e.g., `@WebServlet`)
   - JUnit tests (e.g., `@Test`, `@Before`)

@@ -29,6 +29,7 @@ package org.bluezoo.gumdrop.telemetry;
  * works without any factory on the classpath; export requires the optional jar.
  *
  * @see TelemetryConfig#init()
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface TelemetryExporterFactory {
 

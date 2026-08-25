@@ -42,6 +42,8 @@ import org.bluezoo.gumdrop.http.client.HTTPRequest;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509TrustManager;
 
 /**
  * DNS-over-HTTPS (DoH) transport for DNS client queries.
@@ -83,8 +85,8 @@ public class DoHClientTransport implements DNSClientTransport {
     private volatile boolean connected;
 
     private String path = DEFAULT_PATH;
-    private javax.net.ssl.SSLContext sslContext;
-    private javax.net.ssl.X509TrustManager trustManager;
+    private SSLContext sslContext;
+    private X509TrustManager trustManager;
 
     private static ScheduledExecutorService createTimerExecutor() {
         ScheduledThreadPoolExecutor exec =
@@ -121,7 +123,7 @@ public class DoHClientTransport implements DNSClientTransport {
      *
      * @param sslContext the SSL context
      */
-    public void setSSLContext(javax.net.ssl.SSLContext sslContext) {
+    public void setSSLContext(SSLContext sslContext) {
         this.sslContext = sslContext;
     }
 
@@ -132,7 +134,7 @@ public class DoHClientTransport implements DNSClientTransport {
      *
      * @param trustManager the trust manager, or null to use defaults
      */
-    public void setTrustManager(javax.net.ssl.X509TrustManager trustManager) {
+    public void setTrustManager(X509TrustManager trustManager) {
         this.trustManager = trustManager;
     }
 

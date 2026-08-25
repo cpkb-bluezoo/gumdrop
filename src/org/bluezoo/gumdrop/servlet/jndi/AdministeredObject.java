@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.jndi;
 
+import java.lang.reflect.Method;
 import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -235,7 +236,7 @@ public final class AdministeredObject extends Resource implements Injectable {
         
         for (Class<?> paramType : parameterTypes) {
             try {
-                java.lang.reflect.Method setter = clazz.getMethod(setterName, paramType);
+                Method setter = clazz.getMethod(setterName, paramType);
                 Object convertedValue = convertValue(value, paramType);
                 setter.invoke(target, convertedValue);
                 return; // Success

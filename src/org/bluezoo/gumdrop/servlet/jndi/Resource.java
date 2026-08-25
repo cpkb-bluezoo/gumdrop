@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.jndi;
 
+import java.lang.reflect.InvocationTargetException;
 import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
@@ -74,7 +75,7 @@ public abstract class Resource {
             }
             return t.getDeclaredConstructor().newInstance();
         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException
-                | NoSuchMethodException | java.lang.reflect.InvocationTargetException e) {
+                | NoSuchMethodException | InvocationTargetException e) {
             String message = L10N.getString("err.init_resource");
             message = MessageFormat.format(message, className);
             LOGGER.log(Level.SEVERE, message, e);

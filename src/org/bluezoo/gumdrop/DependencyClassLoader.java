@@ -29,6 +29,7 @@ import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -313,7 +314,7 @@ public class DependencyClassLoader extends ClassLoader {
                 if (file.isFile()) {
                     return file;
                 }
-            } catch (java.net.URISyntaxException e) {
+            } catch (URISyntaxException e) {
                 throw new IOException(e);
             }
         }

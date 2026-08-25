@@ -25,6 +25,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.servlet.Servlet;
+import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -218,7 +219,7 @@ public class JSPServlet extends HttpServlet {
      * @return the Context instance, or null if not available
      */
     private Context getContext() {
-        javax.servlet.ServletContext servletContext = getServletContext();
+        ServletContext servletContext = getServletContext();
         if (servletContext instanceof Context) {
             return (Context) servletContext;
         }
@@ -240,7 +241,7 @@ public class JSPServlet extends HttpServlet {
      * @param servlet the servlet to check
      * @return true if the servlet is initialized
      */
-    private boolean isServletInitialized(javax.servlet.Servlet servlet) {
+    private boolean isServletInitialized(Servlet servlet) {
         // For now, assume all servlets returned by parseJSPFile need initialization
         // In a more sophisticated implementation, you might track this state
         return false;
@@ -252,7 +253,7 @@ public class JSPServlet extends HttpServlet {
      * 
      * @param servlet the servlet that has been initialized
      */
-    private void markServletInitialized(javax.servlet.Servlet servlet) {
+    private void markServletInitialized(Servlet servlet) {
         // Placeholder for tracking servlet initialization state
         // In a production implementation, you might store this in a registry
     }

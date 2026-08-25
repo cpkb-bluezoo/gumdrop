@@ -732,7 +732,12 @@ public class Gumdrop {
                 // closing the window entirely -- provided every path back
                 // into this instance (start(), in practice) waits for
                 // that thread first; see pendingAsyncShutdown and start().
-                Thread shutdownThread = new Thread(this::shutdown, "gumdrop-auto-shutdown");
+                Thread shutdownThread = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        shutdown();
+                    }
+                }, "gumdrop-auto-shutdown");
                 shutdownThread.setDaemon(true);
                 pendingAsyncShutdown = shutdownThread;
                 shutdownThread.start();

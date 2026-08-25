@@ -26,8 +26,10 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -345,9 +347,9 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
                 h.handleResult(result, this);
             } else if (response.isMap()) {
                 // RESP3 Map — flatten to alternating key/value array for compatibility
-                java.util.Map<RESPValue, RESPValue> map = response.asMap();
-                List<RESPValue> flat = new java.util.ArrayList<RESPValue>(map.size() * 2);
-                for (java.util.Map.Entry<RESPValue, RESPValue> entry : map.entrySet()) {
+                Map<RESPValue, RESPValue> map = response.asMap();
+                List<RESPValue> flat = new ArrayList<RESPValue>(map.size() * 2);
+                for (Map.Entry<RESPValue, RESPValue> entry : map.entrySet()) {
                     flat.add(entry.getKey());
                     flat.add(entry.getValue());
                 }
@@ -355,7 +357,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
             } else {
                 // For other RESP3 types received by ArrayResultHandler,
                 // wrap in a single-element array
-                List<RESPValue> wrapped = new java.util.ArrayList<RESPValue>(1);
+                List<RESPValue> wrapped = new ArrayList<RESPValue>(1);
                 wrapped.add(response);
                 h.handleResult(wrapped, this);
             }
@@ -712,7 +714,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     private String[] buildScanArgs(String cursor, String match, int count) {
-        java.util.ArrayList<String> args = new java.util.ArrayList<String>();
+        ArrayList<String> args = new ArrayList<String>();
         args.add(cursor);
         if (match != null) {
             args.add("MATCH");
@@ -726,7 +728,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     }
 
     private String[] buildKeyScanArgs(String key, String cursor, String match, int count) {
-        java.util.ArrayList<String> args = new java.util.ArrayList<String>();
+        ArrayList<String> args = new ArrayList<String>();
         args.add(key);
         args.add(cursor);
         if (match != null) {
@@ -1180,7 +1182,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     // Redis command reference — XREAD
     @Override
     public void xread(int count, long blockMillis, ArrayResultHandler h, String... keysAndIds) {
-        java.util.ArrayList<String> args = new java.util.ArrayList<String>();
+        ArrayList<String> args = new ArrayList<String>();
         if (count > 0) {
             args.add("COUNT");
             args.add(String.valueOf(count));

@@ -218,8 +218,12 @@ public class RFC2047Encoder {
 					// Avoid splitting in the middle of a UTF-8 multi-byte sequence
 					while (chunkSize > 0 && offset + chunkSize < segmentBytes.length) {
 						byte b = segmentBytes[offset + chunkSize];
-						if ((b & 0x80) == 0) break;   // ASCII — safe
-						if ((b & 0xC0) == 0xC0) break; // UTF-8 lead byte — safe
+						if ((b & 0x80) == 0) {
+							break; // ASCII — safe
+						}
+						if ((b & 0xC0) == 0xC0) {
+							break; // UTF-8 lead byte — safe
+						}
 						chunkSize--;
 					}
 

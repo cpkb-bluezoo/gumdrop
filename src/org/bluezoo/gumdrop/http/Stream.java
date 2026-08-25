@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.http;
 
 import java.io.IOException;
 import java.net.ProtocolException;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
@@ -30,11 +31,13 @@ import java.text.MessageFormat;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
@@ -610,7 +613,7 @@ class Stream implements HTTPResponseState {
             if (expect != null && "100-continue".equalsIgnoreCase(expect.trim())) {
                 connection.send(ByteBuffer.wrap(
                         "HTTP/1.1 100 Continue\r\n\r\n".getBytes(
-                                java.nio.charset.StandardCharsets.US_ASCII)));
+                                StandardCharsets.US_ASCII)));
             }
         }
         // RFC 9110 section 11: HTTP authentication. Only checked on the
@@ -768,7 +771,7 @@ class Stream implements HTTPResponseState {
         boolean hasPath = false;
         boolean hasProtocol = false;
         String methodValue = null;
-        java.util.Set<String> seenPseudo = new java.util.HashSet<String>();
+        Set<String> seenPseudo = new HashSet<String>();
 
         for (Header header : headers) {
             String name = header.getName();
@@ -1252,7 +1255,7 @@ class Stream implements HTTPResponseState {
     /** RFC 6455 §9.1 — upgrade with negotiated extensions. */
     @Override
     public void upgradeToWebSocket(String subprotocol,
-                                   java.util.List<WebSocketExtension> extensions,
+                                   List<WebSocketExtension> extensions,
                                    WebSocketEventHandler handler) {
         upgradeToWebSocketInternal(subprotocol, extensions, handler);
     }
@@ -1263,7 +1266,7 @@ class Stream implements HTTPResponseState {
     }
 
     private void upgradeToWebSocketInternal(String subprotocol,
-                                            java.util.List<WebSocketExtension> extensions,
+                                            List<WebSocketExtension> extensions,
                                             WebSocketEventHandler handler) {
         if (!isWebSocketUpgradeRequest()) {
             throw new IllegalStateException(L10N.getString("err.not_websocket_upgrade"));
@@ -1496,12 +1499,12 @@ class Stream implements HTTPResponseState {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public java.net.SocketAddress getRemoteAddress() {
+    public SocketAddress getRemoteAddress() {
         return connection.getRemoteSocketAddress();
     }
 
     @Override
-    public java.net.SocketAddress getLocalAddress() {
+    public SocketAddress getLocalAddress() {
         return connection.getLocalSocketAddress();
     }
 

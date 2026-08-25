@@ -29,6 +29,8 @@ import java.io.IOException;
  * <p>Implementations live in {@code gumdrop-mailbox.jar} and are discovered via
  * {@link java.util.ServiceLoader}. Mail protocols work only when that jar is
  * present; the servlet container core does not include mailbox storage.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public interface MailboxLifecycle {
 

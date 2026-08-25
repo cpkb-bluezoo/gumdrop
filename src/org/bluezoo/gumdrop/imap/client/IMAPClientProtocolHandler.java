@@ -1453,7 +1453,7 @@ public final class IMAPClientProtocolHandler
     }
 
     private static String[] splitQuotedArgs(String s) {
-        java.util.List<String> parts = new java.util.ArrayList<>();
+        List<String> parts = new ArrayList<>();
         int len = s.length();
         int i = 0;
         while (i < len) {

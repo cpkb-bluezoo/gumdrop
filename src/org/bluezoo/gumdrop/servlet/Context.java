@@ -53,6 +53,7 @@ import org.bluezoo.util.ByteArrays;
 import org.xml.sax.SAXException;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.lang.annotation.Annotation;
@@ -104,9 +105,9 @@ import org.bluezoo.gumdrop.servlet.jsp.JSPPropertyGroupResolver;
 import org.bluezoo.gumdrop.servlet.jsp.JSPServlet;
 import org.bluezoo.gumdrop.servlet.jsp.TaglibRegistry;
 import javax.tools.JavaCompiler;
-import javax.tools.ToolProvider;
-import javax.tools.StandardJavaFileManager;
 import javax.tools.JavaFileObject;
+import javax.tools.StandardJavaFileManager;
+import javax.tools.ToolProvider;
 import java.net.URLClassLoader;
 import javax.servlet.descriptor.JspPropertyGroupDescriptor;
 import javax.servlet.http.HttpSession;
@@ -380,7 +381,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             StringBuilder hex = new StringBuilder();
             byte[] buf = new byte[256];
             for (int len = in.read(buf); len != -1; len = in.read(buf)) {
-                hex.append(new String(buf, 0, len, java.nio.charset.StandardCharsets.US_ASCII));
+                hex.append(new String(buf, 0, len, StandardCharsets.US_ASCII));
             }
             String trimmed = hex.toString().trim();
             if (trimmed.isEmpty()) {
@@ -2796,7 +2797,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * @param urlPatterns the collection of URL patterns to match against
      * @return true if the path matches any pattern, false otherwise
      */
-    private boolean matchesUrlPatterns(String jspPath, java.util.Collection<String> urlPatterns) {
+    private boolean matchesUrlPatterns(String jspPath, Collection<String> urlPatterns) {
         if (urlPatterns == null || urlPatterns.isEmpty()) {
             return false;
         }
@@ -2854,8 +2855,8 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      */
     private boolean compileJavaFile(File sourceFile, File classFile, File outputDir) {
         try {
-            // Use javax.tools.JavaCompiler for compilation
-            javax.tools.JavaCompiler compiler = javax.tools.ToolProvider.getSystemJavaCompiler();
+            // Use JavaCompiler for compilation
+            JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
             if (compiler == null) {
                 LOGGER.severe(L10N.getString("severe.no_java_compiler"));
                 return false;
@@ -2932,11 +2933,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             }
 
             // Compile the source file
-            javax.tools.StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
-            Iterable<? extends javax.tools.JavaFileObject> compilationUnits = 
+            StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
+            Iterable<? extends JavaFileObject> compilationUnits = 
                 fileManager.getJavaFileObjectsFromFiles(Arrays.asList(sourceFile));
 
-            javax.tools.JavaCompiler.CompilationTask task = compiler.getTask(
+            JavaCompiler.CompilationTask task = compiler.getTask(
                 null, fileManager, null, options, null, compilationUnits);
 
             boolean success = task.call();

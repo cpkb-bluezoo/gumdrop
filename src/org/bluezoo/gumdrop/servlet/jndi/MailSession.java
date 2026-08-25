@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.jndi;
 
+import java.lang.reflect.InvocationTargetException;
 import java.text.MessageFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -272,7 +273,7 @@ public final class MailSession extends Resource {
             Provider p = (Provider) t.getDeclaredConstructor().newInstance();
             session.addProvider(p);
         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException
-                | NoSuchMethodException | java.lang.reflect.InvocationTargetException e) {
+                | NoSuchMethodException | InvocationTargetException e) {
             String message = L10N.getString("err.init_resource");
             message = MessageFormat.format(message, className);
             LOGGER.log(Level.SEVERE, message, e);

@@ -25,6 +25,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -68,7 +69,7 @@ public class DoQClientTransport implements DNSClientTransport {
     private SelectorLoop loop;
     private DNSClientTransportHandler handler;
     private String pinnedCertFingerprint;
-    private java.nio.file.Path caFile;
+    private Path caFile;
 
     // Set from whichever of ConnectionAcceptedHandler/EarlyDataHandler
     // fires first (see open()) -- used to check isEstablished() so send()
@@ -101,9 +102,9 @@ public class DoQClientTransport implements DNSClientTransport {
      * default trust store. Must be called before {@link #open}.
      *
      * @param caFile the CA certificate file path
-     * @see org.bluezoo.gumdrop.TransportFactory#setCaFile(java.nio.file.Path)
+     * @see org.bluezoo.gumdrop.TransportFactory#setCaFile(Path)
      */
-    public void setCaFile(java.nio.file.Path caFile) {
+    public void setCaFile(Path caFile) {
         this.caFile = caFile;
     }
 

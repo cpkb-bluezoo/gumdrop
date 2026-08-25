@@ -37,10 +37,12 @@ import javax.management.MBeanException;
 import javax.management.MBeanInfo;
 import javax.management.InstanceAlreadyExistsException;
 import javax.management.MBeanRegistrationException;
+import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.NotCompliantMBeanException;
 import javax.management.ObjectName;
 import javax.management.ReflectionException;
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -94,7 +96,7 @@ public class TelemetryJMXBridge {
         }
         try {
             objectName = new ObjectName(DOMAIN + ":type=" + TYPE);
-            javax.management.MBeanServer server = java.lang.management.ManagementFactory.getPlatformMBeanServer();
+            MBeanServer server = ManagementFactory.getPlatformMBeanServer();
             server.registerMBean(new TelemetryMetricsMBean(), objectName);
             registered = true;
             logger.info("Telemetry JMX bridge registered: " + objectName);
@@ -113,7 +115,7 @@ public class TelemetryJMXBridge {
             return;
         }
         try {
-            javax.management.MBeanServer server = java.lang.management.ManagementFactory.getPlatformMBeanServer();
+            MBeanServer server = ManagementFactory.getPlatformMBeanServer();
             if (server.isRegistered(objectName)) {
                 server.unregisterMBean(objectName);
             }

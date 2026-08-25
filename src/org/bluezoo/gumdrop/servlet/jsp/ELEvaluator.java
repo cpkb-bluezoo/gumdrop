@@ -39,6 +39,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.servlet.ServletContext;
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 import javax.servlet.jsp.PageContext;
@@ -1083,9 +1084,9 @@ public class ELEvaluator {
         
         @Override
         public Object get(Object key) {
-            javax.servlet.http.Cookie[] cookies = request.getCookies();
+            Cookie[] cookies = request.getCookies();
             if (cookies != null) {
-                for (javax.servlet.http.Cookie cookie : cookies) {
+                for (Cookie cookie : cookies) {
                     if (cookie.getName().equals(key)) {
                         return cookie;
                     }

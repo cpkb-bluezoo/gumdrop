@@ -28,6 +28,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.annotation.Resource;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.servlet.ServletException;
@@ -100,7 +101,7 @@ public class ResourceInjector {
             throws Exception {
         
         for (Field field : clazz.getDeclaredFields()) {
-            javax.annotation.Resource resourceAnnotation = field.getAnnotation(javax.annotation.Resource.class);
+            Resource resourceAnnotation = field.getAnnotation(Resource.class);
             if (resourceAnnotation != null) {
                 injectField(target, field, resourceAnnotation, context);
             }
@@ -120,7 +121,7 @@ public class ResourceInjector {
             throws Exception {
         
         for (Method method : clazz.getDeclaredMethods()) {
-            javax.annotation.Resource resourceAnnotation = method.getAnnotation(javax.annotation.Resource.class);
+            Resource resourceAnnotation = method.getAnnotation(Resource.class);
             if (resourceAnnotation != null) {
                 injectMethod(target, method, resourceAnnotation, context);
             }
@@ -137,7 +138,7 @@ public class ResourceInjector {
      * Inject a resource into a specific field.
      */
     private static void injectField(Object target, Field field, 
-            javax.annotation.Resource resourceAnnotation, JndiContext context) throws Exception {
+            Resource resourceAnnotation, JndiContext context) throws Exception {
         
         // Determine JNDI name for lookup
         String jndiName = getJndiName(resourceAnnotation, field.getName(), field.getType());
@@ -176,7 +177,7 @@ public class ResourceInjector {
      * Inject a resource into a specific method.
      */
     private static void injectMethod(Object target, Method method, 
-            javax.annotation.Resource resourceAnnotation, JndiContext context) throws Exception {
+            Resource resourceAnnotation, JndiContext context) throws Exception {
         
         // Validate setter method (must have exactly one parameter)
         Class<?>[] parameterTypes = method.getParameterTypes();
@@ -224,7 +225,7 @@ public class ResourceInjector {
     /**
      * Determine the JNDI name for resource lookup.
      */
-    private static String getJndiName(javax.annotation.Resource resourceAnnotation, 
+    private static String getJndiName(Resource resourceAnnotation, 
             String fallbackName, Class<?> resourceType) {
         // Use explicit name if provided
         if (!resourceAnnotation.name().isEmpty()) {
@@ -278,7 +279,7 @@ public class ResourceInjector {
     /**
      * Check if the resource is required (default is true).
      */
-    private static boolean isRequired(javax.annotation.Resource resourceAnnotation) {
+    private static boolean isRequired(Resource resourceAnnotation) {
         // @Resource annotation doesn't have a 'required' attribute in standard Java EE
         // For this implementation, we'll assume all resources are required by default
         return true;

@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.mime;
 
 import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
 import org.bluezoo.gumdrop.mime.rfc2231.RFC2231Decoder;
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharsetDecoder;
@@ -229,7 +230,7 @@ public final class ContentTypeParser {
 		if (start >= end) {
 			return "";
 		}
-		java.io.ByteArrayOutputStream content = new java.io.ByteArrayOutputStream(end - start);
+		ByteArrayOutputStream content = new ByteArrayOutputStream(end - start);
 		int p = start;
 		while (p < end) {
 			byte b = buf.get(p);

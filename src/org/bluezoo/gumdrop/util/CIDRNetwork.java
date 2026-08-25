@@ -25,6 +25,8 @@ import java.net.InetAddress;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Efficient representation of a CIDR network block for fast IP address matching.
@@ -268,8 +270,8 @@ public class CIDRNetwork {
      * @return list of parsed CIDRNetwork objects
      * @throws IllegalArgumentException if any CIDR format is invalid
      */
-    public static java.util.List<CIDRNetwork> parseList(String cidrList) {
-        java.util.List<CIDRNetwork> networks = new java.util.ArrayList<CIDRNetwork>();
+    public static List<CIDRNetwork> parseList(String cidrList) {
+        List<CIDRNetwork> networks = new ArrayList<CIDRNetwork>();
         
         if (cidrList != null && !cidrList.trim().isEmpty()) {
             int start = 0;

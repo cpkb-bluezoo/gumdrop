@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.jndi;
 
+import javax.naming.Context;
 import javax.naming.NamingException;
 
 /**
@@ -58,7 +59,7 @@ public interface Injectable {
     /**
      * Resolve a reference to the source object.
      */
-    default Object resolve(javax.naming.Context ctx) throws NamingException {
+    default Object resolve(Context ctx) throws NamingException {
         Object resolved = null;
         String lookupName = getLookupName();
         resolved = ctx.lookup(lookupName);

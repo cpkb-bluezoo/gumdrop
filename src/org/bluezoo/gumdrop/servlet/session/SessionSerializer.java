@@ -32,6 +32,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InvalidClassException;
+import java.io.ObjectInputFilter;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 
@@ -523,8 +524,8 @@ class SessionSerializer {
      * ObjectInputFilter that restricts deserialization to {@link #ALLOWED_CLASSES}
      * plus any names configured via {@link #configureAllowedClasses(Set)}.
      */
-    private static final java.io.ObjectInputFilter SESSION_DESERIALIZATION_FILTER =
-            new java.io.ObjectInputFilter() {
+    private static final ObjectInputFilter SESSION_DESERIALIZATION_FILTER =
+            new ObjectInputFilter() {
         public Status checkInput(FilterInfo filterInfo) {
             Class<?> clazz = filterInfo.serialClass();
             if (clazz == null) {

@@ -25,16 +25,21 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.security.SecureRandom;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -395,7 +400,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private boolean dataBlockedOwed;
     private boolean dataBlockedSignalled;
     private final Map<Long, Long> streamDataBlockedOwed = new HashMap<Long, Long>();
-    private final java.util.Set<Long> streamDataBlockedSignalled = new java.util.HashSet<Long>();
+    private final Set<Long> streamDataBlockedSignalled = new HashSet<Long>();
 
     // RFC 9000 section 4.6 / 19.11: the peer's current stream-concurrency
     // credit (initial_max_streams_* from transport parameters, then grown
@@ -509,7 +514,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private boolean sawValidOneRttThisReceive;
     private boolean decryptFailedOrUnparseableThisDatagram;
 
-    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
@@ -1208,7 +1213,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // address validation (see there).
         boolean isZeroRtt = false;
         if (longHeader) {
-            byte[] fromOffset = offset == 0 ? bytes : java.util.Arrays.copyOfRange(bytes, offset, bytes.length);
+            byte[] fromOffset = offset == 0 ? bytes : Arrays.copyOfRange(bytes, offset, bytes.length);
             // A Retry packet has no Length field (RFC 9000 section
             // 17.2.5) -- a genuinely different shape from
             // Initial/Handshake/0-RTT -- so its type must be checked
@@ -1275,7 +1280,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // RFC 9000 section 17.2.5.1: the Retry's own Destination
         // Connection ID must echo the Source Connection ID this client
         // used in the Initial packet that triggered it.
-        if (!java.util.Arrays.equals(retry.getDestinationConnectionId(), ourConnectionId)) {
+        if (!Arrays.equals(retry.getDestinationConnectionId(), ourConnectionId)) {
             return;
         }
         if (!RetryIntegrityTag.verify(originalDcid, retry.getPacketWithoutTag(), retry.getTag())) {
@@ -1374,8 +1379,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
             long fullPacketNumber = PacketNumberCodec.decode(largestReceived[level.ordinal()], truncatedPn, pnLength);
 
             int headerLength = pnOffset + pnLength;
-            byte[] aad = java.util.Arrays.copyOfRange(packet, 0, headerLength);
-            byte[] ciphertext = java.util.Arrays.copyOfRange(packet, headerLength, packet.length);
+            byte[] aad = Arrays.copyOfRange(packet, 0, headerLength);
+            byte[] ciphertext = Arrays.copyOfRange(packet, headerLength, packet.length);
             byte[] plaintext = PacketProtection.open(keys, fullPacketNumber, aad, ciphertext);
 
             if (fullPacketNumber > largestReceived[level.ordinal()]) {
@@ -1729,7 +1734,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             byte[] bytes = new byte[data.remaining()];
             data.get(bytes);
             PathValidationAttempt attempt = pathValidationAttempts.get(currentDatagramSource);
-            if (attempt != null && java.util.Arrays.equals(bytes, attempt.challengeData)) {
+            if (attempt != null && Arrays.equals(bytes, attempt.challengeData)) {
                 completeMigration(currentDatagramSource);
             }
         }
@@ -2167,7 +2172,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // two-endpoint exchange with no spare IDs), this just returns the
         // same entry already in use and rotation is a no-op.
         ConnectionIdEntry fresh = connectionIdManager.getActivePeerConnectionId();
-        if (fresh != null && !java.util.Arrays.equals(fresh.getConnectionId(), peerConnectionId)) {
+        if (fresh != null && !Arrays.equals(fresh.getConnectionId(), peerConnectionId)) {
             connectionIdManager.retirePeerConnectionId(activePeerConnectionIdSequence);
             peerConnectionId = fresh.getConnectionId();
             activePeerConnectionIdSequence = fresh.getSequenceNumber();
@@ -2623,25 +2628,25 @@ public final class QuicConnection implements QuicTlsEngineListener {
         long ackDelay = includeAck ? computeAckDelay(level) : 0;
         boolean includeHandshakeDone = oneRtt && handshakeDoneOwed;
         boolean includePing = pendingPing[level.ordinal()];
-        List<long[]> resetsToSend = oneRtt ? new ArrayList<long[]>(pendingResetStreams) : java.util.Collections.<long[]>emptyList();
+        List<long[]> resetsToSend = oneRtt ? new ArrayList<long[]>(pendingResetStreams) : Collections.<long[]>emptyList();
         List<ConnectionIdEntry> newCidsToSend = oneRtt
-                ? connectionIdManager.drainPendingIssuance() : java.util.Collections.<ConnectionIdEntry>emptyList();
+                ? connectionIdManager.drainPendingIssuance() : Collections.<ConnectionIdEntry>emptyList();
         for (ConnectionIdEntry issued : newCidsToSend) {
             engine.registerConnectionId(issued.getConnectionId(), this);
         }
         long[] retiresToSend = oneRtt ? connectionIdManager.drainPendingRetirement() : new long[0];
         boolean includeMaxData = oneRtt && maxDataOwed;
         Map<Long, Long> maxStreamDataToSend = oneRtt
-                ? new HashMap<Long, Long>(maxStreamDataOwed) : java.util.Collections.<Long, Long>emptyMap();
+                ? new HashMap<Long, Long>(maxStreamDataOwed) : Collections.<Long, Long>emptyMap();
         boolean includeDataBlocked = oneRtt && dataBlockedOwed;
         Map<Long, Long> streamDataBlockedToSend = oneRtt
-                ? new HashMap<Long, Long>(streamDataBlockedOwed) : java.util.Collections.<Long, Long>emptyMap();
+                ? new HashMap<Long, Long>(streamDataBlockedOwed) : Collections.<Long, Long>emptyMap();
         boolean includeMaxStreamsBidi = oneRtt && maxStreamsBidiOwed;
         boolean includeMaxStreamsUni = oneRtt && maxStreamsUniOwed;
         boolean includeStreamsBlockedBidi = oneRtt && streamsBlockedBidiOwed;
         boolean includeStreamsBlockedUni = oneRtt && streamsBlockedUniOwed;
         List<byte[]> datagramsToSend = oneRtt
-                ? eligibleDatagrams() : java.util.Collections.<byte[]>emptyList();
+                ? eligibleDatagrams() : Collections.<byte[]>emptyList();
 
         boolean nothingToSend = cryptoChunks.isEmpty() && streamChunksToSend.isEmpty() && !includeAck
                 && !includeHandshakeDone && !includePing && resetsToSend.isEmpty() && newCidsToSend.isEmpty()
@@ -3324,7 +3329,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             // be absent if no Retry occurred at all.
             byte[] retryScid = transportParameters.getRetrySourceConnectionId();
             boolean mismatch = expectedRetrySourceConnectionId != null
-                    ? !java.util.Arrays.equals(retryScid, expectedRetrySourceConnectionId)
+                    ? !Arrays.equals(retryScid, expectedRetrySourceConnectionId)
                     : retryScid != null;
             if (mismatch) {
                 closeWithError(TRANSPORT_ERROR_TRANSPORT_PARAMETER_ERROR, "retry_source_connection_id mismatch");
@@ -3509,7 +3514,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // peer needs its relative order preserved, not just each
         // individual chunk's offset being correct.
         for (Map.Entry<Long, Map<Long, List<PendingChunk>>> packetEntry
-                : new java.util.TreeMap<Long, Map<Long, List<PendingChunk>>>(sentZeroRttStream)
+                : new TreeMap<Long, Map<Long, List<PendingChunk>>>(sentZeroRttStream)
                         .descendingMap().entrySet()) {
             for (Map.Entry<Long, List<PendingChunk>> entry : packetEntry.getValue().entrySet()) {
                 List<PendingChunk> chunks = pendingStream.get(entry.getKey());

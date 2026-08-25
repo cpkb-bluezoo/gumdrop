@@ -24,10 +24,13 @@ package org.bluezoo.gumdrop.dns;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
@@ -906,18 +909,18 @@ public class DNSService implements Service {
      */
     private DNSMessage retryOverTcp(InetSocketAddress upstream,
                                      byte[] queryData, int expectedId) {
-        try (java.net.Socket sock = new java.net.Socket()) {
+        try (Socket sock = new Socket()) {
             sock.connect(upstream, UPSTREAM_TIMEOUT_MS);
             sock.setSoTimeout(UPSTREAM_TIMEOUT_MS);
 
-            java.io.OutputStream out = sock.getOutputStream();
+            OutputStream out = sock.getOutputStream();
             // RFC 1035 section 4.2.2: 2-byte length prefix
             out.write((queryData.length >> 8) & 0xFF);
             out.write(queryData.length & 0xFF);
             out.write(queryData);
             out.flush();
 
-            java.io.InputStream in = sock.getInputStream();
+            InputStream in = sock.getInputStream();
             int hi = in.read();
             int lo = in.read();
             if (hi < 0 || lo < 0) {

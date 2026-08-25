@@ -26,9 +26,11 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
+import java.security.MessageDigest;
 import java.security.Principal;
 import java.security.SecureRandom;
 import java.security.cert.Certificate;
@@ -44,6 +46,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.logging.Level;
@@ -149,8 +152,8 @@ public final class SMTPProtocolHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(SMTPProtocolHandler.class.getName());
-    static final java.util.ResourceBundle L10N =
-            java.util.ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
+    static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
     static final Charset US_ASCII = Charset.forName("US-ASCII");
     static final CharsetDecoder US_ASCII_DECODER = US_ASCII.newDecoder();
@@ -924,7 +927,7 @@ public final class SMTPProtocolHandler
         }
         if (currentPipeline != null && !dataTransferRejected) {
             try {
-                java.nio.channels.WritableByteChannel ch = currentPipeline.getMessageChannel();
+                WritableByteChannel ch = currentPipeline.getMessageChannel();
                 if (ch != null) {
                     ch.write(messageBuffer);
                 }
@@ -2070,7 +2073,7 @@ public final class SMTPProtocolHandler
         String expectedResponse = getRealm().getCramMD5Response(username, authChallenge);
         String clientDigest = response.substring(spaceIdx + 1).toLowerCase(Locale.ENGLISH);
         if (expectedResponse != null
-                && java.security.MessageDigest.isEqual(
+                && MessageDigest.isEqual(
                         clientDigest.getBytes(US_ASCII),
                         expectedResponse.toLowerCase(Locale.ENGLISH).getBytes(US_ASCII))) {
             notifyAuthenticationSuccess(username, "CRAM-MD5");

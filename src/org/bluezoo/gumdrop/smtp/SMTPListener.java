@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.smtp;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -360,7 +361,7 @@ public class SMTPListener extends TCPListener {
      * @param clientAddress the client's IP address
      * @return true if XCLIENT is authorized, false otherwise
      */
-    protected boolean isXclientAuthorized(java.net.InetAddress clientAddress) {
+    protected boolean isXclientAuthorized(InetAddress clientAddress) {
         return false;
     }
 

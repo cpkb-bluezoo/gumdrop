@@ -33,6 +33,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.security.auth.Subject;
+import javax.security.auth.login.AppConfigurationEntry;
+import javax.security.auth.login.Configuration;
 import javax.security.auth.login.LoginContext;
 import javax.security.auth.login.LoginException;
 
@@ -361,24 +363,24 @@ public final class GSSAPIServer {
      * rather than requiring an external JAAS config file.
      */
     private static final class KeytabLoginConfiguration
-            extends javax.security.auth.login.Configuration {
+            extends Configuration {
 
-        private final javax.security.auth.login.AppConfigurationEntry[] entries;
+        private final AppConfigurationEntry[] entries;
 
         KeytabLoginConfiguration(Map<String, String> options) {
-            javax.security.auth.login.AppConfigurationEntry entry =
-                    new javax.security.auth.login.AppConfigurationEntry(
+            AppConfigurationEntry entry =
+                    new AppConfigurationEntry(
                             "com.sun.security.auth.module.Krb5LoginModule",
-                            javax.security.auth.login.AppConfigurationEntry
+                            AppConfigurationEntry
                                     .LoginModuleControlFlag.REQUIRED,
                             options);
             this.entries =
-                    new javax.security.auth.login.AppConfigurationEntry[]
+                    new AppConfigurationEntry[]
                             { entry };
         }
 
         @Override
-        public javax.security.auth.login.AppConfigurationEntry[]
+        public AppConfigurationEntry[]
                 getAppConfigurationEntry(String name) {
             return entries;
         }

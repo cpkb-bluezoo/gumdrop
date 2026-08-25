@@ -28,7 +28,10 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -628,7 +631,7 @@ public class DNSResolver {
         final List<InetAddress> v6Addresses = Collections.synchronizedList(new ArrayList<InetAddress>());
         final List<InetAddress> v4Addresses = Collections.synchronizedList(new ArrayList<InetAddress>());
         final String[] lastError = new String[1];
-        queryBatch(hostname, java.util.Arrays.asList(DNSType.AAAA, DNSType.A),
+        queryBatch(hostname, Arrays.asList(DNSType.AAAA, DNSType.A),
                 new BatchQueryCallback() {
                     @Override
                     public void onResult(DNSType type, List<DNSResourceRecord> records) {
@@ -1171,7 +1174,7 @@ public class DNSResolver {
             throw new IllegalArgumentException("types must not be empty");
         }
         final BatchCollector collector = new BatchCollector(requested, callback);
-        java.util.Iterator<DNSType> it = requested.iterator();
+        Iterator<DNSType> it = requested.iterator();
         final DNSType primaryType = it.next();
         final List<DNSType> additionalTypes = new ArrayList<>();
         while (it.hasNext()) {
@@ -1295,7 +1298,7 @@ public class DNSResolver {
 
         BatchCollector(Set<DNSType> requested, BatchQueryCallback callback) {
             this.callback = callback;
-            this.outstanding = Collections.synchronizedSet(new java.util.HashSet<>(requested));
+            this.outstanding = Collections.synchronizedSet(new HashSet<>(requested));
         }
 
         void deliver(DNSType type, List<DNSResourceRecord> records) {

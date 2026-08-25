@@ -26,8 +26,10 @@ import org.bluezoo.gumdrop.util.SNIKeyManager;
 import org.bluezoo.gumdrop.util.TLSUtils;
 
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketOption;
 import java.nio.channels.SocketChannel;
 import java.security.KeyStore;
 import java.security.MessageDigest;
@@ -35,17 +37,22 @@ import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ssl.KeyManager;
+import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SNIMatcher;
+import javax.net.ssl.SSLSessionContext;
 import javax.net.ssl.StandardConstants;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
@@ -386,8 +393,8 @@ public class TCPTransportFactory extends TransportFactory {
                 // as a SocketOption<Boolean>; reflection erases that to
                 // SocketOption<?>, so the cast can't be statically verified.
                 @SuppressWarnings("unchecked")
-                java.net.SocketOption<Boolean> tfo =
-                        (java.net.SocketOption<Boolean>)
+                SocketOption<Boolean> tfo =
+                        (SocketOption<Boolean>)
                                 extOpts.getField("TCP_FASTOPEN_CONNECT")
                                         .get(null);
                 channel.setOption(tfo, Boolean.TRUE);
@@ -494,11 +501,11 @@ public class TCPTransportFactory extends TransportFactory {
         params.setProtocols(SECURE_PROTOCOLS);
 
         if (isSNIEnabled()) {
-            params.setSNIMatchers(java.util.Collections.singleton(
+            params.setSNIMatchers(Collections.singleton(
                     new SNIMatcher(StandardConstants.SNI_HOST_NAME) {
                         @Override
                         public boolean matches(
-                                javax.net.ssl.SNIServerName serverName) {
+                                SNIServerName serverName) {
                             if (serverName instanceof SNIHostName) {
                                 String hostname =
                                         ((SNIHostName) serverName)
@@ -514,8 +521,8 @@ public class TCPTransportFactory extends TransportFactory {
 
         // Configure ALPN protocols for HTTP/2 support
         if (applicationProtocols != null && applicationProtocols.length > 0) {
-            java.util.List<String> protocols =
-                    java.util.Arrays.asList(applicationProtocols);
+            List<String> protocols =
+                    Arrays.asList(applicationProtocols);
             params.setApplicationProtocols(protocols.toArray(new String[0]));
         }
 
@@ -570,7 +577,7 @@ public class TCPTransportFactory extends TransportFactory {
     private static void applyNamedGroups(SSLParameters params,
                                          String[] groups) {
         try {
-            java.lang.reflect.Method m = SSLParameters.class
+            Method m = SSLParameters.class
                     .getMethod("setNamedGroups", String[].class);
             m.invoke(params, (Object) groups);
         } catch (NoSuchMethodException e) {
@@ -638,13 +645,13 @@ public class TCPTransportFactory extends TransportFactory {
      * timeout to ensure resumption is active on all JVM implementations.
      */
     private static void configureTlsSessionCache(SSLContext ctx) {
-        javax.net.ssl.SSLSessionContext serverCtx =
+        SSLSessionContext serverCtx =
                 ctx.getServerSessionContext();
         if (serverCtx != null) {
             serverCtx.setSessionCacheSize(SESSION_CACHE_SIZE);
             serverCtx.setSessionTimeout(SESSION_TIMEOUT_SECONDS);
         }
-        javax.net.ssl.SSLSessionContext clientCtx =
+        SSLSessionContext clientCtx =
                 ctx.getClientSessionContext();
         if (clientCtx != null) {
             clientCtx.setSessionCacheSize(SESSION_CACHE_SIZE);

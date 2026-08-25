@@ -41,6 +41,7 @@ import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
+import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.text.MessageFormat;
@@ -546,7 +547,7 @@ public class OAuthRealm implements Realm {
                     return false;
                 }
                 KeyFactory rsaKf = KeyFactory.getInstance("RSA");
-                java.security.PublicKey rsaKey =
+                PublicKey rsaKey =
                         rsaKf.generatePublic(new X509EncodedKeySpec(jwtPublicKeyBytes));
                 Signature rsaSig = Signature.getInstance("SHA256withRSA");
                 rsaSig.initVerify(rsaKey);
@@ -559,7 +560,7 @@ public class OAuthRealm implements Realm {
                     return false;
                 }
                 KeyFactory ecKf = KeyFactory.getInstance("EC");
-                java.security.PublicKey ecKey =
+                PublicKey ecKey =
                         ecKf.generatePublic(new X509EncodedKeySpec(jwtPublicKeyBytes));
                 Signature ecSig = Signature.getInstance("SHA256withECDSA");
                 ecSig.initVerify(ecKey);

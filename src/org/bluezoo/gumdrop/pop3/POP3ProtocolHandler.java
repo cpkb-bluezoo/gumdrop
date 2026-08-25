@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.concurrent.Callable;
 import java.util.logging.Level;
@@ -1031,7 +1032,7 @@ public final class POP3ProtocolHandler
             Realm realm = getRealm();
             if (realm != null) {
                 sendOK(L10N.getString("pop3.auth_mechanisms"));
-                java.util.Set<SASLMechanism> supported =
+                Set<SASLMechanism> supported =
                         realm.getSupportedSASLMechanisms();
                 for (SASLMechanism mech : supported) {
                     if (!endpoint.isSecure() && mech.requiresTLS()) {
@@ -2649,7 +2650,7 @@ public final class POP3ProtocolHandler
 
         Realm realm = getRealm();
         if (realm != null) {
-            java.util.Set<SASLMechanism> supported =
+            Set<SASLMechanism> supported =
                     realm.getSupportedSASLMechanisms();
             if (!supported.isEmpty()) {
                 StringBuilder saslLine = new StringBuilder("SASL");

@@ -23,7 +23,10 @@ import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -31,7 +34,7 @@ import java.util.Set;
  * Generates Java servlet source code from a JSP Abstract Syntax Tree.
  * 
  * <p>This class takes a {@link JSPPage} object (the parsed JSP AST) and generates
- * the corresponding Java servlet source code that implements {@code javax.servlet.http.HttpServlet}.
+ * the corresponding Java servlet source code that implements {@code HttpServlet}.
  * The generated servlet can then be compiled and loaded to handle JSP requests.</p>
  * 
  * <p>The code generator handles various JSP elements:</p>
@@ -372,7 +375,7 @@ public class JSPCodeGenerator implements JSPElementVisitor {
         // Class declaration
         writer.println("/**");
         writer.println(" * Generated servlet from JSP: " + jspPage.getUri());
-        writer.println(" * Generated at: " + new java.util.Date());
+        writer.println(" * Generated at: " + new Date());
         writer.println(" */");
         String superClass = (extendsClass != null) ? extendsClass : "HttpServlet";
         StringBuilder classDecl = new StringBuilder();
@@ -599,7 +602,7 @@ public class JSPCodeGenerator implements JSPElementVisitor {
             serviceMethodBody.append("                int _sr = ").append(tagVarName).append(".doStartTag();\n");
             serviceMethodBody.append("                if (_sr != javax.servlet.jsp.tagext.Tag.SKIP_BODY) {\n");
             // Generate body content from children
-            java.util.List<JSPElement> children = element.getChildren();
+            List<JSPElement> children = element.getChildren();
             if (!children.isEmpty()) {
                 serviceMethodBody.append("                    do {\n");
                 for (JSPElement child : children) {
@@ -713,8 +716,8 @@ public class JSPCodeGenerator implements JSPElementVisitor {
      */
     private void generateDispatch(StandardActionElement element, String page,
                                   String method) {
-        java.util.List<JSPElement> children = element.getChildren();
-        java.util.List<StandardActionElement> params = new java.util.ArrayList<>();
+        List<JSPElement> children = element.getChildren();
+        List<StandardActionElement> params = new ArrayList<>();
         for (JSPElement child : children) {
             if (child instanceof StandardActionElement) {
                 StandardActionElement childAction = (StandardActionElement) child;

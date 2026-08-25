@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.websocket;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 
+import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -85,7 +86,7 @@ public class WebSocketHandshake {
         } catch (NoSuchAlgorithmException e) {
             // SHA-1 should always be available
             throw new RuntimeException("SHA-1 algorithm not available", e);
-        } catch (java.io.UnsupportedEncodingException e) {
+        } catch (UnsupportedEncodingException e) {
             // UTF-8 should always be available
             throw new RuntimeException("UTF-8 encoding not available", e);
         }

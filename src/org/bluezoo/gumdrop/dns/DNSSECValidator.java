@@ -23,10 +23,12 @@ package org.bluezoo.gumdrop.dns;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
+import java.security.AlgorithmParameters;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.spec.ECGenParameterSpec;
 import java.security.spec.ECParameterSpec;
 import java.security.spec.ECPoint;
 import java.security.spec.ECPublicKeySpec;
@@ -357,9 +359,9 @@ public final class DNSSECValidator {
         BigInteger y = new BigInteger(1, yBytes);
         ECPoint point = new ECPoint(x, y);
 
-        java.security.AlgorithmParameters params =
-                java.security.AlgorithmParameters.getInstance("EC");
-        params.init(new java.security.spec.ECGenParameterSpec(
+        AlgorithmParameters params =
+                AlgorithmParameters.getInstance("EC");
+        params.init(new ECGenParameterSpec(
                 algorithm.getECCurveName()));
         ECParameterSpec ecSpec =
                 params.getParameterSpec(ECParameterSpec.class);

@@ -30,6 +30,7 @@ import java.nio.channels.WritableByteChannel;
 import java.security.Principal;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -284,7 +285,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public void messageContent(java.nio.ByteBuffer content) {
+    public void messageContent(ByteBuffer content) {
         // Content is captured via the pipeline, not this method
     }
 
@@ -531,7 +532,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                     deliverToDomain(domain, domainRecipients);
                 } else {
                     // Sort by preference (lower = higher priority)
-                    java.util.Collections.sort(mxRecords);
+                    Collections.sort(mxRecords);
                     String mxHost = mxRecords.get(0).exchange;
                     if (LOGGER.isLoggable(Level.FINE)) {
                         LOGGER.fine("MX for " + domain + ": " + mxHost);

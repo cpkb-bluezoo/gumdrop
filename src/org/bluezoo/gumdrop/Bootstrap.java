@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FilenameFilter;
 import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.net.URI;
@@ -30,6 +31,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Properties;
@@ -148,9 +150,19 @@ public class Bootstrap {
             }
         }
         List<URL> dependencyUrls = new ArrayList<>();
-        File[] jars = libDir.listFiles((dir, name) -> name.endsWith(".jar"));
+        File[] jars = libDir.listFiles(new FilenameFilter() {
+            @Override
+            public boolean accept(File dir, String name) {
+                return name.endsWith(".jar");
+            }
+        });
         if (jars != null) {
-            Arrays.sort(jars, (a, b) -> a.getName().compareTo(b.getName()));
+            Arrays.sort(jars, new Comparator<File>() {
+                @Override
+                public int compare(File a, File b) {
+                    return a.getName().compareTo(b.getName());
+                }
+            });
             for (File jar : jars) {
                 String name = jar.getName();
                 if (BOOTSTRAP_JAR.equals(name) || SERVER_JAR.equals(name)) {

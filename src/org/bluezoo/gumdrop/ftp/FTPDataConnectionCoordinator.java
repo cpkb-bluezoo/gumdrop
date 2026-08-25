@@ -28,6 +28,7 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.CompletionHandler;
+import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -218,7 +219,7 @@ public class FTPDataConnectionCoordinator {
         passiveConnector = new FTPDataServer(controlConnection, port, this);
 
         // Bind the socket synchronously so we know the port immediately
-        java.nio.channels.ServerSocketChannel ssc = java.nio.channels.ServerSocketChannel.open();
+        ServerSocketChannel ssc = ServerSocketChannel.open();
         ssc.configureBlocking(false);
 
         if (port == 0) {
@@ -261,7 +262,7 @@ public class FTPDataConnectionCoordinator {
      * @throws IOException if no port in the range is available
      */
     private static void bindWithinRange(
-            java.nio.channels.ServerSocketChannel ssc, int minPort, int maxPort)
+            ServerSocketChannel ssc, int minPort, int maxPort)
             throws IOException {
         for (int p = minPort; p <= maxPort; p++) {
             try {

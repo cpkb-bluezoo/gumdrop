@@ -31,6 +31,8 @@ import org.bluezoo.gumdrop.mailbox.index.MailboxWatcher;
  *
  * <p>Started via {@link MailboxLifecycle} when {@code gumdrop-mailbox.jar} is
  * on the classpath; {@code null} indexer/watcher when the jar is absent.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class MailboxRuntime {
 

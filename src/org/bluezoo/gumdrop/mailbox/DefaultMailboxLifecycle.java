@@ -27,6 +27,8 @@ import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
 
 /**
  * Default {@link MailboxLifecycle} registered in {@code gumdrop-mailbox.jar}.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class DefaultMailboxLifecycle implements MailboxLifecycle {
 

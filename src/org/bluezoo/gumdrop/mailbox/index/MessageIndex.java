@@ -29,6 +29,7 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -757,7 +758,7 @@ public class MessageIndex {
             byte[] magic = new byte[4];
             try {
                 in.readFully(magic);
-            } catch (java.io.EOFException e) {
+            } catch (EOFException e) {
                 throw new CorruptIndexException("Truncated file: unable to read header");
             }
             crc.update(magic);

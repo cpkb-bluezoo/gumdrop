@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.imap;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Set;
 import java.util.logging.Logger;
 
@@ -88,7 +89,7 @@ public class IMAPListener extends TCPListener {
     protected boolean enableQRESYNC = true;
 
     // RFC 2971 — ID command server fields
-    protected java.util.Map<String, String> serverIdFields;
+    protected Map<String, String> serverIdFields;
 
     // Limits
     protected int maxLineLength = 8192;         // Max command line length
@@ -405,7 +406,7 @@ public class IMAPListener extends TCPListener {
      *
      * @return the server ID fields, or null for defaults
      */
-    public java.util.Map<String, String> getServerIdFields() {
+    public Map<String, String> getServerIdFields() {
         return serverIdFields;
     }
 
@@ -416,7 +417,7 @@ public class IMAPListener extends TCPListener {
      *
      * @param fields the key-value pairs to advertise
      */
-    public void setServerIdFields(java.util.Map<String, String> fields) {
+    public void setServerIdFields(Map<String, String> fields) {
         this.serverIdFields = fields;
     }
 

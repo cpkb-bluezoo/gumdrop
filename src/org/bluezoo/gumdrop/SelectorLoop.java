@@ -26,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ClosedChannelException;
+import java.nio.channels.ClosedSelectorException;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
@@ -165,7 +166,7 @@ public class SelectorLoop implements Runnable {
         }
         try {
             return s.keys().size();
-        } catch (java.nio.channels.ClosedSelectorException e) {
+        } catch (ClosedSelectorException e) {
             // Closed concurrently between the null-check and keys() - the
             // loop is shutting down, treat it as unloaded.
             return 0;

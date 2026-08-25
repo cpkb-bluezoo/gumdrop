@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.servlet.jndi;
 
 import java.io.PrintWriter;
+import java.lang.reflect.InvocationTargetException;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.CallableStatement;
@@ -137,7 +138,7 @@ public final class DataSourceDef extends Resource implements DataSource {
      * Sets the fully-qualified class name of the JDBC driver.
      * Corresponds to the {@code class-name} element in the deployment descriptor.
      * <p>
-     * This should be the class name of the {@link java.sql.Driver} implementation
+     * This should be the class name of the {@link Driver} implementation
      * provided by the JDBC driver vendor.
      *
      * @param className the JDBC driver class name
@@ -234,16 +235,16 @@ public final class DataSourceDef extends Resource implements DataSource {
      * Sets the isolation level for connections.
      * Corresponds to the {@code isolation-level} element in the deployment descriptor.
      * <p>
-     * Valid values are the constants defined in {@link java.sql.Connection}:
+     * Valid values are the constants defined in {@link Connection}:
      * {@code TRANSACTION_READ_UNCOMMITTED}, {@code TRANSACTION_READ_COMMITTED},
      * {@code TRANSACTION_REPEATABLE_READ}, {@code TRANSACTION_SERIALIZABLE},
      * or {@code TRANSACTION_NONE}.
      *
      * @param isolationLevel the transaction isolation level
-     * @see java.sql.Connection#TRANSACTION_READ_UNCOMMITTED
-     * @see java.sql.Connection#TRANSACTION_READ_COMMITTED
-     * @see java.sql.Connection#TRANSACTION_REPEATABLE_READ
-     * @see java.sql.Connection#TRANSACTION_SERIALIZABLE
+     * @see Connection#TRANSACTION_READ_UNCOMMITTED
+     * @see Connection#TRANSACTION_READ_COMMITTED
+     * @see Connection#TRANSACTION_REPEATABLE_READ
+     * @see Connection#TRANSACTION_SERIALIZABLE
      * @see <a href="https://jakarta.ee/specifications/servlet/4.0/servlet-spec-4.0.html#data-source">
      *      Servlet 4.0 Specification, Section 5.4: DataSource</a>
      */
@@ -327,16 +328,16 @@ public final class DataSourceDef extends Resource implements DataSource {
      * Sets the default transaction isolation level for new connections.
      * Corresponds to the {@code transaction-isolation} element in the deployment descriptor.
      * <p>
-     * Valid values are the constants defined in {@link java.sql.Connection}:
+     * Valid values are the constants defined in {@link Connection}:
      * {@code TRANSACTION_READ_UNCOMMITTED}, {@code TRANSACTION_READ_COMMITTED},
      * {@code TRANSACTION_REPEATABLE_READ}, {@code TRANSACTION_SERIALIZABLE},
      * or {@code TRANSACTION_NONE}.
      *
      * @param transactionIsolation the default transaction isolation level
-     * @see java.sql.Connection#TRANSACTION_READ_UNCOMMITTED
-     * @see java.sql.Connection#TRANSACTION_READ_COMMITTED
-     * @see java.sql.Connection#TRANSACTION_REPEATABLE_READ
-     * @see java.sql.Connection#TRANSACTION_SERIALIZABLE
+     * @see Connection#TRANSACTION_READ_UNCOMMITTED
+     * @see Connection#TRANSACTION_READ_COMMITTED
+     * @see Connection#TRANSACTION_REPEATABLE_READ
+     * @see Connection#TRANSACTION_SERIALIZABLE
      * @see <a href="https://jakarta.ee/specifications/servlet/4.0/servlet-spec-4.0.html#data-source">
      *      Servlet 4.0 Specification, Section 5.4: DataSource</a>
      */
@@ -424,7 +425,7 @@ public final class DataSourceDef extends Resource implements DataSource {
             Class<?> driverClass = Class.forName(className);
             driver = (Driver) driverClass.getDeclaredConstructor().newInstance();
         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException
-                | NoSuchMethodException | java.lang.reflect.InvocationTargetException e) {
+                | NoSuchMethodException | InvocationTargetException e) {
             throw new ServletException(e);
         }
     }

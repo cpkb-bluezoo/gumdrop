@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.dns.client;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.util.Set;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
@@ -68,7 +69,7 @@ public class TCPDNSClientTransport implements DNSClientTransport {
      * When set, the server certificate's SubjectPublicKeyInfo hash is
      * verified against these pins after TLS handshake.
      */
-    private java.util.Set<String> spkiFingerprints;
+    private Set<String> spkiFingerprints;
 
     /**
      * Returns a transport configured for DNS-over-TLS (port 853, TLS enabled).
@@ -99,7 +100,7 @@ public class TCPDNSClientTransport implements DNSClientTransport {
      * @param fingerprints the SPKI SHA-256 fingerprints
      *                     (colon-separated lowercase hex)
      */
-    public void setPinnedSPKIFingerprints(java.util.Set<String> fingerprints) {
+    public void setPinnedSPKIFingerprints(Set<String> fingerprints) {
         this.spkiFingerprints = fingerprints;
     }
 

@@ -25,6 +25,7 @@ import org.bluezoo.util.ByteArrays;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import javax.security.auth.Subject;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -603,7 +604,7 @@ public final class SASLUtils {
      * @param password the password (may be null for EXTERNAL)
      * @param host the server hostname (used by DIGEST-MD5 for digest-uri)
      * @return the mechanism, or null if the name is not recognised
-     * @see #createClient(String, String, String, String, javax.security.auth.Subject)
+     * @see #createClient(String, String, String, String, Subject)
      */
     public static SASLClientMechanism createClient(String mechanism,
                                                    String username,
@@ -636,7 +637,7 @@ public final class SASLUtils {
                                                    String username,
                                                    String password,
                                                    String host,
-                                                   javax.security.auth.Subject subject) {
+                                                   Subject subject) {
         if (mechanism == null) {
             return null;
         }
@@ -655,7 +656,7 @@ public final class SASLUtils {
                 }
                 try {
                     return new GSSAPIClientMechanism(host, subject);
-                } catch (java.io.IOException e) {
+                } catch (IOException e) {
                     return null;
                 }
             default:

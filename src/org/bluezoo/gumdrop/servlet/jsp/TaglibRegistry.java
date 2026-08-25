@@ -31,8 +31,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.text.MessageFormat;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -171,7 +174,7 @@ public class TaglibRegistry {
      */
     private void scanDirectoryForTlds(String directoryPath) {
         try {
-            java.util.Set<String> resourcePaths = servletContext.getResourcePaths(directoryPath);
+            Set<String> resourcePaths = servletContext.getResourcePaths(directoryPath);
             if (resourcePaths != null) {
                 for (String resourcePath : resourcePaths) {
                     if (resourcePath.endsWith(".tld")) {
@@ -192,7 +195,7 @@ public class TaglibRegistry {
      */
     private void scanWebInfLibJars() {
         try {
-            java.util.Set<String> resourcePaths = servletContext.getResourcePaths("/WEB-INF/lib/");
+            Set<String> resourcePaths = servletContext.getResourcePaths("/WEB-INF/lib/");
             if (resourcePaths != null) {
                 for (String resourcePath : resourcePaths) {
                     if (resourcePath.endsWith(".jar")) {
@@ -259,7 +262,7 @@ public class TaglibRegistry {
      */
     private void scanJarForTlds(File jarFile) {
         try (JarFile jar = new JarFile(jarFile)) {
-            java.util.Enumeration<JarEntry> entries = jar.entries();
+            Enumeration<JarEntry> entries = jar.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
                 String entryName = entry.getName();
@@ -380,7 +383,7 @@ public class TaglibRegistry {
      * 
      * @return a collection of cached taglib URIs
      */
-    public java.util.Set<String> getCachedTaglibUris() {
-        return java.util.Collections.unmodifiableSet(taglibCache.keySet());
+    public Set<String> getCachedTaglibUris() {
+        return Collections.unmodifiableSet(taglibCache.keySet());
     }
 }

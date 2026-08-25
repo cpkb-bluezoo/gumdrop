@@ -22,8 +22,10 @@
 package org.bluezoo.gumdrop.ftp.client;
 
 import java.io.IOException;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
@@ -539,7 +541,7 @@ public final class FTPClientProtocolHandler
         try {
             InetSocketAddress local = dataCoordinator.openActiveListener();
             InetAddress addr = local.getAddress();
-            int af = (addr instanceof java.net.Inet6Address) ? 2 : 1;
+            int af = (addr instanceof Inet6Address) ? 2 : 1;
             String cmd = "EPRT |" + af + "|" + addr.getHostAddress() + "|" + local.getPort() + "|";
             sendCommand(cmd, FTPState.EPRT_SENT);
         } catch (IOException e) {
@@ -1065,7 +1067,7 @@ public final class FTPClientProtocolHandler
         int port = (p1 << 8) | p2;
         try {
             return new InetSocketAddress(InetAddress.getByAddress(addr), port);
-        } catch (java.net.UnknownHostException e) {
+        } catch (UnknownHostException e) {
             // getByAddress() with a literal 4-byte array never resolves,
             // so this is unreachable.
             throw new IllegalArgumentException(e);

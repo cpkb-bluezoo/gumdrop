@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.util.IteratorEnumeration;
 import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.ProtocolException;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
@@ -159,18 +160,18 @@ class Request implements HttpServletRequest {
         return handler.getState().getScheme();
     }
 
-    private java.net.InetSocketAddress getRemoteSocketAddress() {
-        java.net.SocketAddress addr = handler.getState().getRemoteAddress();
-        if (addr instanceof java.net.InetSocketAddress) {
-            return (java.net.InetSocketAddress) addr;
+    private InetSocketAddress getRemoteSocketAddress() {
+        SocketAddress addr = handler.getState().getRemoteAddress();
+        if (addr instanceof InetSocketAddress) {
+            return (InetSocketAddress) addr;
         }
         return null;
     }
 
-    private java.net.InetSocketAddress getLocalSocketAddress() {
-        java.net.SocketAddress addr = handler.getState().getLocalAddress();
-        if (addr instanceof java.net.InetSocketAddress) {
-            return (java.net.InetSocketAddress) addr;
+    private InetSocketAddress getLocalSocketAddress() {
+        SocketAddress addr = handler.getState().getLocalAddress();
+        if (addr instanceof InetSocketAddress) {
+            return (InetSocketAddress) addr;
         }
         return null;
     }
@@ -1261,7 +1262,7 @@ class Request implements HttpServletRequest {
      * @since Servlet 4.0
      */
     @Override
-    public javax.servlet.http.PushBuilder newPushBuilder() {
+    public PushBuilder newPushBuilder() {
         // Check if server push is supported
         if (!handler.supportsServerPush()) {
             return null;

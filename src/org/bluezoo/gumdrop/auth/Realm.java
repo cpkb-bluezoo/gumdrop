@@ -21,10 +21,18 @@
 
 package org.bluezoo.gumdrop.auth;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.Set;
 
 import org.bluezoo.gumdrop.SelectorLoop;
+import javax.crypto.Mac;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
 
 /**
  * A realm is a collection of authenticatable principals.
@@ -256,26 +264,26 @@ public interface Realm {
         public static ScramCredentials derive(String password, byte[] salt, int iterations, String algorithm) {
             try {
                 // Derive SaltedPassword using PBKDF2
-                javax.crypto.SecretKeyFactory factory = 
-                    javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmac" + algorithm.replace("-", ""));
-                javax.crypto.spec.PBEKeySpec spec = 
-                    new javax.crypto.spec.PBEKeySpec(password.toCharArray(), salt, iterations, 256);
+                SecretKeyFactory factory = 
+                    SecretKeyFactory.getInstance("PBKDF2WithHmac" + algorithm.replace("-", ""));
+                PBEKeySpec spec = 
+                    new PBEKeySpec(password.toCharArray(), salt, iterations, 256);
                 byte[] saltedPassword = factory.generateSecret(spec).getEncoded();
 
                 // Compute ClientKey and StoredKey
                 String hmacAlg = "Hmac" + algorithm.replace("-", "");
-                javax.crypto.Mac mac = javax.crypto.Mac.getInstance(hmacAlg);
-                mac.init(new javax.crypto.spec.SecretKeySpec(saltedPassword, hmacAlg));
-                byte[] clientKey = mac.doFinal("Client Key".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                Mac mac = Mac.getInstance(hmacAlg);
+                mac.init(new SecretKeySpec(saltedPassword, hmacAlg));
+                byte[] clientKey = mac.doFinal("Client Key".getBytes(StandardCharsets.UTF_8));
                 
-                java.security.MessageDigest digest = java.security.MessageDigest.getInstance(algorithm);
+                MessageDigest digest = MessageDigest.getInstance(algorithm);
                 byte[] storedKey = digest.digest(clientKey);
 
                 // Compute ServerKey
-                mac.init(new javax.crypto.spec.SecretKeySpec(saltedPassword, hmacAlg));
-                byte[] serverKey = mac.doFinal("Server Key".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                mac.init(new SecretKeySpec(saltedPassword, hmacAlg));
+                byte[] serverKey = mac.doFinal("Server Key".getBytes(StandardCharsets.UTF_8));
 
-                String saltBase64 = java.util.Base64.getEncoder().encodeToString(salt);
+                String saltBase64 = Base64.getEncoder().encodeToString(salt);
                 return new ScramCredentials(saltBase64, iterations, storedKey, serverKey);
             } catch (Exception e) {
                 throw new RuntimeException("Failed to derive SCRAM credentials", e);
@@ -471,7 +479,7 @@ public interface Realm {
         public String toString() {
             if (valid) {
                 return String.format("TokenValidationResult{valid=true, username='%s', tokenType='%s', scopes=%s}", 
-                    username, tokenType, java.util.Arrays.toString(scopes));
+                    username, tokenType, Arrays.toString(scopes));
             } else {
                 return "TokenValidationResult{valid=false}";
             }
