@@ -178,7 +178,94 @@ public class H3StreamTest {
         assertEquals("CLOSED", getState(stream));
     }
 
+    /**
+     * RFC 9114 section 4.1.2: a malformed Content-Length makes the
+     * message malformed ({@code H3_MESSAGE_ERROR}).
+     */
+    @Test
+    public void testInvalidContentLengthAbortsWithMessageError() throws Exception {
+        H3Stream stream = createStream();
+        stream.headersFrameReceived(encode(
+                ":method", "POST",
+                ":scheme", "https",
+                ":path", "/",
+                ":authority", "example.com",
+                "content-length", "nope"));
+        assertEquals("CLOSED", getState(stream));
+        assertEquals(Long.valueOf(-1L), getField(stream, "contentLength"));
+    }
+
+    /**
+     * RFC 9114 section 4.1.2: DATA bytes exceeding Content-Length abort
+     * the stream with {@code H3_MESSAGE_ERROR}.
+     */
+    @Test
+    public void testDataExceedingContentLengthAbortsWithMessageError() throws Exception {
+        H3Stream stream = createStream();
+        setField(stream, "state", enumValue(H3Stream.class, "State", "OPEN"));
+        setField(stream, "contentLength", Long.valueOf(2L));
+        setField(stream, "handler", new StubRequestHandler());
+
+        stream.dataFrameReceived(ByteBuffer.wrap(new byte[] { 1, 2, 3 }), true);
+
+        assertEquals("CLOSED", getState(stream));
+        assertNull(getField(stream, "handler"));
+    }
+
+    /**
+     * RFC 9114 section 4.1.2: on stream FIN, Content-Length must equal
+     * the sum of DATA frame payload lengths.
+     */
+    @Test
+    public void testContentLengthMismatchOnFinAbortsWithMessageError() throws Exception {
+        H3Stream stream = createStream();
+        setField(stream, "state", enumValue(H3Stream.class, "State", "RECEIVING_BODY"));
+        setField(stream, "contentLength", Long.valueOf(5L));
+        setField(stream, "bodyBytesReceived", Long.valueOf(2L));
+        setField(stream, "handler", new StubRequestHandler());
+        setField(stream, "bodyStarted", Boolean.TRUE);
+
+        stream.disconnected();
+
+        assertEquals("CLOSED", getState(stream));
+        assertNull(getField(stream, "handler"));
+    }
+
+    /**
+     * RFC 9114 section 4.1.2: matching Content-Length allows a normal
+     * finish.
+     */
+    @Test
+    public void testMatchingContentLengthCompletesNormally() throws Exception {
+        H3Stream stream = createStream();
+        StubRequestHandler handler = new StubRequestHandler();
+        setField(stream, "state", enumValue(H3Stream.class, "State", "RECEIVING_BODY"));
+        setField(stream, "contentLength", Long.valueOf(3L));
+        setField(stream, "bodyBytesReceived", Long.valueOf(3L));
+        setField(stream, "handler", handler);
+        setField(stream, "bodyStarted", Boolean.TRUE);
+
+        stream.disconnected();
+
+        assertEquals("HALF_CLOSED_REMOTE", getState(stream));
+        assertTrue(handler.requestCompleteCalled);
+    }
+
     // ── Helpers ──
+
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private static Object enumValue(Class<?> owner, String enumName, String constant)
+            throws Exception {
+        Class<?> enumClass = null;
+        for (Class<?> nested : owner.getDeclaredClasses()) {
+            if (enumName.equals(nested.getSimpleName())) {
+                enumClass = nested;
+                break;
+            }
+        }
+        assertNotNull(enumClass);
+        return Enum.valueOf((Class<? extends Enum>) enumClass, constant);
+    }
 
     private void setField(H3Stream stream, String name, Object value) throws Exception {
         Field f = H3Stream.class.getDeclaredField(name);
@@ -189,11 +276,17 @@ public class H3StreamTest {
     private static class StubRequestHandler extends DefaultHTTPRequestHandler {
         HTTPResponseState failedState;
         Exception failedCause;
+        boolean requestCompleteCalled;
 
         @Override
         public void failed(HTTPResponseState state, Exception cause) {
             failedState = state;
             failedCause = cause;
+        }
+
+        @Override
+        public void requestComplete(HTTPResponseState state) {
+            requestCompleteCalled = true;
         }
     }
 
