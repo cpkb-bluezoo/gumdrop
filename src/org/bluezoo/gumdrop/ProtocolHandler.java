@@ -39,7 +39,9 @@ import java.nio.ByteBuffer;
  *     (called immediately before {@code connected} for QUIC, after STARTTLS
  *     for TCP)</li>
  * <li>{@link #receive(ByteBuffer)} -- called for each chunk of data</li>
- * <li>{@link #disconnected()} -- peer closed the connection/stream</li>
+ * <li>{@link #readFinished()} -- peer finished sending on a QUIC stream
+ *     (the endpoint may still be open for sending)</li>
+ * <li>{@link #disconnected()} -- connection or stream fully closed</li>
  * </ol>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -71,10 +73,26 @@ public interface ProtocolHandler {
     void connected(Endpoint endpoint);
 
     /**
-     * Called when the peer has closed the connection or stream.
+     * Called when the peer has finished sending on a QUIC stream (a STREAM
+     * frame with FIN was received). The endpoint remains usable for sending
+     * until the local side calls {@link Endpoint#close()} or the stream is
+     * reset (RFC 9000 section 3.5).
      *
-     * <p>After this method returns, the endpoint is no longer usable.
-     * Protocol handlers should perform any cleanup here.
+     * <p>Default implementation is a no-op. TCP endpoints never invoke
+     * this; they signal peer closure via {@link #disconnected()} instead.
+     */
+    default void readFinished() {
+    }
+
+    /**
+     * Called when the connection or stream is fully closed and the endpoint
+     * is no longer usable.
+     *
+     * <p>On QUIC streams this is invoked on RESET_STREAM or connection
+     * teardown, not on a peer STREAM FIN -- see {@link #readFinished()}.
+     * On TCP, this is invoked when the peer closes the connection.
+     *
+     * <p>Protocol handlers should perform any cleanup here.
      */
     void disconnected();
 

@@ -307,7 +307,16 @@ public class DoQClientTransport implements DNSClientTransport {
         }
 
         @Override
+        public void readFinished() {
+            deliverAccumulatedResponse();
+        }
+
+        @Override
         public void disconnected() {
+            deliverAccumulatedResponse();
+        }
+
+        private void deliverAccumulatedResponse() {
             if (accumulator.size() < 2) {
                 return;
             }

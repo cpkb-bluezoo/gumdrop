@@ -255,16 +255,22 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     }
 
     @Override
+    public void readFinished() {
+        handlePeerSendFinished();
+    }
+
+    @Override
     public void disconnected() {
+        handlePeerSendFinished();
+    }
+
+    private void handlePeerSendFinished() {
         // connection is only ever null when a test constructs this class
         // directly without going through HTTP3ClientHandler (see
         // H3ClientStreamTest) -- never in production.
         if (!headersDecoded && connection != null) {
             connection.cancelQpackStream(streamId);
         }
-        // See H3Stream#disconnected: the QUIC layer delivers both a
-        // clean FIN and a peer RESET_STREAM through this same callback,
-        // so both are treated as a normal finish.
         onFinished();
     }
 

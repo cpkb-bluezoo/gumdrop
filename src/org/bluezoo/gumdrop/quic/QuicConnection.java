@@ -525,7 +525,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // Distinguishes a clean, app-initiated close() (e.g. QuicEngine.close())
     // from one triggered by a peer's CONNECTION_CLOSE or a local transport
     // error -- decides whether streams' ProtocolHandler.disconnected() or
-    // .error(Exception) is called on teardown.
+    // .error(Exception) is called on teardown (peer FIN uses readFinished()
+    // instead; see completeStreamFin).
     private boolean deferredCloseIsError;
 
     /**
@@ -1129,7 +1130,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // stream -- see QuicStreamEndpoint's markPeerFinished javadoc.
     private void completeStreamFin(long streamId, QuicStreamEndpoint stream) {
         stream.markPeerFinished();
-        stream.getHandler().disconnected();
+        stream.getHandler().readFinished();
         retireStreamIfFullyClosed(streamId, stream);
     }
 
