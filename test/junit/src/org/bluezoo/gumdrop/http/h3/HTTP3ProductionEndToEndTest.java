@@ -1290,6 +1290,89 @@ public class HTTP3ProductionEndToEndTest {
     }
 
     /**
+     * RFC 9114 section 7.2.8: reserved HTTP/2 frame types (here PRIORITY
+     * {@code 0x02}) are {@code H3_FRAME_UNEXPECTED}, not GREASE -- even
+     * when they arrive before SETTINGS on the control stream.
+     */
+    @Test
+    public void testReservedHttp2FrameTypeBeforeSettingsIsFrameUnexpected() throws Exception {
+        int length = H3Writer.streamTypeLength(0x00) + 2;
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        payload.put((byte) 0x02); // HTTP/2 PRIORITY
+        payload.put((byte) 0x00); // empty payload
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "RFC 9114 section 7.2.8 H3_FRAME_UNEXPECTED");
+    }
+
+    /**
+     * RFC 9114 section 7.2.8: reserved HTTP/2 CONTINUATION ({@code 0x09})
+     * after SETTINGS on the control stream is {@code H3_FRAME_UNEXPECTED}.
+     */
+    @Test
+    public void testReservedHttp2FrameTypeAfterSettingsIsFrameUnexpected() throws Exception {
+        int length = H3Writer.streamTypeLength(0x00)
+                + H3Writer.settingsLength(new long[0])
+                + 2;
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        H3Writer.writeSettings(payload, new long[0]);
+        payload.put((byte) 0x09); // HTTP/2 CONTINUATION
+        payload.put((byte) 0x00);
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "RFC 9114 section 7.2.8 H3_FRAME_UNEXPECTED");
+    }
+
+    /**
+     * RFC 9114 section 7.2.8: reserved HTTP/2 PING ({@code 0x06}) on a
+     * request stream is {@code H3_FRAME_UNEXPECTED}.
+     */
+    @Test
+    public void testReservedHttp2FrameTypeOnRequestStreamIsFrameUnexpected() throws Exception {
+        ByteBuffer payload = ByteBuffer.allocate(2);
+        payload.put((byte) 0x06); // HTTP/2 PING
+        payload.put((byte) 0x00);
+        payload.flip();
+        assertRawClientBidiSendClosesWith(payload, H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "RFC 9114 section 7.2.8 H3_FRAME_UNEXPECTED");
+    }
+
+    /**
+     * RFC 9114 section 7.2.4 / 11.2.2: reserved HTTP/2 SETTINGS
+     * identifiers (here {@code 0x02} ENABLE_PUSH) are
+     * {@code H3_SETTINGS_ERROR}.
+     */
+    @Test
+    public void testReservedHttp2SettingIsSettingsError() throws Exception {
+        long[] settings = { 0x02L, 0L };
+        int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        H3Writer.writeSettings(payload, settings);
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_SETTINGS_ERROR,
+                "RFC 9114 section 7.2.4 H3_SETTINGS_ERROR");
+    }
+
+    /**
+     * RFC 9220 section 3: {@code SETTINGS_ENABLE_CONNECT_PROTOCOL} MUST
+     * be 0 or 1; any other value is {@code H3_SETTINGS_ERROR}.
+     */
+    @Test
+    public void testEnableConnectProtocolInvalidValueIsSettingsError() throws Exception {
+        long[] settings = { H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 2L };
+        int length = H3Writer.streamTypeLength(0x00) + H3Writer.settingsLength(settings);
+        ByteBuffer payload = ByteBuffer.allocate(length);
+        H3Writer.writeStreamType(payload, 0x00);
+        H3Writer.writeSettings(payload, settings);
+        payload.flip();
+        assertRawClientUniSendClosesWith(payload, H3ErrorCode.H3_SETTINGS_ERROR,
+                "RFC 9220 section 3 H3_SETTINGS_ERROR");
+    }
+
+    /**
      * RFC 9114 section 6.2.1: premature FIN of the peer control stream
      * is a connection error of type H3_CLOSED_CRITICAL_STREAM.
      */

@@ -579,6 +579,16 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     }
 
     @Override
+    public void unknownFrameReceived(long frameType) {
+        if (H3FrameHandler.isReservedHttp2FrameType(frameType)) {
+            // RFC 9114 section 7.2.8
+            connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                    "reserved HTTP/2 frame type: " + frameType);
+        }
+        // Genuine GREASE / extension frame types are ignored (section 9).
+    }
+
+    @Override
     public void frameError(String message) {
         String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
         LOGGER.warning(formatted);
