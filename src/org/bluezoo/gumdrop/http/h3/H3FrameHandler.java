@@ -92,6 +92,36 @@ public interface H3FrameHandler {
     /** RFC 9218 section 7.2: PRIORITY_UPDATE for a push stream. */
     long TYPE_PRIORITY_UPDATE_PUSH = 0xF0701;
 
+    /**
+     * RFC 9114 section 7.2.8 / section 11.2.1: HTTP/2 frame type codepoints
+     * that MUST NOT appear in HTTP/3 (PRIORITY, PING, WINDOW_UPDATE,
+     * CONTINUATION). Receipt is a connection error of type
+     * {@code H3_FRAME_UNEXPECTED} -- not GREASE.
+     *
+     * @param frameType the frame type from the wire
+     * @return true if {@code frameType} is one of those reserved values
+     */
+    static boolean isReservedHttp2FrameType(long frameType) {
+        return frameType == 0x02L || frameType == 0x06L
+                || frameType == 0x08L || frameType == 0x09L;
+    }
+
+    /**
+     * RFC 9114 section 7.2.4 / section 11.2.2: HTTP/2 SETTINGS identifiers
+     * that MUST NOT appear in HTTP/3 ({@code 0x00}, {@code 0x02}-{@code 0x05}).
+     * Receipt is a connection error of type {@code H3_SETTINGS_ERROR}.
+     *
+     * @param identifier the SETTINGS identifier from the wire
+     * @return true if {@code identifier} is one of those reserved values
+     */
+    static boolean isReservedHttp2Setting(long identifier) {
+        return identifier == 0x00L
+                || identifier == 0x02L
+                || identifier == 0x03L
+                || identifier == 0x04L
+                || identifier == 0x05L;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Frame Callbacks
     // ─────────────────────────────────────────────────────────────────────────
@@ -183,8 +213,11 @@ public interface H3FrameHandler {
 
     /**
      * Called when a complete frame of an unrecognised type is received
-     * (RFC 9114 section 7.2.8 / section 9). Request streams ignore these;
-     * the control stream uses this to enforce SETTINGS-first.
+     * (RFC 9114 section 7.2.8 / section 9). Request streams ignore genuine
+     * GREASE/extension types; the control stream uses this to enforce
+     * SETTINGS-first. Reserved HTTP/2 leftovers
+     * ({@link #isReservedHttp2FrameType}) are not GREASE and must be
+     * rejected by every stream handler.
      *
      * @param frameType the unrecognised frame type
      */

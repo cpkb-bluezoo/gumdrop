@@ -349,6 +349,23 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
                     "SETTINGS must not be sent more than once");
             return;
         }
+        for (int i = 0; i + 1 < settings.length; i += 2) {
+            long identifier = settings[i];
+            long value = settings[i + 1];
+            if (H3FrameHandler.isReservedHttp2Setting(identifier)) {
+                // RFC 9114 section 7.2.4 / 11.2.2
+                connectionError(H3ErrorCode.H3_SETTINGS_ERROR,
+                        "reserved HTTP/2 SETTINGS identifier: " + identifier);
+                return;
+            }
+            if (identifier == H3FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL
+                    && value != 0 && value != 1) {
+                // RFC 9220 section 3
+                connectionError(H3ErrorCode.H3_SETTINGS_ERROR,
+                        "SETTINGS_ENABLE_CONNECT_PROTOCOL must be 0 or 1");
+                return;
+            }
+        }
         settingsReceived = true;
         listener.settingsReceived(settings);
     }
@@ -440,6 +457,13 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
 
     @Override
     public void unknownFrameReceived(long frameType) {
+        if (H3FrameHandler.isReservedHttp2FrameType(frameType)) {
+            // RFC 9114 section 7.2.8: reserved HTTP/2 frame types are
+            // H3_FRAME_UNEXPECTED even before SETTINGS (they are not GREASE).
+            connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                    "reserved HTTP/2 frame type: " + frameType);
+            return;
+        }
         // RFC 9114 section 7.2.4 / section 9: GREASE after SETTINGS is
         // ignored; GREASE before SETTINGS does not satisfy SETTINGS-first.
         requireSettingsFirst();

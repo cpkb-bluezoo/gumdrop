@@ -297,9 +297,10 @@ public class H3Parser {
                     handler.priorityUpdatePushFrameReceived(pushId, fieldValue);
                 }
             } else {
-                // RFC 9114 section 7.2.8: unrecognised types are ignored
-                // on request streams; the control stream is notified so
-                // it can enforce SETTINGS-first (RFC 9114 section 7.2.4).
+                // RFC 9114 section 7.2.8: reserved HTTP/2 leftovers are
+                // H3_FRAME_UNEXPECTED; genuine GREASE/extension types are
+                // ignored on request streams, and the control stream is
+                // notified so it can enforce SETTINGS-first (section 7.2.4).
                 handler.unknownFrameReceived(frameType);
             }
         } catch (BufferUnderflowException e) {
