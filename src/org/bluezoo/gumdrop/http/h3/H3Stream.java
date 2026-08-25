@@ -51,6 +51,7 @@ import org.bluezoo.gumdrop.http.HTTPPrincipal;
 import org.bluezoo.gumdrop.http.HTTPRequestHandler;
 import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.http.HTTPServerMetrics;
+import org.bluezoo.gumdrop.http.HTTPUtils;
 import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
@@ -155,6 +156,14 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
 
     private boolean capsuleMode;
     private final CapsuleParser capsuleParser = new CapsuleParser();
+
+    /**
+     * Declared {@code Content-Length} from the request headers, or
+     * {@code -1} if absent. Validated against accumulated DATA bytes
+     * (RFC 9114 section 4.1.2).
+     */
+    private long contentLength = -1L;
+    private long bodyBytesReceived;
 
     private H3WebSocketConnectionAdapter webSocketAdapter;
 
@@ -322,6 +331,14 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
                 return;
             }
 
+            // Capture Content-Length before stripHttp1FramingHeaders removes
+            // it (same ordering as HTTP/2 in Stream): H3 still validates the
+            // declared length against DATA bytes (RFC 9114 section 4.1.2)
+            // even though CL is not used for framing.
+            if (!captureContentLength(headers)) {
+                return;
+            }
+
             HTTPVersion.stripHttp1FramingHeaders(headers);
 
             HTTPAuthenticationProvider authProvider = connection.getAuthenticationProvider();
@@ -368,12 +385,25 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
             dispatchCapsules(data);
             return;
         }
+        if (state == State.IDLE) {
+            // RFC 9114 section 4.1: DATA before the initial HEADERS is
+            // a connection error of type H3_FRAME_UNEXPECTED.
+            connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                    "DATA received before HEADERS");
+            return;
+        }
         if (state == State.OPEN) {
             state = State.RECEIVING_BODY;
             if (!bodyStarted && handler != null) {
                 bodyStarted = true;
                 handler.startRequestBody(this);
             }
+        }
+        bodyBytesReceived += data.remaining();
+        if (contentLength >= 0 && bodyBytesReceived > contentLength) {
+            // RFC 9114 section 4.1.2
+            abortMessageError("DATA exceeds Content-Length");
+            return;
         }
         if (handler != null) {
             handler.requestBodyContent(this, data);
@@ -412,6 +442,12 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
             abortDatagramError();
             return;
         }
+        if (contentLength >= 0 && bodyBytesReceived != contentLength) {
+            // RFC 9114 section 4.1.2: Content-Length must equal the sum
+            // of DATA frame payload lengths.
+            abortMessageError("Content-Length does not match DATA frame bytes");
+            return;
+        }
         if (state == State.RECEIVING_BODY) {
             if (handler != null) {
                 handler.endRequestBody(this);
@@ -420,6 +456,41 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         state = State.HALF_CLOSED_REMOTE;
         if (handler != null) {
             handler.requestComplete(this);
+        }
+    }
+
+    /**
+     * Parses and stores {@code Content-Length} from the request headers.
+     *
+     * @return false if the field was present but malformed (stream aborted)
+     */
+    private boolean captureContentLength(Headers headers) {
+        String value = headers.getCombinedValue("content-length");
+        if (value == null) {
+            return true;
+        }
+        long parsed = HTTPUtils.validateContentLength(value);
+        if (parsed < 0) {
+            abortMessageError("invalid Content-Length");
+            return false;
+        }
+        contentLength = parsed;
+        return true;
+    }
+
+    /**
+     * Aborts this stream with {@link H3ErrorCode#H3_MESSAGE_ERROR}
+     * (RFC 9114 section 4.1.2 / 8.1) because the message is malformed.
+     */
+    private void abortMessageError(String reason) {
+        if (span != null && !span.isEnded()) {
+            span.recordError(ErrorCategory.PROTOCOL_ERROR, reason);
+            span.end();
+        }
+        state = State.CLOSED;
+        handler = null;
+        if (endpoint != null) {
+            endpoint.resetStream(H3ErrorCode.H3_MESSAGE_ERROR);
         }
     }
 

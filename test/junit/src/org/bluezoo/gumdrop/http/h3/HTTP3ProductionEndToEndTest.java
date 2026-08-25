@@ -1373,6 +1373,20 @@ public class HTTP3ProductionEndToEndTest {
     }
 
     /**
+     * RFC 9114 section 4.1: DATA before the initial HEADERS on a request
+     * stream is {@code H3_FRAME_UNEXPECTED}.
+     */
+    @Test
+    public void testDataBeforeHeadersIsFrameUnexpected() throws Exception {
+        byte[] body = new byte[] { 'x', 'y', 'z' };
+        ByteBuffer payload = ByteBuffer.allocate(H3Writer.dataLength(body.length));
+        H3Writer.writeData(payload, body);
+        payload.flip();
+        assertRawClientBidiSendClosesWith(payload, H3ErrorCode.H3_FRAME_UNEXPECTED,
+                "RFC 9114 section 4.1 H3_FRAME_UNEXPECTED");
+    }
+
+    /**
      * RFC 9114 section 6.2.1: premature FIN of the peer control stream
      * is a connection error of type H3_CLOSED_CRITICAL_STREAM.
      */

@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.HTTPUtils;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
@@ -123,6 +124,17 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     private boolean capsuleMode;
     private final CapsuleParser capsuleParser = new CapsuleParser();
 
+    /**
+     * Declared {@code Content-Length} from the response headers, or
+     * {@code -1} if absent. Validated against accumulated DATA bytes
+     * (RFC 9114 section 4.1.2), except for responses that must not have
+     * a body (HEAD / 204 / 304).
+     */
+    private long contentLength = -1L;
+    private long bodyBytesReceived;
+    private boolean responseMustNotHaveBody;
+    private String requestMethod;
+
     // Set by HTTP3ClientHandler.sendRequest / connectWebSocket before
     // openStream, then flushed from connected() once a stream ID is
     // granted -- including when the open was queued behind MAX_STREAMS
@@ -192,6 +204,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     void prepareRequest(Headers headers, boolean fin) {
         this.pendingRequestHeaders = headers;
         this.pendingRequestFin = fin;
+        this.requestMethod = headers.getValue(":method");
     }
 
     Headers takePendingRequestHeaders() {
@@ -401,9 +414,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             } else {
                 responseHandler.error(response);
             }
-        }
 
-        if (wsHandler == null) {
             for (Header field : fields) {
                 if (!field.getName().startsWith(":")) {
                     responseHandler.header(field.getName(), field.getValue());
@@ -413,7 +424,25 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             for (int i = 0; i < fields.size(); i++) {
                 hdrs.add(fields.get(i));
             }
+            if (!captureContentLength(hdrs)) {
+                return;
+            }
+            // RFC 9110 section 6.4.1 / 15.4.5 / 15.4.6: HEAD, 204, and
+            // 304 responses must not carry a message body; Content-Length
+            // on HEAD may still describe a would-be GET body.
+            responseMustNotHaveBody = statusCode == 204 || statusCode == 304
+                    || "HEAD".equalsIgnoreCase(requestMethod);
             capsuleMode = Capsule.capsuleProtocolEnabled(hdrs);
+            return;
+        }
+
+        // Trailer field section (or late headers after the final status).
+        if (wsHandler == null) {
+            for (Header field : fields) {
+                if (!field.getName().startsWith(":")) {
+                    responseHandler.header(field.getName(), field.getValue());
+                }
+            }
         }
     }
 
@@ -477,10 +506,26 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             dispatchCapsules(data);
             return;
         }
+        if (state == State.OPEN) {
+            // RFC 9114 section 4.1: DATA before the initial HEADERS is
+            // a connection error of type H3_FRAME_UNEXPECTED.
+            connectionError(H3ErrorCode.H3_FRAME_UNEXPECTED,
+                    "DATA received before HEADERS");
+            return;
+        }
+        if (responseMustNotHaveBody) {
+            abortMessageError("DATA on a response that must not have a body");
+            return;
+        }
         if (!bodyStarted) {
             bodyStarted = true;
             state = State.RECEIVING_BODY;
             responseHandler.startResponseBody();
+        }
+        bodyBytesReceived += data.remaining();
+        if (contentLength >= 0 && bodyBytesReceived > contentLength) {
+            abortMessageError("DATA exceeds Content-Length");
+            return;
         }
         responseHandler.responseBodyContent(data);
     }
@@ -527,11 +572,54 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             abortDatagramError();
             return;
         }
+        if (!responseMustNotHaveBody
+                && contentLength >= 0
+                && bodyBytesReceived != contentLength) {
+            // RFC 9114 section 4.1.2
+            abortMessageError("Content-Length does not match DATA frame bytes");
+            return;
+        }
         if (bodyStarted) {
             responseHandler.endResponseBody();
         }
         state = State.CLOSED;
         responseHandler.close();
+    }
+
+    /**
+     * Parses and stores {@code Content-Length} from the response headers.
+     *
+     * @return false if the field was present but malformed (stream aborted)
+     */
+    private boolean captureContentLength(Headers headers) {
+        String value = headers.getCombinedValue("content-length");
+        if (value == null) {
+            return true;
+        }
+        long parsed = HTTPUtils.validateContentLength(value);
+        if (parsed < 0) {
+            abortMessageError("invalid Content-Length");
+            return false;
+        }
+        contentLength = parsed;
+        return true;
+    }
+
+    /**
+     * Aborts this stream with {@link H3ErrorCode#H3_MESSAGE_ERROR}
+     * (RFC 9114 section 4.1.2 / 8.1) because the message is malformed.
+     */
+    private void abortMessageError(String reason) {
+        state = State.CLOSED;
+        if (endpoint instanceof QuicStreamEndpoint) {
+            ((QuicStreamEndpoint) endpoint).resetStream(H3ErrorCode.H3_MESSAGE_ERROR);
+        }
+        IOException ex = new IOException(reason);
+        if (wsHandler != null) {
+            wsHandler.error(ex);
+        } else if (responseHandler != null) {
+            responseHandler.failed(ex);
+        }
     }
 
     @Override

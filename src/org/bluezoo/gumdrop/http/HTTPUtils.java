@@ -33,7 +33,7 @@ package org.bluezoo.gumdrop.http;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class HTTPUtils {
+public final class HTTPUtils {
 
     // RFC 9110 section 5.6.2: token = 1*tchar
     // tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
@@ -405,7 +405,13 @@ final class HTTPUtils {
         return true;
     }
 
-    static long validateContentLength(String value) {
+    /**
+     * Validates a Content-Length field value (RFC 9110 section 8.6).
+     *
+     * @param value the header value, possibly with comma-separated duplicates
+     * @return the non-negative length, or {@code -1} if malformed
+     */
+    public static long validateContentLength(String value) {
         if (value == null) {
             return -1;
         }
