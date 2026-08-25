@@ -14,7 +14,7 @@ This document compares deployment size, dependencies, and startup characteristic
 
 | Framework | Deployment Model | Total JAR Size | Dependencies | Download & Build Time | Notes |
 |-----------|------------------|----------------|--------------|---------------|-------|
-| **Gumdrop (HTTPService)** | gumdrop.jar + gonzalez OR jsonparser | ~2.6 MB / ~4.4 MB | 2–3 JARs | Seconds | Minimal async microservice |
+| **Gumdrop (HTTPService)** | gumdrop.jar + gonzalez-core OR jsonparser | ~2.7 MB / ~2.57 MB | 2–3 JARs | Seconds | Minimal async microservice |
 | **Gumdrop (Servlet)** | gumdrop-container.jar (fat) | ~5.2 MB | Self-contained | Seconds | Full servlet container |
 | **Netty** | netty-codec-http + XML or JSON | ~2.3 MB / ~4.5 MB | 6–8 Netty + aalto or Jackson | ~10–30 sec | No servlet, HTTP handler only |
 | **Jetty** | jetty-server + embedded | ~8–12 MB | Jetty + JSP compiler | ~30–60 sec | Servlet container |
@@ -33,15 +33,15 @@ For a pure async microservice without servlets:
 
 **Required:**
 - `gumdrop.jar` — core framework (2,537,896 bytes)
-- `gonzalez-1.2.0.jar` — XML parsing (1.9 MB) **OR** `jsonparser-1.3.jar` — JSON (23,063 bytes)
+- `gonzalez-core-1.2.0.jar` — XML parsing (~146 KB) **OR** `jsonparser-1.3.jar` — JSON (31,331 bytes)
 
-**Total:** ~4.4 MB (with gonzalez) or ~2.56 MB (with jsonparser only)
+**Total:** ~2.7 MB (with gonzalez-core) or ~2.57 MB (with jsonparser only)
 
-**Dependencies:** Downloaded from GitHub Releases on first build. Ant `resolve-deps` fetches:
-- jsonparser: https://github.com/cpkb-bluezoo/jsonparser/releases/download/v1.3/jsonparser-1.3.jar
-- gonzalez: https://github.com/cpkb-bluezoo/gonzalez/releases/download/v1.2.0/gonzalez-1.2.0.jar
+**Dependencies:** Downloaded from Maven Central on first build. Ant `resolve-deps` fetches:
+- jsonparser: https://repo1.maven.org/maven2/org/bluezoo/jsonparser/1.3/jsonparser-1.3.jar
+- gonzalez-core: https://repo1.maven.org/maven2/org/bluezoo/gonzalez-core/1.2.0/gonzalez-core-1.2.0.jar
 
-**Build:** `ant dist` — downloads 2 JARs (~2 MB total), compiles, produces `gumdrop.jar`. No Maven/Gradle required for build.
+**Build:** `ant dist` — downloads jars from Maven Central, compiles, produces `gumdrop.jar`. No Maven/Gradle required for build.
 
 #### Option B: Servlet Web Application (Fat JAR)
 
@@ -50,7 +50,7 @@ For a pure async microservice without servlets:
 
 **Bundled inside fat JAR:**
 - gumdrop.jar
-- gonzalez-1.2.0.jar
+- gonzalez-core-1.2.0.jar
 - jsonparser-1.3.jar
 - javax.servlet-api-4.0.1.jar (95 KB)
 - javax.mail-1.6.2.jar (659 KB)
@@ -69,7 +69,7 @@ For a pure async microservice without servlets:
 |----------|------|
 | gumdrop.jar | 2,537,896 bytes |
 | gumdrop-container.jar | 5.2 MB |
-| gonzalez-1.2.0.jar | 1.9 MB |
+| gonzalez-core-1.2.0.jar | 149,662 bytes |
 | jsonparser-1.3.jar | 31,331 bytes |
 | lib/ total (all deps) | ~3.5 MB |
 
@@ -402,11 +402,11 @@ There is no XML or properties-only way to deploy an external WAR; it requires Ja
 |-------------|---------|-------|-------|--------|-------------|
 | **HTTP server** | ✓ Built-in | ✓ Codec | ✓ Embedded | ✓ Embedded | ✓ Via Tomcat |
 | **Servlet API** | ✓ Optional | ✗ | ✓ | ✓ | ✓ |
-| **JSON parsing** | jsonparser (23 KB) | netty-codec (JsonObjectDecoder) + Jackson/Gson for POJOs | Add lib | Add lib | Jackson (included) |
-| **XML parsing** | gonzalez (1.9 MB) | netty-codec-xml (Aalto, async) | Add lib | Add lib | Add lib |
+| **JSON parsing** | jsonparser (31 KB) | netty-codec (JsonObjectDecoder) + Jackson/Gson for POJOs | Add lib | Add lib | Jackson (included) |
+| **XML parsing** | gonzalez-core (~146 KB) | netty-codec-xml (Aalto, async) | Add lib | Add lib | Add lib |
 | **DI framework** | ✓ (minimal, config only) | ✗ | ✗ | ✗ | ✓ (Spring, full) |
 | **Build tool** | Ant (or Maven for deps) | Maven/Gradle | Maven/Gradle | Maven/Gradle | Maven/Gradle |
-| **Minimal deploy size** | ~2.56 MB | ~2.3 MB (XML) / ~4.5 MB (+Jackson) | ~6 MB | ~6 MB | ~25 MB |
+| **Minimal deploy size** | ~2.57 MB | ~2.3 MB (XML) / ~4.5 MB (+Jackson) | ~6 MB | ~6 MB | ~25 MB |
 | **Fat JAR size** | 5.2 MB | N/A | ~8–12 MB | ~10–18 MB | ~25–80 MB |
 
 ---

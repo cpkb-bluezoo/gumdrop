@@ -11,8 +11,8 @@ Version pins: `boms/versions.properties` (keep in sync with root `pom.xml` and
 
 | Jar | Source |
 |-----|--------|
-| gonzalez-core-* | GitHub Releases (cpkb-bluezoo/gonzalez) |
-| jsonparser-* | GitHub Releases (cpkb-bluezoo/jsonparser) |
+| gonzalez-core-* | Maven Central (`org.bluezoo:gonzalez-core`) |
+| jsonparser-* | Maven Central (`org.bluezoo:jsonparser`) |
 | agent15-*, hkdf-* | Maven Central |
 | javax.servlet-api-* | Maven Central (J2EE API) |
 | javax.mail-* | Maven Central (J2EE API) |

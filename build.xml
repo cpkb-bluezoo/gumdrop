@@ -150,11 +150,13 @@
        J2EE API jars are not stored in git; this target is the only source. -->
   <target name='resolve-deps' description='Download external and J2EE API dependencies into lib/'>
     <mkdir dir='${lib}'/>
-    <get src='https://github.com/cpkb-bluezoo/jsonparser/releases/download/v${jsonparser.version}/jsonparser-${jsonparser.version}.jar'
-         dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
+    <!-- All pins are Maven Central coords (org.bluezoo:gonzalez-core / jsonparser,
+         etc.); keep versions in sync with root pom.xml dependencyManagement. -->
     <delete file='${lib}/gonzalez-${gonzalez.version}.jar' quiet='true'/>
-    <get src='https://github.com/cpkb-bluezoo/gonzalez/releases/download/v${gonzalez.version}/gonzalez-core-${gonzalez.version}.jar'
+    <get src='https://repo1.maven.org/maven2/org/bluezoo/gonzalez-core/${gonzalez.version}/gonzalez-core-${gonzalez.version}.jar'
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/bluezoo/jsonparser/${jsonparser.version}/jsonparser-${jsonparser.version}.jar'
+         dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/tech/kwik/agent15/${agent15.version}/agent15-${agent15.version}.jar'
          dest='${lib}/${agent15.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/at/favre/lib/hkdf/${hkdf.version}/hkdf-${hkdf.version}.jar'
