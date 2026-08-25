@@ -870,14 +870,9 @@ public class HTTP3ProductionEndToEndTest {
 
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Exception> failure = new AtomicReference<Exception>();
-        // sendRequest mutates QuicConnection; that is only safe on the
-        // connection's SelectorLoop (see HTTP3ClientHandler#execute).
-        h3.execute(new Runnable() {
-            @Override
-            public void run() {
-                h3.sendRequest(requestHeaders, new LatchResponseHandler(latch, failure), true);
-            }
-        });
+        // Called from the JUnit thread on purpose: sendRequest must marshal
+        // onto the connection's SelectorLoop itself (issue #228).
+        h3.sendRequest(requestHeaders, new LatchResponseHandler(latch, failure), true);
         assertTrue("Response to " + path + " should complete within 5s", latch.await(5, TimeUnit.SECONDS));
         if (failure.get() != null) {
             throw failure.get();

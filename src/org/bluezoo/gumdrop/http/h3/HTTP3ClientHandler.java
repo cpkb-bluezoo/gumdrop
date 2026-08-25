@@ -29,6 +29,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.concurrent.CountDownLatch;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -66,6 +67,8 @@ import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
  * {@link H3Parser} and translates response frames into
  * {@link HTTPResponseHandler} callbacks directly -- unlike the previous
  * quiche-backed implementation, this class does not poll for events.
+ * Public send entry points marshal onto the connection's
+ * {@code SelectorLoop} so callers need not share that thread affinity.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see H3ClientStream
@@ -425,6 +428,9 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * <p>The headers must include the HTTP/3 pseudo-headers:
      * {@code :method}, {@code :scheme}, {@code :authority}, {@code :path}.
      *
+     * <p>Safe to call from any thread: the open is marshaled onto the
+     * connection's {@code SelectorLoop} (see {@link #execute}).
+     *
      * @param headers the request headers
      * @param handler the handler to receive response events
      * @return the stream ID, or -1 on failure
@@ -445,14 +451,42 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * (or {@link #sendRequestBody(long, ByteBuffer, boolean)} once the
      * stream ID is known).
      *
+     * <p>Safe to call from any thread: the open is marshaled onto the
+     * connection's {@code SelectorLoop} (see {@link #execute}). When
+     * already on that thread the work runs immediately; otherwise this
+     * method blocks until the loop has opened the stream so the returned
+     * ID is usable by a following {@link #sendRequestBody} call.
+     *
      * @param headers the request headers
      * @param handler the handler to receive response events
      * @param fin true if no request body will follow
      * @return the stream ID, or -1 on failure or if the open is still
      *         queued behind peer MAX_STREAMS credit
      */
-    public long sendRequest(Headers headers, HTTPResponseHandler handler, boolean fin) {
-        return startRequest(headers, handler, fin).getStreamId();
+    public long sendRequest(final Headers headers, final HTTPResponseHandler handler,
+            final boolean fin) {
+        final long[] streamId = new long[] { -1L };
+        final CountDownLatch done = new CountDownLatch(1);
+        execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    streamId[0] = startRequest(headers, handler, fin).getStreamId();
+                } catch (RuntimeException e) {
+                    handler.failed(e);
+                } finally {
+                    done.countDown();
+                }
+            }
+        });
+        try {
+            done.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            handler.failed(e);
+            return -1L;
+        }
+        return streamId[0];
     }
 
     /**
@@ -460,6 +494,9 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * QUIC layer grants a stream ID. Used by {@link H3Request} so body
      * data can be buffered on the same object if MAX_STREAMS credit is
      * not yet available.
+     *
+     * <p>Must be called from the underlying {@code QuicConnection}'s own
+     * {@code SelectorLoop} thread -- see {@link #execute}.
      *
      * @param headers the request headers
      * @param handler the handler to receive response events
@@ -519,7 +556,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         List<byte[]> body = clientStream.takePendingBody();
         boolean bodyFin = clientStream.takePendingBodyFin();
         for (int i = 0; i < body.size(); i++) {
-            sendRequestBody(streamId, ByteBuffer.wrap(body.get(i)), false);
+            sendRequestBodyOnLoop(streamId, body.get(i), false);
         }
         if (fin || bodyFin) {
             endpoint.close();
@@ -530,12 +567,53 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * Sends request body data on the specified stream (RFC 9114
      * section 4.1 -- DATA frames carry the message body).
      *
+     * <p>Safe to call from any thread: remaining bytes are snapshotted
+     * immediately so the caller may reuse {@code data}, then the send is
+     * marshaled onto the connection's {@code SelectorLoop}
+     * (see {@link #execute}).
+     *
      * @param streamId the stream ID returned by
      *                 {@link #sendRequest(Headers, HTTPResponseHandler, boolean)}
      * @param data the body data
      * @param fin true if this is the last body data
      */
-    public void sendRequestBody(long streamId, ByteBuffer data, boolean fin) {
+    public void sendRequestBody(final long streamId, ByteBuffer data, final boolean fin) {
+        final byte[] snapshot = new byte[data.remaining()];
+        data.get(snapshot);
+        execute(new Runnable() {
+            @Override
+            public void run() {
+                sendRequestBodyOnLoop(streamId, snapshot, fin);
+            }
+        });
+    }
+
+    /**
+     * Sends request body data, buffering it on {@code clientStream} if
+     * the QUIC stream has not been granted yet.
+     *
+     * <p>Must be called from the underlying {@code QuicConnection}'s own
+     * {@code SelectorLoop} thread -- see {@link #execute}.
+     *
+     * @param clientStream the request stream returned by {@link #startRequest}
+     * @param data the body data
+     * @param fin true if this is the last body data
+     */
+    void sendRequestBody(H3ClientStream clientStream, ByteBuffer data, boolean fin) {
+        byte[] snapshot = new byte[data.remaining()];
+        data.get(snapshot);
+        if (clientStream.getEndpoint() == null) {
+            clientStream.queueRequestBody(snapshot, fin);
+            return;
+        }
+        sendRequestBodyOnLoop(clientStream.getStreamId(), snapshot, fin);
+    }
+
+    /**
+     * Writes a DATA frame (and optionally closes the stream) on the
+     * connection's {@code SelectorLoop} thread.
+     */
+    private void sendRequestBodyOnLoop(long streamId, byte[] bytes, boolean fin) {
         H3ClientStream clientStream = streams.get(Long.valueOf(streamId));
         if (clientStream == null) {
             if (LOGGER.isLoggable(Level.FINE)) {
@@ -547,10 +625,8 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
             return;
         }
         Endpoint endpoint = clientStream.getEndpoint();
-        if (data.hasRemaining()) {
-            ByteBuffer out = ByteBuffer.allocate(H3Writer.dataLength(data.remaining()));
-            byte[] bytes = new byte[data.remaining()];
-            data.get(bytes);
+        if (bytes.length > 0) {
+            ByteBuffer out = ByteBuffer.allocate(H3Writer.dataLength(bytes.length));
             H3Writer.writeData(out, bytes);
             out.flip();
             endpoint.send(out);
@@ -558,24 +634,6 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         if (fin) {
             endpoint.close();
         }
-    }
-
-    /**
-     * Sends request body data, buffering it on {@code clientStream} if
-     * the QUIC stream has not been granted yet.
-     *
-     * @param clientStream the request stream returned by {@link #startRequest}
-     * @param data the body data
-     * @param fin true if this is the last body data
-     */
-    void sendRequestBody(H3ClientStream clientStream, ByteBuffer data, boolean fin) {
-        if (clientStream.getEndpoint() == null) {
-            byte[] snapshot = new byte[data.remaining()];
-            data.get(snapshot);
-            clientStream.queueRequestBody(snapshot, fin);
-            return;
-        }
-        sendRequestBody(clientStream.getStreamId(), data, fin);
     }
 
     /**
