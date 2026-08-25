@@ -24,11 +24,12 @@ package org.bluezoo.gumdrop.http.qpack;
 /**
  * Callback interface for receiving parsed QPACK decoder-stream
  * instructions (RFC 9204 section 4.4) from a {@link DecoderStreamParser}.
- * {@link Encoder} implements this directly. Unlike
- * {@link EncoderStreamHandler}, there is no error callback: every
- * decoder-stream instruction is a bare integer (RFC 9204 section 4.4),
- * so there is no malformed-content case distinct from "not enough data
- * yet".
+ * {@link Encoder} implements this directly. Semantic validation
+ * (unknown Section Acknowledgment, zero/excessive Insert Count
+ * Increment) is the implementor's responsibility and surfaces via
+ * {@link Encoder#takeLastInstructionError}; the wire format itself is
+ * only bare integers, so the parser has no distinct malformed-content
+ * case beyond "not enough data yet".
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DecoderStreamParser

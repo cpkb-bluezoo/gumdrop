@@ -70,8 +70,13 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
     /**
      * Per-outstanding (not yet acknowledged/cancelled) stream: the
      * Required Insert Count it was encoded with, and the absolute
-     * indices it references, so {@link #onSectionAcknowledgment}/
-     * {@link #onStreamCancellation} can release the right table refs.
+     * indices it references, so {@link #sectionAcknowledgment}/
+     * {@link #streamCancellation} can release the right table refs.
+     * A stream is registered whenever {@code Base > 0} (the peer
+     * decoder will Section-Acknowledge it, RFC 9204 section 4.5.1 /
+     * {@link Decoder#decode}), not only when dynamic-table refs are
+     * held -- otherwise a valid ack for a static/literal-only section
+     * would be mistaken for {@code QPACK_DECODER_STREAM_ERROR}.
      */
     private final Map<Long, OutstandingSection> outstanding = new HashMap<Long, OutstandingSection>();
 
@@ -82,6 +87,13 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
      * the parser itself stays package-private.
      */
     private final DecoderStreamParser decoderStreamParser = new DecoderStreamParser(this);
+
+    /**
+     * Most recent decoder-stream instruction validation failure
+     * (RFC 9204 section 4.4.1 / 4.4.3). Cleared by
+     * {@link #takeLastInstructionError}.
+     */
+    private String lastInstructionError;
 
     /**
      * Creates an encoder with the given dynamic table capacity.
@@ -97,11 +109,27 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
      * section 4.2), applying any complete Section Acknowledgment/Stream
      * Cancellation/Insert Count Increment instructions they contain. May
      * be called any number of times with arbitrary chunk boundaries.
+     * Check {@link #takeLastInstructionError} afterwards.
      *
      * @param data newly received decoder-stream bytes
      */
     public void feedDecoderStream(ByteBuffer data) {
         decoderStreamParser.receive(data);
+    }
+
+    /**
+     * Returns, and clears, the most recent error from validating a
+     * decoder-stream instruction (RFC 9204 section 4.4.1 / 4.4.3). The
+     * caller should close the connection with
+     * {@code QPACK_DECODER_STREAM_ERROR} if this returns non-null after
+     * feeding decoder-stream bytes.
+     *
+     * @return the error message, or null if there was none
+     */
+    public String takeLastInstructionError() {
+        String error = lastInstructionError;
+        lastInstructionError = null;
+        return error;
     }
 
     /**
@@ -203,7 +231,11 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
         fieldLines.flip();
         fieldSection.put(fieldLines);
 
-        if (!referenced.isEmpty()) {
+        // Decoder sends Section Acknowledgment iff RIC > 0. Under our
+        // non-blocking policy RIC = base = knownReceivedCount, so every
+        // section with base > 0 must be tracked -- including those that
+        // hold no dynamic-table refs (static/literal-only).
+        if (base > 0) {
             outstanding.put(streamId, new OutstandingSection(base, referenced));
         }
     }
@@ -248,16 +280,23 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
      * {@code streamId}'s field section: release its table references
      * and advance Known Received Count if this section depended on more
      * insertions than we already knew were received.
+     *
+     * <p>An acknowledgment for a stream that was never encoded, or that
+     * was already acknowledged, is a connection error of type
+     * {@code QPACK_DECODER_STREAM_ERROR}.
      */
     @Override
     public void sectionAcknowledgment(long streamId) {
         OutstandingSection section = outstanding.remove(streamId);
-        if (section != null) {
-            for (long absoluteIndex : section.referencedIndices) {
-                table.releaseRef(absoluteIndex);
-            }
-            knownReceivedCount = Math.max(knownReceivedCount, section.requiredInsertCount);
+        if (section == null) {
+            lastInstructionError = "QPACK Section Acknowledgment for unknown or already-acknowledged stream: "
+                    + streamId;
+            return;
         }
+        for (long absoluteIndex : section.referencedIndices) {
+            table.releaseRef(absoluteIndex);
+        }
+        knownReceivedCount = Math.max(knownReceivedCount, section.requiredInsertCount);
     }
 
     /**
@@ -276,9 +315,23 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
 
     /**
      * RFC 9204 section 4.4.3: advance Known Received Count directly.
+     *
+     * <p>An Increment of zero, or one that pushes Known Received Count
+     * past the number of insertions this encoder has made, is a
+     * connection error of type {@code QPACK_DECODER_STREAM_ERROR}.
      */
     @Override
     public void insertCountIncrement(long increment) {
+        if (increment <= 0) {
+            lastInstructionError = "QPACK Insert Count Increment must be greater than zero: " + increment;
+            return;
+        }
+        if (knownReceivedCount + increment > table.getInsertCount()) {
+            lastInstructionError = "QPACK Insert Count Increment "
+                    + increment + " would advance Known Received Count past Insert Count "
+                    + table.getInsertCount();
+            return;
+        }
         knownReceivedCount += increment;
     }
 }

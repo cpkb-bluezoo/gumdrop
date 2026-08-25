@@ -63,9 +63,10 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
  * <li>{@link #STREAM_TYPE_QPACK_DECODER}: the peer's QPACK decoder
  * instructions (Section Acknowledgment/Stream Cancellation/Insert Count
  * Increment), fed into this connection's own {@link Encoder} via {@link
- * Encoder#feedDecoderStream} -- these are all bare integers with no
- * distinct malformed-content case, so there is nothing to check
- * afterwards.</li>
+ * Encoder#feedDecoderStream}; a rejected instruction (RFC 9204 section
+ * 4.4.1 / 4.4.3, e.g. an acknowledgment for an unknown stream or an
+ * Insert Count Increment past what was sent) closes the connection with
+ * {@code QPACK_DECODER_STREAM_ERROR}.</li>
  * <li>{@link #STREAM_TYPE_PUSH}: gumdrop never permits push, so a
  * client treats this as {@link H3ErrorCode#H3_ID_ERROR} (RFC 9114
  * section 4.6) and a server treats it as
@@ -213,6 +214,14 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
                 break;
             case QPACK_DECODER:
                 qpackEncoder.feedDecoderStream(data);
+                String decoderError = qpackEncoder.takeLastInstructionError();
+                if (decoderError != null) {
+                    String formatted = MessageFormat.format(
+                            L10N.getString("warn.qpack_decoder_stream_error"), decoderError);
+                    LOGGER.warning(formatted);
+                    quicConnection.closeWithApplicationError(
+                            H3ErrorCode.QPACK_DECODER_STREAM_ERROR, decoderError);
+                }
                 break;
             default:
                 // RFC 9114 section 9: tolerate and discard unrecognised

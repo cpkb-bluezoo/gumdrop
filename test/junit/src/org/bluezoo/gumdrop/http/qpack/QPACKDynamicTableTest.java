@@ -256,6 +256,106 @@ public class QPACKDynamicTableTest {
         assertTrue(error != null && error.contains("256") && error.contains("4096"));
     }
 
+    @Test
+    public void testSectionAcknowledgmentForUnknownStreamIsError() {
+        Encoder encoder = new Encoder(4096);
+        ByteBuffer out = ByteBuffer.allocate(16);
+        DecoderStreamWriter.writeSectionAcknowledgment(out, 0);
+        out.flip();
+        encoder.feedDecoderStream(out);
+
+        String error = encoder.takeLastInstructionError();
+        assertTrue(error != null && error.contains("Section Acknowledgment"));
+    }
+
+    @Test
+    public void testDuplicateSectionAcknowledgmentIsError() {
+        Encoder encoder = new Encoder(4096);
+        Decoder decoder = new Decoder(4096);
+
+        // Insert + ack so Known Received Count > 0, then encode a section
+        // that the peer will Section-Acknowledge.
+        List<Header> insertHeaders = new ArrayList<Header>();
+        insertHeaders.add(new Header("x-custom", "widget"));
+        ByteBuffer fieldSection = ByteBuffer.allocate(256);
+        ByteBuffer encoderInstructions = ByteBuffer.allocate(256);
+        encoder.encode(fieldSection, encoderInstructions, 0, insertHeaders);
+        encoderInstructions.flip();
+        decoder.feedEncoderStream(encoderInstructions);
+        encoder.feedDecoderStream(ByteBuffer.wrap(decoder.takePendingInstructions()));
+
+        fieldSection.clear();
+        encoderInstructions.clear();
+        encoder.encode(fieldSection, encoderInstructions, 4, insertHeaders);
+
+        ByteBuffer ack = ByteBuffer.allocate(16);
+        DecoderStreamWriter.writeSectionAcknowledgment(ack, 4);
+        ack.flip();
+        byte[] ackBytes = new byte[ack.remaining()];
+        ack.get(ackBytes);
+
+        encoder.feedDecoderStream(ByteBuffer.wrap(ackBytes));
+        assertTrue(encoder.takeLastInstructionError() == null);
+
+        encoder.feedDecoderStream(ByteBuffer.wrap(ackBytes));
+        String error = encoder.takeLastInstructionError();
+        assertTrue(error != null && error.contains("already-acknowledged"));
+    }
+
+    @Test
+    public void testStaticOnlySectionAcknowledgmentIsAcceptedWhenKnownReceivedCountPositive() {
+        Encoder encoder = new Encoder(4096);
+        Decoder decoder = new Decoder(4096);
+
+        List<Header> custom = new ArrayList<Header>();
+        custom.add(new Header("x-custom", "widget"));
+        ByteBuffer fieldSection = ByteBuffer.allocate(256);
+        ByteBuffer encoderInstructions = ByteBuffer.allocate(256);
+        encoder.encode(fieldSection, encoderInstructions, 0, custom);
+        encoderInstructions.flip();
+        decoder.feedEncoderStream(encoderInstructions);
+        encoder.feedDecoderStream(ByteBuffer.wrap(decoder.takePendingInstructions()));
+        assertTrue(encoder.takeLastInstructionError() == null);
+
+        // Static-only section with Base > 0: Decoder will ack; Encoder must
+        // have tracked the stream even though it held no dynamic refs.
+        List<Header> staticOnly = new ArrayList<Header>();
+        staticOnly.add(new Header(":method", "GET"));
+        fieldSection.clear();
+        encoderInstructions.clear();
+        encoder.encode(fieldSection, encoderInstructions, 8, staticOnly);
+
+        ByteBuffer ack = ByteBuffer.allocate(16);
+        DecoderStreamWriter.writeSectionAcknowledgment(ack, 8);
+        ack.flip();
+        encoder.feedDecoderStream(ack);
+        assertTrue(encoder.takeLastInstructionError() == null);
+    }
+
+    @Test
+    public void testInsertCountIncrementZeroIsError() {
+        Encoder encoder = new Encoder(4096);
+        ByteBuffer out = ByteBuffer.allocate(16);
+        DecoderStreamWriter.writeInsertCountIncrement(out, 0);
+        out.flip();
+        encoder.feedDecoderStream(out);
+
+        String error = encoder.takeLastInstructionError();
+        assertTrue(error != null && error.contains("greater than zero"));
+    }
+
+    @Test
+    public void testInsertCountIncrementPastInsertCountIsError() {
+        Encoder encoder = new Encoder(4096);
+        ByteBuffer out = ByteBuffer.allocate(16);
+        DecoderStreamWriter.writeInsertCountIncrement(out, 1);
+        out.flip();
+        encoder.feedDecoderStream(out);
+
+        String error = encoder.takeLastInstructionError();
+        assertTrue(error != null && error.contains("past Insert Count"));
+    }
+
     private static boolean containsSectionAcknowledgment(byte[] pending, long streamId) {
         ByteBuffer scratch = ByteBuffer.allocate(16);
         DecoderStreamWriter.writeSectionAcknowledgment(scratch, streamId);
