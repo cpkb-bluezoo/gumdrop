@@ -199,11 +199,15 @@ public class QuicProductionEndToEndTest {
                                 }
 
                                 @Override
-                                public void disconnected() {
+                                public void readFinished() {
                                     Endpoint endpoint = serverStreamEndpoint.get();
                                     endpoint.send(ByteBuffer.wrap("pong".getBytes(StandardCharsets.US_ASCII)));
                                     endpoint.close();
                                     serverReceivedFin.countDown();
+                                }
+
+                                @Override
+                                public void disconnected() {
                                 }
 
                                 @Override
@@ -245,8 +249,12 @@ public class QuicProductionEndToEndTest {
                         }
 
                         @Override
-                        public void disconnected() {
+                        public void readFinished() {
                             clientReceivedFin.countDown();
+                        }
+
+                        @Override
+                        public void disconnected() {
                         }
 
                         @Override
@@ -713,7 +721,7 @@ public class QuicProductionEndToEndTest {
                                         }
 
                                         @Override
-                                        public void disconnected() {
+                                        public void readFinished() {
                                             String payload = new String(buf.toByteArray(),
                                                     StandardCharsets.US_ASCII);
                                             if (firstPayload.compareAndSet(null, payload)) {
@@ -722,6 +730,10 @@ public class QuicProductionEndToEndTest {
                                                 secondPayload.set(payload);
                                                 secondStreamReceived.countDown();
                                             }
+                                        }
+
+                                        @Override
+                                        public void disconnected() {
                                         }
 
                                         @Override
@@ -1078,12 +1090,16 @@ public class QuicProductionEndToEndTest {
                                 }
 
                                 @Override
-                                public void disconnected() {
+                                public void readFinished() {
                                     // Close this side too, so the client
-                                    // observes its own disconnected()
+                                    // observes its own readFinished()
                                     // once both directions of the stream
                                     // have finished.
                                     serverStreamEndpoint.get().close();
+                                }
+
+                                @Override
+                                public void disconnected() {
                                 }
 
                                 @Override
@@ -1121,8 +1137,12 @@ public class QuicProductionEndToEndTest {
                         }
 
                         @Override
-                        public void disconnected() {
+                        public void readFinished() {
                             clientFin.countDown();
+                        }
+
+                        @Override
+                        public void disconnected() {
                         }
 
                         @Override
@@ -1353,8 +1373,12 @@ public class QuicProductionEndToEndTest {
                     }
 
                     @Override
-                    public void disconnected() {
+                    public void readFinished() {
                         stream.close();
+                    }
+
+                    @Override
+                    public void disconnected() {
                     }
 
                     @Override
@@ -1961,8 +1985,12 @@ public class QuicProductionEndToEndTest {
                     }
 
                     @Override
-                    public void disconnected() {
+                    public void readFinished() {
                         clientFin.countDown();
+                    }
+
+                    @Override
+                    public void disconnected() {
                     }
 
                     @Override
@@ -2396,8 +2424,12 @@ public class QuicProductionEndToEndTest {
                                 }
 
                                 @Override
-                                public void disconnected() {
+                                public void readFinished() {
                                     serverReceivedFin.countDown();
+                                }
+
+                                @Override
+                                public void disconnected() {
                                 }
 
                                 @Override
@@ -3407,6 +3439,132 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
+     * RFC 9000 section 3.5: a peer STREAM FIN ends their send direction
+     * but leaves this side's send direction open. {@link
+     * ProtocolHandler#readFinished()} must fire on FIN (not the
+     * argument-free {@link ProtocolHandler#disconnected()} reserved for
+     * full closure), and the stream must stay open for sending until
+     * this side closes in turn.
+     */
+    @Test
+    public void testPeerFinInvokesReadFinishedAndKeepsStreamOpen() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            final CountDownLatch readFinishedLatch = new CountDownLatch(1);
+            final AtomicReference<Endpoint> serverStream = new AtomicReference<Endpoint>();
+            final AtomicReference<Boolean> peerFinHandled = new AtomicReference<Boolean>(Boolean.FALSE);
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                    serverStream.set(endpoint);
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void readFinished() {
+                                    peerFinHandled.set(Boolean.TRUE);
+                                    assertTrue("Stream must stay open for sending after peer FIN",
+                                            serverStream.get().isOpen());
+                                    serverStream.get().send(ByteBuffer.wrap(
+                                            "pong".getBytes(StandardCharsets.US_ASCII)));
+                                    readFinishedLatch.countDown();
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                    if (!peerFinHandled.get().booleanValue()) {
+                                        fail("Peer FIN must not invoke disconnected()");
+                                    }
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                    fail("Unexpected stream error: " + cause);
+                                }
+                            };
+                        }
+                    }, loop);
+
+            int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+            final CountDownLatch clientReceived = new CountDownLatch(1);
+
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), port,
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            endpoint.send(ByteBuffer.wrap(
+                                    "ping".getBytes(StandardCharsets.US_ASCII)));
+                            endpoint.close();
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                            clientReceived.countDown();
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s",
+                    clientConnected.await(5, TimeUnit.SECONDS));
+            assertTrue("Server should receive peer FIN via readFinished within 5s",
+                    readFinishedLatch.await(5, TimeUnit.SECONDS));
+            assertTrue("Client should receive the server's post-FIN response within 5s",
+                    clientReceived.await(5, TimeUnit.SECONDS));
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * RFC 9000 section 8.1: a server must not send more than 3x what it
      * has received from a peer whose address isn't yet validated.
      * Completes a real handshake (after which {@code addressValidated}
@@ -3454,11 +3612,15 @@ public class QuicProductionEndToEndTest {
                                 }
 
                                 @Override
-                                public void disconnected() {
+                                public void readFinished() {
                                     byte[] big = new byte[largeResponseSize];
                                     serverStreamEndpoint.get().send(ByteBuffer.wrap(big));
                                     serverStreamEndpoint.get().close();
                                     serverReceivedFin.countDown();
+                                }
+
+                                @Override
+                                public void disconnected() {
                                 }
 
                                 @Override
@@ -3531,7 +3693,7 @@ public class QuicProductionEndToEndTest {
 
             clientEndpoint.get().send(ByteBuffer.wrap("ping".getBytes(StandardCharsets.US_ASCII)));
             clientEndpoint.get().close();
-            // The server's disconnected() callback above calls send()/close()
+            // The server's readFinished() callback above calls send()/close()
             // synchronously, and both funnel through requestFlush()/flush()
             // on the same call stack -- so by the time this latch fires, the
             // gate has already been evaluated for the oversized response at
@@ -3705,11 +3867,15 @@ public class QuicProductionEndToEndTest {
                                 }
 
                                 @Override
-                                public void disconnected() {
+                                public void readFinished() {
                                     Endpoint endpoint = serverStreamEndpoint.get();
                                     endpoint.send(ByteBuffer.wrap("pong".getBytes(StandardCharsets.US_ASCII)));
                                     endpoint.close();
                                     serverReceivedFin.countDown();
+                                }
+
+                                @Override
+                                public void disconnected() {
                                 }
 
                                 @Override
@@ -3751,8 +3917,12 @@ public class QuicProductionEndToEndTest {
                         }
 
                         @Override
-                        public void disconnected() {
+                        public void readFinished() {
                             clientReceivedFin.countDown();
+                        }
+
+                        @Override
+                        public void disconnected() {
                         }
 
                         @Override

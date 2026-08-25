@@ -225,7 +225,7 @@ public class H3StreamTest {
         setField(stream, "handler", new StubRequestHandler());
         setField(stream, "bodyStarted", Boolean.TRUE);
 
-        stream.disconnected();
+        stream.readFinished();
 
         assertEquals("CLOSED", getState(stream));
         assertNull(getField(stream, "handler"));
@@ -245,7 +245,7 @@ public class H3StreamTest {
         setField(stream, "handler", handler);
         setField(stream, "bodyStarted", Boolean.TRUE);
 
-        stream.disconnected();
+        stream.readFinished();
 
         assertEquals("HALF_CLOSED_REMOTE", getState(stream));
         assertTrue(handler.requestCompleteCalled);

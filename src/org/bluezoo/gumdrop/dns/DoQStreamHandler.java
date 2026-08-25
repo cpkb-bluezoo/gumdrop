@@ -106,7 +106,16 @@ final class DoQStreamHandler implements ProtocolHandler {
     // RFC 9250 section 4.2: server MAY defer processing until STREAM FIN.
     // On FIN, parse the accumulated query, process, respond, and close.
     @Override
+    public void readFinished() {
+        processAccumulatedQuery();
+    }
+
+    @Override
     public void disconnected() {
+        processAccumulatedQuery();
+    }
+
+    private void processAccumulatedQuery() {
         if (accumulator.size() == 0) {
             if (endpoint.isOpen()) {
                 endpoint.close();

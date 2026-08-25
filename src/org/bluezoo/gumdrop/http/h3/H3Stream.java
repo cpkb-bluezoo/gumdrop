@@ -209,17 +209,24 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     }
 
     @Override
+    public void readFinished() {
+        handlePeerSendFinished();
+    }
+
+    @Override
     public void disconnected() {
+        // RESET_STREAM or connection teardown -- endpoint is no longer
+        // usable; still treat as a finish for request/response handling.
+        handlePeerSendFinished();
+    }
+
+    private void handlePeerSendFinished() {
         // connection is only ever null when a test constructs this class
         // directly without going through HTTP3ServerHandler (see
         // H3StreamTest) -- never in production.
         if (!headersDecoded && connection != null) {
             connection.cancelQpackStream(streamId);
         }
-        // The QUIC layer delivers both a clean FIN and a peer
-        // RESET_STREAM through this same callback (see QuicConnection);
-        // there is no way from here to tell which one this was, so both
-        // are treated as a normal finish -- a known simplification.
         if (isWebSocketUpgraded()) {
             onWebSocketFinished();
             if (connection != null) {

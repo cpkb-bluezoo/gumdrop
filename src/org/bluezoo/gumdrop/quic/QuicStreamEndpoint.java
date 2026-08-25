@@ -110,7 +110,7 @@ public final class QuicStreamEndpoint implements Endpoint {
     /**
      * Marks the peer's send direction finished (a QUIC STREAM frame with
      * FIN was received) -- called by {@link QuicConnection} before
-     * notifying the handler via {@link ProtocolHandler#disconnected()}.
+     * notifying the handler via {@link ProtocolHandler#readFinished()}.
      *
      * <p>Deliberately does <em>not</em> touch {@link #open}: RFC 9000's
      * bidirectional streams have independent send/receive directions, so

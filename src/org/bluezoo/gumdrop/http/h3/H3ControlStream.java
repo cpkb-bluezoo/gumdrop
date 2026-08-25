@@ -267,11 +267,17 @@ class H3ControlStream implements ProtocolHandler, H3FrameHandler {
     }
 
     @Override
-    public void disconnected() {
+    public void readFinished() {
         // RFC 9114 section 6.2.1 / RFC 9204 section 4.2: premature FIN
-        // or reset of the control stream or either QPACK critical stream
-        // is a connection error. Unknown/GREASE uni streams (and push,
+        // of the control stream or either QPACK critical stream is a
+        // connection error. Unknown/GREASE uni streams (and push,
         // already handled when the type is read) may close without one.
+        closeIfCriticalStreamClosed();
+    }
+
+    @Override
+    public void disconnected() {
+        // RESET_STREAM or connection teardown on a critical stream.
         closeIfCriticalStreamClosed();
     }
 
