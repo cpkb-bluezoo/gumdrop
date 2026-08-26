@@ -46,6 +46,32 @@ public class ProtobufParserTest {
     }
 
     @Test
+    public void testParseVarintFieldValueNegativeOne() throws Exception {
+        // GHSA-4vx4-8xxq-gvwj: -1 is the canonical, standard-library-produced
+        // 10-byte varint encoding for a negative int32/int64 field. The
+        // parser must not confuse a fully-present field whose decoded value
+        // happens to be -1 with "not enough data yet".
+        ByteBuffer data = writeMessage(new MessageWriter() {
+            @Override public void write(ProtobufWriter w) throws IOException {
+                w.writeVarintField(1, -1L);
+                w.writeVarintField(2, 7); // must still be reachable afterwards
+            }
+        });
+
+        RecordingHandler handler = new RecordingHandler();
+        ProtobufParser parser = new ProtobufParser(handler);
+        parser.receive(data);
+        parser.close();
+
+        assertFalse("a fully-present field must never report underflow", parser.isUnderflow());
+        assertEquals(2, handler.varints.size());
+        assertEquals(1, handler.varints.get(0).fieldNumber);
+        assertEquals(-1L, (long) handler.varints.get(0).value);
+        assertEquals(2, handler.varints.get(1).fieldNumber);
+        assertEquals(7L, (long) handler.varints.get(1).value);
+    }
+
+    @Test
     public void testParseMultipleVarintFields() throws Exception {
         ByteBuffer data = writeMessage(new MessageWriter() {
             @Override public void write(ProtobufWriter w) throws IOException {
