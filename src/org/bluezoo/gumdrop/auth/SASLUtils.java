@@ -737,6 +737,15 @@ public final class SASLUtils {
         private boolean complete;
         private int step;
 
+        // Retained from the first response so the server's rspauth
+        // (RFC 2831 §2.1.3) can be independently verified on the second step.
+        private String ha1;
+        private String nonce;
+        private String cnonce;
+        private String nc;
+        private String qop;
+        private String digestUri;
+
         DigestMD5Client(String username, String password, String host) {
             this.username = username;
             this.password = password != null ? password : "";
@@ -756,7 +765,11 @@ public final class SASLUtils {
                 complete = true;
                 return computeDigestResponse(challenge);
             }
-            // Optional rspauth verification step — nothing to send back
+            // RFC 2831 §2.1.3 — verify the server's proof that it also
+            // knows the shared secret before treating the exchange as
+            // trustworthy; without this, a spoofed or on-path server is
+            // never detected.
+            verifyResponseAuth(challenge);
             return new byte[0];
         }
 
@@ -766,15 +779,15 @@ public final class SASLUtils {
                     parseDigestParams(new String(challenge, UTF_8));
 
             String realm = params.getOrDefault("realm", "");
-            String nonce = params.get("nonce");
-            String qop = params.getOrDefault("qop", "auth");
+            nonce = params.get("nonce");
+            qop = params.getOrDefault("qop", "auth");
             if (nonce == null) {
                 throw new IOException("DIGEST-MD5: missing nonce");
             }
 
-            String cnonce = generateNonce(16);
-            String nc = "00000001";
-            String digestUri = "ldap/" + host;
+            cnonce = generateNonce(16);
+            nc = "00000001";
+            digestUri = "ldap/" + host;
 
             // RFC 2831 §2.1.2.1 — A1 for md5-sess:
             //   H(username:realm:password) : nonce : cnonce
@@ -784,7 +797,7 @@ public final class SASLUtils {
             byte[] a1 = new byte[h.length + suffix.length];
             System.arraycopy(h, 0, a1, 0, h.length);
             System.arraycopy(suffix, 0, a1, h.length, suffix.length);
-            String ha1 = md5Hex(a1);
+            ha1 = md5Hex(a1);
 
             String ha2 = md5Hex(
                     ("AUTHENTICATE:" + digestUri).getBytes(UTF_8));
@@ -804,6 +817,33 @@ public final class SASLUtils {
                     + ",qop=" + qop;
 
             return response.getBytes(UTF_8);
+        }
+
+        /**
+         * RFC 2831 §2.1.3 — verifies the server's rspauth value, proving
+         * it also knows the shared secret. Unlike the request-digest's A2
+         * ({@code "AUTHENTICATE:" + digest-uri}), the response-digest's A2
+         * omits the {@code "AUTHENTICATE:"} prefix.
+         */
+        private void verifyResponseAuth(byte[] challenge) throws IOException {
+            Map<String, String> params =
+                    parseDigestParams(new String(challenge, UTF_8));
+            String rspauth = params.get("rspauth");
+            if (rspauth == null) {
+                throw new IOException(
+                        "DIGEST-MD5: missing rspauth in server final response");
+            }
+
+            String rspHa2 = md5Hex((":" + digestUri).getBytes(UTF_8));
+            String expected = md5Hex(
+                    (ha1 + ":" + nonce + ":" + nc + ":" + cnonce
+                            + ":" + qop + ":" + rspHa2).getBytes(UTF_8));
+
+            if (!ByteArrays.equalsConstantTime(
+                    expected.getBytes(UTF_8), rspauth.getBytes(UTF_8))) {
+                throw new IOException(
+                        "DIGEST-MD5: server rspauth verification failed");
+            }
         }
 
         @Override
