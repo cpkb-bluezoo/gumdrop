@@ -69,14 +69,21 @@ public class DMARCMessageHandler implements MessageHandler {
      */
     public interface FromDomainCallback {
         /**
-         * Called when the From domain is extracted from the message.
-         * @param domain the domain part of the first From address
+         * Called when the From domain is extracted from the message, or to
+         * invalidate a previously-reported domain.
+         * @param domain the domain part of the sole From address, or
+         *      {@code null} if the message contains more than one From
+         *      field (RFC 5322 §3.6.2 permits exactly one) and the domain
+         *      can therefore no longer be trusted for DMARC alignment
          */
         void onFromDomain(String domain);
     }
 
     private final FromDomainCallback fromDomainCallback;
     private final MessageHandler delegate;
+
+    /** RFC 5322 §3.6.2 permits exactly one From field; tracks whether one has already been seen. */
+    private boolean fromSeen;
 
     /**
      * Creates a DMARC message handler.
@@ -92,10 +99,24 @@ public class DMARCMessageHandler implements MessageHandler {
     @Override
     public void addressHeader(String name, List<EmailAddress> addresses) throws MIMEParseException {
         // Intercept From header
-        if ("From".equalsIgnoreCase(name) && addresses != null && !addresses.isEmpty()) {
-            String domain = addresses.get(0).getDomain();
-            if (domain != null && !domain.isEmpty() && fromDomainCallback != null) {
-                fromDomainCallback.onFromDomain(domain);
+        if ("From".equalsIgnoreCase(name)) {
+            if (fromSeen) {
+                // RFC 7489 §7.6 — a second From field is suspect: real MUAs
+                // disagree on which occurrence they display, so the domain
+                // already reported (if any) can no longer be trusted for
+                // DMARC alignment. Invalidate it rather than silently
+                // resolving to whichever occurrence happens to be last.
+                if (fromDomainCallback != null) {
+                    fromDomainCallback.onFromDomain(null);
+                }
+            } else {
+                fromSeen = true;
+                if (addresses != null && !addresses.isEmpty()) {
+                    String domain = addresses.get(0).getDomain();
+                    if (domain != null && !domain.isEmpty() && fromDomainCallback != null) {
+                        fromDomainCallback.onFromDomain(domain);
+                    }
+                }
             }
         }
 
