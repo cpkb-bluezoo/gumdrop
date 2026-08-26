@@ -90,6 +90,12 @@ public class ProtobufParser {
     // Underflow state
     private boolean underflow;
 
+    // Set by tryReadVarint() to distinguish "not enough data yet" from a
+    // successfully-decoded value of -1 (the canonical 10-byte varint
+    // encoding of a legitimate negative int32/int64 field also decodes to
+    // -1, so the return value alone cannot carry both meanings).
+    private boolean varintUnderflow;
+
     /**
      * Creates a new parser with the given handler.
      *
@@ -141,7 +147,7 @@ public class ProtobufParser {
 
             // Try to read the tag
             long tagValue = tryReadVarint(data);
-            if (tagValue < 0) {
+            if (varintUnderflow) {
                 // Underflow - reset position and return
                 data.position(fieldStart);
                 underflow = true;
@@ -162,7 +168,7 @@ public class ProtobufParser {
                 case WIRETYPE_VARINT: {
                     int valueStart = data.position();
                     long value = tryReadVarint(data);
-                    if (value < 0) {
+                    if (varintUnderflow) {
                         data.position(fieldStart);
                         underflow = true;
                         return;
@@ -199,7 +205,7 @@ public class ProtobufParser {
                 case WIRETYPE_LEN: {
                     int lenStart = data.position();
                     long lengthValue = tryReadVarint(data);
-                    if (lengthValue < 0) {
+                    if (varintUnderflow) {
                         data.position(fieldStart);
                         underflow = true;
                         return;
@@ -289,13 +295,16 @@ public class ProtobufParser {
      * Attempts to read a varint from the buffer.
      *
      * @param data the buffer
-     * @return the varint value, or -1 if not enough data (position unchanged on failure)
+     * @return the varint value; if {@link #varintUnderflow} is set on return,
+     *      there was not enough data and the returned value must be ignored
+     *      (position is left unchanged in that case)
      * @throws ProtobufParseException if the varint is malformed
      */
     private long tryReadVarint(ByteBuffer data) throws ProtobufParseException {
         int startPos = data.position();
         long result = 0;
         int shift = 0;
+        varintUnderflow = false;
 
         while (data.hasRemaining()) {
             byte b = data.get();
@@ -313,6 +322,7 @@ public class ProtobufParser {
 
         // Not enough data - reset position
         data.position(startPos);
+        varintUnderflow = true;
         return -1;
     }
 
