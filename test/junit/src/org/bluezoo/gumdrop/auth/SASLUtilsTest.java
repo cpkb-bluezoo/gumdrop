@@ -228,6 +228,89 @@ public class SASLUtilsTest {
         assertEquals(h1, h2);
     }
 
+    // ========== DIGEST-MD5 client rspauth verification (GHSA-9p92-hc4p-35rp) ==========
+
+    @Test
+    public void testDigestMD5ClientAcceptsValidRspauth() throws Exception {
+        String realm = "example.com";
+        String nonce = "server-nonce-1234";
+        String username = "alice";
+        String password = "secret";
+        String host = "ldap.example.com";
+
+        SASLClientMechanism client = SASLUtils.createClient(
+                "DIGEST-MD5", username, password, host);
+        String challenge1 = SASLUtils.generateDigestMD5Challenge(realm, nonce);
+        byte[] response1 = client.evaluateChallenge(
+                challenge1.getBytes(StandardCharsets.UTF_8));
+
+        Map<String, String> params = SASLUtils.parseDigestParams(
+                new String(response1, StandardCharsets.UTF_8));
+        String rspauth = computeExpectedRspauth(username, realm, password,
+                nonce, params.get("cnonce"), params.get("nc"),
+                params.get("qop"), params.get("digest-uri"));
+
+        // Must not throw: this is the server's genuine proof of shared-secret knowledge.
+        byte[] response2 = client.evaluateChallenge(
+                ("rspauth=" + rspauth).getBytes(StandardCharsets.UTF_8));
+        assertNotNull(response2);
+        assertTrue(client.isComplete());
+    }
+
+    /**
+     * Independently computes the RFC 2831 §2.1.3 rspauth value a genuine
+     * server would send, replicating the exact HA1 construction (raw H(...)
+     * bytes, not the hex string) DigestMD5Client itself uses — deliberately
+     * not reusing {@code SASLUtils.verifyDigestMD5ClientResponse}, which
+     * mixes the hex-string form of H(username:realm:password) into the
+     * nonce/cnonce step instead of the raw bytes RFC 2831 specifies, and so
+     * does not currently interoperate with any RFC-compliant client
+     * (including this one) — a separate, pre-existing bug, not this test's
+     * concern.
+     */
+    private static String computeExpectedRspauth(String username, String realm,
+            String password, String nonce, String cnonce, String nc,
+            String qop, String digestUri) throws Exception {
+        byte[] h = SASLUtils.md5((username + ":" + realm + ":" + password)
+                .getBytes(StandardCharsets.UTF_8));
+        byte[] suffix = (":" + nonce + ":" + cnonce).getBytes(StandardCharsets.UTF_8);
+        byte[] a1 = new byte[h.length + suffix.length];
+        System.arraycopy(h, 0, a1, 0, h.length);
+        System.arraycopy(suffix, 0, a1, h.length, suffix.length);
+        String ha1 = SASLUtils.md5Hex(a1);
+
+        String rspHa2 = SASLUtils.md5Hex((":" + digestUri).getBytes(StandardCharsets.UTF_8));
+        String rspInput = ha1 + ":" + nonce + ":" + nc + ":" + cnonce
+                + ":" + qop + ":" + rspHa2;
+        return SASLUtils.md5Hex(rspInput.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void testDigestMD5ClientRejectsForgedRspauth() throws Exception {
+        String realm = "example.com";
+        String nonce = "server-nonce-5678";
+        String username = "alice";
+        String password = "secret";
+        String host = "ldap.example.com";
+
+        SASLClientMechanism client = SASLUtils.createClient(
+                "DIGEST-MD5", username, password, host);
+        String challenge1 = SASLUtils.generateDigestMD5Challenge(realm, nonce);
+        client.evaluateChallenge(challenge1.getBytes(StandardCharsets.UTF_8));
+
+        // A spoofed/on-path server (or a MITM replaying an unrelated
+        // response digest) that doesn't know the shared secret cannot
+        // produce the real rspauth. The client must detect this rather
+        // than silently accepting the exchange as authenticated.
+        try {
+            client.evaluateChallenge(
+                    "rspauth=00000000000000000000000000000000".getBytes(StandardCharsets.UTF_8));
+            fail("expected an IOException for a forged rspauth");
+        } catch (java.io.IOException expected) {
+            // expected
+        }
+    }
+
     // ========== Challenge generation ==========
 
     @Test
