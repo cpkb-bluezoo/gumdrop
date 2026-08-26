@@ -246,43 +246,15 @@ public class SASLUtilsTest {
 
         Map<String, String> params = SASLUtils.parseDigestParams(
                 new String(response1, StandardCharsets.UTF_8));
-        String rspauth = computeExpectedRspauth(username, realm, password,
-                nonce, params.get("cnonce"), params.get("nc"),
-                params.get("qop"), params.get("digest-uri"));
+        String serverHa1 = SASLUtils.computeDigestHA1(username, realm, password);
+        String rspauth = SASLUtils.verifyDigestMD5ClientResponse(serverHa1, nonce, params);
+        assertNotNull("server-side verification of the client's own response must succeed", rspauth);
 
         // Must not throw: this is the server's genuine proof of shared-secret knowledge.
         byte[] response2 = client.evaluateChallenge(
                 ("rspauth=" + rspauth).getBytes(StandardCharsets.UTF_8));
         assertNotNull(response2);
         assertTrue(client.isComplete());
-    }
-
-    /**
-     * Independently computes the RFC 2831 §2.1.3 rspauth value a genuine
-     * server would send, replicating the exact HA1 construction (raw H(...)
-     * bytes, not the hex string) DigestMD5Client itself uses — deliberately
-     * not reusing {@code SASLUtils.verifyDigestMD5ClientResponse}, which
-     * mixes the hex-string form of H(username:realm:password) into the
-     * nonce/cnonce step instead of the raw bytes RFC 2831 specifies, and so
-     * does not currently interoperate with any RFC-compliant client
-     * (including this one) — a separate, pre-existing bug, not this test's
-     * concern.
-     */
-    private static String computeExpectedRspauth(String username, String realm,
-            String password, String nonce, String cnonce, String nc,
-            String qop, String digestUri) throws Exception {
-        byte[] h = SASLUtils.md5((username + ":" + realm + ":" + password)
-                .getBytes(StandardCharsets.UTF_8));
-        byte[] suffix = (":" + nonce + ":" + cnonce).getBytes(StandardCharsets.UTF_8);
-        byte[] a1 = new byte[h.length + suffix.length];
-        System.arraycopy(h, 0, a1, 0, h.length);
-        System.arraycopy(suffix, 0, a1, h.length, suffix.length);
-        String ha1 = SASLUtils.md5Hex(a1);
-
-        String rspHa2 = SASLUtils.md5Hex((":" + digestUri).getBytes(StandardCharsets.UTF_8));
-        String rspInput = ha1 + ":" + nonce + ":" + nc + ":" + cnonce
-                + ":" + qop + ":" + rspHa2;
-        return SASLUtils.md5Hex(rspInput.getBytes(StandardCharsets.UTF_8));
     }
 
     @Test
@@ -309,6 +281,56 @@ public class SASLUtilsTest {
         } catch (java.io.IOException expected) {
             // expected
         }
+    }
+
+    // ========== DIGEST-MD5 server-side response verification (issue #253) ==========
+
+    @Test
+    public void testServerVerificationInteroperatesWithRealClient() throws Exception {
+        String realm = "example.com";
+        String nonce = "server-nonce-9999";
+        String username = "alice";
+        String password = "secret";
+        String host = "ldap.example.com";
+
+        SASLClientMechanism client = SASLUtils.createClient(
+                "DIGEST-MD5", username, password, host);
+        String challenge1 = SASLUtils.generateDigestMD5Challenge(realm, nonce);
+        byte[] response1 = client.evaluateChallenge(
+                challenge1.getBytes(StandardCharsets.UTF_8));
+        Map<String, String> params = SASLUtils.parseDigestParams(
+                new String(response1, StandardCharsets.UTF_8));
+
+        String serverHa1 = SASLUtils.computeDigestHA1(username, realm, password);
+        String rspauth = SASLUtils.verifyDigestMD5ClientResponse(serverHa1, nonce, params);
+
+        assertNotNull("the server must accept a genuine client response "
+                + "computed with the correct credentials", rspauth);
+
+        // The client, in turn, must accept the server's genuine rspauth.
+        byte[] response2 = client.evaluateChallenge(
+                ("rspauth=" + rspauth).getBytes(StandardCharsets.UTF_8));
+        assertNotNull(response2);
+        assertTrue(client.isComplete());
+    }
+
+    @Test
+    public void testServerVerificationRejectsWrongPassword() throws Exception {
+        String realm = "example.com";
+        String nonce = "server-nonce-0001";
+        String username = "alice";
+        String host = "ldap.example.com";
+
+        SASLClientMechanism client = SASLUtils.createClient(
+                "DIGEST-MD5", username, "correct-password", host);
+        String challenge1 = SASLUtils.generateDigestMD5Challenge(realm, nonce);
+        byte[] response1 = client.evaluateChallenge(
+                challenge1.getBytes(StandardCharsets.UTF_8));
+        Map<String, String> params = SASLUtils.parseDigestParams(
+                new String(response1, StandardCharsets.UTF_8));
+
+        String wrongHa1 = SASLUtils.computeDigestHA1(username, realm, "wrong-password");
+        assertNull(SASLUtils.verifyDigestMD5ClientResponse(wrongHa1, nonce, params));
     }
 
     // ========== Challenge generation ==========

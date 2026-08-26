@@ -120,9 +120,15 @@ public class SMTPServerAuthTest {
         String qop = "auth";
         String digestUri = "ldap/example.com";
 
-        String sessionHA1 = SASLUtils.md5Hex(
-                (ha1 + ":" + serverNonce + ":" + cnonce).getBytes(
-                        java.nio.charset.StandardCharsets.UTF_8));
+        // RFC 2831 §2.1.2.1 — A1 for md5-sess concatenates the raw H(...)
+        // digest bytes (not its hex-string form) with ":nonce:cnonce".
+        byte[] h = ByteArrays.toByteArray(ha1);
+        byte[] suffix = (":" + serverNonce + ":" + cnonce).getBytes(
+                java.nio.charset.StandardCharsets.UTF_8);
+        byte[] a1 = new byte[h.length + suffix.length];
+        System.arraycopy(h, 0, a1, 0, h.length);
+        System.arraycopy(suffix, 0, a1, h.length, suffix.length);
+        String sessionHA1 = SASLUtils.md5Hex(a1);
         String ha2 = SASLUtils.md5Hex(
                 ("AUTHENTICATE:" + digestUri).getBytes(
                         java.nio.charset.StandardCharsets.UTF_8));
