@@ -411,7 +411,8 @@ public final class SASLUtils {
     /**
      * RFC 2831 §2.1.2 — verifies a DIGEST-MD5 client response.
      *
-     * @param ha1 H(username:realm:password) from the realm
+     * @param ha1 H(username:realm:password) from the realm, as a lowercase
+     *      hex string (see {@link Realm#getDigestHA1})
      * @param serverNonce the nonce sent in the server challenge
      * @param params parsed client response parameters
      * @return the rspauth hash on success, or {@code null} if verification fails
@@ -434,9 +435,24 @@ public final class SASLUtils {
         if (!serverNonce.equals(clientNonce)) {
             return null;
         }
-        // RFC 2831: HA1 for md5-sess = H(H(username:realm:password):nonce:cnonce)
-        String a1Input = ha1 + ":" + serverNonce + ":" + cnonce;
-        String sessionHA1 = md5Hex(a1Input.getBytes(UTF_8));
+        // RFC 2831 §2.1.2.1 — A1 for md5-sess:
+        //   H(username:realm:password) : nonce : cnonce
+        // ha1 is H(username:realm:password) as a hex string; RFC 2831
+        // requires the raw binary digest here, not its hex-string form, so
+        // it must be decoded back to bytes before concatenating the
+        // nonce/cnonce suffix (matching how DigestMD5Client constructs it
+        // on the client side).
+        byte[] h;
+        try {
+            h = ByteArrays.toByteArray(ha1);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        byte[] suffix = (":" + serverNonce + ":" + cnonce).getBytes(UTF_8);
+        byte[] a1 = new byte[h.length + suffix.length];
+        System.arraycopy(h, 0, a1, 0, h.length);
+        System.arraycopy(suffix, 0, a1, h.length, suffix.length);
+        String sessionHA1 = md5Hex(a1);
         String a2 = "AUTHENTICATE:" + digestUri;
         String ha2 = md5Hex(a2.getBytes(UTF_8));
         String expectedInput = sessionHA1 + ":" + serverNonce + ":" + nc + ":"
