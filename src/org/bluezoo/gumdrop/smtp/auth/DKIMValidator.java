@@ -170,6 +170,17 @@ public class DKIMValidator {
             return;
         }
 
+        // RFC 6376 does not require h= to cover From, but a PASS here is
+        // relied on elsewhere (DMARCValidator) to authenticate the message's
+        // From domain. A signature that never covers From can be replayed
+        // unmodified under an arbitrary From address at the same signing
+        // domain, so treat it as unusable rather than PASS.
+        if (!signature.getSignedHeaders().contains("from")) {
+            callback.dkimResult(DKIMResult.PERMERROR, signature.getDomain(),
+                    signature.getSelector());
+            return;
+        }
+
         // Check if signature has expired
         long now = System.currentTimeMillis() / 1000;
         if (signature.getExpiration() > 0 && now > signature.getExpiration()) {
