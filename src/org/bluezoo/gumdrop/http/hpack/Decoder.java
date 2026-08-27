@@ -109,6 +109,18 @@ public class Decoder extends HPACKConstants {
      * @param buf the header block
      */
     public void decode(ByteBuffer buf, HeaderHandler handler) throws IOException {
+        try {
+            decodeUnchecked(buf, handler);
+        } catch (java.nio.BufferUnderflowException e) {
+            // A malformed field can claim more bytes than the block
+            // actually has (e.g. truncated mid-field); report it as a
+            // decode error rather than letting an unchecked NIO exception
+            // escape past this method's declared IOException contract.
+            throw new IOException("HPACK: unexpected end of header block", e);
+        }
+    }
+
+    private void decodeUnchecked(ByteBuffer buf, HeaderHandler handler) throws IOException {
         decodedHeaderListSize = 0;
         while (buf.hasRemaining()) {
             byte b = buf.get();
@@ -217,7 +229,15 @@ public class Decoder extends HPACKConstants {
         value = new String(s, StandardCharsets.US_ASCII);
         //System.err.println("   value="+value);
         decoder.addToHeaderListSize(name.length() + value.length() + 32);
-        return new Header(name, value);
+        try {
+            return new Header(name, value);
+        } catch (IllegalArgumentException e) {
+            // Decoded bytes (possibly Huffman-decoded, fully attacker
+            // controlled) do not form a syntactically valid HTTP header
+            // name/value. Header() validates this and throws unchecked;
+            // convert it to a proper decode error here.
+            throw new IOException("HPACK: " + e.getMessage(), e);
+        }
     }
 
     private void addToHeaderListSize(int added) throws ProtocolException {
