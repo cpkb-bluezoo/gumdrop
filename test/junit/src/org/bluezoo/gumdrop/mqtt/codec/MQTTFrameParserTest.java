@@ -432,6 +432,34 @@ public class MQTTFrameParserTest {
         assertNotNull(handler.lastError);
     }
 
+    /**
+     * Regression test for issue #265 -- JQF/Zest fuzzing in MQTT 5.0
+     * mode found that a PUBLISH property whose own declared length
+     * (e.g. a UTF-8 string's 2-byte length prefix) exceeds what's
+     * actually available throws an uncaught BufferUnderflowException
+     * out of MQTTProperties.decode, all the way past receive(). The
+     * overall "buf.remaining() < propLen" guard in tryParsePublishHeader
+     * only checks the properties block's declared total length, not
+     * that each individual property's own length is internally
+     * consistent with it.
+     */
+    @Test(timeout = 5000)
+    public void testMalformedV5PublishPropertyReportsErrorInsteadOfThrowing() {
+        parser.setVersion(MQTTVersion.V5_0);
+
+        byte[] data = {
+            0x30, 0x08,             // fixed header: PUBLISH, remaining length 8
+            0x00, 0x00,             // topic length = 0 (empty topic)
+            0x05,                   // property length = 5
+            0x03,                   // property ID = CONTENT_TYPE
+            0x00, (byte) 0xFF,      // UTF-8 string length = 255 (claimed)
+            0x41, 0x42,             // only 2 bytes of string data actually present
+        };
+        parser.receive(ByteBuffer.wrap(data));
+
+        assertNotNull(handler.lastError);
+    }
+
     // -- Recording handler --
 
     private static class RecordingHandler implements MQTTEventHandler {

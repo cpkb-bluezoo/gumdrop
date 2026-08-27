@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.mqtt.codec;
 
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
@@ -331,7 +332,22 @@ public class MQTTFrameParser {
                 return -1;
             }
             buf.position(propStart);
-            props = MQTTProperties.decode(buf);
+            try {
+                props = MQTTProperties.decode(buf);
+            } catch (BufferUnderflowException | IndexOutOfBoundsException e) {
+                // A property's own declared length (e.g. a UTF-8
+                // string's length prefix) is inconsistent with the
+                // properties block's overall declared length -- the
+                // "buf.remaining() < propLen" check above only bounds
+                // the block as a whole. MQTTProperties.decode's other
+                // call sites are already covered by
+                // dispatchNonPublish's broad catch (Exception); this
+                // PUBLISH-streaming path has no equivalent.
+                handler.parseError(L10N.getString("err.malformed_publish_props"));
+                state = State.IDLE;
+                pubHeaderBuf = null;
+                return -1;
+            }
         }
 
         int headerSize = buf.position();
