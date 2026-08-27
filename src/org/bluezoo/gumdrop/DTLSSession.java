@@ -29,8 +29,11 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -93,6 +96,23 @@ final class DTLSSession {
 
     private boolean handshakeComplete;
     private boolean closed;
+
+    // Whether a delegated task (SSLEngine NEED_TASK) is currently running
+    // off-loop on the CryptoExecutor pool (issue #274). Like the rest of
+    // this class's mutable state, only ever touched from this session's
+    // endpoint's own SelectorLoop thread (see the class-level note on
+    // UDPEndpoint.dtlsSessions) -- unwrap()/wrap()/close() are guarded
+    // against it below, but those guards assume single-threaded access,
+    // not concurrent-thread safety.
+    private boolean taskInFlight;
+
+    // Encrypted datagrams that arrived from the peer while a delegated
+    // task was in flight, queued for replay through unwrap() once the
+    // task completes (see resumeAfterTask/drainPendingIncoming). Not
+    // merely dropped: the peer's handshake flight arriving during this
+    // brief window would otherwise only be recovered via its own
+    // multi-second retransmit timeout.
+    private final Deque<ByteBuffer> pendingIncoming = new ArrayDeque<ByteBuffer>();
 
     private final long handshakeStartTime;
     private SecurityInfo securityInfo;
@@ -164,6 +184,19 @@ final class DTLSSession {
         releaseFlightBuffers();
         retransmitAttempt = 0;
 
+        if (taskInFlight) {
+            // A delegated task is running off-loop; the JDK forbids
+            // calling unwrap()/wrap() on the engine while one is in
+            // flight. Queue the raw bytes and replay through this same
+            // method once the task completes (see resumeAfterTask /
+            // drainPendingIncoming) rather than corrupting engine state.
+            ByteBuffer copy = ByteBufferPool.acquire(datagram.remaining());
+            copy.put(datagram);
+            copy.flip();
+            pendingIncoming.add(copy);
+            return null;
+        }
+
         try {
             // DTLS datagrams are self-contained, so we process each one individually
             appIn.clear();
@@ -211,6 +244,16 @@ final class DTLSSession {
      */
     ByteBuffer wrap(ByteBuffer data) {
         if (closed || engine.isOutboundDone()) {
+            return null;
+        }
+
+        if (taskInFlight) {
+            // Engine busy with an async delegated task. Unlike the
+            // inbound handshake-flight case, dropping outbound
+            // application data here is consistent with DTLS's own
+            // loss-tolerant contract -- and in practice rare, since
+            // application data is only ever sent after the
+            // handshake-complete callback fires.
             return null;
         }
 
@@ -269,16 +312,24 @@ final class DTLSSession {
                hs != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
 
             switch (hs) {
-                case NEED_TASK:
-                    // Run delegated tasks. No wrap()/unwrap() call happens
-                    // here, so re-querying the engine directly below is
-                    // correct (unlike the other cases -- see the note there).
+                case NEED_TASK: {
+                    // Run delegated tasks off-loop (issue #274): this is
+                    // CPU-bound work (RSA/ECDHE key exchange, certificate
+                    // chain validation) with no non-blocking JDK API, and
+                    // must not run inline on the SelectorLoop thread. Must
+                    // return here rather than fall through to a fresh
+                    // engine.getHandshakeStatus() query below: that would
+                    // still read NEED_TASK (the tasks haven't run yet) and
+                    // spin forever.
+                    List<Runnable> tasks = new ArrayList<Runnable>();
                     Runnable task;
                     while ((task = engine.getDelegatedTask()) != null) {
-                        task.run();
+                        tasks.add(task);
                     }
-                    hs = engine.getHandshakeStatus();
-                    break;
+                    taskInFlight = true;
+                    submitDelegatedTasksAsync(tasks);
+                    return;
+                }
 
                 case NEED_WRAP: {
                     // Need to send handshake data. EMPTY_BUFFER (not a
@@ -364,6 +415,91 @@ final class DTLSSession {
     }
 
     /**
+     * Submits {@code tasks} (drained from {@code engine.getDelegatedTask()})
+     * to the shared {@link CryptoExecutor} and arranges for
+     * {@link #resumeAfterTask} to run on this session's endpoint's loop
+     * thread once they finish. Falls back to running them inline if no
+     * {@link Gumdrop} instance is available (e.g. a unit test constructing
+     * a {@code DTLSSession} directly) -- mirrors the same fallback in
+     * {@code SSLState.submitDelegatedTasksAsync}.
+     */
+    private void submitDelegatedTasksAsync(final List<Runnable> tasks) {
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        CryptoExecutor exec = (gumdrop != null) ? gumdrop.getCryptoExecutor() : null;
+        if (exec == null) {
+            for (Runnable task : tasks) {
+                task.run();
+            }
+            resumeAfterTask();
+            return;
+        }
+        exec.submit(endpoint, new Callable<Void>() {
+            @Override
+            public Void call() {
+                for (Runnable task : tasks) {
+                    task.run();
+                }
+                return null;
+            }
+        }, new CryptoExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void result) {
+                resumeAfterTask();
+            }
+            @Override
+            public void failed(Throwable error) {
+                taskInFlight = false;
+                if (closed) {
+                    return;
+                }
+                LOGGER.log(Level.SEVERE, "DTLS delegated task failed", error);
+                fail("DTLS delegated task failed: " + error);
+            }
+        });
+    }
+
+    /**
+     * Resumes handshake processing after an async delegated task
+     * completes, then replays any datagrams that arrived from the peer
+     * while it was in flight (see {@link #pendingIncoming}).
+     */
+    private void resumeAfterTask() {
+        taskInFlight = false;
+        if (closed) {
+            return;
+        }
+        try {
+            processHandshakeStatus(engine.getHandshakeStatus());
+        } catch (SSLException e) {
+            LOGGER.log(Level.SEVERE, "DTLS error resuming after delegated task", e);
+            fail("DTLS error resuming after delegated task: " + e.getMessage());
+            return;
+        }
+        drainPendingIncoming();
+    }
+
+    /**
+     * Replays datagrams queued by {@link #unwrap} while a delegated task
+     * was in flight. Stops early (leaving the remainder queued) if
+     * processing one of them starts another delegated task -- the next
+     * {@link #resumeAfterTask} continues the drain.
+     */
+    private void drainPendingIncoming() {
+        while (!taskInFlight && !closed && !pendingIncoming.isEmpty()) {
+            ByteBuffer queued = pendingIncoming.poll();
+            ByteBuffer plaintext;
+            try {
+                plaintext = unwrap(queued);
+            } finally {
+                ByteBufferPool.release(queued);
+            }
+            if (plaintext != null) {
+                endpoint.deliverPlaintext(plaintext);
+            }
+        }
+    }
+
+    /**
      * Resends the current handshake flight after a timeout, per RFC 6347
      * §4.2.4. Gives up (failing the session) once
      * {@link #RETRANSMIT_TIMEOUTS_MS} is exhausted.
@@ -421,6 +557,7 @@ final class DTLSSession {
         closed = true;
         cancelRetransmitTimer();
         releaseFlightBuffers();
+        releasePendingIncoming();
         releaseScratchBuffers();
         endpoint.onDtlsSessionFailed(remoteAddress, new IOException(reason));
     }
@@ -433,6 +570,7 @@ final class DTLSSession {
         closed = true;
         cancelRetransmitTimer();
         releaseFlightBuffers();
+        releasePendingIncoming();
         releaseScratchBuffers();
         endpoint.removeDtlsSession(remoteAddress);
     }
@@ -440,6 +578,13 @@ final class DTLSSession {
     private void releaseScratchBuffers() {
         ByteBufferPool.release(netOut);
         ByteBufferPool.release(appIn);
+    }
+
+    private void releasePendingIncoming() {
+        ByteBuffer queued;
+        while ((queued = pendingIncoming.poll()) != null) {
+            ByteBufferPool.release(queued);
+        }
     }
 
     /**
@@ -476,6 +621,21 @@ final class DTLSSession {
         closed = true;
         cancelRetransmitTimer();
         releaseFlightBuffers();
+        releasePendingIncoming();
+
+        if (taskInFlight) {
+            // A delegated task is still running on the crypto pool for
+            // this session; engine.closeOutbound()/wrap() below must not
+            // be called concurrently with it (see unwrap()). Skip the
+            // close_notify handshake -- the peer simply sees this session
+            // go silent, same as it would for any other network-level
+            // loss -- and let the task's own completion callback finish
+            // quietly (it already checks `closed` before touching
+            // anything further).
+            releaseScratchBuffers();
+            endpoint.removeDtlsSession(remoteAddress);
+            return;
+        }
 
         try {
             engine.closeOutbound();
