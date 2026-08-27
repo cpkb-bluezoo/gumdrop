@@ -1025,6 +1025,19 @@ class Stream implements HTTPResponseState {
             return;
         }
 
+        // Snapshot which framework-managed headers the application already
+        // set, in one pass over headers as they stand before this method
+        // adds anything of its own. Headers.index() lazily builds and
+        // caches a lookup map, invalidated by the next add() after it was
+        // built (see its javadoc) - doing all four checks up front, before
+        // any add() below, lets that cache build once and serve all of
+        // them, instead of each add() forcing a full rebuild before the
+        // next check needs it (issue #278).
+        boolean hasXFrameOptions = headers.containsName("X-Frame-Options");
+        boolean hasXContentTypeOptions = headers.containsName("X-Content-Type-Options");
+        boolean hasContentLength = headers.containsName("Content-Length");
+        boolean hasTransferEncoding = headers.containsName("Transfer-Encoding");
+
         // RFC 9110 section 10.2.4: Server header field
         headers.add(new Header("Server", "gumdrop/" + Gumdrop.VERSION));
         // RFC 9110 section 6.6.1: origin server SHOULD send Date in responses
@@ -1039,10 +1052,10 @@ class Stream implements HTTPResponseState {
             HTTPListener listener =
                     ((HTTPProtocolHandler) connection).getListener();
             if (listener != null && listener.getAddSecurityHeaders()) {
-                if (!headers.containsName("X-Frame-Options")) {
+                if (!hasXFrameOptions) {
                     headers.add(new Header("X-Frame-Options", "SAMEORIGIN"));
                 }
-                if (!headers.containsName("X-Content-Type-Options")) {
+                if (!hasXContentTypeOptions) {
                     headers.add(new Header("X-Content-Type-Options", "nosniff"));
                 }
             }
@@ -1058,8 +1071,8 @@ class Stream implements HTTPResponseState {
         if (connection.getVersion() == HTTPVersion.HTTP_1_1
                 && statusCode >= 200 && statusCode != 204 && statusCode != 304
                 && !"HEAD".equals(method)
-                && !headers.containsName("Content-Length")
-                && !headers.containsName("Transfer-Encoding")) {
+                && !hasContentLength
+                && !hasTransferEncoding) {
             headers.add("Transfer-Encoding", "chunked");
             responseChunked = true;
         }
