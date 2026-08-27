@@ -94,4 +94,38 @@ public class LongHeaderCodecTest {
         assertEquals(18, prefix.getPacketNumberOffset());
         assertEquals(117, prefix.getRemainingLength());
     }
+
+    // Regression tests for issue #266 -- JQF/Zest fuzzing found that
+    // parsePrefix threw unchecked BufferUnderflowException,
+    // IndexOutOfBoundsException, and NegativeArraySizeException for
+    // malformed input, with no declared failure contract. Both real
+    // call sites already defended against this broadly (catch
+    // RuntimeException), so this was hardening/consistency rather than
+    // a live crash -- but the lack of a declared, narrow contract meant
+    // a genuinely unexpected bug elsewhere could be silently swallowed
+    // by that same broad catch.
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testParsePrefixTooShortForFixedFieldsThrows() {
+        // Header form/type byte plus only 2 of the 4 required version bytes.
+        byte[] packet = ByteArrays.toByteArray("c30000");
+        LongHeaderCodec.parsePrefix(packet);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testParsePrefixDcidLengthExceedsRemainingThrows() {
+        // Declares a 10-byte Destination Connection ID but supplies only 2.
+        byte[] packet = ByteArrays.toByteArray("c3000000010a0000");
+        LongHeaderCodec.parsePrefix(packet);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testParsePrefixTokenLengthOverflowThrows() {
+        // Initial packet, empty DCID/SCID, then an 8-byte long-form
+        // VarInt Token Length that decodes to 0x80000000 -- within
+        // VarInt's own 62-bit range, but negative once narrowed to int,
+        // the same overflow class as issue #268's BER length bug.
+        byte[] packet = ByteArrays.toByteArray("c3000000010000c000000080000000");
+        LongHeaderCodec.parsePrefix(packet);
+    }
 }
