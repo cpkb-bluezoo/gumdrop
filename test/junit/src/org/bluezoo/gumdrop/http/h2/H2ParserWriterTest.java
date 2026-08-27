@@ -334,6 +334,82 @@ public class H2ParserWriterTest {
         assertEquals(0, handler.totalFrames());
     }
 
+    // ========== Malformed input (issue #270) ==========
+
+    /**
+     * Builds a raw frame header + payload, bypassing H2Writer (which
+     * never emits an internally-inconsistent frame).
+     */
+    private static ByteBuffer rawFrame(int type, int flags, int streamId, byte[] payload) {
+        ByteBuffer buf = ByteBuffer.allocate(H2Parser.FRAME_HEADER_LENGTH + payload.length);
+        int length = payload.length;
+        buf.put((byte) ((length >>> 16) & 0xff));
+        buf.put((byte) ((length >>> 8) & 0xff));
+        buf.put((byte) (length & 0xff));
+        buf.put((byte) type);
+        buf.put((byte) flags);
+        buf.putInt(streamId & 0x7fffffff);
+        buf.put(payload);
+        buf.flip();
+        return buf;
+    }
+
+    @Test
+    public void testPaddedDataFrameWithEmptyPayloadReportsErrorInsteadOfThrowing() {
+        parser.receive(rawFrame(H2FrameHandler.TYPE_DATA, H2FrameHandler.FLAG_PADDED, 1, new byte[0]));
+
+        assertEquals(1, handler.errors.size());
+        assertEquals(0, handler.dataFrames.size());
+    }
+
+    @Test
+    public void testPaddedHeadersFrameWithEmptyPayloadReportsErrorInsteadOfThrowing() {
+        parser.receive(rawFrame(H2FrameHandler.TYPE_HEADERS, H2FrameHandler.FLAG_PADDED, 1, new byte[0]));
+
+        assertEquals(1, handler.errors.size());
+        assertEquals(0, handler.headersFrames.size());
+    }
+
+    @Test
+    public void testPriorityHeadersFrameWithEmptyPayloadReportsErrorInsteadOfThrowing() {
+        parser.receive(rawFrame(H2FrameHandler.TYPE_HEADERS, H2FrameHandler.FLAG_PRIORITY, 1, new byte[0]));
+
+        assertEquals(1, handler.errors.size());
+        assertEquals(0, handler.headersFrames.size());
+    }
+
+    @Test
+    public void testPaddedPushPromiseFrameWithEmptyPayloadReportsErrorInsteadOfThrowing() {
+        parser.receive(rawFrame(H2FrameHandler.TYPE_PUSH_PROMISE, H2FrameHandler.FLAG_PADDED, 1, new byte[0]));
+
+        assertEquals(1, handler.errors.size());
+        assertEquals(0, handler.pushPromises.size());
+    }
+
+    @Test
+    public void testMalformedFrameDoesNotStopSubsequentFrameParsing() throws IOException {
+        // A malformed padded DATA frame followed by a well-formed PING --
+        // per this class's convention (report frameError, keep processing
+        // the rest of the buffer), the PING must still be delivered.
+        ByteBuffer bad = rawFrame(H2FrameHandler.TYPE_DATA, H2FrameHandler.FLAG_PADDED, 1, new byte[0]);
+
+        output.reset();
+        writer.writePing(99L, false);
+        writer.flush();
+        ByteBuffer good = ByteBuffer.wrap(output.toByteArray());
+
+        ByteBuffer combined = ByteBuffer.allocate(bad.remaining() + good.remaining());
+        combined.put(bad);
+        combined.put(good);
+        combined.flip();
+
+        parser.receive(combined);
+
+        assertEquals(1, handler.errors.size());
+        assertEquals(1, handler.pings.size());
+        assertEquals(99L, handler.pings.get(0).opaqueData);
+    }
+
     // ========== Recording handler ==========
 
     static class RecordingHandler implements H2FrameHandler {

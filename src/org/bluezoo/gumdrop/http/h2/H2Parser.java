@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h2;
 
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
@@ -191,7 +192,20 @@ public class H2Parser {
                 LOGGER.finest("Parsing frame: type=" + type + ", flags=" + flags +
                     ", stream=" + streamId + ", length=" + length);
             }
-            dispatchFrame(type, flags, streamId, payload);
+            try {
+                dispatchFrame(type, flags, streamId, payload);
+            } catch (BufferUnderflowException e) {
+                // A padded (or, for HEADERS, priority-carrying) frame
+                // whose payload is too short to actually contain the
+                // sub-fields its flags declare -- e.g. FLAG_PADDED set
+                // on an empty DATA/HEADERS/PUSH_PROMISE payload. The
+                // frame's own length has already been fully consumed
+                // above, so the buffer position is exactly at the next
+                // frame's header; report and keep processing, the same
+                // way every other frameError call in this class does.
+                handler.frameError(H2FrameHandler.ERROR_FRAME_SIZE_ERROR, streamId,
+                    "Frame payload too short for its declared fields");
+            }
         }
     }
 
