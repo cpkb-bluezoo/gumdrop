@@ -159,6 +159,19 @@ public final class Decoder extends QPACKConstants implements EncoderStreamHandle
      *         satisfy (see the class documentation)
      */
     public List<Header> decode(long streamId, ByteBuffer block) throws ProtocolException {
+        try {
+            return decodeUnchecked(streamId, block);
+        } catch (IllegalArgumentException e) {
+            // Decoded bytes do not form a syntactically valid HTTP header
+            // name/value. Header() validates this and throws unchecked;
+            // convert it to a proper decode error here.
+            ProtocolException pe = new ProtocolException("QPACK: " + e.getMessage());
+            pe.initCause(e);
+            throw pe;
+        }
+    }
+
+    private List<Header> decodeUnchecked(long streamId, ByteBuffer block) throws ProtocolException {
         if (!block.hasRemaining()) {
             throw new ProtocolException("QPACK field section underflow reading prefix");
         }
