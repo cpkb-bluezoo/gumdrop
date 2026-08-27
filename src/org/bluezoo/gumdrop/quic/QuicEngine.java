@@ -256,7 +256,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         if (longHeader) {
             try {
                 prefix = LongHeaderCodec.parsePrefix(bytes);
-            } catch (RuntimeException e) {
+            } catch (IllegalArgumentException e) {
                 return;
             }
             if (prefix.getVersion() != 1) {

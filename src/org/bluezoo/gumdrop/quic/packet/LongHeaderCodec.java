@@ -140,33 +140,74 @@ public final class LongHeaderCodec {
      *
      * @param packet the received packet bytes, starting at the first byte
      * @return the parsed prefix
+     * @throws IllegalArgumentException if the packet is truncated, or
+     *         declares a Destination/Source Connection ID or Token
+     *         length that doesn't fit within the remaining bytes --
+     *         matching the contract {@link #parseRetry} already
+     *         documents for the same kind of malformed input
      */
     public static LongHeaderPrefix parsePrefix(byte[] packet) {
         ByteBuffer buf = ByteBuffer.wrap(packet);
 
+        if (buf.remaining() < 5) {
+            throw new IllegalArgumentException("Packet too short for long header prefix");
+        }
         int firstByte = buf.get() & 0xff;
         int packetType = (firstByte >>> 4) & 0x03;
         int version = buf.getInt();
 
+        if (!buf.hasRemaining()) {
+            throw new IllegalArgumentException("Packet too short for Destination Connection ID length");
+        }
         int dcidLength = buf.get() & 0xff;
+        if (buf.remaining() < dcidLength) {
+            throw new IllegalArgumentException("Packet too short for Destination Connection ID");
+        }
         byte[] dcid = new byte[dcidLength];
         buf.get(dcid);
 
+        if (!buf.hasRemaining()) {
+            throw new IllegalArgumentException("Packet too short for Source Connection ID length");
+        }
         int scidLength = buf.get() & 0xff;
+        if (buf.remaining() < scidLength) {
+            throw new IllegalArgumentException("Packet too short for Source Connection ID");
+        }
         byte[] scid = new byte[scidLength];
         buf.get(scid);
 
         byte[] token = EMPTY_TOKEN;
         if (packetType == TYPE_INITIAL) {
-            int tokenLength = (int) VarInt.decode(buf);
+            long tokenLengthLong = decodeVarIntChecked(buf, "Token Length");
+            if (tokenLengthLong < 0 || tokenLengthLong > buf.remaining()) {
+                throw new IllegalArgumentException("Packet too short for Token");
+            }
+            int tokenLength = (int) tokenLengthLong;
             token = new byte[tokenLength];
             buf.get(token);
         }
 
-        long remainingLength = VarInt.decode(buf);
+        long remainingLength = decodeVarIntChecked(buf, "Length");
         int pnOffset = buf.position();
 
         return new LongHeaderPrefix(packetType, version, dcid, scid, token, pnOffset, remainingLength);
+    }
+
+    /**
+     * Decodes a varint, checking first that the buffer actually holds
+     * as many bytes as the varint's own length prefix requires --
+     * {@link VarInt#decode} itself assumes that's already true and
+     * reads straight off the buffer otherwise.
+     */
+    private static long decodeVarIntChecked(ByteBuffer buf, String fieldName) {
+        if (!buf.hasRemaining()) {
+            throw new IllegalArgumentException("Packet too short for " + fieldName);
+        }
+        int needed = VarInt.peekEncodedLength(buf, buf.position());
+        if (buf.remaining() < needed) {
+            throw new IllegalArgumentException("Packet too short for " + fieldName);
+        }
+        return VarInt.decode(buf);
     }
 
     /**

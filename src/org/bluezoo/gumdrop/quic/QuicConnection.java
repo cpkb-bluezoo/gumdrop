@@ -1226,7 +1226,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
             LongHeaderPrefix prefix;
             try {
                 prefix = LongHeaderCodec.parsePrefix(fromOffset);
-            } catch (RuntimeException e) {
+            } catch (IllegalArgumentException e) {
                 decryptFailedOrUnparseableThisDatagram = true;
                 return -1;
             }
