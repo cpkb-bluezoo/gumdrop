@@ -2299,11 +2299,14 @@ public final class HTTPProtocolHandler
     // RFC 9112 section 5: field-line = field-name ":" OWS field-value OWS
     private void writeStatusLineAndHeaders(ByteBuffer buf, int statusCode, Headers headers) {
         try {
-            StringBuilder sb = new StringBuilder();
-            sb.append(version.toString()).append(' ')
-              .append(statusCode / 100).append(statusCode / 10 % 10).append(statusCode % 10)
-              .append(' ').append(HTTPConstants.getMessage(statusCode)).append("\r\n");
-            buf.put(sb.toString().getBytes(US_ASCII));
+            writeAscii(buf, version.toString());
+            buf.put((byte) ' ');
+            buf.put((byte) ('0' + statusCode / 100));
+            buf.put((byte) ('0' + statusCode / 10 % 10));
+            buf.put((byte) ('0' + statusCode % 10));
+            buf.put((byte) ' ');
+            writeAscii(buf, HTTPConstants.getMessage(statusCode));
+            buf.put(CRLF);
             for (Header header : headers) {
                 String name = header.getName();
                 // Skip HTTP/2 pseudo-headers (RFC 9113 section 8.3)
@@ -2314,22 +2317,59 @@ public final class HTTPProtocolHandler
                 if (value == null) {
                     continue;
                 }
-                int cflags = getCharsetFlags(value);
-                if ((cflags & CHARSET_UNICODE) != 0) {
+                // Common case: write the ASCII bytes of a guaranteed-ASCII
+                // name plus the value straight into buf, no intermediate
+                // String/StringBuilder/byte[] allocation. Only a value that
+                // actually contains non-ASCII characters needs the
+                // RFC 2047 encoded-word fallback below (issue #280).
+                if (isAscii(value)) {
+                    writeAscii(buf, name);
+                    buf.put((byte) ':');
+                    buf.put((byte) ' ');
+                    writeAscii(buf, value);
+                    buf.put(CRLF);
+                } else {
+                    int cflags = getCharsetFlags(value);
                     String enc = ((cflags & CHARSET_Q_ENCODING) != 0) ? "Q" : "B";
-                    value = MimeUtility.encodeText(value, "UTF-8", enc);
+                    String encodedValue = MimeUtility.encodeText(value, "UTF-8", enc);
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(name).append(": ").append(encodedValue).append("\r\n");
+                    buf.put(sb.toString().getBytes(US_ASCII));
                 }
-                sb.setLength(0);
-                sb.append(name).append(": ").append(value).append("\r\n");
-                buf.put(sb.toString().getBytes(US_ASCII));
             }
             // Empty line terminates header section (RFC 9112 section 2)
-            buf.put(new byte[] { (byte) 0x0d, (byte) 0x0a });
+            buf.put(CRLF);
         } catch (IOException e) {
             RuntimeException e2 = new RuntimeException();
             e2.initCause(e);
             throw e2;
         }
+    }
+
+    private static final byte[] CRLF = { (byte) 0x0d, (byte) 0x0a };
+
+    /**
+     * Writes a string known to contain only ASCII characters (header
+     * names, the HTTP version token, status reason phrases) directly as
+     * bytes, with no intermediate String/byte[] allocation.
+     */
+    private static void writeAscii(ByteBuffer buf, String s) {
+        int len = s.length();
+        for (int i = 0; i < len; i++) {
+            buf.put((byte) s.charAt(i));
+        }
+    }
+
+    /** True iff every character is in the ASCII range accepted by getCharsetFlags. */
+    private static boolean isAscii(String text) {
+        int len = text.length();
+        for (int i = 0; i < len; i++) {
+            char c = text.charAt(i);
+            if (!((c >= 32 && c < 127) || c == '\n' || c == '\r' || c == '\t')) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static int getCharsetFlags(String text) {
