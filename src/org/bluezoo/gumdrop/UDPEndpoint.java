@@ -483,6 +483,22 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
     }
 
     /**
+     * Delivers already-decrypted application data to the handler.
+     *
+     * <p>Used by {@link DTLSSession#drainPendingIncoming} when app data
+     * surfaces while replaying datagrams that queued up behind an
+     * in-flight delegated task (issue #274); the normal {@link #netReceive}
+     * path delivers directly instead.
+     */
+    void deliverPlaintext(ByteBuffer plaintext) {
+        try {
+            handler.receive(plaintext);
+        } finally {
+            ByteBufferPool.release(plaintext);
+        }
+    }
+
+    /**
      * Called by {@link DTLSSession} when its handshake fails permanently
      * (e.g. retransmit attempts exhausted). In client mode -- where the
      * endpoint has exactly one peer -- this is fatal to the endpoint and
