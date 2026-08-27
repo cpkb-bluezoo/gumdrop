@@ -175,6 +175,70 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
                 r.body.contains(TEST_PAYLOAD));
     }
 
+    /**
+     * Regression test for issue #277: a second request on a connection that
+     * already completed one HTTP/2 exchange must get its own response, not
+     * hang forever. Every prior test in this class deliberately used a fresh
+     * connection per request (see the class javadoc); this is the first to
+     * exercise connection reuse, which is the normal case for any real HTTP/2
+     * client (browsers, curl, java.net.http.HttpClient all pool and reuse).
+     */
+    @Test
+    public void testHttp2TlsAlpnSecondRequestOnSameConnection() throws Exception {
+        HTTPClient client = connect(HTTPS_PORT, true, false);
+        try {
+            Result first = sendOneRequest(client, "GET", "/test", null);
+            assertEquals("First request should negotiate h2", HTTPVersion.HTTP_2_0, first.version);
+            assertEquals("First request should return 200 OK", HTTPStatus.OK, first.status);
+
+            Result second = sendOneRequest(client, "GET", "/test2", null);
+            assertEquals("Second request should still be h2", HTTPVersion.HTTP_2_0, second.version);
+            assertEquals("Second request on the same connection should return 200 OK, "
+                    + "not hang", HTTPStatus.OK, second.status);
+            assertTrue("Second request's echo body should report the GET method",
+                    second.body.contains("Method: GET"));
+        } finally {
+            client.close();
+        }
+    }
+
+    /**
+     * Second regression test for #277, covering the mechanism a small-body
+     * exchange (the test above) does not reach: a client only sends a
+     * per-stream WINDOW_UPDATE once it has actually consumed more than half
+     * of the initial 65535-byte receive window (RFC 9113 section 6.9,
+     * {@code H2FlowControl.WINDOW_UPDATE_THRESHOLD}), so a first request
+     * needs a response over ~32KB to trigger one. Gumdrop's own minimal
+     * {@code HTTPClient} never does this for the tiny bodies the other test
+     * above uses, so that test alone would pass even with the
+     * WINDOW_UPDATE-triggered slot leak still present - only reproducible
+     * (before the fix) with a client that sends stream-level WINDOW_UPDATE
+     * more readily, such as curl. Forcing a large response here closes that
+     * coverage gap without depending on an external client.
+     */
+    @Test
+    public void testHttp2TlsAlpnSecondRequestAfterLargeResponseTriggersWindowUpdate() throws Exception {
+        // Comfortably over the 50% (~32768 byte) WINDOW_UPDATE_THRESHOLD of
+        // the default 65535-byte initial window.
+        String largePayload = "x".repeat(50_000);
+
+        HTTPClient client = connect(HTTPS_PORT, true, false);
+        try {
+            Result first = sendOneRequest(client, "POST", "/echo", largePayload);
+            assertEquals("First request should negotiate h2", HTTPVersion.HTTP_2_0, first.version);
+            assertEquals("First request should return 200 OK", HTTPStatus.OK, first.status);
+            assertTrue("Large echoed response should be big enough to cross the "
+                    + "WINDOW_UPDATE threshold", first.body.length() > 32_768);
+
+            Result second = sendOneRequest(client, "GET", "/test2", null);
+            assertEquals("Second request should still be h2", HTTPVersion.HTTP_2_0, second.version);
+            assertEquals("Second request after a WINDOW_UPDATE-triggering first response "
+                    + "should return 200 OK, not hang", HTTPStatus.OK, second.status);
+        } finally {
+            client.close();
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -202,64 +266,75 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
                             String method, String path, String payload) throws Exception {
         HTTPClient client = connect(port, secure, forceHttp11);
         try {
-            Result result = new Result();
-
-            final CountDownLatch latch = new CountDownLatch(1);
-            final AtomicReference<Exception> error = new AtomicReference<>();
-            final ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
-
-            DefaultHTTPResponseHandler handler = new DefaultHTTPResponseHandler() {
-                @Override
-                public void ok(HTTPResponse response) {
-                    result.status = response.getStatus();
-                }
-
-                @Override
-                public void error(HTTPResponse response) {
-                    result.status = response.getStatus();
-                }
-
-                @Override
-                public void responseBodyContent(ByteBuffer data) {
-                    byte[] bytes = new byte[data.remaining()];
-                    data.get(bytes);
-                    bodyBuffer.write(bytes, 0, bytes.length);
-                }
-
-                @Override
-                public void close() {
-                    latch.countDown();
-                }
-
-                @Override
-                public void failed(Exception ex) {
-                    error.set(ex);
-                    latch.countDown();
-                }
-            };
-
-            HTTPRequest request = client.request(method, path);
-            if (payload != null) {
-                byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
-                request.header("Content-Type", "text/plain; charset=UTF-8");
-                request.header("Content-Length", String.valueOf(payloadBytes.length));
-                request.startRequestBody(handler);
-                request.requestBodyContent(ByteBuffer.wrap(payloadBytes));
-                request.endRequestBody();
-            } else {
-                request.send(handler);
-            }
-
-            assertTrue(method + " " + path + " did not complete in time",
-                    latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-            assertNull(method + " " + path + " failed: " + error.get(), error.get());
-
-            result.version = client.getVersion();
-            result.body = new String(bodyBuffer.toByteArray(), StandardCharsets.UTF_8);
-            return result;
+            return sendOneRequest(client, method, path, payload);
         } finally {
             client.close();
         }
+    }
+
+    /**
+     * Performs a single request/response exchange on an already-connected
+     * {@link HTTPClient}, without connecting or closing it - so callers can
+     * invoke this more than once on the same client to exercise connection
+     * reuse (see {@link #testHttp2TlsAlpnSecondRequestOnSameConnection}).
+     */
+    private Result sendOneRequest(HTTPClient client, String method, String path,
+                            String payload) throws Exception {
+        Result result = new Result();
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Exception> error = new AtomicReference<>();
+        final ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
+
+        DefaultHTTPResponseHandler handler = new DefaultHTTPResponseHandler() {
+            @Override
+            public void ok(HTTPResponse response) {
+                result.status = response.getStatus();
+            }
+
+            @Override
+            public void error(HTTPResponse response) {
+                result.status = response.getStatus();
+            }
+
+            @Override
+            public void responseBodyContent(ByteBuffer data) {
+                byte[] bytes = new byte[data.remaining()];
+                data.get(bytes);
+                bodyBuffer.write(bytes, 0, bytes.length);
+            }
+
+            @Override
+            public void close() {
+                latch.countDown();
+            }
+
+            @Override
+            public void failed(Exception ex) {
+                error.set(ex);
+                latch.countDown();
+            }
+        };
+
+        HTTPRequest request = client.request(method, path);
+        if (payload != null) {
+            byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
+            request.header("Content-Type", "text/plain; charset=UTF-8");
+            request.header("Content-Length", String.valueOf(payloadBytes.length));
+            request.startRequestBody(handler);
+            request.requestBodyContent(ByteBuffer.wrap(payloadBytes));
+            request.endRequestBody();
+        } else {
+            request.send(handler);
+        }
+
+        assertTrue(method + " " + path + " did not complete in time",
+                latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertNull(method + " " + path + " failed: " + error.get(), error.get());
+
+        result.version = client.getVersion();
+        result.body = new String(bodyBuffer.toByteArray(), StandardCharsets.UTF_8);
+        return result;
     }
 
     /**

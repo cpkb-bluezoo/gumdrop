@@ -867,6 +867,17 @@ public final class HTTPProtocolHandler
         if (window >= toSend) {
             h2FlowControl.consumeSendWindow(streamId, toSend);
             sendH2DataDirect(streamId, buf, endStream);
+            // Nothing was queued for this stream (the whole buffer went out
+            // synchronously above), so - same as the completion branch of
+            // drainPendingData() below - release the RFC 9218 non-incremental
+            // slot now rather than holding it forever. Without this, a
+            // stream that always sends its full body in one shot (the
+            // common case for small responses) claims the slot in
+            // claimH2BodySlot() above but never releases it, permanently
+            // starving every other non-incremental stream at the same
+            // urgency from ever sending DATA again.
+            releaseH2BodySlot(streamId);
+            drainRfc9218Pending();
         } else if (window > 0) {
             h2FlowControl.consumeSendWindow(streamId, window);
             int savedLimit = buf.limit();
@@ -2687,7 +2698,16 @@ public final class HTTPProtocolHandler
         if (streamId == 0) {
             drainRfc9218Pending();
         } else {
-            if (claimH2BodySlot(streamId)) {
+            // Only claim the slot when there is actually queued DATA to
+            // drain for this stream. A per-stream WINDOW_UPDATE is routine
+            // flow-control housekeeping that a client may send long after
+            // the stream's response was already fully sent (e.g. via the
+            // direct-send path in sendH2Data()); claiming unconditionally
+            // here leaked the slot forever in that case, because
+            // drainPendingData() returns immediately when there is nothing
+            // pending for the stream, without ever releasing what was just
+            // claimed above.
+            if (h2PendingData.containsKey(Integer.valueOf(streamId)) && claimH2BodySlot(streamId)) {
                 drainPendingData(streamId);
             }
         }
