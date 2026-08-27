@@ -238,7 +238,21 @@ public class MQTTFrameParser {
             int forPacket = pubRemainingLength - pubHeaderLen;
             int toCopy = Math.min(buf.remaining(), Math.min(forPacket, space));
             if (toCopy <= 0) {
-                break;
+                if (forPacket <= 0) {
+                    // Every byte the packet declared (its own Remaining
+                    // Length) has already been consumed into
+                    // pubHeaderBuf, and the header still cannot be
+                    // completed -- it never will be, since no more
+                    // bytes for this packet can ever arrive. Without
+                    // this check the parser would stay stuck in
+                    // PUBLISH_HEADER forever, and receive()'s caller
+                    // would spin indefinitely on any further buffered
+                    // byte.
+                    handler.parseError(L10N.getString("err.publish_header_incomplete"));
+                    state = State.IDLE;
+                    pubHeaderBuf = null;
+                }
+                return;
             }
 
             buf.get(pubHeaderBuf, pubHeaderLen, toCopy);
