@@ -59,8 +59,19 @@ public class Headers extends ArrayList<Header> {
     private transient Map<String,List<Header>> index;
     private transient int indexModCount = -1;
 
+    /**
+     * Counts how many times {@link #index()} has actually rebuilt the map,
+     * as opposed to reusing the cached one. Package-private and only ever
+     * read by tests (see issue #278) verifying that callers doing several
+     * lookups in a row - e.g. {@code Stream.sendResponseHeaders}'s
+     * {@code containsName} checks - don't interleave a mutation between
+     * each pair and so force a rebuild before every single one.
+     */
+    transient int indexBuildCountForTesting = 0;
+
     private Map<String,List<Header>> index() {
         if (index == null || indexModCount != modCount) {
+            indexBuildCountForTesting++;
             Map<String,List<Header>> built = new HashMap<>();
             for (Header header : this) {
                 String key = header.getName().toLowerCase(Locale.ROOT);
