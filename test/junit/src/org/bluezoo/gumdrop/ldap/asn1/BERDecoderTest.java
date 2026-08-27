@@ -223,6 +223,44 @@ public class BERDecoderTest {
         assertEquals(1000, element.getValue().length);
     }
 
+    /**
+     * Regression test for issue #268 -- JQF/Zest fuzzing found that a
+     * 4-byte BER long-form length whose top bit is set overflows int
+     * during accumulation, producing a negative value that bypasses
+     * decodeLengthMulti/startValue's "too large" sanity check and
+     * reaches new byte[length], throwing an uncaught
+     * NegativeArraySizeException instead of the declared ASN1Exception.
+     */
+    @Test(expected = ASN1Exception.class)
+    public void testNegativeLongFormLengthThrowsASN1Exception() throws ASN1Exception {
+        // Octet string tag, 4-byte long-form length overflowing to
+        // Integer.MIN_VALUE: 04 84 80 00 00 00
+        byte[] data = { 0x04, (byte) 0x84, (byte) 0x80, 0x00, 0x00, 0x00 };
+
+        BERDecoder decoder = new BERDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+    }
+
+    /**
+     * Regression test for issue #268 -- the same overflow, but reached
+     * through the separate non-streaming recursive-descent parser
+     * (parseOneElement) used for a constructed element's children,
+     * rather than the top-level streaming state machine.
+     */
+    @Test(expected = ASN1Exception.class)
+    public void testNegativeLongFormLengthInConstructedChildThrowsASN1Exception() throws ASN1Exception {
+        // SEQUENCE (constructed, 6-byte value) containing an octet
+        // string with the same overflowing 4-byte long-form length:
+        // 30 06 04 84 80 00 00 00
+        byte[] data = {
+            0x30, 0x06,
+            0x04, (byte) 0x84, (byte) 0x80, 0x00, 0x00, 0x00,
+        };
+
+        BERDecoder decoder = new BERDecoder();
+        decoder.receive(ByteBuffer.wrap(data));
+    }
+
     // Test streaming/incremental decoding
 
     @Test

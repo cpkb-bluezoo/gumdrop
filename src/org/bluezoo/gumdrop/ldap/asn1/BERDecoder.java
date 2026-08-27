@@ -251,8 +251,10 @@ public final class BERDecoder {
         if (length == 0) {
             // Empty value
             completeElement(new byte[0]);
-        } else if (length > 10 * 1024 * 1024) {
-            // Sanity check - 10MB max
+        } else if (length < 0 || length > 10 * 1024 * 1024) {
+            // A 4-byte long-form length can overflow int and wrap
+            // negative; reject that the same as an oversized value
+            // rather than letting it reach new byte[length] below.
             throw new ASN1Exception("Value too large: " + length + " bytes");
         } else {
             valueBuffer = new byte[length];
@@ -379,8 +381,12 @@ public final class BERDecoder {
             }
         }
 
-        if (elementLength > 10 * 1024 * 1024) {
-            // Sanity check - 10MB max, matching startValue()
+        if (elementLength < 0 || elementLength > 10 * 1024 * 1024) {
+            // A 4-byte long-form length can overflow int and wrap
+            // negative, same as in decodeLengthMulti/startValue --
+            // reject it here too, before it can bypass the
+            // pos + elementLength > end check below (adding a
+            // negative value only ever shrinks that sum).
             throw new ASN1Exception("Value too large: " + elementLength + " bytes");
         }
         if (pos + elementLength > end) {
