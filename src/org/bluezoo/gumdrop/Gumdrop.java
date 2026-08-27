@@ -133,6 +133,7 @@ public class Gumdrop {
     private final AtomicInteger nextWorker;
     private ScheduledTimer scheduledTimer;
     private StorageExecutor storageExecutor;
+    private CryptoExecutor cryptoExecutor;
     // Configurator (manages DI lifecycle)
     private GumdropConfigurator configurator;
 
@@ -586,6 +587,15 @@ public class Gumdrop {
             storageExecutor = StorageExecutor.createDefault();
         }
 
+        // Create the shared crypto worker pool. TLS handshake delegated
+        // tasks (SSLEngine NEED_TASK -- RSA/ECDHE key exchange, certificate
+        // chain validation) are CPU-bound work with no non-blocking JDK
+        // API; offloaded here so a burst of new TLS connections never
+        // stalls a SelectorLoop's other connections.
+        if (cryptoExecutor == null) {
+            cryptoExecutor = CryptoExecutor.createDefault();
+        }
+
         startMailboxLifecycle();
 
         // Parse /etc/hosts (or Windows hosts) once off the selector so the
@@ -885,6 +895,12 @@ public class Gumdrop {
             storageExecutor = null;
         }
 
+        // Stop the crypto worker pool
+        if (cryptoExecutor != null) {
+            cryptoExecutor.shutdown();
+            cryptoExecutor = null;
+        }
+
         stopMailboxLifecycle();
 
         // Shutdown configurator (destroy singleton components)
@@ -1111,6 +1127,21 @@ public class Gumdrop {
      */
     public StorageExecutor getStorageExecutor() {
         return storageExecutor;
+    }
+
+    /**
+     * Returns the shared crypto worker pool used to run CPU-bound TLS
+     * handshake delegated tasks off the SelectorLoop threads.
+     *
+     * <p>Available after {@link #start()}. {@link SSLState} submits TLS
+     * handshake delegated tasks (RSA/ECDHE key exchange, certificate chain
+     * validation) here and resumes on the connection's loop via the callback.
+     *
+     * @return the crypto executor, or null if the server has not been started
+     * @see CryptoExecutor#submit
+     */
+    CryptoExecutor getCryptoExecutor() {
+        return cryptoExecutor;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

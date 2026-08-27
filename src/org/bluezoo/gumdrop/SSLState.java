@@ -23,6 +23,9 @@ package org.bluezoo.gumdrop;
 
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -104,6 +107,22 @@ final class SSLState {
 
     boolean handshakeStarted;
     boolean closed;
+
+    // Whether a delegated task (SSLEngine NEED_TASK) is currently running
+    // off-loop on the CryptoExecutor pool. Guarded by netOutLock -- wrap()
+    // can be called from any application thread via TCPEndpoint.send(), so
+    // this must be checked-and-set atomically with respect to a concurrent
+    // wrap() call, not just the loop thread's own re-entry (which pauseRead()
+    // already prevents via submitDelegatedTasksAsync()).
+    private boolean taskInFlight;
+
+    // Which resumption path to take once an in-flight delegated task
+    // completes: true resumes via processHandshake() (set by the initial
+    // handshake state machine and by wrap() hitting a handshake mid-flight),
+    // false resumes via processApplicationData() (set by a post-handshake
+    // renegotiation/session-ticket task). Guarded by netOutLock, same as
+    // taskInFlight.
+    private boolean resumeViaHandshake;
 
     // RFC 4217-style "client speaks first" protocols (e.g. AMQP's implicit
     // TLS: the client writes its protocol header the moment connected()
@@ -274,10 +293,23 @@ final class SSLState {
                 engine.beginHandshake();
                 handshakeStarted = true;
             }
+            boolean taskJustSubmitted = false;
             synchronized (netOutLock()) {
                 if (netOut() == null) {
                     // Connection closed concurrently (doClose released the
                     // buffer under netOutLock); drop the outbound data.
+                    return;
+                }
+                if (taskInFlight) {
+                    // A delegated task is running off-loop for this
+                    // connection's handshake (RFC 9001-unrelated: this is
+                    // the JDK SSLEngine's own NEED_TASK contract, which
+                    // forbids calling wrap()/unwrap() again until all
+                    // outstanding delegated tasks have completed). Buffer
+                    // this data the same way a NEED_UNWRAP-in-progress
+                    // handshake already does; it is sent once the task
+                    // completes and the handshake reaches FINISHED.
+                    bufferPendingAppData(data);
                     return;
                 }
                 // Wrap application data into encrypted output
@@ -308,15 +340,20 @@ final class SSLState {
                     // Handle any handshake events
                     SSLEngineResult.HandshakeStatus hs = result.getHandshakeStatus();
                     if (hs == SSLEngineResult.HandshakeStatus.NEED_TASK) {
-                        runDelegatedTasks();
+                        done = true;
+                        stillHandshaking = true;
+                        taskInFlight = true;
+                        resumeViaHandshake = true;
+                        taskJustSubmitted = true;
                     } else if (hs == SSLEngineResult.HandshakeStatus.NEED_UNWRAP) {
                         done = true;
                         stillHandshaking = true;
                     }
                 }
 
-                // A handshake still in progress (NEED_UNWRAP, waiting on the
-                // peer) does not consume application bytes from wrap() --
+                // A handshake still in progress (NEED_UNWRAP or NEED_TASK,
+                // either waiting on the peer or on an off-loop delegated
+                // task) does not consume application bytes from wrap() --
                 // see the pendingAppData field comment. Buffer whatever is
                 // left so it isn't silently dropped; flushed once the
                 // handshake completes.
@@ -328,6 +365,11 @@ final class SSLState {
                 if (netOut().position() > 0) {
                     requestWrite();
                 }
+            }
+            if (taskJustSubmitted) {
+                // Dispatched outside netOutLock so pauseRead()/pool
+                // submission don't happen while holding it.
+                submitDelegatedTasksAsync();
             }
         } catch (SSLException e) {
             // Includes outbound-buffer-overflow aborts from growNetOut. Tear
@@ -487,8 +529,18 @@ final class SSLState {
                     break;
 
                 case NEED_TASK:
-                    runDelegatedTasks();
-                    break;
+                    // Run off-loop; the switch to async means this method
+                    // cannot keep looping synchronously the way the other
+                    // cases do, so it must return here rather than fall
+                    // through to the shared hs = engine.getHandshakeStatus()
+                    // below (which would still read NEED_TASK, since the
+                    // tasks have not run yet, and spin forever).
+                    synchronized (netOutLock()) {
+                        taskInFlight = true;
+                        resumeViaHandshake = true;
+                    }
+                    submitDelegatedTasksAsync();
+                    return;
 
                 default:
                     break;
@@ -611,7 +663,18 @@ final class SSLState {
             // Handle handshake events during data transfer (e.g., renegotiation)
             SSLEngineResult.HandshakeStatus hs = result.getHandshakeStatus();
             if (hs == SSLEngineResult.HandshakeStatus.NEED_TASK) {
-                runDelegatedTasks();
+                // A post-handshake delegated task (TLS renegotiation or
+                // session-ticket issuance on an already-established
+                // connection). Resume via processApplicationData() (not
+                // processHandshake()) once it completes, so
+                // onHandshakeComplete() is not incorrectly re-fired for a
+                // mid-connection renegotiation -- see resumeAfterTask().
+                synchronized (netOutLock()) {
+                    taskInFlight = true;
+                    resumeViaHandshake = false;
+                }
+                submitDelegatedTasksAsync();
+                return;
             } else if (hs == SSLEngineResult.HandshakeStatus.NEED_WRAP) {
                 // Need to send data (e.g., close_notify response)
                 // Synchronize on netOutLock to prevent race with application thread calling wrap()
@@ -626,10 +689,129 @@ final class SSLState {
         }
     }
 
-    private void runDelegatedTasks() {
-        Runnable task;
-        while ((task = engine.getDelegatedTask()) != null) {
-            task.run();
+    /**
+     * Drains every currently-available {@code SSLEngine} delegated task
+     * (RSA/ECDHE key exchange, certificate chain validation, ...) and runs
+     * them off the SelectorLoop thread on {@link CryptoExecutor}, pausing
+     * reads for the duration so the loop thread cannot re-enter {@link
+     * #unwrap} for this connection while a task is outstanding -- the JDK's
+     * {@code SSLEngine} contract forbids calling {@code wrap()}/{@code
+     * unwrap()} again until all outstanding delegated tasks have completed.
+     * {@code wrap()} guards the same window via {@link #taskInFlight}, since
+     * it can be called from any application thread, not just the loop
+     * thread that {@code pauseRead()} affects.
+     *
+     * <p>Some delegated-task chains are sequential -- {@code
+     * getDelegatedTask()} may only surface a follow-up task after an
+     * earlier one has actually run, not merely been retrieved (e.g. a
+     * mutual-TLS handshake's certificate-chain validation). This is handled
+     * naturally: {@link #resumeAfterTask()} re-enters the same state
+     * machine method that called this, which will observe {@code NEED_TASK}
+     * again and call this method again if more remain.
+     *
+     * <p>Every caller must first set {@link #taskInFlight} and {@link
+     * #resumeViaHandshake} under {@link #netOutLock()} and then {@code
+     * return} without falling through to any further engine access.
+     */
+    private void submitDelegatedTasksAsync() {
+        final List<Runnable> tasks = new ArrayList<Runnable>();
+        Runnable t;
+        while ((t = engine.getDelegatedTask()) != null) {
+            tasks.add(t);
+        }
+        tcpEndpoint.pauseRead();
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        CryptoExecutor exec = (gumdrop != null) ? gumdrop.getCryptoExecutor() : null;
+        if (exec == null) {
+            // Only reachable when SSLState is exercised without a live
+            // Gumdrop instance (e.g. a unit test constructing it directly);
+            // mirrors IMAPProtocolHandler.submitStorage's same null-guard
+            // fallback for StorageExecutor.
+            for (Runnable task : tasks) {
+                task.run();
+            }
+            tcpEndpoint.resumeRead();
+            resumeAfterTask();
+            return;
+        }
+        exec.submit(tcpEndpoint, new Callable<Void>() {
+            @Override
+            public Void call() {
+                for (Runnable task : tasks) {
+                    task.run();
+                }
+                return null;
+            }
+        }, new CryptoExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void result) {
+                tcpEndpoint.resumeRead();
+                resumeAfterTask();
+            }
+            @Override
+            public void failed(Throwable error) {
+                tcpEndpoint.resumeRead();
+                synchronized (netOutLock()) {
+                    taskInFlight = false;
+                }
+                if (closed) {
+                    return;
+                }
+                LOGGER.log(Level.SEVERE, "SSL delegated task failed", error);
+                handleClosed("delegated-task");
+            }
+        });
+    }
+
+    /**
+     * Resumes handshake/application-data processing on the loop thread
+     * after {@link #submitDelegatedTasksAsync()}'s tasks have completed.
+     *
+     * <p>{@code netIn} is left in write mode by {@link #unwrap}'s own
+     * {@code finally} block (which already ran, and already compacted any
+     * leftover unconsumed bytes to the front, before the delegated task's
+     * submission returned control to that caller). In the normal
+     * synchronous flow, whatever external caller invokes {@link #unwrap}
+     * next -- {@code SelectorLoop.doTcpEndpointRead}, or this test's
+     * equivalent -- flips {@code netIn} to read mode first; neither {@link
+     * #processHandshake} nor {@link #processApplicationData} do that flip
+     * themselves. This resume has no such external caller (no new network
+     * bytes necessarily arrived; it is simply continuing to process
+     * whatever was already sitting in {@code netIn}), so it must do that
+     * flip itself, and compact again afterwards to restore write mode for
+     * the next real append -- mirroring {@link #unwrap}'s own discipline.
+     */
+    private void resumeAfterTask() {
+        boolean viaHandshake;
+        synchronized (netOutLock()) {
+            taskInFlight = false;
+            viaHandshake = resumeViaHandshake;
+        }
+        if (closed) {
+            return;
+        }
+        try {
+            ByteBuffer in = netIn();
+            if (in != null) {
+                in.flip();
+            }
+            if (viaHandshake) {
+                SSLEngineResult.HandshakeStatus hs = engine.getHandshakeStatus();
+                if (hs != SSLEngineResult.HandshakeStatus.FINISHED &&
+                    hs != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
+                    processHandshake(hs);
+                }
+            } else {
+                processApplicationData();
+            }
+        } catch (SSLException e) {
+            LOGGER.log(Level.SEVERE, "SSL error resuming after delegated task", e);
+            handleClosed("resume-after-task");
+        } finally {
+            ByteBuffer in = netIn();
+            if (in != null) {
+                in.compact();
+            }
         }
     }
 
