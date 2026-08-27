@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.frame;
 
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -66,126 +67,155 @@ public class QuicFrameParser {
      */
     public void receive(ByteBuffer buf) {
         while (buf.hasRemaining()) {
-            int startPosition = buf.position();
-            long type = VarInt.decode(buf);
-
-            if (type == QuicFrameHandler.TYPE_PADDING) {
-                int count = 1;
-                while (buf.hasRemaining() && (buf.get(buf.position()) & 0xff) == 0) {
-                    buf.get();
-                    count++;
-                }
-                handler.paddingFrameReceived(count);
-            } else if (type == QuicFrameHandler.TYPE_PING) {
-                handler.pingFrameReceived();
-            } else if (type == QuicFrameHandler.TYPE_ACK || type == QuicFrameHandler.TYPE_ACK_ECN) {
-                if (!parseAckFrame(buf, type == QuicFrameHandler.TYPE_ACK_ECN)) {
-                    return;
-                }
-            } else if (type == QuicFrameHandler.TYPE_RESET_STREAM) {
-                if (!parseResetStreamFrame(buf)) {
-                    return;
-                }
-            } else if (type == QuicFrameHandler.TYPE_STOP_SENDING) {
-                long[] streamIdAndValue = parseStreamIdAndValue(buf, "STOP_SENDING");
-                if (streamIdAndValue == null) {
-                    return;
-                }
-                handler.stopSendingFrameReceived(streamIdAndValue[0], streamIdAndValue[1]);
-            } else if (type == QuicFrameHandler.TYPE_CRYPTO) {
-                if (!parseCryptoFrame(buf)) {
-                    return;
-                }
-            } else if (type == QuicFrameHandler.TYPE_NEW_TOKEN) {
-                if (!parseNewTokenFrame(buf)) {
-                    return;
-                }
-            } else if (type >= QuicFrameHandler.TYPE_STREAM_MIN && type <= QuicFrameHandler.TYPE_STREAM_MAX) {
-                if (!parseStreamFrame(buf, type)) {
-                    return;
-                }
-            } else if (type == QuicFrameHandler.TYPE_MAX_DATA) {
-                if (!buf.hasRemaining()) {
-                    handler.frameError("MAX_DATA frame underflow");
-                    return;
-                }
-                handler.maxDataFrameReceived(VarInt.decode(buf));
-            } else if (type == QuicFrameHandler.TYPE_MAX_STREAM_DATA) {
-                long[] streamIdAndValue = parseStreamIdAndValue(buf, "MAX_STREAM_DATA");
-                if (streamIdAndValue == null) {
-                    return;
-                }
-                handler.maxStreamDataFrameReceived(streamIdAndValue[0], streamIdAndValue[1]);
-            } else if (type == QuicFrameHandler.TYPE_MAX_STREAMS_BIDI
-                    || type == QuicFrameHandler.TYPE_MAX_STREAMS_UNI) {
-                if (!buf.hasRemaining()) {
-                    handler.frameError("MAX_STREAMS frame underflow");
-                    return;
-                }
-                handler.maxStreamsFrameReceived(type == QuicFrameHandler.TYPE_MAX_STREAMS_BIDI, VarInt.decode(buf));
-            } else if (type == QuicFrameHandler.TYPE_DATA_BLOCKED) {
-                if (!buf.hasRemaining()) {
-                    handler.frameError("DATA_BLOCKED frame underflow");
-                    return;
-                }
-                handler.dataBlockedFrameReceived(VarInt.decode(buf));
-            } else if (type == QuicFrameHandler.TYPE_STREAM_DATA_BLOCKED) {
-                long[] streamIdAndValue = parseStreamIdAndValue(buf, "STREAM_DATA_BLOCKED");
-                if (streamIdAndValue == null) {
-                    return;
-                }
-                handler.streamDataBlockedFrameReceived(streamIdAndValue[0], streamIdAndValue[1]);
-            } else if (type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI
-                    || type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_UNI) {
-                if (!buf.hasRemaining()) {
-                    handler.frameError("STREAMS_BLOCKED frame underflow");
-                    return;
-                }
-                handler.streamsBlockedFrameReceived(
-                        type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI, VarInt.decode(buf));
-            } else if (type == QuicFrameHandler.TYPE_NEW_CONNECTION_ID) {
-                if (!parseNewConnectionIdFrame(buf)) {
-                    return;
-                }
-            } else if (type == QuicFrameHandler.TYPE_RETIRE_CONNECTION_ID) {
-                if (!buf.hasRemaining()) {
-                    handler.frameError("RETIRE_CONNECTION_ID frame underflow");
-                    return;
-                }
-                handler.retireConnectionIdFrameReceived(VarInt.decode(buf));
-            } else if (type == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
-                ByteBuffer data = parseFixedLengthData(buf, QuicFrameHandler.PATH_DATA_LENGTH, "PATH_CHALLENGE");
-                if (data == null) {
-                    return;
-                }
-                handler.pathChallengeFrameReceived(data);
-            } else if (type == QuicFrameHandler.TYPE_PATH_RESPONSE) {
-                ByteBuffer data = parseFixedLengthData(buf, QuicFrameHandler.PATH_DATA_LENGTH, "PATH_RESPONSE");
-                if (data == null) {
-                    return;
-                }
-                handler.pathResponseFrameReceived(data);
-            } else if (type == QuicFrameHandler.TYPE_CONNECTION_CLOSE) {
-                if (!parseConnectionCloseFrame(buf, false)) {
-                    return;
-                }
-            } else if (type == QuicFrameHandler.TYPE_CONNECTION_CLOSE_APP) {
-                if (!parseConnectionCloseFrame(buf, true)) {
-                    return;
-                }
-            } else if (type == QuicFrameHandler.TYPE_HANDSHAKE_DONE) {
-                handler.handshakeDoneFrameReceived();
-            } else if (type == QuicFrameHandler.TYPE_DATAGRAM
-                    || type == QuicFrameHandler.TYPE_DATAGRAM_LEN) {
-                if (!parseDatagramFrame(buf, startPosition, type == QuicFrameHandler.TYPE_DATAGRAM_LEN)) {
-                    return;
-                }
-            } else {
-                buf.position(startPosition);
-                handler.frameError("Unsupported or unknown frame type: " + type);
+            boolean keepGoing;
+            try {
+                keepGoing = receiveOneFrame(buf);
+            } catch (BufferUnderflowException | IndexOutOfBoundsException e) {
+                // A truncated frame -- of any type -- reads past the end
+                // of the buffer. Every per-frame-type parsing method
+                // below reads fixed- or variable-length fields directly
+                // off the buffer without first checking buf.remaining(),
+                // so this is reachable from essentially any frame type;
+                // catching it here once, rather than bounds-checking
+                // each read site individually, matches how an
+                // unrecognised frame type is already reported.
+                handler.frameError("Truncated frame: " + e);
+                return;
+            }
+            if (!keepGoing) {
                 return;
             }
         }
+    }
+
+    /**
+     * Parses a single frame at the buffer's current position.
+     *
+     * @return true if parsing should continue with the next frame in
+     *         the buffer, false if {@link #receive} should stop (an
+     *         error was already reported to the handler)
+     */
+    private boolean receiveOneFrame(ByteBuffer buf) {
+        int startPosition = buf.position();
+        long type = VarInt.decode(buf);
+
+        if (type == QuicFrameHandler.TYPE_PADDING) {
+            int count = 1;
+            while (buf.hasRemaining() && (buf.get(buf.position()) & 0xff) == 0) {
+                buf.get();
+                count++;
+            }
+            handler.paddingFrameReceived(count);
+        } else if (type == QuicFrameHandler.TYPE_PING) {
+            handler.pingFrameReceived();
+        } else if (type == QuicFrameHandler.TYPE_ACK || type == QuicFrameHandler.TYPE_ACK_ECN) {
+            if (!parseAckFrame(buf, type == QuicFrameHandler.TYPE_ACK_ECN)) {
+                return false;
+            }
+        } else if (type == QuicFrameHandler.TYPE_RESET_STREAM) {
+            if (!parseResetStreamFrame(buf)) {
+                return false;
+            }
+        } else if (type == QuicFrameHandler.TYPE_STOP_SENDING) {
+            long[] streamIdAndValue = parseStreamIdAndValue(buf, "STOP_SENDING");
+            if (streamIdAndValue == null) {
+                return false;
+            }
+            handler.stopSendingFrameReceived(streamIdAndValue[0], streamIdAndValue[1]);
+        } else if (type == QuicFrameHandler.TYPE_CRYPTO) {
+            if (!parseCryptoFrame(buf)) {
+                return false;
+            }
+        } else if (type == QuicFrameHandler.TYPE_NEW_TOKEN) {
+            if (!parseNewTokenFrame(buf)) {
+                return false;
+            }
+        } else if (type >= QuicFrameHandler.TYPE_STREAM_MIN && type <= QuicFrameHandler.TYPE_STREAM_MAX) {
+            if (!parseStreamFrame(buf, type)) {
+                return false;
+            }
+        } else if (type == QuicFrameHandler.TYPE_MAX_DATA) {
+            if (!buf.hasRemaining()) {
+                handler.frameError("MAX_DATA frame underflow");
+                return false;
+            }
+            handler.maxDataFrameReceived(VarInt.decode(buf));
+        } else if (type == QuicFrameHandler.TYPE_MAX_STREAM_DATA) {
+            long[] streamIdAndValue = parseStreamIdAndValue(buf, "MAX_STREAM_DATA");
+            if (streamIdAndValue == null) {
+                return false;
+            }
+            handler.maxStreamDataFrameReceived(streamIdAndValue[0], streamIdAndValue[1]);
+        } else if (type == QuicFrameHandler.TYPE_MAX_STREAMS_BIDI
+                || type == QuicFrameHandler.TYPE_MAX_STREAMS_UNI) {
+            if (!buf.hasRemaining()) {
+                handler.frameError("MAX_STREAMS frame underflow");
+                return false;
+            }
+            handler.maxStreamsFrameReceived(type == QuicFrameHandler.TYPE_MAX_STREAMS_BIDI, VarInt.decode(buf));
+        } else if (type == QuicFrameHandler.TYPE_DATA_BLOCKED) {
+            if (!buf.hasRemaining()) {
+                handler.frameError("DATA_BLOCKED frame underflow");
+                return false;
+            }
+            handler.dataBlockedFrameReceived(VarInt.decode(buf));
+        } else if (type == QuicFrameHandler.TYPE_STREAM_DATA_BLOCKED) {
+            long[] streamIdAndValue = parseStreamIdAndValue(buf, "STREAM_DATA_BLOCKED");
+            if (streamIdAndValue == null) {
+                return false;
+            }
+            handler.streamDataBlockedFrameReceived(streamIdAndValue[0], streamIdAndValue[1]);
+        } else if (type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI
+                || type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_UNI) {
+            if (!buf.hasRemaining()) {
+                handler.frameError("STREAMS_BLOCKED frame underflow");
+                return false;
+            }
+            handler.streamsBlockedFrameReceived(
+                    type == QuicFrameHandler.TYPE_STREAMS_BLOCKED_BIDI, VarInt.decode(buf));
+        } else if (type == QuicFrameHandler.TYPE_NEW_CONNECTION_ID) {
+            if (!parseNewConnectionIdFrame(buf)) {
+                return false;
+            }
+        } else if (type == QuicFrameHandler.TYPE_RETIRE_CONNECTION_ID) {
+            if (!buf.hasRemaining()) {
+                handler.frameError("RETIRE_CONNECTION_ID frame underflow");
+                return false;
+            }
+            handler.retireConnectionIdFrameReceived(VarInt.decode(buf));
+        } else if (type == QuicFrameHandler.TYPE_PATH_CHALLENGE) {
+            ByteBuffer data = parseFixedLengthData(buf, QuicFrameHandler.PATH_DATA_LENGTH, "PATH_CHALLENGE");
+            if (data == null) {
+                return false;
+            }
+            handler.pathChallengeFrameReceived(data);
+        } else if (type == QuicFrameHandler.TYPE_PATH_RESPONSE) {
+            ByteBuffer data = parseFixedLengthData(buf, QuicFrameHandler.PATH_DATA_LENGTH, "PATH_RESPONSE");
+            if (data == null) {
+                return false;
+            }
+            handler.pathResponseFrameReceived(data);
+        } else if (type == QuicFrameHandler.TYPE_CONNECTION_CLOSE) {
+            if (!parseConnectionCloseFrame(buf, false)) {
+                return false;
+            }
+        } else if (type == QuicFrameHandler.TYPE_CONNECTION_CLOSE_APP) {
+            if (!parseConnectionCloseFrame(buf, true)) {
+                return false;
+            }
+        } else if (type == QuicFrameHandler.TYPE_HANDSHAKE_DONE) {
+            handler.handshakeDoneFrameReceived();
+        } else if (type == QuicFrameHandler.TYPE_DATAGRAM
+                || type == QuicFrameHandler.TYPE_DATAGRAM_LEN) {
+            if (!parseDatagramFrame(buf, startPosition, type == QuicFrameHandler.TYPE_DATAGRAM_LEN)) {
+                return false;
+            }
+        } else {
+            buf.position(startPosition);
+            handler.frameError("Unsupported or unknown frame type: " + type);
+            return false;
+        }
+        return true;
     }
 
     // RFC 9000 section 19.3
