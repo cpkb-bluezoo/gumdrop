@@ -250,6 +250,56 @@ public class DNSMessageTest {
     
     // -- Name compression tests (RFC 1035 section 4.1.4) --
 
+    /**
+     * Regression test for issue #257 — JQF/Zest fuzzing found that a
+     * compression pointer whose offset points past the end of the
+     * message threw an unchecked IllegalArgumentException (from
+     * ByteBuffer.position()) instead of the declared DNSFormatException.
+     */
+    @Test(expected = DNSFormatException.class)
+    public void testCompressionPointerOutOfRangeThrowsFormatException() throws DNSFormatException {
+        byte[] data = new byte[] {
+            0x00, 0x00, // ID
+            0x00, 0x00, // FLAGS
+            0x00, 0x01, // QDCOUNT=1
+            0x00, 0x00, // ANCOUNT
+            0x00, 0x00, // NSCOUNT
+            0x00, 0x00, // ARCOUNT
+            (byte) 0xFF, (byte) 0xFF, // QNAME: compression pointer, offset=0x3FFF
+            0x00, 0x01, // QTYPE (unreached)
+            0x00, 0x01, // QCLASS (unreached)
+        };
+        DNSMessage.parse(ByteBuffer.wrap(data));
+    }
+
+    /**
+     * Regression test for issue #257 — JQF/Zest re-fuzzing of the
+     * out-of-range-pointer fix found a second, more severe bug in the
+     * same method: decodeName's jump counter is a local variable reset
+     * on every recursive call, so it only bounds jumps within a single
+     * stack frame, not across the whole recursive chain. Two
+     * compression pointers that point at each other form a cycle that
+     * recurses forever, exhausting the stack (a remote, single-message
+     * denial-of-service vector) instead of being rejected as malformed.
+     */
+    @Test(expected = DNSFormatException.class)
+    public void testCyclicCompressionPointersThrowFormatExceptionNotStackOverflow() throws DNSFormatException {
+        byte[] data = new byte[] {
+            0x00, 0x00, // ID
+            0x00, 0x00, // FLAGS
+            0x00, 0x01, // QDCOUNT=1
+            0x00, 0x00, // ANCOUNT
+            0x00, 0x00, // NSCOUNT
+            0x00, 0x00, // ARCOUNT
+            (byte) 0xC0, 0x0E, // offset 12: pointer -> offset 14
+            (byte) 0xC0, 0x0C, // offset 14: pointer -> offset 12
+            (byte) 0xC0, 0x0C, // QNAME: pointer -> offset 12 (enters the cycle)
+            0x00, 0x01, // QTYPE (unreached)
+            0x00, 0x01, // QCLASS (unreached)
+        };
+        DNSMessage.parse(ByteBuffer.wrap(data));
+    }
+
     @Test
     public void testCompressionReducesSize() throws Exception {
         InetAddress addr1 = InetAddress.getByName("1.2.3.4");

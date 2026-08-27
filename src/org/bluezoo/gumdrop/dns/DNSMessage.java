@@ -332,7 +332,18 @@ public final class DNSMessage {
         if (data.remaining() < HEADER_SIZE) {
             throw new DNSFormatException(L10N.getString("err.message_too_short"));
         }
+        try {
+            return parseUnchecked(data);
+        } catch (IllegalStateException e) {
+            // decodeName reports a malformed name (out-of-range or looping
+            // compression pointer, name too long) via IllegalStateException;
+            // convert it to this method's declared exception type here
+            // rather than at each of decodeName's several call sites.
+            throw new DNSFormatException(e.getMessage(), e);
+        }
+    }
 
+    private static DNSMessage parseUnchecked(ByteBuffer data) throws DNSFormatException {
         ByteBuffer original = data.duplicate();
 
         // RFC 1035 section 4.1.1: parse 12-octet header
@@ -446,9 +457,21 @@ public final class DNSMessage {
      * @return the decoded domain name
      */
     static String decodeName(ByteBuffer data, ByteBuffer original) {
+        return decodeName(data, original, new int[1]);
+    }
+
+    /**
+     * @param jumps a single-element array holding the total number of
+     * compression pointers followed so far across the whole chain of
+     * recursive calls for this name. It must be shared (not
+     * reinitialized) across recursion: otherwise two pointers that
+     * refer to each other form a cycle that recurses forever, since
+     * each individual stack frame only ever follows one pointer before
+     * delegating to the next frame.
+     */
+    private static String decodeName(ByteBuffer data, ByteBuffer original, int[] jumps) {
         StringBuilder name = new StringBuilder();
         int maxJumps = 10;
-        int jumps = 0;
         // RFC 1035 section 2.3.4: track total wire-format length
         int totalLength = 0;
 
@@ -466,14 +489,17 @@ public final class DNSMessage {
                 }
                 int offset = ((len & 0x3F) << 8) | (data.get() & 0xFF);
 
-                if (++jumps > maxJumps) {
+                if (++jumps[0] > maxJumps) {
                     throw new IllegalStateException(L10N.getString("err.too_many_compression_pointers"));
+                }
+                if (offset < 0 || offset >= original.limit()) {
+                    throw new IllegalStateException(L10N.getString("err.compression_pointer_out_of_range"));
                 }
 
                 // Follow pointer in original message
                 ByteBuffer pointer = original.duplicate();
                 pointer.position(offset);
-                String rest = decodeName(pointer, original);
+                String rest = decodeName(pointer, original, jumps);
                 if (name.length() > 0) {
                     name.append('.');
                 }
