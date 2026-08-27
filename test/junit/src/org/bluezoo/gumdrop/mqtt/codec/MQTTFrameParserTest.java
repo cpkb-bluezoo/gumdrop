@@ -385,6 +385,53 @@ public class MQTTFrameParserTest {
         assertTrue(handler.lastError.contains("exceeds maximum"));
     }
 
+    /**
+     * Regression test for issue #261 -- JQF/Zest fuzzing found that a
+     * PUBLISH packet whose declared topic-name length exceeds what fits
+     * inside the packet's own declared Remaining Length left the parser
+     * permanently stuck in PUBLISH_HEADER state, making zero progress.
+     * If any further byte followed in the buffer, receive()'s outer
+     * loop spun forever. A JUnit timeout bounds the hang so the test
+     * fails fast (rather than wedging the whole suite) if the bug is
+     * present.
+     */
+    @Test(timeout = 5000)
+    public void testMalformedPublishTopicLengthReportsErrorInsteadOfLooping() {
+        // PUBLISH, Remaining Length 5: topic length declares 1000 bytes
+        // but only 3 bytes of topic data are supplied, then one trailing
+        // byte to keep the buffer non-empty after the malformed frame.
+        byte[] data = {
+            0x30, 0x05,             // fixed header: PUBLISH, remaining length 5
+            0x03, (byte) 0xE8,      // topic length = 1000
+            0x41, 0x42, 0x43,       // only 3 bytes of topic data
+            0x00,                   // trailing byte
+        };
+        parser.receive(ByteBuffer.wrap(data));
+
+        assertNotNull(handler.lastError);
+    }
+
+    /**
+     * Regression test for issue #261 -- a second, distinct trigger for
+     * the same underlying bug found by continued fuzzing after the
+     * first fix: a PUBLISH packet with Remaining Length 0 (no topic
+     * length field at all) hits the "no forward progress possible"
+     * condition on the very first loop iteration, before
+     * tryParsePublishHeader() is ever called -- a narrower fix scoped
+     * to just after that call missed this path entirely.
+     */
+    @Test(timeout = 5000)
+    public void testZeroRemainingLengthPublishReportsErrorInsteadOfLooping() {
+        byte[] data = {
+            0x38, 0x00,             // fixed header: PUBLISH (DUP set), remaining length 0
+            (byte) 0xf7, 0x31, (byte) 0x9f, 0x78, 0x1b, // trailing bytes
+            0x0a, (byte) 0xd3, (byte) 0xce, 0x6f, 0x41, 0x2d,
+        };
+        parser.receive(ByteBuffer.wrap(data));
+
+        assertNotNull(handler.lastError);
+    }
+
     // -- Recording handler --
 
     private static class RecordingHandler implements MQTTEventHandler {
