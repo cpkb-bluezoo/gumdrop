@@ -30,7 +30,6 @@ import java.security.Principal;
 import java.text.MessageFormat;
 import java.util.Base64;
 import java.util.Collection;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -91,11 +90,6 @@ class Stream implements HTTPResponseState {
 
     /** Reusable empty buffer for completing responses without body. */
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0).asReadOnlyBuffer();
-
-    /**
-     * Date format for HTTP headers.
-     */
-    private static final HTTPDateFormat dateFormat = new HTTPDateFormat();
 
     /**
      * Returns true if the given HTTP method does not have a request body.
@@ -1028,7 +1022,7 @@ class Stream implements HTTPResponseState {
         // RFC 9110 section 10.2.4: Server header field
         headers.add(new Header("Server", "gumdrop/" + Gumdrop.VERSION));
         // RFC 9110 section 6.6.1: origin server SHOULD send Date in responses
-        headers.add(new Header("Date", dateFormat.format(new Date())));
+        headers.add(new Header("Date", HTTPDateCache.get()));
         // RFC 9112 section 9.6: Connection: close signals end of persistence
         if (closeConnection) {
             headers.add(new Header("Connection", "close"));
