@@ -365,6 +365,41 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     ServletDef defaultServletDef;
 
+    /**
+     * Index over {@link #servletMappings} and {@link #filterMappings}
+     * (issue #302), replacing the O(mappings x patterns) linear scan
+     * {@link #matchServletMapping} and the filter-mapping block in {@link
+     * #getRequestDispatcher} used to run, under {@code synchronized(this)},
+     * on every single request.
+     *
+     * <p>Built lazily on first use rather than at a single fixed point in
+     * the deploy lifecycle: {@code servletMappings}/{@code filterMappings}
+     * can still be appended to after the deployment descriptor is parsed
+     * and resolved -- by web-fragment merging ({@link #scan}) and by
+     * dynamic registration from a {@code ServletContextListener}'s {@code
+     * contextInitialized} (Servlet spec: {@code ServletContext.addServlet}/
+     * {@code addFilter} and their {@code addMapping}/{@code
+     * addMappingForUrlPatterns}, both only legal during that callback).
+     * Since no request is dispatched until {@link #init} has fully
+     * returned -- after every such registration point has already run --
+     * building on first use, rather than at any one point inside {@code
+     * load()}/{@code init()}, is guaranteed to see the final, complete set
+     * of mappings without needing to hook every mutation site individually.
+     *
+     * <p>Each field holds a fully-built, effectively-immutable snapshot,
+     * published via this single {@code volatile} reference: readers take
+     * one volatile read and then need no further synchronization, and
+     * {@link #reset()} (called by {@link #reload()} before mappings are
+     * re-populated) invalidates by writing {@code null}, mirroring {@link
+     * org.bluezoo.gumdrop.servlet.Container#contextsByPath}'s existing
+     * approach to the equivalent problem one level up (issue #194) --
+     * adapted to an atomically-swapped snapshot here because, unlike a
+     * {@code ConcurrentSkipListMap}, this index has more than one field
+     * that must all be replaced together.
+     */
+    private volatile ServletMappingIndex servletMappingIndex;
+    private volatile FilterMappingIndex filterMappingIndex;
+
     String secureHost;
     String commonDir;
 
@@ -549,6 +584,9 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     void reset() {
         super.reset();
+
+        servletMappingIndex = null;
+        filterMappingIndex = null;
 
         initParams.clear();
         attributes.clear();
@@ -1949,19 +1987,21 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         // Locate the target servlet. Take a snapshot of welcomeFiles while
         // holding the lock so the disk-probing fallback below (which may
         // need it again) doesn't race with a concurrent reload() mutating
-        // the live list in place.
+        // the live list in place. matchServletMapping itself no longer
+        // needs this (or any) lock (issue #302): it reads an
+        // already-built, effectively-immutable ServletMappingIndex.
         ServletMatch match = new ServletMatch();
         List<String> welcomeFilesSnapshot;
         synchronized (this) {
             welcomeFilesSnapshot = new ArrayList<>(welcomeFiles);
-            matchServletMapping(path, match);
-            if (match.servletDef == null) {
-                for (String welcomeFile : welcomeFilesSnapshot) {
-                    String welcomePath = path + welcomeFile;
-                    matchServletMapping(welcomePath, match);
-                    if (match.servletDef != null) {
-                        break;
-                    }
+        }
+        matchServletMapping(path, match);
+        if (match.servletDef == null) {
+            for (String welcomeFile : welcomeFilesSnapshot) {
+                String welcomePath = path + welcomeFile;
+                matchServletMapping(welcomePath, match);
+                if (match.servletDef != null) {
+                    break;
                 }
             }
         }
@@ -2004,88 +2044,133 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         String servletPath = match.servletPath;
         String pathInfo = match.pathInfo;
 
-        // Locate applicable filters
+        // Locate applicable filters. Every mapping that matches -- by
+        // servlet name or by any of its URL patterns -- contributes, so
+        // (unlike servlet mapping) this consults every applicable bucket
+        // of the index rather than picking one winner; requestFilters
+        // dedupes by FilterDef. No lock needed, for the same reason as
+        // matchServletMapping above (issue #302).
         Map<FilterDef,FilterMatch> requestFilters = new LinkedHashMap<>();
         List<FilterMatch> filterMatches = new ArrayList<>();
-        synchronized (this) {
-            for (FilterMapping filterMapping : filterMappings) {
-                String filterName = filterMapping.filterName;
-                FilterDef filterDef = filterMapping.filterDef;
-                if (filterDef == null) {
-                    continue;
-                }
-                if (!filterMapping.servletDefs.isEmpty() && filterMapping.servletDefs.contains(servletDef)) {
-                    requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXACT));
-                } else {
-                    for (String pattern : filterMapping.urlPatterns) {
-                        if (pattern.equals(path)) {
-                            // 1. exact match
-                            requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXACT));
-                        } else if (pattern.endsWith("/*") && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
-                            // 2. match path prefix
-                            requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.PATH));
-                        } else if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
-                            // 3. extension
-                            requestFilters.put(filterDef, new FilterMatch(filterDef, filterMapping, MappingMatch.EXTENSION));
-                        }
-                    }
+        FilterMappingIndex filterIndex = filterMappingIndex();
+        List<FilterMapping> byServletName = filterIndex.byServletName.get(servletDef);
+        if (byServletName != null) {
+            for (FilterMapping filterMapping : byServletName) {
+                requestFilters.put(filterMapping.filterDef,
+                        new FilterMatch(filterMapping.filterDef, filterMapping, MappingMatch.EXACT));
+            }
+        }
+        List<FilterMapping> exactMatches = filterIndex.exact.get(path);
+        if (exactMatches != null) {
+            for (FilterMapping filterMapping : exactMatches) {
+                requestFilters.put(filterMapping.filterDef,
+                        new FilterMatch(filterMapping.filterDef, filterMapping, MappingMatch.EXACT));
+            }
+        }
+        for (FilterMapping filterMapping : filterIndex.prefix) {
+            for (String pattern : filterMapping.urlPatterns) {
+                if (pattern.endsWith("/*") && path.startsWith(pattern.substring(0, pattern.length() - 1))) {
+                    requestFilters.put(filterMapping.filterDef,
+                            new FilterMatch(filterMapping.filterDef, filterMapping, MappingMatch.PATH));
+                    break;
                 }
             }
-            // Build list of filter matches in filter order
-            for (FilterDef filterDef : filterDefs.values()) {
-                FilterMatch filterMatch = requestFilters.get(filterDef);
-                if (filterMatch != null) { // requestFilters contains this filter
-                    filterMatches.add(filterMatch);
+        }
+        for (FilterMapping filterMapping : filterIndex.extension) {
+            for (String pattern : filterMapping.urlPatterns) {
+                if (pattern.startsWith("*.") && path.endsWith(pattern.substring(1))) {
+                    requestFilters.put(filterMapping.filterDef,
+                            new FilterMatch(filterMapping.filterDef, filterMapping, MappingMatch.EXTENSION));
+                    break;
                 }
+            }
+        }
+        // Build list of filter matches in filter order
+        for (FilterDef filterDef : filterDefs.values()) {
+            FilterMatch filterMatch = requestFilters.get(filterDef);
+            if (filterMatch != null) { // requestFilters contains this filter
+                filterMatches.add(filterMatch);
             }
         }
         return new ContextRequestDispatcher(this, match, queryString, filterMatches, false);
     }
 
+    /**
+     * Returns the current {@link ServletMappingIndex}, building it (under
+     * {@code synchronized(this)}) on first use or after a {@link #reset()}
+     * invalidated the previous one. See the index class's own javadoc, and
+     * the {@code servletMappingIndex} field's, for why this is lazy rather
+     * than built at one fixed point in the deploy lifecycle, and why the
+     * double-checked read is safe with no lock on the fast path.
+     */
+    private ServletMappingIndex servletMappingIndex() {
+        ServletMappingIndex index = servletMappingIndex;
+        if (index != null) {
+            return index;
+        }
+        synchronized (this) {
+            index = servletMappingIndex;
+            if (index == null) {
+                index = ServletMappingIndex.build(servletMappings, defaultServletDef);
+                servletMappingIndex = index;
+            }
+            return index;
+        }
+    }
+
+    /**
+     * As {@link #servletMappingIndex()}, for {@link FilterMappingIndex}.
+     */
+    private FilterMappingIndex filterMappingIndex() {
+        FilterMappingIndex index = filterMappingIndex;
+        if (index != null) {
+            return index;
+        }
+        synchronized (this) {
+            index = filterMappingIndex;
+            if (index == null) {
+                index = FilterMappingIndex.build(filterMappings);
+                filterMappingIndex = index;
+            }
+            return index;
+        }
+    }
+
     void matchServletMapping(String path, ServletMatch match) {
-        for (ServletMapping servletMapping : servletMappings) {
-            ServletDef servletDef = servletMapping.servletDef;
-            for (String pattern : servletMapping.urlPatterns) {
-                if (pattern.equals(path)) {
-                    // 1. exact match
-                    if (servletDef != null && servletDef != defaultServletDef) {
-                        match.servletDef = servletDef;
-                        match.servletPath = pattern;
-                        match.pathInfo = null;
-                        match.mappingMatch = "/".equals(path) ? MappingMatch.CONTEXT_ROOT : MappingMatch.EXACT;
-                        match.matchValue = path;
-                        break;
-                    }
-                } else if (pattern.endsWith("/*")) {
-                    pattern = pattern.substring(0, pattern.length() - 2);
-                    if (path.startsWith(pattern)) {
-                        // 2. longest path prefix
-                        if (match.servletPath == null
-                                || pattern.length() > match.servletPath.length()) {
-                            if (servletDef != null) {
-                                match.servletDef = servletDef;
-                                match.servletPath = pattern;
-                                match.pathInfo = path.substring(pattern.length());
-                                if (match.pathInfo.length() == 0) {
-                                    match.pathInfo = null;
-                                }
-                                match.mappingMatch = MappingMatch.PATH;
-                                match.matchValue = path;
-                            }
-                        }
-                    }
-                } else if (match.servletDef == null
-                        && pattern.startsWith("*.")
-                        && path.endsWith(pattern.substring(1))) {
-                    // 3. extension
-                    if (servletDef != null) {
-                        match.servletDef = servletDef;
-                        match.servletPath = path;
-                        match.pathInfo = null;
-                        match.mappingMatch = MappingMatch.EXTENSION;
-                        match.matchValue = path;
-                    }
-                }
+        ServletMappingIndex index = servletMappingIndex();
+
+        ServletDef exactDef = index.exact.get(path);
+        if (exactDef != null) {
+            match.servletDef = exactDef;
+            match.servletPath = path;
+            match.pathInfo = null;
+            match.mappingMatch = "/".equals(path) ? MappingMatch.CONTEXT_ROOT : MappingMatch.EXACT;
+            match.matchValue = path;
+            return;
+        }
+
+        Map.Entry<String, ServletDef> prefixMatch = index.longestPrefixMatch(path);
+        if (prefixMatch != null) {
+            match.servletDef = prefixMatch.getValue();
+            match.servletPath = prefixMatch.getKey();
+            match.pathInfo = path.substring(prefixMatch.getKey().length());
+            if (match.pathInfo.length() == 0) {
+                match.pathInfo = null;
+            }
+            match.mappingMatch = MappingMatch.PATH;
+            match.matchValue = path;
+            return;
+        }
+
+        for (Map.Entry<String, ServletDef> entry : index.extension.entrySet()) {
+            String pattern = entry.getKey();
+            if (path.endsWith(pattern.substring(1))) {
+                match.servletDef = entry.getValue();
+                match.servletPath = path;
+                match.pathInfo = null;
+                match.mappingMatch = MappingMatch.EXTENSION;
+                match.matchValue = path;
+                return;
             }
         }
     }
