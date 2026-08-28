@@ -356,4 +356,67 @@ public class MailboxIndexerTest {
                 liveDone.await(5, TimeUnit.SECONDS));
         assertTrue("live caller should observe a failure, not silently succeed", threw[0]);
     }
+
+    @Test
+    public void shutdown_waitsForInFlightJobToActuallyFinish() throws Exception {
+        // Regression test for issue #349: shutdown() used to interrupt the
+        // worker and return immediately, without waiting for a job already
+        // running to actually stop. That is fine for work that responds to
+        // interrupt() promptly (as the blocker in
+        // shutdown_releasesWaitingLiveCallerWithException above does, via
+        // CountDownLatch.await()), but real IndexWork can be a blocking
+        // file write mid-syscall, which does not - so a caller of
+        // shutdown() (Gumdrop.shutdown(), in production) had no guarantee
+        // that in-flight indexing had actually quiesced by the time it
+        // returned. Simulates that by having the job swallow the interrupt
+        // and keep "running" until explicitly released, so this test can
+        // assert shutdown() is still blocked while it does.
+        final CountDownLatch jobRunning = new CountDownLatch(1);
+        final CountDownLatch releaseJob = new CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicBoolean jobFinished =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        indexer.submitBackground(key("/tmp/slow"), false, 0L, new MailboxIndexer.IndexWork() {
+            @Override
+            public void run() {
+                jobRunning.countDown();
+                boolean released = false;
+                while (!released) {
+                    try {
+                        releaseJob.await();
+                        released = true;
+                    } catch (InterruptedException ignored) {
+                        // Deliberately keep waiting, as uninterruptible
+                        // blocking I/O (e.g. a file write already inside
+                        // the OS call) would.
+                    }
+                }
+                jobFinished.set(true);
+            }
+        });
+        assertTrue(jobRunning.await(5, TimeUnit.SECONDS));
+
+        final CountDownLatch shutdownReturned = new CountDownLatch(1);
+        Thread shutdownThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                indexer.shutdown();
+                shutdownReturned.countDown();
+            }
+        });
+        shutdownThread.start();
+
+        assertFalse("shutdown() must wait for the in-flight job, not return "
+                        + "while it is still running",
+                shutdownReturned.await(300, TimeUnit.MILLISECONDS));
+        assertFalse("the job must not be reported finished while shutdown() "
+                        + "is still blocked on it",
+                jobFinished.get());
+
+        releaseJob.countDown();
+
+        assertTrue("shutdown() must return once the in-flight job actually finishes",
+                shutdownReturned.await(5, TimeUnit.SECONDS));
+        assertTrue("the job must have completed before shutdown() returned",
+                jobFinished.get());
+    }
 }
