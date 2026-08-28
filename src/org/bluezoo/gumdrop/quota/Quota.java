@@ -44,6 +44,12 @@ package org.bluezoo.gumdrop.quota;
  * int percent = quota.getStoragePercentUsed();  // 50
  * }</pre>
  * 
+ * <p>Usage-mutating and usage-reading methods are {@code synchronized}
+ * (issue #295): a {@code RoleBasedQuotaManager} shares one {@code Quota}
+ * per user across every connection using it, and persists it
+ * asynchronously on a storage pool thread, so its usage fields are read
+ * and written from more than one thread over the life of a session.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuotaManager
  */
@@ -123,16 +129,16 @@ public class Quota {
      * 
      * @return bytes currently used
      */
-    public long getStorageUsed() {
+    public synchronized long getStorageUsed() {
         return storageUsed;
     }
-    
+
     /**
      * Gets the current message count.
-     * 
+     *
      * @return number of messages
      */
-    public long getMessageCount() {
+    public synchronized long getMessageCount() {
         return messageCount;
     }
     
@@ -150,55 +156,55 @@ public class Quota {
      * 
      * @return bytes used in KB
      */
-    public long getStorageUsedKB() {
+    public synchronized long getStorageUsedKB() {
         return storageUsed / 1024;
     }
-    
+
     /**
      * Gets the source of this quota.
-     * 
+     *
      * @return the quota source
      */
-    public QuotaSource getSource() {
+    public synchronized QuotaSource getSource() {
         return source;
     }
-    
+
     /**
      * Gets additional detail about the quota source.
-     * 
+     *
      * @return source detail (e.g., role name), or null
      */
-    public String getSourceDetail() {
+    public synchronized String getSourceDetail() {
         return sourceDetail;
     }
-    
+
     // Setters
-    
+
     /**
      * Sets the current storage used.
-     * 
+     *
      * @param storageUsed bytes currently used
      */
-    public void setStorageUsed(long storageUsed) {
+    public synchronized void setStorageUsed(long storageUsed) {
         this.storageUsed = storageUsed;
     }
-    
+
     /**
      * Sets the current message count.
-     * 
+     *
      * @param messageCount number of messages
      */
-    public void setMessageCount(long messageCount) {
+    public synchronized void setMessageCount(long messageCount) {
         this.messageCount = messageCount;
     }
-    
+
     /**
      * Sets the source information for this quota.
-     * 
+     *
      * @param source the quota source
      * @param detail additional detail (e.g., role name)
      */
-    public void setSource(QuotaSource source, String detail) {
+    public synchronized void setSource(QuotaSource source, String detail) {
         this.source = source;
         this.sourceDetail = detail;
     }
@@ -210,7 +216,7 @@ public class Quota {
      * 
      * @return true if storage used equals or exceeds the limit
      */
-    public boolean isStorageExceeded() {
+    public synchronized boolean isStorageExceeded() {
         return storageLimit >= 0 && storageUsed >= storageLimit;
     }
     
@@ -219,7 +225,7 @@ public class Quota {
      * 
      * @return true if message count equals or exceeds the limit
      */
-    public boolean isMessageLimitExceeded() {
+    public synchronized boolean isMessageLimitExceeded() {
         return messageLimit >= 0 && messageCount >= messageLimit;
     }
     
@@ -246,43 +252,43 @@ public class Quota {
      * 
      * @return bytes remaining, or Long.MAX_VALUE if unlimited
      */
-    public long getStorageRemaining() {
+    public synchronized long getStorageRemaining() {
         if (storageLimit < 0) {
             return Long.MAX_VALUE;
         }
         return Math.max(0, storageLimit - storageUsed);
     }
-    
+
     /**
      * Gets the remaining message count.
-     * 
+     *
      * @return messages remaining, or Long.MAX_VALUE if unlimited
      */
-    public long getMessagesRemaining() {
+    public synchronized long getMessagesRemaining() {
         if (messageLimit < 0) {
             return Long.MAX_VALUE;
         }
         return Math.max(0, messageLimit - messageCount);
     }
-    
+
     /**
      * Gets the percentage of storage used.
-     * 
+     *
      * @return percentage (0-100), or 0 if unlimited
      */
-    public int getStoragePercentUsed() {
+    public synchronized int getStoragePercentUsed() {
         if (storageLimit <= 0) {
             return 0;
         }
         return (int) Math.min(100, (storageUsed * 100) / storageLimit);
     }
-    
+
     /**
      * Gets the percentage of message quota used.
-     * 
+     *
      * @return percentage (0-100), or 0 if unlimited
      */
-    public int getMessagePercentUsed() {
+    public synchronized int getMessagePercentUsed() {
         if (messageLimit <= 0) {
             return 0;
         }
@@ -295,59 +301,59 @@ public class Quota {
      * @param additionalBytes bytes to be added
      * @return true if adding the bytes would not exceed the limit
      */
-    public boolean canAddStorage(long additionalBytes) {
+    public synchronized boolean canAddStorage(long additionalBytes) {
         if (storageLimit < 0) {
             return true;
         }
         return (storageUsed + additionalBytes) <= storageLimit;
     }
-    
+
     /**
      * Checks if an additional message can be added.
-     * 
+     *
      * @return true if adding a message would not exceed the limit
      */
-    public boolean canAddMessage() {
+    public synchronized boolean canAddMessage() {
         if (messageLimit < 0) {
             return true;
         }
         return (messageCount + 1) <= messageLimit;
     }
-    
+
     /**
      * Adds to the storage used.
-     * 
+     *
      * @param bytes bytes to add
      */
-    public void addStorageUsed(long bytes) {
+    public synchronized void addStorageUsed(long bytes) {
         this.storageUsed += bytes;
     }
-    
+
     /**
      * Subtracts from the storage used.
-     * 
+     *
      * @param bytes bytes to subtract
      */
-    public void subtractStorageUsed(long bytes) {
+    public synchronized void subtractStorageUsed(long bytes) {
         this.storageUsed = Math.max(0, this.storageUsed - bytes);
     }
-    
+
     /**
      * Increments the message count.
      */
-    public void incrementMessageCount() {
+    public synchronized void incrementMessageCount() {
         this.messageCount++;
     }
-    
+
     /**
      * Decrements the message count.
      */
-    public void decrementMessageCount() {
+    public synchronized void decrementMessageCount() {
         this.messageCount = Math.max(0, this.messageCount - 1);
     }
-    
+
     @Override
-    public String toString() {
+    public synchronized String toString() {
         StringBuilder sb = new StringBuilder("Quota{");
         sb.append("storage=");
         if (storageLimit < 0) {

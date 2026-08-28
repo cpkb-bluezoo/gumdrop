@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.quota;
 
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
 
 import java.io.BufferedReader;
@@ -33,7 +35,10 @@ import java.text.MessageFormat;
 import java.util.Map;
 import java.util.Properties;
 import java.util.ResourceBundle;
+import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -87,7 +92,29 @@ public class RoleBasedQuotaManager implements QuotaManager {
     
     // Username -> Quota (cached quotas with usage data)
     private final Map<String, Quota> userQuotas;
-    
+
+    // Usernames with a usage save currently running on the StorageExecutor
+    // pool, and usernames whose usage changed again while that save was
+    // still in flight -- see scheduleUsageSave/onUsageSaveFinished. At most
+    // one save per username runs at a time; a burst of record calls for
+    // the same user coalesces into a single follow-up save rather than one
+    // disk write per call.
+    private final Set<String> saveInFlight =
+            ConcurrentHashMap.newKeySet();
+    private final Set<String> saveNeedsRerun =
+            ConcurrentHashMap.newKeySet();
+
+    // No per-connection state to marshal a completion callback onto here
+    // (unlike Endpoint-based StorageExecutor.submit callers) -- the save
+    // completion handler below only touches the thread-safe sets above, so
+    // running it directly on the storage pool thread is fine.
+    private static final Executor DIRECT_EXECUTOR = new Executor() {
+        @Override
+        public void execute(Runnable command) {
+            command.run();
+        }
+    };
+
     /**
      * Creates a new role-based quota manager.
      */
@@ -302,7 +329,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
     public void recordBytesAdded(String username, long bytesAdded) {
         Quota quota = getQuota(username);
         quota.addStorageUsed(bytesAdded);
-        saveUserUsage(username, quota);
+        scheduleUsageSave(username, quota);
         
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(L10N.getString("quota.log.bytes_added"),
@@ -315,7 +342,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
     public void recordBytesRemoved(String username, long bytesRemoved) {
         Quota quota = getQuota(username);
         quota.subtractStorageUsed(bytesRemoved);
-        saveUserUsage(username, quota);
+        scheduleUsageSave(username, quota);
         
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(L10N.getString("quota.log.bytes_removed"),
@@ -329,15 +356,15 @@ public class RoleBasedQuotaManager implements QuotaManager {
         Quota quota = getQuota(username);
         quota.addStorageUsed(messageSize);
         quota.incrementMessageCount();
-        saveUserUsage(username, quota);
+        scheduleUsageSave(username, quota);
     }
-    
+
     @Override
     public void recordMessageRemoved(String username, long messageSize) {
         Quota quota = getQuota(username);
         quota.subtractStorageUsed(messageSize);
         quota.decrementMessageCount();
-        saveUserUsage(username, quota);
+        scheduleUsageSave(username, quota);
     }
     
     @Override
@@ -412,7 +439,81 @@ public class RoleBasedQuotaManager implements QuotaManager {
     }
     
     // Persistence methods
-    
+
+    /**
+     * Persists {@code quota}'s current usage for {@code username} off the
+     * caller's thread instead of writing inline (issue #295): a mail or
+     * file server calls {@code recordXxx} once per message/file, and a
+     * blocking {@code Properties} file write on every single one of those
+     * calls is real, avoidable latency on whatever thread happens to call
+     * it -- typically a {@code SelectorLoop} thread.
+     *
+     * <p>At most one save per username is ever in flight at a time. A
+     * {@code recordXxx} call that arrives while a save for that username
+     * is already running does not queue a second concurrent write; it
+     * just marks that another pass is needed, and {@link #onUsageSaveFinished}
+     * runs one follow-up save once the current one completes. Since
+     * {@code quota} is the same live object referenced from
+     * {@link #userQuotas} for the whole session, that follow-up save
+     * always reflects every update made in the meantime -- a burst of
+     * calls for one user coalesces into at most two writes (the one
+     * already running, plus one catch-up), not one per call.
+     */
+    private void scheduleUsageSave(final String username, final Quota quota) {
+        if (!saveInFlight.add(username)) {
+            saveNeedsRerun.add(username);
+            return;
+        }
+        submitUsageSaveAsync(username, quota);
+    }
+
+    private void submitUsageSaveAsync(final String username, final Quota quota) {
+        Callable<Void> op = new Callable<Void>() {
+            @Override
+            public Void call() {
+                saveUserUsage(username, quota);
+                return null;
+            }
+        };
+        StorageExecutor.Callback<Void> callback = new StorageExecutor.Callback<Void>() {
+            @Override
+            public void completed(Void result) {
+                onUsageSaveFinished(username, quota);
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING,
+                        L10N.getString("quota.err.save_usage_failed"), error);
+                onUsageSaveFinished(username, quota);
+            }
+        };
+
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        StorageExecutor exec = (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
+        if (exec == null) {
+            // No live Gumdrop (e.g. a unit test exercising this manager
+            // directly): fall back to running inline rather than losing
+            // the write, mirroring the equivalent fallback in
+            // IMAPProtocolHandler.submitStorage.
+            try {
+                op.call();
+                callback.completed(null);
+            } catch (Exception e) {
+                callback.failed(e);
+            }
+            return;
+        }
+        exec.submit(DIRECT_EXECUTOR, op, callback);
+    }
+
+    private void onUsageSaveFinished(String username, Quota quota) {
+        saveInFlight.remove(username);
+        if (saveNeedsRerun.remove(username)) {
+            scheduleUsageSave(username, quota);
+        }
+    }
+
     private void saveUserUsage(String username, Quota quota) {
         if (storageDir == null) {
             return;
