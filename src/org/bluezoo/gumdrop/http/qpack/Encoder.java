@@ -168,7 +168,7 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
             String name = header.getName();
             String value = header.getValue();
 
-            int staticIndex = STATIC_TABLE.indexOf(header);
+            int staticIndex = STATIC_TABLE_INDEX.indexOf(header);
             if (staticIndex != -1) {
                 // RFC 9204 section 4.5.2: Indexed Field Line, T=1 (static)
                 PrefixedInteger.encode(fieldLines, 0xc0, staticIndex, 6);
@@ -185,6 +185,11 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
                 continue;
             }
 
+            // Looked up once and reused below - same name, so the same
+            // answer - rather than repeating the lookup for the insert
+            // instruction and again for the field line itself.
+            int staticNameIndex = STATIC_TABLE_INDEX.indexOfName(name);
+
             // Not referenceable yet under our non-blocking policy. Emit a
             // literal for this section; opportunistically insert for
             // future reuse, unless an equivalent entry is already
@@ -195,7 +200,6 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
                 long insertedIndex = table.insert(name, value);
                 insertedNow = insertedIndex != -1;
                 if (insertedNow) {
-                    int staticNameIndex = indexOfName(STATIC_TABLE, name);
                     if (staticNameIndex != -1) {
                         EncoderStreamWriter.writeInsertWithNameReference(
                                 encoderInstructions, true, staticNameIndex, valueBytes(value));
@@ -206,7 +210,6 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
                 }
             }
 
-            int staticNameIndex = indexOfName(STATIC_TABLE, name);
             DynamicTable.FindResult dynamicNameMatch = table.find(name, value, base);
             if (staticNameIndex != -1) {
                 // RFC 9204 section 4.5.4: Literal Field Line with Name
@@ -261,16 +264,6 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
 
     private static byte[] valueBytes(String value) {
         return value.getBytes(StandardCharsets.US_ASCII);
-    }
-
-    private static int indexOfName(List<Header> table, String name) {
-        for (int i = 0; i < table.size(); i++) {
-            Header header = table.get(i);
-            if (header != null && name.equals(header.getName())) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     // ── DecoderStreamHandler ──

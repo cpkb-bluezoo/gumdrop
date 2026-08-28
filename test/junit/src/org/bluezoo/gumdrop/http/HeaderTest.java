@@ -118,6 +118,27 @@ public class HeaderTest {
     }
 
     @Test
+    public void testEqualsRepeatedAgainstDifferentCaseHeadersStaysCorrect() {
+        // Header caches its own lower-cased name lazily on first use; this
+        // pins that the cache is per-instance and never leaks the *other*
+        // side's case into a later comparison against a different header.
+        Header shared = new Header("Content-Type", "text/html");
+        assertTrue(shared.equals(new Header("CONTENT-TYPE", "text/html")));
+        assertTrue(shared.equals(new Header("content-type", "text/html")));
+        assertFalse(shared.equals(new Header("Accept", "text/html")));
+        assertTrue(shared.equals(new Header("Content-Type", "text/html")));
+    }
+
+    @Test
+    public void testHashCodeStableAcrossRepeatedCalls() {
+        Header header = new Header("X-Custom", "value");
+        int first = header.hashCode();
+        for (int i = 0; i < 5; i++) {
+            assertEquals(first, header.hashCode());
+        }
+    }
+
+    @Test
     public void testHeaderWithTabInValue() {
         Header header = new Header("X-Custom", "value\twith\ttabs");
         assertEquals("value\twith\ttabs", header.getValue());

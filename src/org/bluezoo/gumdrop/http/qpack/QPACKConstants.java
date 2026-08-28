@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HeaderTableIndex;
 
 /**
  * Static constants for QPACK encoder and decoder (RFC 9204).
@@ -144,5 +145,12 @@ abstract class QPACKConstants {
     }));
 
     protected static final int STATIC_TABLE_SIZE = STATIC_TABLE.size(); // 99
+
+    /**
+     * O(1) index over {@link #STATIC_TABLE}, replacing a linear {@code
+     * List.indexOf}/name scan on every encoded header (see {@link
+     * org.bluezoo.gumdrop.http.HeaderTableIndex}).
+     */
+    protected static final HeaderTableIndex STATIC_TABLE_INDEX = new HeaderTableIndex(STATIC_TABLE);
 
 }
