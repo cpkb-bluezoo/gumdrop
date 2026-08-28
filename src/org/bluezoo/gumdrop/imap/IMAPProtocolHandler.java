@@ -4658,11 +4658,101 @@ public final class IMAPProtocolHandler
             throws IOException {
         List<Integer> matching = resolveMatchingMessages(mailbox,
                 seqSet, uid);
-        boolean needsSeen = fetchNeedsSeen(fetchItems);
 
+        if (!fetchItemsNeedContent(fetchItems)) {
+            // FLAGS/UID/INTERNALDATE/RFC822.SIZE/BODYSTRUCTURE-only: every
+            // item is already resident on the in-memory MessageDescriptor,
+            // so there is no message content to open or load and no
+            // literal to pace/stream -- the whole matching set can be
+            // answered in one StorageExecutor job instead of one job per
+            // message (issue #294). fetchNeedsSeen is always false here:
+            // \Seen is only implicitly set by items that DO need content
+            // (RFC822/RFC822.TEXT/BODY[] without .PEEK), which routes
+            // through executeContentFetch below instead.
+            executeContentFreeFetch(tag, mailbox, matching, fetchItems, uid);
+            return;
+        }
+
+        boolean needsSeen = fetchNeedsSeen(fetchItems);
         FetchResponseWriter writer = new FetchResponseWriter(
                 tag, mailbox, matching, fetchItems, uid, needsSeen);
         writer.writeNext();
+    }
+
+    /**
+     * True when {@code fetchItems} includes anything that needs the
+     * message's actual content (an uncached envelope, a full/partial
+     * RFC822 rendering, or a BODY[...]/BODY.PEEK[...] section) -- as
+     * opposed to metadata already sitting on the in-memory
+     * {@code MessageDescriptor} (FLAGS, UID, INTERNALDATE, RFC822.SIZE,
+     * BODYSTRUCTURE/BODY with no section).
+     */
+    private boolean fetchItemsNeedContent(Set<String> fetchItems) {
+        for (String item : fetchItems) {
+            String upper = item.toUpperCase(Locale.ENGLISH);
+            if (upper.equals("ENVELOPE")
+                    || upper.equals("RFC822")
+                    || upper.equals("RFC822.HEADER")
+                    || upper.equals("RFC822.TEXT")
+                    || upper.startsWith("BODY[")
+                    || upper.startsWith("BODY.PEEK[")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Answers a content-free FETCH (see {@link #fetchItemsNeedContent}) in
+     * a single {@link StorageExecutor} submission covering every matched
+     * message, rather than one submission per message. Response lines for
+     * the whole matching set are accumulated into one buffer on the
+     * storage thread -- the {@code Mailbox} accessors used here are
+     * already required to be safe off-loop, the same as every other
+     * {@code submitStorage} call in this class -- and sent back in a
+     * single {@code endpoint.send} once ready.
+     */
+    private void executeContentFreeFetch(final String tag,
+            final Mailbox mailbox, final List<Integer> matching,
+            final Set<String> fetchItems, final boolean uid) {
+        submitStorage(new Callable<byte[]>() {
+            @Override
+            public byte[] call() throws IOException {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                for (int i = 0; i < matching.size(); i++) {
+                    int msgNum = matching.get(i).intValue();
+                    long msgUid = resolveUid(mailbox, msgNum);
+                    appendFetchResponse(out, mailbox, msgNum, msgUid,
+                            fetchItems, uid, null);
+                }
+                return out.toByteArray();
+            }
+        }, new StorageExecutor.Callback<byte[]>() {
+            @Override
+            public void completed(byte[] responseBytes) {
+                try {
+                    if (responseBytes.length > 0) {
+                        endpoint.send(ByteBuffer.wrap(responseBytes));
+                    }
+                    sendTaggedOk(tag, L10N.getString("imap.fetch_complete"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send FETCH completion", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.WARNING,
+                        "Error during content-free FETCH", error);
+                try {
+                    sendTaggedNo(tag, L10N.getString("imap.err.internal_error"));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to send FETCH error", e);
+                }
+            }
+        });
     }
 
     /**
@@ -5049,6 +5139,21 @@ public final class IMAPProtocolHandler
             long msgUid, Set<String> fetchItems, boolean uid,
             byte[] contentBytes) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
+        appendFetchResponse(out, mailbox, msgNum, msgUid, fetchItems, uid,
+                contentBytes);
+        endpoint.send(ByteBuffer.wrap(out.toByteArray()));
+    }
+
+    /**
+     * Writes one message's {@code * n FETCH (...)} response line into
+     * {@code out} without sending it -- the shared body behind
+     * {@link #sendFetchResponse}, factored out so a batched FETCH (see
+     * {@link #executeContentFreeFetch}) can accumulate many messages'
+     * lines into one buffer before a single {@code endpoint.send}.
+     */
+    private void appendFetchResponse(ByteArrayOutputStream out, Mailbox mailbox,
+            int msgNum, long msgUid, Set<String> fetchItems, boolean uid,
+            byte[] contentBytes) throws IOException {
         out.write(("* " + msgNum + " FETCH (").getBytes(US_ASCII));
 
         boolean first = true;
@@ -5109,7 +5214,6 @@ public final class IMAPProtocolHandler
         }
 
         out.write(")\r\n".getBytes(US_ASCII));
-        endpoint.send(ByteBuffer.wrap(out.toByteArray()));
     }
 
     /**

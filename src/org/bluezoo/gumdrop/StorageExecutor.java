@@ -101,7 +101,7 @@ public final class StorageExecutor {
      * <p>Used by boundary tests to assert blocking work runs on a
      * {@code gumdrop-storage-*} thread rather than a SelectorLoop or caller.
      */
-    static volatile WorkThreadObserver workThreadObserver;
+    public static volatile WorkThreadObserver workThreadObserver;
 
     /**
      * Default number of storage worker threads when
