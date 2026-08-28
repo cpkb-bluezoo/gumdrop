@@ -53,6 +53,13 @@ import java.util.logging.Logger;
  * <p>The base filename (without flags) is stored, since flags can change
  * via renames without affecting the message identity.
  *
+ * <p>A single instance of this class is shared (issue #293) between every
+ * {@code MaildirMailbox} session open on the same maildir in this JVM, so
+ * that concurrent sessions see and contribute to the same in-memory state
+ * rather than each maintaining a private copy that could silently lose the
+ * other's UID assignments on save. Every public method is therefore
+ * {@code synchronized}.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MaildirUidList {
@@ -95,7 +102,7 @@ public class MaildirUidList {
      *
      * @throws IOException if the file cannot be read
      */
-    public void load() throws IOException {
+    public synchronized void load() throws IOException {
         filenameToUid.clear();
         uidToFilename.clear();
 
@@ -169,7 +176,7 @@ public class MaildirUidList {
      *
      * @throws IOException if the file cannot be written
      */
-    public void save() throws IOException {
+    public synchronized void save() throws IOException {
         if (!dirty) {
             return;
         }
@@ -217,7 +224,7 @@ public class MaildirUidList {
      *
      * @return the UIDVALIDITY value
      */
-    public long getUidValidity() {
+    public synchronized long getUidValidity() {
         return uidValidity;
     }
 
@@ -226,7 +233,7 @@ public class MaildirUidList {
      *
      * @return the next UID value
      */
-    public long getUidNext() {
+    public synchronized long getUidNext() {
         return uidNext;
     }
 
@@ -236,7 +243,7 @@ public class MaildirUidList {
      * @param baseFilename the base filename (without flags)
      * @return the UID, or -1 if not found
      */
-    public long getUid(String baseFilename) {
+    public synchronized long getUid(String baseFilename) {
         Long uid = filenameToUid.get(baseFilename);
         return uid != null ? uid : -1;
     }
@@ -247,7 +254,7 @@ public class MaildirUidList {
      * @param uid the UID
      * @return the base filename, or null if not found
      */
-    public String getFilename(long uid) {
+    public synchronized String getFilename(long uid) {
         return uidToFilename.get(uid);
     }
 
@@ -257,7 +264,7 @@ public class MaildirUidList {
      * @param baseFilename the base filename (without flags)
      * @return the assigned UID
      */
-    public long assignUid(String baseFilename) {
+    public synchronized long assignUid(String baseFilename) {
         // Check if already assigned
         Long existing = filenameToUid.get(baseFilename);
         if (existing != null) {
@@ -276,7 +283,7 @@ public class MaildirUidList {
      *
      * @param baseFilename the base filename
      */
-    public void removeUid(String baseFilename) {
+    public synchronized void removeUid(String baseFilename) {
         Long uid = filenameToUid.remove(baseFilename);
         if (uid != null) {
             uidToFilename.remove(uid);
@@ -289,7 +296,7 @@ public class MaildirUidList {
      *
      * @return true if dirty
      */
-    public boolean isDirty() {
+    public synchronized boolean isDirty() {
         return dirty;
     }
 
@@ -298,7 +305,7 @@ public class MaildirUidList {
      *
      * @return the count
      */
-    public int size() {
+    public synchronized int size() {
         return filenameToUid.size();
     }
 

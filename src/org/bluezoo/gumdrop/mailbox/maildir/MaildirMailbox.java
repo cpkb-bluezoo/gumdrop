@@ -64,7 +64,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.Set;
-import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -113,17 +112,21 @@ public final class MaildirMailbox implements Mailbox {
     private final String name;
     private final boolean readOnly;
 
-    private final MaildirUidList uidList;
-    private final MaildirKeywords keywords;
+    private MaildirUidList uidList;
+    private MaildirKeywords keywords;
 
     /** Indexed messages, sorted by UID */
     private List<MaildirMessageDescriptor> messages;
-    
+
     /** Maps UID to message descriptor */
     private Map<Long, MaildirMessageDescriptor> uidToMessage;
-    
+
     /** Messages marked for deletion (by UID) */
     private Set<Long> deletedMessages;
+
+    // uidList/keywords are assigned in the constructor from the shared
+    // JvmMailboxGate for this maildir's canonical path (issue #293), not
+    // constructed directly -- see the gate machinery below.
 
     /** Pending append data - FileChannel for direct write to temp file */
     private FileChannel appendChannel;
@@ -151,21 +154,31 @@ public final class MaildirMailbox implements Mailbox {
     private Map<Long, Long> expungedUids;
 
     /**
-     * Per-canonical-path in-JVM gate so that a second {@code MaildirMailbox}
-     * on the same directory in this process blocks and queues behind the
-     * first rather than racing straight into {@link #scanMessages()} /
-     * {@link MaildirUidList#save()} concurrently - unlike mbox, maildir has
-     * no OS file lock protecting a session, so two same-process opens for
-     * one mailbox (e.g. a live client SELECT racing an eager background
-     * index-warming job, see issue #163) can otherwise corrupt or lose
-     * writes to {@code .uidlist}. Mirrors {@code MboxMailbox}'s
-     * {@code JVM_GATES}.
+     * Per-canonical-path in-JVM gate tracking every concurrently-open
+     * {@code MaildirMailbox} session on that maildir in this process, and
+     * owning the {@link MaildirUidList}/{@link MaildirKeywords} instances
+     * those sessions share (issue #293).
+     *
+     * <p>Unlike mbox, maildir has no OS file lock protecting a session, and
+     * a naive private-per-session copy of {@code .uidlist}/{@code .keywords}
+     * would let one session's save silently overwrite another's concurrent
+     * UID/keyword assignment. Sharing one instance -- each internally
+     * {@code synchronized}, see {@link MaildirUidList} -- removes that race
+     * without needing to serialize sessions against each other for their
+     * whole lifetime: the gate's own role narrows to (a) briefly
+     * coordinating the one-time initial load, done once by whichever
+     * session opens this path first, and (b) letting a background
+     * index-warming job (issue #163) cheaply tell whether a live session
+     * already has this maildir open, via {@link #refCount}, so it can skip
+     * redundant work instead of blocking.
      */
     private static final Map<Path, JvmMailboxGate> JVM_GATES = new HashMap<>();
 
     private static final class JvmMailboxGate {
-        final Semaphore permit = new Semaphore(1);
         int refCount;
+        boolean loaded;
+        MaildirUidList sharedUidList;
+        MaildirKeywords sharedKeywords;
     }
 
     private Path gatePath;
@@ -175,6 +188,8 @@ public final class MaildirMailbox implements Mailbox {
         JvmMailboxGate g = JVM_GATES.get(canonicalPath);
         if (g == null) {
             g = new JvmMailboxGate();
+            g.sharedUidList = new MaildirUidList(canonicalPath);
+            g.sharedKeywords = new MaildirKeywords(canonicalPath);
             JVM_GATES.put(canonicalPath, g);
         }
         g.refCount++;
@@ -203,8 +218,6 @@ public final class MaildirMailbox implements Mailbox {
         this.tmpPath = maildirPath.resolve("tmp");
         this.name = name;
         this.readOnly = readOnly;
-        this.uidList = new MaildirUidList(maildirPath);
-        this.keywords = new MaildirKeywords(maildirPath);
         this.messages = new ArrayList<>();
         this.uidToMessage = new HashMap<>();
         this.deletedMessages = new HashSet<>();
@@ -217,40 +230,36 @@ public final class MaildirMailbox implements Mailbox {
             Files.createDirectories(tmpPath);
         }
 
-        // Block/queue behind any other same-JVM session on this maildir
-        // instead of racing into concurrent scans/uidlist writes below.
         gatePath = maildirPath.toRealPath();
         gate = acquireGateRef(gatePath);
         Gumdrop gumdrop = Gumdrop.getInstance();
         MailboxIndexer indexer = (gumdrop != null) ? MailboxRuntime.getIndexer() : null;
-        if (indexer != null && indexer.isCurrentThread()) {
-            // Running on the single MailboxIndexer worker thread (a
-            // background warming job): never block here. A concurrent
-            // live opener already holding this gate may itself be
-            // waiting on THIS thread via ensureFreshBlocking() to finish
-            // its own index rebuild - blocking would deadlock. Warming an
-            // already-in-use mailbox is redundant anyway, so just skip.
-            if (!gate.permit.tryAcquire()) {
-                releaseGateRef(gatePath, gate);
-                gate = null;
-                throw new IOException("Mailbox busy, skipping background warm: " + maildirPath);
-            }
-        } else {
-            try {
-                gate.permit.acquire();
-            } catch (InterruptedException e) {
-                releaseGateRef(gatePath, gate);
-                gate = null;
-                Thread.currentThread().interrupt();
-                throw new IOException("Interrupted waiting for mailbox: " + maildirPath, e);
-            }
+        if (indexer != null && indexer.isCurrentThread() && gate.refCount > 1) {
+            // Background warming job (issue #163): a live session (or
+            // another warming attempt) already has this maildir open and
+            // will build/refresh state as a side effect of its own
+            // opening, so warming here too is redundant -- skip rather
+            // than duplicate the work.
+            releaseGateRef(gatePath, gate);
+            gate = null;
+            throw new IOException("Mailbox busy, skipping background warm: " + maildirPath);
         }
 
         boolean initialized = false;
         try {
-            // Load UID list and keywords
-            uidList.load();
-            keywords.load();
+            // The shared UID list and keywords are loaded exactly once,
+            // by whichever session is first to open this maildir; a
+            // concurrent second session just waits here briefly for that
+            // load, not for the first session's whole lifetime.
+            synchronized (gate) {
+                if (!gate.loaded) {
+                    gate.sharedUidList.load();
+                    gate.sharedKeywords.load();
+                    gate.loaded = true;
+                }
+            }
+            uidList = gate.sharedUidList;
+            keywords = gate.sharedKeywords;
 
             // Scan and index messages
             scanMessages();
@@ -266,7 +275,6 @@ public final class MaildirMailbox implements Mailbox {
             initialized = true;
         } finally {
             if (!initialized) {
-                gate.permit.release();
                 releaseGateRef(gatePath, gate);
                 gate = null;
             }
@@ -450,7 +458,6 @@ public final class MaildirMailbox implements Mailbox {
             searchIndex = null;
         } finally {
             if (gate != null) {
-                gate.permit.release();
                 releaseGateRef(gatePath, gate);
                 gate = null;
             }

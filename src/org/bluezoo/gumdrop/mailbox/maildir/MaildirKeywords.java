@@ -52,6 +52,11 @@ import java.util.logging.Logger;
  * 
  * <p>Maximum of 26 keywords per mailbox (a-z).
  *
+ * <p>A single instance of this class is shared (issue #293) between every
+ * {@code MaildirMailbox} session open on the same maildir in this JVM --
+ * see the equivalent note on {@link MaildirUidList}. Every public method
+ * is therefore {@code synchronized}.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class MaildirKeywords {
@@ -94,7 +99,7 @@ public class MaildirKeywords {
      *
      * @throws IOException if the file cannot be read
      */
-    public void load() throws IOException {
+    public synchronized void load() throws IOException {
         indexToKeyword = new String[MAX_KEYWORDS];
         keywordToIndex.clear();
         nextIndex = 0;
@@ -150,7 +155,7 @@ public class MaildirKeywords {
      *
      * @throws IOException if the file cannot be written
      */
-    public void save() throws IOException {
+    public synchronized void save() throws IOException {
         if (!dirty) {
             return;
         }
@@ -184,7 +189,7 @@ public class MaildirKeywords {
      * @param index the index (0-25)
      * @return the keyword name, or null if not defined
      */
-    public String getKeyword(int index) {
+    public synchronized String getKeyword(int index) {
         if (index >= 0 && index < MAX_KEYWORDS) {
             return indexToKeyword[index];
         }
@@ -197,7 +202,7 @@ public class MaildirKeywords {
      * @param keyword the keyword name
      * @return the index, or -1 if not found
      */
-    public int getIndex(String keyword) {
+    public synchronized int getIndex(String keyword) {
         Integer index = keywordToIndex.get(keyword);
         return index != null ? index : -1;
     }
@@ -208,7 +213,7 @@ public class MaildirKeywords {
      * @param keyword the keyword name
      * @return the index, or -1 if no more slots available
      */
-    public int getOrCreateIndex(String keyword) {
+    public synchronized int getOrCreateIndex(String keyword) {
         Integer existing = keywordToIndex.get(keyword);
         if (existing != null) {
             return existing;
@@ -233,7 +238,7 @@ public class MaildirKeywords {
      * @param keywords the keyword names
      * @return set of indices
      */
-    public Set<Integer> keywordsToIndices(Set<String> keywords) {
+    public synchronized Set<Integer> keywordsToIndices(Set<String> keywords) {
         Set<Integer> indices = new HashSet<>();
         for (String keyword : keywords) {
             int index = getOrCreateIndex(keyword);
@@ -250,7 +255,7 @@ public class MaildirKeywords {
      * @param indices the indices
      * @return set of keyword names
      */
-    public Set<String> indicesToKeywords(Set<Integer> indices) {
+    public synchronized Set<String> indicesToKeywords(Set<Integer> indices) {
         Set<String> keywords = new HashSet<>();
         for (Integer index : indices) {
             String keyword = getKeyword(index);
@@ -266,7 +271,7 @@ public class MaildirKeywords {
      *
      * @return set of keyword names
      */
-    public Set<String> getAllKeywords() {
+    public synchronized Set<String> getAllKeywords() {
         return new HashSet<>(keywordToIndex.keySet());
     }
 
@@ -275,7 +280,7 @@ public class MaildirKeywords {
      *
      * @return true if dirty
      */
-    public boolean isDirty() {
+    public synchronized boolean isDirty() {
         return dirty;
     }
 
