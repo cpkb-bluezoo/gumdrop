@@ -31,6 +31,7 @@ import java.util.Collections;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.HeaderTableIndex;
 
 /**
  * Static constants for HPACK decoder and encoder (RFC 7541).
@@ -110,6 +111,13 @@ abstract class HPACKConstants {
     }));
 
     protected static final int STATIC_TABLE_SIZE = STATIC_TABLE.size(); // 62
+
+    /**
+     * O(1) index over {@link #STATIC_TABLE}, replacing a linear {@code
+     * List.indexOf}/name scan on every encoded header (see {@link
+     * org.bluezoo.gumdrop.http.HeaderTableIndex}).
+     */
+    protected static final HeaderTableIndex STATIC_TABLE_INDEX = new HeaderTableIndex(STATIC_TABLE);
 
     /**
      * RFC 7541 section 4.1: the size of a dynamic table is the sum of

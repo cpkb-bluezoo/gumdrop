@@ -174,15 +174,25 @@ public enum HTTPVersion {
      * @return true if the header should be stripped from a multiplexed message
      */
     public static boolean isHttp1FramingHeader(String name, String value) {
-        String lower = name.toLowerCase();
-        if ("connection".equals(lower) || "keep-alive".equals(lower)
-                || "proxy-connection".equals(lower)
-                || "upgrade".equals(lower)
-                || "transfer-encoding".equals(lower)
-                || "content-length".equals(lower)) {
+        // equalsIgnoreCase against each candidate, rather than lower-casing
+        // name once and comparing - name.toLowerCase() allocates a new
+        // String on every call regardless of match, for a value discarded
+        // immediately after; this runs once per header of every HTTP/2 and
+        // HTTP/3 request (stripHttp1FramingHeaders below), so that
+        // allocation was paid on the hot path for headers that are, in the
+        // overwhelmingly common case, not framing headers at all.
+        // equalsIgnoreCase also short-circuits on length mismatch before
+        // comparing any characters. The value comparison for "te" is
+        // intentionally still case-sensitive, matching the original
+        // behaviour: only an exact-case "trailers" value is exempted.
+        if (name.equalsIgnoreCase("connection") || name.equalsIgnoreCase("keep-alive")
+                || name.equalsIgnoreCase("proxy-connection")
+                || name.equalsIgnoreCase("upgrade")
+                || name.equalsIgnoreCase("transfer-encoding")
+                || name.equalsIgnoreCase("content-length")) {
             return true;
         }
-        return "te".equals(lower) && !"trailers".equals(value);
+        return name.equalsIgnoreCase("te") && !"trailers".equals(value);
     }
 
     /**

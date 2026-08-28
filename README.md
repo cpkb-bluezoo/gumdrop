@@ -89,6 +89,24 @@ non-blocking, event-driven I/O.
 
 Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout — no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent event-driven I/O framework used for SMTP, IMAP, DNS, MQTT, FTP, and SOCKS, so you can add fully async mail, messaging, file transfer, DNS, or proxy services without bolting on separate stacks.
 
+### Benchmarks
+
+Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Netty, driven by the same closed-loop load generator (JDK `HttpClient`, one virtual thread per concurrent client, requests issued back-to-back), on the same machine, over loopback. Each scenario ran a 5s warmup (discarded) followed by two 12s measurement windows; the figures below are the average of both. Absolute throughput varies somewhat run-to-run on a shared development machine, so treat these as directional rather than exact — the two servers in a given row were always measured back-to-back in the same run, which is what makes the comparison between them meaningful.
+
+| Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Plaintext HTTP/1.1, keep-alive | 50 | 60,303 | 59,077 | 0.75 | 0.77 | 1.62 | 1.69 |
+| Plaintext HTTP/1.1, keep-alive | 200 | 55,122 | 55,903 | 3.44 | 3.44 | 7.08 | 6.88 |
+| Plaintext HTTP/1.1, keep-alive | 500 | 51,919 | 51,072 | 5.77 | 6.69 | 28.31 | 24.12 |
+| JSON POST/response, HTTP/1.1 | 100 | 54,190 | 52,417 | 1.69 | 1.79 | 3.67 | 3.74 |
+| TLS 1.3, HTTP/1.1 keep-alive | 50 | 96,693 | 100,164 | 0.48 | 0.48 | 1.02 | 1.08 |
+| TLS 1.3, new handshake per request | 20 | 6,319 | 4,133* | 2.43 | 3.51 | 14.02 | 37.22 |
+| TLS 1.3, HTTP/2 (ALPN), keep-alive | 50 | 93,629 | 132,166 | 0.48 | 0.36 | 0.85 | 0.65 |
+
+\* Netty saw ~3% request errors in this scenario (short-lived TLS-handshake churn at concurrency 20); Gumdrop saw none. Every other scenario ran error-free on both servers.
+
+Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahead on per-request TLS handshake throughput, and behind on sustained keep-alive TLS and HTTP/2.
+
 ## Full feature list
 
 - a generic, extensible server framework that can transparently handle TLS

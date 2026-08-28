@@ -88,9 +88,50 @@ public class HTTPDateFormat extends DateFormat {
      * @return the modified buffer
      */
     public StringBuffer format(Date date, StringBuffer buf, FieldPosition field) {
+        // StringBuffer is only here because it's DateFormat's abstract
+        // method signature (predates StringBuilder, fixed by the JDK) -
+        // the actual per-field appending happens on an unsynchronized
+        // StringBuilder below, with a single bulk copy into the caller's
+        // buffer, rather than paying StringBuffer's per-append
+        // synchronization overhead for each of the ~15 appends in
+        // formatMillis.
+        StringBuilder sb = new StringBuilder(29);
+        formatMillis(date.getTime(), sb);
+        buf.setLength(0);
+        buf.append(sb);
+        field.setBeginIndex(0);
+        field.setEndIndex(buf.length());
+        return buf;
+    }
+
+    /**
+     * Formats an instant given directly as epoch milliseconds, without
+     * allocating a {@link Date} object - useful for callers (such as a
+     * once-per-second header-value cache) that already have a {@code long}
+     * timestamp and would otherwise wrap it in a {@code Date} purely to
+     * satisfy this class's other {@code format} methods.
+     *
+     * @param millis the instant to format, as milliseconds since the epoch
+     * @return the IMF-fixdate string for that instant
+     */
+    public String format(long millis) {
+        StringBuilder buf = new StringBuilder(29);
+        formatMillis(millis, buf);
+        return buf.toString();
+    }
+
+    /**
+     * Renders {@code millis} as an IMF-fixdate into {@code buf}, reusing
+     * this thread's {@link #CALENDAR} instance (mutating its fields for
+     * this call) rather than allocating a new one. Takes a StringBuilder,
+     * not a StringBuffer: nothing about this private helper is dictated by
+     * an external API, so there is no reason to pay StringBuffer's
+     * synchronization cost on every one of the many appends below.
+     */
+    private void formatMillis(long millis, StringBuilder buf) {
         Calendar calendar = CALENDAR.get();
         calendar.clear();
-        calendar.setTime(date);
+        calendar.setTimeInMillis(millis);
         buf.setLength(0);
 
         // Day of week
@@ -142,10 +183,6 @@ public class HTTPDateFormat extends DateFormat {
 
         // RFC 9110 section 5.6.7: IMF-fixdate uses literal "GMT"
         buf.append("GMT");
-
-        field.setBeginIndex(0);
-        field.setEndIndex(buf.length());
-        return buf;
     }
 
     /**

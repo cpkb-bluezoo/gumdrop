@@ -30,7 +30,6 @@ import java.security.Principal;
 import java.text.MessageFormat;
 import java.util.Base64;
 import java.util.Collection;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -43,7 +42,6 @@ import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
-import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -91,11 +89,6 @@ class Stream implements HTTPResponseState {
 
     /** Reusable empty buffer for completing responses without body. */
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0).asReadOnlyBuffer();
-
-    /**
-     * Date format for HTTP headers.
-     */
-    private static final HTTPDateFormat dateFormat = new HTTPDateFormat();
 
     /**
      * Returns true if the given HTTP method does not have a request body.
@@ -584,7 +577,7 @@ class Stream implements HTTPResponseState {
         long maxBody = connection.getMaxRequestBodySize();
         if (maxBody > 0 && connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
             // Check Content-Length before stripHttp1FramingHeaders removes it.
-            String cl = headers.getValue("Content-Length");
+            String cl = headers.getValue("content-length");
             if (cl != null) {
                 try {
                     long clValue = Long.parseLong(cl.trim());
@@ -609,7 +602,7 @@ class Stream implements HTTPResponseState {
         // RFC 9110 section 10.1.1: Expect: 100-continue
         if (connection.getVersion() != HTTPVersion.HTTP_2_0
                 && headers != null && contentLength != 0) {
-            String expect = headers.getValue("Expect");
+            String expect = headers.getValue("expect");
             if (expect != null && "100-continue".equalsIgnoreCase(expect.trim())) {
                 connection.send(ByteBuffer.wrap(
                         "HTTP/1.1 100 Continue\r\n\r\n".getBytes(
@@ -626,7 +619,7 @@ class Stream implements HTTPResponseState {
         if (handler == null) {
             HTTPAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
-                String authHeader = headers != null ? headers.getValue("Authorization") : null;
+                String authHeader = headers != null ? headers.getValue("authorization") : null;
                 HTTPAuthenticationProvider.AuthenticationResult result =
                         authProvider.authenticate(authHeader, method, requestTarget);
                 if (result.success) {
@@ -747,13 +740,13 @@ class Stream implements HTTPResponseState {
             span.addAttribute("net.peer.ip", connection.getRemoteSocketAddress().toString());
 
             // Add Host header if present
-            String host = headers != null ? headers.getValue("Host") : null;
+            String host = headers != null ? headers.getValue("host") : null;
             if (host != null) {
                 span.addAttribute("http.host", host);
             }
 
             // Add User-Agent if present
-            String userAgent = headers != null ? headers.getValue("User-Agent") : null;
+            String userAgent = headers != null ? headers.getValue("user-agent") : null;
             if (userAgent != null) {
                 span.addAttribute("http.user_agent", userAgent);
             }
@@ -958,6 +951,21 @@ class Stream implements HTTPResponseState {
     }
 
     void streamEndRequest() {
+        // RFC 9113 section 5.1: a stream is closed once both endpoints have
+        // sent END_STREAM. The response side reaches HALF_CLOSED_LOCAL when
+        // a handler completes the response entirely from within its
+        // headers() callback - the common case, since streamEndHeaders()
+        // dispatches to the handler before this method (called by the
+        // caller only afterwards) applies the request's own end-of-stream.
+        // The request side is ending right now, so if the response is
+        // already fully sent the stream is fully closed too. Before this
+        // fix, the state reassignment below unconditionally overwrote
+        // HALF_CLOSED_LOCAL with HALF_CLOSED_REMOTE, so such a stream never
+        // reached CLOSED and its activeStreams concurrency slot (see
+        // streamResponseCompleted()) leaked for the life of the connection,
+        // eventually exhausting SETTINGS_MAX_CONCURRENT_STREAMS.
+        boolean responseAlreadySent = state == State.HALF_CLOSED_LOCAL;
+
         // RFC 9112 section 9.6: when the complete response was already
         // committed while the request body was still outstanding, the stream
         // sits in HALF_CLOSED_LOCAL and sendResponseHeaders/sendResponseBody
@@ -969,12 +977,20 @@ class Stream implements HTTPResponseState {
         // the connection as promised; otherwise a client that sent
         // "Connection: close" and reads until EOF (as it is entitled to) hangs
         // until the idle/drain timeout and the connection slot leaks.
-        boolean closeAfterResponse = state == State.HALF_CLOSED_LOCAL
+        boolean closeAfterResponse = responseAlreadySent
                 && closeConnection
                 && connection.getVersion() != HTTPVersion.HTTP_2_0;
 
-        state = State.HALF_CLOSED_REMOTE;
-        
+        if (responseAlreadySent) {
+            state = State.CLOSED;
+            timestampCompleted = System.currentTimeMillis();
+            if (connection instanceof HTTPProtocolHandler) {
+                ((HTTPProtocolHandler) connection).streamResponseCompleted(streamId);
+            }
+        } else if (state != State.CLOSED) {
+            state = State.HALF_CLOSED_REMOTE;
+        }
+
         // Dispatch to handler if present
         if (handler != null) {
             if (capsuleMode && !capsuleParser.finish()) {
@@ -995,8 +1011,6 @@ class Stream implements HTTPResponseState {
         }
 
         if (closeAfterResponse) {
-            state = State.CLOSED;
-            timestampCompleted = System.currentTimeMillis();
             connection.send(null);
         }
     }
@@ -1025,13 +1039,37 @@ class Stream implements HTTPResponseState {
             return;
         }
 
+        // Snapshot which framework-managed headers the application already
+        // set, in one pass over headers as they stand before this method
+        // adds anything of its own. Headers.index() lazily builds and
+        // caches a lookup map, invalidated by the next add() after it was
+        // built (see its javadoc) - doing all four checks up front, before
+        // any add() below, lets that cache build once and serve all of
+        // them, instead of each add() forcing a full rebuild before the
+        // next check needs it (issue #278).
+        // Already-lower-case literals: Headers.containsName() re-lowercases
+        // whatever it's given on every call (it caches the *header names
+        // already in the list*, not the query string), so a mixed-case
+        // literal here would pay a real toLowerCase() transform+allocation
+        // - not just the cheap already-lower-case scan - on every response.
+        boolean hasXFrameOptions = headers.containsName("x-frame-options");
+        boolean hasXContentTypeOptions = headers.containsName("x-content-type-options");
+        boolean hasContentLength = headers.containsName("content-length");
+        boolean hasTransferEncoding = headers.containsName("transfer-encoding");
+
         // RFC 9110 section 10.2.4: Server header field
-        headers.add(new Header("Server", "gumdrop/" + Gumdrop.VERSION));
+        //
+        // These values are the exact HTTPProtocolHandler.*_VALUE constants
+        // (not just equal-looking literals) so that writeWellKnownLine's
+        // reference-equality fast path there actually applies: it exists
+        // specifically to bulk-write these framework-fixed lines instead of
+        // encoding their characters again on every single response.
+        headers.add(new Header("Server", HTTPProtocolHandler.SERVER_HEADER_VALUE));
         // RFC 9110 section 6.6.1: origin server SHOULD send Date in responses
-        headers.add(new Header("Date", dateFormat.format(new Date())));
+        headers.add(new Header("Date", HTTPDateCache.get()));
         // RFC 9112 section 9.6: Connection: close signals end of persistence
         if (closeConnection) {
-            headers.add(new Header("Connection", "close"));
+            headers.add(new Header("Connection", HTTPProtocolHandler.CONNECTION_CLOSE_VALUE));
         }
 
         // Add default security headers if enabled and not already set
@@ -1039,11 +1077,11 @@ class Stream implements HTTPResponseState {
             HTTPListener listener =
                     ((HTTPProtocolHandler) connection).getListener();
             if (listener != null && listener.getAddSecurityHeaders()) {
-                if (!headers.containsName("X-Frame-Options")) {
-                    headers.add(new Header("X-Frame-Options", "SAMEORIGIN"));
+                if (!hasXFrameOptions) {
+                    headers.add(new Header("X-Frame-Options", HTTPProtocolHandler.X_FRAME_OPTIONS_VALUE));
                 }
-                if (!headers.containsName("X-Content-Type-Options")) {
-                    headers.add(new Header("X-Content-Type-Options", "nosniff"));
+                if (!hasXContentTypeOptions) {
+                    headers.add(new Header("X-Content-Type-Options", HTTPProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE));
                 }
             }
         }
@@ -1058,9 +1096,9 @@ class Stream implements HTTPResponseState {
         if (connection.getVersion() == HTTPVersion.HTTP_1_1
                 && statusCode >= 200 && statusCode != 204 && statusCode != 304
                 && !"HEAD".equals(method)
-                && !headers.containsName("Content-Length")
-                && !headers.containsName("Transfer-Encoding")) {
-            headers.add("Transfer-Encoding", "chunked");
+                && !hasContentLength
+                && !hasTransferEncoding) {
+            headers.add("Transfer-Encoding", HTTPProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE);
             responseChunked = true;
         }
 
@@ -1296,7 +1334,7 @@ class Stream implements HTTPResponseState {
                 }
                 sendResponseHeaders(200, responseHeaders, false);
             } else {
-                String key = headers.getValue("Sec-WebSocket-Key");
+                String key = headers.getValue("sec-websocket-key");
                 String extHeader = WebSocketHandshake.formatExtensions(extensions);
                 Headers responseHeaders = WebSocketHandshake.createWebSocketResponse(
                         key, subprotocol, extHeader);

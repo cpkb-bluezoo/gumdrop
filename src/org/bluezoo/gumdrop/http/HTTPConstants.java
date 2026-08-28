@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -32,6 +33,18 @@ import java.util.TreeMap;
 public final class HTTPConstants {
 
     public static final Map<Integer, String> messages;
+
+    /**
+     * Same reason phrases as {@link #messages}, pre-encoded as ASCII bytes.
+     * A response's reason phrase is the same fixed, framework-supplied text
+     * for every response with a given status code, so encoding each one
+     * once here - rather than converting the String's characters again on
+     * every single response that uses it - is pure saved work.
+     */
+    private static final Map<Integer, byte[]> messageBytes;
+
+    private static final byte[] UNKNOWN_MESSAGE_BYTES =
+            "Unknown Status Code".getBytes(StandardCharsets.US_ASCII);
 
     static {
         messages = new TreeMap<Integer, String>();
@@ -102,11 +115,28 @@ public final class HTTPConstants {
         messages.put(508, "Loop Detected");
         messages.put(510, "Not Extended");
         messages.put(511, "Network Authentication Required");
+
+        messageBytes = new TreeMap<Integer, byte[]>();
+        for (Map.Entry<Integer, String> entry : messages.entrySet()) {
+            messageBytes.put(entry.getKey(),
+                    entry.getValue().getBytes(StandardCharsets.US_ASCII));
+        }
     }
 
     public static String getMessage(int code) {
         String message = messages.get(code);
         return (message != null) ? message : "Unknown Status Code";
+    }
+
+    /**
+     * Returns the ASCII-encoded bytes of the reason phrase for the given
+     * status code, for callers writing directly to the wire that would
+     * otherwise re-encode {@link #getMessage}'s (fixed, repeated) result on
+     * every response.
+     */
+    public static byte[] getMessageBytes(int code) {
+        byte[] bytes = messageBytes.get(code);
+        return (bytes != null) ? bytes : UNKNOWN_MESSAGE_BYTES;
     }
 
 }

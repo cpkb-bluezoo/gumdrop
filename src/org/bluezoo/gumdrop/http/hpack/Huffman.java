@@ -396,7 +396,98 @@ public class Huffman {
         CODE_BITS[EOS_INDEX] = 0x3fffffff; CODE_LENGTH[EOS_INDEX] = (byte) 30;
 
         buildHuffmanTree();
+        buildTransitionTable();
     }
+
+    // ── Byte-at-a-time decode table ──
+    //
+    // decode() used to walk the trie above one bit at a time: 8 array
+    // lookups and branches per input byte, regardless of how many of those
+    // bits actually belonged to a code boundary. Under profiling this was
+    // the single largest CPU-sample bucket in Gumdrop's own code for the
+    // HTTP/2 benchmark scenario (issue #289).
+    //
+    // TRANSITIONS[state * 256 + byteValue] precomputes the result of
+    // walking all 8 bits of byteValue through the trie starting at node
+    // `state`: every trie node the bit-at-a-time walk could ever pause at
+    // between input bytes is a valid `state` here, so this table has
+    // exactly the same set of reachable positions the old walk did - it
+    // just answers "8 bits from here" in one lookup instead of 8. Built
+    // once, at class-init, by literally running the same bit-at-a-time
+    // walk over each (state, byteValue) pair - so its correctness follows
+    // directly from the already-verified trie, not from an independently
+    // re-derived algorithm.
+    private static Transition[] TRANSITIONS;
+
+    /** One precomputed byte-at-a-time step of the Huffman trie walk. */
+    private static final class Transition {
+        /** Symbols completed by this step, in order (0, 1, or more). */
+        final short[] symbols;
+        /**
+         * Bit position (1-8) within this step's byte at which the last
+         * symbol in {@link #symbols} completed; meaningless if symbols is
+         * empty. Lets decode() reproduce the exact lastDecodedBitPosition
+         * bookkeeping the padding check at the end of decode() depends on.
+         */
+        final int lastSymbolBitOffset;
+        /** Trie node to resume at for the next byte, or -1 on error. */
+        final int nextState;
+        /** True if the EOS symbol was completed mid-literal - always an error. */
+        final boolean eosError;
+
+        Transition(short[] symbols, int lastSymbolBitOffset, int nextState, boolean eosError) {
+            this.symbols = symbols;
+            this.lastSymbolBitOffset = lastSymbolBitOffset;
+            this.nextState = nextState;
+            this.eosError = eosError;
+        }
+    }
+
+    private static void buildTransitionTable() {
+        int states = nodeCount;
+        TRANSITIONS = new Transition[states * 256];
+        for (int state = 0; state < states; state++) {
+            for (int b = 0; b < 256; b++) {
+                TRANSITIONS[state * 256 + b] = computeTransition(state, b);
+            }
+        }
+    }
+
+    /**
+     * Walks all 8 bits of {@code byteValue} through the trie starting at
+     * node {@code startState}, exactly as the original bit-at-a-time
+     * decode() loop body did for one input byte.
+     */
+    private static Transition computeTransition(int startState, int byteValue) {
+        short[] symbols = new short[2]; // see class javadoc: at most 2 can complete per byte
+        int symbolCount = 0;
+        int lastSymbolBitOffset = -1;
+        int node = startState;
+
+        for (int bitIndex = 7; bitIndex >= 0; bitIndex--) {
+            int bit = (byteValue >> bitIndex) & 1;
+            node = (bit == 0) ? leftChild[node] : rightChild[node];
+            if (node == -1) {
+                return new Transition(Arrays.copyOf(symbols, symbolCount),
+                        lastSymbolBitOffset, -1, false);
+            }
+            if (nodeTerminal[node]) {
+                short value = nodeValue[node];
+                if (value == EOS_INDEX) {
+                    return new Transition(Arrays.copyOf(symbols, symbolCount),
+                            lastSymbolBitOffset, -1, true);
+                }
+                if (symbolCount == symbols.length) {
+                    symbols = Arrays.copyOf(symbols, symbols.length * 2);
+                }
+                symbols[symbolCount++] = value;
+                lastSymbolBitOffset = (7 - bitIndex) + 1;
+                node = ROOT;
+            }
+        }
+        return new Transition(Arrays.copyOf(symbols, symbolCount), lastSymbolBitOffset, node, false);
+    }
+
     /**
      * Decodes an array of HPACK Huffman-encoded bytes into plaintext bytes.
      *
@@ -413,39 +504,31 @@ public class Huffman {
         // reallocating for the common case).
         byte[] out = new byte[Math.max(16, encodedBytes.length)];
         int outLen = 0;
-        int currentNode = ROOT;
+        int state = ROOT;
         int lastDecodedBitPosition = 0;
 
         for (int i = 0; i < encodedBytes.length; i++) {
-            int currentByte = encodedBytes[i];
-
-            // Process each bit in the current byte, from MSB to LSB
-            for (int bitIndex = 7; bitIndex >= 0; bitIndex--) {
-                int bit = (currentByte >> bitIndex) & 1;
-
-                currentNode = (bit == 0) ? leftChild[currentNode] : rightChild[currentNode];
-                if (currentNode == -1) {
-                    throw new IOException("Malformed Huffman data: Invalid bit sequence (" + bit + ")");
-                }
-
-                if (nodeTerminal[currentNode]) {
-                    short value = nodeValue[currentNode];
-                    // RFC 7541, Section 5.2: "A Huffman-encoded string literal containing the EOS
-                    // symbol MUST be treated as a decoding error."
-                    if (value == EOS_INDEX) {
-                        throw new IOException(
-                                "Decoding error: EOS symbol found within string literal.");
-                    }
-
-                    if (outLen == out.length) {
-                        out = Arrays.copyOf(out, out.length * 2);
-                    }
-                    out[outLen++] = (byte) value;
-                    currentNode = ROOT; // Reset to root for the next character
-
-                    lastDecodedBitPosition = (i * 8) + (7 - bitIndex) + 1;
-                }
+            Transition t = TRANSITIONS[state * 256 + (encodedBytes[i] & 0xff)];
+            if (t.eosError) {
+                throw new IOException("Decoding error: EOS symbol found within string literal.");
             }
+            for (short value : t.symbols) {
+                if (outLen == out.length) {
+                    out = Arrays.copyOf(out, out.length * 2);
+                }
+                out[outLen++] = (byte) value;
+            }
+            if (t.symbols.length > 0) {
+                lastDecodedBitPosition = (i * 8) + t.lastSymbolBitOffset;
+            }
+            if (t.nextState == -1) {
+                // Matches the original per-bit error, just not the exact
+                // bit value that triggered it - no caller depends on that
+                // (see HuffmanTest/HPACKEdgeCaseTest: all assert only that
+                // an IOException is thrown).
+                throw new IOException("Malformed Huffman data: Invalid bit sequence");
+            }
+            state = t.nextState;
         }
 
         // After processing all bytes, perform padding validation.

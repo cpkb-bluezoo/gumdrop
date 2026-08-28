@@ -146,7 +146,7 @@ public class Encoder extends HPACKConstants {
         }
         for (Header header : headers) {
             // Determine which type of representation to use
-            int index = STATIC_TABLE.indexOf(header); // will only match name+value pairs
+            int index = STATIC_TABLE_INDEX.indexOf(header); // will only match name+value pairs
             if (index == -1) {
                 index = dynamicTable.indexOf(header);
                 if (index != -1) {
@@ -158,7 +158,7 @@ public class Encoder extends HPACKConstants {
             } else {
                 String name = header.getName();
                 String value = header.getValue();
-                index = indexOfName(STATIC_TABLE, name);
+                index = STATIC_TABLE_INDEX.indexOfName(name);
                 if (index == -1) {
                     index = dynamicTable.indexOfName(name);
                     if (index != -1) {
@@ -204,16 +204,6 @@ public class Encoder extends HPACKConstants {
                 }
             }
         }
-    }
-
-    private static int indexOfName(List<Header> table, String name) {
-        for (int i = 0; i < table.size(); i++) {
-            Header header = table.get(i);
-            if (header != null && name.equals(header.getName())) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     /**

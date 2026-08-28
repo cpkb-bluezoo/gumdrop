@@ -51,6 +51,17 @@ public class Header {
     private int hashCode = -1;
 
     /**
+     * Lazily-computed, cached lower-cased form of {@link #name}, used by
+     * {@link #equals} and {@link #hashCode} for RFC 9110 section 5.1
+     * case-insensitive comparison. Computed once per instance rather than
+     * once per comparison: a single header is typically compared against
+     * many others in a loop (e.g. an HPACK/QPACK static table scan), and
+     * without this cache every one of those comparisons re-lowercases the
+     * same, unchanging name.
+     */
+    private String lowerName;
+
+    /**
      * Constructor.
      * @param name the name of the header
      * @param value the value of the header
@@ -81,9 +92,18 @@ public class Header {
         return value;
     }
 
+    private String lowerName() {
+        String ln = lowerName;
+        if (ln == null) {
+            ln = name.toLowerCase();
+            lowerName = ln;
+        }
+        return ln;
+    }
+
     public int hashCode() {
         if (hashCode == -1) {
-            StringBuilder buf = new StringBuilder(name.toLowerCase());
+            StringBuilder buf = new StringBuilder(lowerName());
             buf.append(": ");
             if (value != null) {
                 buf.append(value);
@@ -96,7 +116,7 @@ public class Header {
     public boolean equals(Object other) {
         if (other instanceof Header) {
             Header header = (Header) other;
-            return header.name.toLowerCase().equals(name.toLowerCase()) &&
+            return header.lowerName().equals(lowerName()) &&
                 header.value != null && value != null && header.value.equals(value);
         }
         return false;

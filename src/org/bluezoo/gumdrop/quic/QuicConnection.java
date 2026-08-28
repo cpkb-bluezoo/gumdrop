@@ -963,6 +963,28 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * @param bidirectional true to raise the bidirectional limit
      * @param maximumStreams the new limit; must not exceed 2^60
      */
+    /**
+     * Releases one stream's worth of concurrency credit back to the peer
+     * (RFC 9000 section 19.11), raising the advertised MAX_STREAMS limit
+     * by one. The HTTP mapping running over this connection calls this
+     * once a stream it accepted has fully finished, so the slot it held
+     * in the peer's stream budget becomes available for a new stream -
+     * without this, {@link #localMaxStreamsBidi}/{@link
+     * #localMaxStreamsUni} would stay fixed at their initial transport-
+     * parameter value for the connection's entire lifetime, and the peer
+     * would be unable to open more than that many streams in total, ever,
+     * regardless of how many earlier ones have long since closed.
+     *
+     * @param bidirectional true if the finished stream was bidirectional
+     */
+    public void releaseStreamCredit(boolean bidirectional) {
+        if (bidirectional) {
+            grantMaxStreams(true, localMaxStreamsBidi + 1);
+        } else {
+            grantMaxStreams(false, localMaxStreamsUni + 1);
+        }
+    }
+
     void grantMaxStreams(boolean bidirectional, long maximumStreams) {
         if (maximumStreams > MAX_STREAMS_COUNT) {
             throw new IllegalArgumentException("MAX_STREAMS exceeds 2^60");

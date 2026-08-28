@@ -58,6 +58,27 @@ public class SelectorLoop implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(SelectorLoop.class.getName());
 
+    /**
+     * Bound, in milliseconds, on how long a single {@link Selector#select}
+     * call may block with nothing to do, or 0 to block indefinitely (the
+     * default - every path that has work for this loop calls {@link
+     * Selector#wakeup}, so an indefinite block costs nothing when idle and
+     * is the most CPU-efficient choice for the common case of many mostly-
+     * idle connections).
+     *
+     * <p>A blocked {@code select()} still wakes immediately the instant a
+     * registered channel becomes ready, regardless of this value - the
+     * kernel's readiness notification is not a polling loop. What a
+     * positive value actually buys is a periodic top-of-loop check even
+     * when idle, at the cost of that many extra wakeups per second per
+     * loop; it does not by itself make a busy connection faster. It exists
+     * to let a deployment trade idle-CPU cost for that bound where it
+     * matters (e.g. matching a specific load pattern being benchmarked
+     * against), not as a default performance tuning.
+     */
+    private static final long SELECT_TIMEOUT_MS =
+            Long.getLong("gumdrop.selectorLoop.selectTimeoutMs", 0L);
+
     private final int index;
     private Thread thread;
     // volatile so cross-thread producers reliably observe a non-null selector
@@ -193,8 +214,10 @@ public class SelectorLoop implements Runnable {
                     // Block until an I/O event, a wakeup(), or shutdown. Every
                     // path that enqueues a registration, timer, or task calls
                     // wakeup() (whose effect is sticky), so there is no need for
-                    // a periodic timeout poll and its baseline CPU wakeups.
-                    selector.select();
+                    // a periodic timeout poll and its baseline CPU wakeups -
+                    // SELECT_TIMEOUT_MS is 0 (block indefinitely) unless a
+                    // deployment has explicitly opted into a bound.
+                    selector.select(SELECT_TIMEOUT_MS);
 
                     Set<SelectionKey> keys = selector.selectedKeys();
                     for (Iterator<SelectionKey> i = keys.iterator(); i.hasNext(); ) {

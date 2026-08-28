@@ -540,6 +540,12 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         nonIncSlots.release(streamId, params);
         streamPriority.remove(key);
         flushHeldBodies(params.getUrgency());
+        // RFC 9000 section 4.6 / section 19.11: this request stream's slot
+        // in the peer's advertised stream-concurrency budget is free again
+        // now that it has fully finished - grant that credit back, or the
+        // peer can never open more than the connection's initial
+        // transport-parameter stream limit over its entire lifetime.
+        quicConnection.releaseStreamCredit(true);
     }
 
     private void flushHeldBodies(int urgency) {
