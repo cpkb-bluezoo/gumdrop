@@ -25,27 +25,40 @@ import org.bluezoo.gumdrop.mailbox.Flag;
 
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Handles Maildir filename parsing and generation.
- * 
+ *
  * <p>Maildir filenames encode message metadata including delivery time,
  * uniqueness identifiers, size, and flags. The format is:
  * <pre>
  * &lt;timestamp&gt;.&lt;unique&gt;,S=&lt;size&gt;:2,&lt;flags&gt;
  * </pre>
- * 
+ *
  * <p>Example: {@code 1733356800000.12345.1,S=4523:2,SF}
  * <ul>
  *   <li>1733356800000 - delivery timestamp in milliseconds</li>
  *   <li>12345.1 - process ID and counter for uniqueness</li>
  *   <li>S=4523 - message size in bytes</li>
- *   <li>:2, - info separator (always ":2," for standard Maildir)</li>
+ *   <li>:2, - info separator (see {@link #INFO_SEPARATOR} for the one
+ *       exception this implementation makes to the standard)</li>
  *   <li>SF - flags (Seen, Flagged)</li>
  * </ul>
- * 
+ *
+ * <p><b>Windows (issue #287):</b> a literal {@code ':'} is illegal in an
+ * NTFS filename (reserved for Alternate Data Streams), so on Windows
+ * this class generates {@code ,2,} in place of {@code :2,} -- outside
+ * the Maildir spec, but {@link #MaildirFilename(String) parsing} accepts
+ * either form, on every platform, regardless of which one generated it.
+ * This keeps Unix generation spec-compliant and interoperable with other
+ * Maildir tools (Dovecot, Courier, etc.), while still letting a mailbox
+ * -- or a fixture checked into source control specifically so a {@code
+ * git clone} on Windows doesn't fail outright -- move between platforms
+ * without becoming unreadable.
+ *
  * <p>Standard flags encoded as single uppercase letters:
  * <ul>
  *   <li>D - Draft (\Draft)</li>
@@ -64,13 +77,30 @@ public class MaildirFilename {
 
     /** Process ID for uniqueness */
     private static final String PID;
-    
+
     /** Counter for uniqueness within the same millisecond */
     private static final AtomicLong COUNTER = new AtomicLong(0);
 
     static {
         PID = String.valueOf(ProcessHandle.current().pid());
     }
+
+    /**
+     * Whether this JVM is running on Windows, where {@code ':'} can't
+     * appear in a filename at all (issue #287).
+     */
+    private static final boolean WINDOWS = System.getProperty("os.name", "")
+            .toLowerCase(Locale.ROOT).contains("win");
+
+    /**
+     * The Maildir info-section separator this JVM generates new filenames
+     * with: {@code ":2,"} everywhere except Windows, where {@code ",2,"}
+     * is used instead. See the class documentation for why this is safe
+     * -- {@link #MaildirFilename(String)} accepts both forms when
+     * reading, on every platform, independent of which one is configured
+     * for generation here.
+     */
+    static final String INFO_SEPARATOR = WINDOWS ? ",2," : ":2,";
 
     private final long timestamp;
     private final String uniquePart;
@@ -87,9 +117,10 @@ public class MaildirFilename {
         this.flags = EnumSet.noneOf(Flag.class);
         this.keywordIndices = new HashSet<>();
 
-        // Parse: <timestamp>.<unique>,S=<size>:2,<flags>
-        // First, find the info separator ":2,"
-        int infoIndex = filename.indexOf(":2,");
+        // Parse: <timestamp>.<unique>,S=<size><SEP><flags>
+        // <SEP> is ":2," (standard) or ",2," (issue #287, Windows-safe) --
+        // see findInfoSeparatorIndex.
+        int infoIndex = findInfoSeparatorIndex(filename);
         String basePart;
         String flagsPart;
         if (infoIndex >= 0) {
@@ -129,6 +160,28 @@ public class MaildirFilename {
 
         // Parse flags
         parseFlags(flagsPart);
+    }
+
+    /**
+     * Finds the Maildir info-section separator in {@code filename}:
+     * whichever of {@code ":2,"} (standard) or {@code ",2,"} (issue
+     * #287's Windows-safe alternative) appears <em>last</em>. Checked
+     * regardless of which one this platform generates, so a filename
+     * produced elsewhere is always readable here.
+     *
+     * <p>The last occurrence, not the first, because any experimental
+     * {@code key=value} fields (e.g. {@code ,S=<size>}) always precede
+     * the real separator and, in the comma form specifically, share its
+     * {@code ','} character -- the actual separator is only guaranteed
+     * to be the rightmost match.
+     *
+     * @param filename the filename to search
+     * @return the index of the 3-character separator, or -1 if neither form is present
+     */
+    private static int findInfoSeparatorIndex(String filename) {
+        int colon = filename.lastIndexOf(":2,");
+        int comma = filename.lastIndexOf(",2,");
+        return Math.max(colon, comma);
     }
 
     /**
@@ -278,7 +331,7 @@ public class MaildirFilename {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append(getBaseFilename());
-        sb.append(":2,");
+        sb.append(INFO_SEPARATOR);
         
         // Flags must be in alphabetical order per Maildir spec
         if (flags.contains(Flag.DRAFT)) {

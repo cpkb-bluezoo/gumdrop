@@ -372,41 +372,16 @@ public final class MaildirMailbox implements Mailbox {
                 }
 
                 String filename = filePath.getFileName().toString();
-            
-            // Parse and ensure has :2, info section
+
             try {
-                MaildirFilename parsed;
-                if (filename.contains(":2,")) {
-                    parsed = new MaildirFilename(filename);
-                } else {
-                    // New message without flags section - add it
-                    // Find the base part before any existing info
-                    String base = filename;
-                    int colonIdx = filename.indexOf(':');
-                    if (colonIdx > 0) {
-                        base = filename.substring(0, colonIdx);
-                    }
-                    
-                    // Create with empty flags
-                    int dotIdx = base.indexOf('.');
-                    if (dotIdx > 0) {
-                        long timestamp = Long.parseLong(base.substring(0, dotIdx));
-                        String unique = base.substring(dotIdx + 1);
-                        
-                        // Check for size
-                        long size = -1;
-                        int sizeIdx = unique.indexOf(",S=");
-                        if (sizeIdx > 0) {
-                            size = Long.parseLong(unique.substring(sizeIdx + 3));
-                            unique = unique.substring(0, sizeIdx);
-                        }
-                        
-                        parsed = new MaildirFilename(timestamp, unique, size, 
-                            EnumSet.noneOf(Flag.class), null);
-                    } else {
-                        continue; // Invalid filename
-                    }
-                }
+                // A new/ message typically has no info section at all
+                // yet; MaildirFilename's own parsing already treats one
+                // as absent gracefully (empty flags), and -- issue #287 --
+                // recognises either the standard ":2," or the
+                // Windows-safe ",2," form if one is present, so there is
+                // nothing left for this method to detect or reconstruct
+                // by hand.
+                MaildirFilename parsed = new MaildirFilename(filename);
 
                 // Move to cur/
                 String newFilename = parsed.toString();
