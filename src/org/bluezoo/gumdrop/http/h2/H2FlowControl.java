@@ -21,8 +21,7 @@
 
 package org.bluezoo.gumdrop.http.h2;
 
-import java.util.HashMap;
-import java.util.Map;
+import org.bluezoo.gumdrop.util.IntObjectHashMap;
 
 /**
  * HTTP/2 flow control accounting for both connection-level and per-stream
@@ -72,8 +71,12 @@ public class H2FlowControl {
     private int initialSendWindowSize;
     private int initialRecvWindowSize;
 
-    private final Map<Integer, StreamFlowState> streams =
-            new HashMap<Integer, StreamFlowState>();
+    // Integer-boxing per lookup on every DATA frame in both directions,
+    // for a connection with no equivalent HTTP/1.1 cost, was worth a
+    // dedicated primitive-keyed map (issue #335) rather than accepting
+    // it as inherent to Map<Integer, V>.
+    private final IntObjectHashMap<StreamFlowState> streams =
+            new IntObjectHashMap<StreamFlowState>();
 
     /**
      * Per-stream flow control state.  Instances are pooled and
@@ -340,15 +343,18 @@ public class H2FlowControl {
      *
      * @param callback called with each unblocked stream ID
      */
-    public void forEachUnblockedStream(UnblockedStreamCallback callback) {
+    public void forEachUnblockedStream(final UnblockedStreamCallback callback) {
         if (connectionSendWindow <= 0) {
             return;
         }
-        for (Map.Entry<Integer, StreamFlowState> entry : streams.entrySet()) {
-            if (entry.getValue().sendWindow > 0) {
-                callback.onUnblocked(entry.getKey().intValue());
+        streams.forEach(new IntObjectHashMap.EntryConsumer<StreamFlowState>() {
+            @Override
+            public void accept(int streamId, StreamFlowState state) {
+                if (state.sendWindow > 0) {
+                    callback.onUnblocked(streamId);
+                }
             }
-        }
+        });
     }
 
     // ── Pause / Resume (receive-side backpressure) ──
@@ -426,14 +432,17 @@ public class H2FlowControl {
         if (delta == 0) {
             return false;
         }
-        boolean overflow = false;
-        for (StreamFlowState state : streams.values()) {
-            state.sendWindow += delta;
-            if (state.sendWindow > 0x7FFFFFFFL) {
-                overflow = true;
+        final boolean[] overflow = { false };
+        streams.forEach(new IntObjectHashMap.EntryConsumer<StreamFlowState>() {
+            @Override
+            public void accept(int streamId, StreamFlowState state) {
+                state.sendWindow += delta;
+                if (state.sendWindow > 0x7FFFFFFFL) {
+                    overflow[0] = true;
+                }
             }
-        }
-        return overflow;
+        });
+        return overflow[0];
     }
 
     /**
