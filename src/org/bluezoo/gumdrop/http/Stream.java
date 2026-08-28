@@ -577,7 +577,7 @@ class Stream implements HTTPResponseState {
         long maxBody = connection.getMaxRequestBodySize();
         if (maxBody > 0 && connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
             // Check Content-Length before stripHttp1FramingHeaders removes it.
-            String cl = headers.getValue("Content-Length");
+            String cl = headers.getValue("content-length");
             if (cl != null) {
                 try {
                     long clValue = Long.parseLong(cl.trim());
@@ -602,7 +602,7 @@ class Stream implements HTTPResponseState {
         // RFC 9110 section 10.1.1: Expect: 100-continue
         if (connection.getVersion() != HTTPVersion.HTTP_2_0
                 && headers != null && contentLength != 0) {
-            String expect = headers.getValue("Expect");
+            String expect = headers.getValue("expect");
             if (expect != null && "100-continue".equalsIgnoreCase(expect.trim())) {
                 connection.send(ByteBuffer.wrap(
                         "HTTP/1.1 100 Continue\r\n\r\n".getBytes(
@@ -619,7 +619,7 @@ class Stream implements HTTPResponseState {
         if (handler == null) {
             HTTPAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
-                String authHeader = headers != null ? headers.getValue("Authorization") : null;
+                String authHeader = headers != null ? headers.getValue("authorization") : null;
                 HTTPAuthenticationProvider.AuthenticationResult result =
                         authProvider.authenticate(authHeader, method, requestTarget);
                 if (result.success) {
@@ -740,13 +740,13 @@ class Stream implements HTTPResponseState {
             span.addAttribute("net.peer.ip", connection.getRemoteSocketAddress().toString());
 
             // Add Host header if present
-            String host = headers != null ? headers.getValue("Host") : null;
+            String host = headers != null ? headers.getValue("host") : null;
             if (host != null) {
                 span.addAttribute("http.host", host);
             }
 
             // Add User-Agent if present
-            String userAgent = headers != null ? headers.getValue("User-Agent") : null;
+            String userAgent = headers != null ? headers.getValue("user-agent") : null;
             if (userAgent != null) {
                 span.addAttribute("http.user_agent", userAgent);
             }
@@ -1047,10 +1047,15 @@ class Stream implements HTTPResponseState {
         // any add() below, lets that cache build once and serve all of
         // them, instead of each add() forcing a full rebuild before the
         // next check needs it (issue #278).
-        boolean hasXFrameOptions = headers.containsName("X-Frame-Options");
-        boolean hasXContentTypeOptions = headers.containsName("X-Content-Type-Options");
-        boolean hasContentLength = headers.containsName("Content-Length");
-        boolean hasTransferEncoding = headers.containsName("Transfer-Encoding");
+        // Already-lower-case literals: Headers.containsName() re-lowercases
+        // whatever it's given on every call (it caches the *header names
+        // already in the list*, not the query string), so a mixed-case
+        // literal here would pay a real toLowerCase() transform+allocation
+        // - not just the cheap already-lower-case scan - on every response.
+        boolean hasXFrameOptions = headers.containsName("x-frame-options");
+        boolean hasXContentTypeOptions = headers.containsName("x-content-type-options");
+        boolean hasContentLength = headers.containsName("content-length");
+        boolean hasTransferEncoding = headers.containsName("transfer-encoding");
 
         // RFC 9110 section 10.2.4: Server header field
         //
@@ -1329,7 +1334,7 @@ class Stream implements HTTPResponseState {
                 }
                 sendResponseHeaders(200, responseHeaders, false);
             } else {
-                String key = headers.getValue("Sec-WebSocket-Key");
+                String key = headers.getValue("sec-websocket-key");
                 String extHeader = WebSocketHandshake.formatExtensions(extensions);
                 Headers responseHeaders = WebSocketHandshake.createWebSocketResponse(
                         key, subprotocol, extHeader);
