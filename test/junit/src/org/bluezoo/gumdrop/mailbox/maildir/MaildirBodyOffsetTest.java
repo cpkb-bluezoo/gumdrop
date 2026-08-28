@@ -115,7 +115,10 @@ public class MaildirBodyOffsetTest {
 
         String content = "From: a@b\r\nTo: c@d\r\n\r\nhello\r\n";
         long expectedOffset = content.indexOf("hello");
-        String filename = "1733356800000.uidtest.1,S=" + content.length() + ":2,";
+        // No trailing ":2,<flags>" info suffix (issue #287): optional per
+        // the Maildir spec, and a literal ":" in a filename throws
+        // InvalidPathException on Windows/NTFS.
+        String filename = "1733356800000.uidtest.1,S=" + content.length();
         Files.write(maildir.resolve("cur").resolve(filename),
                 content.getBytes(StandardCharsets.UTF_8));
 
@@ -161,7 +164,9 @@ public class MaildirBodyOffsetTest {
 
         String content = "From: a@b\r\nSubject: x\r\n\r\nbody\r\n";
         long expectedOffset = content.indexOf("body");
-        String filename = "1733356800001.uid2.1,S=" + content.length() + ":2,";
+        // See mailbox_openAsyncContent_returnsCachedBodyOffset above
+        // (issue #287) for why this has no ":2,<flags>" suffix.
+        String filename = "1733356800001.uid2.1,S=" + content.length();
         Files.write(maildir.resolve("cur").resolve(filename),
                 content.getBytes(StandardCharsets.UTF_8));
 

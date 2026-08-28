@@ -198,8 +198,13 @@ public class AsyncDiskOffloadBoundaryTest {
         Files.createDirectories(userDir.resolve("new"));
         Files.createDirectories(userDir.resolve("tmp"));
         String msg = "From: a@b\r\nSubject: hi\r\n\r\nbody\r\n";
+        // No trailing ":2,<flags>" info suffix (issue #287): it's optional
+        // per the Maildir spec, MaildirFilename parses its absence as "no
+        // flags" rather than an error, and a literal ":" in a filename
+        // throws InvalidPathException on Windows/NTFS -- this Files.write
+        // would fail outright there otherwise.
         Files.write(userDir.resolve("cur")
-                        .resolve("1000.1.localhost,S=" + msg.length() + ":2,"),
+                        .resolve("1000.1.localhost,S=" + msg.length()),
                 msg.getBytes(StandardCharsets.US_ASCII));
 
         IMAPListener listener = new IMAPListener();
@@ -264,8 +269,10 @@ public class AsyncDiskOffloadBoundaryTest {
         Files.createDirectories(userDir.resolve("new"));
         Files.createDirectories(userDir.resolve("tmp"));
         String msg = "From: a@b\r\nSubject: hi\r\n\r\nbody\r\n";
+        // See the IMAP test above (issue #287) for why this has no
+        // ":2,<flags>" suffix.
         Files.write(userDir.resolve("cur")
-                        .resolve("1000.1.localhost,S=" + msg.length() + ":2,"),
+                        .resolve("1000.1.localhost,S=" + msg.length()),
                 msg.getBytes(StandardCharsets.US_ASCII));
 
         POP3Listener listener = new POP3Listener();

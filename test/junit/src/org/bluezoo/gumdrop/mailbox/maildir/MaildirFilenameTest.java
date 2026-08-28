@@ -68,6 +68,79 @@ public class MaildirFilenameTest {
         assertEquals(0, f.getFlags().size());
     }
 
+    // ── issue #287: ",2," is also accepted, on every platform, as an
+    // alternative to ":2," -- the form this JVM generates on Windows,
+    // where a literal ':' can't appear in a filename at all. Parsing
+    // must accept it everywhere (not just on Windows) so a fixture
+    // committed in that form -- e.g. specifically so a git clone/checkout
+    // on Windows doesn't fail on an illegal ':' in a tracked filename --
+    // reads identically on every platform, including this test's own.
+
+    @Test
+    public void testParseCommaFormSeparator() {
+        MaildirFilename f = new MaildirFilename("1733356800000.12345.1,S=4523,2,SF");
+        assertEquals(1733356800000L, f.getTimestamp());
+        assertEquals("12345.1", f.getUniquePart());
+        assertEquals(4523, f.getSize());
+        assertTrue(f.getFlags().contains(Flag.SEEN));
+        assertTrue(f.getFlags().contains(Flag.FLAGGED));
+        assertEquals(2, f.getFlags().size());
+    }
+
+    @Test
+    public void testParseCommaFormNoFlags() {
+        MaildirFilename f = new MaildirFilename("1733356800000.12345.1,S=100,2,");
+        assertEquals(1733356800000L, f.getTimestamp());
+        assertEquals(100, f.getSize());
+        assertEquals(0, f.getFlags().size());
+    }
+
+    @Test
+    public void testParseCommaFormWithKeywords() {
+        MaildirFilename f = new MaildirFilename("1733356800000.12345.1,S=100,2,Sac");
+        assertTrue(f.getFlags().contains(Flag.SEEN));
+        Set<Integer> kw = f.getKeywordIndices();
+        assertTrue(kw.contains(0));   // 'a' -> 0
+        assertTrue(kw.contains(2));   // 'c' -> 2
+        assertEquals(2, kw.size());
+    }
+
+    @Test
+    public void testParseCommaFormNoSize() {
+        MaildirFilename f = new MaildirFilename("1733356800000.12345.1,2,S");
+        assertEquals(-1, f.getSize());
+        assertTrue(f.getFlags().contains(Flag.SEEN));
+    }
+
+    @Test
+    public void testParseCommaFormAndColonFormEquivalent() {
+        MaildirFilename colon = new MaildirFilename("1733356800000.12345.1,S=4523:2,SF");
+        MaildirFilename comma = new MaildirFilename("1733356800000.12345.1,S=4523,2,SF");
+        assertEquals(colon.getTimestamp(), comma.getTimestamp());
+        assertEquals(colon.getUniquePart(), comma.getUniquePart());
+        assertEquals(colon.getSize(), comma.getSize());
+        assertEquals(colon.getFlags(), comma.getFlags());
+    }
+
+    @Test
+    public void testGenerationUsesColonFormOnNonWindows() {
+        // Locks in the non-Windows half of issue #287's design: normal
+        // (standard, spec-compliant, interoperable with Dovecot/Courier
+        // etc.) behaviour is unchanged on every platform except Windows.
+        org.junit.Assume.assumeFalse(isWindows());
+        assertEquals(":2,", MaildirFilename.INFO_SEPARATOR);
+    }
+
+    @Test
+    public void testGenerationUsesCommaFormOnWindows() {
+        org.junit.Assume.assumeTrue(isWindows());
+        assertEquals(",2,", MaildirFilename.INFO_SEPARATOR);
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void testParseInvalidNoDot() {
         new MaildirFilename("invalidfilename");
@@ -98,7 +171,12 @@ public class MaildirFilenameTest {
         Set<Flag> flags = EnumSet.of(Flag.SEEN, Flag.FLAGGED);
         MaildirFilename f = new MaildirFilename(1733356800000L, "12345.1", 4523,
                 flags, Collections.emptySet());
-        assertEquals("1733356800000.12345.1,S=4523:2,FS", f.toString());
+        // MaildirFilename.INFO_SEPARATOR, not a hardcoded ":2,": generation
+        // is platform-dependent (issue #287 -- ",2," on Windows, where a
+        // literal ':' is illegal in a filename), so this test must remain
+        // correct on every platform it runs on, not just this one.
+        assertEquals("1733356800000.12345.1,S=4523" + MaildirFilename.INFO_SEPARATOR + "FS",
+                f.toString());
     }
 
     @Test
@@ -106,7 +184,8 @@ public class MaildirFilenameTest {
         Set<Flag> flags = EnumSet.of(Flag.DRAFT, Flag.FLAGGED, Flag.ANSWERED, Flag.SEEN, Flag.DELETED);
         MaildirFilename f = new MaildirFilename(1733356800000L, "12345.1", 100,
                 flags, Collections.emptySet());
-        assertEquals("1733356800000.12345.1,S=100:2,DFRST", f.toString());
+        assertEquals("1733356800000.12345.1,S=100" + MaildirFilename.INFO_SEPARATOR + "DFRST",
+                f.toString());
     }
 
     @Test
@@ -118,7 +197,8 @@ public class MaildirFilenameTest {
 
         MaildirFilename f = new MaildirFilename(1733356800000L, "12345.1", 100,
                 flags, keywords);
-        assertEquals("1733356800000.12345.1,S=100:2,Sac", f.toString());
+        assertEquals("1733356800000.12345.1,S=100" + MaildirFilename.INFO_SEPARATOR + "Sac",
+                f.toString());
     }
 
     @Test
@@ -154,7 +234,11 @@ public class MaildirFilenameTest {
 
     @Test
     public void testRoundTrip() {
-        String filename = "1733356800000.12345.1,S=4523:2,DFRS";
+        // Built with INFO_SEPARATOR, not a hardcoded ":2," -- a round trip
+        // through toString() always re-generates using this platform's
+        // separator (issue #287), which only matches a literal ":2,"
+        // input on non-Windows platforms.
+        String filename = "1733356800000.12345.1,S=4523" + MaildirFilename.INFO_SEPARATOR + "DFRS";
         MaildirFilename parsed = new MaildirFilename(filename);
         assertEquals(filename, parsed.toString());
     }

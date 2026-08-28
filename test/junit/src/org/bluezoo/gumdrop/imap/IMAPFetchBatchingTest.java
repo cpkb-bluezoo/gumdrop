@@ -108,8 +108,11 @@ public class IMAPFetchBatchingTest {
                     + "Subject: message " + i + "\r\n"
                     + "\r\n"
                     + "body " + i + "\r\n";
+            // No trailing ":2,<flags>" info suffix (issue #287): optional
+            // per the Maildir spec, and a literal ":" in a filename throws
+            // InvalidPathException on Windows/NTFS.
             String filename = "173335680" + String.format("%04d", i)
-                    + ".uidtest." + i + ",S=" + content.length() + ":2,";
+                    + ".uidtest." + i + ",S=" + content.length();
             Files.write(userDir.resolve("cur").resolve(filename),
                     content.getBytes(StandardCharsets.US_ASCII));
         }

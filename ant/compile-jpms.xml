@@ -120,7 +120,7 @@
     <mkdir dir='${build.aggregator}'/>
     <delete file='${build.aggregator}/module-info.class' quiet='true'/>
     <property name='jpms.patch.path'
-              value='${build.core}:${build.mime.module}:${build.mailbox}:${build.http}:${build.servlet.module}:${build.imap}:${build.smtp}:${build.pop3}:${build.ftp}:${build.amqp}:${build.mqtt}:${build.redis}:${build.grpc}:${build.socks}:${build.webdav}:${build.mdns}:${build.telemetry}:${build.ldap}'/>
+              value='${build.core}${path.separator}${build.mime.module}${path.separator}${build.mailbox}${path.separator}${build.http}${path.separator}${build.servlet.module}${path.separator}${build.imap}${path.separator}${build.smtp}${path.separator}${build.pop3}${path.separator}${build.ftp}${path.separator}${build.amqp}${path.separator}${build.mqtt}${path.separator}${build.redis}${path.separator}${build.grpc}${path.separator}${build.socks}${path.separator}${build.webdav}${path.separator}${build.mdns}${path.separator}${build.telemetry}${path.separator}${build.ldap}'/>
     <javac srcdir='${ant.modules}/gumdrop' destdir='${build.aggregator}' debug='true'
            release='${java.release.version}' includeantruntime='false'>
       <include name='module-info.java'/>
