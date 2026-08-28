@@ -209,14 +209,41 @@ public final class MailboxIndexer implements Runnable {
     }
 
     /**
-     * Stops the background thread. In-flight work is allowed to finish;
-     * queued-but-not-started jobs are abandoned (any live caller still
-     * waiting on one receives an {@link InterruptedException} via its
-     * blocked {@link #ensureFreshBlocking} call).
+     * How long {@link #shutdown()} waits for the worker thread to
+     * actually terminate before giving up, mirroring {@link
+     * org.bluezoo.gumdrop.StorageExecutor}'s own shutdown-await constant.
+     * {@link Thread#interrupt()} does not guarantee a job stops
+     * immediately -- {@code IndexWork} can be a blocking file write
+     * already inside the OS call, which does not respond to interrupt at
+     * all -- so this bounds how long a caller waits for the in-flight
+     * job to genuinely finish rather than just observing that no new one
+     * will start (issue #349).
+     */
+    private static final long SHUTDOWN_AWAIT_MS = 5000L;
+
+    /**
+     * Stops the background thread, waiting (up to {@link
+     * #SHUTDOWN_AWAIT_MS}) for it to actually terminate before returning.
+     * In-flight work is allowed to finish; queued-but-not-started jobs are
+     * abandoned (any live caller still waiting on one receives an {@link
+     * InterruptedException} via its blocked {@link #ensureFreshBlocking}
+     * call).
+     *
+     * <p>Without this wait, a caller of {@code Gumdrop.shutdown()} -- which
+     * calls this via {@code MailboxLifecycle.onServerStop()} -- could
+     * proceed (e.g. delete a mailbox's directory tree, as a test's
+     * teardown does) while this indexer's worker thread was still
+     * mid-write on that same mailbox's search index file, racing it
+     * (issue #349).
      */
     public void shutdown() {
         running = false;
         worker.interrupt();
+        try {
+            worker.join(SHUTDOWN_AWAIT_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Override
