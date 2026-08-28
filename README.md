@@ -91,21 +91,21 @@ Gumdrop uniquely combines a servlet container with a complete low-level networki
 
 ### Benchmarks
 
-Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Netty, driven by the same closed-loop load generator (JDK `HttpClient`, one virtual thread per concurrent client, requests issued back-to-back), on the same machine, over loopback. Each scenario ran a 5s warmup (discarded) followed by two 12s measurement windows; the figures below are the average of both.
+Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Netty, driven by the same closed-loop load generator (JDK `HttpClient`, one virtual thread per concurrent client, requests issued back-to-back), on the same machine, over loopback. Each scenario ran a 5s warmup (discarded) followed by two 12s measurement windows; the figures below are the average of both. Absolute throughput varies somewhat run-to-run on a shared development machine, so treat these as directional rather than exact — the two servers in a given row were always measured back-to-back in the same run, which is what makes the comparison between them meaningful.
 
 | Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Plaintext HTTP/1.1, keep-alive | 50 | 41,198 | 40,756 | 1.07 | 1.10 | 2.39 | 2.39 |
-| Plaintext HTTP/1.1, keep-alive | 200 | 38,695 | 38,064 | 4.85 | 5.11 | 9.96 | 10.09 |
-| Plaintext HTTP/1.1, keep-alive | 500 | 36,231 | 38,997 | 8.19 | 8.78 | 40.37 | 31.20 |
-| JSON POST/response, HTTP/1.1 | 100 | 38,505 | 36,950 | 2.33 | 2.52 | 5.11 | 5.18 |
-| TLS 1.3, HTTP/1.1 keep-alive | 50 | 67,313 | 77,823 | 0.69 | 0.61 | 1.46 | 1.56 |
-| TLS 1.3, new handshake per request | 20 | 2,923 | 1,988* | 5.44 | 7.47 | 27.26 | 68.16 |
-| TLS 1.3, HTTP/2 (ALPN), keep-alive | 50 | 53,691 | 77,796 | 0.87 | 0.61 | 1.44 | 1.16 |
+| Plaintext HTTP/1.1, keep-alive | 50 | 60,303 | 59,077 | 0.75 | 0.77 | 1.62 | 1.69 |
+| Plaintext HTTP/1.1, keep-alive | 200 | 55,122 | 55,903 | 3.44 | 3.44 | 7.08 | 6.88 |
+| Plaintext HTTP/1.1, keep-alive | 500 | 51,919 | 51,072 | 5.77 | 6.69 | 28.31 | 24.12 |
+| JSON POST/response, HTTP/1.1 | 100 | 54,190 | 52,417 | 1.69 | 1.79 | 3.67 | 3.74 |
+| TLS 1.3, HTTP/1.1 keep-alive | 50 | 96,693 | 100,164 | 0.48 | 0.48 | 1.02 | 1.08 |
+| TLS 1.3, new handshake per request | 20 | 6,319 | 4,133* | 2.43 | 3.51 | 14.02 | 37.22 |
+| TLS 1.3, HTTP/2 (ALPN), keep-alive | 50 | 93,629 | 132,166 | 0.48 | 0.36 | 0.85 | 0.65 |
 
-\* Netty saw ~4% request errors in this scenario (short-lived TLS-handshake churn at concurrency 20); Gumdrop saw none. Every other scenario ran error-free on both servers.
+\* Netty saw ~3% request errors in this scenario (short-lived TLS-handshake churn at concurrency 20); Gumdrop saw none. Every other scenario ran error-free on both servers.
 
-Gumdrop is competitive with or ahead of Netty on plaintext HTTP/1.1 and per-request TLS handshake throughput, and behind on sustained keep-alive TLS and HTTP/2.
+Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahead on per-request TLS handshake throughput, and behind on sustained keep-alive TLS and HTTP/2 — Netty's HTTP/2 codec pipeline in particular is considerably faster here. These numbers reflect several rounds of profiling-driven fixes earlier in this benchmarking effort ([#289](https://github.com/cpkb-bluezoo/gumdrop/issues/289) and its predecessors): an HTTP/2 stream concurrency-slot leak, an O(n) HPACK/QPACK static-table scan, and a bit-at-a-time Huffman decoder were each found and fixed along the way, more than doubling Gumdrop's HTTP/2 throughput over the course of the investigation.
 
 ## Full feature list
 
