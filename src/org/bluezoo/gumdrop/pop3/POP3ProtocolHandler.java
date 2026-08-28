@@ -1660,6 +1660,9 @@ public final class POP3ProtocolHandler
 
     private void processScramClientFirst(String data)
             throws IOException {
+        final String messageBody;
+        final String username;
+        final String clientNonce;
         try {
             byte[] decoded = Base64.getDecoder().decode(data);
             String clientFirst = new String(decoded, US_ASCII);
@@ -1671,7 +1674,9 @@ public final class POP3ProtocolHandler
                 return;
             }
 
-            String messageBody = clientFirst.substring(3);
+            messageBody = clientFirst.substring(3);
+            String usernameParsed = null;
+            String clientNonceParsed = null;
             int partStart = 0;
             int msgLen = messageBody.length();
             while (partStart <= msgLen) {
@@ -1682,129 +1687,175 @@ public final class POP3ProtocolHandler
                 String part =
                         messageBody.substring(partStart, partEnd);
                 if (part.startsWith("n=")) {
-                    pendingAuthUsername = part.substring(2);
+                    usernameParsed = part.substring(2);
                 } else if (part.startsWith("r=")) {
-                    authClientNonce = part.substring(2);
+                    clientNonceParsed = part.substring(2);
                 }
                 partStart = partEnd + 1;
             }
 
-            if (pendingAuthUsername == null
-                    || authClientNonce == null) {
+            if (usernameParsed == null || clientNonceParsed == null) {
                 sendERR(L10N.getString(
                         "pop3.err.invalid_scram_message"));
                 resetAuthState();
                 return;
             }
+            username = usernameParsed;
+            clientNonce = clientNonceParsed;
+            pendingAuthUsername = username;
+            authClientNonce = clientNonce;
 
-            Realm realm = getRealm();
-            if (realm == null) {
+            if (getRealm() == null) {
                 sendERR(L10N.getString("pop3.err.auth_failed"));
                 resetAuthState();
                 return;
             }
-            Realm.ScramCredentials creds =
-                    realm.getScramCredentials(pendingAuthUsername);
-            if (creds == null) {
-                sendERR(L10N.getString("pop3.err.auth_failed"));
-                resetAuthState();
-                return;
-            }
-
-            String serverNonce = authClientNonce + SASLUtils.generateNonce(16);
-            authNonce = serverNonce;
-            String serverFirst = SASLUtils.generateScramServerFirst(serverNonce,
-                    creds.salt, creds.iterations);
-            authChallenge = messageBody + "," + serverFirst;
-            authSalt = Base64.getDecoder().decode(creds.salt);
-            authIterations = creds.iterations;
-            authState = AuthState.SCRAM_FINAL;
-            sendContinuation(Base64.getEncoder().encodeToString(
-                    serverFirst.getBytes(US_ASCII)));
-        } catch (UnsupportedOperationException e) {
-            sendERR(L10N.getString("pop3.err.scram_not_available"));
-            resetAuthState();
         } catch (Exception e) {
             LOGGER.log(Level.WARNING,
                     "SCRAM client first processing error", e);
             sendERR(L10N.getString("pop3.err.auth_failed"));
             resetAuthState();
+            return;
         }
+
+        getScramCredentialsAsync(username, new StorageExecutor.Callback<Realm.ScramCredentials>() {
+            @Override
+            public void completed(Realm.ScramCredentials creds) {
+                try {
+                    if (creds == null) {
+                        sendERR(L10N.getString("pop3.err.auth_failed"));
+                        resetAuthState();
+                        return;
+                    }
+                    String serverNonce = clientNonce + SASLUtils.generateNonce(16);
+                    authNonce = serverNonce;
+                    String serverFirst = SASLUtils.generateScramServerFirst(serverNonce,
+                            creds.salt, creds.iterations);
+                    authChallenge = messageBody + "," + serverFirst;
+                    authSalt = Base64.getDecoder().decode(creds.salt);
+                    authIterations = creds.iterations;
+                    authState = AuthState.SCRAM_FINAL;
+                    sendContinuation(Base64.getEncoder().encodeToString(
+                            serverFirst.getBytes(US_ASCII)));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to complete SCRAM client-first", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                try {
+                    if (error instanceof UnsupportedOperationException) {
+                        sendERR(L10N.getString("pop3.err.scram_not_available"));
+                    } else {
+                        LOGGER.log(Level.WARNING,
+                                "SCRAM client first processing error", error);
+                        sendERR(L10N.getString("pop3.err.auth_failed"));
+                    }
+                    resetAuthState();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                }
+            }
+        });
     }
 
     private void processScramClientFinal(String data)
             throws IOException {
+        final String clientFinal;
         try {
-            String clientFinal = SASLUtils.decodeBase64ToString(data);
+            clientFinal = SASLUtils.decodeBase64ToString(data);
+        } catch (IllegalArgumentException e) {
+            sendERR(L10N.getString("pop3.err.invalid_base64"));
+            resetAuthState();
+            return;
+        }
 
-            if (pendingAuthUsername != null) {
-                Realm realm = getRealm();
-                if (realm != null) {
-                    try {
-                        Realm.ScramCredentials creds =
-                                realm.getScramCredentials(
-                                        pendingAuthUsername);
-                        if (creds != null) {
-                            byte[] serverSignature =
-                                    SASLUtils.verifyScramClientFinal(creds,
-                                            authChallenge, clientFinal,
-                                            authNonce);
-                            if (serverSignature == null) {
-                                failedAuthAttempts++;
-                                lastFailedAuthTime =
-                                        System.currentTimeMillis();
-                                recordAuthenticationFailure(
-                                        "AUTH SCRAM-SHA-256",
-                                        pendingAuthUsername);
-                                sendERR(L10N.getString(
-                                        "pop3.err.auth_failed"));
-                                return;
-                            }
-                            String serverFinal = "v=" + Base64.getEncoder()
-                                    .encodeToString(serverSignature);
-                            sendContinuation(Base64.getEncoder().encodeToString(
-                                    serverFinal.getBytes(US_ASCII)));
-                            // Capture into a local: the finally below resets
-                            // pendingAuthUsername before the async continuation
-                            // runs.
-                            final String scramUser = pendingAuthUsername;
-                            openMailboxAsync(scramUser, new Runnable() {
-                                @Override
-                                public void run() {
-                                    username = scramUser;
-                                    state = POP3State.TRANSACTION;
-                                    recordAuthenticationSuccess(
-                                            "AUTH SCRAM-SHA-256");
-                                    try {
-                                        sendOK(L10N.getString(
-                                                "pop3.mailbox_opened"));
-                                    } catch (IOException e) {
-                                        LOGGER.log(Level.WARNING,
-                                                "Failed to send AUTH success", e);
-                                    }
-                                }
-                            });
-                            return;
-                        }
-                    } catch (UnsupportedOperationException e) {
-                        sendERR(L10N.getString(
-                                "pop3.err.scram_not_available"));
-                        resetAuthState();
-                        return;
-                    }
-                }
-            }
-
+        if (pendingAuthUsername == null || getRealm() == null) {
             failedAuthAttempts++;
             lastFailedAuthTime = System.currentTimeMillis();
             recordAuthenticationFailure(
                     "AUTH SCRAM-SHA-256", pendingAuthUsername);
             sendERR(L10N.getString("pop3.err.auth_failed"));
-        } catch (IllegalArgumentException e) {
-            sendERR(L10N.getString("pop3.err.invalid_base64"));
-        } finally {
             resetAuthState();
+            return;
         }
+
+        // Capture into a local: resetAuthState() clears pendingAuthUsername
+        // once this callback (or its failure path) runs, and the mailbox-open
+        // continuation below fires later still.
+        final String scramUser = pendingAuthUsername;
+        getScramCredentialsAsync(scramUser, new StorageExecutor.Callback<Realm.ScramCredentials>() {
+            @Override
+            public void completed(Realm.ScramCredentials creds) {
+                try {
+                    if (creds == null) {
+                        failedAuthAttempts++;
+                        lastFailedAuthTime = System.currentTimeMillis();
+                        recordAuthenticationFailure(
+                                "AUTH SCRAM-SHA-256", scramUser);
+                        sendERR(L10N.getString("pop3.err.auth_failed"));
+                        return;
+                    }
+                    byte[] serverSignature =
+                            SASLUtils.verifyScramClientFinal(creds,
+                                    authChallenge, clientFinal, authNonce);
+                    if (serverSignature == null) {
+                        failedAuthAttempts++;
+                        lastFailedAuthTime = System.currentTimeMillis();
+                        recordAuthenticationFailure(
+                                "AUTH SCRAM-SHA-256", scramUser);
+                        sendERR(L10N.getString("pop3.err.auth_failed"));
+                        return;
+                    }
+                    String serverFinal = "v=" + Base64.getEncoder()
+                            .encodeToString(serverSignature);
+                    sendContinuation(Base64.getEncoder().encodeToString(
+                            serverFinal.getBytes(US_ASCII)));
+                    openMailboxAsync(scramUser, new Runnable() {
+                        @Override
+                        public void run() {
+                            username = scramUser;
+                            state = POP3State.TRANSACTION;
+                            recordAuthenticationSuccess(
+                                    "AUTH SCRAM-SHA-256");
+                            try {
+                                sendOK(L10N.getString(
+                                        "pop3.mailbox_opened"));
+                            } catch (IOException e) {
+                                LOGGER.log(Level.WARNING,
+                                        "Failed to send AUTH success", e);
+                            }
+                        }
+                    });
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to complete SCRAM client-final", e);
+                } finally {
+                    resetAuthState();
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                try {
+                    if (error instanceof UnsupportedOperationException) {
+                        sendERR(L10N.getString("pop3.err.scram_not_available"));
+                    } else {
+                        failedAuthAttempts++;
+                        lastFailedAuthTime = System.currentTimeMillis();
+                        recordAuthenticationFailure(
+                                "AUTH SCRAM-SHA-256", scramUser);
+                        sendERR(L10N.getString("pop3.err.auth_failed"));
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                } finally {
+                    resetAuthState();
+                }
+            }
+        });
     }
 
     // ── SASL helpers ──
@@ -2972,6 +3023,39 @@ public final class POP3ProtocolHandler
             sendERR(L10N.getString("pop3.err.cannot_open_mailbox"));
             return false;
         }
+    }
+
+    /**
+     * Derives (or fetches already-cached) SCRAM credentials off the
+     * SelectorLoop thread. For {@link org.bluezoo.gumdrop.auth.BasicRealm},
+     * a cache miss here runs a 210,000-iteration PBKDF2-HMAC-SHA256
+     * derivation -- genuinely CPU-bound work, but this still goes through
+     * {@link StorageExecutor} rather than the CPU-tuned {@code
+     * CryptoExecutor} (see issues #262/#274), since {@link
+     * Realm#getScramCredentials} is a generic {@link Realm} method that an
+     * LDAP/OAuth-backed realm could equally implement with a blocking
+     * network round trip; routing that onto a small, CPU-sized pool shared
+     * with TLS/QUIC handshake crypto would let a slow directory server
+     * starve unrelated connections' handshakes. Mirrors {@code
+     * Realm#passwordMatch}'s existing offload for the LOGIN/PLAIN path.
+     *
+     * @param callback receives the result (or the failure, e.g. an
+     *                 {@link UnsupportedOperationException} if this realm
+     *                 doesn't support SCRAM) on the loop thread
+     */
+    private void getScramCredentialsAsync(final String username,
+            final StorageExecutor.Callback<Realm.ScramCredentials> callback) {
+        final Realm realm = getRealm();
+        if (realm == null) {
+            callback.completed(null);
+            return;
+        }
+        submitStorage(new Callable<Realm.ScramCredentials>() {
+            @Override
+            public Realm.ScramCredentials call() {
+                return realm.getScramCredentials(username);
+            }
+        }, callback);
     }
 
     /**

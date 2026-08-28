@@ -1719,81 +1719,162 @@ public final class SMTPProtocolHandler
 
     /** RFC 5802 §5 — parse the SCRAM client-first-message and reply with server-first. */
     private void processScramClientFirst(String encoded) throws IOException {
-        String clientFirst = new String(Base64.getDecoder().decode(encoded), UTF_8);
-        // client-first-message: gs2-header "," authcid "," nonce
-        // e.g. n,,n=user,r=clientnonce
-        int commaCount = 0;
-        int bareStart = 0;
-        for (int i = 0; i < clientFirst.length(); i++) {
-            if (clientFirst.charAt(i) == ',') {
-                commaCount++;
-                if (commaCount == 2) {
-                    bareStart = i + 1;
-                    break;
+        final String clientFirstBare;
+        final String username;
+        final String clientNonce;
+        try {
+            String clientFirst = new String(Base64.getDecoder().decode(encoded), UTF_8);
+            // client-first-message: gs2-header "," authcid "," nonce
+            // e.g. n,,n=user,r=clientnonce
+            int commaCount = 0;
+            int bareStart = 0;
+            for (int i = 0; i < clientFirst.length(); i++) {
+                if (clientFirst.charAt(i) == ',') {
+                    commaCount++;
+                    if (commaCount == 2) {
+                        bareStart = i + 1;
+                        break;
+                    }
                 }
             }
-        }
-        String clientFirstBare = clientFirst.substring(bareStart);
-        String username = null;
-        String clientNonce = null;
-        for (String attr : clientFirstBare.split(",")) {
-            if (attr.startsWith("n=")) {
-                username = attr.substring(2);
-            } else if (attr.startsWith("r=")) {
-                clientNonce = attr.substring(2);
+            clientFirstBare = clientFirst.substring(bareStart);
+            String usernameParsed = null;
+            String clientNonceParsed = null;
+            for (String attr : clientFirstBare.split(",")) {
+                if (attr.startsWith("n=")) {
+                    usernameParsed = attr.substring(2);
+                } else if (attr.startsWith("r=")) {
+                    clientNonceParsed = attr.substring(2);
+                }
             }
-        }
-        if (username == null || clientNonce == null) {
+            if (usernameParsed == null || clientNonceParsed == null) {
+                reply(535, "5.7.8 Authentication credentials invalid");
+                resetAuthState();
+                return;
+            }
+            username = usernameParsed;
+            clientNonce = clientNonceParsed;
+            if (getRealm() == null) {
+                reply(535, "5.7.8 Authentication credentials invalid");
+                resetAuthState();
+                return;
+            }
+        } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", e);
+            }
             return;
         }
-        Realm.ScramCredentials creds = getRealm().getScramCredentials(username);
-        if (creds == null) {
-            reply(535, "5.7.8 Authentication credentials invalid");
-            resetAuthState();
-            return;
-        }
-        pendingAuthUsername = username;
-        authClientNonce = clientNonce;
-        String serverNonce = clientNonce + SASLUtils.generateNonce(16);
-        authNonce = serverNonce;
-        authSalt = Base64.getDecoder().decode(creds.salt);
-        authIterations = creds.iterations;
 
-        String serverFirst = SASLUtils.generateScramServerFirst(serverNonce, creds.salt, creds.iterations);
-        // Store the auth message for later verification: clientFirstBare + "," + serverFirst
-        authChallenge = clientFirstBare + "," + serverFirst;
-        authServerSignature = null; // computed in final step
+        getScramCredentialsAsync(username, new StorageExecutor.Callback<Realm.ScramCredentials>() {
+            @Override
+            public void completed(Realm.ScramCredentials creds) {
+                try {
+                    if (creds == null) {
+                        reply(535, "5.7.8 Authentication credentials invalid");
+                        resetAuthState();
+                        return;
+                    }
+                    pendingAuthUsername = username;
+                    authClientNonce = clientNonce;
+                    String serverNonce = clientNonce + SASLUtils.generateNonce(16);
+                    authNonce = serverNonce;
+                    authSalt = Base64.getDecoder().decode(creds.salt);
+                    authIterations = creds.iterations;
 
-        String serverFirstEncoded = Base64.getEncoder()
-                .encodeToString(serverFirst.getBytes(UTF_8));
-        reply(334, serverFirstEncoded);
-        authState = AuthState.SCRAM_FINAL;
-        authMechanism = "SCRAM-SHA-256";
+                    String serverFirst = SASLUtils.generateScramServerFirst(
+                            serverNonce, creds.salt, creds.iterations);
+                    // Store the auth message for later verification:
+                    // clientFirstBare + "," + serverFirst
+                    authChallenge = clientFirstBare + "," + serverFirst;
+                    authServerSignature = null; // computed in final step
+
+                    String serverFirstEncoded = Base64.getEncoder()
+                            .encodeToString(serverFirst.getBytes(UTF_8));
+                    reply(334, serverFirstEncoded);
+                    authState = AuthState.SCRAM_FINAL;
+                    authMechanism = "SCRAM-SHA-256";
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to complete SCRAM-SHA-256 client-first", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                try {
+                    reply(535, "5.7.8 Authentication credentials invalid");
+                    resetAuthState();
+                    if (LOGGER.isLoggable(Level.WARNING)) {
+                        LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", error);
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                }
+            }
+        });
     }
 
     /** RFC 5802 §5 — process SCRAM client-final-message and verify proof. */
     private void processScramClientFinal(String encoded) throws IOException {
-        String clientFinal = new String(Base64.getDecoder().decode(encoded), UTF_8);
-        Realm.ScramCredentials creds = getRealm().getScramCredentials(pendingAuthUsername);
-        if (creds == null) {
+        final String clientFinal;
+        try {
+            clientFinal = new String(Base64.getDecoder().decode(encoded), UTF_8);
+            if (getRealm() == null) {
+                reply(535, "5.7.8 Authentication credentials invalid");
+                resetAuthState();
+                return;
+            }
+        } catch (Exception e) {
             reply(535, "5.7.8 Authentication credentials invalid");
             resetAuthState();
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", e);
+            }
             return;
         }
-        byte[] serverSignature = SASLUtils.verifyScramClientFinal(creds,
-                authChallenge, clientFinal, authNonce);
-        if (serverSignature == null) {
-            notifyAuthenticationFailure(pendingAuthUsername, "SCRAM-SHA-256");
-            resetAuthState();
-            return;
-        }
-        String serverFinal = "v=" + Base64.getEncoder().encodeToString(serverSignature);
-        notifyAuthenticationSuccess(pendingAuthUsername, "SCRAM-SHA-256");
-        // RFC 5802 §5: server-final appended to the 235 response
-        reply(235, "2.7.0 " + Base64.getEncoder().encodeToString(serverFinal.getBytes(UTF_8)));
-        resetAuthState();
+
+        final String scramUser = pendingAuthUsername;
+        getScramCredentialsAsync(scramUser, new StorageExecutor.Callback<Realm.ScramCredentials>() {
+            @Override
+            public void completed(Realm.ScramCredentials creds) {
+                try {
+                    if (creds == null) {
+                        reply(535, "5.7.8 Authentication credentials invalid");
+                        resetAuthState();
+                        return;
+                    }
+                    byte[] serverSignature = SASLUtils.verifyScramClientFinal(creds,
+                            authChallenge, clientFinal, authNonce);
+                    if (serverSignature == null) {
+                        notifyAuthenticationFailure(scramUser, "SCRAM-SHA-256");
+                        resetAuthState();
+                        return;
+                    }
+                    String serverFinal = "v=" + Base64.getEncoder().encodeToString(serverSignature);
+                    notifyAuthenticationSuccess(scramUser, "SCRAM-SHA-256");
+                    // RFC 5802 §5: server-final appended to the 235 response
+                    reply(235, "2.7.0 " + Base64.getEncoder().encodeToString(serverFinal.getBytes(UTF_8)));
+                    resetAuthState();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to complete SCRAM-SHA-256 client-final", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                try {
+                    reply(535, "5.7.8 Authentication credentials invalid");
+                    resetAuthState();
+                    if (LOGGER.isLoggable(Level.WARNING)) {
+                        LOGGER.log(Level.WARNING, "AUTH SCRAM-SHA-256 error", error);
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                }
+            }
+        });
     }
 
     /**
@@ -2152,6 +2233,40 @@ public final class SMTPProtocolHandler
             @Override
             public Boolean call() {
                 return realm.passwordMatch(username, password);
+            }
+        }, callback);
+    }
+
+    /**
+     * Derives (or fetches already-cached) SCRAM credentials off the
+     * SelectorLoop thread. For {@link org.bluezoo.gumdrop.auth.BasicRealm},
+     * a cache miss here runs a 210,000-iteration PBKDF2-HMAC-SHA256
+     * derivation -- genuinely CPU-bound work, but this still goes through
+     * {@link StorageExecutor} rather than the CPU-tuned {@code
+     * CryptoExecutor} (see issues #262/#274), since {@link
+     * Realm#getScramCredentials} is a generic {@link Realm} method that an
+     * LDAP/OAuth-backed realm could equally implement with a blocking
+     * network round trip; routing that onto a small, CPU-sized pool shared
+     * with TLS/QUIC handshake crypto would let a slow directory server
+     * starve unrelated connections' handshakes. Mirrors {@link
+     * #authenticateUserAsync}, which makes the same call for {@link
+     * Realm#passwordMatch}.
+     *
+     * @param callback receives the result (or the failure, e.g. an
+     *                 {@link UnsupportedOperationException} if this realm
+     *                 doesn't support SCRAM) on the loop thread
+     */
+    private void getScramCredentialsAsync(final String username,
+            final StorageExecutor.Callback<Realm.ScramCredentials> callback) {
+        final Realm realm = getRealm();
+        if (realm == null) {
+            callback.completed(null);
+            return;
+        }
+        submitStorage(new Callable<Realm.ScramCredentials>() {
+            @Override
+            public Realm.ScramCredentials call() {
+                return realm.getScramCredentials(username);
             }
         }, callback);
     }
