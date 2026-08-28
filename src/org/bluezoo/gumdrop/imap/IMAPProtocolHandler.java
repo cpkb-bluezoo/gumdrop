@@ -1926,17 +1926,21 @@ public final class IMAPProtocolHandler
     }
 
     private void processScramClientFirst(String line) throws IOException {
+        final String clientFirst;
+        final String attrString;
+        final String username;
+        final String clientNonce;
         try {
-            String clientFirst = SASLUtils.decodeBase64ToString(line);
+            clientFirst = SASLUtils.decodeBase64ToString(line);
 
             if (!clientFirst.startsWith("n,,")) {
                 authFailed();
                 return;
             }
 
-            String attrString = clientFirst.substring(3);
-            String username = null;
-            String clientNonce = null;
+            attrString = clientFirst.substring(3);
+            String usernameParsed = null;
+            String clientNonceParsed = null;
 
             int partStart = 0;
             int attrLen = attrString.length();
@@ -1947,90 +1951,124 @@ public final class IMAPProtocolHandler
                 }
                 String part = attrString.substring(partStart, partEnd);
                 if (part.startsWith("n=")) {
-                    username = part.substring(2);
+                    usernameParsed = part.substring(2);
                 } else if (part.startsWith("r=")) {
-                    clientNonce = part.substring(2);
+                    clientNonceParsed = part.substring(2);
                 }
                 partStart = partEnd + 1;
             }
 
-            if (username == null || clientNonce == null) {
+            if (usernameParsed == null || clientNonceParsed == null) {
                 authFailed();
                 return;
             }
+            username = usernameParsed;
+            clientNonce = clientNonceParsed;
 
-            Realm realm = getRealm();
-            if (realm == null) {
+            if (getRealm() == null) {
                 authFailed();
                 return;
             }
-            Realm.ScramCredentials creds = realm.getScramCredentials(username);
-            if (creds == null) {
-                authFailed();
-                return;
-            }
-
-            pendingAuthUsername = username;
-
-            String serverNonce = clientNonce + SASLUtils.generateNonce(16);
-            authNonce = serverNonce;
-            String serverFirst = SASLUtils.generateScramServerFirst(serverNonce,
-                    creds.salt, creds.iterations);
-            authChallenge = attrString + "," + serverFirst;
-            authState = AuthState.SCRAM_FINAL;
-            sendContinuation(SASLUtils.encodeBase64(serverFirst));
-
-        } catch (UnsupportedOperationException e) {
-            authFailed();
         } catch (Exception e) {
             authFailed();
+            return;
         }
+
+        getScramCredentialsAsync(username, new StorageExecutor.Callback<Realm.ScramCredentials>() {
+            @Override
+            public void completed(Realm.ScramCredentials creds) {
+                try {
+                    if (creds == null) {
+                        authFailed();
+                        return;
+                    }
+                    pendingAuthUsername = username;
+                    String serverNonce = clientNonce + SASLUtils.generateNonce(16);
+                    authNonce = serverNonce;
+                    String serverFirst = SASLUtils.generateScramServerFirst(serverNonce,
+                            creds.salt, creds.iterations);
+                    authChallenge = attrString + "," + serverFirst;
+                    authState = AuthState.SCRAM_FINAL;
+                    sendContinuation(SASLUtils.encodeBase64(serverFirst));
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to complete SCRAM-SHA-256 client-first", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                try {
+                    authFailed();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                }
+            }
+        });
     }
 
     private void processScramClientFinal(String line) throws IOException {
+        final String clientFinal;
         try {
-            String clientFinal = SASLUtils.decodeBase64ToString(line);
-
-            Realm realm = getRealm();
-            if (realm == null) {
+            clientFinal = SASLUtils.decodeBase64ToString(line);
+            if (getRealm() == null) {
                 authFailed();
                 return;
             }
-            Realm.ScramCredentials creds = realm.getScramCredentials(
-                    pendingAuthUsername);
-            if (creds == null) {
-                authFailed();
-                return;
-            }
-
-            byte[] serverSignature = SASLUtils.verifyScramClientFinal(creds,
-                    authChallenge, clientFinal, authNonce);
-            if (serverSignature == null) {
-                authFailed();
-                return;
-            }
-
-            final byte[] scramServerSignature = serverSignature;
-            openMailStoreAsync(pendingAuthUsername, "SCRAM-SHA-256",
-                    pendingAuthTag, new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        String serverFinal = "v=" + Base64.getEncoder()
-                                .encodeToString(scramServerSignature);
-                        sendContinuation(SASLUtils.encodeBase64(serverFinal));
-                        authSucceeded();
-                    } catch (IOException e) {
-                        LOGGER.log(Level.WARNING,
-                                "Failed to complete SCRAM-SHA-256", e);
-                    }
-                }
-            });
-        } catch (UnsupportedOperationException e) {
-            authFailed();
         } catch (Exception e) {
             authFailed();
+            return;
         }
+
+        // Capture into a local: pendingAuthUsername/pendingAuthTag stay
+        // valid until authSucceeded()/authFailed() resets them, which only
+        // happens once this callback (or its own failure path) runs, but
+        // capturing avoids any doubt about field state at that later point.
+        final String username = pendingAuthUsername;
+        final String tag = pendingAuthTag;
+        getScramCredentialsAsync(username, new StorageExecutor.Callback<Realm.ScramCredentials>() {
+            @Override
+            public void completed(Realm.ScramCredentials creds) {
+                try {
+                    if (creds == null) {
+                        authFailed();
+                        return;
+                    }
+                    byte[] serverSignature = SASLUtils.verifyScramClientFinal(creds,
+                            authChallenge, clientFinal, authNonce);
+                    if (serverSignature == null) {
+                        authFailed();
+                        return;
+                    }
+                    final byte[] scramServerSignature = serverSignature;
+                    openMailStoreAsync(username, "SCRAM-SHA-256",
+                            tag, new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                String serverFinal = "v=" + Base64.getEncoder()
+                                        .encodeToString(scramServerSignature);
+                                sendContinuation(SASLUtils.encodeBase64(serverFinal));
+                                authSucceeded();
+                            } catch (IOException e) {
+                                LOGGER.log(Level.WARNING,
+                                        "Failed to complete SCRAM-SHA-256", e);
+                            }
+                        }
+                    });
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to complete SCRAM-SHA-256 client-final", e);
+                }
+            }
+
+            @Override
+            public void failed(Throwable error) {
+                try {
+                    authFailed();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Failed to send auth failure", e);
+                }
+            }
+        });
     }
 
     private void processOAuthBearerCredentials(String line) throws IOException {
@@ -2135,6 +2173,40 @@ public final class IMAPProtocolHandler
             @Override
             public Boolean call() {
                 return realm.passwordMatch(username, password);
+            }
+        }, callback);
+    }
+
+    /**
+     * Derives (or fetches already-cached) SCRAM credentials off the
+     * SelectorLoop thread. For {@link org.bluezoo.gumdrop.auth.BasicRealm},
+     * a cache miss here runs a 210,000-iteration PBKDF2-HMAC-SHA256
+     * derivation -- genuinely CPU-bound work, but this still goes through
+     * {@link StorageExecutor} rather than the CPU-tuned {@code
+     * CryptoExecutor} (see issues #262/#274), since {@link
+     * Realm#getScramCredentials} is a generic {@link Realm} method that an
+     * LDAP/OAuth-backed realm could equally implement with a blocking
+     * network round trip; routing that onto a small, CPU-sized pool shared
+     * with TLS/QUIC handshake crypto would let a slow directory server
+     * starve unrelated connections' handshakes. This mirrors {@link
+     * #authenticateUserAsync}, which makes the same call for {@link
+     * Realm#passwordMatch}.
+     *
+     * @param callback receives the result (or the failure, e.g. an
+     *                 {@link UnsupportedOperationException} if this realm
+     *                 doesn't support SCRAM) on the loop thread
+     */
+    private void getScramCredentialsAsync(final String username,
+            final StorageExecutor.Callback<Realm.ScramCredentials> callback) {
+        final Realm realm = getRealm();
+        if (realm == null) {
+            callback.completed(null);
+            return;
+        }
+        submitStorage(new Callable<Realm.ScramCredentials>() {
+            @Override
+            public Realm.ScramCredentials call() {
+                return realm.getScramCredentials(username);
             }
         }, callback);
     }
