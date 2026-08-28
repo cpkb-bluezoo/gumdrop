@@ -81,7 +81,29 @@ public class HTTPDateFormatTest {
         assertTrue(formatted.contains("05 Mar 2024"));
         assertTrue(formatted.contains("09:05:03"));
     }
-    
+
+    /**
+     * format(long) is a Date-allocation-free entry point added for
+     * HTTPDateCache (which refreshes a cached header value once per
+     * second and previously wrapped System.currentTimeMillis() in a
+     * throwaway Date purely to call format(Date)). It must produce
+     * byte-for-byte the same output as format(Date) for the same instant.
+     */
+    @Test
+    public void testFormatMillisMatchesFormatDate() {
+        long[] instants = {
+            0L,                          // epoch
+            1731673845000L,              // Fri, 15 Nov 2024 12:30:45 GMT
+            System.currentTimeMillis(),  // now
+        };
+        for (long millis : instants) {
+            String fromDate = format.format(new Date(millis));
+            String fromMillis = format.format(millis);
+            assertEquals("format(long) must match format(Date) for the same instant",
+                    fromDate, fromMillis);
+        }
+    }
+
     @Test
     public void testFormatAllDaysOfWeek() {
         String[] expectedDays = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};

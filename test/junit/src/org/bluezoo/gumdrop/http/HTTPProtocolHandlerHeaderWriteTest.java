@@ -112,6 +112,131 @@ public class HTTPProtocolHandlerHeaderWriteTest {
                 endpoint.capturedAscii());
     }
 
+    /**
+     * The Date header, when its value is exactly the HTTPDateCache-cached
+     * String (as Stream.sendResponseHeaders always sources it), must be
+     * writable via HTTPDateCache's pre-encoded bulk byte line instead of
+     * the generic per-character path - and the output must be identical
+     * either way.
+     */
+    @Test
+    public void testDateHeaderFromCacheIsWrittenExactly() {
+        Headers headers = new Headers();
+        headers.add(new Header("Date", HTTPDateCache.get()));
+
+        connection.sendResponseHeaders(1, 200, headers, false);
+
+        assertEquals("HTTP/1.1 200 OK\r\n"
+                + "Date: " + HTTPDateCache.get() + "\r\n"
+                + "\r\n",
+                endpoint.capturedAscii());
+    }
+
+    /**
+     * The other framework-fixed headers (Server, the default security
+     * headers, Transfer-Encoding: chunked, Connection: close) take the
+     * same reference-matched bulk-write path as Date, provided their
+     * value is exactly HTTPProtocolHandler's shared constant for that
+     * header - which is what Stream.sendResponseHeaders now always uses
+     * (see the assertSame check further down: it is this wiring, not just
+     * the bytes written here, that Stream.java could silently drift out
+     * of sync with in a future change).
+     */
+    @Test
+    public void testServerHeaderIsWrittenExactly() {
+        Headers headers = new Headers();
+        headers.add(new Header("Server", HTTPProtocolHandler.SERVER_HEADER_VALUE));
+
+        connection.sendResponseHeaders(1, 200, headers, false);
+
+        assertEquals("HTTP/1.1 200 OK\r\n"
+                + "Server: " + HTTPProtocolHandler.SERVER_HEADER_VALUE + "\r\n"
+                + "\r\n",
+                endpoint.capturedAscii());
+    }
+
+    @Test
+    public void testConnectionCloseHeaderIsWrittenExactly() {
+        Headers headers = new Headers();
+        headers.add(new Header("Connection", HTTPProtocolHandler.CONNECTION_CLOSE_VALUE));
+
+        connection.sendResponseHeaders(1, 200, headers, false);
+
+        assertEquals("HTTP/1.1 200 OK\r\n"
+                + "Connection: close\r\n"
+                + "\r\n",
+                endpoint.capturedAscii());
+    }
+
+    @Test
+    public void testSecurityHeadersAreWrittenExactly() {
+        Headers headers = new Headers();
+        headers.add(new Header("X-Frame-Options", HTTPProtocolHandler.X_FRAME_OPTIONS_VALUE));
+        headers.add(new Header("X-Content-Type-Options", HTTPProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE));
+
+        connection.sendResponseHeaders(1, 200, headers, false);
+
+        assertEquals("HTTP/1.1 200 OK\r\n"
+                + "X-Frame-Options: SAMEORIGIN\r\n"
+                + "X-Content-Type-Options: nosniff\r\n"
+                + "\r\n",
+                endpoint.capturedAscii());
+    }
+
+    @Test
+    public void testTransferEncodingChunkedIsWrittenExactly() {
+        Headers headers = new Headers();
+        headers.add(new Header("Transfer-Encoding", HTTPProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE));
+
+        connection.sendResponseHeaders(1, 200, headers, false);
+
+        assertEquals("HTTP/1.1 200 OK\r\n"
+                + "Transfer-Encoding: chunked\r\n"
+                + "\r\n",
+                endpoint.capturedAscii());
+    }
+
+    /**
+     * A well-known-named header whose value is merely equal (a distinct
+     * String with the same characters, built via a non-constant path) but
+     * not the same reference must NOT take the bulk-byte fast path - the
+     * fast path is only sound because it matches the exact object
+     * Stream.java is guaranteed to use, not "equal-looking" text.
+     */
+    @Test
+    public void testEqualButNotSameConnectionValueUsesGenericPath() {
+        Headers headers = new Headers();
+        // new String(...) deliberately defeats literal interning.
+        headers.add(new Header("Connection", new String("close".toCharArray())));
+
+        connection.sendResponseHeaders(1, 200, headers, false);
+
+        assertEquals("HTTP/1.1 200 OK\r\n"
+                + "Connection: close\r\n"
+                + "\r\n",
+                endpoint.capturedAscii());
+    }
+
+    /**
+     * A "Date" header whose value is NOT the cached instance (however
+     * unlikely in practice) must still be written verbatim, not silently
+     * replaced by the cache's current bytes - proving the fast path's
+     * value == HTTPDateCache.get() guard, not just its name check, is
+     * what gates it.
+     */
+    @Test
+    public void testDateHeaderWithUncachedValueIsNotReplacedByCacheBytes() {
+        Headers headers = new Headers();
+        headers.add(new Header("Date", "Not, 00 Xxx 0000 00:00:00 GMT"));
+
+        connection.sendResponseHeaders(1, 200, headers, false);
+
+        assertEquals("HTTP/1.1 200 OK\r\n"
+                + "Date: Not, 00 Xxx 0000 00:00:00 GMT\r\n"
+                + "\r\n",
+                endpoint.capturedAscii());
+    }
+
     @Test
     public void testMultipleHeadersAndNonDefaultStatus() {
         Headers headers = new Headers();

@@ -42,7 +42,6 @@ import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
-import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -1033,12 +1032,18 @@ class Stream implements HTTPResponseState {
         boolean hasTransferEncoding = headers.containsName("Transfer-Encoding");
 
         // RFC 9110 section 10.2.4: Server header field
-        headers.add(new Header("Server", "gumdrop/" + Gumdrop.VERSION));
+        //
+        // These values are the exact HTTPProtocolHandler.*_VALUE constants
+        // (not just equal-looking literals) so that writeWellKnownLine's
+        // reference-equality fast path there actually applies: it exists
+        // specifically to bulk-write these framework-fixed lines instead of
+        // encoding their characters again on every single response.
+        headers.add(new Header("Server", HTTPProtocolHandler.SERVER_HEADER_VALUE));
         // RFC 9110 section 6.6.1: origin server SHOULD send Date in responses
         headers.add(new Header("Date", HTTPDateCache.get()));
         // RFC 9112 section 9.6: Connection: close signals end of persistence
         if (closeConnection) {
-            headers.add(new Header("Connection", "close"));
+            headers.add(new Header("Connection", HTTPProtocolHandler.CONNECTION_CLOSE_VALUE));
         }
 
         // Add default security headers if enabled and not already set
@@ -1047,10 +1052,10 @@ class Stream implements HTTPResponseState {
                     ((HTTPProtocolHandler) connection).getListener();
             if (listener != null && listener.getAddSecurityHeaders()) {
                 if (!hasXFrameOptions) {
-                    headers.add(new Header("X-Frame-Options", "SAMEORIGIN"));
+                    headers.add(new Header("X-Frame-Options", HTTPProtocolHandler.X_FRAME_OPTIONS_VALUE));
                 }
                 if (!hasXContentTypeOptions) {
-                    headers.add(new Header("X-Content-Type-Options", "nosniff"));
+                    headers.add(new Header("X-Content-Type-Options", HTTPProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE));
                 }
             }
         }
@@ -1067,7 +1072,7 @@ class Stream implements HTTPResponseState {
                 && !"HEAD".equals(method)
                 && !hasContentLength
                 && !hasTransferEncoding) {
-            headers.add("Transfer-Encoding", "chunked");
+            headers.add("Transfer-Encoding", HTTPProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE);
             responseChunked = true;
         }
 

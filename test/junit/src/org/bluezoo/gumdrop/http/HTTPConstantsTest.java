@@ -2,12 +2,36 @@ package org.bluezoo.gumdrop.http;
 
 import org.junit.Test;
 
+import java.nio.charset.StandardCharsets;
+
 import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link HTTPConstants}.
  */
 public class HTTPConstantsTest {
+
+    /**
+     * getMessageBytes is a pre-encoded, allocation-free counterpart to
+     * getMessage for wire-writing callers (HTTPProtocolHandler); it must
+     * describe the exact same text for every known code, and fall back
+     * the same way for an unknown one.
+     */
+    @Test
+    public void testGetMessageBytesMatchesGetMessageForKnownCodes() {
+        int[] codes = { 100, 200, 204, 301, 400, 404, 418, 500, 511 };
+        for (int code : codes) {
+            byte[] expected = HTTPConstants.getMessage(code).getBytes(StandardCharsets.US_ASCII);
+            assertArrayEquals("mismatch for status " + code,
+                    expected, HTTPConstants.getMessageBytes(code));
+        }
+    }
+
+    @Test
+    public void testGetMessageBytesUnknownCodeFallsBackLikeGetMessage() {
+        byte[] expected = HTTPConstants.getMessage(999).getBytes(StandardCharsets.US_ASCII);
+        assertArrayEquals(expected, HTTPConstants.getMessageBytes(999));
+    }
 
     @Test
     public void testGetMessageKnownCodes() {
