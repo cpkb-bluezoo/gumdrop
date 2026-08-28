@@ -129,6 +129,15 @@ public class QuicTlsClientEngineTest {
         @Override
         public void earlyDataOutcomeKnown(boolean accepted) {
         }
+
+        @Override
+        public void execute(Runnable task) {
+            task.run();
+        }
+
+        @Override
+        public void cryptoProcessingFailed(EncryptionLevel level, Throwable cause) {
+        }
     }
 
 }

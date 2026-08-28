@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.quic.tls;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 
 import tech.kwik.agent15.NewSessionTicket;
@@ -59,10 +61,17 @@ public final class QuicTlsServerEngine
     private final TlsServerEngine engine;
     private final QuicTlsEngineListener listener;
     private final TlsMessageParser messageParser = new TlsMessageParser();
+    private final QuicHandshakeAsyncOffload asyncOffload;
 
     private final CryptoStreamBuffer initialReceiveBuffer = new CryptoStreamBuffer();
     private final CryptoStreamBuffer handshakeReceiveBuffer = new CryptoStreamBuffer();
     private final CryptoStreamBuffer applicationReceiveBuffer = new CryptoStreamBuffer();
+
+    // Raw CRYPTO frame bytes received while a batch of handshake message
+    // processing is already in flight on a crypto thread -- Agent15's
+    // engines are not safe for concurrent use, so these wait, in arrival
+    // order, until the in-flight batch completes (see #drainPendingFrames).
+    private final Deque<PendingFrame> pendingFrames = new ArrayDeque<PendingFrame>();
 
     private long initialSendOffset;
     private long handshakeSendOffset;
@@ -144,6 +153,7 @@ public final class QuicTlsServerEngine
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled, String applicationProtocols, String cipherSuites) {
         this.listener = listener;
+        this.asyncOffload = new QuicHandshakeAsyncOffload(listener);
         this.earlyDataEnabled = earlyDataEnabled;
         this.supportedApplicationProtocols = applicationProtocols != null && !applicationProtocols.isEmpty()
                 ? java.util.Arrays.asList(applicationProtocols.split(","))
@@ -156,8 +166,11 @@ public final class QuicTlsServerEngine
 
     /**
      * Feeds received CRYPTO frame data at the given level into
-     * handshake message reassembly, dispatching complete messages to
-     * Agent15 as they become available. The ClientHello, received at
+     * handshake message reassembly. Complete messages are dispatched to
+     * Agent15 asynchronously, off the caller's thread, via {@link
+     * QuicHandshakeAsyncOffload}; a processing failure reaches {@link
+     * QuicTlsEngineListener#cryptoProcessingFailed} rather than being
+     * thrown back through this call. The ClientHello, received at
      * {@link EncryptionLevel#INITIAL}, starts the server's handshake
      * processing and its own reply.
      *
@@ -165,13 +178,72 @@ public final class QuicTlsServerEngine
      * @param offset the byte offset of {@code data} within this level's
      *               CRYPTO stream
      * @param data the received handshake data
-     * @throws TlsProtocolException if Agent15 rejects a handshake message
-     * @throws IOException if Agent15 fails to process a handshake message
+     * @throws StreamReassembler.BufferLimitExceededException if reordered
+     *         data exceeds the per-level reassembly buffer's limit
      */
     @Override
     public void receiveCryptoData(EncryptionLevel level, long offset, ByteBuffer data)
-            throws TlsProtocolException, IOException {
-        bufferFor(level).receive(offset, data, messageParser, engine, level);
+            throws StreamReassembler.BufferLimitExceededException {
+        if (asyncOffload.isBusy()) {
+            byte[] copy = new byte[data.remaining()];
+            data.get(copy);
+            pendingFrames.add(new PendingFrame(level, offset, copy));
+            return;
+        }
+        dispatchFrame(level, offset, data);
+    }
+
+    private void dispatchFrame(EncryptionLevel level, long offset, ByteBuffer data)
+            throws StreamReassembler.BufferLimitExceededException {
+        final List<ByteBuffer> messages = bufferFor(level).receiveAndExtractMessages(offset, data);
+        if (messages.isEmpty()) {
+            return;
+        }
+        asyncOffload.submit(level, new QuicHandshakeAsyncOffload.BatchProcessor() {
+            @Override
+            public void process() throws TlsProtocolException, IOException {
+                for (ByteBuffer msg : messages) {
+                    messageParser.parseAndProcessHandshakeMessage(msg, engine, level.getProtectionKeysType());
+                }
+            }
+        }, new Runnable() {
+            @Override
+            public void run() {
+                drainPendingFrames();
+            }
+        });
+    }
+
+    // Called once a batch completes, on the loop thread: dispatches
+    // whatever CRYPTO frames queued up while it was running, one at a
+    // time, until either the queue empties or a new batch is submitted
+    // (whose own completion will call back here again).
+    private void drainPendingFrames() {
+        while (!asyncOffload.isBusy()) {
+            PendingFrame next = pendingFrames.poll();
+            if (next == null) {
+                return;
+            }
+            try {
+                dispatchFrame(next.level, next.offset, ByteBuffer.wrap(next.data));
+            } catch (StreamReassembler.BufferLimitExceededException e) {
+                listener.cryptoProcessingFailed(next.level, e);
+                pendingFrames.clear();
+                return;
+            }
+        }
+    }
+
+    private static final class PendingFrame {
+        final EncryptionLevel level;
+        final long offset;
+        final byte[] data;
+
+        PendingFrame(EncryptionLevel level, long offset, byte[] data) {
+            this.level = level;
+            this.offset = offset;
+            this.data = data;
+        }
     }
 
     private CryptoStreamBuffer bufferFor(EncryptionLevel level) {
@@ -183,6 +255,21 @@ public final class QuicTlsServerEngine
             default:
                 return applicationReceiveBuffer;
         }
+    }
+
+    /**
+     * Whether a batch of handshake message processing is currently
+     * running off the caller's thread. Test-harness synchronization only
+     * (e.g. a hand-scripted, no-socket peer that needs to know when it is
+     * safe to read state a just-submitted batch's deferred callbacks
+     * will populate); production code has no need to poll this, since
+     * {@link QuicTlsEngineListener} callbacks already arrive back on the
+     * loop thread in order.
+     *
+     * @return true if a batch is in flight
+     */
+    public boolean isHandshakeProcessingBusy() {
+        return asyncOffload.isBusy();
     }
 
     /**
@@ -275,39 +362,71 @@ public final class QuicTlsServerEngine
     @Override
     public void send(NewSessionTicketMessage ticket) throws IOException {
         // RFC 9001 section 4.6: post-handshake messages are sent at 1-RTT.
-        byte[] data = ticket.getBytes();
-        long offset = applicationSendOffset;
+        final byte[] data = ticket.getBytes();
+        final long offset = applicationSendOffset;
         applicationSendOffset += data.length;
-        listener.cryptoDataReady(EncryptionLevel.ONE_RTT, offset, data);
+        asyncOffload.dispatch(new Runnable() {
+            @Override
+            public void run() {
+                listener.cryptoDataReady(EncryptionLevel.ONE_RTT, offset, data);
+            }
+        });
     }
 
     private void sendAtInitialLevel(byte[] data) {
-        long offset = initialSendOffset;
+        final long offset = initialSendOffset;
         initialSendOffset += data.length;
-        listener.cryptoDataReady(EncryptionLevel.INITIAL, offset, data);
+        final byte[] finalData = data;
+        asyncOffload.dispatch(new Runnable() {
+            @Override
+            public void run() {
+                listener.cryptoDataReady(EncryptionLevel.INITIAL, offset, finalData);
+            }
+        });
     }
 
     private void sendAtHandshakeLevel(byte[] data) {
-        long offset = handshakeSendOffset;
+        final long offset = handshakeSendOffset;
         handshakeSendOffset += data.length;
-        listener.cryptoDataReady(EncryptionLevel.HANDSHAKE, offset, data);
+        final byte[] finalData = data;
+        asyncOffload.dispatch(new Runnable() {
+            @Override
+            public void run() {
+                listener.cryptoDataReady(EncryptionLevel.HANDSHAKE, offset, finalData);
+            }
+        });
     }
 
     // ── TlsStatusEventHandler ──
 
     @Override
     public void earlySecretsKnown() {
-        listener.earlySecretsAvailable();
+        asyncOffload.dispatch(new Runnable() {
+            @Override
+            public void run() {
+                listener.earlySecretsAvailable();
+            }
+        });
     }
 
     @Override
     public void handshakeSecretsKnown() {
-        listener.handshakeSecretsAvailable();
+        asyncOffload.dispatch(new Runnable() {
+            @Override
+            public void run() {
+                listener.handshakeSecretsAvailable();
+            }
+        });
     }
 
     @Override
     public void handshakeFinished() {
-        listener.handshakeFinished();
+        asyncOffload.dispatch(new Runnable() {
+            @Override
+            public void run() {
+                listener.handshakeFinished();
+            }
+        });
     }
 
     @Override
@@ -320,15 +439,22 @@ public final class QuicTlsServerEngine
         // RFC 9000 section 7.3 requires this extension to be present;
         // that is not enforced yet, so a missing extension is silently
         // ignored rather than closing the connection.
-        TransportParameters transportParameters = QuicTransportParametersExtension.find(extensions);
+        final TransportParameters transportParameters = QuicTransportParametersExtension.find(extensions);
         if (transportParameters != null) {
-            listener.transportParametersReceived(transportParameters);
+            asyncOffload.dispatch(new Runnable() {
+                @Override
+                public void run() {
+                    listener.transportParametersReceived(transportParameters);
+                }
+            });
         }
         // RFC 7301: pick the first client-offered protocol this server
         // also supports. No match (or nothing configured either side)
         // just leaves the selected protocol unset -- this minimal
         // implementation doesn't enforce RFC 7301's negotiation-failure
-        // closing behaviour (see the class documentation).
+        // closing behaviour (see the class documentation). Selecting the
+        // protocol on the engine itself is not a listener callback, so
+        // it runs immediately rather than through asyncOffload.
         for (Extension extension : extensions) {
             if (extension instanceof ApplicationLayerProtocolNegotiationExtension) {
                 for (String offered : ((ApplicationLayerProtocolNegotiationExtension) extension).getProtocols()) {

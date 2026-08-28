@@ -308,6 +308,22 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         earlyDataAccepted = accepted;
     }
 
+    @Override
+    public void execute(Runnable task) {
+        // This peer has no real event loop; a real CryptoExecutor (only
+        // present when a test starts a live Gumdrop, unlike the ordinary
+        // no-socket peer tests) delivers its outcome from a pool thread,
+        // so this just runs it inline there. receiveDatagram() polls
+        // isHandshakeProcessingBusy() afterwards so callers observe a
+        // consistent state once it returns, whichever thread this ran on.
+        task.run();
+    }
+
+    @Override
+    public void cryptoProcessingFailed(EncryptionLevel level, Throwable cause) {
+        deliveryError = cause instanceof Exception ? (Exception) cause : new RuntimeException(cause);
+    }
+
     private void deriveDirectionalKeys(EncryptionLevel level, Hkdf hkdf, QuicAeadAlgorithm aead,
             byte[] clientSecret, byte[] serverSecret) {
         PacketProtectionKeys clientDirectionKeys = PacketProtectionKeys.derive(hkdf, clientSecret, aead);
@@ -696,9 +712,39 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         deliveryError = null;
         QuicFrameParser parser = new QuicFrameParser(new DeliveringFrameHandler(level));
         parser.receive(ByteBuffer.wrap(plaintext));
+        awaitHandshakeProcessingIdle();
         if (deliveryError != null) {
             throw deliveryError;
         }
+    }
+
+    // Blocks until any handshake message processing that the frames just
+    // delivered triggered has actually completed and applied its
+    // callbacks (cryptoDataReady, handshakeFinished, etc.) -- a no-op
+    // when nothing started a live Gumdrop (the ordinary case for this
+    // harness), since then QuicHandshakeAsyncOffload runs everything
+    // synchronously and this is already false by the time control
+    // returns here. Only genuinely waits when a real CryptoExecutor is
+    // in play (see QuicHandshakeAsyncOffloadTest), where a pool thread
+    // delivers the outcome asynchronously relative to this method's
+    // caller -- without this, the next hand-scripted step in a
+    // completeHandshake() sequence could run before this step's
+    // response bytes exist in pendingCrypto.
+    private void awaitHandshakeProcessingIdle() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 10000;
+        while (isHandshakeProcessingBusy()) {
+            if (System.currentTimeMillis() > deadline) {
+                throw new IllegalStateException(
+                        "Timed out waiting for async QUIC handshake processing to settle");
+            }
+            Thread.sleep(1);
+        }
+    }
+
+    private boolean isHandshakeProcessingBusy() {
+        return isClient
+                ? ((QuicTlsClientEngine) tlsEngine).isHandshakeProcessingBusy()
+                : ((QuicTlsServerEngine) tlsEngine).isHandshakeProcessingBusy();
     }
 
     private static class PendingChunk {
