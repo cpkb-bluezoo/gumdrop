@@ -105,7 +105,7 @@ Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Net
 
 \* Netty saw ~3% request errors in this scenario (short-lived TLS-handshake churn at concurrency 20); Gumdrop saw none. Every other scenario ran error-free on both servers.
 
-Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahead on per-request TLS handshake throughput, and behind on sustained keep-alive TLS and HTTP/2 — Netty's HTTP/2 codec pipeline in particular is considerably faster here. These numbers reflect several rounds of profiling-driven fixes earlier in this benchmarking effort ([#289](https://github.com/cpkb-bluezoo/gumdrop/issues/289) and its predecessors): an HTTP/2 stream concurrency-slot leak, an O(n) HPACK/QPACK static-table scan, and a bit-at-a-time Huffman decoder were each found and fixed along the way, more than doubling Gumdrop's HTTP/2 throughput over the course of the investigation.
+Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahead on per-request TLS handshake throughput, and behind on sustained keep-alive TLS and HTTP/2.
 
 ## Full feature list
 
