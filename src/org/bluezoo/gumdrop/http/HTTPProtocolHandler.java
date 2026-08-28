@@ -293,7 +293,15 @@ public final class HTTPProtocolHandler
     private int clientStreamId = INITIAL_CLIENT_STREAM_ID;
     private int serverStreamId = INITIAL_SERVER_STREAM_ID;
     private int lastClientStreamId;
-    private final Map<Integer, Stream> streams = new ConcurrentHashMap<Integer, Stream>();
+    // Not a ConcurrentHashMap: every access to an HTTPProtocolHandler
+    // instance - HTTP/1.x request handling and HTTP/2 frame processing
+    // alike - happens on this connection's own SelectorLoop thread only
+    // (see ScheduledTimer's class javadoc: even timer callbacks are
+    // marshalled back onto a connection's owning loop thread rather than
+    // firing on the timer thread directly), so the concurrent-safety this
+    // buys is unused cost on every get/put and, worse, on every resize
+    // (issue #279).
+    private final Map<Integer, Stream> streams = new HashMap<Integer, Stream>();
     private int continuationStream;
     private boolean continuationEndStream;
     private final Set<Integer> activeStreams = new ConcurrentSkipListSet<Integer>();
@@ -867,6 +875,17 @@ public final class HTTPProtocolHandler
         if (window >= toSend) {
             h2FlowControl.consumeSendWindow(streamId, toSend);
             sendH2DataDirect(streamId, buf, endStream);
+            // Nothing was queued for this stream (the whole buffer went out
+            // synchronously above), so - same as the completion branch of
+            // drainPendingData() below - release the RFC 9218 non-incremental
+            // slot now rather than holding it forever. Without this, a
+            // stream that always sends its full body in one shot (the
+            // common case for small responses) claims the slot in
+            // claimH2BodySlot() above but never releases it, permanently
+            // starving every other non-incremental stream at the same
+            // urgency from ever sending DATA again.
+            releaseH2BodySlot(streamId);
+            drainRfc9218Pending();
         } else if (window > 0) {
             h2FlowControl.consumeSendWindow(streamId, window);
             int savedLimit = buf.limit();
@@ -1556,13 +1575,32 @@ public final class HTTPProtocolHandler
         return DEFAULT_METHODS.contains(method);
     }
 
-    private Stream getStream(int streamId) {
+    Stream getStream(int streamId) {
         maybeCleanupClosedStreams();
         if (streamId == 0) {
             return null;
         }
         Stream s = streams.get(streamId);
         if (s == null) {
+            // A plain HTTP/1.x connection processes exactly one
+            // request/response at a time, sequentially, on this
+            // connection's own SelectorLoop thread - so a brand-new stream
+            // ID while still in one of these states means any previously
+            // tracked stream has already fully completed. Evict it here
+            // instead of waiting for the next periodic
+            // maybeCleanupClosedStreams() sweep (gated 30s apart), so
+            // streams never grows past one entry - and never needs to
+            // resize - under sustained HTTP/1.1 keep-alive throughput
+            // (issue #279). Deliberately an allowlist of the plain
+            // HTTP/1.x states rather than excluding the HTTP/2 ones: the
+            // h2c-upgrade transition (H2C_PREFACE, PRI, PRI_SETTINGS) can
+            // have a stream from before the upgrade (the upgrading request
+            // itself, or a prior-knowledge placeholder) that must survive
+            // into real HTTP/2 processing, and a future state added to the
+            // enum defaults to not clearing rather than clearing wrongly.
+            if (isSequentialHttp1State() && !streams.isEmpty()) {
+                streams.clear();
+            }
             s = newStream(this, streamId);
             if (h2FlowControl != null) {
                 h2FlowControl.openStream(streamId);
@@ -1570,6 +1608,26 @@ public final class HTTPProtocolHandler
             streams.put(streamId, s);
         }
         return s;
+    }
+
+    private boolean isSequentialHttp1State() {
+        switch (state) {
+            case REQUEST_LINE:
+            case HEADER:
+            case BODY:
+            case BODY_CHUNKED_SIZE:
+            case BODY_CHUNKED_DATA:
+            case BODY_CHUNKED_TRAILER:
+            case BODY_UNTIL_CLOSE:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /** Package-private, only ever read by tests (see issue #279). */
+    int streamCountForTesting() {
+        return streams.size();
     }
 
     // Called by Stream when its response path sets state to CLOSED, freeing the
@@ -1586,7 +1644,14 @@ public final class HTTPProtocolHandler
         }
         lastStreamCleanup = now;
         int removedCount = 0;
-        for (Map.Entry<Integer, Stream> entry : streams.entrySet()) {
+        // An explicit iterator with it.remove() is required now that
+        // streams is a plain HashMap (issue #279): calling streams.remove()
+        // directly while a for-each loop holds the entrySet's own iterator
+        // open is safe for the former ConcurrentHashMap (weakly-consistent
+        // iterators tolerate concurrent structural changes) but throws
+        // ConcurrentModificationException on a HashMap.
+        for (Iterator<Map.Entry<Integer, Stream>> it = streams.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<Integer, Stream> entry = it.next();
             Stream stream = entry.getValue();
             if (stream.isClosed()) {
                 // Free the concurrency slot for any closed stream not already
@@ -1595,19 +1660,18 @@ public final class HTTPProtocolHandler
                 activeStreams.remove(entry.getKey());
                 if ((now - stream.timestampCompleted) > STREAM_RETENTION_MS) {
                     int sid = entry.getKey();
-                    if (streams.remove(sid, stream)) {
-                        if (h2FlowControl != null) {
-                            h2FlowControl.closeStream(sid);
-                        }
-                        h2WriteCallbacks.remove(sid);
-                        h2PendingBytes.remove(sid);
-                        h2Priority.remove(Integer.valueOf(sid));
-                        PendingData removed = h2PendingData.remove(sid);
-                        if (removed != null) {
-                            releasePendingData(removed);
-                        }
-                        removedCount++;
+                    it.remove();
+                    if (h2FlowControl != null) {
+                        h2FlowControl.closeStream(sid);
                     }
+                    h2WriteCallbacks.remove(sid);
+                    h2PendingBytes.remove(sid);
+                    h2Priority.remove(Integer.valueOf(sid));
+                    PendingData removed = h2PendingData.remove(sid);
+                    if (removed != null) {
+                        releasePendingData(removed);
+                    }
+                    removedCount++;
                 }
             }
         }
@@ -2288,11 +2352,14 @@ public final class HTTPProtocolHandler
     // RFC 9112 section 5: field-line = field-name ":" OWS field-value OWS
     private void writeStatusLineAndHeaders(ByteBuffer buf, int statusCode, Headers headers) {
         try {
-            StringBuilder sb = new StringBuilder();
-            sb.append(version.toString()).append(' ')
-              .append(statusCode / 100).append(statusCode / 10 % 10).append(statusCode % 10)
-              .append(' ').append(HTTPConstants.getMessage(statusCode)).append("\r\n");
-            buf.put(sb.toString().getBytes(US_ASCII));
+            writeAscii(buf, version.toString());
+            buf.put((byte) ' ');
+            buf.put((byte) ('0' + statusCode / 100));
+            buf.put((byte) ('0' + statusCode / 10 % 10));
+            buf.put((byte) ('0' + statusCode % 10));
+            buf.put((byte) ' ');
+            writeAscii(buf, HTTPConstants.getMessage(statusCode));
+            buf.put(CRLF);
             for (Header header : headers) {
                 String name = header.getName();
                 // Skip HTTP/2 pseudo-headers (RFC 9113 section 8.3)
@@ -2303,22 +2370,59 @@ public final class HTTPProtocolHandler
                 if (value == null) {
                     continue;
                 }
-                int cflags = getCharsetFlags(value);
-                if ((cflags & CHARSET_UNICODE) != 0) {
+                // Common case: write the ASCII bytes of a guaranteed-ASCII
+                // name plus the value straight into buf, no intermediate
+                // String/StringBuilder/byte[] allocation. Only a value that
+                // actually contains non-ASCII characters needs the
+                // RFC 2047 encoded-word fallback below (issue #280).
+                if (isAscii(value)) {
+                    writeAscii(buf, name);
+                    buf.put((byte) ':');
+                    buf.put((byte) ' ');
+                    writeAscii(buf, value);
+                    buf.put(CRLF);
+                } else {
+                    int cflags = getCharsetFlags(value);
                     String enc = ((cflags & CHARSET_Q_ENCODING) != 0) ? "Q" : "B";
-                    value = MimeUtility.encodeText(value, "UTF-8", enc);
+                    String encodedValue = MimeUtility.encodeText(value, "UTF-8", enc);
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(name).append(": ").append(encodedValue).append("\r\n");
+                    buf.put(sb.toString().getBytes(US_ASCII));
                 }
-                sb.setLength(0);
-                sb.append(name).append(": ").append(value).append("\r\n");
-                buf.put(sb.toString().getBytes(US_ASCII));
             }
             // Empty line terminates header section (RFC 9112 section 2)
-            buf.put(new byte[] { (byte) 0x0d, (byte) 0x0a });
+            buf.put(CRLF);
         } catch (IOException e) {
             RuntimeException e2 = new RuntimeException();
             e2.initCause(e);
             throw e2;
         }
+    }
+
+    private static final byte[] CRLF = { (byte) 0x0d, (byte) 0x0a };
+
+    /**
+     * Writes a string known to contain only ASCII characters (header
+     * names, the HTTP version token, status reason phrases) directly as
+     * bytes, with no intermediate String/byte[] allocation.
+     */
+    private static void writeAscii(ByteBuffer buf, String s) {
+        int len = s.length();
+        for (int i = 0; i < len; i++) {
+            buf.put((byte) s.charAt(i));
+        }
+    }
+
+    /** True iff every character is in the ASCII range accepted by getCharsetFlags. */
+    private static boolean isAscii(String text) {
+        int len = text.length();
+        for (int i = 0; i < len; i++) {
+            char c = text.charAt(i);
+            if (!((c >= 32 && c < 127) || c == '\n' || c == '\r' || c == '\t')) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static int getCharsetFlags(String text) {
@@ -2687,7 +2791,16 @@ public final class HTTPProtocolHandler
         if (streamId == 0) {
             drainRfc9218Pending();
         } else {
-            if (claimH2BodySlot(streamId)) {
+            // Only claim the slot when there is actually queued DATA to
+            // drain for this stream. A per-stream WINDOW_UPDATE is routine
+            // flow-control housekeeping that a client may send long after
+            // the stream's response was already fully sent (e.g. via the
+            // direct-send path in sendH2Data()); claiming unconditionally
+            // here leaked the slot forever in that case, because
+            // drainPendingData() returns immediately when there is nothing
+            // pending for the stream, without ever releasing what was just
+            // claimed above.
+            if (h2PendingData.containsKey(Integer.valueOf(streamId)) && claimH2BodySlot(streamId)) {
                 drainPendingData(streamId);
             }
         }
