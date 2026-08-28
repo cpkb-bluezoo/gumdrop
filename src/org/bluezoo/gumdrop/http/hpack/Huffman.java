@@ -568,88 +568,50 @@ public class Huffman {
     /**
      * Encodes an array of plaintext bytes into an HPACK Huffman-encoded byte array.
      *
+     * <p>Unlike decoding, encoding needs no trie/state carried across byte
+     * boundaries -- {@code CODE_BITS[value]}/{@code CODE_LENGTH[value]} are
+     * already an O(1) lookup per input byte. The cost this method used to
+     * pay was appending those bits one at a time into a growable buffer
+     * (issue #296). Instead: sum the exact output length up front (one
+     * pass, pure array lookups), allocate precisely that array once, then
+     * pack each code's bits into a 64-bit accumulator and drain whole
+     * bytes out of it -- a shift/mask/store per output byte rather than a
+     * branch per output bit, and no resize/copy at any point.
+     *
+     * <p>The longest real per-byte code is 28 bits (see {@code CODE_LENGTH}
+     * above); adding that to at most 7 bits already pending before a flush
+     * never approaches the 64-bit accumulator's capacity, so it can never
+     * overflow between flushes.
+     *
      * @param plaintextBytes The byte array containing the plaintext data to encode.
      * @return A byte array containing the HPACK Huffman-encoded data.
-     * @throws IllegalStateException If a character in the plaintext is not found in the Huffman table.
      */
     public static byte[] encode(byte[] plaintextBytes) {
-
-        // Use a BitBuffer to accumulate bits efficiently
-        BitBuffer bitBuffer = new BitBuffer();
-
+        long totalBits = 0;
         for (byte b : plaintextBytes) {
-            int charValue = b & 0xFF; // Convert byte to unsigned int index; no boxing
-            byte numBits = CODE_LENGTH[charValue];
-            bitBuffer.appendBits(CODE_BITS[charValue], numBits);
+            totalBits += CODE_LENGTH[b & 0xFF];
         }
+        byte[] out = new byte[(int) ((totalBits + 7) / 8)];
 
-        // BitBuffer.toByteArray will pad any remaining bits with 1
-        return bitBuffer.toByteArray();
-    }
-
-    /**
-     * Helper class to build a sequence of bits and convert them to a byte array.
-     */
-    private static class BitBuffer {
-
-        private byte[] bytes = new byte[64];
-        private int byteLen = 0;
-        private int currentByte = 0;
-        private int bitsInCurrentByte = 0;
-
-        /**
-         * Appends a given number of bits from an integer value to the buffer. Bits are appended
-         * from MSB to LSB of the input value.
-         *
-         * @param value the integer containing the bits to append
-         * @param numBits the number of bits to append from the value
-         */
-        public void appendBits(int value, int numBits) {
-            for (int i = numBits - 1; i >= 0; i--) {
-                int bit = (value >> i) & 1;
-                appendBit(bit);
+        int outPos = 0;
+        long accumulator = 0;
+        int pendingBits = 0;
+        for (byte b : plaintextBytes) {
+            int charValue = b & 0xFF;
+            int len = CODE_LENGTH[charValue];
+            accumulator = (accumulator << len) | (CODE_BITS[charValue] & ((1L << len) - 1));
+            pendingBits += len;
+            while (pendingBits >= 8) {
+                pendingBits -= 8;
+                out[outPos++] = (byte) (accumulator >>> pendingBits);
             }
         }
-
-        /**
-         * Appends a single bit (0 or 1) to the buffer.
-         *
-         * @param bit The bit to append (0 or 1).
-         */
-        private void appendBit(int bit) {
-            currentByte = (currentByte << 1) | bit;
-            bitsInCurrentByte++;
-
-            if (bitsInCurrentByte == 8) {
-                append((byte) currentByte);
-                currentByte = 0;
-                bitsInCurrentByte = 0;
-            }
+        if (pendingBits > 0) {
+            // Pad the remaining bits with 1s to fill the last byte.
+            int pad = 8 - pendingBits;
+            out[outPos++] = (byte) ((accumulator << pad) | ((1 << pad) - 1));
         }
-
-        private void append(byte b) {
-            if (byteLen == bytes.length) {
-                bytes = Arrays.copyOf(bytes, bytes.length * 2);
-            }
-            bytes[byteLen++] = b;
-        }
-
-        /**
-         * Converts the accumulated bits into a byte array. Pads the last byte with 1s if it's not a
-         * full byte.
-         *
-         * @return the byte array representation of the bits
-         */
-        public byte[] toByteArray() {
-            if (bitsInCurrentByte > 0) {
-                // Pad the remaining bits with 1s to fill the last byte
-                currentByte =
-                        (currentByte << (8 - bitsInCurrentByte))
-                                | ((1 << (8 - bitsInCurrentByte)) - 1);
-                append((byte) currentByte);
-            }
-            return Arrays.copyOf(bytes, byteLen);
-        }
+        return out;
     }
 
 }
