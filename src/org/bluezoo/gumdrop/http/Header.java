@@ -103,12 +103,13 @@ public class Header {
 
     public int hashCode() {
         if (hashCode == -1) {
-            StringBuilder buf = new StringBuilder(lowerName());
-            buf.append(": ");
-            if (value != null) {
-                buf.append(value);
-            }
-            hashCode = buf.toString().hashCode();
+            // Composed directly from the two fields' own hash codes
+            // rather than building and hashing a temporary "name: value"
+            // String -- this runs once per Header for every header of
+            // every HTTP/2 response (HeaderTableIndex.indexOf(), called
+            // from the HPACK encoder), so the intermediate allocation was
+            // pure per-response overhead with no HTTP/1.1 equivalent.
+            hashCode = 31 * lowerName().hashCode() + (value != null ? value.hashCode() : 0);
         }
         return hashCode;
     }
