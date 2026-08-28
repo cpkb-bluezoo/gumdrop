@@ -1631,6 +1631,11 @@ public final class HTTPProtocolHandler
         return streams.size();
     }
 
+    /** Package-private, only ever read by tests. */
+    int activeStreamCountForTesting() {
+        return activeStreams.size();
+    }
+
     // Called by Stream when its response path sets state to CLOSED, freeing the
     // concurrency slot immediately.  Must NOT be called from the RST_STREAM path
     // so that rapid-reset attacks cannot bypass SETTINGS_MAX_CONCURRENT_STREAMS.

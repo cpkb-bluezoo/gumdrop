@@ -951,6 +951,21 @@ class Stream implements HTTPResponseState {
     }
 
     void streamEndRequest() {
+        // RFC 9113 section 5.1: a stream is closed once both endpoints have
+        // sent END_STREAM. The response side reaches HALF_CLOSED_LOCAL when
+        // a handler completes the response entirely from within its
+        // headers() callback - the common case, since streamEndHeaders()
+        // dispatches to the handler before this method (called by the
+        // caller only afterwards) applies the request's own end-of-stream.
+        // The request side is ending right now, so if the response is
+        // already fully sent the stream is fully closed too. Before this
+        // fix, the state reassignment below unconditionally overwrote
+        // HALF_CLOSED_LOCAL with HALF_CLOSED_REMOTE, so such a stream never
+        // reached CLOSED and its activeStreams concurrency slot (see
+        // streamResponseCompleted()) leaked for the life of the connection,
+        // eventually exhausting SETTINGS_MAX_CONCURRENT_STREAMS.
+        boolean responseAlreadySent = state == State.HALF_CLOSED_LOCAL;
+
         // RFC 9112 section 9.6: when the complete response was already
         // committed while the request body was still outstanding, the stream
         // sits in HALF_CLOSED_LOCAL and sendResponseHeaders/sendResponseBody
@@ -962,12 +977,20 @@ class Stream implements HTTPResponseState {
         // the connection as promised; otherwise a client that sent
         // "Connection: close" and reads until EOF (as it is entitled to) hangs
         // until the idle/drain timeout and the connection slot leaks.
-        boolean closeAfterResponse = state == State.HALF_CLOSED_LOCAL
+        boolean closeAfterResponse = responseAlreadySent
                 && closeConnection
                 && connection.getVersion() != HTTPVersion.HTTP_2_0;
 
-        state = State.HALF_CLOSED_REMOTE;
-        
+        if (responseAlreadySent) {
+            state = State.CLOSED;
+            timestampCompleted = System.currentTimeMillis();
+            if (connection instanceof HTTPProtocolHandler) {
+                ((HTTPProtocolHandler) connection).streamResponseCompleted(streamId);
+            }
+        } else if (state != State.CLOSED) {
+            state = State.HALF_CLOSED_REMOTE;
+        }
+
         // Dispatch to handler if present
         if (handler != null) {
             if (capsuleMode && !capsuleParser.finish()) {
@@ -988,8 +1011,6 @@ class Stream implements HTTPResponseState {
         }
 
         if (closeAfterResponse) {
-            state = State.CLOSED;
-            timestampCompleted = System.currentTimeMillis();
             connection.send(null);
         }
     }

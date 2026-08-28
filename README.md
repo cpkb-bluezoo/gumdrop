@@ -89,6 +89,24 @@ non-blocking, event-driven I/O.
 
 Gumdrop uniquely combines a servlet container with a complete low-level networking framework, so you can run J2EE web apps and build highly efficient custom protocol servers from the same codebase. Unlike Netty, it uses standard `ByteBuffer` throughout — no proprietary buffer abstraction to learn. Its HTTP layer is built on the same simple and coherent event-driven I/O framework used for SMTP, IMAP, DNS, MQTT, FTP, and SOCKS, so you can add fully async mail, messaging, file transfer, DNS, or proxy services without bolting on separate stacks.
 
+### Benchmarks
+
+Raw-API HTTP servers (no servlet container) built directly on Gumdrop and on Netty, driven by the same closed-loop load generator (JDK `HttpClient`, one virtual thread per concurrent client, requests issued back-to-back), on the same machine, over loopback. Each scenario ran a 5s warmup (discarded) followed by two 12s measurement windows; the figures below are the average of both.
+
+| Scenario | Concurrency | Req/s (Gumdrop) | Req/s (Netty) | p50 ms (Gumdrop) | p50 ms (Netty) | p99 ms (Gumdrop) | p99 ms (Netty) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Plaintext HTTP/1.1, keep-alive | 50 | 41,198 | 40,756 | 1.07 | 1.10 | 2.39 | 2.39 |
+| Plaintext HTTP/1.1, keep-alive | 200 | 38,695 | 38,064 | 4.85 | 5.11 | 9.96 | 10.09 |
+| Plaintext HTTP/1.1, keep-alive | 500 | 36,231 | 38,997 | 8.19 | 8.78 | 40.37 | 31.20 |
+| JSON POST/response, HTTP/1.1 | 100 | 38,505 | 36,950 | 2.33 | 2.52 | 5.11 | 5.18 |
+| TLS 1.3, HTTP/1.1 keep-alive | 50 | 67,313 | 77,823 | 0.69 | 0.61 | 1.46 | 1.56 |
+| TLS 1.3, new handshake per request | 20 | 2,923 | 1,988* | 5.44 | 7.47 | 27.26 | 68.16 |
+| TLS 1.3, HTTP/2 (ALPN), keep-alive | 50 | 53,691 | 77,796 | 0.87 | 0.61 | 1.44 | 1.16 |
+
+\* Netty saw ~4% request errors in this scenario (short-lived TLS-handshake churn at concurrency 20); Gumdrop saw none. Every other scenario ran error-free on both servers.
+
+Gumdrop is competitive with or ahead of Netty on plaintext HTTP/1.1 and per-request TLS handshake throughput, and behind on sustained keep-alive TLS and HTTP/2 — a gap consistent with Netty's more mature `SSLEngine`/HTTP-2 codec pipeline rather than any single hot-path issue. None of the gaps above are a clean 2x, which is itself a result worth noting: an earlier round of these benchmarks used a log2-bucketed latency histogram whose percentile reporting could only ever return an exact power of two, making every reported gap look like exactly double regardless of the real difference. That histogram has since been replaced with a log-linear (HDR-style) one with ~3% resolution per bucket, and — separately — a real HTTP/2 bug was found and fixed in the course of re-running these numbers: a request whose handler answered synchronously (the common case) never freed its HTTP/2 stream concurrency slot, eventually exhausting `SETTINGS_MAX_CONCURRENT_STREAMS` and making the HTTP/2 scenario unbenchmarkable at all before the fix.
+
 ## Full feature list
 
 - a generic, extensible server framework that can transparently handle TLS
