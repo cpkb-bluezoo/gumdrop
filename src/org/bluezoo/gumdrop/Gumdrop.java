@@ -1133,14 +1133,19 @@ public class Gumdrop {
      * Returns the shared crypto worker pool used to run CPU-bound TLS
      * handshake delegated tasks off the SelectorLoop threads.
      *
-     * <p>Available after {@link #start()}. {@link SSLState} submits TLS
-     * handshake delegated tasks (RSA/ECDHE key exchange, certificate chain
-     * validation) here and resumes on the connection's loop via the callback.
+     * <p>Available after {@link #start()}. {@link SSLState} and {@code
+     * DTLSSession} submit TLS/DTLS handshake delegated tasks (RSA/ECDHE key
+     * exchange, certificate chain validation) here and resume on the
+     * connection's loop via the callback; {@code
+     * org.bluezoo.gumdrop.quic.tls.QuicHandshakeAsyncOffload} does the same
+     * for QUIC's TLS 1.3 handshake (issue #300), which is why this is
+     * public rather than package-private -- that class lives in a
+     * different package.
      *
      * @return the crypto executor, or null if the server has not been started
      * @see CryptoExecutor#submit
      */
-    CryptoExecutor getCryptoExecutor() {
+    public CryptoExecutor getCryptoExecutor() {
         return cryptoExecutor;
     }
 

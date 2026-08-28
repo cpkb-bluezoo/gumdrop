@@ -22,17 +22,15 @@
 package org.bluezoo.gumdrop.quic.tls;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.ByteBuffer;
-
-import tech.kwik.agent15.TlsProtocolException;
-import tech.kwik.agent15.engine.MessageProcessor;
-import tech.kwik.agent15.engine.TlsMessageParser;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * Reassembles a QUIC CRYPTO stream for one {@link EncryptionLevel} and
- * dispatches each complete TLS handshake message to Agent15 as it
- * becomes available (RFC 9000 section 19.6, RFC 9001 section 4.1).
+ * Reassembles a QUIC CRYPTO stream for one {@link EncryptionLevel} into
+ * complete TLS handshake messages (RFC 9000 section 19.6, RFC 9001
+ * section 4.1).
  *
  * <p>CRYPTO frames identify their data by byte offset within a per-level
  * stream, the same reassembly problem as a QUIC STREAM frame -- delegated
@@ -41,8 +39,13 @@ import tech.kwik.agent15.engine.TlsMessageParser;
  * are not subject to QUIC flow control the way STREAM frames are (RFC
  * 9000 section 7.5), so this buffer is capped independently as a
  * denial-of-service mitigation: a peer that keeps sending far-future
- * CRYPTO data without ever closing the gap causes {@link #receive} to
- * throw rather than buffer unboundedly.
+ * CRYPTO data without ever closing the gap causes {@link
+ * #receiveAndExtractMessages} to throw rather than buffer unboundedly.
+ *
+ * <p>This class is pure reassembly: it hands back complete message
+ * bytes rather than dispatching them to Agent15 itself, so that the
+ * concrete {@code QuicTlsEngine} can run that dispatch through {@link
+ * QuicHandshakeAsyncOffload}, off the caller's thread.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -62,35 +65,38 @@ public final class CryptoStreamBuffer {
     private int consumedLength;
 
     /**
-     * Accepts newly received CRYPTO frame data and dispatches every
-     * complete handshake message now available, in order, to Agent15.
+     * Accepts newly received CRYPTO frame data and returns every complete
+     * handshake message now available, in order. Messages that were
+     * already reassembled by an earlier call are never returned again.
+     *
+     * <p>Each returned buffer wraps a fresh, independent copy of its
+     * message bytes (from {@link ByteArrayOutputStream#toByteArray()}),
+     * so it remains valid to read at any later time, even after
+     * subsequent calls to this method mutate the underlying accumulator.
      *
      * @param offset the byte offset of {@code data} within this level's CRYPTO stream
      * @param data the received handshake data
-     * @param parser the parser to use to split messages out of the stream
-     * @param engine the engine to dispatch each parsed message to
-     * @param level the encryption level this data was received at
-     * @throws TlsProtocolException if Agent15 rejects a handshake message
+     * @return the complete handshake messages now available, in stream
+     *         order, or an empty list if none are yet complete
      * @throws StreamReassembler.BufferLimitExceededException if reordered
      *         data exceeds this buffer's configured limit
-     * @throws IOException if Agent15 fails to process a handshake message
      */
-    public void receive(long offset, ByteBuffer data, TlsMessageParser parser,
-            MessageProcessor engine, EncryptionLevel level)
-            throws TlsProtocolException, IOException {
+    public List<ByteBuffer> receiveAndExtractMessages(long offset, ByteBuffer data)
+            throws StreamReassembler.BufferLimitExceededException {
         byte[] chunk = new byte[data.remaining()];
         data.get(chunk);
         byte[] contiguous = reassembler.receive(offset, chunk);
         if (contiguous.length == 0) {
-            return;
+            return Collections.emptyList();
         }
         accumulator.write(contiguous, 0, contiguous.length);
 
+        List<ByteBuffer> messages = new ArrayList<ByteBuffer>();
         while (true) {
             byte[] all = accumulator.toByteArray();
             int available = all.length - consumedLength;
             if (available < MESSAGE_HEADER_LENGTH) {
-                return;
+                return messages;
             }
 
             int messageDataLength = ((all[consumedLength + 1] & 0xff) << 16)
@@ -98,11 +104,10 @@ public final class CryptoStreamBuffer {
                     | (all[consumedLength + 3] & 0xff);
             int fullMessageLength = MESSAGE_HEADER_LENGTH + messageDataLength;
             if (available < fullMessageLength) {
-                return;
+                return messages;
             }
 
-            ByteBuffer messageBuffer = ByteBuffer.wrap(all, consumedLength, fullMessageLength);
-            parser.parseAndProcessHandshakeMessage(messageBuffer, engine, level.getProtectionKeysType());
+            messages.add(ByteBuffer.wrap(all, consumedLength, fullMessageLength));
             consumedLength += fullMessageLength;
         }
     }

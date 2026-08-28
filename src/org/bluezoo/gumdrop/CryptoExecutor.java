@@ -76,7 +76,7 @@ import java.util.logging.Logger;
  * @see Endpoint#execute(Runnable)
  * @see StorageExecutor
  */
-final class CryptoExecutor {
+public final class CryptoExecutor {
 
     private static final Logger LOGGER =
             Logger.getLogger(CryptoExecutor.class.getName());
@@ -89,7 +89,7 @@ final class CryptoExecutor {
      * <p>Used by boundary tests to assert CPU-bound work runs on a
      * {@code gumdrop-crypto-*} thread rather than a SelectorLoop or caller.
      */
-    interface WorkThreadObserver {
+    public interface WorkThreadObserver {
         /**
          * @param worker the crypto pool thread about to run an operation
          */
@@ -103,7 +103,7 @@ final class CryptoExecutor {
      * <p>Used by boundary tests to assert CPU-bound work runs on a
      * {@code gumdrop-crypto-*} thread rather than a SelectorLoop or caller.
      */
-    static volatile WorkThreadObserver workThreadObserver;
+    public static volatile WorkThreadObserver workThreadObserver;
 
     /**
      * Default number of crypto worker threads when {@code gumdrop.cryptoThreads}
@@ -127,7 +127,7 @@ final class CryptoExecutor {
      *
      * @param <T> the result type of the crypto operation
      */
-    interface Callback<T> {
+    public interface Callback<T> {
 
         /**
          * Invoked (on the loop thread) when the operation completed normally.
@@ -206,7 +206,7 @@ final class CryptoExecutor {
      * @param operation the work to run on a crypto thread
      * @param callback the outcome callback, invoked on the loop thread
      */
-    <T> void submit(final Endpoint endpoint,
+    public <T> void submit(final Endpoint endpoint,
             final Callable<T> operation, final Callback<T> callback) {
         if (endpoint == null) {
             throw new NullPointerException();
@@ -241,7 +241,7 @@ final class CryptoExecutor {
      * @param operation the work to run on a crypto thread
      * @param callback the outcome callback, invoked via {@code loopDispatcher}
      */
-    <T> void submit(final Executor loopDispatcher,
+    public <T> void submit(final Executor loopDispatcher,
             final Callable<T> operation, final Callback<T> callback) {
         if (loopDispatcher == null || operation == null || callback == null) {
             throw new NullPointerException();

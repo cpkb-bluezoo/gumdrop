@@ -120,4 +120,28 @@ public interface QuicTlsEngineListener {
      * @param accepted whether the server accepted 0-RTT
      */
     void earlyDataOutcomeKnown(boolean accepted);
+
+    /**
+     * Marshals {@code task} onto this connection's {@code SelectorLoop}
+     * thread. Used by {@link QuicHandshakeAsyncOffload} to deliver its
+     * outcome (and any callbacks deferred during it) back to the loop
+     * thread once a batch of handshake message processing run on {@link
+     * org.bluezoo.gumdrop.CryptoExecutor} completes.
+     *
+     * @param task the task to run on the loop thread
+     */
+    void execute(Runnable task);
+
+    /**
+     * Called (on the loop thread) when Agent15 rejected a handshake
+     * message, or otherwise failed while processing one, during batch
+     * processing run off the loop thread by {@link
+     * QuicHandshakeAsyncOffload}. The connection should be closed with
+     * an appropriate transport error.
+     *
+     * @param level the encryption level being processed when the failure
+     *              occurred
+     * @param cause the failure
+     */
+    void cryptoProcessingFailed(EncryptionLevel level, Throwable cause);
 }

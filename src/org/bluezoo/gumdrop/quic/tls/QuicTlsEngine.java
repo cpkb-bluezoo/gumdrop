@@ -21,10 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
-
-import tech.kwik.agent15.TlsProtocolException;
 
 /**
  * The common shape of {@link QuicTlsClientEngine} and
@@ -38,18 +35,21 @@ public interface QuicTlsEngine {
 
     /**
      * Feeds received CRYPTO frame data at the given level into
-     * handshake message reassembly, dispatching complete messages to
-     * Agent15 as they become available.
+     * handshake message reassembly. Complete messages are dispatched to
+     * Agent15 asynchronously, off the caller's thread, via {@link
+     * QuicHandshakeAsyncOffload} -- outcomes (including any processing
+     * failure) reach {@link QuicTlsEngineListener#cryptoProcessingFailed}
+     * rather than being thrown back through this call.
      *
      * @param level the encryption level the data was received at
      * @param offset the byte offset of {@code data} within this level's
      *               CRYPTO stream
      * @param data the received handshake data
-     * @throws TlsProtocolException if Agent15 rejects a handshake message
-     * @throws IOException if Agent15 fails to process a handshake message
+     * @throws StreamReassembler.BufferLimitExceededException if reordered
+     *         data exceeds the per-level reassembly buffer's limit
      */
     void receiveCryptoData(EncryptionLevel level, long offset, ByteBuffer data)
-            throws TlsProtocolException, IOException;
+            throws StreamReassembler.BufferLimitExceededException;
 
     /**
      * Returns the client Handshake traffic secret (RFC 9001 section 4.1),

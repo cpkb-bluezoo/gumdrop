@@ -27,21 +27,15 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import tech.kwik.agent15.ProtectionKeysType;
-import tech.kwik.agent15.engine.MessageProcessor;
-import tech.kwik.agent15.engine.TlsMessageParser;
-import tech.kwik.agent15.handshake.HandshakeMessage;
-
 import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link CryptoStreamBuffer}, focused on reassembly of
- * out-of-order/overlapping/split CRYPTO frames -- not on real TLS message
- * semantics, which {@link TlsMessageParser} itself is already responsible
- * for and doesn't need re-testing here. {@link RecordingParser} replaces
- * real parsing with simply recording the complete, reassembled message
- * bytes handed to it, so these tests only exercise
- * {@link CryptoStreamBuffer}'s own message-boundary/offset logic.
+ * out-of-order/overlapping/split CRYPTO frames into complete handshake
+ * messages -- not on real TLS message semantics, which {@code
+ * TlsMessageParser} itself is responsible for and is exercised
+ * separately, off the caller's thread, by {@link
+ * QuicHandshakeAsyncOffload}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -72,105 +66,101 @@ public class CryptoStreamBufferTest {
         return out;
     }
 
-    /**
-     * Bypasses real TLS parsing entirely -- just records the complete
-     * message bytes {@link CryptoStreamBuffer} hands it, in call order.
-     */
-    private static class RecordingParser extends TlsMessageParser {
-
-        final List<byte[]> messages = new ArrayList<byte[]>();
-
-        @Override
-        public HandshakeMessage parseAndProcessHandshakeMessage(ByteBuffer buffer,
-                MessageProcessor processor, ProtectionKeysType keysType) {
-            byte[] copy = new byte[buffer.remaining()];
-            buffer.get(copy);
-            messages.add(copy);
-            return null;
-        }
+    private static byte[] bytes(ByteBuffer buffer) {
+        byte[] copy = new byte[buffer.remaining()];
+        buffer.get(copy);
+        return copy;
     }
 
     @Test
     public void testSingleInOrderMessage() throws Exception {
         CryptoStreamBuffer buf = new CryptoStreamBuffer();
-        RecordingParser parser = new RecordingParser();
         byte[] msg = message(1, new byte[] { 1, 2, 3, 4 });
-        buf.receive(0, ByteBuffer.wrap(msg), parser, null, EncryptionLevel.INITIAL);
-        assertEquals(1, parser.messages.size());
-        assertArrayEquals(msg, parser.messages.get(0));
+        List<ByteBuffer> messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msg));
+        assertEquals(1, messages.size());
+        assertArrayEquals(msg, bytes(messages.get(0)));
     }
 
     @Test
     public void testMessageSplitAcrossTwoInOrderFrames() throws Exception {
         CryptoStreamBuffer buf = new CryptoStreamBuffer();
-        RecordingParser parser = new RecordingParser();
         byte[] msg = message(1, new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 });
         byte[] first = java.util.Arrays.copyOfRange(msg, 0, 6);
         byte[] second = java.util.Arrays.copyOfRange(msg, 6, msg.length);
-        buf.receive(0, ByteBuffer.wrap(first), parser, null, EncryptionLevel.INITIAL);
-        assertEquals("partial message must not be dispatched yet", 0, parser.messages.size());
-        buf.receive(6, ByteBuffer.wrap(second), parser, null, EncryptionLevel.INITIAL);
-        assertEquals(1, parser.messages.size());
-        assertArrayEquals(msg, parser.messages.get(0));
+        List<ByteBuffer> messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(first));
+        assertEquals("partial message must not be extracted yet", 0, messages.size());
+        messages = buf.receiveAndExtractMessages(6, ByteBuffer.wrap(second));
+        assertEquals(1, messages.size());
+        assertArrayEquals(msg, bytes(messages.get(0)));
     }
 
     @Test
     public void testOutOfOrderFramesReassembleIntoOneCorrectMessage() throws Exception {
         CryptoStreamBuffer buf = new CryptoStreamBuffer();
-        RecordingParser parser = new RecordingParser();
         byte[] msg = message(1, new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 });
         byte[] first = java.util.Arrays.copyOfRange(msg, 0, 6);
         byte[] second = java.util.Arrays.copyOfRange(msg, 6, msg.length);
-        // Second half arrives first -- must be buffered, not dispatched.
-        buf.receive(6, ByteBuffer.wrap(second), parser, null, EncryptionLevel.INITIAL);
-        assertEquals(0, parser.messages.size());
+        // Second half arrives first -- must be buffered, not extracted.
+        List<ByteBuffer> messages = buf.receiveAndExtractMessages(6, ByteBuffer.wrap(second));
+        assertEquals(0, messages.size());
         // First half closes the gap -- the complete, correctly-ordered
-        // message is dispatched exactly once.
-        buf.receive(0, ByteBuffer.wrap(first), parser, null, EncryptionLevel.INITIAL);
-        assertEquals(1, parser.messages.size());
-        assertArrayEquals(msg, parser.messages.get(0));
+        // message is extracted exactly once.
+        messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(first));
+        assertEquals(1, messages.size());
+        assertArrayEquals(msg, bytes(messages.get(0)));
     }
 
     @Test
     public void testTwoMessagesDeliveredOutOfFrameOrder() throws Exception {
         CryptoStreamBuffer buf = new CryptoStreamBuffer();
-        RecordingParser parser = new RecordingParser();
         byte[] msgA = message(1, new byte[] { 0xA, 0xA, 0xA });
         byte[] msgB = message(2, new byte[] { 0xB, 0xB });
-        byte[] combined = concat(msgA, msgB);
-        // Frame carrying (part of) msgB's tail arrives before the frame
-        // carrying msgA -- both messages must still end up dispatched
-        // exactly once each, in the correct stream order.
-        buf.receive(msgA.length, ByteBuffer.wrap(msgB), parser, null, EncryptionLevel.HANDSHAKE);
-        assertEquals(0, parser.messages.size());
-        buf.receive(0, ByteBuffer.wrap(msgA), parser, null, EncryptionLevel.HANDSHAKE);
-        assertEquals(2, parser.messages.size());
-        assertArrayEquals(msgA, parser.messages.get(0));
-        assertArrayEquals(msgB, parser.messages.get(1));
+        // Frame carrying msgB arrives before the frame carrying msgA --
+        // both messages must still end up extracted exactly once each,
+        // in the correct stream order.
+        List<ByteBuffer> messages = buf.receiveAndExtractMessages(msgA.length, ByteBuffer.wrap(msgB));
+        assertEquals(0, messages.size());
+        messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msgA));
+        assertEquals(2, messages.size());
+        assertArrayEquals(msgA, bytes(messages.get(0)));
+        assertArrayEquals(msgB, bytes(messages.get(1)));
     }
 
     @Test
     public void testOverlappingRetransmissionIgnored() throws Exception {
         CryptoStreamBuffer buf = new CryptoStreamBuffer();
-        RecordingParser parser = new RecordingParser();
         byte[] msg = message(1, new byte[] { 1, 2, 3, 4 });
-        buf.receive(0, ByteBuffer.wrap(msg), parser, null, EncryptionLevel.INITIAL);
-        assertEquals(1, parser.messages.size());
+        List<ByteBuffer> messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msg));
+        assertEquals(1, messages.size());
         // Full retransmission of the same bytes (e.g. peer's PTO
         // retransmit racing with the original arriving) must not
-        // re-dispatch the message.
-        buf.receive(0, ByteBuffer.wrap(msg), parser, null, EncryptionLevel.INITIAL);
-        assertEquals(1, parser.messages.size());
+        // re-extract the message.
+        messages = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msg));
+        assertEquals(0, messages.size());
+    }
+
+    @Test
+    public void testExtractedMessageSurvivesLaterAccumulatorMutation() throws Exception {
+        // A returned ByteBuffer wraps a fresh copy of the accumulator's
+        // bytes at extraction time, so it must remain valid to read even
+        // after a later call mutates the underlying accumulator.
+        CryptoStreamBuffer buf = new CryptoStreamBuffer();
+        byte[] msgA = message(1, new byte[] { 0xA, 0xA, 0xA });
+        List<ByteBuffer> firstBatch = buf.receiveAndExtractMessages(0, ByteBuffer.wrap(msgA));
+        assertEquals(1, firstBatch.size());
+        byte[] msgB = message(2, new byte[] { 0xB, 0xB, 0xB, 0xB });
+        buf.receiveAndExtractMessages(msgA.length, ByteBuffer.wrap(msgB));
+        assertArrayEquals("message extracted earlier must be unaffected by later reassembly",
+                msgA, bytes(firstBatch.get(0)));
     }
 
     @Test(expected = StreamReassembler.BufferLimitExceededException.class)
     public void testBufferLimitExceededPropagates() throws Exception {
         CryptoStreamBuffer buf = new CryptoStreamBuffer();
-        RecordingParser parser = new RecordingParser();
         // Out-of-order data far beyond the 64 KiB cap, at a huge offset,
         // must be rejected rather than buffered unboundedly.
         byte[] huge = new byte[70000];
-        buf.receive(1_000_000L, ByteBuffer.wrap(huge), parser, null, EncryptionLevel.INITIAL);
+        buf.receiveAndExtractMessages(1_000_000L, ByteBuffer.wrap(huge));
     }
 
 }

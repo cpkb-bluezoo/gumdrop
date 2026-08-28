@@ -46,7 +46,6 @@ import java.util.logging.Logger;
 
 import tech.kwik.agent15.NewSessionTicket;
 import tech.kwik.agent15.TlsConstants;
-import tech.kwik.agent15.TlsProtocolException;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -1578,8 +1577,6 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 tlsEngine.receiveCryptoData(level, offset, ByteBuffer.wrap(copy));
             } catch (StreamReassembler.BufferLimitExceededException e) {
                 closeWithError(TRANSPORT_ERROR_CRYPTO_BUFFER_EXCEEDED, e.getMessage());
-            } catch (TlsProtocolException | IOException e) {
-                LOGGER.log(Level.WARNING, "TLS error processing CRYPTO data at " + level, e);
             }
         }
 
@@ -3282,6 +3279,16 @@ public final class QuicConnection implements QuicTlsEngineListener {
     public void cryptoDataReady(EncryptionLevel level, long offset, byte[] data) {
         pendingCrypto.get(level).add(new PendingChunk(offset, data));
         requestFlush();
+    }
+
+    @Override
+    public void execute(Runnable task) {
+        engine.execute(task);
+    }
+
+    @Override
+    public void cryptoProcessingFailed(EncryptionLevel level, Throwable cause) {
+        LOGGER.log(Level.WARNING, "TLS error processing CRYPTO data at " + level, cause);
     }
 
     @Override
