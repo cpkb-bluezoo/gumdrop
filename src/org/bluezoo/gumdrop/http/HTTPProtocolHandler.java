@@ -56,6 +56,7 @@ import javax.mail.internet.MimeUtility;
 
 import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.NullSecurityInfo;
@@ -2352,13 +2353,13 @@ public final class HTTPProtocolHandler
     // RFC 9112 section 5: field-line = field-name ":" OWS field-value OWS
     private void writeStatusLineAndHeaders(ByteBuffer buf, int statusCode, Headers headers) {
         try {
-            writeAscii(buf, version.toString());
+            buf.put(VERSION_TOKEN_BYTES[version.ordinal()]);
             buf.put((byte) ' ');
             buf.put((byte) ('0' + statusCode / 100));
             buf.put((byte) ('0' + statusCode / 10 % 10));
             buf.put((byte) ('0' + statusCode % 10));
             buf.put((byte) ' ');
-            writeAscii(buf, HTTPConstants.getMessage(statusCode));
+            buf.put(HTTPConstants.getMessageBytes(statusCode));
             buf.put(CRLF);
             for (Header header : headers) {
                 String name = header.getName();
@@ -2368,6 +2369,9 @@ public final class HTTPProtocolHandler
                 }
                 String value = header.getValue();
                 if (value == null) {
+                    continue;
+                }
+                if (writeWellKnownLine(buf, name, value)) {
                     continue;
                 }
                 // Common case: write the ASCII bytes of a guaranteed-ASCII
@@ -2400,6 +2404,92 @@ public final class HTTPProtocolHandler
     }
 
     private static final byte[] CRLF = { (byte) 0x0d, (byte) 0x0a };
+
+    // Values Stream.sendResponseHeaders always adds verbatim for these
+    // header names - every one a compile-time-constant String literal (or,
+    // for SERVER_HEADER_VALUE, a concatenation of two of them, which javac
+    // folds into a single constant the same way), so every occurrence in
+    // the compiled classes is the exact same interned object. That is what
+    // makes matching by reference (==) in writeWellKnownLine below sound:
+    // it isn't comparing "does this look like the same text", it is
+    // guaranteed to be the identical object Stream.java added, or it is
+    // some other value entirely - there is no in-between "looks the same
+    // but isn't" case a reference check could get wrong.
+    static final String SERVER_HEADER_VALUE = "gumdrop/" + Gumdrop.VERSION;
+    static final String CONNECTION_CLOSE_VALUE = "close";
+    static final String X_FRAME_OPTIONS_VALUE = "SAMEORIGIN";
+    static final String X_CONTENT_TYPE_OPTIONS_VALUE = "nosniff";
+    static final String TRANSFER_ENCODING_CHUNKED_VALUE = "chunked";
+
+    // The complete "name: value\r\n" line for each constant above, encoded
+    // once. Never stale: unlike the Date header, none of these values ever
+    // change while the JVM is running.
+    private static final byte[] SERVER_LINE_BYTES =
+            asciiLineBytes("Server", SERVER_HEADER_VALUE);
+    private static final byte[] CONNECTION_CLOSE_LINE_BYTES =
+            asciiLineBytes("Connection", CONNECTION_CLOSE_VALUE);
+    private static final byte[] X_FRAME_OPTIONS_LINE_BYTES =
+            asciiLineBytes("X-Frame-Options", X_FRAME_OPTIONS_VALUE);
+    private static final byte[] X_CONTENT_TYPE_OPTIONS_LINE_BYTES =
+            asciiLineBytes("X-Content-Type-Options", X_CONTENT_TYPE_OPTIONS_VALUE);
+    private static final byte[] TRANSFER_ENCODING_CHUNKED_LINE_BYTES =
+            asciiLineBytes("Transfer-Encoding", TRANSFER_ENCODING_CHUNKED_VALUE);
+
+    private static byte[] asciiLineBytes(String name, String value) {
+        return (name + ": " + value + "\r\n").getBytes(US_ASCII);
+    }
+
+    // Indexed by HTTPVersion.ordinal(); avoids converting version.toString()
+    // char-by-char on every response for what is, in practice, one of two
+    // fixed tokens (HTTP/1.0, HTTP/1.1 - HTTP/2 and HTTP/3 responses never
+    // reach this HTTP/1.x status-line writer).
+    private static final byte[][] VERSION_TOKEN_BYTES;
+    static {
+        HTTPVersion[] versions = HTTPVersion.values();
+        VERSION_TOKEN_BYTES = new byte[versions.length][];
+        for (int i = 0; i < versions.length; i++) {
+            VERSION_TOKEN_BYTES[i] = versions[i].toString().getBytes(US_ASCII);
+        }
+    }
+
+    /**
+     * Writes the complete header line for one of the small, fixed set of
+     * values the framework always produces byte-for-byte identically
+     * (Date, Server, the default security headers, Transfer-Encoding:
+     * chunked, Connection: close) in one bulk put, instead of the
+     * generic per-character path. Matches by reference, not content, so a
+     * false match is structurally impossible (see the constants above and
+     * HTTPDateCache's own javadoc for Date specifically). Returns false
+     * (writes nothing) for any other header, which the caller then writes
+     * via the generic path.
+     */
+    private static boolean writeWellKnownLine(ByteBuffer buf, String name, String value) {
+        if (value == HTTPDateCache.get() && "Date".equals(name)) {
+            buf.put(HTTPDateCache.getLineBytes());
+            return true;
+        }
+        if (value == SERVER_HEADER_VALUE && "Server".equals(name)) {
+            buf.put(SERVER_LINE_BYTES);
+            return true;
+        }
+        if (value == X_FRAME_OPTIONS_VALUE && "X-Frame-Options".equals(name)) {
+            buf.put(X_FRAME_OPTIONS_LINE_BYTES);
+            return true;
+        }
+        if (value == X_CONTENT_TYPE_OPTIONS_VALUE && "X-Content-Type-Options".equals(name)) {
+            buf.put(X_CONTENT_TYPE_OPTIONS_LINE_BYTES);
+            return true;
+        }
+        if (value == TRANSFER_ENCODING_CHUNKED_VALUE && "Transfer-Encoding".equals(name)) {
+            buf.put(TRANSFER_ENCODING_CHUNKED_LINE_BYTES);
+            return true;
+        }
+        if (value == CONNECTION_CLOSE_VALUE && "Connection".equals(name)) {
+            buf.put(CONNECTION_CLOSE_LINE_BYTES);
+            return true;
+        }
+        return false;
+    }
 
     /**
      * Writes a string known to contain only ASCII characters (header
