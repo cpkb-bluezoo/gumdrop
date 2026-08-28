@@ -147,6 +147,34 @@ public class HTTP3ClientIntegrationTest {
                 r.body.contains(TEST_PAYLOAD));
     }
 
+    /**
+     * Regression test (issue #291): {@code QuicConnection.grantMaxStreams}
+     * was never called anywhere, so the QUIC bidirectional stream
+     * concurrency limit stayed fixed at its initial transport-parameter
+     * value (100 by default) for the entire connection lifetime - the
+     * peer could never open more than that many streams in total, ever,
+     * no matter how many earlier ones had long since finished. A
+     * one-request-per-connection test like {@link #testHttp3Get} cannot
+     * exercise this: it never gets anywhere near the limit. This drives
+     * enough sequential requests over one persistent connection to cross
+     * that boundary and asserts none of them hang.
+     */
+    @Test
+    public void testManySequentialRequestsOverOneConnectionDoNotHang() throws Exception {
+        HTTPClient client = connect();
+        try {
+            int requestCount = 150; // comfortably past the default 100-stream limit
+            for (int i = 0; i < requestCount; i++) {
+                String body = exchangeOn(client, "GET", "/test");
+                assertTrue("request " + (i + 1) + " of " + requestCount
+                        + " should get the echo server's usual response",
+                        body.contains("Method: GET"));
+            }
+        } finally {
+            client.close();
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -218,6 +246,45 @@ public class HTTP3ClientIntegrationTest {
         } finally {
             client.close();
         }
+    }
+
+    /**
+     * Sends one GET on an already-connected client, waiting for it to
+     * complete, and returns the response body. Unlike {@link #exchange},
+     * this does not connect or close the client - the caller reuses the
+     * same connection across many calls.
+     */
+    private String exchangeOn(HTTPClient client, String method, String path) throws Exception {
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Exception> error = new AtomicReference<>();
+        final ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
+
+        DefaultHTTPResponseHandler handler = new DefaultHTTPResponseHandler() {
+            @Override
+            public void responseBodyContent(ByteBuffer data) {
+                byte[] bytes = new byte[data.remaining()];
+                data.get(bytes);
+                bodyBuffer.write(bytes, 0, bytes.length);
+            }
+
+            @Override
+            public void close() {
+                latch.countDown();
+            }
+
+            @Override
+            public void failed(Exception ex) {
+                error.set(ex);
+                latch.countDown();
+            }
+        };
+
+        client.request(method, path).send(handler);
+
+        assertTrue(method + " " + path + " did not complete in time",
+                latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertNull(method + " " + path + " failed: " + error.get(), error.get());
+        return new String(bodyBuffer.toByteArray(), StandardCharsets.UTF_8);
     }
 
     private HTTPClient connect() throws Exception {
