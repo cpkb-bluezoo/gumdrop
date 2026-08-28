@@ -61,13 +61,18 @@ public class Headers extends ArrayList<Header> {
 
     /**
      * Counts how many times {@link #index()} has actually rebuilt the map,
-     * as opposed to reusing the cached one. Package-private and only ever
-     * read by tests (see issue #278) verifying that callers doing several
-     * lookups in a row - e.g. {@code Stream.sendResponseHeaders}'s
-     * {@code containsName} checks - don't interleave a mutation between
-     * each pair and so force a rebuild before every single one.
+     * as opposed to reusing the cached one. Public (but otherwise
+     * documented as test-only, like {@code CryptoExecutor}/{@code
+     * StorageExecutor}'s {@code workThreadObserver} hooks) so tests
+     * outside this package -- e.g. {@code org.bluezoo.gumdrop.servlet},
+     * whose {@code Request}/{@code Response} wrap a {@code Headers}
+     * instance -- can verify the same thing (see issue #278) about their
+     * own callers: that doing several lookups in a row - e.g. {@code
+     * Stream.sendResponseHeaders}'s {@code containsName} checks - doesn't
+     * interleave a mutation between each pair and so force a rebuild
+     * before every single one. Production code must not read this.
      */
-    transient int indexBuildCountForTesting = 0;
+    public transient int indexBuildCountForTesting = 0;
 
     private Map<String,List<Header>> index() {
         if (index == null || indexModCount != modCount) {

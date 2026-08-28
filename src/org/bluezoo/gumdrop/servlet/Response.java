@@ -450,12 +450,7 @@ class Response implements HttpServletResponse {
     }
 
     private void removeHeaders(String name) {
-        for (Iterator<Header> i = headers.iterator(); i.hasNext(); ) {
-            Header header = i.next();
-            if (header.getName().equalsIgnoreCase(name)) {
-                i.remove();
-            }
-        }
+        headers.removeAll(name);
     }
 
     public void addHeader(String name, String value) {
@@ -475,12 +470,7 @@ class Response implements HttpServletResponse {
     }
 
     public String getHeader(String name) {
-        for (Header header : headers) {
-            if (header.getName().equalsIgnoreCase(name)) {
-                return header.getValue();
-            }
-        }
-        return null;
+        return headers.getValue(name);
     }
 
     public void setIntHeader(String name, int value) {
@@ -729,12 +719,7 @@ class Response implements HttpServletResponse {
     }
 
     public Collection<String> getHeaders(String name) {
-        List<String> ret = new ArrayList<>();
-        for (Header header : headers) {
-            if (header.getName().equalsIgnoreCase(name)) {
-                ret.add(header.getValue());
-            }
-        }
+        List<String> ret = headers.getValues(name);
         return ret.isEmpty() ? null : Collections.unmodifiableList(ret);
     }
 

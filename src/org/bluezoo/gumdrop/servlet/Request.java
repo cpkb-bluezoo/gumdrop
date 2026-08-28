@@ -317,22 +317,11 @@ class Request implements HttpServletRequest {
     }
 
     @Override public String getHeader(String name) {
-        for (Header header : headers) {
-            if (header.getName().equalsIgnoreCase(name)) {
-                return header.getValue();
-            }
-        }
-        return null;
+        return headers.getValue(name);
     }
 
     @Override public Enumeration<String> getHeaders(String name) {
-        Collection<String> acc = new ArrayList<>();
-        for (Header header : headers) {
-            if (header.getName().equalsIgnoreCase(name)) {
-                acc.add(header.getValue());
-            }
-        }
-        return new IteratorEnumeration<>(acc);
+        return new IteratorEnumeration<>(headers.getValues(name));
     }
 
     @Override public Enumeration<String> getHeaderNames() {
