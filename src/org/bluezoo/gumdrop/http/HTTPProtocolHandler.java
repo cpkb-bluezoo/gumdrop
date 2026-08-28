@@ -33,7 +33,6 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CoderResult;
 import java.text.MessageFormat;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
@@ -47,7 +46,6 @@ import java.util.ResourceBundle;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -71,6 +69,7 @@ import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
+import org.bluezoo.gumdrop.util.IntObjectHashMap;
 
 /**
  * HTTP/1.1 and HTTP/2 protocol handler using {@link ProtocolHandler}.
@@ -276,10 +275,19 @@ public final class HTTPProtocolHandler
     private H2FlowControl h2FlowControl;
     private final H2FlowControl.DataReceivedResult h2DataResult =
             new H2FlowControl.DataReceivedResult();
-    private final Map<Integer, Runnable> h2WriteCallbacks =
-            new LinkedHashMap<Integer, Runnable>();
-    private final Map<Integer, PendingData> h2PendingData =
-            new LinkedHashMap<Integer, PendingData>();
+    // Boxed-Integer keys on every stream-lifecycle-event lookup, for a
+    // connection with no equivalent HTTP/1.1 cost, was worth a dedicated
+    // primitive-keyed map (issue #299) rather than accepting it as
+    // inherent to Map<Integer, V>. Iteration order is unspecified (unlike
+    // the LinkedHashMaps these replace) -- nothing downstream depends on
+    // insertion order: h2PendingData's own drain re-sorts by RFC 9218
+    // priority regardless, and h2WriteCallbacks' write-readiness draining
+    // has no cross-stream fairness requirement beyond "every registered
+    // callback runs once per drain", which holds either way.
+    private final IntObjectHashMap<Runnable> h2WriteCallbacks =
+            new IntObjectHashMap<Runnable>();
+    private final IntObjectHashMap<PendingData> h2PendingData =
+            new IntObjectHashMap<PendingData>();
     // Mirrors the byte count queued in h2PendingData per stream, but as an
     // AtomicInteger so it can be read from another thread (e.g. a servlet
     // worker thread applying backpressure) without touching h2PendingData
@@ -287,8 +295,8 @@ public final class HTTPProtocolHandler
     // thread (see #123).
     private final Map<Integer, AtomicInteger> h2PendingBytes =
             new ConcurrentHashMap<Integer, AtomicInteger>();
-    private final Map<Integer, PriorityParams> h2Priority =
-            new HashMap<Integer, PriorityParams>();
+    private final IntObjectHashMap<PriorityParams> h2Priority =
+            new IntObjectHashMap<PriorityParams>();
     private final Rfc9218NonIncrementalSlots h2NonIncSlots = new Rfc9218NonIncrementalSlots();
 
     private int clientStreamId = INITIAL_CLIENT_STREAM_ID;
@@ -305,7 +313,10 @@ public final class HTTPProtocolHandler
     private final Map<Integer, Stream> streams = new HashMap<Integer, Stream>();
     private int continuationStream;
     private boolean continuationEndStream;
-    private final Set<Integer> activeStreams = new ConcurrentSkipListSet<Integer>();
+    // Also loop-thread-only, like streams above (issue #298) -- a plain
+    // HashSet needs none of ConcurrentSkipListSet's lock-free, pointer-
+    // chasing traversal on every stream open/close.
+    private final Set<Integer> activeStreams = new HashSet<Integer>();
 
     private boolean h2cUpgradePending;
     private long lastStreamCleanup = 0L;
@@ -1001,8 +1012,9 @@ public final class HTTPProtocolHandler
         }
     }
 
-    private PriorityParams h2PriorityOf(int streamId) {
-        PriorityParams params = h2Priority.get(Integer.valueOf(streamId));
+    /** Package-private for direct testing of h2Priority storage (issue #299). */
+    PriorityParams h2PriorityOf(int streamId) {
+        PriorityParams params = h2Priority.get(streamId);
         return params != null ? params : PriorityParams.DEFAULT;
     }
 
@@ -1018,17 +1030,26 @@ public final class HTTPProtocolHandler
         if (h2PendingData.isEmpty()) {
             return;
         }
-        List<Integer> ids = new ArrayList<Integer>(h2PendingData.keySet());
-        Collections.sort(ids, new Comparator<Integer>() {
+        // Priority-ordered scheduling needs a sort, which needs boxed
+        // Integer comparisons either way -- this snapshot-then-sort path
+        // isn't the per-DATA-frame hot path IntObjectHashMap targets, so
+        // boxing here (unlike the get/put/remove/containsKey calls below)
+        // isn't worth avoiding.
+        int[] rawIds = h2PendingData.keys();
+        Integer[] ids = new Integer[rawIds.length];
+        for (int i = 0; i < rawIds.length; i++) {
+            ids[i] = Integer.valueOf(rawIds[i]);
+        }
+        Arrays.sort(ids, new Comparator<Integer>() {
             @Override
             public int compare(Integer a, Integer b) {
                 return PriorityParams.compareSchedule(h2PriorityOf(a.intValue()), a.intValue(),
                         h2PriorityOf(b.intValue()), b.intValue());
             }
         });
-        for (int i = 0; i < ids.size(); i++) {
-            int id = ids.get(i).intValue();
-            if (h2PendingData.containsKey(Integer.valueOf(id)) && claimH2BodySlot(id)) {
+        for (int i = 0; i < ids.length; i++) {
+            int id = ids[i].intValue();
+            if (h2PendingData.containsKey(id) && claimH2BodySlot(id)) {
                 drainPendingData(id);
             }
         }
@@ -1351,12 +1372,12 @@ public final class HTTPProtocolHandler
                 endpoint.onWriteReady(new Runnable() {
                     @Override
                     public void run() {
-                        for (Iterator<Map.Entry<Integer, Runnable>> it =
-                                h2WriteCallbacks.entrySet().iterator(); it.hasNext(); ) {
-                            Map.Entry<Integer, Runnable> entry = it.next();
-                            it.remove();
-                            entry.getValue().run();
-                        }
+                        h2WriteCallbacks.drainEach(new IntObjectHashMap.EntryConsumer<Runnable>() {
+                            @Override
+                            public void accept(int streamId, Runnable callback) {
+                                callback.run();
+                            }
+                        });
                     }
                 });
             } else {
@@ -1672,7 +1693,7 @@ public final class HTTPProtocolHandler
                     }
                     h2WriteCallbacks.remove(sid);
                     h2PendingBytes.remove(sid);
-                    h2Priority.remove(Integer.valueOf(sid));
+                    h2Priority.remove(sid);
                     PendingData removed = h2PendingData.remove(sid);
                     if (removed != null) {
                         releasePendingData(removed);
@@ -2663,11 +2684,10 @@ public final class HTTPProtocolHandler
     }
 
     private void applyRfc9218Priority(int streamId, PriorityParams params, boolean fromUpdate) {
-        Integer key = Integer.valueOf(streamId);
-        if (!fromUpdate && h2Priority.containsKey(key)) {
+        if (!fromUpdate && h2Priority.containsKey(streamId)) {
             return;
         }
-        h2Priority.put(key, params);
+        h2Priority.put(streamId, params);
     }
 
     // RFC 9113 section 6.4: RST_STREAM frame reception
@@ -2895,7 +2915,7 @@ public final class HTTPProtocolHandler
             // drainPendingData() returns immediately when there is nothing
             // pending for the stream, without ever releasing what was just
             // claimed above.
-            if (h2PendingData.containsKey(Integer.valueOf(streamId)) && claimH2BodySlot(streamId)) {
+            if (h2PendingData.containsKey(streamId) && claimH2BodySlot(streamId)) {
                 drainPendingData(streamId);
             }
         }
