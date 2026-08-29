@@ -33,9 +33,12 @@ import javax.crypto.spec.IvParameterSpec;
  * AEAD packet protection and header protection for QUIC (RFC 9001
  * sections 5.3-5.4).
  *
- * <p>Every method is a pure, stateless transformation over the keys and
- * bytes it is given -- there is no per-connection state here, so all of
- * it may be called directly on the {@code SelectorLoop} thread.
+ * <p>This class itself holds no state -- every method is a transformation
+ * over the keys and bytes it is given, so all of it may be called
+ * directly on the {@code SelectorLoop} thread. The {@link Cipher}
+ * instances used to perform that transformation are cached on the
+ * {@link PacketProtectionKeys} argument itself, not here; see its
+ * documentation for the resulting single-threaded-access requirement.
  *
  * <h2>Header protection sequencing</h2>
  *
@@ -114,7 +117,7 @@ public final class PacketProtection {
             byte[] associatedData, byte[] plaintext) throws PacketProtectionException {
         byte[] nonce = computeNonce(keys.getIv(), packetNumber);
         try {
-            Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getAeadTransformation());
+            Cipher cipher = keys.getAeadCipher();
             cipher.init(Cipher.ENCRYPT_MODE, keys.getAeadKey(), aeadParameterSpec(keys.getAlgorithm(), nonce));
             cipher.updateAAD(associatedData);
             return cipher.doFinal(plaintext);
@@ -154,7 +157,7 @@ public final class PacketProtection {
             byte[] associatedData, byte[] ciphertext) throws PacketProtectionException {
         byte[] nonce = computeNonce(keys.getIv(), packetNumber);
         try {
-            Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getAeadTransformation());
+            Cipher cipher = keys.getAeadCipher();
             cipher.init(Cipher.DECRYPT_MODE, keys.getAeadKey(), aeadParameterSpec(keys.getAlgorithm(), nonce));
             cipher.updateAAD(associatedData);
             return cipher.doFinal(ciphertext);
@@ -195,12 +198,26 @@ public final class PacketProtection {
                         | ((sample[2] & 0xff) << 16) | ((sample[3] & 0xff) << 24);
                 byte[] nonce = new byte[12];
                 System.arraycopy(sample, 4, nonce, 0, 12);
+                // Deliberately not cached on keys, unlike every other
+                // Cipher in this class: the sample (and so this nonce) is
+                // taken directly from the ciphertext, so an ordinary
+                // duplicated UDP datagram -- routine, expected QUIC
+                // behaviour, not an attack -- reproduces the exact same
+                // (key, nonce) pair on the very next call. The JDK's raw
+                // ChaCha20 Cipher tracks the last key/nonce it was
+                // ENCRYPT_MODE-initialised with and throws
+                // InvalidKeyException on an exact repeat, as a defence
+                // against catastrophic keystream reuse; reusing a single
+                // cached instance here would turn a harmless duplicate
+                // packet into a connection-ending exception. AES's ECB
+                // transformation below takes no nonce and has no such
+                // guard, so it is cached as normal.
                 Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getHeaderProtectionTransformation());
                 cipher.init(Cipher.ENCRYPT_MODE, keys.getHeaderProtectionKey(),
                         new ChaCha20ParameterSpec(nonce, counter));
                 return cipher.doFinal(new byte[5]);
             }
-            Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getHeaderProtectionTransformation());
+            Cipher cipher = keys.getHeaderProtectionCipher();
             cipher.init(Cipher.ENCRYPT_MODE, keys.getHeaderProtectionKey());
             byte[] block = cipher.doFinal(sample);
             byte[] mask = new byte[5];
