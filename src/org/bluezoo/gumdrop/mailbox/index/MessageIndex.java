@@ -21,8 +21,16 @@
 
 package org.bluezoo.gumdrop.mailbox.index;
 
+import org.bluezoo.gumdrop.mailbox.AndCriteria;
+import org.bluezoo.gumdrop.mailbox.DateCriteria;
 import org.bluezoo.gumdrop.mailbox.Flag;
+import org.bluezoo.gumdrop.mailbox.FlagCriteria;
+import org.bluezoo.gumdrop.mailbox.NotCriteria;
 import org.bluezoo.gumdrop.mailbox.SearchCriteria;
+import org.bluezoo.gumdrop.mailbox.SizeCriteria;
+
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -427,28 +435,34 @@ public class MessageIndex {
 
     /**
      * Searches for messages matching the criteria.
-     * 
-     * <p>Note: TEXT and BODY searches require message parsing and are not
-     * fully supported by the index. Use {@link #requiresMessageParsing(SearchCriteria)}
-     * to check if parsing is needed.
+     *
+     * <p>Narrows the entries actually evaluated using {@link
+     * #computeCandidateIndices} first (issue #304): a criteria like
+     * {@code FLAGGED}, {@code SINCE <date>}, or {@code LARGER <n>} is
+     * answered from the flag/date/size sub-indexes in O(log n) or O(1)
+     * rather than by testing every message. {@code criteria.matches()}
+     * is still called for each candidate -- this narrows what gets
+     * scanned, it does not bypass evaluation -- so correctness never
+     * depends on the narrowing being complete; a criteria (or part of
+     * one) the sub-indexes cannot answer (TEXT/BODY, OR, header
+     * matching, etc.) simply leaves every entry as a candidate, exactly
+     * as before this narrowing existed.
      *
      * @param criteria the search criteria
      * @return list of matching message numbers
      */
     public List<Integer> search(SearchCriteria criteria) {
-        // Start with all valid entries
-        BitSet candidates = new BitSet(entries.size());
-        for (int i = 0; i < entries.size(); i++) {
-            if (entries.get(i) != null) {
-                candidates.set(i);
-            }
+        BitSet candidates = computeCandidateIndices(criteria);
+        if (candidates == null) {
+            candidates = allEntryIndices();
         }
 
-        // Apply indexed filters - this is done by evaluating each entry
-        // against the criteria using the indexed data
         List<Integer> results = new ArrayList<>();
         for (int i = candidates.nextSetBit(0); i >= 0; i = candidates.nextSetBit(i + 1)) {
             MessageIndexEntry entry = entries.get(i);
+            if (entry == null) {
+                continue;
+            }
             IndexedMessageContext context = new IndexedMessageContext(entry);
             try {
                 if (criteria.matches(context)) {
@@ -461,6 +475,110 @@ public class MessageIndex {
         }
 
         return results;
+    }
+
+    /**
+     * Returns the indices of every non-null entry.
+     */
+    private BitSet allEntryIndices() {
+        BitSet all = new BitSet(entries.size());
+        for (int i = 0; i < entries.size(); i++) {
+            if (entries.get(i) != null) {
+                all.set(i);
+            }
+        }
+        return all;
+    }
+
+    /**
+     * Attempts to narrow the entries a search for {@code criteria} needs
+     * to actually evaluate, using the flag/date/size sub-indexes, without
+     * a full scan (issue #304).
+     *
+     * <p>Recognises: a bare {@link FlagCriteria}/{@link SizeCriteria}/
+     * {@link DateCriteria} (internal <em>or</em> sent date -- both have
+     * their own sub-index, see {@link #getEntriesBySentDateRange});
+     * a {@link NotCriteria} wrapping a {@link FlagCriteria} (the shape
+     * every {@code UNSEEN}/{@code UNFLAGGED}/etc. term takes); and an
+     * {@link AndCriteria} whose sub-criteria are intersected, using
+     * whichever of them are themselves recognisable and ignoring the
+     * rest (their own correctness is still enforced afterwards by {@code
+     * criteria.matches()} -- this method only ever narrows, never
+     * decides). Anything else (OR, TEXT/BODY, header matching, UID/
+     * sequence/MODSEQ criteria, or an AND with none of the above) returns
+     * {@code null}: not narrowable this way, so the caller must fall back
+     * to considering every entry.
+     *
+     * @param criteria the criteria to inspect
+     * @return the indices of entries that might match (a superset --
+     *         still subject to {@link SearchCriteria#matches}), or null
+     *         if this criteria cannot be narrowed at all
+     */
+    public BitSet computeCandidateIndices(SearchCriteria criteria) {
+        if (criteria instanceof FlagCriteria) {
+            return (BitSet) flagIndex.get(((FlagCriteria) criteria).getFlag()).clone();
+        }
+        if (criteria instanceof SizeCriteria) {
+            SizeCriteria sc = (SizeCriteria) criteria;
+            long minSize = sc.getComparison() == SizeCriteria.Comparison.LARGER
+                    ? sc.getThreshold() + 1 : Long.MIN_VALUE;
+            long maxSizeExclusive = sc.getComparison() == SizeCriteria.Comparison.LARGER
+                    ? Long.MAX_VALUE : sc.getThreshold();
+            return indicesToBitSet(sizeIndex.subMap(minSize, true, maxSizeExclusive, false));
+        }
+        if (criteria instanceof DateCriteria) {
+            DateCriteria dc = (DateCriteria) criteria;
+            NavigableMap<Long, List<Integer>> dateIndex =
+                    dc.getField() == DateCriteria.Field.INTERNAL ? internalDateIndex : sentDateIndex;
+            long startOfDay = dc.getDate().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+            switch (dc.getComparison()) {
+                case BEFORE:
+                    return indicesToBitSet(dateIndex.headMap(startOfDay, false));
+                case ON:
+                    long startOfNextDay = dc.getDate().plusDays(1)
+                            .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+                    return indicesToBitSet(dateIndex.subMap(startOfDay, true, startOfNextDay, false));
+                case SINCE:
+                    return indicesToBitSet(dateIndex.tailMap(startOfDay, true));
+                default:
+                    return null;
+            }
+        }
+        if (criteria instanceof NotCriteria) {
+            SearchCriteria inner = ((NotCriteria) criteria).getCriteria();
+            if (inner instanceof FlagCriteria) {
+                BitSet complement = allEntryIndices();
+                complement.andNot(flagIndex.get(((FlagCriteria) inner).getFlag()));
+                return complement;
+            }
+            return null;
+        }
+        if (criteria instanceof AndCriteria) {
+            BitSet result = null;
+            for (SearchCriteria sub : ((AndCriteria) criteria).getCriteria()) {
+                BitSet subCandidates = computeCandidateIndices(sub);
+                if (subCandidates == null) {
+                    continue;
+                }
+                if (result == null) {
+                    result = subCandidates;
+                } else {
+                    result.and(subCandidates);
+                }
+            }
+            return result;
+        }
+        return null;
+    }
+
+    private static BitSet indicesToBitSet(Map<Long, List<Integer>> dateOrSizeIndexRange) {
+        BitSet bs = new BitSet();
+        for (List<Integer> indices : dateOrSizeIndexRange.values()) {
+            for (Integer index : indices) {
+                bs.set(index);
+            }
+        }
+        return bs;
     }
 
     /**
@@ -484,6 +602,24 @@ public class MessageIndex {
     public Set<Integer> getEntriesByInternalDateRange(long fromDate, long toDate) {
         Set<Integer> result = new HashSet<>();
         NavigableMap<Long, List<Integer>> subMap = internalDateIndex.subMap(fromDate, true, toDate, false);
+        for (List<Integer> indices : subMap.values()) {
+            result.addAll(indices);
+        }
+        return result;
+    }
+
+    /**
+     * Returns entries with sent date (from the message's own {@code Date}
+     * header, as opposed to {@link #getEntriesByInternalDateRange}'s
+     * delivery-time internal date) in the given range.
+     *
+     * @param fromDate start date (millis), inclusive
+     * @param toDate end date (millis), exclusive
+     * @return set of entry indices
+     */
+    public Set<Integer> getEntriesBySentDateRange(long fromDate, long toDate) {
+        Set<Integer> result = new HashSet<>();
+        NavigableMap<Long, List<Integer>> subMap = sentDateIndex.subMap(fromDate, true, toDate, false);
         for (List<Integer> indices : subMap.values()) {
             result.addAll(indices);
         }
@@ -601,6 +737,27 @@ public class MessageIndex {
     public List<Long> getUidsByDateRange(long fromDate, long toDate) {
         List<Long> result = new ArrayList<>();
         NavigableMap<Long, List<Integer>> subMap = internalDateIndex.subMap(fromDate, true, toDate, true);
+        for (List<Integer> indices : subMap.values()) {
+            for (Integer idx : indices) {
+                MessageIndexEntry entry = entries.get(idx);
+                if (entry != null) {
+                    result.add(entry.getUid());
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns UIDs of entries with sent date in the given range.
+     *
+     * @param fromDate start date (millis), inclusive
+     * @param toDate end date (millis), inclusive
+     * @return list of UIDs
+     */
+    public List<Long> getUidsBySentDateRange(long fromDate, long toDate) {
+        List<Long> result = new ArrayList<>();
+        NavigableMap<Long, List<Integer>> subMap = sentDateIndex.subMap(fromDate, true, toDate, true);
         for (List<Integer> indices : subMap.values()) {
             for (Integer idx : indices) {
                 MessageIndexEntry entry = entries.get(idx);

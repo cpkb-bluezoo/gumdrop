@@ -57,6 +57,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -965,20 +966,45 @@ public final class MboxMailbox implements Mailbox {
             return Mailbox.super.search(criteria);
         }
 
+        // Narrow which messages are even worth building a context for
+        // (issue #304): a FLAGGED/SINCE/LARGER-shaped criteria (or an AND
+        // of several) is answered from the flag/date/size sub-indexes,
+        // in O(log n) or O(1), instead of every message paying for
+        // context construction -- and, for one not yet in the index,
+        // disk parsing -- only to be rejected by criteria.matches()
+        // immediately after. null means the criteria (e.g. OR, TEXT/
+        // BODY) cannot be narrowed this way; every message is still a
+        // candidate then, exactly as before this narrowing existed.
+        Set<Integer> candidateMessageNumbers = null;
+        BitSet candidateIndices = searchIndex.computeCandidateIndices(criteria);
+        if (candidateIndices != null) {
+            candidateMessageNumbers = new HashSet<>();
+            for (int i = candidateIndices.nextSetBit(0); i >= 0;
+                    i = candidateIndices.nextSetBit(i + 1)) {
+                MessageIndexEntry candidateEntry = searchIndex.getEntry(i);
+                if (candidateEntry != null) {
+                    candidateMessageNumbers.add(candidateEntry.getMessageNumber());
+                }
+            }
+        }
+
         // Check if criteria requires body/text parsing
         // For now, use index for all searches - TEXT/BODY will return empty
         // matches since body is not indexed. A more sophisticated approach
         // would detect TEXT/BODY criteria and fall back to parsing.
         List<Integer> results = new ArrayList<>();
-        
+
         for (int i = 0; i < messages.size(); i++) {
             int msgNum = i + 1;
-            
+
             // Skip deleted messages
             if (deletedMessages.contains(msgNum)) {
                 continue;
             }
-            
+            if (candidateMessageNumbers != null && !candidateMessageNumbers.contains(msgNum)) {
+                continue;
+            }
+
             MboxMessageDescriptor msg = messages.get(i);
             long uid = getMessageUid(msgNum);
             

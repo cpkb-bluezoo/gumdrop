@@ -211,12 +211,7 @@ public interface SearchCriteria {
      * @return criteria for messages with the flag
      */
     static SearchCriteria hasFlag(final Flag flag) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                return context.getFlags().contains(flag);
-            }
-        };
+        return new FlagCriteria(flag);
     }
 
     /**
@@ -256,12 +251,7 @@ public interface SearchCriteria {
      * @return criteria for large messages
      */
     static SearchCriteria larger(final long size) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                return context.getSize() > size;
-            }
-        };
+        return new SizeCriteria(SizeCriteria.Comparison.LARGER, size);
     }
 
     /**
@@ -271,12 +261,7 @@ public interface SearchCriteria {
      * @return criteria for small messages
      */
     static SearchCriteria smaller(final long size) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                return context.getSize() < size;
-            }
-        };
+        return new SizeCriteria(SizeCriteria.Comparison.SMALLER, size);
     }
 
     // ========================================================================
@@ -290,13 +275,7 @@ public interface SearchCriteria {
      * @return criteria for messages before the date
      */
     static SearchCriteria before(final LocalDate date) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                LocalDate msgDate = context.getInternalLocalDate();
-                return msgDate != null && msgDate.isBefore(date);
-            }
-        };
+        return new DateCriteria(DateCriteria.Field.INTERNAL, DateCriteria.Comparison.BEFORE, date);
     }
 
     /**
@@ -306,13 +285,7 @@ public interface SearchCriteria {
      * @return criteria for messages on the date
      */
     static SearchCriteria on(final LocalDate date) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                LocalDate msgDate = context.getInternalLocalDate();
-                return msgDate != null && msgDate.equals(date);
-            }
-        };
+        return new DateCriteria(DateCriteria.Field.INTERNAL, DateCriteria.Comparison.ON, date);
     }
 
     /**
@@ -322,13 +295,7 @@ public interface SearchCriteria {
      * @return criteria for messages since the date
      */
     static SearchCriteria since(final LocalDate date) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                LocalDate msgDate = context.getInternalLocalDate();
-                return msgDate != null && !msgDate.isBefore(date);
-            }
-        };
+        return new DateCriteria(DateCriteria.Field.INTERNAL, DateCriteria.Comparison.SINCE, date);
     }
 
     // ========================================================================
@@ -342,13 +309,7 @@ public interface SearchCriteria {
      * @return criteria for messages sent before the date
      */
     static SearchCriteria sentBefore(final LocalDate date) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                LocalDate msgDate = context.getSentLocalDate();
-                return msgDate != null && msgDate.isBefore(date);
-            }
-        };
+        return new DateCriteria(DateCriteria.Field.SENT, DateCriteria.Comparison.BEFORE, date);
     }
 
     /**
@@ -358,13 +319,7 @@ public interface SearchCriteria {
      * @return criteria for messages sent on the date
      */
     static SearchCriteria sentOn(final LocalDate date) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                LocalDate msgDate = context.getSentLocalDate();
-                return msgDate != null && msgDate.equals(date);
-            }
-        };
+        return new DateCriteria(DateCriteria.Field.SENT, DateCriteria.Comparison.ON, date);
     }
 
     /**
@@ -374,13 +329,7 @@ public interface SearchCriteria {
      * @return criteria for messages sent since the date
      */
     static SearchCriteria sentSince(final LocalDate date) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                LocalDate msgDate = context.getSentLocalDate();
-                return msgDate != null && !msgDate.isBefore(date);
-            }
-        };
+        return new DateCriteria(DateCriteria.Field.SENT, DateCriteria.Comparison.SINCE, date);
     }
 
     // ========================================================================
@@ -665,18 +614,7 @@ public interface SearchCriteria {
         if (criteria.length == 1) {
             return criteria[0];
         }
-        final List<SearchCriteria> list = Arrays.asList(criteria);
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                for (SearchCriteria c : list) {
-                    if (!c.matches(context)) {
-                        return false;
-                    }
-                }
-                return true;
-            }
-        };
+        return new AndCriteria(Arrays.asList(criteria));
     }
 
     /**
@@ -687,12 +625,7 @@ public interface SearchCriteria {
      * @return combined criteria
      */
     static SearchCriteria or(final SearchCriteria a, final SearchCriteria b) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                return a.matches(context) || b.matches(context);
-            }
-        };
+        return new OrCriteria(a, b);
     }
 
     /**
@@ -702,12 +635,7 @@ public interface SearchCriteria {
      * @return negated criteria
      */
     static SearchCriteria not(final SearchCriteria criteria) {
-        return new SearchCriteria() {
-            @Override
-            public boolean matches(MessageContext context) throws IOException {
-                return !criteria.matches(context);
-            }
-        };
+        return new NotCriteria(criteria);
     }
 
 }

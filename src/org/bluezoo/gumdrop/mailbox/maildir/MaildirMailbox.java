@@ -53,6 +53,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -1340,14 +1341,39 @@ public final class MaildirMailbox implements Mailbox {
             return Mailbox.super.search(criteria);
         }
 
+        // Narrow which messages are even worth building a context for
+        // (issue #304): a FLAGGED/SINCE/LARGER-shaped criteria (or an AND
+        // of several) is answered from the flag/date/size sub-indexes,
+        // in O(log n) or O(1), instead of every message paying for
+        // context construction -- and, for one not yet in the index,
+        // disk parsing -- only to be rejected by criteria.matches()
+        // immediately after. null means the criteria (e.g. OR, TEXT/
+        // BODY) cannot be narrowed this way; every message is still a
+        // candidate then, exactly as before this narrowing existed.
+        Set<Long> candidateUids = null;
+        BitSet candidateIndices = searchIndex.computeCandidateIndices(criteria);
+        if (candidateIndices != null) {
+            candidateUids = new HashSet<>();
+            for (int i = candidateIndices.nextSetBit(0); i >= 0;
+                    i = candidateIndices.nextSetBit(i + 1)) {
+                MessageIndexEntry candidateEntry = searchIndex.getEntry(i);
+                if (candidateEntry != null) {
+                    candidateUids.add(candidateEntry.getUid());
+                }
+            }
+        }
+
         List<Integer> results = new ArrayList<>();
-        
+
         for (MaildirMessageDescriptor msg : messages) {
             // Skip deleted messages
             if (deletedMessages.contains(msg.getUid())) {
                 continue;
             }
-            
+            if (candidateUids != null && !candidateUids.contains(msg.getUid())) {
+                continue;
+            }
+
             // Try to use indexed context first
             MessageIndexEntry indexEntry = searchIndex.getEntryByUid(msg.getUid());
             MessageContext context;

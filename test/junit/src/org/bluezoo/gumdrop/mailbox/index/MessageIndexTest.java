@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.mailbox.index;
 
 import org.bluezoo.gumdrop.mailbox.Flag;
+import org.bluezoo.gumdrop.mailbox.SearchCriteria;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,6 +35,11 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.BitSet;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -552,6 +558,208 @@ public class MessageIndexTest {
         }
 
         assertEquals(10, count);
+    }
+
+    // ========================================================================
+    // search() / computeCandidateIndices() Tests (issue #304)
+    // ========================================================================
+
+    @Test
+    public void testSearchFlagUsesSubIndexNotFullScan() {
+        index.addEntry(createEntryWithFlags(1L, 1, EnumSet.of(Flag.SEEN)));
+        index.addEntry(createEntryWithFlags(2L, 2, EnumSet.noneOf(Flag.class)));
+        index.addEntry(createEntryWithFlags(3L, 3, EnumSet.of(Flag.SEEN)));
+
+        BitSet candidates = index.computeCandidateIndices(
+                SearchCriteria.seen());
+        assertNotNull("a bare flag criteria must be narrowable", candidates);
+        assertEquals(2, candidates.cardinality());
+
+        List<Integer> results = index.search(SearchCriteria.seen());
+        assertEquals(Arrays.asList(1, 3), results);
+    }
+
+    @Test
+    public void testSearchUnseenNarrowsViaFlagComplement() {
+        index.addEntry(createEntryWithFlags(1L, 1, EnumSet.of(Flag.SEEN)));
+        index.addEntry(createEntryWithFlags(2L, 2, EnumSet.noneOf(Flag.class)));
+        index.addEntry(createEntryWithFlags(3L, 3, EnumSet.noneOf(Flag.class)));
+
+        // unseen() = not(hasFlag(SEEN)) -- must be recognised as a
+        // NotCriteria wrapping a FlagCriteria, not just "unrecognisable".
+        BitSet candidates = index.computeCandidateIndices(
+                SearchCriteria.unseen());
+        assertNotNull("UNSEEN must be narrowable via the flag sub-index's complement", candidates);
+        assertEquals(2, candidates.cardinality());
+
+        List<Integer> results = index.search(SearchCriteria.unseen());
+        assertEquals(Arrays.asList(2, 3), results);
+    }
+
+    @Test
+    public void testSearchLargerUsesSizeSubIndex() {
+        index.addEntry(createEntryWithSize(1L, 1, 100));
+        index.addEntry(createEntryWithSize(2L, 2, 5000));
+        index.addEntry(createEntryWithSize(3L, 3, 10000));
+
+        List<Integer> results = index.search(SearchCriteria.larger(1000));
+        assertEquals(Arrays.asList(2, 3), results);
+    }
+
+    @Test
+    public void testSearchSmallerUsesSizeSubIndex() {
+        index.addEntry(createEntryWithSize(1L, 1, 100));
+        index.addEntry(createEntryWithSize(2L, 2, 5000));
+        index.addEntry(createEntryWithSize(3L, 3, 10000));
+
+        List<Integer> results = index.search(SearchCriteria.smaller(1000));
+        assertEquals(Collections.singletonList(1), results);
+    }
+
+    @Test
+    public void testSearchSinceUsesDateSubIndex() {
+        long jan1 = LocalDate.of(2024, 1, 1)
+                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+        long dayMs = 24L * 60 * 60 * 1000;
+        index.addEntry(createEntryWithDate(1L, 1, jan1)); // Jan 1
+        index.addEntry(createEntryWithDate(2L, 2, jan1 + dayMs)); // Jan 2
+        index.addEntry(createEntryWithDate(3L, 3, jan1 + 5 * dayMs)); // Jan 6
+
+        List<Integer> results = index.search(SearchCriteria
+                .since(LocalDate.of(2024, 1, 2)));
+        assertEquals(Arrays.asList(2, 3), results);
+    }
+
+    @Test
+    public void testSearchOnUsesDateSubIndex() {
+        long jan1 = LocalDate.of(2024, 1, 1)
+                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+        long dayMs = 24L * 60 * 60 * 1000;
+        index.addEntry(createEntryWithDate(1L, 1, jan1));
+        index.addEntry(createEntryWithDate(2L, 2, jan1 + dayMs));
+        // Same calendar day as entry 1, later in the day.
+        index.addEntry(createEntryWithDate(3L, 3, jan1 + 3600_000L));
+
+        List<Integer> results = index.search(SearchCriteria
+                .on(LocalDate.of(2024, 1, 1)));
+        assertEquals(Arrays.asList(1, 3), results);
+    }
+
+    @Test
+    public void testSearchBeforeUsesDateSubIndex() {
+        long jan1 = LocalDate.of(2024, 1, 1)
+                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli();
+        long dayMs = 24L * 60 * 60 * 1000;
+        index.addEntry(createEntryWithDate(1L, 1, jan1));
+        index.addEntry(createEntryWithDate(2L, 2, jan1 + 5 * dayMs));
+
+        List<Integer> results = index.search(SearchCriteria
+                .before(LocalDate.of(2024, 1, 3)));
+        assertEquals(Collections.singletonList(1), results);
+    }
+
+    @Test
+    public void testSearchAndCombinesSubIndexesByIntersection() {
+        index.addEntry(new MessageIndexEntry(1L, 1, 100, 1704067200000L, 1704067100000L,
+                EnumSet.of(Flag.SEEN),
+                "loc", "from@test.com", "to@test.com", "", "", "Subject", "<a@test.com>", ""));
+        index.addEntry(new MessageIndexEntry(2L, 2, 5000, 1704067200000L, 1704067100000L,
+                EnumSet.of(Flag.SEEN),
+                "loc", "from@test.com", "to@test.com", "", "", "Subject", "<b@test.com>", ""));
+        index.addEntry(new MessageIndexEntry(3L, 3, 5000, 1704067200000L, 1704067100000L,
+                EnumSet.noneOf(Flag.class),
+                "loc", "from@test.com", "to@test.com", "", "", "Subject", "<c@test.com>", ""));
+
+        // SEEN and LARGER 1000: only entry 2 satisfies both.
+        SearchCriteria criteria = SearchCriteria.and(
+                SearchCriteria.seen(),
+                SearchCriteria.larger(1000));
+
+        BitSet candidates = index.computeCandidateIndices(criteria);
+        assertNotNull(candidates);
+        assertEquals("AND must intersect, not union, the sub-index results",
+                1, candidates.cardinality());
+
+        assertEquals(Collections.singletonList(2), index.search(criteria));
+    }
+
+    @Test
+    public void testSearchAndWithOneUnindexableTermStillNarrowsByTheOthers() {
+        index.addEntry(new MessageIndexEntry(1L, 1, 100, 1704067200000L, 1704067100000L,
+                EnumSet.of(Flag.SEEN),
+                "loc", "alice@test.com", "to@test.com", "", "", "Subject", "<a@test.com>", ""));
+        index.addEntry(new MessageIndexEntry(2L, 2, 100, 1704067200000L, 1704067100000L,
+                EnumSet.noneOf(Flag.class),
+                "loc", "alice@test.com", "to@test.com", "", "", "Subject", "<b@test.com>", ""));
+
+        // FROM has no sub-index, but SEEN does -- the AND must still
+        // narrow using SEEN and let criteria.matches() finish the job
+        // (verifying FROM) over that smaller candidate set.
+        SearchCriteria criteria = SearchCriteria.and(
+                SearchCriteria.seen(),
+                SearchCriteria.from("alice"));
+
+        BitSet candidates = index.computeCandidateIndices(criteria);
+        assertNotNull("an AND with at least one indexable term must still narrow", candidates);
+        assertEquals(1, candidates.cardinality());
+
+        assertEquals(Collections.singletonList(1), index.search(criteria));
+    }
+
+    @Test
+    public void testSearchOrIsNotNarrowed() {
+        // OR would need a union across sub-indexes covering every
+        // disjunct, including ones that may not be indexable at all --
+        // out of scope; must fall back to a full scan (still correct,
+        // just not narrowed).
+        SearchCriteria criteria = SearchCriteria.or(
+                SearchCriteria.seen(),
+                SearchCriteria.larger(1000));
+        assertNull(index.computeCandidateIndices(criteria));
+    }
+
+    @Test
+    public void testSearchTextIsNotNarrowed() {
+        assertNull(index.computeCandidateIndices(
+                SearchCriteria.body("hello")));
+    }
+
+    @Test
+    public void testSearchStillCorrectWhenNotNarrowable() {
+        // A criteria this optimization can't help with must still
+        // produce correct results via the full-scan fallback.
+        index.addEntry(new MessageIndexEntry(1L, 1, 100, 1704067200000L, 1704067100000L,
+                EnumSet.noneOf(Flag.class),
+                "loc", "alice@test.com", "to@test.com", "", "", "Hello", "<a@test.com>", ""));
+        index.addEntry(new MessageIndexEntry(2L, 2, 100, 1704067200000L, 1704067100000L,
+                EnumSet.noneOf(Flag.class),
+                "loc", "bob@test.com", "to@test.com", "", "", "Hi", "<b@test.com>", ""));
+
+        List<Integer> results = index.search(SearchCriteria.from("alice"));
+        assertEquals(Collections.singletonList(1), results);
+    }
+
+    @Test(timeout = 5000)
+    public void testSearchFlagCostDoesNotScaleLinearlyWithMailboxSize() {
+        // 100,000 unseen messages, 1 seen one: an unindexed scan would
+        // still call matches() -- and, for the fallback case,
+        // potentially parse a message from disk -- for all 100,001. The
+        // sub-index answers this in effectively O(1).
+        for (int i = 0; i < 100_000; i++) {
+            index.addEntry(createEntryWithFlags(i + 1, i + 1,
+                    EnumSet.noneOf(Flag.class)));
+        }
+        index.addEntry(createEntryWithFlags(100_001L, 100_001,
+                EnumSet.of(Flag.SEEN)));
+
+        long start = System.nanoTime();
+        List<Integer> results = index.search(SearchCriteria.seen());
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertEquals(Collections.singletonList(100_001), results);
+        assertTrue("SEARCH SEEN against a 100,001-message mailbox took " + elapsedMs
+                + "ms -- an unindexed scan of every message would be far slower than this",
+                elapsedMs < 2000);
     }
 
     // ========================================================================
