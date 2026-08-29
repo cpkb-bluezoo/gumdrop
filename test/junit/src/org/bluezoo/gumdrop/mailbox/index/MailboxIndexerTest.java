@@ -47,7 +47,7 @@ public class MailboxIndexerTest {
 
     @Before
     public void setUp() {
-        indexer = new MailboxIndexer();
+        indexer = new MailboxIndexer(1);
     }
 
     @After
@@ -418,5 +418,65 @@ public class MailboxIndexerTest {
                 shutdownReturned.await(5, TimeUnit.SECONDS));
         assertTrue("the job must have completed before shutdown() returned",
                 jobFinished.get());
+    }
+
+    /**
+     * Regression coverage for issue #319: a single worker serialised every
+     * mailbox index rebuild server-wide; unrelated mailboxes should rebuild
+     * concurrently up to the pool size.
+     */
+    @Test(timeout = 15000)
+    public void unrelatedRebuildsRunConcurrentlyOnPool() throws Exception {
+        MailboxIndexer poolIndexer = new MailboxIndexer(4);
+        try {
+            final int mailboxCount = 4;
+            final int workMs = 150;
+            final AtomicInteger inFlight = new AtomicInteger();
+            final AtomicInteger maxInFlight = new AtomicInteger();
+            final CountDownLatch allRunning = new CountDownLatch(mailboxCount);
+
+            long startNs = System.nanoTime();
+            Thread[] clients = new Thread[mailboxCount];
+            for (int i = 0; i < mailboxCount; i++) {
+                final MailboxIndexKey k = key("/tmp/parallel-" + i);
+                clients[i] = new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            poolIndexer.ensureFreshBlocking(k, false, 0L,
+                                    new MailboxIndexer.IndexWork() {
+                                @Override
+                                public void run() throws InterruptedException {
+                                    int now = inFlight.incrementAndGet();
+                                    maxInFlight.updateAndGet(
+                                            prev -> Math.max(prev, now));
+                                    allRunning.countDown();
+                                    Thread.sleep(workMs);
+                                    inFlight.decrementAndGet();
+                                }
+                            });
+                        } catch (IOException | InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                });
+                clients[i].start();
+            }
+
+            for (int i = 0; i < mailboxCount; i++) {
+                clients[i].join(5000);
+            }
+            long elapsedMs = (System.nanoTime() - startNs) / 1_000_000;
+
+            assertTrue("unrelated mailbox rebuilds must overlap on the pool "
+                    + "(peak in-flight was " + maxInFlight.get() + ")",
+                    maxInFlight.get() >= 2);
+            assertTrue("four parallel rebuilds took " + elapsedMs + "ms -- a "
+                    + "single worker serialising them would need at least "
+                    + (mailboxCount * workMs) + "ms",
+                    elapsedMs < mailboxCount * workMs - 100);
+        } finally {
+            poolIndexer.shutdown();
+        }
     }
 }
