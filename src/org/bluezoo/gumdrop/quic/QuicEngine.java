@@ -53,6 +53,7 @@ import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.ratelimit.RateLimiter;
+import org.bluezoo.gumdrop.quic.cid.ConnectionIdKey;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.LongHeaderPrefix;
@@ -62,7 +63,6 @@ import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
-import org.bluezoo.util.ByteArrays;
 
 /**
  * One UDP socket multiplexing many {@link QuicConnection}s, the
@@ -126,8 +126,8 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private SelectorLoop selectorLoop;
     private ByteBuffer recvBuf;
 
-    private final Map<String, QuicConnection> connections = new HashMap<String, QuicConnection>();
-    private final Map<String, Long> resetEligibleUntil = new HashMap<String, Long>();
+    private final Map<ConnectionIdKey, QuicConnection> connections = new HashMap<ConnectionIdKey, QuicConnection>();
+    private final Map<ConnectionIdKey, Long> resetEligibleUntil = new HashMap<ConnectionIdKey, Long>();
     private final Map<String, RateLimiter> resetRateLimiters = new HashMap<String, RateLimiter>();
     private QuicConnection clientConnection;
 
@@ -270,7 +270,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             dcid = java.util.Arrays.copyOfRange(bytes, 1, 1 + CONNECTION_ID_LENGTH);
         }
 
-        String key = ByteArrays.toHexString(dcid);
+        ConnectionIdKey key = new ConnectionIdKey(dcid);
         QuicConnection conn = connections.get(key);
         if (conn == null) {
             if (serverMode && prefix != null && prefix.getPacketType() == LongHeaderCodec.TYPE_INITIAL) {
@@ -381,11 +381,11 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     void registerConnectionId(byte[] connectionId, QuicConnection connection) {
-        connections.put(ByteArrays.toHexString(connectionId), connection);
+        connections.put(new ConnectionIdKey(connectionId), connection);
     }
 
     void unregisterConnectionId(byte[] connectionId) {
-        connections.remove(ByteArrays.toHexString(connectionId));
+        connections.remove(new ConnectionIdKey(connectionId));
     }
 
     void markResetEligible(byte[] connectionId) {
@@ -397,7 +397,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     void markResetEligible(byte[] connectionId, long expiryMillis) {
-        resetEligibleUntil.put(ByteArrays.toHexString(connectionId), Long.valueOf(expiryMillis));
+        resetEligibleUntil.put(new ConnectionIdKey(connectionId), Long.valueOf(expiryMillis));
     }
 
     void onConnectionClosed(QuicConnection connection) {
@@ -411,7 +411,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     private void removeConnection(QuicConnection connection) {
-        Iterator<Map.Entry<String, QuicConnection>> it = connections.entrySet().iterator();
+        Iterator<Map.Entry<ConnectionIdKey, QuicConnection>> it = connections.entrySet().iterator();
         while (it.hasNext()) {
             if (it.next().getValue() == connection) {
                 it.remove();
@@ -420,12 +420,13 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     private boolean isResetEligible(byte[] connectionId) {
-        Long expiry = resetEligibleUntil.get(ByteArrays.toHexString(connectionId));
+        ConnectionIdKey key = new ConnectionIdKey(connectionId);
+        Long expiry = resetEligibleUntil.get(key);
         if (expiry == null) {
             return false;
         }
         if (System.currentTimeMillis() > expiry.longValue()) {
-            resetEligibleUntil.remove(ByteArrays.toHexString(connectionId));
+            resetEligibleUntil.remove(key);
             return false;
         }
         return true;
