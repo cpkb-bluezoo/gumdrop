@@ -70,9 +70,8 @@ public class SpanTest {
         assertNotSame(id1, id2);
         assertArrayEquals(id1, id2);
         
-        // Modify returned array
-        id1[0] = 0;
-        assertNotEquals(id1[0], span.getSpanId().getBytes()[0]);
+        id1[0] ^= (byte) 0xFF;
+        assertArrayEquals(id2, span.getSpanId().getBytes());
     }
 
     @Test
