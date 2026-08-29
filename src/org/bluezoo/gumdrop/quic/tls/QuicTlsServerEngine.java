@@ -193,11 +193,14 @@ public final class QuicTlsServerEngine
         dispatchFrame(level, offset, data);
     }
 
-    private void dispatchFrame(EncryptionLevel level, long offset, ByteBuffer data)
+    // Returns whether this actually submitted a new batch -- false if the
+    // reassembled data didn't yet complete a message, in which case
+    // there's nothing in flight for this call.
+    private boolean dispatchFrame(EncryptionLevel level, long offset, ByteBuffer data)
             throws StreamReassembler.BufferLimitExceededException {
         final List<ByteBuffer> messages = bufferFor(level).receiveAndExtractMessages(offset, data);
         if (messages.isEmpty()) {
-            return;
+            return false;
         }
         asyncOffload.submit(level, new QuicHandshakeAsyncOffload.BatchProcessor() {
             @Override
@@ -206,32 +209,36 @@ public final class QuicTlsServerEngine
                     messageParser.parseAndProcessHandshakeMessage(msg, engine, level.getProtectionKeysType());
                 }
             }
-        }, new Runnable() {
+        }, new QuicHandshakeAsyncOffload.CompletionHandler() {
             @Override
-            public void run() {
-                drainPendingFrames();
+            public boolean onBatchDone() {
+                return drainPendingFrames();
             }
         });
+        return true;
     }
 
-    // Called once a batch completes, on the loop thread: dispatches
-    // whatever CRYPTO frames queued up while it was running, one at a
-    // time, until either the queue empties or a new batch is submitted
-    // (whose own completion will call back here again).
-    private void drainPendingFrames() {
-        while (!asyncOffload.isBusy()) {
-            PendingFrame next = pendingFrames.poll();
-            if (next == null) {
-                return;
-            }
+    // Called once a batch completes: dispatches queued CRYPTO frames, one
+    // at a time, until either the queue empties or one of them actually
+    // submits a follow-up batch. Returns whether a follow-up batch is in
+    // flight -- QuicHandshakeAsyncOffload.submit's caller-visible busy
+    // state must stay set across it (issue #351), so this reports that
+    // precisely rather than the caller re-querying isBusy() (the exact
+    // flag this method's own follow-up submission is about to set).
+    private boolean drainPendingFrames() {
+        PendingFrame next;
+        while ((next = pendingFrames.poll()) != null) {
             try {
-                dispatchFrame(next.level, next.offset, ByteBuffer.wrap(next.data));
+                if (dispatchFrame(next.level, next.offset, ByteBuffer.wrap(next.data))) {
+                    return true;
+                }
             } catch (StreamReassembler.BufferLimitExceededException e) {
                 listener.cryptoProcessingFailed(next.level, e);
                 pendingFrames.clear();
-                return;
+                return false;
             }
         }
+        return false;
     }
 
     private static final class PendingFrame {
