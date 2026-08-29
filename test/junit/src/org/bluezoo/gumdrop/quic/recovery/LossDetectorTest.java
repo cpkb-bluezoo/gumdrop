@@ -288,4 +288,61 @@ public class LossDetectorTest {
         // Halved from the grown 12050, not the original 12000: 6025.
         assertEquals(6025, detector.getCongestionController().getCongestionWindow());
     }
+
+    /**
+     * Regression test for issue #307: sent packets were tracked in a
+     * plain {@code ArrayList} scanned linearly against every ACK range
+     * on every received ACK, an O(unacked packets x ACK ranges) cost per
+     * ACK. Sends a large number of packets, then repeatedly acknowledges
+     * one at a time from the front -- the pattern of a connection that
+     * keeps a large number of packets in flight while ACKs trickle in
+     * individually -- and asserts the cumulative cost stays far below
+     * what a linear-scan-per-ACK implementation would take.
+     */
+    @Test(timeout = 15000)
+    public void testAckProcessingCostDoesNotScaleLinearlyWithInFlightPacketCount() {
+        LossDetector detector = new LossDetector(1200);
+        int packetCount = 200000;
+        for (int i = 0; i < packetCount; i++) {
+            detector.onPacketSent(EncryptionLevel.ONE_RTT, i, 1000, true, true, 100);
+        }
+
+        long start = System.nanoTime();
+        for (int i = 0; i < 2000; i++) {
+            detector.onAckReceived(EncryptionLevel.ONE_RTT, i, 0, new long[][] { { i, i } }, 25, 1000 + i, true);
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1000000;
+        assertTrue("2000 ACKs against " + packetCount + " in-flight packets took " + elapsedMs
+                + "ms -- expected a packet-number-indexed structure to keep this far below linear-scan cost",
+                elapsedMs < 1000);
+    }
+
+    /**
+     * Regression test for issue #307: {@code hasAckElicitingInFlight}
+     * scanned every tracked packet linearly, and is called from the loss
+     * detection timeout path on essentially every flush. Almost all
+     * tracked packets here are non-ack-eliciting (e.g. ACK-only packets,
+     * which still count toward bytes in flight but not toward this
+     * check), so a linear scan must walk nearly the whole tracked set
+     * before finding the one ack-eliciting packet at the end.
+     */
+    @Test(timeout = 15000)
+    public void testHasAckElicitingInFlightCostDoesNotScaleLinearlyWithInFlightPacketCount() {
+        LossDetector detector = new LossDetector(1200);
+        int packetCount = 200000;
+        for (int i = 0; i < packetCount; i++) {
+            detector.onPacketSent(EncryptionLevel.ONE_RTT, i, 1000, false, true, 100);
+        }
+        detector.onPacketSent(EncryptionLevel.ONE_RTT, packetCount, 1000, true, true, 100);
+
+        long start = System.nanoTime();
+        for (int i = 0; i < 2000; i++) {
+            detector.getLossDetectionTimeout(false, true, true, 25, 2000);
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1000000;
+        assertTrue("2000 getLossDetectionTimeout calls against " + (packetCount + 1)
+                + " in-flight packets took " + elapsedMs
+                + "ms -- expected an incremental in-flight counter to keep this O(1) per call, not a scan",
+                elapsedMs < 1000);
+    }
 }
