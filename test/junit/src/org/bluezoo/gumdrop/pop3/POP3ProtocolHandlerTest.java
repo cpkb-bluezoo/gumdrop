@@ -1184,6 +1184,77 @@ public class POP3ProtocolHandlerTest {
         assertTrue(lastResponse().startsWith("-ERR"));
     }
 
+    @Test
+    public void testRepeatedListAndUidlReuseCachedListing() {
+        mailboxFactory.stubMessageCount = 50;
+        authenticateWithUserPass();
+        StubMailbox mbox = mailboxFactory.lastMailbox;
+
+        endpoint.sentData.clear();
+        sendCommand("UIDL");
+        assertEquals(1, mbox.getMessageListCallCount);
+
+        endpoint.sentData.clear();
+        sendCommand("UIDL");
+        assertEquals("Second bulk UIDL must reuse the session listing cache",
+                1, mbox.getMessageListCallCount);
+
+        endpoint.sentData.clear();
+        sendCommand("LIST");
+        assertEquals("Bulk LIST must reuse the same cached listing",
+                1, mbox.getMessageListCallCount);
+
+        endpoint.sentData.clear();
+        sendCommand("LIST");
+        assertEquals("Second bulk LIST must still reuse the cache",
+                1, mbox.getMessageListCallCount);
+    }
+
+    @Test
+    public void testDeleUpdatesCachedListingWithoutRebuild() {
+        mailboxFactory.stubMessageCount = 20;
+        authenticateWithUserPass();
+        StubMailbox mbox = mailboxFactory.lastMailbox;
+
+        sendCommand("UIDL");
+        assertEquals(1, mbox.getMessageListCallCount);
+
+        endpoint.sentData.clear();
+        sendCommand("DELE 2");
+        assertTrue(lastResponse().startsWith("+OK"));
+
+        endpoint.sentData.clear();
+        sendCommand("LIST");
+        List<String> responses = endpoint.getResponses();
+        assertTrue(responses.get(0).contains("19 messages"));
+        assertFalse("Deleted message must not appear in cached LIST",
+                responses.contains("2 500"));
+        assertEquals("DELE should adjust the cache without rebuilding the listing",
+                1, mbox.getMessageListCallCount);
+    }
+
+    @Test
+    public void testRsetRebuildsListingCache() {
+        mailboxFactory.stubMessageCount = 10;
+        authenticateWithUserPass();
+        StubMailbox mbox = mailboxFactory.lastMailbox;
+
+        sendCommand("UIDL");
+        sendCommand("DELE 1");
+        assertEquals(1, mbox.getMessageListCallCount);
+
+        endpoint.sentData.clear();
+        sendCommand("RSET");
+        assertTrue(lastResponse().startsWith("+OK"));
+
+        endpoint.sentData.clear();
+        sendCommand("UIDL");
+        assertEquals("RSET must drop the listing cache so UIDL rebuilds once",
+                2, mbox.getMessageListCallCount);
+        List<String> responses = endpoint.getResponses();
+        assertEquals("1 msg-uid-1", responses.get(1));
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // QUIT tests
     // ═══════════════════════════════════════════════════════════════════
@@ -1729,6 +1800,7 @@ public class POP3ProtocolHandlerTest {
 
     static class StubMailboxFactory implements MailboxFactory {
         String messageContent = "Subject: Test\r\n\r\nTest body\r\n";
+        int stubMessageCount = 3;
         StubMailboxStore lastStore;
         StubMailbox lastMailbox;
 
@@ -1774,7 +1846,8 @@ public class POP3ProtocolHandlerTest {
 
         @Override
         public Mailbox openMailbox(String name, boolean readOnly) {
-            StubMailbox mbox = new StubMailbox(factory.messageContent);
+            StubMailbox mbox = new StubMailbox(factory.messageContent,
+                    factory.stubMessageCount);
             factory.lastMailbox = mbox;
             return mbox;
         }
@@ -1798,16 +1871,21 @@ public class POP3ProtocolHandlerTest {
     static class StubMailbox implements Mailbox {
         private final List<StubMessage> messages;
         private final Set<Integer> deleted = new HashSet<Integer>();
+        int getMessageListCallCount;
         boolean closed;
         boolean closedWithExpunge;
         private final String messageContent;
 
         StubMailbox(String content) {
+            this(content, 3);
+        }
+
+        StubMailbox(String content, int messageCount) {
             this.messageContent = content;
             messages = new ArrayList<StubMessage>();
-            messages.add(new StubMessage(1, 500, "msg-uid-1"));
-            messages.add(new StubMessage(2, 500, "msg-uid-2"));
-            messages.add(new StubMessage(3, 500, "msg-uid-3"));
+            for (int i = 1; i <= messageCount; i++) {
+                messages.add(new StubMessage(i, 500, "msg-uid-" + i));
+            }
         }
 
         @Override
@@ -1840,6 +1918,7 @@ public class POP3ProtocolHandlerTest {
 
         @Override
         public Iterator<MessageDescriptor> getMessageList() {
+            getMessageListCallCount++;
             List<MessageDescriptor> result =
                     new ArrayList<MessageDescriptor>();
             for (StubMessage msg : messages) {

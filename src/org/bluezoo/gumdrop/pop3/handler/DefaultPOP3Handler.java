@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.pop3.handler;
 import java.io.IOException;
 import java.security.Principal;
 import java.util.Iterator;
+import java.util.List;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -34,6 +35,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
+import org.bluezoo.gumdrop.pop3.Pop3MessageListingCache;
 
 /**
  * Default POP3 handler implementation that accepts all operations.
@@ -117,17 +119,32 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
                 }
             } else {
                 // All messages listing
-                int count = mailbox.getMessageCount();
-                ListState.ListWriter writer = state.beginListing(count);
-                Iterator<MessageDescriptor> messages = mailbox.getMessageList();
-                while (messages.hasNext()) {
-                    MessageDescriptor msg = messages.next();
-                    int msgNum = msg.getMessageNumber();
-                    if (!mailbox.isDeleted(msgNum)) {
-                        writer.message(msgNum, msg.getSize());
+                Pop3MessageListingCache cache =
+                        Pop3MessageListingCache.forState(state);
+                if (cache != null) {
+                    List<Pop3MessageListingCache.Entry> listing =
+                            cache.snapshot(mailbox);
+                    ListState.ListWriter writer =
+                            state.beginListing(listing.size());
+                    for (Pop3MessageListingCache.Entry entry : listing) {
+                        writer.message(entry.getMessageNumber(),
+                                entry.getSize());
                     }
+                    writer.end(this);
+                } else {
+                    int count = mailbox.getMessageCount();
+                    ListState.ListWriter writer = state.beginListing(count);
+                    Iterator<MessageDescriptor> messages =
+                            mailbox.getMessageList();
+                    while (messages.hasNext()) {
+                        MessageDescriptor msg = messages.next();
+                        int msgNum = msg.getMessageNumber();
+                        if (!mailbox.isDeleted(msgNum)) {
+                            writer.message(msgNum, msg.getSize());
+                        }
+                    }
+                    writer.end(this);
                 }
-                writer.end(this);
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to list messages", e);
@@ -226,17 +243,31 @@ public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler
                 }
             } else {
                 // All messages UID listing
-                UidlState.UidlWriter writer = state.beginListing();
-                Iterator<MessageDescriptor> messages = mailbox.getMessageList();
-                while (messages.hasNext()) {
-                    MessageDescriptor msg = messages.next();
-                    int msgNum = msg.getMessageNumber();
-                    if (!mailbox.isDeleted(msgNum)) {
-                        String uid = mailbox.getUniqueId(msgNum);
-                        writer.message(msgNum, uid);
+                Pop3MessageListingCache cache =
+                        Pop3MessageListingCache.forState(state);
+                if (cache != null) {
+                    List<Pop3MessageListingCache.Entry> listing =
+                            cache.snapshot(mailbox);
+                    UidlState.UidlWriter writer = state.beginListing();
+                    for (Pop3MessageListingCache.Entry entry : listing) {
+                        writer.message(entry.getMessageNumber(),
+                                entry.getUniqueId());
                     }
+                    writer.end(this);
+                } else {
+                    UidlState.UidlWriter writer = state.beginListing();
+                    Iterator<MessageDescriptor> messages =
+                            mailbox.getMessageList();
+                    while (messages.hasNext()) {
+                        MessageDescriptor msg = messages.next();
+                        int msgNum = msg.getMessageNumber();
+                        if (!mailbox.isDeleted(msgNum)) {
+                            String uid = mailbox.getUniqueId(msgNum);
+                            writer.message(msgNum, uid);
+                        }
+                    }
+                    writer.end(this);
                 }
-                writer.end(this);
             }
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Failed to get UIDs", e);
