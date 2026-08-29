@@ -238,14 +238,24 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
             if (encrypted == null) {
                 return;
             }
-            try {
-                sendRawDatagram(encrypted, dest);
-            } finally {
-                ByteBufferPool.release(encrypted);
-            }
+            sendOwnedRawDatagram(encrypted, dest);
             return;
         }
         sendRawDatagram(data, dest);
+    }
+
+    /**
+     * Queues an already-encrypted datagram for the wire, taking ownership
+     * of {@code data}. The buffer is released back to
+     * {@link org.bluezoo.gumdrop.util.ByteBufferPool} once fully written.
+     * Callers must not use or release {@code data} after this call.
+     */
+    void sendOwnedRawDatagram(ByteBuffer data, InetSocketAddress dest) {
+        pendingDatagrams.add(new PendingDatagram(data, dest));
+
+        if (selectorLoop != null) {
+            selectorLoop.requestDatagramWrite(this);
+        }
     }
 
     /**
@@ -254,6 +264,10 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
      * {@link DTLSSession} to send already-encrypted records (handshake
      * flights, application data, {@code close_notify}). Never call this
      * directly with plaintext on a secure endpoint; use {@link #sendTo}.
+     *
+     * <p>Makes a defensive copy of {@code data} because callers may reuse
+     * or retain the source buffer. For a freshly allocated buffer that
+     * the caller is handing off, use {@link #sendOwnedRawDatagram}.
      */
     void sendRawDatagram(ByteBuffer data, InetSocketAddress dest) {
         ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
