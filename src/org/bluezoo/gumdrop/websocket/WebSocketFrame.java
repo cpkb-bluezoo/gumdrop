@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.websocket;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.text.MessageFormat;
@@ -86,7 +87,24 @@ public final class WebSocketFrame {
     private final int opcode;
     private final boolean masked;
     private final byte[] maskingKey;
-    private final byte[] payload;
+
+    // Issue #323: a frame parsed from wire data (see parse()) starts out
+    // with payload == null and sourceSlice holding a zero-copy view onto
+    // the buffer it was parsed from, materialized into an owned array
+    // lazily (payload()) only once something actually needs byte[]
+    // access. A frame built from application-owned bytes (the public/
+    // package constructors, used for outgoing frames) sets payload
+    // directly instead and leaves sourceSlice null -- already an owned,
+    // independent array, nothing to defer.
+    //
+    // sourceSlice is only ever valid synchronously, for as long as the
+    // buffer it was sliced from hasn't been reused for a subsequent
+    // receive -- true throughout this class's only caller,
+    // WebSocketConnection.processIncomingData()'s per-datagram loop,
+    // the same lifetime convention H2Parser's zero-copy frame slices
+    // already rely on elsewhere in this codebase.
+    private byte[] payload;
+    private final ByteBuffer sourceSlice;
 
     /**
      * Creates a new WebSocket frame.
@@ -112,9 +130,71 @@ public final class WebSocketFrame {
         this.masked = masked;
         this.maskingKey = maskingKey;
         this.payload = payload != null ? payload : new byte[0];
+        this.sourceSlice = null;
 
         // Validate frame
         validateFrame();
+    }
+
+    /**
+     * Creates a frame whose payload is a zero-copy slice of the buffer it
+     * was parsed from, materialized into an owned array lazily -- see
+     * {@link #sourceSlice}. Used only by {@link #parse(ByteBuffer, long)}.
+     *
+     * @param payloadSlice the payload, sliced from the source buffer and
+     *        already unmasked if {@code masked} is true
+     */
+    private WebSocketFrame(boolean fin, boolean rsv1, boolean rsv2, boolean rsv3,
+                         int opcode, boolean masked, byte[] maskingKey, ByteBuffer payloadSlice)
+                         throws WebSocketProtocolException {
+        this.fin = fin;
+        this.rsv1 = rsv1;
+        this.rsv2 = rsv2;
+        this.rsv3 = rsv3;
+        this.opcode = opcode;
+        this.masked = masked;
+        this.maskingKey = maskingKey;
+        this.payload = null;
+        this.sourceSlice = payloadSlice;
+
+        validateFrame();
+    }
+
+    /**
+     * This frame's payload as an owned, independent array, materializing
+     * it from {@link #sourceSlice} the first time it's needed if this
+     * frame came from {@link #parse(ByteBuffer, long)} (memoized after
+     * that -- repeat calls do not re-copy).
+     */
+    private byte[] payload() {
+        if (payload == null) {
+            payload = new byte[sourceSlice.remaining()];
+            sourceSlice.duplicate().get(payload);
+        }
+        return payload;
+    }
+
+    /**
+     * This frame's payload length, without forcing {@link #payload()}'s
+     * materialization.
+     *
+     * @return the payload length in bytes
+     */
+    int payloadLength() {
+        return payload != null ? payload.length : sourceSlice.remaining();
+    }
+
+    /**
+     * This frame's payload as a buffer suitable for a single bulk
+     * transfer (e.g. {@code ByteBuffer.put(ByteBuffer)}) into another
+     * buffer, without forcing {@link #payload()}'s materialization first
+     * -- the fast path {@link WebSocketConnection}'s fragmented-message
+     * reassembly uses instead of {@link #getPayloadBytes()} (issue #323).
+     *
+     * @return a fresh, independently-positioned view of the payload
+     */
+    ByteBuffer payloadForBulkTransfer() {
+        return payload != null ? ByteBuffer.wrap(payload) : sourceSlice.duplicate();
     }
 
     /**
@@ -326,17 +406,22 @@ public final class WebSocketFrame {
                 return null; // Need more bytes for payload
             }
 
-            byte[] payload = new byte[actualPayloadLength];
-            buffer.get(payload);
+            // Issue #323: slice rather than copy -- the owned array this
+            // frame's payload eventually needs (if anything actually asks
+            // for one; see payload()/getPayloadBytes()) is materialized
+            // lazily instead of unconditionally here.
+            ByteBuffer payloadSlice = buffer.slice();
+            payloadSlice.limit(actualPayloadLength);
+            buffer.position(buffer.position() + actualPayloadLength);
 
-            // Unmask payload if masked
+            // Unmask payload if masked -- in place, directly on the slice
+            // (and so on the source buffer's own backing storage; safe,
+            // since buffer's position has already moved past this range).
             if (masked && maskingKey != null) {
-                for (int i = 0; i < payload.length; i++) {
-                    payload[i] ^= maskingKey[i % 4];
-                }
+                unmask(payloadSlice, maskingKey);
             }
 
-            return new WebSocketFrame(fin, rsv1, rsv2, rsv3, opcode, masked, maskingKey, payload);
+            return new WebSocketFrame(fin, rsv1, rsv2, rsv3, opcode, masked, maskingKey, payloadSlice);
 
         } catch (Exception e) {
             // Reset position and re-throw as protocol exception
@@ -355,6 +440,7 @@ public final class WebSocketFrame {
      */
     /** RFC 6455 §5.2 — encode frame to wire format. */
     public ByteBuffer encode() {
+        byte[] payload = payload();
         int headerSize = 2; // Basic header
         long payloadLength = payload.length;
 
@@ -443,14 +529,63 @@ public final class WebSocketFrame {
             if (!fin) {
                 throw new WebSocketProtocolException(L10N.getString("err.control_frame_fragmented"));
             }
-            if (payload.length > CONTROL_FRAME_MAX_PAYLOAD) {
+            int length = payloadLength();
+            if (length > CONTROL_FRAME_MAX_PAYLOAD) {
                 throw new WebSocketProtocolException(
-                    MessageFormat.format(L10N.getString("err.control_frame_too_large"), payload.length));
+                    MessageFormat.format(L10N.getString("err.control_frame_too_large"), length));
             }
         }
 
         if (masked && (maskingKey == null || maskingKey.length != 4)) {
             throw new WebSocketProtocolException(L10N.getString("err.invalid_masking_key"));
+        }
+    }
+
+    /**
+     * RFC 6455 §5.3 — unmasks {@code buf} in place, XOR-ing its bytes
+     * against {@code maskingKey} repeated cyclically.
+     *
+     * <p>Processes 8 bytes (two repeats of the 4-byte key) at a time via
+     * {@code getLong}/{@code putLong} rather than one byte per XOR (issue
+     * #323) -- correct regardless of how many bytes are left over, since
+     * the tail (fewer than 8 bytes) falls back to the original
+     * byte-at-a-time loop, and correct regardless of the mask key's
+     * phase at each 8-byte boundary, since every stride is a whole
+     * number of 4-byte key cycles.
+     *
+     * <p>Uses absolute {@code get}/{@code put} throughout, so it doesn't
+     * disturb {@code buf}'s position, and forces {@link ByteOrder#BIG_ENDIAN}
+     * for the duration (restored afterwards) so the packed mask word
+     * matches byte-for-byte regardless of {@code buf}'s own configured
+     * order.
+     *
+     * @param buf the buffer to unmask, from its current position to its limit
+     * @param maskingKey the 4-byte masking key
+     */
+    private static void unmask(ByteBuffer buf, byte[] maskingKey) {
+        int len = buf.remaining();
+        int base = buf.position();
+        ByteOrder originalOrder = buf.order();
+        buf.order(ByteOrder.BIG_ENDIAN);
+        try {
+            long quad = ((maskingKey[0] & 0xFFL) << 24)
+                    | ((maskingKey[1] & 0xFFL) << 16)
+                    | ((maskingKey[2] & 0xFFL) << 8)
+                    | (maskingKey[3] & 0xFFL);
+            long maskWord = (quad << 32) | quad;
+
+            int i = 0;
+            int strideEnd = len - (len % 8);
+            for (; i < strideEnd; i += 8) {
+                int idx = base + i;
+                buf.putLong(idx, buf.getLong(idx) ^ maskWord);
+            }
+            for (; i < len; i++) {
+                int idx = base + i;
+                buf.put(idx, (byte) (buf.get(idx) ^ maskingKey[i % 4]));
+            }
+        } finally {
+            buf.order(originalOrder);
         }
     }
 
@@ -485,16 +620,16 @@ public final class WebSocketFrame {
      * @return the payload data
      */
     public ByteBuffer getPayload() {
-        return ByteBuffer.wrap(payload).asReadOnlyBuffer();
+        return ByteBuffer.wrap(payload()).asReadOnlyBuffer();
     }
-    
+
     /**
      * Returns the raw payload bytes (for internal use).
      *
      * @return the payload byte array
      */
     byte[] getPayloadBytes() {
-        return payload;
+        return payload();
     }
 
     /** RFC 6455 §5.5 — control frames have opcodes >= 0x8. */
@@ -516,22 +651,24 @@ public final class WebSocketFrame {
         if (opcode != OPCODE_TEXT && opcode != OPCODE_CONTINUATION) {
             throw new IllegalStateException(L10N.getString("err.not_text_frame"));
         }
-        return new String(payload, StandardCharsets.UTF_8);
+        return new String(payload(), StandardCharsets.UTF_8);
     }
 
     /** RFC 6455 §7.1.5 — extract 2-byte close status code from payload. */
     public int getCloseCode() {
-        if (opcode != OPCODE_CLOSE || payload.length < 2) {
+        if (opcode != OPCODE_CLOSE || payloadLength() < 2) {
             return -1;
         }
+        byte[] payload = payload();
         return ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF);
     }
 
     /** RFC 6455 §7.1.6 — extract UTF-8 close reason from payload after status code. */
     public String getCloseReason() {
-        if (opcode != OPCODE_CLOSE || payload.length <= 2) {
+        if (opcode != OPCODE_CLOSE || payloadLength() <= 2) {
             return null;
         }
+        byte[] payload = payload();
         return new String(payload, 2, payload.length - 2, StandardCharsets.UTF_8);
     }
 
@@ -549,6 +686,6 @@ public final class WebSocketFrame {
         }
 
         return String.format("WebSocketFrame{fin=%s, opcode=%s, masked=%s, payloadLen=%d}",
-                           fin, opcodeStr, masked, payload.length);
+                           fin, opcodeStr, masked, payloadLength());
     }
 }

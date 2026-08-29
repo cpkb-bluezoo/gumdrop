@@ -591,23 +591,28 @@ public abstract class WebSocketConnection {
             return;
         }
 
-        byte[] payloadBytes = frame.getPayloadBytes();
+        int payloadLength = frame.payloadLength();
 
         // RFC 6455 §7.4.1 — enforce maximum message size
-        if (maxMessageSize > 0 && payloadBytes.length > maxMessageSize) {
+        if (maxMessageSize > 0 && payloadLength > maxMessageSize) {
             close(CloseCodes.MESSAGE_TOO_BIG,
                     "Message exceeds maximum size of " + maxMessageSize + " bytes");
             return;
         }
 
         if (frame.isFin()) {
-            deliverMessage(frame.getOpcode(), payloadBytes, frame.isRsv1());
+            deliverMessage(frame.getOpcode(), frame.getPayloadBytes(), frame.isRsv1());
         } else {
+            // Issue #323: bulk-transfer straight from frame's own payload
+            // view into messageBuffer, rather than materializing this
+            // frame's own owned array first (getPayloadBytes()) only to
+            // immediately copy out of it again -- one copy instead of two
+            // for the first fragment of a message.
             messageOpcode = frame.getOpcode();
             messageRsv1 = frame.isRsv1();
-            messageSize = payloadBytes.length;
-            messageBuffer = ByteBuffer.allocate(payloadBytes.length);
-            messageBuffer.put(payloadBytes);
+            messageSize = payloadLength;
+            messageBuffer = ByteBuffer.allocate(payloadLength);
+            messageBuffer.put(frame.payloadForBulkTransfer());
         }
     }
 
@@ -622,10 +627,10 @@ public abstract class WebSocketConnection {
             return;
         }
 
-        byte[] payloadBytes = frame.getPayloadBytes();
+        int payloadLength = frame.payloadLength();
 
         // RFC 6455 §7.4.1 — enforce maximum assembled message size
-        messageSize += payloadBytes.length;
+        messageSize += payloadLength;
         if (maxMessageSize > 0 && messageSize > maxMessageSize) {
             messageOpcode = -1;
             messageBuffer = null;
@@ -634,7 +639,7 @@ public abstract class WebSocketConnection {
             return;
         }
 
-        if (messageBuffer.remaining() < payloadBytes.length) {
+        if (messageBuffer.remaining() < payloadLength) {
             // Grow geometrically (doubling), not by exactly the amount
             // needed: the first fragment allocates an exact-fit buffer, so
             // without this every continuation frame would re-copy the
@@ -643,7 +648,7 @@ public abstract class WebSocketConnection {
             // TCPEndpoint.appendToNetOut's growth strategy. Capped at
             // maxMessageSize (when configured) since the check above
             // already guarantees the final size fits within it.
-            int required = messageBuffer.position() + payloadBytes.length;
+            int required = messageBuffer.position() + payloadLength;
             int desired = (int) Math.max(
                     (long) messageBuffer.capacity() * 2, (long) required);
             if (maxMessageSize > 0 && desired > maxMessageSize) {
@@ -654,7 +659,9 @@ public abstract class WebSocketConnection {
             newBuffer.put(messageBuffer);
             messageBuffer = newBuffer;
         }
-        messageBuffer.put(payloadBytes);
+        // Issue #323: bulk-transfer straight from the frame's own payload
+        // view rather than materializing its owned array first.
+        messageBuffer.put(frame.payloadForBulkTransfer());
 
         if (frame.isFin()) {
             messageBuffer.flip();
