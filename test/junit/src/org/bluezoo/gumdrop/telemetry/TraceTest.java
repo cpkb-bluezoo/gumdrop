@@ -83,9 +83,8 @@ public class TraceTest {
         assertNotSame(id1, id2);
         assertArrayEquals(id1, id2);
         
-        // Modify returned array
-        id1[0] = 0;
-        assertNotEquals(id1[0], trace.getTraceId().getBytes()[0]);
+        id1[0] ^= (byte) 0xFF;
+        assertArrayEquals(id2, trace.getTraceId().getBytes());
     }
 
     @Test

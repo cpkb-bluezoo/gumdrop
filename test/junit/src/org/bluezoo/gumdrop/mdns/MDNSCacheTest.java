@@ -120,6 +120,21 @@ public class MDNSCacheTest {
     }
 
     @Test
+    public void testUpsertUsesOneTimerPerRecord() throws Exception {
+        FakeRefresher refresher = new FakeRefresher();
+        MDNSCache cache = new MDNSCache(refresher);
+
+        cache.addAll(Arrays.asList(a("host.local", 10, "10.0.0.1", true)));
+        assertEquals("Each cached record should arm one refresh timer, not five",
+                1, refresher.pendingCount());
+        assertEquals(8000, refresher.firstPendingDelay());
+
+        // Re-announcement cancels and replaces that single timer.
+        cache.addAll(Arrays.asList(a("host.local", 10, "10.0.0.1", true)));
+        assertEquals(1, refresher.pendingCount());
+    }
+
+    @Test
     public void testActiveRefreshFiresAtEachStageThenExpires() throws Exception {
         FakeRefresher refresher = new FakeRefresher();
         MDNSCache cache = new MDNSCache(refresher);
@@ -129,15 +144,16 @@ public class MDNSCacheTest {
 
         refresher.fireByDelay(8000);
         assertEquals(1, refresher.refreshQueries.size());
-        refresher.fireByDelay(8500);
+        // Later stages chain one timer at a time with relative delays.
+        refresher.fireNextPending();
         assertEquals(2, refresher.refreshQueries.size());
-        refresher.fireByDelay(9000);
-        refresher.fireByDelay(9500);
+        refresher.fireNextPending();
+        refresher.fireNextPending();
         assertEquals(4, refresher.refreshQueries.size());
         assertEquals("host.local A", refresher.refreshQueries.get(0));
 
         assertEquals(1, cache.lookup("host.local", DNSType.A).size());
-        refresher.fireByDelay(10000);
+        refresher.fireNextPending();
         assertTrue(cache.lookup("host.local", DNSType.A).isEmpty());
     }
 
@@ -147,18 +163,14 @@ public class MDNSCacheTest {
         MDNSCache cache = new MDNSCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 10, "10.0.0.1", true)));
-        assertEquals(5, refresher.pendingCount());
+        assertEquals(1, refresher.pendingCount());
 
         // A fresh answer for the same record arrives before any stage fires.
         cache.addAll(Arrays.asList(a("host.local", 10, "10.0.0.1", true)));
 
-        // Old 5 timers cancelled, 5 new ones scheduled from the refresh --
-        // still 5 pending (not 10), proving the stale ones were actually
-        // cancelled rather than just left to coexist. Firing that delay
-        // now produces exactly one query, from the live timer -- if
-        // cancellation had failed, the stale duplicate would still be
-        // pending too and this would double-fire.
-        assertEquals(5, refresher.pendingCount());
+        // Old timer cancelled, one new one scheduled -- still one pending
+        // (not two). Firing the first stage now produces exactly one query.
+        assertEquals(1, refresher.pendingCount());
         refresher.fireByDelay(8000);
         assertEquals(1, refresher.refreshQueries.size());
     }
@@ -169,7 +181,7 @@ public class MDNSCacheTest {
         MDNSCache cache = new MDNSCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 120, "10.0.0.1", true)));
-        assertEquals(5, refresher.pendingCount());
+        assertEquals(1, refresher.pendingCount());
 
         cache.clear();
 
@@ -229,6 +241,21 @@ public class MDNSCacheTest {
             }
         }
 
+        /** Fires the earliest non-cancelled pending timer, then removes it. */
+        void fireNextPending() {
+            Scheduled next = null;
+            for (Scheduled s : scheduled) {
+                if (!s.cancelled && (next == null || s.delay < next.delay)) {
+                    next = s;
+                }
+            }
+            if (next == null) {
+                fail("no pending timer to fire");
+            }
+            scheduled.remove(next);
+            next.task.run();
+        }
+
         int pendingCount() {
             int n = 0;
             for (Scheduled s : scheduled) {
@@ -237,6 +264,15 @@ public class MDNSCacheTest {
                 }
             }
             return n;
+        }
+
+        long firstPendingDelay() {
+            for (Scheduled s : scheduled) {
+                if (!s.cancelled) {
+                    return s.delay;
+                }
+            }
+            return -1;
         }
     }
 

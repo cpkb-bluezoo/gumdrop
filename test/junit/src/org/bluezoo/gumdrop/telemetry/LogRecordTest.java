@@ -276,9 +276,8 @@ public class LogRecordTest {
         assertNotSame(id1, id2);
         assertArrayEquals(id1, id2);
         
-        // Modify returned array
-        id1[0] = 0;
-        assertNotEquals(id1[0], log.getTraceId().getBytes()[0]);
+        id1[0] ^= (byte) 0xFF;
+        assertArrayEquals(id2, log.getTraceId().getBytes());
     }
 
     @Test
@@ -291,6 +290,9 @@ public class LogRecordTest {
         
         assertNotSame(id1, id2);
         assertArrayEquals(id1, id2);
+
+        id1[0] ^= (byte) 0xFF;
+        assertArrayEquals(id2, log.getSpanId().getBytes());
     }
 
     // ========================================================================

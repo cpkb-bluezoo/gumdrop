@@ -110,8 +110,9 @@ final class MDNSCache {
     private static final class CachedRecord {
         DNSResourceRecord record;
         int generation;
-        final List<MDNSListener.TimerHandleWrapper> timers =
-                new ArrayList<MDNSListener.TimerHandleWrapper>();
+        /** Next RFC 6762 section 5.2 stage to fire (0 .. REFRESH_FRACTIONS.length - 1). */
+        int refreshStage;
+        MDNSListener.TimerHandleWrapper timer;
     }
 
     private final Map<Key, List<CachedRecord>> entries = new LinkedHashMap<Key, List<CachedRecord>>();
@@ -236,58 +237,54 @@ final class MDNSCache {
             cr = new CachedRecord();
             existing.add(cr);
         } else {
-            cancelTimers(cr);
+            cancelTimer(cr);
         }
         cr.record = rr;
         cr.generation++;
-        scheduleRefreshSchedule(key, existing, cr);
+        cr.refreshStage = 0;
+        scheduleNextRefreshStage(key, existing, cr);
     }
 
-    private void scheduleRefreshSchedule(Key key, List<CachedRecord> existing, CachedRecord cr) {
-        long ttlMs = cr.record.getTTL() * 1000L;
-        int expectedGeneration = cr.generation;
-        for (int stage = 0; stage < REFRESH_FRACTIONS.length; stage++) {
-            long delay = (long) (ttlMs * REFRESH_FRACTIONS[stage]);
-            boolean isExpiry = stage == REFRESH_FRACTIONS.length - 1;
-            cr.timers.add(refresher.scheduleTimer(delay,
-                    isExpiry ? expireTask(key, existing, cr, expectedGeneration)
-                              : refreshTask(key, cr, expectedGeneration)));
+    private void scheduleNextRefreshStage(final Key key, final List<CachedRecord> existing,
+            final CachedRecord cr) {
+        final int stage = cr.refreshStage;
+        if (stage >= REFRESH_FRACTIONS.length) {
+            return;
         }
-    }
-
-    private Runnable refreshTask(final Key key, final CachedRecord cr, final int expectedGeneration) {
-        return new Runnable() {
-            @Override public void run() {
-                if (cr.generation == expectedGeneration) {
-                    refresher.sendRefreshQuery(key.name, key.type);
+        long ttlMs = cr.record.getTTL() * 1000L;
+        long delay = stage == 0
+                ? (long) (ttlMs * REFRESH_FRACTIONS[0])
+                : (long) (ttlMs * (REFRESH_FRACTIONS[stage] - REFRESH_FRACTIONS[stage - 1]));
+        final int expectedGeneration = cr.generation;
+        cr.timer = refresher.scheduleTimer(delay, new Runnable() {
+            @Override
+            public void run() {
+                if (cr.generation != expectedGeneration) {
+                    return;
                 }
-            }
-        };
-    }
-
-    private Runnable expireTask(final Key key, final List<CachedRecord> existing,
-                                 final CachedRecord cr, final int expectedGeneration) {
-        return new Runnable() {
-            @Override public void run() {
-                if (cr.generation == expectedGeneration) {
+                if (stage < REFRESH_FRACTIONS.length - 1) {
+                    refresher.sendRefreshQuery(key.name, key.type);
+                    cr.refreshStage = stage + 1;
+                    scheduleNextRefreshStage(key, existing, cr);
+                } else {
                     removeRecord(key, existing, cr);
                 }
             }
-        };
+        });
     }
 
     private void scheduleGoodbyeRemoval(final Key key, final List<CachedRecord> existing,
                                          final CachedRecord cr) {
-        cancelTimers(cr);
+        cancelTimer(cr);
         cr.generation++;
         final int expectedGeneration = cr.generation;
-        cr.timers.add(refresher.scheduleTimer(GOODBYE_GRACE_MS, new Runnable() {
+        cr.timer = refresher.scheduleTimer(GOODBYE_GRACE_MS, new Runnable() {
             @Override public void run() {
                 if (cr.generation == expectedGeneration) {
                     removeRecord(key, existing, cr);
                 }
             }
-        }));
+        });
     }
 
     private void removeRecord(Key key, List<CachedRecord> existing, CachedRecord cr) {
@@ -297,18 +294,18 @@ final class MDNSCache {
         }
     }
 
-    private static void cancelTimers(CachedRecord cr) {
-        for (int i = 0; i < cr.timers.size(); i++) {
-            cr.timers.get(i).cancel();
+    private static void cancelTimer(CachedRecord cr) {
+        if (cr.timer != null) {
+            cr.timer.cancel();
+            cr.timer = null;
         }
-        cr.timers.clear();
     }
 
     /** Cancels every pending timer and clears the cache. Called on service stop. */
     void clear() {
         for (List<CachedRecord> cached : entries.values()) {
             for (CachedRecord cr : cached) {
-                cancelTimers(cr);
+                cancelTimer(cr);
             }
         }
         entries.clear();
