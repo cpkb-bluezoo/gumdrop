@@ -24,7 +24,9 @@ package org.bluezoo.gumdrop.ldap.asn1;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -71,7 +73,7 @@ public final class BERDecoder {
     private int valueOffset;
     
     // Completed elements ready for retrieval
-    private final List<ASN1Element> completed;
+    private final Deque<ASN1Element> completed;
 
     /**
      * Creates a new BER decoder with default buffer size (8KB).
@@ -88,7 +90,7 @@ public final class BERDecoder {
     public BERDecoder(int bufferSize) {
         buffer = ByteBufferPool.acquire(bufferSize);
         buffer.flip(); // Start empty, ready for reading
-        completed = new ArrayList<ASN1Element>();
+        completed = new ArrayDeque<ASN1Element>();
         reset();
     }
 
@@ -137,7 +139,7 @@ public final class BERDecoder {
         if (completed.isEmpty()) {
             return null;
         }
-        return completed.remove(0);
+        return completed.pollFirst();
     }
 
     /**
