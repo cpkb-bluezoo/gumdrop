@@ -67,6 +67,7 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -1413,7 +1414,7 @@ class FileHandler extends DefaultHTTPRequestHandler {
                 if (deadPropertyStore != null
                         && deadPropertyStore.getMode()
                                 != DeadPropertyStore.Mode.NONE) {
-                    loadDeadPropertiesChain(data.resources, 0,
+                    loadDeadPropertiesParallel(data.resources,
                             new HashMap<Path, Map<String, DeadProperty>>(),
                             state, type, requestedProps, data.attrs);
                 } else {
@@ -1475,44 +1476,55 @@ class FileHandler extends DefaultHTTPRequestHandler {
     }
 
     /**
-     * Chains async dead property loading for each resource.
+     * Loads dead properties for all PROPFIND resources in parallel via
+     * {@link DeadPropertyStore}, then builds the XML response when every
+     * submission has completed.
      */
-    private void loadDeadPropertiesChain(
-            final List<Path> resources, final int index,
+    private void loadDeadPropertiesParallel(
+            final List<Path> resources,
             final Map<Path, Map<String, DeadProperty>> allDeadProps,
             final HTTPResponseState state,
             final WebDAVRequestParser.PropfindType type,
             final List<WebDAVRequestParser.PropertyRef> requestedProps,
             final Map<Path, BasicFileAttributes> attrsMap) {
-        if (index >= resources.size()) {
+        if (resources.isEmpty()) {
             buildPropfindResponse(state, resources, type,
                     requestedProps, allDeadProps, attrsMap);
             return;
         }
-        final Path resource = resources.get(index);
-        BasicFileAttributes attrs = attrsMap.get(resource);
-        boolean isDir = attrs != null && attrs.isDirectory();
-        deadPropertyStore.getProperties(resource,
-                Boolean.valueOf(isDir),
-                new DeadPropertyCallback() {
-                    @Override
-                    public void onProperties(
-                            Map<String, DeadProperty> props) {
-                        if (props != null && !props.isEmpty()) {
-                            allDeadProps.put(resource, props);
-                        }
-                        loadDeadPropertiesChain(resources, index + 1,
-                                allDeadProps, state, type,
-                                requestedProps, attrsMap);
-                    }
 
-                    @Override
-                    public void onError(String error) {
-                        loadDeadPropertiesChain(resources, index + 1,
-                                allDeadProps, state, type,
-                                requestedProps, attrsMap);
-                    }
-                });
+        final AtomicInteger remaining = new AtomicInteger(resources.size());
+
+        for (int i = 0; i < resources.size(); i++) {
+            final Path resource = resources.get(i);
+            BasicFileAttributes attrs = attrsMap.get(resource);
+            boolean isDir = attrs != null && attrs.isDirectory();
+            deadPropertyStore.getProperties(resource,
+                    Boolean.valueOf(isDir),
+                    new DeadPropertyCallback() {
+                        @Override
+                        public void onProperties(
+                                Map<String, DeadProperty> props) {
+                            if (props != null && !props.isEmpty()) {
+                                synchronized (allDeadProps) {
+                                    allDeadProps.put(resource, props);
+                                }
+                            }
+                            if (remaining.decrementAndGet() == 0) {
+                                buildPropfindResponse(state, resources, type,
+                                        requestedProps, allDeadProps, attrsMap);
+                            }
+                        }
+
+                        @Override
+                        public void onError(String error) {
+                            if (remaining.decrementAndGet() == 0) {
+                                buildPropfindResponse(state, resources, type,
+                                        requestedProps, allDeadProps, attrsMap);
+                            }
+                        }
+                    });
+        }
     }
 
     private void buildPropfindResponse(HTTPResponseState state,

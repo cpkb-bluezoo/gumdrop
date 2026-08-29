@@ -47,8 +47,6 @@ class WebDAVLockManager {
     synchronized WebDAVLock lock(Path path, WebDAVLock.Scope scope, 
                                   WebDAVLock.Type type, int depth,
                                   String owner, long timeoutSeconds) {
-        cleanExpiredLocks();
-
         if (hasConflictingLock(path, scope)) {
             return null;
         }
@@ -83,6 +81,7 @@ class WebDAVLockManager {
             }
         }
 
+        cleanExpiredLocks();
         return true;
     }
 
@@ -127,11 +126,20 @@ class WebDAVLockManager {
     List<WebDAVLock> getCoveringLocks(Path path) {
         List<WebDAVLock> result = new ArrayList<WebDAVLock>();
         synchronized (this) {
-            for (WebDAVLock lock : locksByToken.values()) {
-                if (!lock.isExpired() && lock.covers(path)) {
-                    result.add(lock);
+            forEachAncestor(path, new PathVisitor() {
+                @Override
+                public void visit(Path ancestor) {
+                    List<WebDAVLock> pathLocks = locksByPath.get(ancestor);
+                    if (pathLocks == null) {
+                        return;
+                    }
+                    for (WebDAVLock lock : pathLocks) {
+                        if (!lock.isExpired() && lock.covers(path)) {
+                            result.add(lock);
+                        }
+                    }
                 }
-            }
+            });
         }
         return result;
     }
@@ -149,22 +157,45 @@ class WebDAVLockManager {
      * Checks for conflicting locks (RFC 4918 §6.1–6.2).
      */
     private boolean hasConflictingLock(Path path, WebDAVLock.Scope requestedScope) {
-        for (WebDAVLock existing : locksByToken.values()) {
-            if (existing.isExpired()) {
+        final boolean[] conflictFound = new boolean[1];
+        forEachAncestor(path, new PathVisitor() {
+            @Override
+            public void visit(Path ancestor) {
+                if (conflictFound[0]) {
+                    return;
+                }
+                List<WebDAVLock> pathLocks = locksByPath.get(ancestor);
+                if (pathLocks == null) {
+                    return;
+                }
+                for (WebDAVLock existing : pathLocks) {
+                    if (existing.isExpired()) {
+                        continue;
+                    }
+                    if (existing.covers(path)) {
+                        if (existing.getScope() == WebDAVLock.Scope.EXCLUSIVE
+                                || requestedScope == WebDAVLock.Scope.EXCLUSIVE) {
+                            conflictFound[0] = true;
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+        if (conflictFound[0]) {
+            return true;
+        }
+
+        for (Map.Entry<Path, List<WebDAVLock>> entry : locksByPath.entrySet()) {
+            Path lockedPath = entry.getKey();
+            if (!lockedPath.startsWith(path) || lockedPath.equals(path)) {
                 continue;
             }
-
-            if (existing.covers(path)) {
-                if (existing.getScope() == WebDAVLock.Scope.EXCLUSIVE) {
-                    return true;
+            for (WebDAVLock existing : entry.getValue()) {
+                if (existing.isExpired()) {
+                    continue;
                 }
-                if (requestedScope == WebDAVLock.Scope.EXCLUSIVE) {
-                    return true;
-                }
-            }
-
-            if (path.equals(existing.getPath()) || existing.getPath().startsWith(path)) {
-                if (existing.getScope() == WebDAVLock.Scope.EXCLUSIVE 
+                if (existing.getScope() == WebDAVLock.Scope.EXCLUSIVE
                         || requestedScope == WebDAVLock.Scope.EXCLUSIVE) {
                     return true;
                 }
@@ -188,6 +219,21 @@ class WebDAVLockManager {
                     }
                 }
             }
+        }
+    }
+
+    private interface PathVisitor {
+        void visit(Path ancestor);
+    }
+
+    /**
+     * Visits {@code path} and each of its ancestors up to the root.
+     */
+    private static void forEachAncestor(Path path, PathVisitor visitor) {
+        Path current = path;
+        while (current != null) {
+            visitor.visit(current);
+            current = current.getParent();
         }
     }
 }
