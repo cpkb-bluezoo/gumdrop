@@ -47,6 +47,7 @@ import java.nio.channels.WritableByteChannel;
 public class ByteBufferChannel implements WritableByteChannel {
 
     private ByteBuffer buffer;
+    private int leadingReserve;
     private boolean open;
 
     /**
@@ -64,6 +65,29 @@ public class ByteBufferChannel implements WritableByteChannel {
      */
     public ByteBufferChannel() {
         this(1024);
+    }
+
+    /**
+     * Creates a channel that leaves {@code leadingReserve} bytes at the start
+     * of the buffer for a caller to fill in after serialization (for example
+     * the gRPC 5-byte frame header).
+     *
+     * @param leadingReserve bytes to skip before the first payload write
+     * @param initialPayloadCapacity initial capacity for the payload region
+     */
+    public static ByteBufferChannel withLeadingReserve(int leadingReserve,
+            int initialPayloadCapacity) {
+        if (leadingReserve < 0) {
+            throw new IllegalArgumentException("leadingReserve must be >= 0");
+        }
+        if (initialPayloadCapacity < 0) {
+            throw new IllegalArgumentException("initialPayloadCapacity must be >= 0");
+        }
+        ByteBufferChannel channel = new ByteBufferChannel(
+                leadingReserve + initialPayloadCapacity);
+        channel.leadingReserve = leadingReserve;
+        channel.buffer.position(leadingReserve);
+        return channel;
     }
 
     @Override
@@ -131,6 +155,31 @@ public class ByteBufferChannel implements WritableByteChannel {
     }
 
     /**
+     * Returns the number of payload bytes written so far, excluding any
+     * leading reserve configured at creation.
+     */
+    public int payloadLength() {
+        return buffer.position() - leadingReserve;
+    }
+
+    /**
+     * Prepares the internal buffer for in-place header writing: limit is set
+     * to the end of the written payload (including any leading reserve) and
+     * position is reset to {@code 0}.
+     *
+     * @return the internal buffer, ready for a header at indices
+     *         {@code 0 .. leadingReserve - 1}
+     */
+    public ByteBuffer finishWithLeadingReserve() {
+        if (leadingReserve == 0) {
+            throw new IllegalStateException("no leading reserve configured");
+        }
+        buffer.limit(buffer.position());
+        buffer.position(0);
+        return buffer;
+    }
+
+    /**
      * Resets the channel, clearing all written data.
      */
     public void reset() {
@@ -142,16 +191,26 @@ public class ByteBufferChannel implements WritableByteChannel {
      */
     private void ensureCapacity(int additionalBytes) {
         if (buffer.remaining() < additionalBytes) {
-            int required = buffer.position() + additionalBytes;
+            int payloadEnd = buffer.position();
+            int required = payloadEnd + additionalBytes;
             int newCapacity = buffer.capacity();
-            
+
             while (newCapacity < required) {
                 newCapacity = newCapacity * 2;
             }
-            
+
             ByteBuffer newBuffer = ByteBuffer.allocate(newCapacity);
-            buffer.flip();
-            newBuffer.put(buffer);
+            if (leadingReserve > 0) {
+                buffer.limit(payloadEnd);
+                buffer.position(leadingReserve);
+                newBuffer.position(leadingReserve);
+                newBuffer.put(buffer);
+                newBuffer.position(payloadEnd);
+            } else {
+                buffer.flip();
+                newBuffer.put(buffer);
+                newBuffer.position(payloadEnd);
+            }
             buffer = newBuffer;
         }
     }

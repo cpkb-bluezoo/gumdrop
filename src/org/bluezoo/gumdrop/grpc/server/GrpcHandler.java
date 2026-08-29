@@ -247,13 +247,12 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
             sendError(13, "Internal error");
         }
 
-        private void sendFramed(ByteBuffer message) {
+        private void sendFramedBody(ByteBuffer framed) {
             if (sent) {
                 return;
             }
             sent = true;
 
-            ByteBuffer framed = GrpcFraming.frame(message);
             Headers response = new Headers();
             response.status(HTTPStatus.OK);
             response.add("content-type", CONTENT_TYPE_GRPC);
@@ -275,7 +274,8 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
             GrpcResponseMessageImpl(String messageTypeName) {
                 this.messageTypeName = messageTypeName;
                 this.serializer = new ProtoModelSerializer(protoFile);
-                this.channel = new ByteBufferChannel();
+                this.channel = ByteBufferChannel.withLeadingReserve(
+                        GrpcFraming.HEADER_SIZE, 1024);
                 this.writer = new ProtobufWriter(channel);
             }
 
@@ -294,7 +294,10 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
             public void complete() throws IOException {
                 ensureStarted();
                 serializer.endMessage();
-                sendFramed(channel.toByteBuffer());
+                int payloadLength = channel.payloadLength();
+                ByteBuffer framed = channel.finishWithLeadingReserve();
+                GrpcFraming.writeHeader(framed, payloadLength);
+                sendFramedBody(framed);
             }
 
             private void ensureStarted() throws IOException {
