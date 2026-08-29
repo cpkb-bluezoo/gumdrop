@@ -466,6 +466,53 @@ public class DNSServiceTest {
                 mqtypeResponseCoverage(response).isEmpty());
     }
 
+    @Test
+    public void testMQTypeOmitsAdditionalTypeWhenMergedResponseExceedsPayloadLimit()
+            throws Exception {
+        Map<DNSType, InetAddress> perType = new HashMap<DNSType, InetAddress>();
+        perType.put(DNSType.A, InetAddress.getByName("10.0.0.1"));
+        perType.put(DNSType.AAAA, InetAddress.getByName("::1"));
+        DNSService service = serviceAnsweringPerType(perType);
+
+        DNSQuestion question = new DNSQuestion("merge.example.com", DNSType.A, DNSClass.IN);
+        byte[] optionData = DNSMultiQType.buildMQTypeQueryOption(
+                Collections.singletonList(DNSType.AAAA));
+        DNSMessage probeQuery = new DNSMessage(99, DNSMessage.FLAG_RD,
+                Collections.singletonList(question),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.singletonList(
+                        DNSResourceRecord.opt(DNSMessage.DEFAULT_EDNS_UDP_SIZE, 0, optionData)));
+        DNSMessage merged = service.processQuery(probeQuery);
+        int fullSize = merged.wireSize();
+
+        DNSMessage primaryOnlyQuery = new DNSMessage(100, DNSMessage.FLAG_RD,
+                Collections.singletonList(question),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList());
+        DNSMessage primaryOnly = service.processQuery(primaryOnlyQuery);
+        int primarySize = primaryOnly.wireSize();
+        assertTrue("fixture must leave room between primary-only and merged sizes",
+                primarySize < fullSize);
+
+        int tightPayload = primarySize + 1;
+        DNSMessage tightQuery = new DNSMessage(101, DNSMessage.FLAG_RD,
+                Collections.singletonList(question),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.singletonList(
+                        DNSResourceRecord.opt(tightPayload, 0, optionData)));
+        DNSMessage tightResponse = service.processQuery(tightQuery);
+
+        assertEquals(DNSMessage.RCODE_NOERROR, tightResponse.getRcode());
+        assertEquals("Only the primary A answer should fit the tight payload",
+                1, tightResponse.getAnswers().size());
+        assertEquals(DNSType.A, tightResponse.getAnswers().get(0).getType());
+        assertTrue("AAAA should be omitted when the merged response would not fit",
+                mqtypeResponseCoverage(tightResponse).isEmpty());
+    }
+
     private static InetAddress inetAddressUnchecked(String s) {
         try {
             return InetAddress.getByName(s);

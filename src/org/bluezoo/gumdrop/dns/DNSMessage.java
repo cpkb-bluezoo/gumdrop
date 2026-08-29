@@ -600,63 +600,112 @@ public final class DNSMessage {
      */
     public ByteBuffer serialize() {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        // RFC 1035 section 4.1.4: compression table maps lowercase
-        // domain name suffixes to their byte offsets in the output.
+        writeWireFormat(new StreamWireSink(out));
+        return ByteBuffer.wrap(out.toByteArray());
+    }
+
+    /**
+     * Returns the on-wire size of this message in bytes, using the same
+     * name-compression rules as {@link #serialize()} but without building
+     * the encoded message.
+     */
+    public int wireSize() {
+        return writeWireFormat(new CountingWireSink());
+    }
+
+    private int writeWireFormat(WireSink out) {
         Map<String, Integer> compressionTable = new HashMap<>();
 
-        // RFC 1035 section 4.1.1: 12-octet header
         writeShort(out, id);
-        // RFC 1035 section 4.1.1: ensure Z bits are cleared
         writeShort(out, flags & ~Z_BITS_MASK);
         writeShort(out, questions.size());
         writeShort(out, answers.size());
         writeShort(out, authorities.size());
         writeShort(out, additionals.size());
 
-        // Questions
         for (DNSQuestion q : questions) {
             writeQuestion(out, q, compressionTable);
         }
-
-        // Answers
         for (DNSResourceRecord rr : answers) {
             writeResourceRecord(out, rr, compressionTable);
         }
-
-        // Authorities
         for (DNSResourceRecord rr : authorities) {
             writeResourceRecord(out, rr, compressionTable);
         }
-
-        // Additionals
         for (DNSResourceRecord rr : additionals) {
             writeResourceRecord(out, rr, compressionTable);
         }
-
-        byte[] bytes = out.toByteArray();
-        return ByteBuffer.wrap(bytes);
+        return out.size();
     }
 
-    private static void writeShort(ByteArrayOutputStream out, int value) {
+    private interface WireSink {
+        void write(int b);
+        void write(byte[] bytes, int off, int len);
+        int size();
+    }
+
+    private static final class StreamWireSink implements WireSink {
+        private final ByteArrayOutputStream out;
+
+        StreamWireSink(ByteArrayOutputStream out) {
+            this.out = out;
+        }
+
+        @Override
+        public void write(int b) {
+            out.write(b);
+        }
+
+        @Override
+        public void write(byte[] bytes, int off, int len) {
+            out.write(bytes, off, len);
+        }
+
+        @Override
+        public int size() {
+            return out.size();
+        }
+    }
+
+    private static final class CountingWireSink implements WireSink {
+        private int size;
+
+        @Override
+        public void write(int b) {
+            size++;
+        }
+
+        @Override
+        public void write(byte[] bytes, int off, int len) {
+            size += len;
+        }
+
+        @Override
+        public int size() {
+            return size;
+        }
+    }
+
+    private static void writeShort(WireSink out, int value) {
         out.write((value >> 8) & 0xFF);
         out.write(value & 0xFF);
     }
 
-    private static void writeInt(ByteArrayOutputStream out, int value) {
+    private static void writeInt(WireSink out, int value) {
         out.write((value >> 24) & 0xFF);
         out.write((value >> 16) & 0xFF);
         out.write((value >> 8) & 0xFF);
         out.write(value & 0xFF);
     }
 
-    private static void writeQuestion(ByteArrayOutputStream out, DNSQuestion q) {
+    private static void writeQuestion(WireSink out, DNSQuestion q) {
         byte[] name = encodeName(q.getName());
         out.write(name, 0, name.length);
         writeShort(out, q.getType().getValue());
         writeShort(out, questionClassValue(q));
     }
 
-    private static void writeQuestion(ByteArrayOutputStream out, DNSQuestion q,
+    private static void writeQuestion(WireSink out, DNSQuestion q,
                                        Map<String, Integer> compressionTable) {
         writeNameCompressed(out, q.getName(), compressionTable);
         writeShort(out, q.getType().getValue());
@@ -671,10 +720,9 @@ public final class DNSMessage {
         return value;
     }
 
-    private static void writeResourceRecord(ByteArrayOutputStream out, DNSResourceRecord rr) {
+    private static void writeResourceRecord(WireSink out, DNSResourceRecord rr) {
         byte[] name = encodeName(rr.getName());
         out.write(name, 0, name.length);
-        // RFC 3597: use raw values to preserve unknown types/classes
         writeShort(out, rr.getRawType());
         writeShort(out, rr.getRawClass());
         writeInt(out, rr.getTTL());
@@ -683,10 +731,9 @@ public final class DNSMessage {
         out.write(rdata, 0, rdata.length);
     }
 
-    private static void writeResourceRecord(ByteArrayOutputStream out, DNSResourceRecord rr,
+    private static void writeResourceRecord(WireSink out, DNSResourceRecord rr,
                                               Map<String, Integer> compressionTable) {
         writeNameCompressed(out, rr.getName(), compressionTable);
-        // RFC 3597: use raw values to preserve unknown types/classes
         writeShort(out, rr.getRawType());
         writeShort(out, rr.getRawClass());
         writeInt(out, rr.getTTL());
@@ -704,7 +751,7 @@ public final class DNSMessage {
      *
      * <p>Pointers are only valid for offsets &lt; 16384 (14-bit range).
      */
-    private static void writeNameCompressed(ByteArrayOutputStream out,
+    private static void writeNameCompressed(WireSink out,
                                              String name,
                                              Map<String, Integer> compressionTable) {
         if (name == null || name.isEmpty() || name.equals(".")) {

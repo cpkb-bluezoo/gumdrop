@@ -615,7 +615,7 @@ public class DNSService implements Service {
             candidateCovered.add(type);
             DNSMessage candidate = buildMergedResponse(
                     query, primaryResponse, candidateAnswers, candidateCovered);
-            if (candidate.serialize().remaining() > payloadLimit) {
+            if (candidate.wireSize() > payloadLimit) {
                 // Doesn't fit -- leave it uncovered; the client falls
                 // back to a standalone query for just this type.
                 continue;
