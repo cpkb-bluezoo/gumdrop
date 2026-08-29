@@ -29,9 +29,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * AMQP 0-9-1 field-table: an ordered {@code String -> Object} map used for
@@ -142,32 +144,45 @@ public final class FieldTable {
      * prefix that a containing frame/property list writes itself).
      */
     public ByteBuffer encode() {
-        // Two-pass: compute exact size first so we can allocate once.
-        int size = encodedContentSize();
+        // Two-pass: compute exact size first so we can allocate once. A
+        // cache of each distinct string's already-encoded UTF-8 bytes,
+        // shared between this size pass and the write pass below (and
+        // threaded through nested tables/arrays too), means every string
+        // is actually encoded once regardless of how many times its size
+        // or bytes are needed (issue #310).
+        Map<String, byte[]> cache = new HashMap<String, byte[]>();
+        int size = encodedContentSize(values, cache);
         ByteBuffer buf = ByteBuffer.allocate(size);
-        writeEntries(buf, values);
+        writeEntries(buf, values, cache);
         buf.flip();
         return buf;
     }
 
     /** Size in bytes of {@link #encode()}'s output. */
     public int encodedContentSize() {
+        // No cache: a standalone call to this method (not immediately
+        // followed by encode() reusing its work) has nothing to share the
+        // encoded bytes with, so there is no double-encode to avoid here.
+        return encodedContentSize(values, null);
+    }
+
+    private static int encodedContentSize(Map<String, Object> map, Map<String, byte[]> cache) {
         int total = 0;
-        for (Map.Entry<String, Object> e : values.entrySet()) {
-            total += shortStringSize(e.getKey());
-            total += valueSize(e.getValue());
+        for (Map.Entry<String, Object> e : map.entrySet()) {
+            total += shortStringSize(e.getKey(), cache);
+            total += valueSize(e.getValue(), cache);
         }
         return total;
     }
 
-    private static void writeEntries(ByteBuffer buf, Map<String, Object> map) {
+    private static void writeEntries(ByteBuffer buf, Map<String, Object> map, Map<String, byte[]> cache) {
         for (Map.Entry<String, Object> e : map.entrySet()) {
-            writeShortString(buf, e.getKey());
-            writeValue(buf, e.getValue());
+            writeShortString(buf, e.getKey(), cache);
+            writeValue(buf, e.getValue(), cache);
         }
     }
 
-    private static void writeValue(ByteBuffer buf, Object value) {
+    private static void writeValue(ByteBuffer buf, Object value, Map<String, byte[]> cache) {
         if (value == null) {
             buf.put(TAG_VOID);
         } else if (value instanceof Boolean) {
@@ -198,7 +213,7 @@ public final class FieldTable {
             buf.putInt(d.unscaledValue().intValueExact());
         } else if (value instanceof String) {
             buf.put(TAG_LONG_STRING);
-            writeLongString(buf, (String) value);
+            writeLongString(buf, (String) value, cache);
         } else if (value instanceof byte[]) {
             byte[] b = (byte[]) value;
             buf.put(TAG_BYTE_ARRAY);
@@ -210,18 +225,18 @@ public final class FieldTable {
         } else if (value instanceof FieldTable) {
             FieldTable nested = (FieldTable) value;
             buf.put(TAG_FIELD_TABLE);
-            buf.putInt(nested.encodedContentSize());
-            writeEntries(buf, nested.values);
+            buf.putInt(encodedContentSize(nested.values, cache));
+            writeEntries(buf, nested.values, cache);
         } else if (value instanceof List) {
             List<?> list = (List<?>) value;
             buf.put(TAG_ARRAY);
             int arraySize = 0;
             for (Object element : list) {
-                arraySize += valueSize(element);
+                arraySize += valueSize(element, cache);
             }
             buf.putInt(arraySize);
             for (Object element : list) {
-                writeValue(buf, element);
+                writeValue(buf, element, cache);
             }
         } else {
             throw new IllegalArgumentException(
@@ -229,7 +244,7 @@ public final class FieldTable {
         }
     }
 
-    private static int valueSize(Object value) {
+    private static int valueSize(Object value, Map<String, byte[]> cache) {
         if (value == null) {
             return 1;
         } else if (value instanceof Boolean) {
@@ -249,17 +264,17 @@ public final class FieldTable {
         } else if (value instanceof BigDecimal) {
             return 6; // tag + scale(1) + int(4)
         } else if (value instanceof String) {
-            return 1 + 4 + utf8Length((String) value);
+            return 1 + 4 + utf8Length((String) value, cache);
         } else if (value instanceof byte[]) {
             return 1 + 4 + ((byte[]) value).length;
         } else if (value instanceof Date) {
             return 9;
         } else if (value instanceof FieldTable) {
-            return 1 + 4 + ((FieldTable) value).encodedContentSize();
+            return 1 + 4 + encodedContentSize(((FieldTable) value).values, cache);
         } else if (value instanceof List) {
             int total = 1 + 4;
             for (Object element : (List<?>) value) {
-                total += valueSize(element);
+                total += valueSize(element, cache);
             }
             return total;
         }
@@ -267,8 +282,8 @@ public final class FieldTable {
                 "Unsupported field-table value type: " + value.getClass().getName());
     }
 
-    private static int shortStringSize(String s) {
-        int len = utf8Length(s);
+    private static int shortStringSize(String s, Map<String, byte[]> cache) {
+        int len = utf8Length(s, cache);
         if (len > MAX_SHORT_STRING_LENGTH) {
             throw new IllegalArgumentException(
                     "Field name too long for short-string (max 255 UTF-8 bytes): " + s);
@@ -276,19 +291,45 @@ public final class FieldTable {
         return 1 + len;
     }
 
-    private static void writeShortString(ByteBuffer buf, String s) {
-        byte[] bytes = utf8Bytes(s);
+    private static void writeShortString(ByteBuffer buf, String s, Map<String, byte[]> cache) {
+        byte[] bytes = cachedUtf8Bytes(s, cache);
         buf.put((byte) bytes.length);
         buf.put(bytes);
     }
 
-    private static void writeLongString(ByteBuffer buf, String s) {
-        byte[] bytes = utf8Bytes(s);
+    private static void writeLongString(ByteBuffer buf, String s, Map<String, byte[]> cache) {
+        byte[] bytes = cachedUtf8Bytes(s, cache);
         buf.putInt(bytes.length);
         buf.put(bytes);
     }
 
-    private static byte[] utf8Bytes(String s) {
+    // cache == null means "no caching requested" (a standalone size-only
+    // or write-only call with nothing to share the encoded bytes with) --
+    // falls straight through to a fresh encode, same as before this fix.
+    private static byte[] cachedUtf8Bytes(String s, Map<String, byte[]> cache) {
+        if (cache == null) {
+            return utf8Bytes(s);
+        }
+        byte[] bytes = cache.get(s);
+        if (bytes == null) {
+            bytes = utf8Bytes(s);
+            cache.put(s, bytes);
+        }
+        return bytes;
+    }
+
+    /**
+     * Test-only count of actual UTF-8 encode operations (real
+     * {@code String.getBytes} calls, not cache hits) -- verifies issue
+     * #310's fix (each distinct string is encoded exactly once per
+     * {@link #encode()} call) without depending on timing. Not read or
+     * reset by production code.
+     */
+    static final AtomicInteger utf8EncodeCountForTesting = new AtomicInteger();
+
+    /** UTF-8 encodes {@code s} — package-visible so a caller (e.g. BasicProperties) can reuse the result for both sizing and writing. */
+    static byte[] utf8Bytes(String s) {
+        utf8EncodeCountForTesting.incrementAndGet();
         try {
             return s.getBytes("UTF-8");
         } catch (UnsupportedEncodingException e) {
@@ -296,8 +337,8 @@ public final class FieldTable {
         }
     }
 
-    private static int utf8Length(String s) {
-        return utf8Bytes(s).length;
+    private static int utf8Length(String s, Map<String, byte[]> cache) {
+        return cachedUtf8Bytes(s, cache).length;
     }
 
     // ── Decoding ──
@@ -416,12 +457,31 @@ public final class FieldTable {
 
     /** Writes a short-string (1-byte length + UTF-8 bytes) — used by callers outside a table too. */
     static void putShortString(ByteBuffer buf, String s) {
-        writeShortString(buf, s);
+        writeShortString(buf, s, null);
+    }
+
+    /**
+     * Writes a short-string from already-encoded UTF-8 bytes (e.g. from
+     * {@link #utf8Bytes}), without re-encoding — for a caller that needs
+     * the same string's bytes for both sizing and writing (issue #310).
+     */
+    static void putShortString(ByteBuffer buf, byte[] utf8) {
+        buf.put((byte) utf8.length);
+        buf.put(utf8);
     }
 
     /** Size in bytes of a short-string encoding of {@code s}. */
     static int shortStringEncodedSize(String s) {
-        return shortStringSize(s);
+        return shortStringSize(s, null);
+    }
+
+    /** Size in bytes of a short-string encoding of already-encoded UTF-8 {@code utf8}. */
+    static int shortStringEncodedSize(byte[] utf8) {
+        if (utf8.length > MAX_SHORT_STRING_LENGTH) {
+            throw new IllegalArgumentException(
+                    "String too long for short-string (max 255 UTF-8 bytes)");
+        }
+        return 1 + utf8.length;
     }
 
     /** Reads a short-string (1-byte length + UTF-8 bytes) — used by callers outside a table too. */
@@ -431,13 +491,14 @@ public final class FieldTable {
 
     /** Writes a long-string (4-byte length + UTF-8 bytes) — used by callers outside a table too. */
     static void putLongString(ByteBuffer buf, String s) {
-        writeLongString(buf, s);
+        writeLongString(buf, s, null);
     }
 
     /** Size in bytes of a long-string encoding of {@code s}. */
     static int longStringEncodedSize(String s) {
-        return 4 + utf8Length(s);
+        return 4 + utf8Length(s, null);
     }
+
 
     /** Reads a long-string (4-byte length + UTF-8 bytes) — used by callers outside a table too. */
     static String getLongString(ByteBuffer buf) throws AMQPProtocolException {

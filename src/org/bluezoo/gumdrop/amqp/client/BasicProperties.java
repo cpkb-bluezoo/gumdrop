@@ -136,22 +136,42 @@ public final class BasicProperties {
      */
     public ByteBuffer encode(long bodySize) {
         int flags = flags();
-        int size = 2 + 2 + 8 + 2 + propertyListSize();
+
+        // Encode each set string property once here, up front, and reuse
+        // the resulting bytes for both sizing (propertyListSize) and
+        // writing below -- rather than deriving the size from the string
+        // and separately re-encoding it to write, as issue #310 found.
+        // headers.encode() is similarly called just once, its result
+        // reused for both its length prefix and its bytes.
+        byte[] contentTypeBytes = contentType != null ? FieldTable.utf8Bytes(contentType) : null;
+        byte[] contentEncodingBytes = contentEncoding != null ? FieldTable.utf8Bytes(contentEncoding) : null;
+        ByteBuffer encodedHeaders = headers != null ? headers.encode() : null;
+        byte[] correlationIdBytes = correlationId != null ? FieldTable.utf8Bytes(correlationId) : null;
+        byte[] replyToBytes = replyTo != null ? FieldTable.utf8Bytes(replyTo) : null;
+        byte[] expirationBytes = expiration != null ? FieldTable.utf8Bytes(expiration) : null;
+        byte[] messageIdBytes = messageId != null ? FieldTable.utf8Bytes(messageId) : null;
+        byte[] typeBytes = type != null ? FieldTable.utf8Bytes(type) : null;
+        byte[] userIdBytes = userId != null ? FieldTable.utf8Bytes(userId) : null;
+        byte[] appIdBytes = appId != null ? FieldTable.utf8Bytes(appId) : null;
+        byte[] reservedBytes = reserved != null ? FieldTable.utf8Bytes(reserved) : null;
+
+        int size = 2 + 2 + 8 + 2 + propertyListSize(contentTypeBytes, contentEncodingBytes, encodedHeaders,
+                correlationIdBytes, replyToBytes, expirationBytes, messageIdBytes, typeBytes, userIdBytes,
+                appIdBytes, reservedBytes);
         ByteBuffer buf = ByteBuffer.allocate(size);
         buf.putShort((short) CLASS_ID);
         buf.putShort((short) 0); // weight, always 0
         buf.putLong(bodySize);
         buf.putShort((short) flags);
-        if (contentType != null) {
-            FieldTable.putShortString(buf, contentType);
+        if (contentTypeBytes != null) {
+            FieldTable.putShortString(buf, contentTypeBytes);
         }
-        if (contentEncoding != null) {
-            FieldTable.putShortString(buf, contentEncoding);
+        if (contentEncodingBytes != null) {
+            FieldTable.putShortString(buf, contentEncodingBytes);
         }
-        if (headers != null) {
-            ByteBuffer encoded = headers.encode();
-            buf.putInt(encoded.remaining());
-            buf.put(encoded);
+        if (encodedHeaders != null) {
+            buf.putInt(encodedHeaders.remaining());
+            buf.put(encodedHeaders);
         }
         if (deliveryMode != null) {
             buf.put(deliveryMode);
@@ -159,32 +179,32 @@ public final class BasicProperties {
         if (priority != null) {
             buf.put(priority);
         }
-        if (correlationId != null) {
-            FieldTable.putShortString(buf, correlationId);
+        if (correlationIdBytes != null) {
+            FieldTable.putShortString(buf, correlationIdBytes);
         }
-        if (replyTo != null) {
-            FieldTable.putShortString(buf, replyTo);
+        if (replyToBytes != null) {
+            FieldTable.putShortString(buf, replyToBytes);
         }
-        if (expiration != null) {
-            FieldTable.putShortString(buf, expiration);
+        if (expirationBytes != null) {
+            FieldTable.putShortString(buf, expirationBytes);
         }
-        if (messageId != null) {
-            FieldTable.putShortString(buf, messageId);
+        if (messageIdBytes != null) {
+            FieldTable.putShortString(buf, messageIdBytes);
         }
         if (timestamp != null) {
             buf.putLong(timestamp.getTime() / 1000L);
         }
-        if (type != null) {
-            FieldTable.putShortString(buf, type);
+        if (typeBytes != null) {
+            FieldTable.putShortString(buf, typeBytes);
         }
-        if (userId != null) {
-            FieldTable.putShortString(buf, userId);
+        if (userIdBytes != null) {
+            FieldTable.putShortString(buf, userIdBytes);
         }
-        if (appId != null) {
-            FieldTable.putShortString(buf, appId);
+        if (appIdBytes != null) {
+            FieldTable.putShortString(buf, appIdBytes);
         }
-        if (reserved != null) {
-            FieldTable.putShortString(buf, reserved);
+        if (reservedBytes != null) {
+            FieldTable.putShortString(buf, reservedBytes);
         }
         buf.flip();
         return buf;
@@ -237,16 +257,21 @@ public final class BasicProperties {
         return flags;
     }
 
-    private int propertyListSize() {
+    // Takes each property's already-encoded UTF-8 bytes (or null if the
+    // property is unset), rather than the String itself, so sizing never
+    // re-encodes what encode() already encoded once (issue #310).
+    private int propertyListSize(byte[] contentTypeBytes, byte[] contentEncodingBytes, ByteBuffer encodedHeaders,
+            byte[] correlationIdBytes, byte[] replyToBytes, byte[] expirationBytes, byte[] messageIdBytes,
+            byte[] typeBytes, byte[] userIdBytes, byte[] appIdBytes, byte[] reservedBytes) {
         int size = 0;
-        if (contentType != null) {
-            size += FieldTable.shortStringEncodedSize(contentType);
+        if (contentTypeBytes != null) {
+            size += FieldTable.shortStringEncodedSize(contentTypeBytes);
         }
-        if (contentEncoding != null) {
-            size += FieldTable.shortStringEncodedSize(contentEncoding);
+        if (contentEncodingBytes != null) {
+            size += FieldTable.shortStringEncodedSize(contentEncodingBytes);
         }
-        if (headers != null) {
-            size += 4 + headers.encodedContentSize();
+        if (encodedHeaders != null) {
+            size += 4 + encodedHeaders.remaining();
         }
         if (deliveryMode != null) {
             size += 1;
@@ -254,32 +279,32 @@ public final class BasicProperties {
         if (priority != null) {
             size += 1;
         }
-        if (correlationId != null) {
-            size += FieldTable.shortStringEncodedSize(correlationId);
+        if (correlationIdBytes != null) {
+            size += FieldTable.shortStringEncodedSize(correlationIdBytes);
         }
-        if (replyTo != null) {
-            size += FieldTable.shortStringEncodedSize(replyTo);
+        if (replyToBytes != null) {
+            size += FieldTable.shortStringEncodedSize(replyToBytes);
         }
-        if (expiration != null) {
-            size += FieldTable.shortStringEncodedSize(expiration);
+        if (expirationBytes != null) {
+            size += FieldTable.shortStringEncodedSize(expirationBytes);
         }
-        if (messageId != null) {
-            size += FieldTable.shortStringEncodedSize(messageId);
+        if (messageIdBytes != null) {
+            size += FieldTable.shortStringEncodedSize(messageIdBytes);
         }
         if (timestamp != null) {
             size += 8;
         }
-        if (type != null) {
-            size += FieldTable.shortStringEncodedSize(type);
+        if (typeBytes != null) {
+            size += FieldTable.shortStringEncodedSize(typeBytes);
         }
-        if (userId != null) {
-            size += FieldTable.shortStringEncodedSize(userId);
+        if (userIdBytes != null) {
+            size += FieldTable.shortStringEncodedSize(userIdBytes);
         }
-        if (appId != null) {
-            size += FieldTable.shortStringEncodedSize(appId);
+        if (appIdBytes != null) {
+            size += FieldTable.shortStringEncodedSize(appIdBytes);
         }
-        if (reserved != null) {
-            size += FieldTable.shortStringEncodedSize(reserved);
+        if (reservedBytes != null) {
+            size += FieldTable.shortStringEncodedSize(reservedBytes);
         }
         return size;
     }
