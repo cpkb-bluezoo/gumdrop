@@ -29,7 +29,6 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -39,6 +38,11 @@ import static org.junit.Assert.assertTrue;
  * while dispatching one connection's I/O must not terminate the shared
  * {@link SelectorLoop} worker thread and strand every other connection
  * on that loop.
+ *
+ * <p>Completion is synchronized via {@link ProtocolHandler#disconnected()}
+ * and a receive latch, not timed polling of endpoint state: {@link UDPEndpoint#close()}
+ * runs synchronously on the selector thread and signals {@code disconnected()}
+ * before dispatch returns.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -62,6 +66,7 @@ public class SelectorLoopCrashIsolationTest {
         UDPTransportFactory factory = new UDPTransportFactory();
         factory.start();
 
+        final CountDownLatch faultyClosed = new CountDownLatch(1);
         final CountDownLatch healthyReceived = new CountDownLatch(1);
 
         ProtocolHandler faulty = new ProtocolHandler() {
@@ -80,6 +85,7 @@ public class SelectorLoopCrashIsolationTest {
 
             @Override
             public void disconnected() {
+                faultyClosed.countDown();
             }
 
             @Override
@@ -125,12 +131,12 @@ public class SelectorLoopCrashIsolationTest {
             try {
                 client.send(ByteBuffer.wrap("bad".getBytes()),
                         faultyAddress);
+                faultyClosed.await();
+
                 client.send(ByteBuffer.wrap("ok".getBytes()),
                         healthyAddress);
+                healthyReceived.await();
 
-                assertTrue("the healthy handler must still receive after the "
-                        + "faulty handler threw on the same SelectorLoop",
-                        healthyReceived.await(5, TimeUnit.SECONDS));
                 assertTrue("the SelectorLoop worker thread must keep running",
                         loop.isRunning());
                 assertFalse("the faulty endpoint must be closed after the "

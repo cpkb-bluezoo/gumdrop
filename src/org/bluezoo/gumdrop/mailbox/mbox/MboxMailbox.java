@@ -169,6 +169,12 @@ public final class MboxMailbox implements Mailbox {
      */
     private static final Map<Path, JvmMailboxGate> JVM_GATES = new HashMap<>();
 
+    /**
+     * Test-only: if non-null, invoked on a thread immediately before it
+     * blocks on the per-file JVM gate semaphore.
+     */
+    static volatile Runnable beforeJvmGateAcquire;
+
     private static final class JvmMailboxGate {
         final Semaphore permit = new Semaphore(1);
         int refCount;
@@ -238,6 +244,10 @@ public final class MboxMailbox implements Mailbox {
             }
         } else {
             try {
+                Runnable hook = beforeJvmGateAcquire;
+                if (hook != null) {
+                    hook.run();
+                }
                 gate.permit.acquire();
             } catch (InterruptedException e) {
                 releaseGateRef(gatePath, gate);

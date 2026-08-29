@@ -52,6 +52,7 @@ public class MailboxIndexerTest {
 
     @After
     public void tearDown() {
+        MailboxIndexer.afterLiveJobQueued = null;
         indexer.shutdown();
     }
 
@@ -116,10 +117,13 @@ public class MailboxIndexerTest {
         // started) when the second one arrives - only then does dedup apply.
         final CountDownLatch blockerRunning = new CountDownLatch(1);
         final CountDownLatch releaseBlocker = new CountDownLatch(1);
+        final CountDownLatch blockerDone = new CountDownLatch(1);
+        final CountDownLatch dupDone = new CountDownLatch(1);
         indexer.submitBackground(key("/tmp/blocker"), false, 0L, new MailboxIndexer.IndexWork() {
             @Override public void run() throws Exception {
                 blockerRunning.countDown();
                 releaseBlocker.await();
+                blockerDone.countDown();
             }
         });
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
@@ -127,22 +131,18 @@ public class MailboxIndexerTest {
         final AtomicInteger count = new AtomicInteger();
         MailboxIndexKey k = key("/tmp/dup");
         MailboxIndexer.IndexWork incrementCount = new MailboxIndexer.IndexWork() {
-            @Override public void run() { count.incrementAndGet(); }
+            @Override public void run() {
+                count.incrementAndGet();
+                dupDone.countDown();
+            }
         };
         indexer.submitBackground(k, false, 0L, incrementCount);
         indexer.submitBackground(k, false, 0L, incrementCount);
         indexer.submitBackground(k, false, 0L, incrementCount);
 
         releaseBlocker.countDown();
-
-        // Give the worker time to drain both the blocker and the (single,
-        // deduplicated) job for k.
-        long deadline = System.currentTimeMillis() + 5000;
-        while (indexer.pendingCount() > 0 && System.currentTimeMillis() < deadline) {
-            Thread.sleep(20);
-        }
-        // Allow the last job to finish running after being dequeued.
-        Thread.sleep(200);
+        blockerDone.await();
+        dupDone.await();
 
         assertEquals("only one of the three duplicate submissions should have run",
                 1, count.get());
@@ -167,23 +167,34 @@ public class MailboxIndexerTest {
         });
 
         final AtomicInteger liveRuns = new AtomicInteger();
-        // Release the blocker concurrently with the live call so the live
-        // job is queued while the background job for k is still pending.
-        new Thread(new Runnable() {
-            @Override public void run() {
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException ignored) {
-                }
-                releaseBlocker.countDown();
+        final CountDownLatch liveQueued = new CountDownLatch(1);
+        MailboxIndexer.afterLiveJobQueued = new Runnable() {
+            @Override
+            public void run() {
+                liveQueued.countDown();
             }
-        }).start();
+        };
+        try {
+            Thread releaser = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        liveQueued.await();
+                        releaseBlocker.countDown();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            });
+            releaser.start();
 
-        indexer.ensureFreshBlocking(k, false, 0L, new MailboxIndexer.IndexWork() {
-            @Override public void run() { liveRuns.incrementAndGet(); }
-        });
+            indexer.ensureFreshBlocking(k, false, 0L, new MailboxIndexer.IndexWork() {
+                @Override public void run() { liveRuns.incrementAndGet(); }
+            });
+        } finally {
+            MailboxIndexer.afterLiveJobQueued = null;
+        }
 
-        Thread.sleep(200);
         assertEquals(1, liveRuns.get());
         assertEquals("cancelled background job must not also run",
                 0, backgroundRuns.get());
@@ -202,39 +213,55 @@ public class MailboxIndexerTest {
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
         final List<String> order = new CopyOnWriteArrayList<>();
+        final CountDownLatch bgDone = new CountDownLatch(2);
         indexer.submitBackground(key("/tmp/bg1"), false, 0L, new MailboxIndexer.IndexWork() {
-            @Override public void run() { order.add("bg1"); }
+            @Override public void run() {
+                order.add("bg1");
+                bgDone.countDown();
+            }
         });
         indexer.submitBackground(key("/tmp/bg2"), false, 0L, new MailboxIndexer.IndexWork() {
-            @Override public void run() { order.add("bg2"); }
+            @Override public void run() {
+                order.add("bg2");
+                bgDone.countDown();
+            }
         });
 
         // Enqueue the live job on its own thread *before* releasing the
         // blocker, so it is genuinely queued behind bg1/bg2 (not started
         // after them) when the worker becomes free to pick a job.
         final CountDownLatch liveDone = new CountDownLatch(1);
-        new Thread(new Runnable() {
-            @Override public void run() {
-                try {
-                    indexer.ensureFreshBlocking(key("/tmp/live"), false, 0L, new MailboxIndexer.IndexWork() {
-                        @Override public void run() { order.add("live"); }
-                    });
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    liveDone.countDown();
-                }
+        final CountDownLatch liveQueued = new CountDownLatch(1);
+        MailboxIndexer.afterLiveJobQueued = new Runnable() {
+            @Override
+            public void run() {
+                liveQueued.countDown();
             }
-        }).start();
-        Thread.sleep(100);
+        };
+        try {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        indexer.ensureFreshBlocking(key("/tmp/live"), false, 0L, new MailboxIndexer.IndexWork() {
+                            @Override public void run() { order.add("live"); }
+                        });
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    } finally {
+                        liveDone.countDown();
+                    }
+                }
+            }).start();
+            assertTrue(liveQueued.await(5, TimeUnit.SECONDS));
 
-        releaseBlocker.countDown();
-        assertTrue(liveDone.await(5, TimeUnit.SECONDS));
-
-        long deadline = System.currentTimeMillis() + 5000;
-        while (order.size() < 3 && System.currentTimeMillis() < deadline) {
-            Thread.sleep(20);
+            releaseBlocker.countDown();
+            assertTrue(liveDone.await(5, TimeUnit.SECONDS));
+        } finally {
+            MailboxIndexer.afterLiveJobQueued = null;
         }
+        assertTrue(bgDone.await(5, TimeUnit.SECONDS));
+
         assertEquals(3, order.size());
         assertEquals("live job must run before any background job queued behind it",
                 "live", order.get(0));
@@ -253,19 +280,23 @@ public class MailboxIndexerTest {
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
         final List<String> order = new CopyOnWriteArrayList<>();
+        final CountDownLatch bgDone = new CountDownLatch(2);
         indexer.submitBackground(key("/tmp/other"), false, 100L, new MailboxIndexer.IndexWork() {
-            @Override public void run() { order.add("other"); }
+            @Override public void run() {
+                order.add("other");
+                bgDone.countDown();
+            }
         });
         indexer.submitBackground(key("/tmp/inbox"), true, 0L, new MailboxIndexer.IndexWork() {
-            @Override public void run() { order.add("inbox"); }
+            @Override public void run() {
+                order.add("inbox");
+                bgDone.countDown();
+            }
         });
 
         releaseBlocker.countDown();
+        assertTrue(bgDone.await(5, TimeUnit.SECONDS));
 
-        long deadline = System.currentTimeMillis() + 5000;
-        while (order.size() < 2 && System.currentTimeMillis() < deadline) {
-            Thread.sleep(20);
-        }
         assertEquals(2, order.size());
         assertEquals("INBOX should be prioritized ahead of a non-INBOX mailbox",
                 "inbox", order.get(0));
@@ -284,19 +315,23 @@ public class MailboxIndexerTest {
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
         final List<String> order = new CopyOnWriteArrayList<>();
+        final CountDownLatch bgDone = new CountDownLatch(2);
         indexer.submitBackground(key("/tmp/old"), false, 1000L, new MailboxIndexer.IndexWork() {
-            @Override public void run() { order.add("old"); }
+            @Override public void run() {
+                order.add("old");
+                bgDone.countDown();
+            }
         });
         indexer.submitBackground(key("/tmp/new"), false, 9000L, new MailboxIndexer.IndexWork() {
-            @Override public void run() { order.add("new"); }
+            @Override public void run() {
+                order.add("new");
+                bgDone.countDown();
+            }
         });
 
         releaseBlocker.countDown();
+        assertTrue(bgDone.await(5, TimeUnit.SECONDS));
 
-        long deadline = System.currentTimeMillis() + 5000;
-        while (order.size() < 2 && System.currentTimeMillis() < deadline) {
-            Thread.sleep(20);
-        }
         assertEquals(2, order.size());
         assertEquals("most recently modified mailbox should run first",
                 "new", order.get(0));
@@ -333,24 +368,35 @@ public class MailboxIndexerTest {
         assertTrue(blockerRunning.await(5, TimeUnit.SECONDS));
 
         final CountDownLatch liveDone = new CountDownLatch(1);
+        final CountDownLatch liveQueued = new CountDownLatch(1);
         final boolean[] threw = new boolean[1];
-        new Thread(new Runnable() {
-            @Override public void run() {
-                try {
-                    indexer.ensureFreshBlocking(key("/tmp/never-runs"), false, 0L, new MailboxIndexer.IndexWork() {
-                        @Override public void run() { }
-                    });
-                } catch (IOException | InterruptedException e) {
-                    threw[0] = true;
-                } finally {
-                    liveDone.countDown();
-                }
+        MailboxIndexer.afterLiveJobQueued = new Runnable() {
+            @Override
+            public void run() {
+                liveQueued.countDown();
             }
-        }).start();
+        };
+        try {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        indexer.ensureFreshBlocking(key("/tmp/never-runs"), false, 0L, new MailboxIndexer.IndexWork() {
+                            @Override public void run() { }
+                        });
+                    } catch (IOException | InterruptedException e) {
+                        threw[0] = true;
+                    } finally {
+                        liveDone.countDown();
+                    }
+                }
+            }).start();
 
-        // Give the live job a moment to be queued behind the stuck blocker.
-        Thread.sleep(100);
-        indexer.shutdown();
+            assertTrue(liveQueued.await(5, TimeUnit.SECONDS));
+            indexer.shutdown();
+        } finally {
+            MailboxIndexer.afterLiveJobQueued = null;
+        }
 
         assertTrue("live caller must be released after shutdown",
                 liveDone.await(5, TimeUnit.SECONDS));
@@ -405,9 +451,9 @@ public class MailboxIndexerTest {
         });
         shutdownThread.start();
 
-        assertFalse("shutdown() must wait for the in-flight job, not return "
+        assertEquals("shutdown() must wait for the in-flight job, not return "
                         + "while it is still running",
-                shutdownReturned.await(300, TimeUnit.MILLISECONDS));
+                1, shutdownReturned.getCount());
         assertFalse("the job must not be reported finished while shutdown() "
                         + "is still blocked on it",
                 jobFinished.get());

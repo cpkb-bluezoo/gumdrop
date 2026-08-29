@@ -40,6 +40,7 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.AfterClass;
@@ -606,10 +607,9 @@ public class QuicProductionEndToEndTest {
 
             assertTrue("Client stream should be connected within 5s",
                     clientConnected.await(5, TimeUnit.SECONDS));
-            awaitHandshakeSettled();
-            waitForConnectionIdle(getPrivateField(clientEngine, "clientConnection", QuicConnection.class));
-
             QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            waitForConnectionIdle(clientConnection);
+
             @SuppressWarnings("unchecked")
             Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
                     getPrivateField(clientConnection, "sendKeys", Map.class);
@@ -1153,21 +1153,7 @@ public class QuicProductionEndToEndTest {
 
             assertTrue("Client stream should close within 5s", clientFin.await(5, TimeUnit.SECONDS));
 
-            // The server sends its NewSessionTicketMessage as a separate,
-            // slightly later 1-RTT CRYPTO frame once it sees the client's
-            // Finished -- not synchronous with the stream exchange above
-            // -- so give it a short bounded window to arrive rather than
-            // asserting immediately.
-            SessionTicketCache.Entry entry = null;
-            long deadline = System.currentTimeMillis() + 3000;
-            while (entry == null && System.currentTimeMillis() < deadline) {
-                entry = SessionTicketCache.get(SERVER_NAME, port);
-                if (entry == null) {
-                    Thread.sleep(50);
-                }
-            }
-
-            assertNotNull("A session ticket should have been cached after the handshake", entry);
+            SessionTicketCache.Entry entry = awaitSessionTicket(SERVER_NAME, port);
             byte[] psk = entry.toTicket().getPSK();
             assertNotNull("Cached ticket should carry a PSK", psk);
             assertTrue("Cached ticket PSK should be non-empty", psk.length > 0);
@@ -1217,6 +1203,9 @@ public class QuicProductionEndToEndTest {
         DatagramChannel rawClientChannel = null;
         try {
             final Map<Long, byte[]> serverReceivedByStream = new ConcurrentHashMap<Long, byte[]>();
+            final Map<Long, CountDownLatch> streamDataLatches = new ConcurrentHashMap<Long, CountDownLatch>();
+            final CountDownLatch streamAReceived = new CountDownLatch(1);
+            final CountDownLatch streamBReceived = new CountDownLatch(1);
             QuicTransportFactory serverFactory = new QuicTransportFactory();
             serverFactory.setApplicationProtocols(ALPN);
             serverFactory.setCertFile(certFile);
@@ -1224,7 +1213,8 @@ public class QuicProductionEndToEndTest {
             serverFactory.setEarlyDataEnabled(true);
             serverFactory.start();
             serverEngine = serverFactory.createServerEngine(
-                    InetAddress.getLoopbackAddress(), 0, streamCapturingAcceptHandler(serverReceivedByStream), loop);
+                    InetAddress.getLoopbackAddress(), 0,
+                    streamCapturingAcceptHandler(serverReceivedByStream, streamDataLatches), loop);
             InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
 
             firstClientEngine = captureSessionTicketViaRealHandshake(serverAddress, loop);
@@ -1243,10 +1233,12 @@ public class QuicProductionEndToEndTest {
                     clientInitialDcid, clientScid, false, false, 1200);
 
             long streamA = secondClient.openBidiStream();
+            streamDataLatches.put(Long.valueOf(streamA), streamAReceived);
             secondClient.queueStreamData(streamA, "zero-rtt-a".getBytes(StandardCharsets.US_ASCII), false);
             byte[] zeroRttA = secondClient.buildZeroRttPacket(clientInitialDcid, clientScid, 0);
 
             long streamB = secondClient.openBidiStream();
+            streamDataLatches.put(Long.valueOf(streamB), streamBReceived);
             secondClient.queueStreamData(streamB, "zero-rtt-b".getBytes(StandardCharsets.US_ASCII), false);
             byte[] zeroRttB = secondClient.buildZeroRttPacket(clientInitialDcid, clientScid, 0);
 
@@ -1258,9 +1250,9 @@ public class QuicProductionEndToEndTest {
             rawClientChannel = DatagramChannel.open();
             rawClientChannel.send(ByteBuffer.wrap(coalesced), serverAddress);
 
-            assertEquals("zero-rtt-a", new String(awaitStreamData(serverReceivedByStream, streamA, 3000),
+            assertEquals("zero-rtt-a", new String(awaitStreamData(serverReceivedByStream, streamA, streamAReceived),
                     StandardCharsets.US_ASCII));
-            assertEquals("zero-rtt-b", new String(awaitStreamData(serverReceivedByStream, streamB, 3000),
+            assertEquals("zero-rtt-b", new String(awaitStreamData(serverReceivedByStream, streamB, streamBReceived),
                     StandardCharsets.US_ASCII));
         } finally {
             if (rawClientChannel != null) {
@@ -1332,9 +1324,39 @@ public class QuicProductionEndToEndTest {
             System.arraycopy(zeroRtt, 0, coalesced, initialDatagram.length, zeroRtt.length);
 
             rawClientChannel = DatagramChannel.open();
-            rawClientChannel.send(ByteBuffer.wrap(coalesced), serverAddress);
 
-            Thread.sleep(500);
+            final CountDownLatch serverRegistered = new CountDownLatch(1);
+            final CountDownLatch serverDatagramProcessed = new CountDownLatch(1);
+            final QuicEngine registeredServerEngine = serverEngine;
+            QuicEngine.ConnectionRegisteredObserver previousRegistrar =
+                    QuicEngine.connectionRegisteredObserver;
+            QuicEngine.connectionRegisteredObserver =
+                    new QuicEngine.ConnectionRegisteredObserver() {
+                @Override
+                public void connectionRegistered(QuicEngine engine, final QuicConnection connection) {
+                    if (engine == registeredServerEngine) {
+                        serverRegistered.countDown();
+                        // registerConnectionId runs before receive() finishes
+                        // parsing a coalesced Initial+0-RTT datagram; defer
+                        // until the current datagram handler returns.
+                        connection.getSelectorLoop().invokeLater(new Runnable() {
+                            @Override
+                            public void run() {
+                                serverDatagramProcessed.countDown();
+                            }
+                        });
+                    }
+                }
+            };
+            try {
+                rawClientChannel.send(ByteBuffer.wrap(coalesced), serverAddress);
+                assertTrue(serverRegistered.await(5, TimeUnit.SECONDS));
+                assertTrue("Server should finish processing the coalesced datagram within 5s",
+                        serverDatagramProcessed.await(5, TimeUnit.SECONDS));
+            } finally {
+                QuicEngine.connectionRegisteredObserver = previousRegistrar;
+            }
+
             assertFalse("Server must not have processed the rejected 0-RTT stream's data",
                     serverReceivedByStream.containsKey(rejectedStream));
         } finally {
@@ -1353,6 +1375,12 @@ public class QuicProductionEndToEndTest {
     }
 
     private static StreamAcceptHandler streamCapturingAcceptHandler(final Map<Long, byte[]> receivedByStream) {
+        return streamCapturingAcceptHandler(receivedByStream,
+                new ConcurrentHashMap<Long, CountDownLatch>());
+    }
+
+    private static StreamAcceptHandler streamCapturingAcceptHandler(final Map<Long, byte[]> receivedByStream,
+            final Map<Long, CountDownLatch> dataReceivedLatches) {
         return new StreamAcceptHandler() {
             @Override
             public ProtocolHandler acceptStream(final Endpoint stream) {
@@ -1365,7 +1393,12 @@ public class QuicProductionEndToEndTest {
                     public void receive(ByteBuffer data) {
                         byte[] bytes = new byte[data.remaining()];
                         data.get(bytes);
-                        receivedByStream.put(((QuicStreamEndpoint) stream).getStreamId(), bytes);
+                        long streamId = ((QuicStreamEndpoint) stream).getStreamId();
+                        receivedByStream.put(streamId, bytes);
+                        CountDownLatch latch = dataReceivedLatches.get(Long.valueOf(streamId));
+                        if (latch != null) {
+                            latch.countDown();
+                        }
                     }
 
                     @Override
@@ -1440,16 +1473,12 @@ public class QuicProductionEndToEndTest {
 
             final AtomicReference<QuicConnection> serverConnectionRef = new AtomicReference<QuicConnection>();
             final CountDownLatch serverConnected = new CountDownLatch(1);
+            final CountDownLatch oneRttKeysReady = new CountDownLatch(1);
 
             serverEngine = serverFactory.createServerEngine(
                     InetAddress.getLoopbackAddress(), 0,
-                    new QuicEngine.ConnectionAcceptedHandler() {
-                        @Override
-                        public void connectionAccepted(QuicConnection connection) {
-                            serverConnectionRef.set(connection);
-                            serverConnected.countDown();
-                        }
-                    }, loop);
+                    serverConnectionAwaitingOneRttKeys(serverConnectionRef, serverConnected, oneRttKeysReady),
+                    loop);
             InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
 
             QuicTransportFactory clientFactory = new QuicTransportFactory();
@@ -1473,67 +1502,93 @@ public class QuicProductionEndToEndTest {
             // connectionAccepted can fire a hair before 1-RTT send keys
             // are actually installed; wait for them before manipulating
             // the connection directly.
-            long deadline = System.currentTimeMillis() + 5000;
-            while (getOneRttSendKeys(serverConnection) == null && System.currentTimeMillis() < deadline) {
-                Thread.sleep(20);
+            assertTrue("Server should have 1-RTT send keys within 5s",
+                    oneRttKeysReady.await(5, TimeUnit.SECONDS));
+            waitForConnectionIdle(serverConnection);
+
+            final AtomicReference<Throwable> coverageFailure = new AtomicReference<Throwable>();
+            final CountDownLatch coverageDone = new CountDownLatch(1);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        // --- Step 1: seed one synthetic unacked peer packet, flush ---
+                        long firstPeerPacketNumber = 999L;
+                        seedReceivedUnacked(serverConnection, firstPeerPacketNumber);
+                        long firstAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
+                        serverConnection.flush();
+
+                        assertTrue("The synthetic packet number must still be tracked as unacked immediately "
+                                + "after flush() merely built and sent the ACK covering it -- confirmation "
+                                + "from the peer, not the act of writing the frame, is what should retire it",
+                                getReceivedUnackedOneRtt(serverConnection)
+                                        .contains(Long.valueOf(firstPeerPacketNumber)));
+                        assertArrayEquals("The ACK-carrying packet's recorded coverage should be exactly what "
+                                + "was pending at the moment it was built",
+                                new long[] { firstPeerPacketNumber },
+                                getSentAckCoverageOneRtt(serverConnection)
+                                        .get(Long.valueOf(firstAckCarryingPacketNumber)));
+
+                        // --- Step 2: without confirming the first ACK, seed a second
+                        // packet and flush again -- the first packet's coverage must
+                        // still be pending and get folded into the new ACK too. ---
+                        long secondPeerPacketNumber = 1000L;
+                        seedReceivedUnacked(serverConnection, secondPeerPacketNumber);
+                        long secondAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
+                        serverConnection.flush();
+
+                        long[] secondCoverage = getSentAckCoverageOneRtt(serverConnection)
+                                .get(Long.valueOf(secondAckCarryingPacketNumber));
+                        java.util.Arrays.sort(secondCoverage);
+                        assertArrayEquals("An unconfirmed first ACK's coverage must survive into a second, "
+                                + "later flush -- exactly what protects against the first ACK datagram "
+                                + "never reaching the peer",
+                                new long[] { firstPeerPacketNumber, secondPeerPacketNumber }, secondCoverage);
+
+                        // --- Step 3: simulate the peer confirming only the *first*
+                        // ACK-carrying packet -- only its specific coverage retires. ---
+                        LossDetector lossDetector =
+                                getPrivateField(serverConnection, "lossDetector", LossDetector.class);
+                        LossDetector.AckResult ackResult = lossDetector.onAckReceived(EncryptionLevel.ONE_RTT,
+                                firstAckCarryingPacketNumber, 0,
+                                new long[][] { { firstAckCarryingPacketNumber, firstAckCarryingPacketNumber } },
+                                25, System.currentTimeMillis(), true);
+                        assertEquals("Sanity check: the loss detector must recognize the first ACK-carrying "
+                                + "packet as genuinely in flight and newly acked", 1, ackResult.getNewlyAcked().size());
+
+                        Method retire = QuicConnection.class.getDeclaredMethod(
+                                "retireAcknowledgedRanges", EncryptionLevel.class, List.class);
+                        retire.setAccessible(true);
+                        retire.invoke(serverConnection, EncryptionLevel.ONE_RTT, ackResult.getNewlyAcked());
+
+                        assertFalse("Once the peer confirms it received the first ACK, the packet number it "
+                                + "covered must finally be retired",
+                                getReceivedUnackedOneRtt(serverConnection)
+                                        .contains(Long.valueOf(firstPeerPacketNumber)));
+                        assertTrue("The second, still-unconfirmed packet number must be untouched by "
+                                + "retiring the first",
+                                getReceivedUnackedOneRtt(serverConnection)
+                                        .contains(Long.valueOf(secondPeerPacketNumber)));
+                        assertNull("The first packet's coverage tracking entry itself must also be cleaned "
+                                + "up once retired",
+                                getSentAckCoverageOneRtt(serverConnection)
+                                        .get(Long.valueOf(firstAckCarryingPacketNumber)));
+                    } catch (Throwable t) {
+                        coverageFailure.set(t);
+                    } finally {
+                        coverageDone.countDown();
+                    }
+                }
+            });
+            assertTrue("ACK coverage checks should run on the loop thread within 5s",
+                    coverageDone.await(5, TimeUnit.SECONDS));
+            if (coverageFailure.get() != null) {
+                Throwable t = coverageFailure.get();
+                if (t instanceof Exception) {
+                    throw (Exception) t;
+                }
+                throw (Error) t;
             }
-            assertNotNull("Server should have 1-RTT send keys", getOneRttSendKeys(serverConnection));
-
-            // --- Step 1: seed one synthetic unacked peer packet, flush ---
-            long firstPeerPacketNumber = 999L;
-            seedReceivedUnacked(serverConnection, firstPeerPacketNumber);
-            long firstAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
-            serverConnection.flush();
-
-            assertTrue("The synthetic packet number must still be tracked as unacked immediately "
-                    + "after flush() merely built and sent the ACK covering it -- confirmation "
-                    + "from the peer, not the act of writing the frame, is what should retire it",
-                    getReceivedUnackedOneRtt(serverConnection).contains(Long.valueOf(firstPeerPacketNumber)));
-            assertArrayEquals("The ACK-carrying packet's recorded coverage should be exactly what "
-                    + "was pending at the moment it was built",
-                    new long[] { firstPeerPacketNumber },
-                    getSentAckCoverageOneRtt(serverConnection).get(Long.valueOf(firstAckCarryingPacketNumber)));
-
-            // --- Step 2: without confirming the first ACK, seed a second
-            // packet and flush again -- the first packet's coverage must
-            // still be pending and get folded into the new ACK too. ---
-            long secondPeerPacketNumber = 1000L;
-            seedReceivedUnacked(serverConnection, secondPeerPacketNumber);
-            long secondAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
-            serverConnection.flush();
-
-            long[] secondCoverage = getSentAckCoverageOneRtt(serverConnection)
-                    .get(Long.valueOf(secondAckCarryingPacketNumber));
-            java.util.Arrays.sort(secondCoverage);
-            assertArrayEquals("An unconfirmed first ACK's coverage must survive into a second, "
-                    + "later flush -- exactly what protects against the first ACK datagram "
-                    + "never reaching the peer",
-                    new long[] { firstPeerPacketNumber, secondPeerPacketNumber }, secondCoverage);
-
-            // --- Step 3: simulate the peer confirming only the *first*
-            // ACK-carrying packet -- only its specific coverage retires. ---
-            LossDetector lossDetector = getPrivateField(serverConnection, "lossDetector", LossDetector.class);
-            LossDetector.AckResult ackResult = lossDetector.onAckReceived(EncryptionLevel.ONE_RTT,
-                    firstAckCarryingPacketNumber, 0,
-                    new long[][] { { firstAckCarryingPacketNumber, firstAckCarryingPacketNumber } },
-                    25, System.currentTimeMillis(), true);
-            assertEquals("Sanity check: the loss detector must recognize the first ACK-carrying "
-                    + "packet as genuinely in flight and newly acked", 1, ackResult.getNewlyAcked().size());
-
-            Method retire = QuicConnection.class.getDeclaredMethod(
-                    "retireAcknowledgedRanges", EncryptionLevel.class, List.class);
-            retire.setAccessible(true);
-            retire.invoke(serverConnection, EncryptionLevel.ONE_RTT, ackResult.getNewlyAcked());
-
-            assertFalse("Once the peer confirms it received the first ACK, the packet number it "
-                    + "covered must finally be retired",
-                    getReceivedUnackedOneRtt(serverConnection).contains(Long.valueOf(firstPeerPacketNumber)));
-            assertTrue("The second, still-unconfirmed packet number must be untouched by "
-                    + "retiring the first",
-                    getReceivedUnackedOneRtt(serverConnection).contains(Long.valueOf(secondPeerPacketNumber)));
-            assertNull("The first packet's coverage tracking entry itself must also be cleaned "
-                    + "up once retired",
-                    getSentAckCoverageOneRtt(serverConnection).get(Long.valueOf(firstAckCarryingPacketNumber)));
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
@@ -1571,16 +1626,12 @@ public class QuicProductionEndToEndTest {
 
             final AtomicReference<QuicConnection> serverConnectionRef = new AtomicReference<QuicConnection>();
             final CountDownLatch serverConnected = new CountDownLatch(1);
+            final CountDownLatch oneRttKeysReady = new CountDownLatch(1);
 
             serverEngine = serverFactory.createServerEngine(
                     InetAddress.getLoopbackAddress(), 0,
-                    new QuicEngine.ConnectionAcceptedHandler() {
-                        @Override
-                        public void connectionAccepted(QuicConnection connection) {
-                            serverConnectionRef.set(connection);
-                            serverConnected.countDown();
-                        }
-                    }, loop);
+                    serverConnectionAwaitingOneRttKeys(serverConnectionRef, serverConnected, oneRttKeysReady),
+                    loop);
             InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
 
             QuicTransportFactory clientFactory = new QuicTransportFactory();
@@ -1601,28 +1652,55 @@ public class QuicProductionEndToEndTest {
 
             QuicConnection serverConnection = serverConnectionRef.get();
 
-            long deadline = System.currentTimeMillis() + 5000;
-            while (getOneRttSendKeys(serverConnection) == null && System.currentTimeMillis() < deadline) {
-                Thread.sleep(20);
+            assertTrue("Server should have 1-RTT send keys within 5s",
+                    oneRttKeysReady.await(5, TimeUnit.SECONDS));
+            waitForConnectionIdle(serverConnection);
+
+            final long peerPacketNumber = 4242L;
+            final AtomicReference<SentPacket> sentRef = new AtomicReference<SentPacket>();
+            final AtomicLong bytesInFlightBeforeRef = new AtomicLong();
+            final AtomicLong bytesInFlightAfterRef = new AtomicLong();
+            final AtomicReference<Throwable> ackOnlyFailure = new AtomicReference<Throwable>();
+            final CountDownLatch ackOnlyDone = new CountDownLatch(1);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        LossDetector lossDetector =
+                                getPrivateField(serverConnection, "lossDetector", LossDetector.class);
+                        CongestionController congestionController = lossDetector.getCongestionController();
+                        bytesInFlightBeforeRef.set(congestionController.getBytesInFlight());
+
+                        seedReceivedUnacked(serverConnection, peerPacketNumber);
+                        long ackOnlyPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
+                        serverConnection.flush();
+
+                        sentRef.set(findSentPacket(lossDetector, EncryptionLevel.ONE_RTT, ackOnlyPacketNumber));
+                        bytesInFlightAfterRef.set(congestionController.getBytesInFlight());
+                    } catch (Throwable t) {
+                        ackOnlyFailure.set(t);
+                    } finally {
+                        ackOnlyDone.countDown();
+                    }
+                }
+            });
+            assertTrue("ACK-only seed/flush should run on the loop thread within 5s",
+                    ackOnlyDone.await(5, TimeUnit.SECONDS));
+            if (ackOnlyFailure.get() != null) {
+                Throwable t = ackOnlyFailure.get();
+                if (t instanceof Exception) {
+                    throw (Exception) t;
+                }
+                throw (Error) t;
             }
-            assertNotNull("Server should have 1-RTT send keys", getOneRttSendKeys(serverConnection));
 
-            LossDetector lossDetector = getPrivateField(serverConnection, "lossDetector", LossDetector.class);
-            CongestionController congestionController = lossDetector.getCongestionController();
-            long bytesInFlightBefore = congestionController.getBytesInFlight();
-
-            long peerPacketNumber = 4242L;
-            seedReceivedUnacked(serverConnection, peerPacketNumber);
-            long ackOnlyPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
-            serverConnection.flush();
-
-            SentPacket sent = findSentPacket(lossDetector, EncryptionLevel.ONE_RTT, ackOnlyPacketNumber);
+            SentPacket sent = sentRef.get();
             assertNotNull("The ACK-only packet must still be tracked by the loss detector", sent);
             assertFalse("An ACK-only packet carries no ack-eliciting frame", sent.isAckEliciting());
             assertFalse("An ACK-only packet must not count as in flight (RFC 9002 section 2)",
                     sent.isInFlight());
             assertEquals("Bytes in flight must be unchanged by an ACK-only packet",
-                    bytesInFlightBefore, congestionController.getBytesInFlight());
+                    bytesInFlightBeforeRef.get(), bytesInFlightAfterRef.get());
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
@@ -1658,16 +1736,12 @@ public class QuicProductionEndToEndTest {
 
             final AtomicReference<QuicConnection> serverConnectionRef = new AtomicReference<QuicConnection>();
             final CountDownLatch serverConnected = new CountDownLatch(1);
+            final CountDownLatch oneRttKeysReady = new CountDownLatch(1);
 
             serverEngine = serverFactory.createServerEngine(
                     InetAddress.getLoopbackAddress(), 0,
-                    new QuicEngine.ConnectionAcceptedHandler() {
-                        @Override
-                        public void connectionAccepted(QuicConnection connection) {
-                            serverConnectionRef.set(connection);
-                            serverConnected.countDown();
-                        }
-                    }, loop);
+                    serverConnectionAwaitingOneRttKeys(serverConnectionRef, serverConnected, oneRttKeysReady),
+                    loop);
             InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
 
             QuicTransportFactory clientFactory = new QuicTransportFactory();
@@ -1688,66 +1762,83 @@ public class QuicProductionEndToEndTest {
 
             QuicConnection serverConnection = serverConnectionRef.get();
 
-            long deadline = System.currentTimeMillis() + 5000;
-            while (getOneRttSendKeys(serverConnection) == null && System.currentTimeMillis() < deadline) {
-                Thread.sleep(20);
+            assertTrue("Server should have 1-RTT send keys within 5s",
+                    oneRttKeysReady.await(5, TimeUnit.SECONDS));
+            waitForConnectionIdle(serverConnection);
+
+            // computeAckDelay reads largestReceivedTime, which the loop
+            // thread updates on every received packet -- marshal the
+            // synthetic-time manipulation onto that thread (same pattern
+            // as waitForIdleAndReadSendPacketNumber below).
+            final AtomicReference<Throwable> ackDelayFailure = new AtomicReference<Throwable>();
+            final CountDownLatch ackDelayDone = new CountDownLatch(1);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Method computeAckDelay = QuicConnection.class.getDeclaredMethod(
+                                "computeAckDelay", EncryptionLevel.class);
+                        computeAckDelay.setAccessible(true);
+
+                        long[] largestReceivedTime =
+                                getPrivateField(serverConnection, "largestReceivedTime", long[].class);
+                        long originalTime = largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()];
+
+                        largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = -1;
+                        long delayWhenNeverReceived =
+                                (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
+                        assertEquals("No delay should be reported before any packet has been received at this level",
+                                0, delayWhenNeverReceived);
+
+                        long simulatedElapsedMillis = 200;
+                        largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] =
+                                System.currentTimeMillis() - simulatedElapsedMillis;
+                        long delay = (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
+                        assertTrue("A real elapsed receipt-to-send gap must produce a nonzero ACK Delay, "
+                                + "not the old hardcoded zero (was " + delay + ")", delay > 0);
+                        long expectedApprox = (simulatedElapsedMillis * 1000) >>> 3;
+                        assertTrue("ACK Delay should be roughly consistent with the simulated elapsed time "
+                                + "(expected around " + expectedApprox + ", was " + delay + ")",
+                                delay >= expectedApprox / 4 && delay <= expectedApprox * 8);
+
+                        largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = originalTime;
+
+                        Method peerMaxAckDelay = QuicConnection.class.getDeclaredMethod("peerMaxAckDelay");
+                        peerMaxAckDelay.setAccessible(true);
+
+                        TransportParameters original =
+                                getPrivateField(serverConnection, "peerTransportParameters", TransportParameters.class);
+                        assertNotNull("A real handshake should have populated peer transport parameters", original);
+
+                        setPrivateField(serverConnection, "peerTransportParameters", null);
+                        long defaultDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
+                        assertEquals("With no peer transport parameters yet, the RFC default must apply",
+                                TransportParameters.DEFAULT_MAX_ACK_DELAY, defaultDelay);
+
+                        TransportParameters custom = new TransportParameters();
+                        custom.setMaxAckDelay(777);
+                        setPrivateField(serverConnection, "peerTransportParameters", custom);
+                        long customDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
+                        assertEquals("The peer's actual declared max_ack_delay must be used, not a hardcoded value",
+                                777, customDelay);
+
+                        setPrivateField(serverConnection, "peerTransportParameters", original);
+                    } catch (Throwable t) {
+                        ackDelayFailure.set(t);
+                    } finally {
+                        ackDelayDone.countDown();
+                    }
+                }
+            });
+            assertTrue("ACK Delay / peerMaxAckDelay checks should run on the loop thread within 5s",
+                    ackDelayDone.await(5, TimeUnit.SECONDS));
+            if (ackDelayFailure.get() != null) {
+                Throwable t = ackDelayFailure.get();
+                if (t instanceof Exception) {
+                    throw (Exception) t;
+                }
+                throw (Error) t;
             }
-            assertNotNull("Server should have 1-RTT send keys", getOneRttSendKeys(serverConnection));
-
-            // --- computeAckDelay must reflect real elapsed receipt time ---
-            Method computeAckDelay = QuicConnection.class.getDeclaredMethod(
-                    "computeAckDelay", EncryptionLevel.class);
-            computeAckDelay.setAccessible(true);
-
-            long[] largestReceivedTime = getPrivateField(serverConnection, "largestReceivedTime", long[].class);
-            long originalTime = largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()];
-
-            largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = -1;
-            long delayWhenNeverReceived =
-                    (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
-            assertEquals("No delay should be reported before any packet has been received at this level",
-                    0, delayWhenNeverReceived);
-
-            long simulatedElapsedMillis = 200;
-            largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] =
-                    System.currentTimeMillis() - simulatedElapsedMillis;
-            long delay = (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
-            assertTrue("A real elapsed receipt-to-send gap must produce a nonzero ACK Delay, "
-                    + "not the old hardcoded zero (was " + delay + ")", delay > 0);
-            // RFC 9000 section 18.2's default ack_delay_exponent is 3:
-            // the field value is (elapsed microseconds >> 3). A generous
-            // tolerance band absorbs test-scheduling jitter -- the point
-            // of this assertion is "clearly tracks real elapsed time",
-            // not exact timing.
-            long expectedApprox = (simulatedElapsedMillis * 1000) >>> 3;
-            assertTrue("ACK Delay should be roughly consistent with the simulated elapsed time "
-                    + "(expected around " + expectedApprox + ", was " + delay + ")",
-                    delay >= expectedApprox / 4 && delay <= expectedApprox * 8);
-
-            largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = originalTime;
-
-            // --- peerMaxAckDelay must read the peer's real transport
-            // parameter, not a hardcoded 25 ---
-            Method peerMaxAckDelay = QuicConnection.class.getDeclaredMethod("peerMaxAckDelay");
-            peerMaxAckDelay.setAccessible(true);
-
-            TransportParameters original =
-                    getPrivateField(serverConnection, "peerTransportParameters", TransportParameters.class);
-            assertNotNull("A real handshake should have populated peer transport parameters", original);
-
-            setPrivateField(serverConnection, "peerTransportParameters", null);
-            long defaultDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
-            assertEquals("With no peer transport parameters yet, the RFC default must apply",
-                    TransportParameters.DEFAULT_MAX_ACK_DELAY, defaultDelay);
-
-            TransportParameters custom = new TransportParameters();
-            custom.setMaxAckDelay(777);
-            setPrivateField(serverConnection, "peerTransportParameters", custom);
-            long customDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
-            assertEquals("The peer's actual declared max_ack_delay must be used, not a hardcoded value",
-                    777, customDelay);
-
-            setPrivateField(serverConnection, "peerTransportParameters", original);
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
@@ -1832,12 +1923,8 @@ public class QuicProductionEndToEndTest {
             QuicConnection serverConnection = serverConnectionRef.get();
             QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
 
-            long deadline = System.currentTimeMillis() + 5000;
-            while ((!isLevelDiscarded(serverConnection, EncryptionLevel.HANDSHAKE)
-                    || !isLevelDiscarded(clientConnection, EncryptionLevel.HANDSHAKE))
-                    && System.currentTimeMillis() < deadline) {
-                Thread.sleep(20);
-            }
+            awaitLevelDiscarded(serverConnection, EncryptionLevel.HANDSHAKE);
+            awaitLevelDiscarded(clientConnection, EncryptionLevel.HANDSHAKE);
 
             for (QuicConnection conn : new QuicConnection[] { serverConnection, clientConnection }) {
                 assertTrue("Initial state should be discarded once no longer needed",
@@ -1993,30 +2080,18 @@ public class QuicProductionEndToEndTest {
 
         assertTrue("Ticket-capture client stream should close within 5s", clientFin.await(5, TimeUnit.SECONDS));
 
-        SessionTicketCache.Entry entry = null;
-        long deadline = System.currentTimeMillis() + 3000;
-        while (entry == null && System.currentTimeMillis() < deadline) {
-            entry = SessionTicketCache.get(SERVER_NAME, serverAddress.getPort());
-            if (entry == null) {
-                Thread.sleep(50);
-            }
-        }
+        SessionTicketCache.Entry entry = awaitSessionTicket(SERVER_NAME, serverAddress.getPort());
         assertNotNull("A session ticket should have been cached after the handshake", entry);
         return clientEngine;
     }
 
-    private static byte[] awaitStreamData(Map<Long, byte[]> received, long streamId, long timeoutMs)
-            throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            byte[] data = received.get(streamId);
-            if (data != null) {
-                return data;
-            }
-            Thread.sleep(25);
-        }
-        fail("Server never received data for stream " + streamId + " within " + timeoutMs + "ms");
-        return null; // unreachable
+    private static byte[] awaitStreamData(Map<Long, byte[]> received, long streamId,
+            CountDownLatch receivedLatch) throws InterruptedException {
+        assertTrue("Server never received data for stream " + streamId + " within 5s",
+                receivedLatch.await(5, TimeUnit.SECONDS));
+        byte[] data = received.get(streamId);
+        assertNotNull(data);
+        return data;
     }
 
     /**
@@ -2041,6 +2116,9 @@ public class QuicProductionEndToEndTest {
         QuicEngine secondClientEngine = null;
         try {
             final Map<Long, byte[]> serverReceivedByStream = new ConcurrentHashMap<Long, byte[]>();
+            final Map<Long, CountDownLatch> streamDataLatches = new ConcurrentHashMap<Long, CountDownLatch>();
+            final CountDownLatch streamZeroReceived = new CountDownLatch(1);
+            streamDataLatches.put(Long.valueOf(0L), streamZeroReceived);
             QuicTransportFactory serverFactory = new QuicTransportFactory();
             serverFactory.setApplicationProtocols(ALPN);
             serverFactory.setCertFile(certFile);
@@ -2048,7 +2126,8 @@ public class QuicProductionEndToEndTest {
             serverFactory.setEarlyDataEnabled(true);
             serverFactory.start();
             serverEngine = serverFactory.createServerEngine(
-                    InetAddress.getLoopbackAddress(), 0, streamCapturingAcceptHandler(serverReceivedByStream), loop);
+                    InetAddress.getLoopbackAddress(), 0,
+                    streamCapturingAcceptHandler(serverReceivedByStream, streamDataLatches), loop);
             InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
 
             firstClientEngine = captureSessionTicketViaRealHandshake(serverAddress, loop);
@@ -2062,12 +2141,14 @@ public class QuicProductionEndToEndTest {
             final AtomicReference<Boolean> establishedAtSendTime = new AtomicReference<Boolean>();
             final AtomicReference<QuicConnection> clientConnectionRef = new AtomicReference<QuicConnection>();
             final CountDownLatch earlyDataSent = new CountDownLatch(1);
+            final CountDownLatch clientHandshakeComplete = new CountDownLatch(1);
 
             secondClientEngine = secondClientFactory.connect(
                     InetAddress.getLoopbackAddress(), serverAddress.getPort(),
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
+                            clientHandshakeComplete.countDown();
                         }
                     },
                     new QuicEngine.EarlyDataHandler() {
@@ -2110,8 +2191,11 @@ public class QuicProductionEndToEndTest {
                     + "otherwise this isn't proving genuine 0-RTT, just a fast handshake",
                     establishedAtSendTime.get().booleanValue());
 
-            assertEquals("zero-rtt-payload", new String(awaitStreamData(serverReceivedByStream, 0L, 3000),
+            assertEquals("zero-rtt-payload", new String(awaitStreamData(serverReceivedByStream, 0L, streamZeroReceived),
                     StandardCharsets.US_ASCII));
+
+            assertTrue("Client handshake should complete after 0-RTT data is accepted",
+                    clientHandshakeComplete.await(5, TimeUnit.SECONDS));
 
             // Positive-path regression guard for Part 4's rejection
             // handling, added alongside it: accepted 0-RTT must not
@@ -2166,6 +2250,9 @@ public class QuicProductionEndToEndTest {
         QuicEngine secondClientEngine = null;
         try {
             final Map<Long, byte[]> serverReceivedByStream = new ConcurrentHashMap<Long, byte[]>();
+            final Map<Long, CountDownLatch> streamDataLatches = new ConcurrentHashMap<Long, CountDownLatch>();
+            final CountDownLatch streamZeroReceived = new CountDownLatch(1);
+            streamDataLatches.put(Long.valueOf(0L), streamZeroReceived);
             QuicTransportFactory serverFactory = new QuicTransportFactory();
             serverFactory.setApplicationProtocols(ALPN);
             serverFactory.setCertFile(certFile);
@@ -2173,7 +2260,8 @@ public class QuicProductionEndToEndTest {
             serverFactory.setEarlyDataEnabled(true);
             serverFactory.start();
             serverEngine = serverFactory.createServerEngine(
-                    InetAddress.getLoopbackAddress(), 0, streamCapturingAcceptHandler(serverReceivedByStream), loop);
+                    InetAddress.getLoopbackAddress(), 0,
+                    streamCapturingAcceptHandler(serverReceivedByStream, streamDataLatches), loop);
             InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
 
             firstClientEngine = captureSessionTicketViaRealHandshake(serverAddress, loop);
@@ -2265,6 +2353,9 @@ public class QuicProductionEndToEndTest {
         QuicEngine secondClientEngine = null;
         try {
             final Map<Long, byte[]> serverReceivedByStream = new ConcurrentHashMap<Long, byte[]>();
+            final Map<Long, CountDownLatch> streamDataLatches = new ConcurrentHashMap<Long, CountDownLatch>();
+            final CountDownLatch streamZeroReceived = new CountDownLatch(1);
+            streamDataLatches.put(Long.valueOf(0L), streamZeroReceived);
             QuicTransportFactory serverFactory = new QuicTransportFactory();
             serverFactory.setApplicationProtocols(ALPN);
             serverFactory.setCertFile(certFile);
@@ -2272,7 +2363,8 @@ public class QuicProductionEndToEndTest {
             serverFactory.setEarlyDataEnabled(false); // server declines
             serverFactory.start();
             serverEngine = serverFactory.createServerEngine(
-                    InetAddress.getLoopbackAddress(), 0, streamCapturingAcceptHandler(serverReceivedByStream), loop);
+                    InetAddress.getLoopbackAddress(), 0,
+                    streamCapturingAcceptHandler(serverReceivedByStream, streamDataLatches), loop);
             InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
 
             firstClientEngine = captureSessionTicketViaRealHandshake(serverAddress, loop);
@@ -2331,7 +2423,7 @@ public class QuicProductionEndToEndTest {
             assertTrue("Client handshake should still complete despite the server's rejection",
                     clientHandshakeComplete.await(5, TimeUnit.SECONDS));
 
-            assertEquals("rejected-zero-rtt", new String(awaitStreamData(serverReceivedByStream, 0L, 3000),
+            assertEquals("rejected-zero-rtt", new String(awaitStreamData(serverReceivedByStream, 0L, streamZeroReceived),
                     StandardCharsets.US_ASCII));
 
             QuicConnection clientConnection = clientConnectionRef.get();
@@ -3344,25 +3436,191 @@ public class QuicProductionEndToEndTest {
         return packet;
     }
 
-    /**
-     * A rebind/migration test's forged packets are built from the
-     * client connection's own internal state (peerConnectionId, key
-     * material), read via reflection immediately after {@code
-     * clientConnected} fires. That callback and the connection's
-     * post-handshake bookkeeping both run on the shared {@code loop}
-     * thread, but this JUnit thread reading fields right after {@code
-     * await()} returns isn't synchronized against it -- reflection can
-     * occasionally observe state from a moment slightly before the
-     * connection has fully settled, most visibly as a captured
-     * peerConnectionId the server's engine doesn't (yet) have a
-     * connection registered under, so a subsequent forged packet is
-     * silently dropped (no matching connection to route it to; not a
-     * decode/decrypt failure, so nothing logs it either). A short,
-     * generous settle delay avoids the race without needing to pin down
-     * exactly which internal step it's racing.
-     */
-    private static void awaitHandshakeSettled() throws InterruptedException {
-        Thread.sleep(50);
+    private static SessionTicketCache.Entry awaitSessionTicket(String host, int port) throws Exception {
+        SessionTicketCache.Entry existing = SessionTicketCache.get(host, port);
+        if (existing != null) {
+            return existing;
+        }
+        final CountDownLatch cached = new CountDownLatch(1);
+        SessionTicketCache.putObserver = new Runnable() {
+            @Override
+            public void run() {
+                cached.countDown();
+            }
+        };
+        try {
+            assertTrue("A session ticket should have been cached after the handshake",
+                    cached.await(5, TimeUnit.SECONDS));
+            SessionTicketCache.Entry entry = SessionTicketCache.get(host, port);
+            assertNotNull(entry);
+            return entry;
+        } finally {
+            SessionTicketCache.putObserver = null;
+        }
+    }
+
+    private static void waitForConnectionIdle(final QuicConnection connection) throws Exception {
+        final CountDownLatch idle = new CountDownLatch(1);
+        final CountDownLatch done = new CountDownLatch(1);
+        connection.runWhenLossDetectionIdle(new Runnable() {
+            @Override
+            public void run() {
+                idle.countDown();
+                done.countDown();
+            }
+        });
+        assertTrue("Connection should go idle (no loss-detection timer armed) within 5s",
+                idle.await(5, TimeUnit.SECONDS));
+        assertTrue(done.await(5, TimeUnit.SECONDS));
+    }
+
+    private static QuicEngine.ConnectionAcceptedHandler serverConnectionAwaitingOneRttKeys(
+            final AtomicReference<QuicConnection> serverConnectionRef,
+            final CountDownLatch serverConnected,
+            final CountDownLatch oneRttKeysReady) {
+        return new QuicEngine.ConnectionAcceptedHandler() {
+            @Override
+            public void connectionAccepted(QuicConnection connection) {
+                serverConnectionRef.set(connection);
+                connection.runWhenOneRttSendKeysReady(new Runnable() {
+                    @Override
+                    public void run() {
+                        oneRttKeysReady.countDown();
+                    }
+                });
+                serverConnected.countDown();
+            }
+        };
+    }
+
+    private static void awaitOneRttSendKeys(final QuicConnection connection) throws Exception {
+        final CountDownLatch ready = new CountDownLatch(1);
+        final CountDownLatch done = new CountDownLatch(1);
+        connection.runWhenOneRttSendKeysReady(new Runnable() {
+            @Override
+            public void run() {
+                ready.countDown();
+                done.countDown();
+            }
+        });
+        assertTrue("Server should have 1-RTT send keys within 5s",
+                ready.await(5, TimeUnit.SECONDS));
+        assertTrue(done.await(5, TimeUnit.SECONDS));
+    }
+
+    private static void awaitLevelDiscarded(final QuicConnection connection,
+            final EncryptionLevel level) throws Exception {
+        final CountDownLatch discarded = new CountDownLatch(1);
+        final CountDownLatch done = new CountDownLatch(1);
+        connection.getSelectorLoop().invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (isLevelDiscarded(connection, level)) {
+                        discarded.countDown();
+                        done.countDown();
+                        return;
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+                QuicConnection.EncryptionLevelDiscardedObserver previous =
+                        QuicConnection.encryptionLevelDiscardedObserver;
+                QuicConnection.encryptionLevelDiscardedObserver =
+                        new QuicConnection.EncryptionLevelDiscardedObserver() {
+                    @Override
+                    public void encryptionLevelDiscarded(QuicConnection conn, EncryptionLevel lvl) {
+                        if (conn == connection && lvl == level) {
+                            QuicConnection.encryptionLevelDiscardedObserver = previous;
+                            discarded.countDown();
+                            done.countDown();
+                        }
+                    }
+                };
+            }
+        });
+        assertTrue("Encryption level " + level + " should be discarded within 5s",
+                discarded.await(5, TimeUnit.SECONDS));
+        assertTrue(done.await(5, TimeUnit.SECONDS));
+    }
+
+    private static InetSocketAddress awaitMigrationTo(QuicConnection connection,
+            final InetSocketAddress expected, Runnable trigger) throws Exception {
+        InetSocketAddress current = getPrivateField(connection, "remoteAddress", InetSocketAddress.class);
+        if (expected.equals(current)) {
+            return current;
+        }
+        final CountDownLatch migrated = new CountDownLatch(1);
+        final AtomicReference<InetSocketAddress> result = new AtomicReference<InetSocketAddress>();
+        QuicConnection.MigrationCompletedObserver previous = QuicConnection.migrationCompletedObserver;
+        QuicConnection.migrationCompletedObserver =
+                new QuicConnection.MigrationCompletedObserver() {
+            @Override
+            public void migrationCompleted(QuicConnection conn, InetSocketAddress newRemote) {
+                if (conn == connection && expected.equals(newRemote)) {
+                    result.set(newRemote);
+                    migrated.countDown();
+                }
+            }
+        };
+        try {
+            trigger.run();
+            assertTrue("Expected migration to " + expected + " within 10s",
+                    migrated.await(10, TimeUnit.SECONDS));
+            return result.get();
+        } finally {
+            QuicConnection.migrationCompletedObserver = previous;
+        }
+    }
+
+    private static void awaitPathValidationRejected(QuicConnection connection,
+            final InetSocketAddress candidate) throws Exception {
+        final CountDownLatch rejected = new CountDownLatch(1);
+        QuicConnection.PathValidationRejectedObserver previous =
+                QuicConnection.pathValidationRejectedObserver;
+        QuicConnection.pathValidationRejectedObserver =
+                new QuicConnection.PathValidationRejectedObserver() {
+            @Override
+            public void pathValidationRejected(QuicConnection conn, InetSocketAddress addr) {
+                if (conn == connection && candidate.equals(addr)) {
+                    rejected.countDown();
+                }
+            }
+        };
+        try {
+            assertTrue("Extra path candidate " + candidate + " should be rejected within 5s",
+                    rejected.await(5, TimeUnit.SECONDS));
+        } finally {
+            QuicConnection.pathValidationRejectedObserver = previous;
+        }
+    }
+
+    private static void awaitPathValidationAbandoned(QuicConnection connection,
+            final InetSocketAddress candidate) throws Exception {
+        @SuppressWarnings("unchecked")
+        Map<InetSocketAddress, ?> attempts =
+                getPrivateField(connection, "pathValidationAttempts", Map.class);
+        if (!attempts.containsKey(candidate)) {
+            return;
+        }
+        final CountDownLatch abandoned = new CountDownLatch(1);
+        QuicConnection.PathValidationAbandonedObserver previous =
+                QuicConnection.pathValidationAbandonedObserver;
+        QuicConnection.pathValidationAbandonedObserver =
+                new QuicConnection.PathValidationAbandonedObserver() {
+            @Override
+            public void pathValidationAbandoned(QuicConnection conn, InetSocketAddress addr) {
+                if (conn == connection && candidate.equals(addr)) {
+                    abandoned.countDown();
+                }
+            }
+        };
+        try {
+            assertTrue("Path validation for " + candidate + " should be abandoned within 15s",
+                    abandoned.await(15, TimeUnit.SECONDS));
+        } finally {
+            QuicConnection.pathValidationAbandonedObserver = previous;
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -3421,25 +3679,6 @@ public class QuicProductionEndToEndTest {
             throw failure.get();
         }
         return result.get().longValue();
-    }
-
-    // See waitForIdleAndReadSendPacketNumber's javadoc for why this
-    // matters: legitimate handshake-tail traffic (the client's own ACK
-    // for HANDSHAKE_DONE, etc.) can still be in flight for a little
-    // while after connected()/clientConnected fires, so a test reading
-    // shared connection state immediately after that latch would race
-    // it. Reaching null here relies on nothing beyond the loss detector
-    // itself already being correct (proven independently elsewhere),
-    // not on whatever this particular test is trying to check.
-    private static void waitForConnectionIdle(QuicConnection connection) throws Exception {
-        TimerHandle timerHandle = getPrivateField(connection, "timerHandle", TimerHandle.class);
-        long deadline = System.currentTimeMillis() + 5000;
-        while (timerHandle != null && System.currentTimeMillis() < deadline) {
-            Thread.sleep(20);
-            timerHandle = getPrivateField(connection, "timerHandle", TimerHandle.class);
-        }
-        assertNull("Connection should have gone idle (no timer armed) before reading "
-                + "shared connection state a still-in-flight packet could change", timerHandle);
     }
 
     /**
@@ -4152,7 +4391,9 @@ public class QuicProductionEndToEndTest {
                     }, loop, SERVER_NAME);
 
             assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
-            awaitHandshakeSettled();
+
+            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            waitForConnectionIdle(clientConnection);
 
             // Reach into the real, negotiated key material and packet
             // number counter -- the only way to construct further packets
@@ -4160,7 +4401,6 @@ public class QuicProductionEndToEndTest {
             // accept, exactly as a genuine rebinding client's own
             // networking stack would (same connection, same keys, just a
             // different local port).
-            QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
             @SuppressWarnings("unchecked")
             Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
                     getPrivateField(clientConnection, "sendKeys", Map.class);
@@ -4201,22 +4441,22 @@ public class QuicProductionEndToEndTest {
             assertTrue("Server should have sent a PATH_CHALLENGE to validate the new path", challengeData != null);
 
             long responsePacketNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
-            byte[] pathResponsePacket = forgePathResponsePacket(clientToServerKeys, serverConnectionId,
+            final byte[] pathResponsePacket = forgePathResponsePacket(clientToServerKeys, serverConnectionId,
                     responsePacketNumber, challengeData);
-            sendReliably(rebindChannel, pathResponsePacket, serverAddress);
-
             QuicConnection serverConnection = getOnlyServerConnection(serverEngine);
-            InetSocketAddress switchedRemote = null;
-            long deadline = System.currentTimeMillis() + 10000;
-            while (System.currentTimeMillis() < deadline) {
-                InetSocketAddress currentRemote =
-                        getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
-                if (rebindLocalAddress.equals(currentRemote)) {
-                    switchedRemote = currentRemote;
-                    break;
+            final DatagramChannel migrationChannel = rebindChannel;
+            final InetSocketAddress migrationTarget = serverAddress;
+            InetSocketAddress switchedRemote = awaitMigrationTo(serverConnection, rebindLocalAddress,
+                    new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        sendReliably(migrationChannel, pathResponsePacket, migrationTarget);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
                 }
-                Thread.sleep(20);
-            }
+            });
             assertEquals("The server should have switched to the validated new path",
                     rebindLocalAddress, switchedRemote);
 
@@ -4346,9 +4586,9 @@ public class QuicProductionEndToEndTest {
 
             assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
 
-            awaitHandshakeSettled();
-
             QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            waitForConnectionIdle(clientConnection);
+
             @SuppressWarnings("unchecked")
             Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
                     getPrivateField(clientConnection, "sendKeys", Map.class);
@@ -4385,22 +4625,22 @@ public class QuicProductionEndToEndTest {
                     java.util.Arrays.equals(firstChallengeData, secondChallengeData));
 
             long responsePacketNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
-            byte[] pathResponsePacket = forgePathResponsePacket(clientToServerKeys, serverConnectionId,
+            final byte[] pathResponsePacket = forgePathResponsePacket(clientToServerKeys, serverConnectionId,
                     responsePacketNumber, secondChallengeData);
-            sendReliably(rebindChannel, pathResponsePacket, serverAddress);
-
             QuicConnection serverConnection = getOnlyServerConnection(serverEngine);
-            InetSocketAddress switchedRemote = null;
-            long deadline = System.currentTimeMillis() + 10000;
-            while (System.currentTimeMillis() < deadline) {
-                InetSocketAddress currentRemote =
-                        getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
-                if (rebindLocalAddress.equals(currentRemote)) {
-                    switchedRemote = currentRemote;
-                    break;
+            final DatagramChannel migrationChannel = rebindChannel;
+            final InetSocketAddress migrationTarget = serverAddress;
+            InetSocketAddress switchedRemote = awaitMigrationTo(serverConnection, rebindLocalAddress,
+                    new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        sendReliably(migrationChannel, pathResponsePacket, migrationTarget);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
                 }
-                Thread.sleep(20);
-            }
+            });
             assertEquals("The server should have switched to the validated new path "
                     + "after the retransmitted challenge was answered",
                     rebindLocalAddress, switchedRemote);
@@ -4520,9 +4760,9 @@ public class QuicProductionEndToEndTest {
 
             assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
 
-            awaitHandshakeSettled();
-
             QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            waitForConnectionIdle(clientConnection);
+
             @SuppressWarnings("unchecked")
             Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
                     getPrivateField(clientConnection, "sendKeys", Map.class);
@@ -4542,33 +4782,37 @@ public class QuicProductionEndToEndTest {
             rebindChannel.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
             rebindChannel.configureBlocking(false);
 
-            long pingPacketNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
-            byte[] pingPacket = forgePingPacket(clientToServerKeys, serverConnectionId, pingPacketNumber);
-            sendReliably(rebindChannel, pingPacket, serverAddress);
-
-            byte[] challengeData = receivePathChallengeData(rebindChannel, serverToClientKeys,
-                    clientConnectionId.length, 10000);
-            assertTrue("Server should have sent a PATH_CHALLENGE to validate the new path",
-                    challengeData != null);
-            // Never respond -- simulates a PATH_RESPONSE that's lost
-            // forever, or a candidate path that was never actually
-            // reachable in both directions.
-
             InetSocketAddress candidateAddress = (InetSocketAddress) rebindChannel.getLocalAddress();
-            boolean abandoned = false;
-            long deadline = System.currentTimeMillis() + 15000;
-            while (System.currentTimeMillis() < deadline) {
-                @SuppressWarnings("unchecked")
-                Map<InetSocketAddress, ?> pathValidationAttempts =
-                        getPrivateField(serverConnection, "pathValidationAttempts", Map.class);
-                if (pathValidationAttempts.isEmpty()) {
-                    abandoned = true;
-                    break;
+            final CountDownLatch abandoned = new CountDownLatch(1);
+            QuicConnection.PathValidationAbandonedObserver previousAbandonObserver =
+                    QuicConnection.pathValidationAbandonedObserver;
+            QuicConnection.pathValidationAbandonedObserver =
+                    new QuicConnection.PathValidationAbandonedObserver() {
+                @Override
+                public void pathValidationAbandoned(QuicConnection conn, InetSocketAddress addr) {
+                    if (conn == serverConnection && candidateAddress.equals(addr)) {
+                        abandoned.countDown();
+                    }
                 }
-                Thread.sleep(50);
+            };
+            try {
+                long pingPacketNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+                byte[] pingPacket = forgePingPacket(clientToServerKeys, serverConnectionId, pingPacketNumber);
+                sendReliably(rebindChannel, pingPacket, serverAddress);
+
+                byte[] challengeData = receivePathChallengeData(rebindChannel, serverToClientKeys,
+                        clientConnectionId.length, 10000);
+                assertTrue("Server should have sent a PATH_CHALLENGE to validate the new path",
+                        challengeData != null);
+                // Never respond -- simulates a PATH_RESPONSE that's lost
+                // forever, or a candidate path that was never actually
+                // reachable in both directions.
+
+                assertTrue("Path validation should be abandoned within 15s",
+                        abandoned.await(15, TimeUnit.SECONDS));
+            } finally {
+                QuicConnection.pathValidationAbandonedObserver = previousAbandonObserver;
             }
-            assertTrue("Server should have abandoned path validation "
-                    + "(pathValidationAttempts cleared) within the deadline", abandoned);
 
             InetSocketAddress finalRemote =
                     getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
@@ -4684,9 +4928,10 @@ public class QuicProductionEndToEndTest {
                     }, loop, SERVER_NAME);
 
             assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
-            awaitHandshakeSettled();
 
             QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            waitForConnectionIdle(clientConnection);
+
             @SuppressWarnings("unchecked")
             Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
                     getPrivateField(clientConnection, "sendKeys", Map.class);
@@ -4727,21 +4972,20 @@ public class QuicProductionEndToEndTest {
 
             // Respond to B first -- the server should migrate to B.
             long responseB = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
-            sendReliably(channelB,
-                    forgePathResponsePacket(clientToServerKeys, serverConnectionId, responseB, challengeB),
-                    serverAddress);
-
-            InetSocketAddress switchedToB = null;
-            long deadline = System.currentTimeMillis() + 10000;
-            while (System.currentTimeMillis() < deadline) {
-                InetSocketAddress currentRemote =
-                        getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
-                if (addressB.equals(currentRemote)) {
-                    switchedToB = currentRemote;
-                    break;
+            final byte[] responseBPacket = forgePathResponsePacket(clientToServerKeys, serverConnectionId,
+                    responseB, challengeB);
+            final DatagramChannel migrationChannelB = channelB;
+            final InetSocketAddress migrationTarget = serverAddress;
+            InetSocketAddress switchedToB = awaitMigrationTo(serverConnection, addressB, new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        sendReliably(migrationChannelB, responseBPacket, migrationTarget);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
                 }
-                Thread.sleep(20);
-            }
+            });
             assertEquals("The server should have migrated to B", addressB, switchedToB);
 
             // A's response, sent afterward, uses A's own (now-stale)
@@ -4751,7 +4995,7 @@ public class QuicProductionEndToEndTest {
             sendReliably(channelA,
                     forgePathResponsePacket(clientToServerKeys, serverConnectionId, responseA, challengeA),
                     serverAddress);
-            Thread.sleep(200);
+            waitForConnectionIdle(serverConnection);
             InetSocketAddress finalRemote =
                     getPrivateField(serverConnection, "remoteAddress", InetSocketAddress.class);
             assertEquals("A's stale response must not re-migrate the connection -- should still be on B",
@@ -4880,9 +5124,10 @@ public class QuicProductionEndToEndTest {
                     }, loop, SERVER_NAME);
 
             assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
-            awaitHandshakeSettled();
 
             QuicConnection clientConnection = getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+            waitForConnectionIdle(clientConnection);
+
             @SuppressWarnings("unchecked")
             Map<EncryptionLevel, PacketProtectionKeys> clientSendKeys =
                     getPrivateField(clientConnection, "sendKeys", Map.class);
@@ -4927,21 +5172,28 @@ public class QuicProductionEndToEndTest {
             channels.add(extraChannel);
             InetSocketAddress extraAddress = (InetSocketAddress) extraChannel.getLocalAddress();
 
-            long extraPingNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
-            sendReliably(extraChannel, forgePingPacket(clientToServerKeys, serverConnectionId, extraPingNumber),
-                    serverAddress);
+            final CountDownLatch extraRejected = new CountDownLatch(1);
+            QuicConnection.PathValidationRejectedObserver previousRejectObserver =
+                    QuicConnection.pathValidationRejectedObserver;
+            QuicConnection.pathValidationRejectedObserver =
+                    new QuicConnection.PathValidationRejectedObserver() {
+                @Override
+                public void pathValidationRejected(QuicConnection conn, InetSocketAddress addr) {
+                    if (conn == serverConnection && extraAddress.equals(addr)) {
+                        extraRejected.countDown();
+                    }
+                }
+            };
+            try {
+                long extraPingNumber = clientSendPacketNumber[EncryptionLevel.ONE_RTT.ordinal()]++;
+                sendReliably(extraChannel, forgePingPacket(clientToServerKeys, serverConnectionId, extraPingNumber),
+                        serverAddress);
+                assertTrue("Extra path candidate should be rejected promptly when at the cap",
+                        extraRejected.await(5, TimeUnit.SECONDS));
+            } finally {
+                QuicConnection.pathValidationRejectedObserver = previousRejectObserver;
+            }
 
-            // Check the map itself first, promptly (a short settle
-            // delay, not a wait-for-negative-result timeout): each of
-            // the cap candidates above has its own abandon deadline
-            // already ticking (RFC 9000 section 8.2.4, typically a
-            // couple of seconds), so a long wait here risks them all
-            // expiring before this check runs, which would make the
-            // size assertion pass for the wrong reason (everything
-            // gone, not "still exactly cap"). This is the primary,
-            // fast, precise proof that the extra candidate was never
-            // added.
-            Thread.sleep(300);
             @SuppressWarnings("unchecked")
             Map<InetSocketAddress, ?> attemptsAfterExtra =
                     getPrivateField(serverConnection, "pathValidationAttempts", Map.class);
@@ -5160,7 +5412,7 @@ public class QuicProductionEndToEndTest {
             if (channel.send(buf, target) > 0) {
                 return;
             }
-            Thread.sleep(10);
+            Thread.yield();
         }
         fail("Failed to send a " + packet.length + "-byte datagram to " + target + " after repeated retries");
     }

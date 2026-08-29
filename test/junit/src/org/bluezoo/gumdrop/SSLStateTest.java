@@ -98,6 +98,7 @@ public class SSLStateTest {
             generateKeystores();
         }
         CryptoExecutor.workThreadObserver = null;
+        CryptoExecutor.loopCallbackObserver = null;
         System.setProperty("gumdrop.workers", "1");
         gumdrop = Gumdrop.getInstance();
         gumdrop.setDrainTimeoutMs(0);
@@ -111,6 +112,7 @@ public class SSLStateTest {
     @After
     public void tearDown() throws Exception {
         CryptoExecutor.workThreadObserver = null;
+        CryptoExecutor.loopCallbackObserver = null;
         if (gumdrop != null && gumdrop.isStarted()) {
             gumdrop.shutdown();
         }
@@ -270,7 +272,7 @@ public class SSLStateTest {
     }
 
     /** Captures every {@link ProtocolHandler} callback for assertions. */
-    private static final class RecordingHandler implements ProtocolHandler {
+    private static class RecordingHandler implements ProtocolHandler {
         final List<byte[]> received =
                 new java.util.concurrent.CopyOnWriteArrayList<byte[]>();
         final CountDownLatch establishedLatch = new CountDownLatch(1);
@@ -333,64 +335,136 @@ public class SSLStateTest {
      */
     private static void deliver(final TestTCPEndpoint fromEp, final TestTCPEndpoint toEp,
             final SSLState toState) {
+        deliver(fromEp, toEp, toState, null);
+    }
+
+    private static void deliver(final TestTCPEndpoint fromEp, final TestTCPEndpoint toEp,
+            final SSLState toState, final Runnable afterDelivery) {
         toEp.execute(new Runnable() {
             @Override
             public void run() {
-                // Either side may have closed concurrently (e.g. the
-                // connection-closed-during-in-flight-task test); tolerate
-                // a null netOut/netIn on either end rather than NPEing.
-                if (toEp.getNetOut() == null || toEp.isReadPaused()) {
-                    return;
-                }
-                byte[] bytes;
-                synchronized (fromEp.netOutLock) {
-                    ByteBuffer out = fromEp.getNetOut();
-                    if (out == null) {
+                try {
+                    // Either side may have closed concurrently (e.g. the
+                    // connection-closed-during-in-flight-task test); tolerate
+                    // a null netOut/netIn on either end rather than NPEing.
+                    if (toEp.getNetOut() == null || toEp.isReadPaused()) {
                         return;
                     }
-                    out.flip();
-                    if (!out.hasRemaining()) {
+                    byte[] bytes;
+                    synchronized (fromEp.netOutLock) {
+                        ByteBuffer out = fromEp.getNetOut();
+                        if (out == null) {
+                            return;
+                        }
+                        out.flip();
+                        if (!out.hasRemaining()) {
+                            out.clear();
+                            return;
+                        }
+                        bytes = new byte[out.remaining()];
+                        out.get(bytes);
                         out.clear();
-                        return;
                     }
-                    bytes = new byte[out.remaining()];
-                    out.get(bytes);
-                    out.clear();
+                    toEp.netIn.put(bytes);
+                    toEp.netIn.flip();
+                    toState.unwrap();
+                } finally {
+                    if (afterDelivery != null) {
+                        toEp.execute(afterDelivery);
+                    }
                 }
-                toEp.netIn.put(bytes);
-                toEp.netIn.flip();
-                toState.unwrap();
             }
         });
     }
 
     /**
-     * Pumps bytes between both sides, in both directions, until both
-     * handshakes have completed (per {@code establishedLatch}) or
-     * {@code timeoutMs} elapses. A delegated task suspends {@code unwrap()}
-     * asynchronously (see {@code SSLState.submitDelegatedTasksAsync}), so
-     * a single synchronous pass is not enough -- this polls at a fixed
-     * cadence, since the crypto pool and each endpoint's own loop thread
-     * make progress concurrently with this method.
+     * Delivers bytes between both peers until both handshakes complete.
+     * Each round is chained from the previous delivery's loop-thread
+     * callback, and another round is also scheduled when a delegated
+     * crypto task completes ({@link CryptoExecutor#loopCallbackObserver}),
+     * so no timed polling is required.
      */
     private static void pumpUntilBothEstablished(
             TestTCPEndpoint clientEp, SSLState clientState, RecordingHandler clientHandler,
-            TestTCPEndpoint serverEp, SSLState serverState, RecordingHandler serverHandler,
-            long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            deliver(clientEp, serverEp, serverState);
-            deliver(serverEp, clientEp, clientState);
-            if (clientHandler.establishedLatch.await(10, TimeUnit.MILLISECONDS)
-                    && serverHandler.establishedLatch.await(10, TimeUnit.MILLISECONDS)) {
-                return;
+            TestTCPEndpoint serverEp, SSLState serverState, RecordingHandler serverHandler)
+            throws InterruptedException {
+        final Runnable[] pumpRound = new Runnable[1];
+        pumpRound[0] = new Runnable() {
+            @Override
+            public void run() {
+                if (clientHandler.establishedLatch.getCount() == 0
+                        && serverHandler.establishedLatch.getCount() == 0) {
+                    return;
+                }
+                deliver(clientEp, serverEp, serverState, new Runnable() {
+                    @Override
+                    public void run() {
+                        deliver(serverEp, clientEp, clientState, new Runnable() {
+                            @Override
+                            public void run() {
+                                clientEp.execute(pumpRound[0]);
+                            }
+                        });
+                    }
+                });
             }
+        };
+        Runnable previousHook = CryptoExecutor.loopCallbackObserver;
+        CryptoExecutor.loopCallbackObserver = new Runnable() {
+            @Override
+            public void run() {
+                clientEp.execute(pumpRound[0]);
+            }
+        };
+        try {
+            clientEp.execute(pumpRound[0]);
+            clientHandler.establishedLatch.await();
+            serverHandler.establishedLatch.await();
+        } finally {
+            CryptoExecutor.loopCallbackObserver = previousHook;
         }
-        fail("handshake did not complete within " + timeoutMs + "ms; client established="
-                + (clientHandler.establishedLatch.getCount() == 0) + " server established="
-                + (serverHandler.establishedLatch.getCount() == 0)
-                + " client error=" + clientHandler.error
-                + " server error=" + serverHandler.error);
+    }
+
+    private static void pumpUntilLatch(
+            TestTCPEndpoint clientEp, SSLState clientState,
+            TestTCPEndpoint serverEp, SSLState serverState,
+            final CountDownLatch latch) throws InterruptedException {
+        if (latch.getCount() == 0) {
+            return;
+        }
+        final Runnable[] pumpRound = new Runnable[1];
+        pumpRound[0] = new Runnable() {
+            @Override
+            public void run() {
+                if (latch.getCount() == 0) {
+                    return;
+                }
+                deliver(clientEp, serverEp, serverState, new Runnable() {
+                    @Override
+                    public void run() {
+                        deliver(serverEp, clientEp, clientState, new Runnable() {
+                            @Override
+                            public void run() {
+                                clientEp.execute(pumpRound[0]);
+                            }
+                        });
+                    }
+                });
+            }
+        };
+        Runnable previousHook = CryptoExecutor.loopCallbackObserver;
+        CryptoExecutor.loopCallbackObserver = new Runnable() {
+            @Override
+            public void run() {
+                clientEp.execute(pumpRound[0]);
+            }
+        };
+        try {
+            clientEp.execute(pumpRound[0]);
+            latch.await();
+        } finally {
+            CryptoExecutor.loopCallbackObserver = previousHook;
+        }
     }
 
     private static TestTCPEndpoint newEndpoint(ProtocolHandler handler, SSLEngine engine,
@@ -425,7 +499,7 @@ public class SSLStateTest {
 
             clientState.startClientHandshake();
             pumpUntilBothEstablished(clientEp, clientState, clientHandler,
-                    serverEp, serverState, serverHandler, 15000);
+                    serverEp, serverState, serverHandler);
 
             assertNotNull("client should have been notified of security establishment",
                     clientHandler.securityInfo);
@@ -495,7 +569,7 @@ public class SSLStateTest {
 
             releaseTask.countDown();
             pumpUntilBothEstablished(clientEp, clientState, clientHandler,
-                    serverEp, serverState, serverHandler, 15000);
+                    serverEp, serverState, serverHandler);
             assertNull(clientHandler.error);
             assertNull(serverHandler.error);
         } finally {
@@ -510,7 +584,20 @@ public class SSLStateTest {
         SSLEngine clientEngine = newClientEngine(false);
 
         RecordingHandler clientHandler = new RecordingHandler();
-        RecordingHandler serverHandler = new RecordingHandler();
+        final CountDownLatch appDataDelivered = new CountDownLatch(1);
+        RecordingHandler serverHandler = new RecordingHandler() {
+            @Override
+            public void receive(ByteBuffer data) {
+                super.receive(data);
+                StringBuilder all = new StringBuilder();
+                for (byte[] chunk : received) {
+                    all.append(new String(chunk, StandardCharsets.UTF_8));
+                }
+                if (all.toString().contains("hello during handshake")) {
+                    appDataDelivered.countDown();
+                }
+            }
+        };
         TestTCPEndpoint clientEp = newEndpoint(clientHandler, clientEngine, "client-loop");
         TestTCPEndpoint serverEp = newEndpoint(serverHandler, serverEngine, "server-loop");
         try {
@@ -550,38 +637,15 @@ public class SSLStateTest {
 
             releaseClientTask.countDown();
             pumpUntilBothEstablished(clientEp, clientState, clientHandler,
-                    serverEp, serverState, serverHandler, 15000);
+                    serverEp, serverState, serverHandler);
             assertNull(clientHandler.error);
             assertNull(serverHandler.error);
 
-            // The buffered application data must have been delivered once
-            // the handshake completed, not lost. onHandshakeComplete() (the
-            // establishedLatch trigger) runs before flushPendingAppData()
-            // in processHandshake()'s completion tail, on the same loop
-            // thread, and flushPendingAppData()'s own wrap() call produces
-            // new netOut bytes that need one more delivery round to reach
-            // the server -- pumpUntilBothEstablished() stops calling
-            // deliver() once both sides establish, so this must keep
-            // pumping itself while it waits. Reassembled across chunks --
-            // a single application-data write is not guaranteed to arrive
-            // as exactly one onApplicationData callback (TLS record
-            // boundaries may split it).
-            boolean delivered = false;
-            long deadline = System.currentTimeMillis() + 5000;
-            while (!delivered && System.currentTimeMillis() < deadline) {
-                deliver(clientEp, serverEp, serverState);
-                StringBuilder all = new StringBuilder();
-                for (byte[] chunk : serverHandler.received) {
-                    all.append(new String(chunk, StandardCharsets.UTF_8));
-                }
-                delivered = all.toString().contains("hello during handshake");
-                if (!delivered) {
-                    Thread.sleep(10);
-                }
-            }
+            pumpUntilLatch(clientEp, clientState, serverEp, serverState,
+                    appDataDelivered);
             assertTrue("application data sent during an in-flight delegated task "
                     + "must be buffered and delivered once the handshake completes",
-                    delivered);
+                    appDataDelivered.getCount() == 0);
         } finally {
             clientEp.shutdownLoop();
             serverEp.shutdownLoop();
@@ -612,7 +676,7 @@ public class SSLStateTest {
 
             clientState.startClientHandshake();
             pumpUntilBothEstablished(clientEp, clientState, clientHandler,
-                    serverEp, serverState, serverHandler, 15000);
+                    serverEp, serverState, serverHandler);
 
             assertNull("mTLS handshake should complete cleanly", clientHandler.error);
             assertNull("mTLS handshake should complete cleanly", serverHandler.error);
@@ -673,13 +737,20 @@ public class SSLStateTest {
             serverState.handleClosed("test-forced-close");
             assertTrue(serverHandler.closedLatch.await(5, TimeUnit.SECONDS));
 
-            releaseTask.countDown();
-
-            // The completion callback's "if (closed) return;" guard must
-            // make this an orderly no-op: no exception, no double-close,
-            // no further engine/buffer access. Give it a moment to run and
-            // confirm nothing blows up or double-notifies.
-            Thread.sleep(200);
+            final CountDownLatch resumeComplete = new CountDownLatch(1);
+            Runnable previousHook = CryptoExecutor.loopCallbackObserver;
+            CryptoExecutor.loopCallbackObserver = new Runnable() {
+                @Override
+                public void run() {
+                    resumeComplete.countDown();
+                }
+            };
+            try {
+                releaseTask.countDown();
+                resumeComplete.await();
+            } finally {
+                CryptoExecutor.loopCallbackObserver = previousHook;
+            }
             assertNull("closing during an in-flight task must not surface as an error",
                     serverHandler.error);
         } finally {

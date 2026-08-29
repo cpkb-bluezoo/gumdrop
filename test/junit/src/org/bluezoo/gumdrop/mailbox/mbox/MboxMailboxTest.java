@@ -496,45 +496,57 @@ public class MboxMailboxTest {
 
         final java.util.concurrent.CountDownLatch secondStarted =
                 new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch secondAtGate =
+                new java.util.concurrent.CountDownLatch(1);
         final java.util.concurrent.atomic.AtomicReference<MboxMailbox> secondRef =
                 new java.util.concurrent.atomic.AtomicReference<>();
         final java.util.concurrent.atomic.AtomicReference<Throwable> secondError =
                 new java.util.concurrent.atomic.AtomicReference<>();
 
-        Thread opener = new Thread(new Runnable() {
+        MboxMailbox.beforeJvmGateAcquire = new Runnable() {
             @Override
             public void run() {
-                secondStarted.countDown();
-                try {
-                    secondRef.set(new MboxMailbox(mboxFile, "test", true));
-                } catch (Throwable t) {
-                    secondError.set(t);
-                }
+                secondAtGate.countDown();
             }
-        });
-        opener.start();
-
-        assertTrue(secondStarted.await(5, java.util.concurrent.TimeUnit.SECONDS));
-        // Give the second open every chance to have raced ahead and thrown
-        // if the fix were absent; it must instead still be blocked.
-        Thread.sleep(200);
-        assertTrue("second open must still be blocked behind the first "
-                        + "session, not have failed or returned",
-                opener.isAlive());
-
-        first.close(false);
-        opener.join(5000);
-
-        assertNull("second open must not have thrown "
-                        + "OverlappingFileLockException or any other error",
-                secondError.get());
-        MboxMailbox second = secondRef.get();
-        assertNotNull("second open must have succeeded once the first "
-                        + "session closed", second);
+        };
         try {
-            assertEquals(2, second.getMessageCount());
+            Thread opener = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    secondStarted.countDown();
+                    try {
+                        secondRef.set(new MboxMailbox(mboxFile, "test", true));
+                    } catch (Throwable t) {
+                        secondError.set(t);
+                    }
+                }
+            });
+            opener.start();
+
+            assertTrue(secondStarted.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue("second open must be blocked on the JVM gate, not have "
+                            + "failed or returned",
+                    secondAtGate.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            assertTrue("second open must still be blocked behind the first "
+                            + "session, not have failed or returned",
+                    opener.isAlive());
+
+            first.close(false);
+            opener.join(5000);
+
+            assertNull("second open must not have thrown "
+                            + "OverlappingFileLockException or any other error",
+                    secondError.get());
+            MboxMailbox second = secondRef.get();
+            assertNotNull("second open must have succeeded once the first "
+                            + "session closed", second);
+            try {
+                assertEquals(2, second.getMessageCount());
+            } finally {
+                second.close(false);
+            }
         } finally {
-            second.close(false);
+            MboxMailbox.beforeJvmGateAcquire = null;
         }
     }
 }

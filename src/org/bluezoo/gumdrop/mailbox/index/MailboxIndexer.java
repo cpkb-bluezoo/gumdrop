@@ -105,6 +105,12 @@ public final class MailboxIndexer implements Runnable {
     private final Thread[] workers;
     private volatile boolean running = true;
 
+    /**
+     * Test-only: if non-null, invoked on the calling thread immediately
+     * after {@link #ensureFreshBlocking} enqueues a live job.
+     */
+    static volatile Runnable afterLiveJobQueued;
+
     public MailboxIndexer() {
         this(poolSizeFromProperty());
     }
@@ -187,6 +193,10 @@ public final class MailboxIndexer implements Runnable {
         Job job = new Job(key, isInbox, lastModified, work, true,
                 sequence.incrementAndGet());
         queue.offer(job);
+        Runnable hook = afterLiveJobQueued;
+        if (hook != null) {
+            hook.run();
+        }
         job.await();
 
         Throwable error = job.error;

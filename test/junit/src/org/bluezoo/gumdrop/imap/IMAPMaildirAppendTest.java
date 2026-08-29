@@ -21,14 +21,12 @@
 
 package org.bluezoo.gumdrop.imap;
 
-import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
+import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
 import org.junit.After;
 import org.junit.Before;
@@ -36,9 +34,6 @@ import org.junit.Test;
 
 import static org.junit.Assert.*;
 
-import java.io.ByteArrayOutputStream;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
@@ -49,7 +44,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Regression tests for the streaming {@link AsyncMessageWriter} APPEND path
@@ -103,13 +97,12 @@ public class IMAPMaildirAppendTest {
         listener.setAllowPlaintextLogin(true);
 
         IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
-        StubEndpoint endpoint = new StubEndpoint();
+        RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
         handler.connected(endpoint);
 
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "a1 LOGIN editor editor");
-        assertTrue("LOGIN OK not received: " + endpoint.getResponses(),
-                awaitLineContaining(endpoint, "a1 OK", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineContaining("a1 OK");
 
         String message = "From: sender@example.com\r\n"
                 + "Subject: async append test\r\n"
@@ -117,7 +110,7 @@ public class IMAPMaildirAppendTest {
                 + "Body of an async-writer APPEND.\r\n";
         byte[] messageBytes = message.getBytes(StandardCharsets.US_ASCII);
 
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         byte[] command = ("a2 APPEND INBOX {" + messageBytes.length + "+}\r\n")
                 .getBytes(StandardCharsets.US_ASCII);
         ByteBuffer combined = ByteBuffer.allocate(
@@ -129,9 +122,8 @@ public class IMAPMaildirAppendTest {
         combined.flip();
         handler.receive(combined);
 
-        assertTrue("APPEND OK not received: " + endpoint.getResponses(),
-                awaitLineContaining(endpoint, "a2 OK", 10, TimeUnit.SECONDS));
-        String okLine = findLineContaining(endpoint, "a2 OK");
+        endpoint.awaitLineContaining("a2 OK");
+        String okLine = endpoint.findLineContaining("a2 OK");
         assertTrue("OK response must carry APPENDUID: " + okLine,
                 okLine.contains("APPENDUID"));
 
@@ -151,29 +143,6 @@ public class IMAPMaildirAppendTest {
             String command) {
         byte[] data = (command + "\r\n").getBytes(StandardCharsets.US_ASCII);
         handler.receive(ByteBuffer.wrap(data));
-    }
-
-    private static boolean awaitLineContaining(StubEndpoint endpoint,
-            String fragment, long timeout, TimeUnit unit)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
-        while (System.nanoTime() < deadline) {
-            if (findLineContaining(endpoint, fragment) != null) {
-                return true;
-            }
-            Thread.sleep(20);
-        }
-        return false;
-    }
-
-    private static String findLineContaining(StubEndpoint endpoint,
-            String fragment) {
-        for (String line : endpoint.getResponses()) {
-            if (line.contains(fragment)) {
-                return line;
-            }
-        }
-        return null;
     }
 
     private static List<Path> listCurFiles(Path dir) throws Exception {
@@ -245,73 +214,6 @@ public class IMAPMaildirAppendTest {
         @Override
         public boolean isUserInRole(String username, String role) {
             return false;
-        }
-    }
-
-    private static final class StubEndpoint implements Endpoint {
-        final List<byte[]> sentData = new ArrayList<byte[]>();
-        boolean open = true;
-
-        @Override
-        public void send(ByteBuffer data) {
-            byte[] bytes = new byte[data.remaining()];
-            data.get(bytes);
-            synchronized (sentData) {
-                sentData.add(bytes);
-            }
-        }
-
-        List<String> getResponses() {
-            List<String> result = new ArrayList<String>();
-            synchronized (sentData) {
-                for (byte[] data : sentData) {
-                    String s = new String(data, StandardCharsets.US_ASCII);
-                    for (String line : s.split("\r\n", -1)) {
-                        if (!line.isEmpty()) {
-                            result.add(line);
-                        }
-                    }
-                }
-            }
-            return result;
-        }
-
-        @Override public boolean isOpen() { return open; }
-        @Override public boolean isClosing() { return false; }
-        @Override public void close() { open = false; }
-        @Override public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("127.0.0.1", 143);
-        }
-        @Override public SocketAddress getRemoteAddress() {
-            return new InetSocketAddress("127.0.0.1", 54321);
-        }
-        @Override public boolean isSecure() { return false; }
-        @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public void startTLS() { }
-        @Override public SelectorLoop getSelectorLoop() { return null; }
-        @Override public void execute(Runnable task) { task.run(); }
-        @Override public TimerHandle scheduleTimer(long delayMs, Runnable cb) {
-            return new TimerHandle() {
-                @Override public void cancel() { }
-                @Override public boolean isCancelled() { return false; }
-            };
-        }
-        @Override public org.bluezoo.gumdrop.telemetry.Trace getTrace() {
-            return null;
-        }
-        @Override public void setTrace(
-                org.bluezoo.gumdrop.telemetry.Trace trace) { }
-        @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public org.bluezoo.gumdrop.telemetry.TelemetryConfig
-                getTelemetryConfig() {
-            return null;
-        }
-        @Override public void pauseRead() { }
-        @Override public void resumeRead() { }
-        @Override public void onWriteReady(Runnable callback) {
-            if (callback != null) {
-                callback.run();
-            }
         }
     }
 }

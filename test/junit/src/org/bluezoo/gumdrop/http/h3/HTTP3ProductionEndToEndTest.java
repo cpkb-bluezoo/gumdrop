@@ -1225,21 +1225,30 @@ public class HTTP3ProductionEndToEndTest {
             assertNotNull(serverConnRef.get());
             // close()/sendGoaway touch the QuicConnection; run on its loop.
             final CountDownLatch closed = new CountDownLatch(1);
-            serverConnRef.get().getSelectorLoop().invokeLater(new Runnable() {
+            final CountDownLatch goawayReceived = new CountDownLatch(1);
+            HTTP3ClientHandler.goawayReceivedObserver = new Runnable() {
                 @Override
                 public void run() {
-                    serverHandler.close();
-                    closed.countDown();
+                    goawayReceived.countDown();
                 }
-            });
-            assertTrue(closed.await(5, TimeUnit.SECONDS));
-
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-            while (!h3.isGoaway() && System.nanoTime() < deadline) {
-                Thread.sleep(10);
+            };
+            try {
+                serverConnRef.get().getSelectorLoop().invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        serverHandler.close();
+                        closed.countDown();
+                    }
+                });
+                assertTrue(closed.await(5, TimeUnit.SECONDS));
+                if (!h3.isGoaway()) {
+                    assertTrue("Server GOAWAY on the control stream must reach the client",
+                            goawayReceived.await(5, TimeUnit.SECONDS));
+                }
+            } finally {
+                HTTP3ClientHandler.goawayReceivedObserver = null;
             }
-            assertTrue("Server GOAWAY on the control stream must reach the client",
-                    h3.isGoaway());
+            assertTrue("Client must observe GOAWAY state after server close", h3.isGoaway());
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
@@ -2203,14 +2212,7 @@ public class HTTP3ProductionEndToEndTest {
                 throw warmupFailure.get();
             }
 
-            SessionTicketCache.Entry entry = null;
-            long deadline = System.currentTimeMillis() + 3000;
-            while (entry == null && System.currentTimeMillis() < deadline) {
-                entry = SessionTicketCache.get(SERVER_NAME, port);
-                if (entry == null) {
-                    Thread.sleep(50);
-                }
-            }
+            SessionTicketCache.Entry entry = awaitSessionTicket(SERVER_NAME, port);
             assertNotNull("A session ticket should have been cached after the warm-up handshake", entry);
 
             // Second connection: 0-RTT-enabled, issuing a GET and a POST
@@ -2446,6 +2448,29 @@ public class HTTP3ProductionEndToEndTest {
             if (serverEngine != null) {
                 serverEngine.close();
             }
+        }
+    }
+
+    private static SessionTicketCache.Entry awaitSessionTicket(String host, int port) throws Exception {
+        SessionTicketCache.Entry existing = SessionTicketCache.get(host, port);
+        if (existing != null) {
+            return existing;
+        }
+        final CountDownLatch cached = new CountDownLatch(1);
+        SessionTicketCache.putObserver = new Runnable() {
+            @Override
+            public void run() {
+                cached.countDown();
+            }
+        };
+        try {
+            assertTrue("A session ticket should have been cached after the warm-up handshake",
+                    cached.await(5, TimeUnit.SECONDS));
+            SessionTicketCache.Entry entry = SessionTicketCache.get(host, port);
+            assertNotNull(entry);
+            return entry;
+        } finally {
+            SessionTicketCache.putObserver = null;
         }
     }
 

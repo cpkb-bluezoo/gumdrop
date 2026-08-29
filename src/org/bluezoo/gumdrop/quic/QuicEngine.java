@@ -113,6 +113,17 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     /** Fallback TTL for stateless reset eligibility when max_idle_timeout is zero. */
     private static final long RESET_ELIGIBLE_FALLBACK_MS = 30_000;
 
+    /**
+     * Test-only: invoked on the loop thread when a connection is registered
+     * under a new connection ID.
+     */
+    static volatile ConnectionRegisteredObserver connectionRegisteredObserver;
+
+    /** @see #connectionRegisteredObserver */
+    interface ConnectionRegisteredObserver {
+        void connectionRegistered(QuicEngine engine, QuicConnection connection);
+    }
+
     /** Per-source-address cap on outbound stateless resets (RFC 9000 section 10.3.3). */
     private static final int RESET_RATE_LIMIT_MAX = 10;
     private static final long RESET_RATE_LIMIT_WINDOW_MS = 1_000;
@@ -382,6 +393,10 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     void registerConnectionId(byte[] connectionId, QuicConnection connection) {
         connections.put(new ConnectionIdKey(connectionId), connection);
+        ConnectionRegisteredObserver observer = connectionRegisteredObserver;
+        if (observer != null) {
+            observer.connectionRegistered(this, connection);
+        }
     }
 
     void unregisterConnectionId(byte[] connectionId) {

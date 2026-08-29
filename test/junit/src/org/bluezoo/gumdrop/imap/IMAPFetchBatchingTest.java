@@ -21,15 +21,13 @@
 
 package org.bluezoo.gumdrop.imap;
 
-import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
-import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
+import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
 import org.junit.After;
 import org.junit.Before;
@@ -37,19 +35,15 @@ import org.junit.Test;
 
 import static org.junit.Assert.*;
 
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -123,21 +117,19 @@ public class IMAPFetchBatchingTest {
         listener.setAllowPlaintextLogin(true);
 
         IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
-        StubEndpoint endpoint = new StubEndpoint();
+        RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
         handler.connected(endpoint);
 
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "a1 LOGIN editor editor");
-        assertTrue("LOGIN OK not received: " + endpoint.getResponses(),
-                awaitLineContaining(endpoint, "a1 OK", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineContaining("a1 OK");
 
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "a2 SELECT INBOX");
-        assertTrue("SELECT OK not received: " + endpoint.getResponses(),
-                awaitLineContaining(endpoint, "a2 OK", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineContaining("a2 OK");
         assertTrue("SELECT must report " + MESSAGE_COUNT + " EXISTS: "
                         + endpoint.getResponses(),
-                findLineContaining(endpoint,
+                endpoint.findLineContaining(
                         "* " + MESSAGE_COUNT + " EXISTS") != null);
 
         // Only start counting once LOGIN/SELECT's own storage work is done,
@@ -150,10 +142,9 @@ public class IMAPFetchBatchingTest {
             }
         };
 
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "a3 FETCH 1:" + MESSAGE_COUNT + " (FLAGS)");
-        assertTrue("FETCH OK not received: " + endpoint.getResponses(),
-                awaitLineContaining(endpoint, "a3 OK", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineContaining("a3 OK");
 
         int fetchLines = 0;
         for (String line : endpoint.getResponses()) {
@@ -176,29 +167,6 @@ public class IMAPFetchBatchingTest {
             String command) {
         byte[] data = (command + "\r\n").getBytes(StandardCharsets.US_ASCII);
         handler.receive(ByteBuffer.wrap(data));
-    }
-
-    private static boolean awaitLineContaining(StubEndpoint endpoint,
-            String fragment, long timeout, TimeUnit unit)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
-        while (System.nanoTime() < deadline) {
-            if (findLineContaining(endpoint, fragment) != null) {
-                return true;
-            }
-            Thread.sleep(20);
-        }
-        return false;
-    }
-
-    private static String findLineContaining(StubEndpoint endpoint,
-            String fragment) {
-        for (String line : endpoint.getResponses()) {
-            if (line.contains(fragment)) {
-                return line;
-            }
-        }
-        return null;
     }
 
     private static void deleteRecursively(Path p) throws Exception {
@@ -257,73 +225,6 @@ public class IMAPFetchBatchingTest {
         @Override
         public boolean isUserInRole(String username, String role) {
             return false;
-        }
-    }
-
-    private static final class StubEndpoint implements Endpoint {
-        final List<byte[]> sentData = new ArrayList<byte[]>();
-        boolean open = true;
-
-        @Override
-        public void send(ByteBuffer data) {
-            byte[] bytes = new byte[data.remaining()];
-            data.get(bytes);
-            synchronized (sentData) {
-                sentData.add(bytes);
-            }
-        }
-
-        List<String> getResponses() {
-            List<String> result = new ArrayList<String>();
-            synchronized (sentData) {
-                for (byte[] data : sentData) {
-                    String s = new String(data, StandardCharsets.US_ASCII);
-                    for (String line : s.split("\r\n", -1)) {
-                        if (!line.isEmpty()) {
-                            result.add(line);
-                        }
-                    }
-                }
-            }
-            return result;
-        }
-
-        @Override public boolean isOpen() { return open; }
-        @Override public boolean isClosing() { return false; }
-        @Override public void close() { open = false; }
-        @Override public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("127.0.0.1", 143);
-        }
-        @Override public SocketAddress getRemoteAddress() {
-            return new InetSocketAddress("127.0.0.1", 54321);
-        }
-        @Override public boolean isSecure() { return false; }
-        @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public void startTLS() { }
-        @Override public SelectorLoop getSelectorLoop() { return null; }
-        @Override public void execute(Runnable task) { task.run(); }
-        @Override public TimerHandle scheduleTimer(long delayMs, Runnable cb) {
-            return new TimerHandle() {
-                @Override public void cancel() { }
-                @Override public boolean isCancelled() { return false; }
-            };
-        }
-        @Override public org.bluezoo.gumdrop.telemetry.Trace getTrace() {
-            return null;
-        }
-        @Override public void setTrace(
-                org.bluezoo.gumdrop.telemetry.Trace trace) { }
-        @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public org.bluezoo.gumdrop.telemetry.TelemetryConfig
-                getTelemetryConfig() {
-            return null;
-        }
-        @Override public void pauseRead() { }
-        @Override public void resumeRead() { }
-        @Override public void onWriteReady(Runnable callback) {
-            if (callback != null) {
-                callback.run();
-            }
         }
     }
 }

@@ -104,6 +104,13 @@ public final class StorageExecutor {
     public static volatile WorkThreadObserver workThreadObserver;
 
     /**
+     * Test-only: if non-null, invoked on the loop-dispatcher thread
+     * immediately after a submitted operation's {@link Callback} runs.
+     * Used by async-save tests to await completion without timed polling.
+     */
+    public static volatile Runnable loopCallbackObserver;
+
+    /**
      * Default number of storage worker threads when
      * {@code gumdrop.storageThreads} is not set. Disk throughput saturates
      * with a small amount of concurrency, so this is deliberately modest.
@@ -268,6 +275,10 @@ public final class StorageExecutor {
                                 callback.failed(finalError);
                             } else {
                                 callback.completed(finalResult);
+                            }
+                            Runnable observer = loopCallbackObserver;
+                            if (observer != null) {
+                                observer.run();
                             }
                         }
                     });

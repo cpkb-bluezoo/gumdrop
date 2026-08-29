@@ -176,6 +176,7 @@ public class DTLSAsyncHandshakeTest {
     @Before
     public void setUp() {
         CryptoExecutor.workThreadObserver = null;
+        CryptoExecutor.loopCallbackObserver = null;
         System.setProperty("gumdrop.workers", "1");
         gumdrop = Gumdrop.getInstance();
         gumdrop.setDrainTimeoutMs(0);
@@ -189,6 +190,7 @@ public class DTLSAsyncHandshakeTest {
     @After
     public void tearDown() {
         CryptoExecutor.workThreadObserver = null;
+        CryptoExecutor.loopCallbackObserver = null;
         if (gumdrop != null && gumdrop.isStarted()) {
             gumdrop.shutdown();
         }
@@ -274,18 +276,33 @@ public class DTLSAsyncHandshakeTest {
      */
     private static void deliverOne(final ThreadedRecordingUDPEndpoint fromEp,
             final ThreadedRecordingUDPEndpoint toEp, final DTLSSession toSession) {
+        deliverOne(fromEp, toEp, toSession, null);
+    }
+
+    private static void deliverOne(final ThreadedRecordingUDPEndpoint fromEp,
+            final ThreadedRecordingUDPEndpoint toEp, final DTLSSession toSession,
+            final Runnable afterDelivery) {
         final byte[] datagram = fromEp.sent.pollFirst();
         if (datagram == null) {
+            if (afterDelivery != null) {
+                toEp.execute(afterDelivery);
+            }
             return;
         }
         toEp.execute(new Runnable() {
             @Override
             public void run() {
-                ByteBuffer plaintext = toSession.unwrap(ByteBuffer.wrap(datagram));
-                if (plaintext != null) {
-                    byte[] bytes = new byte[plaintext.remaining()];
-                    plaintext.get(bytes);
-                    toEp.received.add(bytes);
+                try {
+                    ByteBuffer plaintext = toSession.unwrap(ByteBuffer.wrap(datagram));
+                    if (plaintext != null) {
+                        byte[] bytes = new byte[plaintext.remaining()];
+                        plaintext.get(bytes);
+                        toEp.received.add(bytes);
+                    }
+                } finally {
+                    if (afterDelivery != null) {
+                        afterDelivery.run();
+                    }
                 }
             }
         });
@@ -293,20 +310,92 @@ public class DTLSAsyncHandshakeTest {
 
     private static void pumpUntilBothEstablished(
             ThreadedRecordingUDPEndpoint clientEp, DTLSSession clientSession,
-            ThreadedRecordingUDPEndpoint serverEp, DTLSSession serverSession,
-            long timeoutMs) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            deliverOne(clientEp, serverEp, serverSession);
-            deliverOne(serverEp, clientEp, clientSession);
-            if (clientEp.establishedLatch.await(10, TimeUnit.MILLISECONDS)
-                    && serverEp.establishedLatch.await(10, TimeUnit.MILLISECONDS)) {
-                return;
+            ThreadedRecordingUDPEndpoint serverEp, DTLSSession serverSession)
+            throws InterruptedException {
+        final Runnable[] pumpRound = new Runnable[1];
+        pumpRound[0] = new Runnable() {
+            @Override
+            public void run() {
+                if (clientEp.establishedLatch.getCount() == 0
+                        && serverEp.establishedLatch.getCount() == 0) {
+                    return;
+                }
+                deliverOne(clientEp, serverEp, serverSession, new Runnable() {
+                    @Override
+                    public void run() {
+                        deliverOne(serverEp, clientEp, clientSession, pumpRound[0]);
+                    }
+                });
             }
+        };
+        Runnable previousHook = CryptoExecutor.loopCallbackObserver;
+        CryptoExecutor.loopCallbackObserver = new Runnable() {
+            @Override
+            public void run() {
+                clientEp.execute(pumpRound[0]);
+            }
+        };
+        try {
+            clientEp.execute(pumpRound[0]);
+            clientEp.establishedLatch.await();
+            serverEp.establishedLatch.await();
+        } finally {
+            CryptoExecutor.loopCallbackObserver = previousHook;
         }
-        fail("handshake did not complete within " + timeoutMs + "ms; client established="
-                + clientEp.establishedLatch.getCount() + " server established="
-                + serverEp.establishedLatch.getCount());
+    }
+
+    private static void pumpUntilTaskStarts(
+            ThreadedRecordingUDPEndpoint clientEp, DTLSSession clientSession,
+            ThreadedRecordingUDPEndpoint serverEp, DTLSSession serverSession,
+            final CountDownLatch taskStarted) throws InterruptedException {
+        final Runnable[] pumpRound = new Runnable[1];
+        pumpRound[0] = new Runnable() {
+            @Override
+            public void run() {
+                if (taskStarted.getCount() == 0) {
+                    return;
+                }
+                deliverOne(clientEp, serverEp, serverSession, new Runnable() {
+                    @Override
+                    public void run() {
+                        deliverOne(serverEp, clientEp, clientSession, pumpRound[0]);
+                    }
+                });
+            }
+        };
+        Runnable previousHook = CryptoExecutor.loopCallbackObserver;
+        CryptoExecutor.loopCallbackObserver = new Runnable() {
+            @Override
+            public void run() {
+                clientEp.execute(pumpRound[0]);
+            }
+        };
+        try {
+            clientEp.execute(pumpRound[0]);
+            taskStarted.await();
+        } finally {
+            CryptoExecutor.loopCallbackObserver = previousHook;
+        }
+    }
+
+    private static void beginHandshakes(
+            final DTLSSession clientSession, ThreadedRecordingUDPEndpoint clientEp,
+            final DTLSSession serverSession, ThreadedRecordingUDPEndpoint serverEp)
+            throws InterruptedException {
+        final CountDownLatch started = new CountDownLatch(2);
+        serverEp.execute(new Runnable() {
+            @Override public void run() {
+                serverSession.beginHandshake();
+                started.countDown();
+            }
+        });
+        clientEp.execute(new Runnable() {
+            @Override public void run() {
+                clientSession.beginHandshake();
+                started.countDown();
+            }
+        });
+        started.await();
     }
 
     @Test(timeout = 20000)
@@ -325,10 +414,9 @@ public class DTLSAsyncHandshakeTest {
             final DTLSSession clientSession = new DTLSSession(newClientEngine(), clientEp, SERVER_ADDR);
             final DTLSSession serverSession = new DTLSSession(newServerEngine(), serverEp, CLIENT_ADDR);
 
-            serverEp.execute(new Runnable() { @Override public void run() { serverSession.beginHandshake(); } });
-            clientEp.execute(new Runnable() { @Override public void run() { clientSession.beginHandshake(); } });
+            beginHandshakes(clientSession, clientEp, serverSession, serverEp);
 
-            pumpUntilBothEstablished(clientEp, clientSession, serverEp, serverSession, 15000);
+            pumpUntilBothEstablished(clientEp, clientSession, serverEp, serverSession);
 
             assertNotNull(clientEp.establishedInfo);
             assertNotNull(serverEp.establishedInfo);
@@ -378,19 +466,10 @@ public class DTLSAsyncHandshakeTest {
             final DTLSSession clientSession = new DTLSSession(newClientEngine(), clientEp, SERVER_ADDR);
             final DTLSSession serverSession = new DTLSSession(newServerEngine(), serverEp, CLIENT_ADDR);
 
-            serverEp.execute(new Runnable() { @Override public void run() { serverSession.beginHandshake(); } });
-            clientEp.execute(new Runnable() { @Override public void run() { clientSession.beginHandshake(); } });
+            beginHandshakes(clientSession, clientEp, serverSession, serverEp);
 
-            // Pump until the server's certificate-validation delegated task
-            // (the first NEED_TASK it hits) is actually blocked on the pool.
-            long deadline = System.currentTimeMillis() + 15000;
-            while (!taskRunning.await(10, TimeUnit.MILLISECONDS)) {
-                deliverOne(clientEp, serverEp, serverSession);
-                deliverOne(serverEp, clientEp, clientSession);
-                if (System.currentTimeMillis() > deadline) {
-                    fail("delegated task never started running on the crypto pool");
-                }
-            }
+            pumpUntilTaskStarts(clientEp, clientSession, serverEp, serverSession,
+                    taskRunning);
 
             // The server's own loop thread must still be free to run
             // unrelated queued work while its delegated task is blocked --
@@ -409,7 +488,7 @@ public class DTLSAsyncHandshakeTest {
                     unrelatedWorkDone.await(2, TimeUnit.SECONDS));
 
             releaseTask.countDown();
-            pumpUntilBothEstablished(clientEp, clientSession, serverEp, serverSession, 15000);
+            pumpUntilBothEstablished(clientEp, clientSession, serverEp, serverSession);
             assertNull(clientEp.failure);
             assertNull(serverEp.failure);
         } finally {
@@ -452,17 +531,10 @@ public class DTLSAsyncHandshakeTest {
             final DTLSSession clientSession = new DTLSSession(newClientEngine(), clientEp, SERVER_ADDR);
             final DTLSSession serverSession = new DTLSSession(newServerEngine(), serverEp, CLIENT_ADDR);
 
-            serverEp.execute(new Runnable() { @Override public void run() { serverSession.beginHandshake(); } });
-            clientEp.execute(new Runnable() { @Override public void run() { clientSession.beginHandshake(); } });
+            beginHandshakes(clientSession, clientEp, serverSession, serverEp);
 
-            long deadline = System.currentTimeMillis() + 15000;
-            while (!taskRunning.await(10, TimeUnit.MILLISECONDS)) {
-                deliverOne(clientEp, serverEp, serverSession);
-                deliverOne(serverEp, clientEp, clientSession);
-                if (System.currentTimeMillis() > deadline) {
-                    fail("delegated task never started running on the crypto pool");
-                }
-            }
+            pumpUntilTaskStarts(clientEp, clientSession, serverEp, serverSession,
+                    taskRunning);
 
             // Redeliver whatever the client has sent since (simulating a
             // retransmit / next flight arriving) straight at the server
@@ -471,7 +543,7 @@ public class DTLSAsyncHandshakeTest {
             deliverOne(clientEp, serverEp, serverSession);
 
             releaseTask.countDown();
-            pumpUntilBothEstablished(clientEp, clientSession, serverEp, serverSession, 15000);
+            pumpUntilBothEstablished(clientEp, clientSession, serverEp, serverSession);
             assertNull("engine must not have been corrupted by the concurrent datagram",
                     clientEp.failure);
             assertNull("engine must not have been corrupted by the concurrent datagram",

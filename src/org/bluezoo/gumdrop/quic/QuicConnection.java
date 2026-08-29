@@ -540,6 +540,38 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private SecurityInfo securityInfo;
     private TimerHandle timerHandle;
     private boolean established;
+
+    /**
+     * Test-only hooks for deterministic cross-thread synchronization in
+     * E2E tests. All run on the connection's {@link SelectorLoop} thread.
+     */
+    static volatile Runnable lossDetectionIdleObserver;
+    static volatile Runnable oneRttKeysReadyObserver;
+    static volatile EncryptionLevelDiscardedObserver encryptionLevelDiscardedObserver;
+    static volatile MigrationCompletedObserver migrationCompletedObserver;
+    static volatile PathValidationRejectedObserver pathValidationRejectedObserver;
+    static volatile PathValidationAbandonedObserver pathValidationAbandonedObserver;
+
+    /** @see #encryptionLevelDiscardedObserver */
+    interface EncryptionLevelDiscardedObserver {
+        void encryptionLevelDiscarded(QuicConnection connection, EncryptionLevel level);
+    }
+
+    /** @see #migrationCompletedObserver */
+    interface MigrationCompletedObserver {
+        void migrationCompleted(QuicConnection connection, InetSocketAddress newRemote);
+    }
+
+    /** @see #pathValidationRejectedObserver */
+    interface PathValidationRejectedObserver {
+        void pathValidationRejected(QuicConnection connection, InetSocketAddress candidate);
+    }
+
+    /** @see #pathValidationAbandonedObserver */
+    interface PathValidationAbandonedObserver {
+        void pathValidationAbandoned(QuicConnection connection, InetSocketAddress candidate);
+    }
+
     private boolean handshakeConfirmed;
     private boolean handshakeDoneOwed;
     private boolean closed;
@@ -656,6 +688,64 @@ public final class QuicConnection implements QuicTlsEngineListener {
      */
     public SelectorLoop getSelectorLoop() {
         return engine.getSelectorLoop();
+    }
+
+    /**
+     * Test-only: runs {@code action} on this connection's loop thread
+     * once loss detection has no timer armed ({@code timerHandle ==
+     * null}), after a {@link #flush()} to settle in-flight work.
+     */
+    public void runWhenLossDetectionIdle(final Runnable action) {
+        getSelectorLoop().invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                waitForLossDetectionIdle(action);
+            }
+        });
+    }
+
+    private void waitForLossDetectionIdle(final Runnable action) {
+        flush();
+        if (timerHandle == null) {
+            action.run();
+            return;
+        }
+        final Runnable previous = lossDetectionIdleObserver;
+        lossDetectionIdleObserver = new Runnable() {
+            @Override
+            public void run() {
+                lossDetectionIdleObserver = previous;
+                if (timerHandle == null) {
+                    action.run();
+                } else {
+                    waitForLossDetectionIdle(action);
+                }
+            }
+        };
+    }
+
+    /**
+     * Test-only: runs {@code action} on this connection's loop thread
+     * once 1-RTT send keys exist, or immediately if they already do.
+     */
+    public void runWhenOneRttSendKeysReady(final Runnable action) {
+        getSelectorLoop().invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                if (sendKeys.get(EncryptionLevel.ONE_RTT) != null) {
+                    action.run();
+                    return;
+                }
+                final Runnable previous = oneRttKeysReadyObserver;
+                oneRttKeysReadyObserver = new Runnable() {
+                    @Override
+                    public void run() {
+                        oneRttKeysReadyObserver = previous;
+                        action.run();
+                    }
+                };
+            }
+        });
     }
 
     byte[] getOurConnectionId() {
@@ -1431,6 +1521,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             return;
         }
         discarded[level.ordinal()] = true;
+        EncryptionLevelDiscardedObserver observer = encryptionLevelDiscardedObserver;
+        if (observer != null) {
+            observer.encryptionLevelDiscarded(this, level);
+        }
         sendKeys.remove(level);
         recvKeys.remove(level);
         sentCrypto.get(level).clear();
@@ -2110,6 +2204,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 LOGGER.fine("Ignoring path validation candidate " + candidate + ": already validating "
                         + pathValidationAttempts.size() + " concurrently");
             }
+            PathValidationRejectedObserver observer = pathValidationRejectedObserver;
+            if (observer != null) {
+                observer.pathValidationRejected(this, candidate);
+            }
             return;
         }
         long pto = currentPathValidationPto();
@@ -2172,6 +2270,12 @@ public final class QuicConnection implements QuicTlsEngineListener {
         PathValidationAttempt attempt = pathValidationAttempts.remove(candidate);
         if (attempt != null && attempt.timerHandle != null) {
             attempt.timerHandle.cancel();
+        }
+        if (attempt != null) {
+            PathValidationAbandonedObserver observer = pathValidationAbandonedObserver;
+            if (observer != null) {
+                observer.pathValidationAbandoned(this, candidate);
+            }
         }
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Path validation abandoned for " + candidate
@@ -2247,6 +2351,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             recentlyMigratedFromAddresses.put(remoteAddress, Long.valueOf(System.currentTimeMillis()));
         }
         remoteAddress = candidate;
+        MigrationCompletedObserver observer = migrationCompletedObserver;
+        if (observer != null) {
+            observer.migrationCompleted(this, candidate);
+        }
         cancelAllPathValidationAttempts();
 
         // RFC 9000 section 9.5: prefer a peer connection ID not already
@@ -3123,6 +3231,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         long deadline = lossDetector.getLossDetectionTimeout(false, peerAddressValidated(), hasHandshakeKeys,
                 peerMaxAckDelay(), now);
         if (deadline == LossDetector.NO_TIMEOUT) {
+            Runnable observer = lossDetectionIdleObserver;
+            if (observer != null) {
+                observer.run();
+            }
             return;
         }
         long delay = Math.max(0, deadline - now);
@@ -3416,6 +3528,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
         byte[] clientSecret = tlsEngine.getClientApplicationTrafficSecret();
         byte[] serverSecret = tlsEngine.getServerApplicationTrafficSecret();
         deriveDirectionalKeys(EncryptionLevel.ONE_RTT, clientSecret, serverSecret);
+        Runnable keysObserver = oneRttKeysReadyObserver;
+        if (keysObserver != null) {
+            keysObserver.run();
+        }
         established = true;
         if (isServer) {
             handshakeDoneOwed = true;

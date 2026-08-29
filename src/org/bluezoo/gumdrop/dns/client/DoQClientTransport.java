@@ -84,6 +84,21 @@ public class DoQClientTransport implements DNSClientTransport {
     // there), so no synchronization needed.
     private final List<Runnable> deferredSends = new ArrayList<Runnable>();
 
+    /** Test-only: invoked on the loop thread when the connection becomes usable. */
+    public static volatile Runnable connectedObserver;
+
+    private void markConnected(QuicConnection conn, boolean drainDeferred) {
+        quicConnection = conn;
+        connected = true;
+        Runnable observer = connectedObserver;
+        if (observer != null) {
+            observer.run();
+        }
+        if (drainDeferred) {
+            runDeferredSends();
+        }
+    }
+
     /**
      * Pins the expected server certificate fingerprint instead of
      * relying on the platform CA trust store, e.g. to trust a private
@@ -145,9 +160,7 @@ public class DoQClientTransport implements DNSClientTransport {
                         // the signal that the connection is now (also)
                         // fully established, so anything deferred behind
                         // that can go out now.
-                        quicConnection = conn;
-                        connected = true;
-                        runDeferredSends();
+                        markConnected(conn, true);
                     }
                 },
                 new QuicEngine.EarlyDataHandler() {
@@ -157,8 +170,7 @@ public class DoQClientTransport implements DNSClientTransport {
                         // well before the handshake completes -- let the
                         // caller start issuing QUERY/NOTIFY queries now;
                         // send() defers anything else until establishment.
-                        quicConnection = conn;
-                        connected = true;
+                        markConnected(conn, false);
                     }
                 },
                 // Agent15's TlsClientEngineImpl.startHandshake requires a

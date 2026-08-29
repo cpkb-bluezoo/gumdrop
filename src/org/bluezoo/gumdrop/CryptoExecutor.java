@@ -106,6 +106,14 @@ public final class CryptoExecutor {
     public static volatile WorkThreadObserver workThreadObserver;
 
     /**
+     * Test-only: if non-null, invoked on the owning loop thread immediately
+     * after a submitted operation's {@link Callback} is dispatched. Used by
+     * TLS/DTLS handshake pump tests to schedule the next byte-delivery round
+     * once an async delegated task completes, without timed polling.
+     */
+    public static volatile Runnable loopCallbackObserver;
+
+    /**
      * Default number of crypto worker threads when {@code gumdrop.cryptoThreads}
      * is not set. CPU-bound work shouldn't oversubscribe cores, but a small
      * floor keeps low-core CI/containers from collapsing to a single thread
@@ -270,6 +278,10 @@ public final class CryptoExecutor {
                                 callback.failed(finalError);
                             } else {
                                 callback.completed(finalResult);
+                            }
+                            Runnable observer = loopCallbackObserver;
+                            if (observer != null) {
+                                observer.run();
                             }
                         }
                     });

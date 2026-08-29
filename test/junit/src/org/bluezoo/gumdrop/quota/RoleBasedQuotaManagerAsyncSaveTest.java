@@ -72,12 +72,13 @@ public class RoleBasedQuotaManagerAsyncSaveTest {
     }
 
     @After
-    public void tearDown() throws Exception {
+    public void tearDown() {
+        StorageExecutor.loopCallbackObserver = null;
         StorageExecutor.workThreadObserver = null;
         if (gumdrop != null && gumdrop.isStarted()) {
             gumdrop.shutdown();
         }
-        deleteRecursively(tempDir.toFile());
+        deleteRecursively(tempDir != null ? tempDir.toFile() : null);
     }
 
     @Test(timeout = 20000)
@@ -112,12 +113,16 @@ public class RoleBasedQuotaManagerAsyncSaveTest {
                 + "returned, it cannot have waited for it",
                 usageFile.exists());
 
+        final CountDownLatch writeComplete = new CountDownLatch(1);
+        StorageExecutor.loopCallbackObserver = new Runnable() {
+            @Override
+            public void run() {
+                writeComplete.countDown();
+            }
+        };
         releaseWrite.countDown();
+        writeComplete.await();
 
-        long deadline = System.currentTimeMillis() + 5000;
-        while (!usageFile.exists() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(20);
-        }
         assertTrue("usage file was never written after being released",
                 usageFile.exists());
 
@@ -156,20 +161,18 @@ public class RoleBasedQuotaManagerAsyncSaveTest {
         manager.recordMessageAdded("bob", 200L);
         manager.recordMessageAdded("bob", 300L);
 
+        final CountDownLatch asyncSavesDone = new CountDownLatch(2);
+        StorageExecutor.loopCallbackObserver = new Runnable() {
+            @Override
+            public void run() {
+                asyncSavesDone.countDown();
+            }
+        };
         releaseFirstWrite.countDown();
+        asyncSavesDone.await();
 
         File usageFile = new File(tempDir.toFile(), "bob.usage");
-        long deadline = System.currentTimeMillis() + 10000;
-        Properties props = new Properties();
-        while (System.currentTimeMillis() < deadline) {
-            if (usageFile.exists()) {
-                props = loadProps(usageFile);
-                if ("3".equals(props.getProperty("message.count"))) {
-                    break;
-                }
-            }
-            Thread.sleep(20);
-        }
+        Properties props = loadProps(usageFile);
         assertEquals("all three updates must eventually be reflected on disk, "
                 + "not just the first",
                 "3", props.getProperty("message.count"));
