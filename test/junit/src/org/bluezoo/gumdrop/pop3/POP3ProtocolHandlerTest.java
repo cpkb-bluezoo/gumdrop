@@ -789,6 +789,71 @@ public class POP3ProtocolHandlerTest {
         assertTrue(lastResponse().equals("."));
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Issue #309: CRAM-MD5/DIGEST-MD5 challenge construction must not
+    // block the SelectorLoop thread on a reverse-DNS lookup of the
+    // endpoint's local address.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // A raw byte-address InetAddress (not looked up from a hostname
+    // string) has no cached name, so InetSocketAddress#getHostName() on
+    // it must perform a real reverse lookup -- exactly the case
+    // getHostString() is required to avoid. A distinct address per call
+    // is essential: the JVM negative-caches a failed reverse lookup, so
+    // repeating the *same* uncached address would only pay the lookup
+    // cost once and mask the bug for every call after the first --
+    // "series" keeps each test method's addresses disjoint from every
+    // other test's too, so an earlier test populating the cache can't
+    // mask a later one.
+    private static InetSocketAddress addressWithNoCachedHostname(int series, int index) throws Exception {
+        return new InetSocketAddress(
+                java.net.InetAddress.getByAddress(
+                        new byte[] { (byte) 10, (byte) series, (byte) (index >> 8), (byte) index }),
+                110);
+    }
+
+    @Test(timeout = 15000)
+    public void testAuthCramMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
+        realm.supportedMechanisms.add(SASLMechanism.CRAM_MD5);
+        connectPlaintext();
+        endpoint.sentData.clear();
+
+        long start = System.nanoTime();
+        for (int i = 0; i < 200; i++) {
+            endpoint.localAddress = addressWithNoCachedHostname(1, i);
+            sendCommand("AUTH CRAM-MD5");
+            assertTrue(lastResponse().startsWith("+ "));
+            sendCommand("*");
+            assertTrue(lastResponse().startsWith("-ERR"));
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1000000;
+        assertTrue("200 AUTH CRAM-MD5 challenge/abort cycles against distinct local "
+                + "addresses with no cached hostname took " + elapsedMs
+                + "ms -- expected getHostString() (never resolves) rather than "
+                + "getHostName() (attempts reverse DNS)", elapsedMs < 1000);
+    }
+
+    @Test(timeout = 15000)
+    public void testAuthDigestMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
+        realm.supportedMechanisms.add(SASLMechanism.DIGEST_MD5);
+        connectPlaintext();
+        endpoint.sentData.clear();
+
+        long start = System.nanoTime();
+        for (int i = 0; i < 200; i++) {
+            endpoint.localAddress = addressWithNoCachedHostname(2, i);
+            sendCommand("AUTH DIGEST-MD5");
+            assertTrue(lastResponse().startsWith("+ "));
+            sendCommand("*");
+            assertTrue(lastResponse().startsWith("-ERR"));
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1000000;
+        assertTrue("200 AUTH DIGEST-MD5 challenge/abort cycles against distinct local "
+                + "addresses with no cached hostname took " + elapsedMs
+                + "ms -- expected getHostString() (never resolves) rather than "
+                + "getHostName() (attempts reverse DNS)", elapsedMs < 1000);
+    }
+
     @Test
     public void testUnsupportedAuthMechanism() {
         connectPlaintext();
@@ -1536,6 +1601,7 @@ public class POP3ProtocolHandlerTest {
         boolean open = true;
         boolean startTLSCalled;
         boolean secure;
+        SocketAddress localAddress = new InetSocketAddress("127.0.0.1", 110);
 
         @Override
         public void send(ByteBuffer data) {
@@ -1562,7 +1628,7 @@ public class POP3ProtocolHandlerTest {
         @Override public boolean isClosing() { return false; }
         @Override public void close() { open = false; }
         @Override public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("127.0.0.1", 110);
+            return localAddress;
         }
         @Override public SocketAddress getRemoteAddress() {
             return new InetSocketAddress("127.0.0.1", 54321);

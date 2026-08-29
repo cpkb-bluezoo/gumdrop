@@ -1546,7 +1546,7 @@ public final class IMAPProtocolHandler
             InetSocketAddress addr = (InetSocketAddress) endpoint
                     .getLocalAddress();
             authChallenge = SASLUtils.generateCramMD5Challenge(
-                    addr.getHostName());
+                    addr.getHostString());
             authState = AuthState.CRAM_MD5_RESPONSE;
             sendContinuation(SASLUtils.encodeBase64(authChallenge));
         } catch (Exception e) {
@@ -1575,7 +1575,7 @@ public final class IMAPProtocolHandler
                     .getLocalAddress();
             authNonce = SASLUtils.generateNonce(16);
             String challenge = SASLUtils.generateDigestMD5Challenge(
-                    addr.getHostName(), authNonce);
+                    addr.getHostString(), authNonce);
             authState = AuthState.DIGEST_MD5_RESPONSE;
             sendContinuation(SASLUtils.encodeBase64(challenge));
         } catch (Exception e) {
@@ -1895,7 +1895,7 @@ public final class IMAPProtocolHandler
             if (realmName == null) {
                 InetSocketAddress addr = (InetSocketAddress) endpoint
                         .getLocalAddress();
-                realmName = addr.getHostName();
+                realmName = addr.getHostString();
             }
             String ha1 = realm.getDigestHA1(username, realmName);
             String rspAuth = SASLUtils.verifyDigestMD5ClientResponse(
