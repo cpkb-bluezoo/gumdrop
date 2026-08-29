@@ -275,6 +275,13 @@ public final class HTTPProtocolHandler
     private H2FlowControl h2FlowControl;
     private final H2FlowControl.DataReceivedResult h2DataResult =
             new H2FlowControl.DataReceivedResult();
+    // Issue #322: depth counter for h2Dispatch()'s flush-coalescing
+    // window -- see its javadoc. A counter rather than a boolean because
+    // a top-level frame callback (e.g. dataFrameReceived) can itself
+    // synchronously trigger another one indirectly through application
+    // handler code in ways not worth auditing case-by-case; only the
+    // outermost h2Dispatch() call should actually flush.
+    private int h2DispatchDepth;
     // Boxed-Integer keys on every stream-lifecycle-event lookup, for a
     // connection with no equivalent HTTP/1.1 cost, was worth a dedicated
     // primitive-keyed map (issue #299) rather than accepting it as
@@ -799,7 +806,6 @@ public final class HTTPProtocolHandler
                     if (length <= maxFrameSize) {
                         h2Writer.writeHeaders(streamId, buf, endStream, true,
                                 padLength, streamDependency, weight, streamDependencyExclusive);
-                        h2Writer.flush();
                     } else {
                         int savedLimit = buf.limit();
                         buf.limit(buf.position() + maxFrameSize);
@@ -818,8 +824,8 @@ public final class HTTPProtocolHandler
                             length -= maxFrameSize;
                         }
                         h2Writer.writeContinuation(streamId, buf, true);
-                        h2Writer.flush();
                     }
+                    requestH2Flush();
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, "Error sending headers", e);
                 } finally {
@@ -847,6 +853,59 @@ public final class HTTPProtocolHandler
         }
     }
 
+    /**
+     * Runs {@code body} with {@link #requestH2Flush} calls inside it
+     * coalesced into a single flush once {@code body} returns, instead of
+     * each firing its own channel write (issue #322).
+     *
+     * <p>Wraps every top-level {@code H2FrameHandler} callback that can,
+     * directly or by synchronously invoking application handler code,
+     * write HEADERS/DATA/WINDOW_UPDATE frames -- HEADERS and DATA for a
+     * small response answered synchronously from within one such callback
+     * (the common case for small responses) then reach the peer as one
+     * channel write, and for TLS, one record, instead of two or three.
+     * Bounding this to one synchronous callback's duration (rather than
+     * deferring a flush indefinitely, hoping some future call handles it)
+     * is what keeps this safe for a response whose HEADERS carry no body
+     * at all in this dispatch and none is coming soon either -- e.g. the
+     * 200 response accepting an RFC 8441 WebSocket-over-HTTP/2 tunnel,
+     * where the peer must see those headers before it sends anything
+     * else: {@code requestH2Flush} still runs once this callback returns,
+     * even though nothing else in it wrote to {@code h2Writer}.
+     *
+     * @param body the callback logic to run
+     */
+    private void h2Dispatch(Runnable body) {
+        h2DispatchDepth++;
+        try {
+            body.run();
+        } finally {
+            if (--h2DispatchDepth == 0) {
+                try {
+                    h2Writer.flush();
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error flushing HTTP/2 frames", e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Flushes {@link #h2Writer}, unless called from inside {@link
+     * #h2Dispatch}, which flushes once on the way out instead (issue
+     * #322).
+     */
+    private void requestH2Flush() {
+        if (h2DispatchDepth > 0) {
+            return;
+        }
+        try {
+            h2Writer.flush();
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Error flushing HTTP/2 frames", e);
+        }
+    }
+
     @Override
     public void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream) {
         switch (state) {
@@ -870,54 +929,51 @@ public final class HTTPProtocolHandler
             int enqueued = buf.remaining();
             pending.enqueue(buf, endStream);
             pendingBytesCounter(streamId).addAndGet(enqueued);
-            return;
-        }
-
-        if (!claimH2BodySlot(streamId)) {
-            int enqueued = buf.remaining();
-            pending = acquirePendingData();
-            pending.enqueue(buf, endStream);
-            h2PendingData.put(streamId, pending);
-            pendingBytesCounter(streamId).addAndGet(enqueued);
-            return;
-        }
-
-        int toSend = buf.remaining();
-        int window = h2FlowControl.availableSendWindow(streamId);
-        if (window >= toSend) {
-            h2FlowControl.consumeSendWindow(streamId, toSend);
-            sendH2DataDirect(streamId, buf, endStream);
-            // Nothing was queued for this stream (the whole buffer went out
-            // synchronously above), so - same as the completion branch of
-            // drainPendingData() below - release the RFC 9218 non-incremental
-            // slot now rather than holding it forever. Without this, a
-            // stream that always sends its full body in one shot (the
-            // common case for small responses) claims the slot in
-            // claimH2BodySlot() above but never releases it, permanently
-            // starving every other non-incremental stream at the same
-            // urgency from ever sending DATA again.
-            releaseH2BodySlot(streamId);
-            drainRfc9218Pending();
-        } else if (window > 0) {
-            h2FlowControl.consumeSendWindow(streamId, window);
-            int savedLimit = buf.limit();
-            buf.limit(buf.position() + window);
-            ByteBuffer slice = buf.slice();
-            buf.position(buf.position() + window);
-            buf.limit(savedLimit);
-            sendH2DataDirect(streamId, slice, false);
+        } else if (!claimH2BodySlot(streamId)) {
             int enqueued = buf.remaining();
             pending = acquirePendingData();
             pending.enqueue(buf, endStream);
             h2PendingData.put(streamId, pending);
             pendingBytesCounter(streamId).addAndGet(enqueued);
         } else {
-            int enqueued = buf.remaining();
-            pending = acquirePendingData();
-            pending.enqueue(buf, endStream);
-            h2PendingData.put(streamId, pending);
-            pendingBytesCounter(streamId).addAndGet(enqueued);
+            int toSend = buf.remaining();
+            int window = h2FlowControl.availableSendWindow(streamId);
+            if (window >= toSend) {
+                h2FlowControl.consumeSendWindow(streamId, toSend);
+                sendH2DataDirect(streamId, buf, endStream);
+                // Nothing was queued for this stream (the whole buffer went out
+                // synchronously above), so - same as the completion branch of
+                // drainPendingData() below - release the RFC 9218 non-incremental
+                // slot now rather than holding it forever. Without this, a
+                // stream that always sends its full body in one shot (the
+                // common case for small responses) claims the slot in
+                // claimH2BodySlot() above but never releases it, permanently
+                // starving every other non-incremental stream at the same
+                // urgency from ever sending DATA again.
+                releaseH2BodySlot(streamId);
+                drainRfc9218Pending();
+            } else if (window > 0) {
+                h2FlowControl.consumeSendWindow(streamId, window);
+                int savedLimit = buf.limit();
+                buf.limit(buf.position() + window);
+                ByteBuffer slice = buf.slice();
+                buf.position(buf.position() + window);
+                buf.limit(savedLimit);
+                sendH2DataDirect(streamId, slice, false);
+                int enqueued = buf.remaining();
+                pending = acquirePendingData();
+                pending.enqueue(buf, endStream);
+                h2PendingData.put(streamId, pending);
+                pendingBytesCounter(streamId).addAndGet(enqueued);
+            } else {
+                int enqueued = buf.remaining();
+                pending = acquirePendingData();
+                pending.enqueue(buf, endStream);
+                h2PendingData.put(streamId, pending);
+                pendingBytesCounter(streamId).addAndGet(enqueued);
+            }
         }
+        requestH2Flush();
     }
 
     private AtomicInteger pendingBytesCounter(int streamId) {
@@ -939,6 +995,12 @@ public final class HTTPProtocolHandler
     }
 
     // RFC 9113 section 4.2: DATA frames MUST NOT exceed SETTINGS_MAX_FRAME_SIZE
+    //
+    // Issue #322: does not flush -- callers own the flush, once per
+    // logical operation (see sendH2Data and drainPendingData), so that
+    // one operation writing several DATA frames (or DATA following
+    // deferred HEADERS) reaches the peer as one channel write instead of
+    // one per frame.
     private void sendH2DataDirect(int streamId, ByteBuffer buf, boolean endStream) {
         int maxPayload = framePadding > 0 ? maxFrameSize - framePadding - 1 : maxFrameSize;
         try {
@@ -951,7 +1013,6 @@ public final class HTTPProtocolHandler
                 h2Writer.writeData(streamId, slice, false, framePadding);
             }
             h2Writer.writeData(streamId, buf, endStream, framePadding);
-            h2Writer.flush();
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error sending data frame", e);
         }
@@ -998,6 +1059,12 @@ public final class HTTPProtocolHandler
                 available = 0;
             }
         }
+
+        // Issue #322: sendH2DataDirect no longer flushes per call, so a
+        // multi-chunk drain (e.g. several queued DATA frames released by
+        // one WINDOW_UPDATE) reaches the peer as a single channel write
+        // instead of one per chunk.
+        requestH2Flush();
 
         if (pending.isEmpty()) {
             h2PendingData.remove(streamId);
@@ -1333,7 +1400,7 @@ public final class HTTPProtocolHandler
         if (h2Writer != null) {
             try {
                 h2Writer.writePushPromise(streamId, promisedStreamId, headerBlock, endHeaders);
-                h2Writer.flush();
+                requestH2Flush();
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Error sending PUSH_PROMISE", e);
             }
@@ -1404,7 +1471,7 @@ public final class HTTPProtocolHandler
             if (increment > 0) {
                 try {
                     h2Writer.writeWindowUpdate(streamId, increment);
-                    h2Writer.flush();
+                    requestH2Flush();
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, "Error sending deferred WINDOW_UPDATE", e);
                 }
@@ -2585,35 +2652,37 @@ public final class HTTPProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
-        int dataLength = data.remaining();
-        Stream stream = getStream(streamId);
-        stream.appendRequestBody(data);
+        h2Dispatch(() -> {
+            int dataLength = data.remaining();
+            Stream stream = getStream(streamId);
+            stream.appendRequestBody(data);
 
-        // RFC 9113 section 6.9: receive-side flow control accounting;
-        // send WINDOW_UPDATE to replenish the peer's send window
-        if (h2FlowControl != null && dataLength > 0) {
-            h2FlowControl.onDataReceived(streamId, dataLength, h2DataResult);
-            try {
-                if (h2DataResult.connectionIncrement > 0) {
-                    h2Writer.writeWindowUpdate(0, h2DataResult.connectionIncrement);
+            // RFC 9113 section 6.9: receive-side flow control accounting;
+            // send WINDOW_UPDATE to replenish the peer's send window
+            if (h2FlowControl != null && dataLength > 0) {
+                h2FlowControl.onDataReceived(streamId, dataLength, h2DataResult);
+                try {
+                    if (h2DataResult.connectionIncrement > 0) {
+                        h2Writer.writeWindowUpdate(0, h2DataResult.connectionIncrement);
+                    }
+                    if (h2DataResult.streamIncrement > 0) {
+                        h2Writer.writeWindowUpdate(streamId, h2DataResult.streamIncrement);
+                    }
+                    if (h2DataResult.connectionIncrement > 0 || h2DataResult.streamIncrement > 0) {
+                        requestH2Flush();
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error sending WINDOW_UPDATE", e);
                 }
-                if (h2DataResult.streamIncrement > 0) {
-                    h2Writer.writeWindowUpdate(streamId, h2DataResult.streamIncrement);
-                }
-                if (h2DataResult.connectionIncrement > 0 || h2DataResult.streamIncrement > 0) {
-                    h2Writer.flush();
-                }
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error sending WINDOW_UPDATE", e);
             }
-        }
 
-        if (endStream) {
-            stream.streamEndRequest();
-            if (stream.isActive()) {
-                activeStreams.add(streamId);
+            if (endStream) {
+                stream.streamEndRequest();
+                if (stream.isActive()) {
+                    activeStreams.add(streamId);
+                }
             }
-        }
+        });
     }
 
     // RFC 9113 section 6.2: HEADERS frame reception
@@ -2624,39 +2693,41 @@ public final class HTTPProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
-        // RFC 9113 section 5.1.1: client-initiated streams MUST use odd
-        // stream IDs and MUST be monotonically increasing; violation is
-        // a connection error of type PROTOCOL_ERROR
-        if (streamId % 2 == 0 || streamId <= lastClientStreamId) {
-            sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
-            closeEndpoint();
-            return;
-        }
-        lastClientStreamId = streamId;
-        // RFC 9113 section 5.1.2: streams exceeding
-        // SETTINGS_MAX_CONCURRENT_STREAMS SHOULD be refused
-        if (activeStreams.size() >= serverMaxConcurrentStreams) {
-            sendRstStream(streamId, H2FrameHandler.ERROR_REFUSED_STREAM);
-            return;
-        }
-        resetContinuationLimit();
-        checkContinuationLimit();
-        Stream stream = getStream(streamId);
-        stream.appendHeaderBlockFragment(headerBlockFragment);
-        if (endHeaders) {
+        h2Dispatch(() -> {
+            // RFC 9113 section 5.1.1: client-initiated streams MUST use odd
+            // stream IDs and MUST be monotonically increasing; violation is
+            // a connection error of type PROTOCOL_ERROR
+            if (streamId % 2 == 0 || streamId <= lastClientStreamId) {
+                sendGoaway(H2FrameHandler.ERROR_PROTOCOL_ERROR);
+                closeEndpoint();
+                return;
+            }
+            lastClientStreamId = streamId;
+            // RFC 9113 section 5.1.2: streams exceeding
+            // SETTINGS_MAX_CONCURRENT_STREAMS SHOULD be refused
+            if (activeStreams.size() >= serverMaxConcurrentStreams) {
+                sendRstStream(streamId, H2FrameHandler.ERROR_REFUSED_STREAM);
+                return;
+            }
             resetContinuationLimit();
-            stream.streamEndHeaders();
-            if (endStream) {
-                stream.streamEndRequest();
+            checkContinuationLimit();
+            Stream stream = getStream(streamId);
+            stream.appendHeaderBlockFragment(headerBlockFragment);
+            if (endHeaders) {
+                resetContinuationLimit();
+                stream.streamEndHeaders();
+                if (endStream) {
+                    stream.streamEndRequest();
+                }
+                if (stream.isActive()) {
+                    activeStreams.add(streamId);
+                }
+            } else {
+                state = State.HTTP2_CONTINUATION;
+                continuationStream = streamId;
+                continuationEndStream = endStream;
             }
-            if (stream.isActive()) {
-                activeStreams.add(streamId);
-            }
-        } else {
-            state = State.HTTP2_CONTINUATION;
-            continuationStream = streamId;
-            continuationEndStream = endStream;
-        }
+        });
     }
 
     // RFC 9113 section 5.3: stream priority signaling is deprecated.
@@ -2891,34 +2962,36 @@ public final class HTTPProtocolHandler
         if (h2FlowControl == null) {
             return;
         }
-        boolean overflow = h2FlowControl.onWindowUpdate(streamId, windowSizeIncrement);
-        // RFC 9113 section 6.9.1: window exceeding 2^31-1 is a
-        // connection error (stream 0) or stream error
-        if (overflow) {
+        h2Dispatch(() -> {
+            boolean overflow = h2FlowControl.onWindowUpdate(streamId, windowSizeIncrement);
+            // RFC 9113 section 6.9.1: window exceeding 2^31-1 is a
+            // connection error (stream 0) or stream error
+            if (overflow) {
+                if (streamId == 0) {
+                    sendGoaway(H2FrameHandler.ERROR_FLOW_CONTROL_ERROR);
+                    closeEndpoint();
+                } else {
+                    sendRstStream(streamId, H2FrameHandler.ERROR_FLOW_CONTROL_ERROR);
+                }
+                return;
+            }
             if (streamId == 0) {
-                sendGoaway(H2FrameHandler.ERROR_FLOW_CONTROL_ERROR);
-                closeEndpoint();
+                drainRfc9218Pending();
             } else {
-                sendRstStream(streamId, H2FrameHandler.ERROR_FLOW_CONTROL_ERROR);
+                // Only claim the slot when there is actually queued DATA to
+                // drain for this stream. A per-stream WINDOW_UPDATE is routine
+                // flow-control housekeeping that a client may send long after
+                // the stream's response was already fully sent (e.g. via the
+                // direct-send path in sendH2Data()); claiming unconditionally
+                // here leaked the slot forever in that case, because
+                // drainPendingData() returns immediately when there is nothing
+                // pending for the stream, without ever releasing what was just
+                // claimed above.
+                if (h2PendingData.containsKey(streamId) && claimH2BodySlot(streamId)) {
+                    drainPendingData(streamId);
+                }
             }
-            return;
-        }
-        if (streamId == 0) {
-            drainRfc9218Pending();
-        } else {
-            // Only claim the slot when there is actually queued DATA to
-            // drain for this stream. A per-stream WINDOW_UPDATE is routine
-            // flow-control housekeeping that a client may send long after
-            // the stream's response was already fully sent (e.g. via the
-            // direct-send path in sendH2Data()); claiming unconditionally
-            // here leaked the slot forever in that case, because
-            // drainPendingData() returns immediately when there is nothing
-            // pending for the stream, without ever releasing what was just
-            // claimed above.
-            if (h2PendingData.containsKey(streamId) && claimH2BodySlot(streamId)) {
-                drainPendingData(streamId);
-            }
-        }
+        });
     }
 
     // RFC 9113 section 6.10: CONTINUATION frame reception
@@ -2928,21 +3001,23 @@ public final class HTTPProtocolHandler
         if (expectingInitialSettings()) {
             return;
         }
-        checkContinuationLimit();
-        Stream stream = getStream(streamId);
-        stream.appendHeaderBlockFragment(headerBlockFragment);
-        if (endHeaders) {
-            resetContinuationLimit();
-            stream.streamEndHeaders();
-            state = State.HTTP2;
-            continuationStream = 0;
-            if (continuationEndStream) {
-                stream.streamEndRequest();
+        h2Dispatch(() -> {
+            checkContinuationLimit();
+            Stream stream = getStream(streamId);
+            stream.appendHeaderBlockFragment(headerBlockFragment);
+            if (endHeaders) {
+                resetContinuationLimit();
+                stream.streamEndHeaders();
+                state = State.HTTP2;
+                continuationStream = 0;
+                if (continuationEndStream) {
+                    stream.streamEndRequest();
+                }
+                if (stream.isActive()) {
+                    activeStreams.add(streamId);
+                }
             }
-            if (stream.isActive()) {
-                activeStreams.add(streamId);
-            }
-        }
+        });
     }
 
     // RFC 9113 section 5.4: error handling
