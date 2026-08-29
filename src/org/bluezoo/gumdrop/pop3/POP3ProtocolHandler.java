@@ -78,6 +78,7 @@ import org.bluezoo.gumdrop.pop3.handler.ConnectedState;
 import org.bluezoo.gumdrop.pop3.handler.ListState;
 import org.bluezoo.gumdrop.pop3.handler.MailboxStatusState;
 import org.bluezoo.gumdrop.pop3.handler.MarkDeletedState;
+import org.bluezoo.gumdrop.pop3.handler.MessageListingCacheHost;
 import org.bluezoo.gumdrop.pop3.handler.ResetState;
 import org.bluezoo.gumdrop.pop3.handler.RetrieveState;
 import org.bluezoo.gumdrop.pop3.handler.TopState;
@@ -134,7 +135,7 @@ public final class POP3ProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<POP3ServerLexer.Token>,
                    ConnectedState, AuthenticateState, MailboxStatusState,
                    ListState, RetrieveState, MarkDeletedState, ResetState,
-                   TopState, UidlState, UpdateState {
+                   TopState, UidlState, UpdateState, MessageListingCacheHost {
 
     private static final Logger LOGGER =
             Logger.getLogger(POP3ProtocolHandler.class.getName());
@@ -203,6 +204,8 @@ public final class POP3ProtocolHandler
     private String username;
     private MailboxStore store;
     private Mailbox mailbox;
+    private final Pop3MessageListingCache messageListingCache =
+            new Pop3MessageListingCache();
     private boolean utf8Mode;
     private boolean stlsUsed;
     private long lastActivityTime;
@@ -2063,11 +2066,17 @@ public final class POP3ProtocolHandler
     }
 
     @Override
+    public Pop3MessageListingCache getMessageListingCache() {
+        return messageListingCache;
+    }
+
+    @Override
     public void accept(Mailbox mailbox,
                         TransactionHandler handler) {
         this.mailbox = mailbox;
         this.transactionHandler = handler;
         this.state = POP3State.TRANSACTION;
+        messageListingCache.invalidate();
         pendingOpenUser = null;
         pendingOpenSuccess = null;
         try {
@@ -2235,6 +2244,7 @@ public final class POP3ProtocolHandler
     @Override
     public void markedDeleted(TransactionHandler handler) {
         this.transactionHandler = handler;
+        messageListingCache.removeMessage(pendingDeleteMsgNum);
         try {
             sendOK(L10N.getString("pop3.message_deleted"));
         } catch (IOException e) {
@@ -2272,6 +2282,7 @@ public final class POP3ProtocolHandler
     public void resetComplete(int messageCount, long totalSize,
                                TransactionHandler handler) {
         this.transactionHandler = handler;
+        messageListingCache.invalidate();
         try {
             sendOK(MessageFormat.format(
                     L10N.getString("pop3.reset_response"),
@@ -2448,18 +2459,13 @@ public final class POP3ProtocolHandler
         }
         try {
             if (args.isEmpty()) {
-                int count = mailbox.getMessageCount();
-                sendOK(count + " messages");
-                Iterator<MessageDescriptor> messages =
-                        mailbox.getMessageList();
-                while (messages.hasNext()) {
-                    MessageDescriptor msg = messages.next();
-                    if (msg != null
-                            && !mailbox.isDeleted(
-                                    msg.getMessageNumber())) {
-                        sendLine(msg.getMessageNumber()
-                                + " " + msg.getSize());
-                    }
+                Pop3MessageListingCache cache = messageListingCache;
+                List<Pop3MessageListingCache.Entry> listing =
+                        cache.snapshot(mailbox);
+                sendOK(listing.size() + " messages");
+                for (Pop3MessageListingCache.Entry entry : listing) {
+                    sendLine(entry.getMessageNumber()
+                            + " " + entry.getSize());
                 }
                 sendLine(".");
             } else {
@@ -2530,6 +2536,7 @@ public final class POP3ProtocolHandler
                     "pop3.err.invalid_message_number"));
             return;
         }
+        pendingDeleteMsgNum = msgNum;
         if (transactionHandler != null) {
             transactionHandler.markDeleted(this, mailbox, msgNum);
             return;
@@ -2569,6 +2576,7 @@ public final class POP3ProtocolHandler
         }
         try {
             mailbox.undeleteAll();
+            messageListingCache.invalidate();
             int count = mailbox.getMessageCount();
             long size = mailbox.getMailboxSize();
             sendOK(MessageFormat.format(
@@ -2657,19 +2665,13 @@ public final class POP3ProtocolHandler
         }
         try {
             if (args.isEmpty()) {
+                Pop3MessageListingCache cache = messageListingCache;
+                List<Pop3MessageListingCache.Entry> listing =
+                        cache.snapshot(mailbox);
                 sendOK(L10N.getString("pop3.uidl_follows"));
-                Iterator<MessageDescriptor> messages =
-                        mailbox.getMessageList();
-                while (messages.hasNext()) {
-                    MessageDescriptor msg = messages.next();
-                    if (msg != null
-                            && !mailbox.isDeleted(
-                                    msg.getMessageNumber())) {
-                        String uid = mailbox.getUniqueId(
-                                msg.getMessageNumber());
-                        sendLine(msg.getMessageNumber()
-                                + " " + uid);
-                    }
+                for (Pop3MessageListingCache.Entry entry : listing) {
+                    sendLine(entry.getMessageNumber()
+                            + " " + entry.getUniqueId());
                 }
                 sendLine(".");
             } else {
@@ -3834,6 +3836,7 @@ public final class POP3ProtocolHandler
     }
 
     private void recordMessageDelete(int msgNum) {
+        messageListingCache.removeMessage(msgNum);
         if (authenticatedSpan != null
                 && !authenticatedSpan.isEnded()) {
             authenticatedSpan.addEvent("DELE");
@@ -3844,4 +3847,7 @@ public final class POP3ProtocolHandler
 
     /** Message number for in-flight RETR/TOP after handler proceed(). */
     private int pendingContentMsgNum;
+
+    /** Message number for the DELE currently being processed. */
+    private int pendingDeleteMsgNum;
 }
