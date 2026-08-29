@@ -45,10 +45,14 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Principal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Regression coverage for issue #306: PROPFIND previously loaded dead
@@ -100,13 +104,22 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         store.setMode(DeadPropertyStore.Mode.SIDECAR);
         FileHandler handler = newHandler(tempRoot, store);
 
+        final List<Long> storageStartTimes =
+                Collections.synchronizedList(new ArrayList<Long>());
+        final AtomicInteger inFlight = new AtomicInteger(0);
+        final AtomicInteger maxInFlight = new AtomicInteger(0);
         StorageExecutor.workThreadObserver = new StorageExecutor.WorkThreadObserver() {
             @Override
             public void observed(Thread worker) {
+                storageStartTimes.add(System.nanoTime());
+                int now = inFlight.incrementAndGet();
+                maxInFlight.updateAndGet(prev -> Math.max(prev, now));
                 try {
                     Thread.sleep(STORAGE_DELAY_MS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                } finally {
+                    inFlight.decrementAndGet();
                 }
             }
         };
@@ -117,11 +130,9 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         req.add(":path", "/tree");
         req.add(DAVConstants.HEADER_DEPTH, "infinity");
 
-        long start = System.nanoTime();
         handler.headers(state, req);
         assertTrue("PROPFIND did not complete: " + state.status(),
                 state.await(20, TimeUnit.SECONDS));
-        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
         assertEquals(HTTPStatus.MULTI_STATUS.code, state.status());
         String xml = new String(state.body(), StandardCharsets.UTF_8);
@@ -130,14 +141,29 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
                     xml.contains("file" + i + ".txt"));
         }
 
-        // Strict serialisation: one storage submission completes before the
-        // next begins, so (tree walk + N resources) * delay is a floor.
-        long serialBudgetMs = (1L + RESOURCE_COUNT) * STORAGE_DELAY_MS;
-        assertTrue("PROPFIND over " + RESOURCE_COUNT + " dead-property reads "
-                + "took " + elapsedMs + "ms -- strict serialisation with "
-                + STORAGE_DELAY_MS + "ms per storage op would need at least "
-                + serialBudgetMs + "ms",
-                elapsedMs < serialBudgetMs - 75);
+        assertTrue("expected tree walk plus " + RESOURCE_COUNT
+                + " dead-property storage submissions, saw "
+                + storageStartTimes.size(),
+                storageStartTimes.size() >= 1 + RESOURCE_COUNT);
+
+        // Index 0 is PROPFIND enumeration; 1..N are dead-property loads.
+        // Serial chaining waits for each submission (including the
+        // artificial delay) before issuing the next, so four consecutive
+        // loads span at least three delay periods. Fan-out submits them
+        // back-to-back and lets the pool run several concurrently.
+        long firstDeadPropStart = storageStartTimes.get(1);
+        long fourthDeadPropStart = storageStartTimes.get(4);
+        long spreadMs = (fourthDeadPropStart - firstDeadPropStart) / 1_000_000;
+        long serialFloorMs = 3L * STORAGE_DELAY_MS;
+        assertTrue("first four dead-property submissions spanned only "
+                + spreadMs + "ms -- strict serialisation with a "
+                + STORAGE_DELAY_MS + "ms delay would span at least "
+                + serialFloorMs + "ms between their start times",
+                spreadMs < serialFloorMs);
+
+        assertTrue("dead-property loads must overlap on the storage pool "
+                + "(peak in-flight was " + maxInFlight.get() + ")",
+                maxInFlight.get() >= 2);
     }
 
     private static FileHandler newHandler(Path root, DeadPropertyStore store) {
