@@ -55,6 +55,8 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 
@@ -1021,9 +1023,10 @@ public class AMQPClientProtocolHandlerTest {
     }
 
     @Test
-    public void testGssapiStyleMechanismOffloadedToExecutor() throws AMQPProtocolException {
+    public void testGssapiStyleMechanismOffloadedToExecutor() throws Exception {
         connect();
         feed(serverStartFrame());
+        final CountDownLatch evaluated = new CountDownLatch(1);
         final List<Thread> evaluatedOn = new ArrayList<>();
         org.bluezoo.gumdrop.auth.SASLClientMechanism recordingMechanism =
                 new org.bluezoo.gumdrop.auth.SASLClientMechanism() {
@@ -1039,6 +1042,7 @@ public class AMQPClientProtocolHandlerTest {
                     public byte[] evaluateChallenge(byte[] challenge) {
                         evaluatedOn.add(Thread.currentThread());
                         complete = true;
+                        evaluated.countDown();
                         return new byte[0];
                     }
 
@@ -1055,18 +1059,15 @@ public class AMQPClientProtocolHandlerTest {
                         public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) { }
                     },
                     executor);
-            // Wait for the offloaded evaluation to complete and hop back via endpoint.execute (synchronous in StubEndpoint).
-            long deadline = System.currentTimeMillis() + 2000;
-            while (evaluatedOn.isEmpty() && System.currentTimeMillis() < deadline) {
-                try {
-                    Thread.sleep(5);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-        } finally {
+            assertTrue("challenge evaluation must complete on executor",
+                    evaluated.await(5, TimeUnit.SECONDS));
             executor.shutdown();
+            assertTrue("executor must finish dispatching start-ok back onto the endpoint",
+                    executor.awaitTermination(5, TimeUnit.SECONDS));
+        } finally {
+            if (!executor.isShutdown()) {
+                executor.shutdown();
+            }
         }
 
         assertEquals(1, evaluatedOn.size());

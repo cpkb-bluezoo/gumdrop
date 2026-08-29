@@ -18,6 +18,18 @@ ant test-all
 
 Integration tests require TLS certificates. See the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls-certificates) for generating local development certificates with `mkcert`.
 
+### Unit test synchronization
+
+Async unit tests must **not** use `Thread.sleep` or deadline loops that poll mutable state to wait for work to finish. Block on an explicit cross-thread signal instead:
+
+- `CountDownLatch` / `CompletableFuture` counted down from a `ProtocolHandler`, executor callback, or test hook
+- `RecordingStubEndpoint` for protocol offload tests (`awaitLineStartingWith`, etc.)
+- Production test-only observers where no callback exists yet (see existing QUIC/mailbox hooks)
+
+Use `@Test(timeout=…)` only as a hang guard, not as the synchronization mechanism.
+
+`NoThreadSleepGuardTest` enforces this across `test/junit/src` with a small allowlist for tests that intentionally exercise real time (rate limiters, timers, cache expiry, filesystem mtimes). Add allowlist entries only when sleeping is the behaviour under test.
+
 ## Submitting Changes
 
 1. Fork the repository and create a branch for your changes
