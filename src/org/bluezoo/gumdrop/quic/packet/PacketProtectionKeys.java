@@ -21,9 +21,6 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
-import java.security.GeneralSecurityException;
-
-import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.bluezoo.gumdrop.quic.tls.Hkdf;
@@ -43,15 +40,7 @@ import org.bluezoo.gumdrop.quic.tls.Hkdf;
  * progress: client and server, at whichever of Initial/Handshake/1-RTT
  * are currently active.
  *
- * <p>The key material is immutable, but {@link PacketProtection} lazily
- * populates and reuses one AEAD and one header-protection {@link Cipher}
- * on this instance across every seal/open/mask operation it performs with
- * these keys, avoiding {@code Cipher.getInstance}'s JCE provider-selection
- * and SPI-instantiation cost on every packet. A {@code Cipher} is not
- * thread-safe, so this relies on the same single-threaded-per-connection
- * access {@link org.bluezoo.gumdrop.quic.QuicConnection} already requires
- * of all its other state -- an instance of this class must never be used
- * concurrently by more than one thread.
+ * <p>The key material is immutable.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9001#section-5.1">RFC 9001 section 5.1</a>
@@ -64,9 +53,6 @@ public final class PacketProtectionKeys {
     private final SecretKeySpec aeadKey;
     private final byte[] iv;
     private final SecretKeySpec headerProtectionKey;
-
-    private Cipher aeadCipher;
-    private Cipher headerProtectionCipher;
 
     private PacketProtectionKeys(QuicAeadAlgorithm algorithm, SecretKeySpec aeadKey,
             byte[] iv, SecretKeySpec headerProtectionKey) {
@@ -132,43 +118,5 @@ public final class PacketProtectionKeys {
      */
     public SecretKeySpec getHeaderProtectionKey() {
         return headerProtectionKey;
-    }
-
-    /**
-     * Returns this instance's cached AEAD {@link Cipher}, creating it on
-     * first use. Package-private: only {@link PacketProtection} calls
-     * this, immediately re-{@code init}ing the returned instance for its
-     * own operation before use, so no other caller can observe or
-     * disturb its transient per-operation state.
-     *
-     * @return the AEAD cipher for {@link #getAlgorithm()}
-     * @throws GeneralSecurityException if no provider supports the transformation
-     */
-    Cipher getAeadCipher() throws GeneralSecurityException {
-        if (aeadCipher == null) {
-            aeadCipher = Cipher.getInstance(algorithm.getAeadTransformation());
-        }
-        return aeadCipher;
-    }
-
-    /**
-     * Returns this instance's cached header-protection {@link Cipher},
-     * creating it on first use. Package-private for the same reason as
-     * {@link #getAeadCipher()}.
-     *
-     * <p>Only used for the AES header-protection transformations, whose
-     * ECB mode takes no nonce and so has no reuse state to corrupt across
-     * calls. {@link PacketProtection#headerProtectionMask} does not use
-     * this for ChaCha20 -- see its own comment for why that one is left
-     * uncached.
-     *
-     * @return the header-protection cipher for {@link #getAlgorithm()}
-     * @throws GeneralSecurityException if no provider supports the transformation
-     */
-    Cipher getHeaderProtectionCipher() throws GeneralSecurityException {
-        if (headerProtectionCipher == null) {
-            headerProtectionCipher = Cipher.getInstance(algorithm.getHeaderProtectionTransformation());
-        }
-        return headerProtectionCipher;
     }
 }
