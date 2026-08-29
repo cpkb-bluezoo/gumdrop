@@ -1567,22 +1567,47 @@ public final class MaildirMailbox implements Mailbox {
 
     /**
      * Indexes any new messages not yet in the search index.
+     *
+     * <p>{@link MessageIndex#getUidNext()} already tracks one past the
+     * highest indexed UID. Messages are sorted by UID, so jump straight
+     * to the tail instead of walking every descriptor with a per-message
+     * lookup on every open when nothing changed since the index was saved
+     * (issue #317).
      */
     private void indexNewMessages() {
         if (searchIndex == null) {
             return;
         }
-        
-        for (MaildirMessageDescriptor msg : messages) {
-            if (searchIndex.getEntryByUid(msg.getUid()) == null) {
-                // Message not indexed, add it
-                try {
-                    addMessageToSearchIndex(msg, msg.getFlags(), null);
-                } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, "Failed to index message " + msg.getMessageNumber(), e);
-                }
+
+        long uidNext = searchIndex.getUidNext();
+        int firstNewIndex = indexOfFirstUidAtLeast(uidNext);
+        for (int i = firstNewIndex; i < messages.size(); i++) {
+            MaildirMessageDescriptor msg = messages.get(i);
+            try {
+                addMessageToSearchIndex(msg, msg.getFlags(), null);
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, "Failed to index message "
+                        + msg.getMessageNumber(), e);
             }
         }
+    }
+
+    /**
+     * Returns the index of the first message whose UID is at least
+     * {@code uid}, or {@code messages.size()} if every message is below it.
+     */
+    private int indexOfFirstUidAtLeast(long uid) {
+        int lo = 0;
+        int hi = messages.size();
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (messages.get(mid).getUid() < uid) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        return lo;
     }
 
     /**
