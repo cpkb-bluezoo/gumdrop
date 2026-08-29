@@ -2822,6 +2822,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
 
         Map<Long, List<PendingChunk>> sentStreamThisPacket = new HashMap<Long, List<PendingChunk>>();
+        List<QuicStreamEndpoint> streamsToNotify = new ArrayList<QuicStreamEndpoint>();
         for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
             long streamId = entry.getKey().longValue();
             for (PendingChunk chunk : entry.getValue()) {
@@ -2833,7 +2834,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 removePendingStream(entry.getKey());
                 QuicStreamEndpoint stream = streams.get(entry.getKey());
                 if (stream != null) {
-                    stream.notifyWriteReady();
+                    streamsToNotify.add(stream);
                 }
             }
             sentStreamThisPacket.put(entry.getKey(), entry.getValue());
@@ -2962,6 +2963,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // lost.
         boolean inFlight = ackEliciting || paddingBytes > 0;
         lossDetector.onPacketSent(level, packetNumber, System.currentTimeMillis(), ackEliciting, inFlight, packet.length);
+        // Deferred until every bit of this packet's own construction and
+        // bookkeeping above is done: notifyWriteReady() synchronously
+        // runs application code, which can call stream.send(...) ->
+        // queueStreamData -> requestFlush() -> a reentrant flush() call.
+        // Firing it from inside the stream-sending loop above, while
+        // that loop was still mid-iteration, let such a reentrant call
+        // drain and remove a pendingStream entry the loop hadn't reached
+        // yet, so its own later pendingStream.get(entry.getKey())
+        // returned null -- a pre-existing intermittent
+        // NullPointerException here, traced during issue #320's CI
+        // investigation.
+        for (QuicStreamEndpoint stream : streamsToNotify) {
+            stream.notifyWriteReady();
+        }
         return packet;
     }
 
@@ -3026,6 +3041,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
         Map<Long, List<PendingChunk>> sentThisPacket = new HashMap<Long, List<PendingChunk>>();
+        List<QuicStreamEndpoint> streamsToNotify = new ArrayList<QuicStreamEndpoint>();
         for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
             long streamId = entry.getKey().longValue();
             for (PendingChunk chunk : entry.getValue()) {
@@ -3037,7 +3053,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 removePendingStream(entry.getKey());
                 QuicStreamEndpoint stream = streams.get(entry.getKey());
                 if (stream != null) {
-                    stream.notifyWriteReady();
+                    streamsToNotify.add(stream);
                 }
             }
             sentThisPacket.put(entry.getKey(), entry.getValue());
@@ -3064,6 +3080,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
         sentZeroRttStream.put(Long.valueOf(packetNumber), sentThisPacket);
         lossDetector.onPacketSent(EncryptionLevel.ONE_RTT, packetNumber, System.currentTimeMillis(), true, true,
                 packet.length);
+        // Deferred until every bit of this packet's own construction and
+        // bookkeeping above is done -- see the identical comment in
+        // buildProtectedPacket (issue #320's CI investigation) for why
+        // notifyWriteReady() cannot safely fire while pendingStream is
+        // still being read for this packet.
+        for (QuicStreamEndpoint stream : streamsToNotify) {
+            stream.notifyWriteReady();
+        }
         return packet;
     }
 
