@@ -695,6 +695,34 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
     }
 
     /**
+     * Called by {@link SelectorLoop} when dispatching this endpoint's I/O
+     * throws an unchecked exception. Surfaces the failure to the protocol
+     * handler and tears the connection down so the worker loop can continue
+     * serving other registrations.
+     */
+    void handleDispatchError(Exception e) {
+        try {
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                Object sa = channel != null
+                        ? channel.socket().getRemoteSocketAddress() : null;
+                LOGGER.log(Level.WARNING,
+                        "Dispatch error on TCP connection: " + sa, e);
+            }
+            if (trace != null && trace.getRootSpan() != null) {
+                trace.getRootSpan().recordException(e,
+                        ErrorCategory.INTERNAL_ERROR);
+            }
+            handler.error(e);
+        } finally {
+            try {
+                endTrace();
+            } finally {
+                doClose();
+            }
+        }
+    }
+
+    /**
      * Called by SelectorLoop when OP_CONNECT completes.
      */
     void connected() {
