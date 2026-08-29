@@ -34,7 +34,6 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 
@@ -99,21 +98,27 @@ public class MailboxWatcherTest {
 
         Files.createFile(tempDir.resolve("target.txt"));
 
-        assertTrue("listener should be notified", notified.await(10, TimeUnit.SECONDS));
+        notified.await();
         assertEquals("target.txt", names.get(0));
     }
 
     @Test
     public void register_ignoresNonMatchingFile() throws Exception {
-        final CountDownLatch notified = new CountDownLatch(1);
+        final CountDownLatch targetNotified = new CountDownLatch(1);
         watcher.register(tempDir, "target.txt", new MailboxWatcher.ChangeListener() {
-            @Override public void onChange(String name) { notified.countDown(); }
+            @Override public void onChange(String name) { targetNotified.countDown(); }
+        });
+
+        final CountDownLatch canaryNotified = new CountDownLatch(1);
+        watcher.register(tempDir, "other.txt", new MailboxWatcher.ChangeListener() {
+            @Override public void onChange(String name) { canaryNotified.countDown(); }
         });
 
         Files.createFile(tempDir.resolve("other.txt"));
 
-        assertFalse("listener should not fire for a different filename",
-                notified.await(500, TimeUnit.MILLISECONDS));
+        canaryNotified.await();
+        assertEquals("target listener should not fire for a different filename",
+                1, targetNotified.getCount());
     }
 
     @Test
@@ -130,7 +135,7 @@ public class MailboxWatcherTest {
 
         Files.createFile(tempDir.resolve("anything.txt"));
 
-        assertTrue(notified.await(10, TimeUnit.SECONDS));
+        notified.await();
         assertEquals("anything.txt", names.get(0));
     }
 
@@ -147,8 +152,8 @@ public class MailboxWatcherTest {
 
         Files.createFile(tempDir.resolve("shared.txt"));
 
-        assertTrue(first.await(10, TimeUnit.SECONDS));
-        assertTrue(second.await(10, TimeUnit.SECONDS));
+        first.await();
+        second.await();
     }
 
     @Test
@@ -163,8 +168,7 @@ public class MailboxWatcherTest {
 
         Files.write(target, "changed".getBytes());
 
-        assertTrue("listener should be notified of a modify event",
-                notified.await(10, TimeUnit.SECONDS));
+        notified.await();
     }
 
     @Test
@@ -175,9 +179,10 @@ public class MailboxWatcherTest {
         });
 
         watcher.shutdown();
+        watcher.awaitTermination();
         Files.createFile(tempDir.resolve("afterShutdown.txt"));
 
-        assertFalse("no events should be dispatched after shutdown",
-                notified.await(500, TimeUnit.MILLISECONDS));
+        assertEquals("no events should be dispatched after shutdown",
+                1, notified.getCount());
     }
 }

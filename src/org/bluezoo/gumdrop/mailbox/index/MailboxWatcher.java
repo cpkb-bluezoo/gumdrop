@@ -145,6 +145,10 @@ public final class MailboxWatcher implements Runnable {
         }
     }
 
+    public void awaitTermination() throws InterruptedException {
+        thread.join();
+    }
+
     @Override
     public void run() {
         while (running) {

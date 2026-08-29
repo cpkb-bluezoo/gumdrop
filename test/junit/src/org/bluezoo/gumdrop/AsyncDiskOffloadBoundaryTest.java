@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.pop3.POP3ProtocolHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
 import org.junit.After;
 import org.junit.Before;
@@ -55,15 +56,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Principal;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -156,14 +154,13 @@ public class AsyncDiskOffloadBoundaryTest {
         SimpleFTPHandler connHandler = new SimpleFTPHandler(fs);
         FTPProtocolHandler handler =
                 new FTPProtocolHandler(new FTPListener(), connHandler);
-        StubEndpoint endpoint = new StubEndpoint();
+        RecordingStubEndpoint endpoint = new RecordingStubEndpoint(21);
 
         handler.connected(endpoint);
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendFtp(handler, "USER test");
         sendFtp(handler, "PASS secret");
-        assertTrue("login failed: " + lastFtpResponse(endpoint),
-                awaitFtpReply(endpoint, "230", 5, TimeUnit.SECONDS));
+        endpoint.awaitLineStartingWith("230");
 
         final AtomicReference<String> workThread =
                 new AtomicReference<String>();
@@ -176,13 +173,12 @@ public class AsyncDiskOffloadBoundaryTest {
             }
         };
 
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendFtp(handler, "CWD subdir");
 
         assertTrue("storage worker not observed for CWD",
                 observed.await(5, TimeUnit.SECONDS));
-        assertTrue("CWD reply not received",
-                awaitFtpReply(endpoint, "250", 5, TimeUnit.SECONDS));
+        endpoint.awaitLineStartingWith("250");
         assertTrue("FTP CWD offload must run on gumdrop-storage-*, was "
                         + workThread.get(),
                 workThread.get() != null
@@ -213,7 +209,7 @@ public class AsyncDiskOffloadBoundaryTest {
         listener.setAllowPlaintextLogin(true);
 
         IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
-        StubEndpoint endpoint = new StubEndpoint();
+        RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
 
         final AtomicReference<String> workThread =
                 new AtomicReference<String>();
@@ -227,13 +223,12 @@ public class AsyncDiskOffloadBoundaryTest {
         };
 
         handler.connected(endpoint);
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "a1 LOGIN editor editor");
 
         assertTrue("storage worker not observed for IMAP LOGIN",
                 observed.await(10, TimeUnit.SECONDS));
-        assertTrue("LOGIN OK not received: " + endpoint.getResponses(),
-                awaitLineContaining(endpoint, "a1 OK", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineContaining("a1 OK");
         assertTrue("IMAP LOGIN offload must run on gumdrop-storage-*, was "
                         + workThread.get(),
                 workThread.get() != null
@@ -249,12 +244,11 @@ public class AsyncDiskOffloadBoundaryTest {
                 selectObserved.countDown();
             }
         };
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "a2 SELECT INBOX");
         assertTrue("storage worker not observed for IMAP SELECT",
                 selectObserved.await(10, TimeUnit.SECONDS));
-        assertTrue("SELECT OK not received: " + endpoint.getResponses(),
-                awaitLineContaining(endpoint, "a2 OK", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineContaining("a2 OK");
         assertTrue("IMAP SELECT offload must run on gumdrop-storage-*, was "
                         + workThread.get(),
                 workThread.get() != null
@@ -280,7 +274,7 @@ public class AsyncDiskOffloadBoundaryTest {
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
 
         POP3ProtocolHandler handler = new POP3ProtocolHandler(listener);
-        StubEndpoint endpoint = new StubEndpoint();
+        RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
 
         final AtomicReference<String> workThread =
                 new AtomicReference<String>();
@@ -294,17 +288,15 @@ public class AsyncDiskOffloadBoundaryTest {
         };
 
         handler.connected(endpoint);
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "USER editor");
-        assertTrue("USER +OK not received: " + endpoint.getResponses(),
-                awaitLineStartingWith(endpoint, "+OK", 5, TimeUnit.SECONDS));
-        endpoint.sentData.clear();
+        endpoint.awaitLineStartingWith("+OK");
+        endpoint.clearResponses();
         sendLine(handler, "PASS editor");
 
         assertTrue("storage worker not observed for POP3 PASS",
                 observed.await(10, TimeUnit.SECONDS));
-        assertTrue("PASS +OK not received: " + endpoint.getResponses(),
-                awaitLineStartingWith(endpoint, "+OK", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineStartingWith("+OK");
         assertTrue("POP3 PASS offload must run on gumdrop-storage-*, was "
                         + workThread.get(),
                 workThread.get() != null
@@ -321,13 +313,12 @@ public class AsyncDiskOffloadBoundaryTest {
                 retrObserved.countDown();
             }
         };
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "RETR 1");
         assertTrue("storage worker not observed for POP3 RETR; responses="
                         + endpoint.getResponses(),
                 retrObserved.await(10, TimeUnit.SECONDS));
-        assertTrue("RETR terminator not received: " + endpoint.getResponses(),
-                awaitLineEquals(endpoint, ".", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineEquals(".");
         assertTrue("POP3 RETR offload must run on gumdrop-storage-*, was "
                         + retrThread.get(),
                 retrThread.get() != null
@@ -514,57 +505,6 @@ public class AsyncDiskOffloadBoundaryTest {
         handler.receive(ByteBuffer.wrap(data));
     }
 
-    private static boolean awaitLineContaining(StubEndpoint endpoint,
-            String fragment, long timeout, TimeUnit unit)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
-        while (System.nanoTime() < deadline) {
-            for (String line : endpoint.getResponses()) {
-                if (line.contains(fragment)) {
-                    return true;
-                }
-            }
-            Thread.sleep(20);
-        }
-        return false;
-    }
-
-    private static boolean awaitLineStartingWith(StubEndpoint endpoint,
-            String prefix, long timeout, TimeUnit unit)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
-        while (System.nanoTime() < deadline) {
-            for (String line : endpoint.getResponses()) {
-                if (line.startsWith(prefix)) {
-                    return true;
-                }
-            }
-            Thread.sleep(20);
-        }
-        return false;
-    }
-
-    private static boolean awaitLineEquals(StubEndpoint endpoint,
-            String exact, long timeout, TimeUnit unit)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
-        while (System.nanoTime() < deadline) {
-            for (String line : endpoint.getResponses()) {
-                if (exact.equals(line)) {
-                    return true;
-                }
-            }
-            Thread.sleep(20);
-        }
-        return false;
-    }
-
-    private static String lastFtpResponse(StubEndpoint endpoint) {
-        List<String> responses = endpoint.getResponses();
-        assertFalse("No FTP responses", responses.isEmpty());
-        return responses.get(responses.size() - 1);
-    }
-
     /** Minimal realm that accepts a single username/password pair. */
     private static final class AcceptingRealm implements Realm {
         private final String user;
@@ -608,21 +548,6 @@ public class AsyncDiskOffloadBoundaryTest {
         public boolean isUserInRole(String username, String role) {
             return false;
         }
-    }
-
-    private static boolean awaitFtpReply(StubEndpoint endpoint,
-            String codePrefix, long timeout, TimeUnit unit)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
-        while (System.nanoTime() < deadline) {
-            for (String line : endpoint.getResponses()) {
-                if (line.startsWith(codePrefix)) {
-                    return true;
-                }
-            }
-            Thread.sleep(20);
-        }
-        return false;
     }
 
     private static void deleteRecursively(Path p) throws Exception {
@@ -696,69 +621,6 @@ public class AsyncDiskOffloadBoundaryTest {
         @Override public org.bluezoo.gumdrop.telemetry.TelemetryConfig
                 getTelemetryConfig() {
             return null;
-        }
-    }
-
-    static final class StubEndpoint implements Endpoint {
-        final List<byte[]> sentData = new CopyOnWriteArrayList<byte[]>();
-        boolean open = true;
-
-        @Override
-        public void send(ByteBuffer data) {
-            byte[] bytes = new byte[data.remaining()];
-            data.get(bytes);
-            sentData.add(bytes);
-        }
-
-        List<String> getResponses() {
-            List<String> result = new ArrayList<String>();
-            for (byte[] data : sentData) {
-                String s = new String(data, StandardCharsets.US_ASCII);
-                for (String line : s.split("\r\n", -1)) {
-                    if (!line.isEmpty()) {
-                        result.add(line);
-                    }
-                }
-            }
-            return result;
-        }
-
-        @Override public boolean isOpen() { return open; }
-        @Override public boolean isClosing() { return false; }
-        @Override public void close() { open = false; }
-        @Override public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("127.0.0.1", 21);
-        }
-        @Override public SocketAddress getRemoteAddress() {
-            return new InetSocketAddress("127.0.0.1", 54321);
-        }
-        @Override public boolean isSecure() { return false; }
-        @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public void startTLS() { }
-        @Override public SelectorLoop getSelectorLoop() { return null; }
-        @Override public void execute(Runnable task) { task.run(); }
-        @Override public TimerHandle scheduleTimer(long delayMs, Runnable cb) {
-            return new TimerHandle() {
-                @Override public void cancel() { }
-                @Override public boolean isCancelled() { return false; }
-            };
-        }
-        @Override public org.bluezoo.gumdrop.telemetry.Trace getTrace() {
-            return null;
-        }
-        @Override public void setTrace(
-                org.bluezoo.gumdrop.telemetry.Trace trace) { }
-        @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public org.bluezoo.gumdrop.telemetry.TelemetryConfig
-                getTelemetryConfig() {
-            return null;
-        }
-        @Override public void pauseRead() { }
-        @Override public void resumeRead() { }
-        @Override public void onWriteReady(Runnable callback) {
-            if (callback != null) {
-                callback.run();
-            }
         }
     }
 

@@ -21,16 +21,14 @@
 
 package org.bluezoo.gumdrop.pop3;
 
-import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
-import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
+import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
 import org.junit.After;
 import org.junit.Before;
@@ -38,8 +36,6 @@ import org.junit.Test;
 
 import static org.junit.Assert.*;
 
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
@@ -51,7 +47,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 import javax.crypto.Mac;
 import javax.crypto.SecretKeyFactory;
@@ -116,7 +111,7 @@ public class POP3ScramCredentialsOffloadTest {
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
 
         POP3ProtocolHandler handler = new POP3ProtocolHandler(listener);
-        StubEndpoint endpoint = new StubEndpoint();
+        RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
         handler.connected(endpoint);
 
         final List<String> observedThreads = Collections.synchronizedList(new ArrayList<String>());
@@ -131,12 +126,11 @@ public class POP3ScramCredentialsOffloadTest {
         String clientFirstBare = "n=" + USERNAME + ",r=" + clientNonce;
         String clientFirst = "n,," + clientFirstBare;
 
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "AUTH SCRAM-SHA-256 "
                 + Base64.getEncoder().encodeToString(
-                        clientFirst.getBytes(StandardCharsets.US_ASCII)));
-        assertTrue("server-first continuation not received: " + endpoint.getResponses(),
-                awaitLineStartingWith(endpoint, "+ ", 10, TimeUnit.SECONDS));
+                        clientFirst.getBytes(StandardCharsets.UTF_8)));
+        endpoint.awaitLineStartingWith("+ ");
 
         assertFalse("client-first credential derivation must run through "
                 + "StorageExecutor -- the work-thread observer was never "
@@ -147,7 +141,7 @@ public class POP3ScramCredentialsOffloadTest {
                     name.startsWith("gumdrop-storage-"));
         }
 
-        String serverFirstLine = findLineStartingWith(endpoint, "+ ");
+        String serverFirstLine = endpoint.findLineStartingWith("+ ");
         String serverFirst = new String(
                 Base64.getDecoder().decode(serverFirstLine.substring(2)),
                 StandardCharsets.US_ASCII);
@@ -176,11 +170,10 @@ public class POP3ScramCredentialsOffloadTest {
                 + Base64.getEncoder().encodeToString(clientProof);
 
         observedThreads.clear();
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, Base64.getEncoder().encodeToString(
-                clientFinal.getBytes(StandardCharsets.US_ASCII)));
-        assertTrue("+OK not received: " + endpoint.getResponses(),
-                awaitLineStartingWith(endpoint, "+OK", 10, TimeUnit.SECONDS));
+                clientFinal.getBytes(StandardCharsets.UTF_8)));
+        endpoint.awaitLineStartingWith("+OK");
 
         assertFalse("client-final credential derivation must also run "
                 + "through StorageExecutor",
@@ -220,28 +213,6 @@ public class POP3ScramCredentialsOffloadTest {
             String command) {
         byte[] data = (command + "\r\n").getBytes(StandardCharsets.US_ASCII);
         handler.receive(ByteBuffer.wrap(data));
-    }
-
-    private static boolean awaitLineStartingWith(StubEndpoint endpoint,
-            String prefix, long timeout, TimeUnit unit)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
-        while (System.nanoTime() < deadline) {
-            if (findLineStartingWith(endpoint, prefix) != null) {
-                return true;
-            }
-            Thread.sleep(20);
-        }
-        return false;
-    }
-
-    private static String findLineStartingWith(StubEndpoint endpoint, String prefix) {
-        for (String line : endpoint.getResponses()) {
-            if (line.startsWith(prefix)) {
-                return line;
-            }
-        }
-        return null;
     }
 
     private static void deleteRecursively(Path p) throws Exception {
@@ -321,72 +292,5 @@ public class POP3ScramCredentialsOffloadTest {
     }
 
     private static final class TestPOP3Listener extends POP3Listener {
-    }
-
-    private static final class StubEndpoint implements Endpoint {
-        final List<byte[]> sentData = new ArrayList<byte[]>();
-        boolean open = true;
-
-        @Override
-        public void send(ByteBuffer data) {
-            byte[] bytes = new byte[data.remaining()];
-            data.get(bytes);
-            synchronized (sentData) {
-                sentData.add(bytes);
-            }
-        }
-
-        List<String> getResponses() {
-            List<String> result = new ArrayList<String>();
-            synchronized (sentData) {
-                for (byte[] data : sentData) {
-                    String s = new String(data, StandardCharsets.US_ASCII);
-                    for (String line : s.split("\r\n", -1)) {
-                        if (!line.isEmpty()) {
-                            result.add(line);
-                        }
-                    }
-                }
-            }
-            return result;
-        }
-
-        @Override public boolean isOpen() { return open; }
-        @Override public boolean isClosing() { return false; }
-        @Override public void close() { open = false; }
-        @Override public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("127.0.0.1", 110);
-        }
-        @Override public SocketAddress getRemoteAddress() {
-            return new InetSocketAddress("127.0.0.1", 54321);
-        }
-        @Override public boolean isSecure() { return false; }
-        @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public void startTLS() { }
-        @Override public SelectorLoop getSelectorLoop() { return null; }
-        @Override public void execute(Runnable task) { task.run(); }
-        @Override public TimerHandle scheduleTimer(long delayMs, Runnable cb) {
-            return new TimerHandle() {
-                @Override public void cancel() { }
-                @Override public boolean isCancelled() { return false; }
-            };
-        }
-        @Override public org.bluezoo.gumdrop.telemetry.Trace getTrace() {
-            return null;
-        }
-        @Override public void setTrace(
-                org.bluezoo.gumdrop.telemetry.Trace trace) { }
-        @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public org.bluezoo.gumdrop.telemetry.TelemetryConfig
-                getTelemetryConfig() {
-            return null;
-        }
-        @Override public void pauseRead() { }
-        @Override public void resumeRead() { }
-        @Override public void onWriteReady(Runnable callback) {
-            if (callback != null) {
-                callback.run();
-            }
-        }
     }
 }

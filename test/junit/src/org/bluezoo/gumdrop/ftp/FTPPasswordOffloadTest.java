@@ -21,16 +21,14 @@
 
 package org.bluezoo.gumdrop.ftp;
 
-import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
-import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
 import org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler;
+import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
 import org.junit.After;
 import org.junit.Before;
@@ -38,8 +36,6 @@ import org.junit.Test;
 
 import static org.junit.Assert.*;
 
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
@@ -52,7 +48,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
@@ -118,13 +113,12 @@ public class FTPPasswordOffloadTest {
 
         FTPListener listener = new FTPListener();
         FTPProtocolHandler handler = new FTPProtocolHandler(listener, connectionHandler);
-        StubEndpoint endpoint = new StubEndpoint();
+        RecordingStubEndpoint endpoint = new RecordingStubEndpoint(21);
         handler.connected(endpoint);
 
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "USER " + USERNAME);
-        assertTrue("USER continuation not received: " + endpoint.getResponses(),
-                awaitLineStartingWith(endpoint, "331 ", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineStartingWith("331 ");
 
         final List<String> observedThreads = Collections.synchronizedList(new ArrayList<String>());
         StorageExecutor.workThreadObserver = new StorageExecutor.WorkThreadObserver() {
@@ -134,10 +128,9 @@ public class FTPPasswordOffloadTest {
             }
         };
 
-        endpoint.sentData.clear();
+        endpoint.clearResponses();
         sendLine(handler, "PASS " + PASSWORD);
-        assertTrue("login success not received: " + endpoint.getResponses(),
-                awaitLineStartingWith(endpoint, "230 ", 10, TimeUnit.SECONDS));
+        endpoint.awaitLineStartingWith("230 ");
 
         assertFalse("PASS password verification must run through "
                 + "StorageExecutor -- the work-thread observer was never "
@@ -155,28 +148,6 @@ public class FTPPasswordOffloadTest {
             String command) {
         byte[] data = (command + "\r\n").getBytes(StandardCharsets.US_ASCII);
         handler.receive(ByteBuffer.wrap(data));
-    }
-
-    private static boolean awaitLineStartingWith(StubEndpoint endpoint,
-            String prefix, long timeout, TimeUnit unit)
-            throws InterruptedException {
-        long deadline = System.nanoTime() + unit.toNanos(timeout);
-        while (System.nanoTime() < deadline) {
-            if (findLineStartingWith(endpoint, prefix) != null) {
-                return true;
-            }
-            Thread.sleep(20);
-        }
-        return false;
-    }
-
-    private static String findLineStartingWith(StubEndpoint endpoint, String prefix) {
-        for (String line : endpoint.getResponses()) {
-            if (line.startsWith(prefix)) {
-                return line;
-            }
-        }
-        return null;
     }
 
     private static void deleteRecursively(Path p) throws Exception {
@@ -260,73 +231,6 @@ public class FTPPasswordOffloadTest {
             PBEKeySpec spec = new PBEKeySpec(
                     password.toCharArray(), salt, iterations, 256);
             return factory.generateSecret(spec).getEncoded();
-        }
-    }
-
-    private static final class StubEndpoint implements Endpoint {
-        final List<byte[]> sentData = new ArrayList<byte[]>();
-        boolean open = true;
-
-        @Override
-        public void send(ByteBuffer data) {
-            byte[] bytes = new byte[data.remaining()];
-            data.get(bytes);
-            synchronized (sentData) {
-                sentData.add(bytes);
-            }
-        }
-
-        List<String> getResponses() {
-            List<String> result = new ArrayList<String>();
-            synchronized (sentData) {
-                for (byte[] data : sentData) {
-                    String s = new String(data, StandardCharsets.US_ASCII);
-                    for (String line : s.split("\r\n", -1)) {
-                        if (!line.isEmpty()) {
-                            result.add(line);
-                        }
-                    }
-                }
-            }
-            return result;
-        }
-
-        @Override public boolean isOpen() { return open; }
-        @Override public boolean isClosing() { return false; }
-        @Override public void close() { open = false; }
-        @Override public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("127.0.0.1", 21);
-        }
-        @Override public SocketAddress getRemoteAddress() {
-            return new InetSocketAddress("127.0.0.1", 54321);
-        }
-        @Override public boolean isSecure() { return false; }
-        @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public void startTLS() { }
-        @Override public SelectorLoop getSelectorLoop() { return null; }
-        @Override public void execute(Runnable task) { task.run(); }
-        @Override public TimerHandle scheduleTimer(long delayMs, Runnable cb) {
-            return new TimerHandle() {
-                @Override public void cancel() { }
-                @Override public boolean isCancelled() { return false; }
-            };
-        }
-        @Override public org.bluezoo.gumdrop.telemetry.Trace getTrace() {
-            return null;
-        }
-        @Override public void setTrace(
-                org.bluezoo.gumdrop.telemetry.Trace trace) { }
-        @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public org.bluezoo.gumdrop.telemetry.TelemetryConfig
-                getTelemetryConfig() {
-            return null;
-        }
-        @Override public void pauseRead() { }
-        @Override public void resumeRead() { }
-        @Override public void onWriteReady(Runnable callback) {
-            if (callback != null) {
-                callback.run();
-            }
         }
     }
 }
