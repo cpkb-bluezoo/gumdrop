@@ -376,6 +376,12 @@ public class ELEvaluatorTest {
         synchronized (ELEvaluator.EXPRESSION_CACHE) {
             ELEvaluator.EXPRESSION_CACHE.clear();
         }
+        synchronized (ELEvaluator.METHOD_CACHE) {
+            ELEvaluator.METHOD_CACHE.clear();
+        }
+        synchronized (ELEvaluator.PROPERTY_CACHE) {
+            ELEvaluator.PROPERTY_CACHE.clear();
+        }
     }
 
     @Test
@@ -456,9 +462,65 @@ public class ELEvaluatorTest {
                 cacheSize() <= 4096);
     }
 
+    // ===== Member resolution cache tests (issue #312) =====
+
+    @Test
+    public void testRepeatedMethodCallCachesResolvedMethod() throws Exception {
+        MethodProbeBean bean = new MethodProbeBean();
+        pageContext.setAttribute("bean", bean, PageContext.PAGE_SCOPE);
+        assertEquals(0, methodCacheSize());
+
+        assertEquals(2, ((Number) evaluator.evaluate("${bean.addOne(1)}")).intValue());
+        assertEquals(1, methodCacheSize());
+
+        assertEquals(11, ((Number) evaluator.evaluate("${bean.addOne(10)}")).intValue());
+        assertEquals("repeat evaluation must reuse the cached Method lookup, not add entries",
+                1, methodCacheSize());
+    }
+
+    @Test
+    public void testRepeatedPropertyAccessCachesResolvedReader() throws Exception {
+        MethodProbeBean bean = new MethodProbeBean();
+        bean.setLabel("first");
+        pageContext.setAttribute("bean", bean, PageContext.PAGE_SCOPE);
+        assertEquals(0, propertyCacheSize());
+
+        assertEquals("first", evaluator.evaluate("${bean.label}"));
+        assertEquals(1, propertyCacheSize());
+
+        bean.setLabel("second");
+        assertEquals("second", evaluator.evaluate("${bean.label}"));
+        assertEquals("repeat evaluation must reuse the cached property reader, not add entries",
+                1, propertyCacheSize());
+    }
+
+    @Test
+    public void testMemberCacheIsSharedAcrossEvaluatorInstances() throws Exception {
+        MethodProbeBean bean = new MethodProbeBean();
+        pageContext.setAttribute("bean", bean, PageContext.PAGE_SCOPE);
+        evaluator.evaluate("${bean.addOne(1)}");
+        assertEquals(1, methodCacheSize());
+
+        new ELEvaluator(pageContext).evaluate("${bean.addOne(2)}");
+        assertEquals("member resolution cache must be shared across evaluator instances",
+                1, methodCacheSize());
+    }
+
     private static int cacheSize() {
         synchronized (ELEvaluator.EXPRESSION_CACHE) {
             return ELEvaluator.EXPRESSION_CACHE.size();
+        }
+    }
+
+    private static int methodCacheSize() {
+        synchronized (ELEvaluator.METHOD_CACHE) {
+            return ELEvaluator.METHOD_CACHE.size();
+        }
+    }
+
+    private static int propertyCacheSize() {
+        synchronized (ELEvaluator.PROPERTY_CACHE) {
+            return ELEvaluator.PROPERTY_CACHE.size();
         }
     }
 
@@ -482,6 +544,29 @@ public class ELEvaluatorTest {
 
         public void setAge(int age) {
             this.age = age;
+        }
+    }
+
+    /** Bean with an EL-invokable method used by issue #312 cache tests. */
+    public static class MethodProbeBean {
+        private String label;
+        private int lastResult;
+
+        public int addOne(Number value) {
+            lastResult = value.intValue() + 1;
+            return lastResult;
+        }
+
+        public int getLastResult() {
+            return lastResult;
+        }
+
+        public String getLabel() {
+            return label;
+        }
+
+        public void setLabel(String label) {
+            this.label = label;
         }
     }
 

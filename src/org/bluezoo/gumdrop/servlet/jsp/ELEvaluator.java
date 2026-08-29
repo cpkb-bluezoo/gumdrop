@@ -205,9 +205,12 @@ public class ELEvaluator {
      * repeatedly scanning the string for operator positions via {@link
      * #findOperator}/{@link #findBinaryOperator}, which is the expensive
      * part -- happens once per distinct expression string and is cached
-     * in {@link #EXPRESSION_CACHE}; only the dynamic part (the actual
-     * bean/property lookups and operator application, which must reflect
-     * this evaluation's live request/page state) runs on every call.
+     * in {@link #EXPRESSION_CACHE}; reflective member resolution for
+     * property access and method calls is likewise cached in {@link
+     * #PROPERTY_CACHE}/{@link #METHOD_CACHE} (issue #312). Only the
+     * dynamic part (reading live bean state, evaluating arguments, and
+     * applying operators, which must reflect this evaluation's request/
+     * page state) runs on every call.
      * This matters most inside a JSP iteration tag, where the same
      * expression string is otherwise re-parsed from scratch on every row
      * of every request.
@@ -457,6 +460,20 @@ public class ELEvaluator {
      */
     private static final int EXPRESSION_CACHE_MAX_SIZE = 4096;
 
+    /**
+     * Bounded, shared caches of reflective member resolution (issue #312).
+     * Parsed expression trees from issue #191 are reused across
+     * evaluations, but without these caches every evaluation still
+     * re-scanned {@code Class.getMethods()} / {@code BeanInfo} for each
+     * property access or method call. Keys are stable for the life of
+     * the class, so cache entries are shared across evaluator instances
+     * the same way {@link #EXPRESSION_CACHE} is.
+     */
+    private static final int MEMBER_CACHE_MAX_SIZE = 4096;
+
+    /** Sentinel stored in member caches for a resolved-not-found lookup. */
+    private static final Object MEMBER_NOT_FOUND = new Object();
+
     // Package-private (not private) so ELEvaluatorTest can assert on cache
     // occupancy directly rather than through reflection.
     static final Map<String, ParsedNode> EXPRESSION_CACHE =
@@ -466,6 +483,79 @@ public class ELEvaluator {
                     return size() > EXPRESSION_CACHE_MAX_SIZE;
                 }
             };
+
+    static final Map<MethodKey, Object> METHOD_CACHE =
+            new LinkedHashMap<MethodKey, Object>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<MethodKey, Object> eldest) {
+                    return size() > MEMBER_CACHE_MAX_SIZE;
+                }
+            };
+
+    static final Map<PropertyKey, Object> PROPERTY_CACHE =
+            new LinkedHashMap<PropertyKey, Object>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<PropertyKey, Object> eldest) {
+                    return size() > MEMBER_CACHE_MAX_SIZE;
+                }
+            };
+
+    private static final class MethodKey {
+        private final Class<?> clazz;
+        private final String name;
+        private final int arity;
+
+        MethodKey(Class<?> clazz, String name, int arity) {
+            this.clazz = clazz;
+            this.name = name;
+            this.arity = arity;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = clazz.hashCode();
+            result = 31 * result + name.hashCode();
+            result = 31 * result + arity;
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof MethodKey)) {
+                return false;
+            }
+            MethodKey other = (MethodKey) obj;
+            return clazz == other.clazz
+                    && name.equals(other.name)
+                    && arity == other.arity;
+        }
+    }
+
+    private static final class PropertyKey {
+        private final Class<?> clazz;
+        private final String name;
+
+        PropertyKey(Class<?> clazz, String name) {
+            this.clazz = clazz;
+            this.name = name;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = clazz.hashCode();
+            result = 31 * result + name.hashCode();
+            return result;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof PropertyKey)) {
+                return false;
+            }
+            PropertyKey other = (PropertyKey) obj;
+            return clazz == other.clazz && name.equals(other.name);
+        }
+    }
 
     /**
      * Finds a binary operator in the expression, respecting parentheses and strings.
@@ -732,15 +822,38 @@ public class ELEvaluator {
         if (bean == null || property == null) {
             return null;
         }
-        
+
         try {
-            BeanInfo beanInfo = Introspector.getBeanInfo(bean.getClass());
+            Method getter = resolvePropertyReader(bean.getClass(), property);
+            if (getter != null) {
+                return getter.invoke(bean);
+            }
+        } catch (Exception e) {
+            String msg = MessageFormat.format(
+                L10N.getString("el.property_error"), property);
+            LOGGER.log(Level.FINE, msg, e);
+        }
+
+        return null;
+    }
+
+    private Method resolvePropertyReader(Class<?> beanClass, String property) {
+        PropertyKey key = new PropertyKey(beanClass, property);
+        Object cached;
+        synchronized (PROPERTY_CACHE) {
+            cached = PROPERTY_CACHE.get(key);
+        }
+        if (cached != null) {
+            return cached == MEMBER_NOT_FOUND ? null : (Method) cached;
+        }
+
+        Method reader = null;
+        try {
+            BeanInfo beanInfo = Introspector.getBeanInfo(beanClass);
             for (PropertyDescriptor pd : beanInfo.getPropertyDescriptors()) {
                 if (property.equals(pd.getName())) {
-                    Method getter = pd.getReadMethod();
-                    if (getter != null) {
-                        return getter.invoke(bean);
-                    }
+                    reader = pd.getReadMethod();
+                    break;
                 }
             }
         } catch (Exception e) {
@@ -748,8 +861,11 @@ public class ELEvaluator {
                 L10N.getString("el.property_error"), property);
             LOGGER.log(Level.FINE, msg, e);
         }
-        
-        return null;
+
+        synchronized (PROPERTY_CACHE) {
+            PROPERTY_CACHE.put(key, reader != null ? reader : MEMBER_NOT_FOUND);
+        }
+        return reader;
     }
     
     /**
@@ -778,31 +894,61 @@ public class ELEvaluator {
         
         // Find and invoke method — restricted to the bean's own declared type
         Class<?> baseClass = base.getClass();
+        Method method = resolveMethod(baseClass, methodName, args.size());
+        try {
+            return method.invoke(base, args.toArray());
+        } catch (InvocationTargetException e) {
+            throw (Exception) e.getCause();
+        }
+    }
+
+    private Method resolveMethod(Class<?> baseClass, String methodName, int arity)
+            throws ELException {
         if (isDangerousClass(baseClass)) {
             String msg = MessageFormat.format(
                 L10N.getString("el.method_blocked"), methodName);
             throw new ELException(msg);
         }
+
+        MethodKey key = new MethodKey(baseClass, methodName, arity);
+        Object cached;
+        synchronized (METHOD_CACHE) {
+            cached = METHOD_CACHE.get(key);
+        }
+        if (cached != null) {
+            if (cached == MEMBER_NOT_FOUND) {
+                String msg = MessageFormat.format(
+                    L10N.getString("el.method_not_found"), methodName);
+                throw new ELException(msg);
+            }
+            return (Method) cached;
+        }
+
+        Method found = null;
         for (Method method : baseClass.getMethods()) {
-            if (methodName.equals(method.getName()) &&
-                method.getParameterTypes().length == args.size()) {
+            if (methodName.equals(method.getName())
+                    && method.getParameterTypes().length == arity) {
                 Class<?> declaring = method.getDeclaringClass();
                 if (isDangerousClass(declaring)) {
                     String msg = MessageFormat.format(
                         L10N.getString("el.method_blocked"), methodName);
                     throw new ELException(msg);
                 }
-                try {
-                    return method.invoke(base, args.toArray());
-                } catch (InvocationTargetException e) {
-                    throw (Exception) e.getCause();
-                }
+                found = method;
+                break;
             }
         }
 
-        String msg = MessageFormat.format(
-            L10N.getString("el.method_not_found"), methodName);
-        throw new ELException(msg);
+        synchronized (METHOD_CACHE) {
+            METHOD_CACHE.put(key, found != null ? found : MEMBER_NOT_FOUND);
+        }
+
+        if (found == null) {
+            String msg = MessageFormat.format(
+                L10N.getString("el.method_not_found"), methodName);
+            throw new ELException(msg);
+        }
+        return found;
     }
     
     private static boolean isDangerousClass(Class<?> cls) {
