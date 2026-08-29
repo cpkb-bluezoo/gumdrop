@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.mqtt.broker;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -288,7 +289,7 @@ public class TopicTree {
      */
     public Map<String, QoS> matchWithMaxQoS(String topicName) {
         List<SubscriptionEntry> entries = match(topicName);
-        Map<String, QoS> result = new ConcurrentHashMap<>();
+        Map<String, QoS> result = new HashMap<>();
         for (SubscriptionEntry entry : entries) {
             QoS existing = result.get(entry.getClientId());
             if (existing == null

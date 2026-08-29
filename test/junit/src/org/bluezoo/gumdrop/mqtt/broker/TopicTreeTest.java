@@ -26,6 +26,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 
@@ -204,5 +205,35 @@ public class TopicTreeTest {
         tree.subscribe("a/b", "c1", QoS.AT_MOST_ONCE);
         tree.unsubscribe("never/subscribed", "c1");
         assertTrue(tree.matchWithMaxQoS("a/b").containsKey("c1"));
+    }
+
+    // ─── Publish-routing result map (issue #327) ────────────────────────
+
+    @Test
+    public void testMatchWithMaxQoSReturnsPlainHashMap() {
+        tree.subscribe("topic/a", "c1", QoS.AT_MOST_ONCE);
+        tree.subscribe("topic/a", "c2", QoS.AT_LEAST_ONCE);
+
+        Map<String, QoS> result = tree.matchWithMaxQoS("topic/a");
+
+        assertFalse("match result is built and consumed on one thread only",
+                result instanceof ConcurrentHashMap);
+        assertEquals(QoS.AT_MOST_ONCE, result.get("c1"));
+        assertEquals(QoS.AT_LEAST_ONCE, result.get("c2"));
+    }
+
+    @Test
+    public void testResolveSubscribersRoutingUnchanged() {
+        SubscriptionManager manager = new SubscriptionManager();
+        manager.subscribe("c1", "sensors/+/temp", QoS.AT_MOST_ONCE);
+        manager.subscribe("c2", "sensors/room1/temp", QoS.EXACTLY_ONCE);
+        manager.subscribe("c3", "other/#", QoS.AT_LEAST_ONCE);
+
+        Map<String, QoS> matched = manager.resolveSubscribers("sensors/room1/temp");
+        assertEquals(2, matched.size());
+        assertEquals(QoS.AT_MOST_ONCE, matched.get("c1"));
+        assertEquals(QoS.EXACTLY_ONCE, matched.get("c2"));
+        assertFalse(matched.containsKey("c3"));
+        assertFalse(matched instanceof ConcurrentHashMap);
     }
 }
