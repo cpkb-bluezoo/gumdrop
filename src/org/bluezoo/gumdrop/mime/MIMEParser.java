@@ -987,36 +987,24 @@ public class MIMEParser {
 		boolean hasProcessedContent = false;
 
 		while (source.hasRemaining()) {
-			// Calculate how much to process in this chunk
 			int chunkSize = Math.min(source.remaining(), maxBufferSize);
+			int chunkStart = source.position();
+			source.position(chunkStart + chunkSize);
 
-			// Create temporary byte array for this chunk
-			byte[] chunkBytes = new byte[chunkSize];
-			source.get(chunkBytes);
-
-			// If this is the last chunk and isBeforeBoundary, strip trailing line ending
 			boolean isLastChunk = !source.hasRemaining();
-			int limit = chunkBytes.length;
+			ByteBuffer chunk = source.duplicate();
+			chunk.position(chunkStart);
+			chunk.limit(chunkStart + chunkSize);
+
 			if (isLastChunk && isBeforeBoundary) {
-				// Check for CRLF
-				if (limit >= 2 && chunkBytes[limit - 2] == '\r' && chunkBytes[limit - 1] == '\n') {
-					limit -= 2;
-				} else if (limit >= 1) {
-					byte lastByte = chunkBytes[limit - 1];
-					if (lastByte == '\n' || (allowCRLineEnd && lastByte == '\r')) {
-						limit -= 1;
-					}
-				}
+				stripTrailingLineEnding(chunk);
 			}
 
-			// Create ByteBuffer for handler
-			ByteBuffer chunkBuffer = ByteBuffer.wrap(chunkBytes, 0, limit);
-
-			if (chunkBuffer.hasRemaining()) {
+			if (chunk.hasRemaining()) {
 				if (unexpected) {
-					handler.unexpectedContent(chunkBuffer);
+					handler.unexpectedContent(chunk);
 				} else {
-					handler.bodyContent(chunkBuffer);
+					handler.bodyContent(chunk);
 				}
 			}
 
@@ -1024,6 +1012,26 @@ public class MIMEParser {
 		}
 		// Set contentFlushed appropriately - indicates we processed content in chunks
 		contentFlushed = hasProcessedContent;
+	}
+
+	/**
+	 * Truncates a body chunk view to drop the line delimiter that precedes a
+	 * multipart boundary (RFC 2046 section 5.1).
+	 */
+	private void stripTrailingLineEnding(ByteBuffer chunk) {
+		int lim = chunk.limit();
+		if (lim - chunk.position() >= 2) {
+			if (chunk.get(lim - 2) == '\r' && chunk.get(lim - 1) == '\n') {
+				chunk.limit(lim - 2);
+				return;
+			}
+		}
+		if (lim - chunk.position() >= 1) {
+			byte lastByte = chunk.get(lim - 1);
+			if (lastByte == '\n' || (allowCRLineEnd && lastByte == '\r')) {
+				chunk.limit(lim - 1);
+			}
+		}
 	}
 
 	/**
