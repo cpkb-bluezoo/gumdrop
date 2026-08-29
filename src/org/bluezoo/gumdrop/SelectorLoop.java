@@ -230,17 +230,25 @@ public class SelectorLoop implements Runnable {
 
                         ChannelHandler handler = (ChannelHandler) key.attachment();
 
-                        if (key.isReadable()) {
-                            doRead(key, handler);
-                        }
+                        try {
+                            if (key.isReadable()) {
+                                doRead(key, handler);
+                            }
 
-                        if (key.isValid() && key.isWritable()) {
-                            doWrite(key, handler);
-                        }
+                            if (key.isValid() && key.isWritable()) {
+                                doWrite(key, handler);
+                            }
 
-                        if (key.isValid() && key.isConnectable()) {
-                            // Only TCP connections have OP_CONNECT
-                            doTcpEndpointConnect(key, (TCPEndpoint) handler);
+                            if (key.isValid() && key.isConnectable()) {
+                                // Only TCP connections have OP_CONNECT
+                                doTcpEndpointConnect(key, (TCPEndpoint) handler);
+                            }
+                        } catch (CancelledKeyException e) {
+                            // Key was cancelled while dispatching, continue.
+                        } catch (Exception e) {
+                            LOGGER.log(Level.WARNING,
+                                    "Error dispatching I/O event", e);
+                            isolateFailedHandler(key, handler, e);
                         }
                     }
                 } catch (CancelledKeyException e) {
@@ -306,6 +314,38 @@ public class SelectorLoop implements Runnable {
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING, "Error in pending task", e);
             }
+        }
+    }
+
+    /**
+     * Closes or cancels the handler that threw during per-key I/O dispatch
+     * so one connection's bug cannot leave inconsistent state registered
+     * on this loop. Matches the defensive pattern used by
+     * {@link #processPendingTimers()} and {@link #processPendingTasks()}.
+     */
+    private void isolateFailedHandler(SelectionKey key, ChannelHandler handler,
+            Exception cause) {
+        if (handler != null) {
+            try {
+                switch (handler.getChannelType()) {
+                    case TCP:
+                        ((TCPEndpoint) handler).handleDispatchError(cause);
+                        return;
+                    case DATAGRAM_SERVER:
+                    case DATAGRAM_CLIENT:
+                        ((UDPEndpoint) handler).close();
+                        return;
+                    case QUIC:
+                        ((QuicEngine) handler).close();
+                        return;
+                }
+            } catch (Exception closeError) {
+                LOGGER.log(Level.WARNING,
+                        "Error isolating failed handler", closeError);
+            }
+        }
+        if (key != null && key.isValid()) {
+            key.cancel();
         }
     }
 
