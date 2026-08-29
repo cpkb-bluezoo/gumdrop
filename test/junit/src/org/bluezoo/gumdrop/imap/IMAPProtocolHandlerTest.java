@@ -21,12 +21,16 @@
 
 package org.bluezoo.gumdrop.imap;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -35,6 +39,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
@@ -136,6 +142,75 @@ public class IMAPProtocolHandlerTest {
         endpoint.sentData.clear();
         sendCommand("a1 LOGOUT");
         assertTrue(lastResponse().startsWith("a1 OK"));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Issue #309: CRAM-MD5/DIGEST-MD5 challenge construction must not
+    // block the SelectorLoop thread on a reverse-DNS lookup of the
+    // endpoint's local address.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // A raw byte-address InetAddress (not looked up from a hostname
+    // string) has no cached name, so InetSocketAddress#getHostName() on
+    // it must perform a real reverse lookup -- exactly the case
+    // getHostString() is required to avoid. A distinct address per call
+    // is essential: the JVM negative-caches a failed reverse lookup, so
+    // repeating the *same* uncached address would only pay the lookup
+    // cost once and mask the bug for every call after the first --
+    // "series" keeps each test method's addresses disjoint from every
+    // other test's too, so an earlier test populating the cache can't
+    // mask a later one.
+    private static InetSocketAddress addressWithNoCachedHostname(int series, int index) throws Exception {
+        return new InetSocketAddress(
+                InetAddress.getByAddress(
+                        new byte[] { (byte) 10, (byte) series, (byte) (index >> 8), (byte) index }),
+                143);
+    }
+
+    @Test(timeout = 15000)
+    public void testAuthCramMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
+        StubRealm realm = new StubRealm();
+        realm.supportedMechanisms.add(SASLMechanism.CRAM_MD5);
+        listener.setRealm(realm);
+        connect();
+        endpoint.sentData.clear();
+
+        long start = System.nanoTime();
+        for (int i = 0; i < 200; i++) {
+            endpoint.localAddress = addressWithNoCachedHostname(3, i);
+            sendCommand("a1 AUTHENTICATE CRAM-MD5");
+            assertTrue(lastResponse().startsWith("+ "));
+            sendCommand("*");
+            assertTrue(lastResponse().startsWith("a1 BAD"));
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1000000;
+        assertTrue("200 AUTHENTICATE CRAM-MD5 challenge/abort cycles against distinct local "
+                + "addresses with no cached hostname took " + elapsedMs
+                + "ms -- expected getHostString() (never resolves) rather than "
+                + "getHostName() (attempts reverse DNS)", elapsedMs < 1000);
+    }
+
+    @Test(timeout = 15000)
+    public void testAuthDigestMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
+        StubRealm realm = new StubRealm();
+        realm.supportedMechanisms.add(SASLMechanism.DIGEST_MD5);
+        listener.setRealm(realm);
+        connect();
+        endpoint.sentData.clear();
+
+        long start = System.nanoTime();
+        for (int i = 0; i < 200; i++) {
+            endpoint.localAddress = addressWithNoCachedHostname(4, i);
+            sendCommand("a1 AUTHENTICATE DIGEST-MD5");
+            assertTrue(lastResponse().startsWith("+ "));
+            sendCommand("*");
+            assertTrue(lastResponse().startsWith("a1 BAD"));
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1000000;
+        assertTrue("200 AUTHENTICATE DIGEST-MD5 challenge/abort cycles against distinct local "
+                + "addresses with no cached hostname took " + elapsedMs
+                + "ms -- expected getHostString() (never resolves) rather than "
+                + "getHostName() (attempts reverse DNS)", elapsedMs < 1000);
     }
 
     @Test
@@ -355,6 +430,7 @@ public class IMAPProtocolHandlerTest {
         final List<byte[]> sentData = new ArrayList<byte[]>();
         boolean open = true;
         boolean secure;
+        SocketAddress localAddress = new InetSocketAddress("127.0.0.1", 143);
 
         @Override
         public void send(ByteBuffer data) {
@@ -381,7 +457,7 @@ public class IMAPProtocolHandlerTest {
         @Override public boolean isClosing() { return false; }
         @Override public void close() { open = false; }
         @Override public SocketAddress getLocalAddress() {
-            return new InetSocketAddress("127.0.0.1", 143);
+            return localAddress;
         }
         @Override public SocketAddress getRemoteAddress() {
             return new InetSocketAddress("127.0.0.1", 54321);
@@ -407,6 +483,41 @@ public class IMAPProtocolHandlerTest {
             if (callback != null) {
                 callback.run();
             }
+        }
+    }
+
+    static class StubRealm implements Realm {
+        Set<SASLMechanism> supportedMechanisms = new HashSet<SASLMechanism>();
+
+        @Override
+        public Realm forSelectorLoop(SelectorLoop loop) {
+            return this;
+        }
+
+        @Override
+        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+            return Collections.unmodifiableSet(supportedMechanisms);
+        }
+
+        @Override
+        public boolean passwordMatch(String username, String password) {
+            return "testuser".equals(username) && "testpass".equals(password);
+        }
+
+        @Override
+        public String getDigestHA1(String username, String realm) {
+            return null;
+        }
+
+        @Override
+        @SuppressWarnings("deprecation")
+        public String getPassword(String username) {
+            return "testuser".equals(username) ? "testpass" : null;
+        }
+
+        @Override
+        public boolean isUserInRole(String username, String role) {
+            return false;
         }
     }
 }

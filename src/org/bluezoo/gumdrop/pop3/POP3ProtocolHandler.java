@@ -1152,7 +1152,7 @@ public final class POP3ProtocolHandler
             InetSocketAddress addr =
                     (InetSocketAddress) endpoint.getLocalAddress();
             authChallenge = SASLUtils.generateCramMD5Challenge(
-                    addr.getHostName());
+                    addr.getHostString());
             authState = AuthState.CRAM_MD5_RESPONSE;
             sendContinuation(SASLUtils.encodeBase64(authChallenge));
         } catch (Exception e) {
@@ -1181,7 +1181,7 @@ public final class POP3ProtocolHandler
         try {
             authNonce = SASLUtils.generateNonce(16);
             String hostname = ((InetSocketAddress)
-                    endpoint.getLocalAddress()).getHostName();
+                    endpoint.getLocalAddress()).getHostString();
             String challenge = SASLUtils.generateDigestMD5Challenge(
                     hostname, authNonce);
             authState = AuthState.DIGEST_MD5_RESPONSE;
@@ -1618,7 +1618,7 @@ public final class POP3ProtocolHandler
                     String realmName = params.get("realm");
                     if (realmName == null) {
                         realmName = ((InetSocketAddress)
-                                endpoint.getLocalAddress()).getHostName();
+                                endpoint.getLocalAddress()).getHostString();
                     }
                     String ha1 = realm.getDigestHA1(
                             digestUsername, realmName);

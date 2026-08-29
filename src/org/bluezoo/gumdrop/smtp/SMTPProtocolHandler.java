@@ -2625,7 +2625,7 @@ public final class SMTPProtocolHandler
             addSessionAttribute("smtp.xclient_login", xclientLogin);
         }
         String localHostname = ((InetSocketAddress) endpoint.getLocalAddress())
-                .getHostName();
+                .getHostString();
         reply(220, localHostname + " ESMTP Gumdrop");
     }
 
