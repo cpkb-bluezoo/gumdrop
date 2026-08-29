@@ -356,6 +356,23 @@ public class DNSMessageTest {
     }
 
     @Test
+    public void testWireSizeMatchesSerializedLength() throws Exception {
+        InetAddress addr = InetAddress.getByName("10.0.0.1");
+        DNSResourceRecord mx = DNSResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
+        DNSResourceRecord a = DNSResourceRecord.a("mail.example.com", 300, addr);
+
+        DNSQuestion q = new DNSQuestion("example.com", DNSType.MX);
+        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
+        DNSMessage msg = new DNSMessage(42, flags,
+                Collections.singletonList(q),
+                Collections.singletonList(mx),
+                Collections.emptyList(),
+                Collections.singletonList(a));
+
+        assertEquals(msg.serialize().remaining(), msg.wireSize());
+    }
+
+    @Test
     public void testToString() {
         DNSMessage query = DNSMessage.createQuery(1, "test.com", DNSType.A);
         String str = query.toString();
