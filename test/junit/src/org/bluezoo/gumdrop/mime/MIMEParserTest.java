@@ -841,5 +841,69 @@ public class MIMEParserTest {
         
         assertEquals(2, handler.entityCount);
     }
+
+    /**
+     * Regression coverage for issue #318: {@code flushBodyContentBinary}
+     * documented zero-copy pass-through but allocated a fresh {@code byte[]}
+     * and copied on every chunk for 7bit/8bit/binary parts.
+     */
+    @Test
+    public void eightBitBodyPassesSliceViewsWithoutPerChunkAllocation()
+            throws MIMEParseException {
+        StringBuilder expectedBody = new StringBuilder();
+        StringBuilder message = new StringBuilder();
+        message.append("Content-Type: text/plain\r\n");
+        message.append("Content-Transfer-Encoding: 8bit\r\n");
+        message.append("\r\n");
+        for (int line = 0; line < 5; line++) {
+            for (int i = 0; i < 2000; i++) {
+                expectedBody.append('A');
+                message.append('A');
+            }
+            expectedBody.append("\r\n");
+            message.append("\r\n");
+        }
+
+        byte[] inputBytes = message.toString().getBytes(StandardCharsets.UTF_8);
+        ZeroCopyHandler handler = new ZeroCopyHandler(inputBytes);
+        MIMEParser parser = new MIMEParser();
+        parser.setHandler(handler);
+        parser.setMaxBufferSize(1024);
+
+        ByteBuffer buffer = ByteBuffer.wrap(inputBytes);
+        parser.receive(buffer);
+        parser.close();
+
+        assertFalse("flushBodyContentBinary must pass slice views of the "
+                + "receive buffer, not freshly allocated chunk copies",
+                handler.sawAllocatedCopy);
+        assertTrue("expected multiple chunked body deliveries, saw "
+                + handler.bodyChunkCount,
+                handler.bodyChunkCount >= 5);
+        assertEquals(expectedBody.toString(), handler.body.toString());
+    }
+
+    /**
+     * Handler that detects when body chunks are backed by a different array
+     * than the original {@code receive()} buffer.
+     */
+    private static final class ZeroCopyHandler extends TestHandler {
+        private final byte[] inputBytes;
+        private boolean sawAllocatedCopy;
+        private int bodyChunkCount;
+
+        ZeroCopyHandler(byte[] inputBytes) {
+            this.inputBytes = inputBytes;
+        }
+
+        @Override
+        public void bodyContent(ByteBuffer content) throws MIMEParseException {
+            bodyChunkCount++;
+            if (content.hasArray() && content.array() != inputBytes) {
+                sawAllocatedCopy = true;
+            }
+            super.bodyContent(content);
+        }
+    }
 }
 
