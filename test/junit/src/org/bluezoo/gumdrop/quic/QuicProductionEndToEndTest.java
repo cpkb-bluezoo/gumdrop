@@ -40,6 +40,7 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.AfterClass;
@@ -1505,61 +1506,89 @@ public class QuicProductionEndToEndTest {
                     oneRttKeysReady.await(5, TimeUnit.SECONDS));
             waitForConnectionIdle(serverConnection);
 
-            // --- Step 1: seed one synthetic unacked peer packet, flush ---
-            long firstPeerPacketNumber = 999L;
-            seedReceivedUnacked(serverConnection, firstPeerPacketNumber);
-            long firstAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
-            serverConnection.flush();
+            final AtomicReference<Throwable> coverageFailure = new AtomicReference<Throwable>();
+            final CountDownLatch coverageDone = new CountDownLatch(1);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        // --- Step 1: seed one synthetic unacked peer packet, flush ---
+                        long firstPeerPacketNumber = 999L;
+                        seedReceivedUnacked(serverConnection, firstPeerPacketNumber);
+                        long firstAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
+                        serverConnection.flush();
 
-            assertTrue("The synthetic packet number must still be tracked as unacked immediately "
-                    + "after flush() merely built and sent the ACK covering it -- confirmation "
-                    + "from the peer, not the act of writing the frame, is what should retire it",
-                    getReceivedUnackedOneRtt(serverConnection).contains(Long.valueOf(firstPeerPacketNumber)));
-            assertArrayEquals("The ACK-carrying packet's recorded coverage should be exactly what "
-                    + "was pending at the moment it was built",
-                    new long[] { firstPeerPacketNumber },
-                    getSentAckCoverageOneRtt(serverConnection).get(Long.valueOf(firstAckCarryingPacketNumber)));
+                        assertTrue("The synthetic packet number must still be tracked as unacked immediately "
+                                + "after flush() merely built and sent the ACK covering it -- confirmation "
+                                + "from the peer, not the act of writing the frame, is what should retire it",
+                                getReceivedUnackedOneRtt(serverConnection)
+                                        .contains(Long.valueOf(firstPeerPacketNumber)));
+                        assertArrayEquals("The ACK-carrying packet's recorded coverage should be exactly what "
+                                + "was pending at the moment it was built",
+                                new long[] { firstPeerPacketNumber },
+                                getSentAckCoverageOneRtt(serverConnection)
+                                        .get(Long.valueOf(firstAckCarryingPacketNumber)));
 
-            // --- Step 2: without confirming the first ACK, seed a second
-            // packet and flush again -- the first packet's coverage must
-            // still be pending and get folded into the new ACK too. ---
-            long secondPeerPacketNumber = 1000L;
-            seedReceivedUnacked(serverConnection, secondPeerPacketNumber);
-            long secondAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
-            serverConnection.flush();
+                        // --- Step 2: without confirming the first ACK, seed a second
+                        // packet and flush again -- the first packet's coverage must
+                        // still be pending and get folded into the new ACK too. ---
+                        long secondPeerPacketNumber = 1000L;
+                        seedReceivedUnacked(serverConnection, secondPeerPacketNumber);
+                        long secondAckCarryingPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
+                        serverConnection.flush();
 
-            long[] secondCoverage = getSentAckCoverageOneRtt(serverConnection)
-                    .get(Long.valueOf(secondAckCarryingPacketNumber));
-            java.util.Arrays.sort(secondCoverage);
-            assertArrayEquals("An unconfirmed first ACK's coverage must survive into a second, "
-                    + "later flush -- exactly what protects against the first ACK datagram "
-                    + "never reaching the peer",
-                    new long[] { firstPeerPacketNumber, secondPeerPacketNumber }, secondCoverage);
+                        long[] secondCoverage = getSentAckCoverageOneRtt(serverConnection)
+                                .get(Long.valueOf(secondAckCarryingPacketNumber));
+                        java.util.Arrays.sort(secondCoverage);
+                        assertArrayEquals("An unconfirmed first ACK's coverage must survive into a second, "
+                                + "later flush -- exactly what protects against the first ACK datagram "
+                                + "never reaching the peer",
+                                new long[] { firstPeerPacketNumber, secondPeerPacketNumber }, secondCoverage);
 
-            // --- Step 3: simulate the peer confirming only the *first*
-            // ACK-carrying packet -- only its specific coverage retires. ---
-            LossDetector lossDetector = getPrivateField(serverConnection, "lossDetector", LossDetector.class);
-            LossDetector.AckResult ackResult = lossDetector.onAckReceived(EncryptionLevel.ONE_RTT,
-                    firstAckCarryingPacketNumber, 0,
-                    new long[][] { { firstAckCarryingPacketNumber, firstAckCarryingPacketNumber } },
-                    25, System.currentTimeMillis(), true);
-            assertEquals("Sanity check: the loss detector must recognize the first ACK-carrying "
-                    + "packet as genuinely in flight and newly acked", 1, ackResult.getNewlyAcked().size());
+                        // --- Step 3: simulate the peer confirming only the *first*
+                        // ACK-carrying packet -- only its specific coverage retires. ---
+                        LossDetector lossDetector =
+                                getPrivateField(serverConnection, "lossDetector", LossDetector.class);
+                        LossDetector.AckResult ackResult = lossDetector.onAckReceived(EncryptionLevel.ONE_RTT,
+                                firstAckCarryingPacketNumber, 0,
+                                new long[][] { { firstAckCarryingPacketNumber, firstAckCarryingPacketNumber } },
+                                25, System.currentTimeMillis(), true);
+                        assertEquals("Sanity check: the loss detector must recognize the first ACK-carrying "
+                                + "packet as genuinely in flight and newly acked", 1, ackResult.getNewlyAcked().size());
 
-            Method retire = QuicConnection.class.getDeclaredMethod(
-                    "retireAcknowledgedRanges", EncryptionLevel.class, List.class);
-            retire.setAccessible(true);
-            retire.invoke(serverConnection, EncryptionLevel.ONE_RTT, ackResult.getNewlyAcked());
+                        Method retire = QuicConnection.class.getDeclaredMethod(
+                                "retireAcknowledgedRanges", EncryptionLevel.class, List.class);
+                        retire.setAccessible(true);
+                        retire.invoke(serverConnection, EncryptionLevel.ONE_RTT, ackResult.getNewlyAcked());
 
-            assertFalse("Once the peer confirms it received the first ACK, the packet number it "
-                    + "covered must finally be retired",
-                    getReceivedUnackedOneRtt(serverConnection).contains(Long.valueOf(firstPeerPacketNumber)));
-            assertTrue("The second, still-unconfirmed packet number must be untouched by "
-                    + "retiring the first",
-                    getReceivedUnackedOneRtt(serverConnection).contains(Long.valueOf(secondPeerPacketNumber)));
-            assertNull("The first packet's coverage tracking entry itself must also be cleaned "
-                    + "up once retired",
-                    getSentAckCoverageOneRtt(serverConnection).get(Long.valueOf(firstAckCarryingPacketNumber)));
+                        assertFalse("Once the peer confirms it received the first ACK, the packet number it "
+                                + "covered must finally be retired",
+                                getReceivedUnackedOneRtt(serverConnection)
+                                        .contains(Long.valueOf(firstPeerPacketNumber)));
+                        assertTrue("The second, still-unconfirmed packet number must be untouched by "
+                                + "retiring the first",
+                                getReceivedUnackedOneRtt(serverConnection)
+                                        .contains(Long.valueOf(secondPeerPacketNumber)));
+                        assertNull("The first packet's coverage tracking entry itself must also be cleaned "
+                                + "up once retired",
+                                getSentAckCoverageOneRtt(serverConnection)
+                                        .get(Long.valueOf(firstAckCarryingPacketNumber)));
+                    } catch (Throwable t) {
+                        coverageFailure.set(t);
+                    } finally {
+                        coverageDone.countDown();
+                    }
+                }
+            });
+            assertTrue("ACK coverage checks should run on the loop thread within 5s",
+                    coverageDone.await(5, TimeUnit.SECONDS));
+            if (coverageFailure.get() != null) {
+                Throwable t = coverageFailure.get();
+                if (t instanceof Exception) {
+                    throw (Exception) t;
+                }
+                throw (Error) t;
+            }
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
@@ -1627,22 +1656,51 @@ public class QuicProductionEndToEndTest {
                     oneRttKeysReady.await(5, TimeUnit.SECONDS));
             waitForConnectionIdle(serverConnection);
 
-            LossDetector lossDetector = getPrivateField(serverConnection, "lossDetector", LossDetector.class);
-            CongestionController congestionController = lossDetector.getCongestionController();
-            long bytesInFlightBefore = congestionController.getBytesInFlight();
+            final long peerPacketNumber = 4242L;
+            final AtomicReference<SentPacket> sentRef = new AtomicReference<SentPacket>();
+            final AtomicLong bytesInFlightBeforeRef = new AtomicLong();
+            final AtomicLong bytesInFlightAfterRef = new AtomicLong();
+            final AtomicReference<Throwable> ackOnlyFailure = new AtomicReference<Throwable>();
+            final CountDownLatch ackOnlyDone = new CountDownLatch(1);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        LossDetector lossDetector =
+                                getPrivateField(serverConnection, "lossDetector", LossDetector.class);
+                        CongestionController congestionController = lossDetector.getCongestionController();
+                        bytesInFlightBeforeRef.set(congestionController.getBytesInFlight());
 
-            long peerPacketNumber = 4242L;
-            seedReceivedUnacked(serverConnection, peerPacketNumber);
-            long ackOnlyPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
-            serverConnection.flush();
+                        seedReceivedUnacked(serverConnection, peerPacketNumber);
+                        long ackOnlyPacketNumber = getNextOneRttSendPacketNumber(serverConnection);
+                        serverConnection.flush();
 
-            SentPacket sent = findSentPacket(lossDetector, EncryptionLevel.ONE_RTT, ackOnlyPacketNumber);
+                        sentRef.set(findSentPacket(lossDetector, EncryptionLevel.ONE_RTT, ackOnlyPacketNumber));
+                        bytesInFlightAfterRef.set(congestionController.getBytesInFlight());
+                    } catch (Throwable t) {
+                        ackOnlyFailure.set(t);
+                    } finally {
+                        ackOnlyDone.countDown();
+                    }
+                }
+            });
+            assertTrue("ACK-only seed/flush should run on the loop thread within 5s",
+                    ackOnlyDone.await(5, TimeUnit.SECONDS));
+            if (ackOnlyFailure.get() != null) {
+                Throwable t = ackOnlyFailure.get();
+                if (t instanceof Exception) {
+                    throw (Exception) t;
+                }
+                throw (Error) t;
+            }
+
+            SentPacket sent = sentRef.get();
             assertNotNull("The ACK-only packet must still be tracked by the loss detector", sent);
             assertFalse("An ACK-only packet carries no ack-eliciting frame", sent.isAckEliciting());
             assertFalse("An ACK-only packet must not count as in flight (RFC 9002 section 2)",
                     sent.isInFlight());
             assertEquals("Bytes in flight must be unchanged by an ACK-only packet",
-                    bytesInFlightBefore, congestionController.getBytesInFlight());
+                    bytesInFlightBeforeRef.get(), bytesInFlightAfterRef.get());
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
@@ -1708,60 +1766,79 @@ public class QuicProductionEndToEndTest {
                     oneRttKeysReady.await(5, TimeUnit.SECONDS));
             waitForConnectionIdle(serverConnection);
 
-            // --- computeAckDelay must reflect real elapsed receipt time ---
-            Method computeAckDelay = QuicConnection.class.getDeclaredMethod(
-                    "computeAckDelay", EncryptionLevel.class);
-            computeAckDelay.setAccessible(true);
+            // computeAckDelay reads largestReceivedTime, which the loop
+            // thread updates on every received packet -- marshal the
+            // synthetic-time manipulation onto that thread (same pattern
+            // as waitForIdleAndReadSendPacketNumber below).
+            final AtomicReference<Throwable> ackDelayFailure = new AtomicReference<Throwable>();
+            final CountDownLatch ackDelayDone = new CountDownLatch(1);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Method computeAckDelay = QuicConnection.class.getDeclaredMethod(
+                                "computeAckDelay", EncryptionLevel.class);
+                        computeAckDelay.setAccessible(true);
 
-            long[] largestReceivedTime = getPrivateField(serverConnection, "largestReceivedTime", long[].class);
-            long originalTime = largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()];
+                        long[] largestReceivedTime =
+                                getPrivateField(serverConnection, "largestReceivedTime", long[].class);
+                        long originalTime = largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()];
 
-            largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = -1;
-            long delayWhenNeverReceived =
-                    (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
-            assertEquals("No delay should be reported before any packet has been received at this level",
-                    0, delayWhenNeverReceived);
+                        largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = -1;
+                        long delayWhenNeverReceived =
+                                (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
+                        assertEquals("No delay should be reported before any packet has been received at this level",
+                                0, delayWhenNeverReceived);
 
-            long simulatedElapsedMillis = 200;
-            largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] =
-                    System.currentTimeMillis() - simulatedElapsedMillis;
-            long delay = (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
-            assertTrue("A real elapsed receipt-to-send gap must produce a nonzero ACK Delay, "
-                    + "not the old hardcoded zero (was " + delay + ")", delay > 0);
-            // RFC 9000 section 18.2's default ack_delay_exponent is 3:
-            // the field value is (elapsed microseconds >> 3). A generous
-            // tolerance band absorbs test-scheduling jitter -- the point
-            // of this assertion is "clearly tracks real elapsed time",
-            // not exact timing.
-            long expectedApprox = (simulatedElapsedMillis * 1000) >>> 3;
-            assertTrue("ACK Delay should be roughly consistent with the simulated elapsed time "
-                    + "(expected around " + expectedApprox + ", was " + delay + ")",
-                    delay >= expectedApprox / 4 && delay <= expectedApprox * 8);
+                        long simulatedElapsedMillis = 200;
+                        largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] =
+                                System.currentTimeMillis() - simulatedElapsedMillis;
+                        long delay = (Long) computeAckDelay.invoke(serverConnection, EncryptionLevel.ONE_RTT);
+                        assertTrue("A real elapsed receipt-to-send gap must produce a nonzero ACK Delay, "
+                                + "not the old hardcoded zero (was " + delay + ")", delay > 0);
+                        long expectedApprox = (simulatedElapsedMillis * 1000) >>> 3;
+                        assertTrue("ACK Delay should be roughly consistent with the simulated elapsed time "
+                                + "(expected around " + expectedApprox + ", was " + delay + ")",
+                                delay >= expectedApprox / 4 && delay <= expectedApprox * 8);
 
-            largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = originalTime;
+                        largestReceivedTime[EncryptionLevel.ONE_RTT.ordinal()] = originalTime;
 
-            // --- peerMaxAckDelay must read the peer's real transport
-            // parameter, not a hardcoded 25 ---
-            Method peerMaxAckDelay = QuicConnection.class.getDeclaredMethod("peerMaxAckDelay");
-            peerMaxAckDelay.setAccessible(true);
+                        Method peerMaxAckDelay = QuicConnection.class.getDeclaredMethod("peerMaxAckDelay");
+                        peerMaxAckDelay.setAccessible(true);
 
-            TransportParameters original =
-                    getPrivateField(serverConnection, "peerTransportParameters", TransportParameters.class);
-            assertNotNull("A real handshake should have populated peer transport parameters", original);
+                        TransportParameters original =
+                                getPrivateField(serverConnection, "peerTransportParameters", TransportParameters.class);
+                        assertNotNull("A real handshake should have populated peer transport parameters", original);
 
-            setPrivateField(serverConnection, "peerTransportParameters", null);
-            long defaultDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
-            assertEquals("With no peer transport parameters yet, the RFC default must apply",
-                    TransportParameters.DEFAULT_MAX_ACK_DELAY, defaultDelay);
+                        setPrivateField(serverConnection, "peerTransportParameters", null);
+                        long defaultDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
+                        assertEquals("With no peer transport parameters yet, the RFC default must apply",
+                                TransportParameters.DEFAULT_MAX_ACK_DELAY, defaultDelay);
 
-            TransportParameters custom = new TransportParameters();
-            custom.setMaxAckDelay(777);
-            setPrivateField(serverConnection, "peerTransportParameters", custom);
-            long customDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
-            assertEquals("The peer's actual declared max_ack_delay must be used, not a hardcoded value",
-                    777, customDelay);
+                        TransportParameters custom = new TransportParameters();
+                        custom.setMaxAckDelay(777);
+                        setPrivateField(serverConnection, "peerTransportParameters", custom);
+                        long customDelay = (Long) peerMaxAckDelay.invoke(serverConnection);
+                        assertEquals("The peer's actual declared max_ack_delay must be used, not a hardcoded value",
+                                777, customDelay);
 
-            setPrivateField(serverConnection, "peerTransportParameters", original);
+                        setPrivateField(serverConnection, "peerTransportParameters", original);
+                    } catch (Throwable t) {
+                        ackDelayFailure.set(t);
+                    } finally {
+                        ackDelayDone.countDown();
+                    }
+                }
+            });
+            assertTrue("ACK Delay / peerMaxAckDelay checks should run on the loop thread within 5s",
+                    ackDelayDone.await(5, TimeUnit.SECONDS));
+            if (ackDelayFailure.get() != null) {
+                Throwable t = ackDelayFailure.get();
+                if (t instanceof Exception) {
+                    throw (Exception) t;
+                }
+                throw (Error) t;
+            }
         } finally {
             loop.shutdown();
             loop.awaitQuiesce(2000);
