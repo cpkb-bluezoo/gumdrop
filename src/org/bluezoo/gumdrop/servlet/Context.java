@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.ContainerClassLoader;
 import org.bluezoo.gumdrop.DependencyClassLoader;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.servlet.jndi.AdministeredObject;
 import org.bluezoo.gumdrop.servlet.jndi.ConnectionFactory;
@@ -338,6 +339,9 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     SessionManager sessionManager;
     int sessionTimeout = -1;
     long sessionsLastInvalidated;
+    /** Interval between timer-driven session expiry sweeps (issue #311). */
+    private static final long SESSION_SWEEP_INTERVAL_MS = 1000;
+    TimerHandle sessionSweepTimer;
 
     boolean distributable;
     boolean initialized;
@@ -1317,6 +1321,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
         thread.setContextClassLoader(originalClassLoader);
         initialized = true;
+        startSessionSweepTimer();
     }
 
     /**
@@ -1342,6 +1347,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         // This prevents session removal notifications being sent to cluster
         container.unregisterContextFromCluster(this);
 
+        cancelSessionSweepTimer();
         invalidateSessions(true);
 
         // Pre-destroy
@@ -1385,11 +1391,44 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         // sessionsLastInvalidated was never reassigned, and
         // invalidateExpiredSessions() never ran again for the life of the
         // process. Sessions accumulated forever.
-        if (!force && now - sessionsLastInvalidated < 1000) {
+        if (!force && now - sessionsLastInvalidated < SESSION_SWEEP_INTERVAL_MS) {
             return;
         }
         sessionsLastInvalidated = now;
         sessionManager.invalidateExpiredSessions();
+    }
+
+    /**
+     * Starts the periodic session-expiry sweep timer (issue #311). Sweeps
+     * run off the request path so {@link #getRequestDispatcher} never holds
+     * the context lock while iterating every live session.
+     */
+    private void startSessionSweepTimer() {
+        scheduleNextSessionSweep(SESSION_SWEEP_INTERVAL_MS);
+    }
+
+    private void scheduleNextSessionSweep(final long intervalMs) {
+        sessionSweepTimer = Gumdrop.getInstance().scheduleTimer(null, intervalMs,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!initialized) {
+                            return;
+                        }
+                        sessionsLastInvalidated = System.currentTimeMillis();
+                        sessionManager.invalidateExpiredSessions();
+                        if (initialized) {
+                            scheduleNextSessionSweep(intervalMs);
+                        }
+                    }
+                });
+    }
+
+    private void cancelSessionSweepTimer() {
+        if (sessionSweepTimer != null) {
+            sessionSweepTimer.cancel();
+            sessionSweepTimer = null;
+        }
     }
 
     public void addRealm(String name, Realm realm) {
@@ -1969,9 +2008,6 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     @Override public RequestDispatcher getRequestDispatcher(String path) {
-        synchronized (this) {
-            invalidateSessions(false);
-        }
         // Strip anchor
         int hi = path.indexOf('#');
         if (hi != -1) {

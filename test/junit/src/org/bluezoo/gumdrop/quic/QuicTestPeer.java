@@ -435,6 +435,13 @@ public class QuicTestPeer implements QuicTlsEngineListener {
 
         server.receiveDatagram(clientHandshakeDatagram);
 
+        // When a live Gumdrop/CryptoExecutor is in play, isBusy() can read
+        // false in the brief window before handshakeFinished's deferred
+        // callback has installed 1-RTT send keys (issue #351). Wait for the
+        // keys explicitly rather than assuming receiveDatagram() returning
+        // means they are already in sendKeys.
+        server.awaitSendKeys(EncryptionLevel.ONE_RTT);
+
         byte[] serverOneRttDatagram = server.buildPacket(EncryptionLevel.ONE_RTT,
                 clientScid, null, false, true, 0);
 
@@ -736,6 +743,25 @@ public class QuicTestPeer implements QuicTlsEngineListener {
             if (System.currentTimeMillis() > deadline) {
                 throw new IllegalStateException(
                         "Timed out waiting for async QUIC handshake processing to settle");
+            }
+            Thread.sleep(1);
+        }
+    }
+
+    /**
+     * Blocks until send keys for {@code level} have been installed (e.g. by
+     * {@link #handshakeFinished}). Used by hand-scripted handshake steps
+     * that build at a level immediately after receiving the datagram that
+     * should have produced those keys, when {@link #isHandshakeProcessingBusy}
+     * alone is not a strong enough happens-before with a live
+     * {@link org.bluezoo.gumdrop.CryptoExecutor}.
+     */
+    private void awaitSendKeys(EncryptionLevel level) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 10000;
+        while (sendKeys.get(level) == null) {
+            if (System.currentTimeMillis() > deadline) {
+                throw new IllegalStateException(
+                        "Timed out waiting for " + level + " send keys to become available");
             }
             Thread.sleep(1);
         }

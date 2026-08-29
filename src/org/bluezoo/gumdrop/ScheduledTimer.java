@@ -199,7 +199,13 @@ final class ScheduledTimer implements Runnable {
             return;
         }
 
-        SelectorLoop loop = entry.handler.getSelectorLoop();
+        ChannelHandler handler = entry.handler;
+        if (handler == null) {
+            entry.callback.run();
+            return;
+        }
+
+        SelectorLoop loop = handler.getSelectorLoop();
         if (loop != null) {
             loop.dispatchTimer(entry);
         }
