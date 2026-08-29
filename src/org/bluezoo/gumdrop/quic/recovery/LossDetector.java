@@ -26,6 +26,8 @@ import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
 
@@ -144,7 +146,18 @@ public final class LossDetector {
         }
     }
 
-    private final Map<EncryptionLevel, List<SentPacket>> sentPackets = new EnumMap<EncryptionLevel, List<SentPacket>>(
+    // Keyed (not just ordered) by packet number, rather than a plain
+    // send-order list: onAckReceived resolves each ACK range via a
+    // single subMap lookup instead of scanning every outstanding packet
+    // against every range, and loss detection bounds its scan to
+    // headMap(largestAcked) instead of visiting every outstanding packet
+    // regardless of whether it could possibly be lost yet.
+    private final Map<EncryptionLevel, NavigableMap<Long, SentPacket>> sentPackets = new EnumMap<EncryptionLevel, NavigableMap<Long, SentPacket>>(
+            EncryptionLevel.class);
+    // Incrementally maintained rather than recomputed by scanning
+    // sentPackets, since hasAckElicitingInFlight is called from the loss
+    // detection timeout path on essentially every flush().
+    private final Map<EncryptionLevel, Integer> ackElicitingInFlightCount = new EnumMap<EncryptionLevel, Integer>(
             EncryptionLevel.class);
     private final Map<EncryptionLevel, Long> largestAckedPacket = new EnumMap<EncryptionLevel, Long>(
             EncryptionLevel.class);
@@ -176,7 +189,8 @@ public final class LossDetector {
     public LossDetector(int maxDatagramSize) {
         this.congestionController = new CongestionController(maxDatagramSize);
         for (EncryptionLevel level : EncryptionLevel.values()) {
-            sentPackets.put(level, new ArrayList<SentPacket>());
+            sentPackets.put(level, new TreeMap<Long, SentPacket>());
+            ackElicitingInFlightCount.put(level, 0);
             largestAckedPacket.put(level, -1L);
             timeOfLastAckEliciting.put(level, 0L);
             lossTime.put(level, 0L);
@@ -225,7 +239,10 @@ public final class LossDetector {
     public void onPacketSent(EncryptionLevel level, long packetNumber, long nowMillis,
             boolean ackEliciting, boolean inFlight, int sentBytes) {
         SentPacket packet = new SentPacket(packetNumber, nowMillis, ackEliciting, inFlight, sentBytes);
-        sentPackets.get(level).add(packet);
+        sentPackets.get(level).put(packetNumber, packet);
+        if (ackEliciting && inFlight) {
+            ackElicitingInFlightCount.put(level, ackElicitingInFlightCount.get(level) + 1);
+        }
         if (inFlight) {
             if (ackEliciting) {
                 timeOfLastAckEliciting.put(level, nowMillis);
@@ -285,28 +302,32 @@ public final class LossDetector {
 
     // RFC 9002 Appendix A.7's DetectAndRemoveAckedPackets: every sent
     // packet whose number falls in any of ackRanges is newly acked.
-    // Returned in ascending packet-number order (sentPackets is kept in
-    // send order, which is ascending by construction).
+    // sentPackets is keyed by packet number, so each range is resolved
+    // via a single subMap lookup instead of scanning every outstanding
+    // packet against every range. ackRanges arrive in descending
+    // packet-number order (RFC 9000 section 19.3.1 encodes them starting
+    // from the largest range down), so matches are collected into a
+    // separate sorted map to still return ascending packet-number order,
+    // which callers depend on (the RTT sample below takes the last
+    // element as the largest newly-acked packet, and
+    // isInPersistentCongestion's consecutive-run detection on the lost
+    // side assumes ascending order too).
     private List<SentPacket> detectAndRemoveAckedPackets(EncryptionLevel level, long[][] ackRanges) {
-        List<SentPacket> newlyAcked = new ArrayList<SentPacket>();
-        Iterator<SentPacket> it = sentPackets.get(level).iterator();
-        while (it.hasNext()) {
-            SentPacket packet = it.next();
-            if (isInAnyRange(packet.getPacketNumber(), ackRanges)) {
-                newlyAcked.add(packet);
-                it.remove();
+        NavigableMap<Long, SentPacket> packets = sentPackets.get(level);
+        TreeMap<Long, SentPacket> newlyAcked = new TreeMap<Long, SentPacket>();
+        for (long[] range : ackRanges) {
+            if (range[0] > range[1]) {
+                continue;
+            }
+            newlyAcked.putAll(packets.subMap(range[0], true, range[1], true));
+        }
+        for (SentPacket packet : newlyAcked.values()) {
+            packets.remove(packet.getPacketNumber());
+            if (packet.isAckEliciting() && packet.isInFlight()) {
+                ackElicitingInFlightCount.put(level, ackElicitingInFlightCount.get(level) - 1);
             }
         }
-        return newlyAcked;
-    }
-
-    private static boolean isInAnyRange(long packetNumber, long[][] ranges) {
-        for (long[] range : ranges) {
-            if (packetNumber >= range[0] && packetNumber <= range[1]) {
-                return true;
-            }
-        }
-        return false;
+        return new ArrayList<SentPacket>(newlyAcked.values());
     }
 
     private static boolean includesAckEliciting(List<SentPacket> packets) {
@@ -318,7 +339,10 @@ public final class LossDetector {
         return false;
     }
 
-    // RFC 9002 Appendix A.10's DetectAndRemoveLostPackets.
+    // RFC 9002 Appendix A.10's DetectAndRemoveLostPackets. Only packets
+    // at or below largestAcked can be lost, so headMap bounds the scan
+    // to exactly those, rather than visiting every outstanding packet
+    // (including ones sent after largestAcked) only to skip most of them.
     private List<SentPacket> detectAndRemoveLostPackets(EncryptionLevel level, long nowMillis) {
         long largestAcked = largestAckedPacket.get(level);
         lossTime.put(level, 0L);
@@ -328,14 +352,15 @@ public final class LossDetector {
         lossDelay = Math.max(lossDelay, K_GRANULARITY);
         long lostSendTime = nowMillis - lossDelay;
 
-        Iterator<SentPacket> it = sentPackets.get(level).iterator();
+        NavigableMap<Long, SentPacket> candidates = sentPackets.get(level).headMap(largestAcked, true);
+        Iterator<Map.Entry<Long, SentPacket>> it = candidates.entrySet().iterator();
         while (it.hasNext()) {
-            SentPacket packet = it.next();
-            if (packet.getPacketNumber() > largestAcked) {
-                continue;
-            }
+            SentPacket packet = it.next().getValue();
             if (packet.getTimeSentMillis() <= lostSendTime || largestAcked >= packet.getPacketNumber() + K_PACKET_THRESHOLD) {
                 it.remove();
+                if (packet.isAckEliciting() && packet.isInFlight()) {
+                    ackElicitingInFlightCount.put(level, ackElicitingInFlightCount.get(level) - 1);
+                }
                 lost.add(packet);
             } else {
                 long candidateLossTime = packet.getTimeSentMillis() + lossDelay;
@@ -488,10 +513,8 @@ public final class LossDetector {
 
     private boolean hasAckElicitingInFlight() {
         for (EncryptionLevel level : EncryptionLevel.values()) {
-            for (SentPacket packet : sentPackets.get(level)) {
-                if (packet.isAckEliciting() && packet.isInFlight()) {
-                    return true;
-                }
+            if (ackElicitingInFlightCount.get(level) > 0) {
+                return true;
             }
         }
         return false;
@@ -535,12 +558,7 @@ public final class LossDetector {
     }
 
     private boolean hasAckElicitingInFlight(EncryptionLevel level) {
-        for (SentPacket packet : sentPackets.get(level)) {
-            if (packet.isAckEliciting() && packet.isInFlight()) {
-                return true;
-            }
-        }
-        return false;
+        return ackElicitingInFlightCount.get(level) > 0;
     }
 
     /**
@@ -580,12 +598,13 @@ public final class LossDetector {
      *              {@link EncryptionLevel#ONE_RTT})
      */
     public void discardPacketNumberSpace(EncryptionLevel level) {
-        for (SentPacket packet : sentPackets.get(level)) {
+        for (SentPacket packet : sentPackets.get(level).values()) {
             if (packet.isInFlight()) {
                 congestionController.removeFromBytesInFlight(packet.getSentBytes());
             }
         }
         sentPackets.get(level).clear();
+        ackElicitingInFlightCount.put(level, 0);
         timeOfLastAckEliciting.put(level, 0L);
         lossTime.put(level, 0L);
         ptoCount = 0;

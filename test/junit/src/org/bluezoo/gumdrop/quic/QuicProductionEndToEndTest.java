@@ -1893,25 +1893,17 @@ public class QuicProductionEndToEndTest {
         return recvKeys;
     }
 
-    private static List<SentPacket> getSentPacketsForLevel(LossDetector lossDetector, EncryptionLevel level)
-            throws Exception {
+    private static java.util.NavigableMap<Long, SentPacket> getSentPacketsForLevel(LossDetector lossDetector,
+            EncryptionLevel level) throws Exception {
         @SuppressWarnings("unchecked")
-        Map<EncryptionLevel, List<SentPacket>> sentPackets =
+        Map<EncryptionLevel, java.util.NavigableMap<Long, SentPacket>> sentPackets =
                 getPrivateField(lossDetector, "sentPackets", Map.class);
         return sentPackets.get(level);
     }
 
     private static SentPacket findSentPacket(LossDetector lossDetector, EncryptionLevel level, long packetNumber)
             throws Exception {
-        @SuppressWarnings("unchecked")
-        Map<EncryptionLevel, List<SentPacket>> sentPackets =
-                getPrivateField(lossDetector, "sentPackets", Map.class);
-        for (SentPacket packet : sentPackets.get(level)) {
-            if (packet.getPacketNumber() == packetNumber) {
-                return packet;
-            }
-        }
-        return null;
+        return getSentPacketsForLevel(lossDetector, level).get(packetNumber);
     }
 
     private static Object getOneRttSendKeys(QuicConnection connection) throws Exception {
