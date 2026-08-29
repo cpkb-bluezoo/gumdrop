@@ -37,7 +37,9 @@ import java.nio.ByteBuffer;
  */
 public final class GrpcFraming {
 
-    private static final int HEADER_SIZE = 5;
+    /** gRPC message prefix size in bytes (compression flag + length). */
+    public static final int HEADER_SIZE = 5;
+
     private static final byte UNCOMPRESSED = 0;
 
     /**
@@ -59,14 +61,25 @@ public final class GrpcFraming {
     public static ByteBuffer frame(ByteBuffer message) {
         int length = message.remaining();
         ByteBuffer framed = ByteBuffer.allocate(HEADER_SIZE + length);
-        framed.put(UNCOMPRESSED);
-        framed.put((byte) (length >>> 24));
-        framed.put((byte) (length >>> 16));
-        framed.put((byte) (length >>> 8));
-        framed.put((byte) length);
+        writeHeader(framed, length);
+        framed.position(HEADER_SIZE);
         framed.put(message);
         framed.flip();
         return framed;
+    }
+
+    /**
+     * Writes the gRPC 5-byte prefix at the start of {@code buffer}.
+     *
+     * @param buffer buffer with at least {@link #HEADER_SIZE} bytes available
+     * @param payloadLength uncompressed payload length
+     */
+    public static void writeHeader(ByteBuffer buffer, int payloadLength) {
+        buffer.put(0, UNCOMPRESSED);
+        buffer.put(1, (byte) (payloadLength >>> 24));
+        buffer.put(2, (byte) (payloadLength >>> 16));
+        buffer.put(3, (byte) (payloadLength >>> 8));
+        buffer.put(4, (byte) payloadLength);
     }
 
     /**
