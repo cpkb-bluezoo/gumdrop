@@ -231,6 +231,10 @@ public final class IMAPProtocolHandler
     private Mailbox selectedMailbox = null;
     private boolean selectedReadOnly = false;
     private int lastReportedExists = -1;
+    private Mailbox uidIndexMailbox = null;
+    private int uidIndexMessageCount = -1;
+    private long uidIndexUidNext = -1;
+    private UidSequenceIndex uidSequenceIndex = null;
 
     // Command parsing
     private String currentTag = null;
@@ -6014,32 +6018,50 @@ public final class IMAPProtocolHandler
 
     private List<Integer> resolveMatchingMessages(Mailbox mailbox,
             MessageSet seqSet, boolean uid) throws IOException {
-        int msgCount = mailbox.getMessageCount();
-        List<Integer> matching = new ArrayList<Integer>();
-
         if (uid) {
             long lastUid = mailbox.getUidNext() - 1;
-            for (int msgNum = 1; msgNum <= msgCount; msgNum++) {
-                if (mailbox.isDeleted(msgNum)) {
-                    continue;
-                }
-                long msgUid = resolveUid(mailbox, msgNum);
-                if (seqSet.contains(msgUid, lastUid)) {
-                    matching.add(Integer.valueOf(msgNum));
-                }
+            return uidIndexFor(mailbox).resolve(seqSet, lastUid);
+        }
+
+        int msgCount = mailbox.getMessageCount();
+        LinkedHashSet<Integer> matching = new LinkedHashSet<Integer>();
+        for (MessageSet.Range range : seqSet.getRanges()) {
+            long start = resolveSequenceBound(range.getStart(), msgCount);
+            long end = resolveSequenceBound(range.getEnd(), msgCount);
+            if (start > end) {
+                long tmp = start;
+                start = end;
+                end = tmp;
             }
-        } else {
-            for (int msgNum = 1; msgNum <= msgCount; msgNum++) {
-                if (mailbox.isDeleted(msgNum)) {
-                    continue;
-                }
-                if (seqSet.contains(msgNum, msgCount)) {
+            for (int msgNum = (int) start; msgNum <= (int) end; msgNum++) {
+                if (!mailbox.isDeleted(msgNum)) {
                     matching.add(Integer.valueOf(msgNum));
                 }
             }
         }
+        return new ArrayList<Integer>(matching);
+    }
 
-        return matching;
+    private UidSequenceIndex uidIndexFor(Mailbox mailbox) throws IOException {
+        int msgCount = mailbox.getMessageCount();
+        long uidNext = mailbox.getUidNext();
+        if (uidSequenceIndex != null && uidIndexMailbox == mailbox
+                && uidIndexMessageCount == msgCount
+                && uidIndexUidNext == uidNext) {
+            return uidSequenceIndex;
+        }
+        uidSequenceIndex = UidSequenceIndex.build(mailbox);
+        uidIndexMailbox = mailbox;
+        uidIndexMessageCount = msgCount;
+        uidIndexUidNext = uidNext;
+        return uidSequenceIndex;
+    }
+
+    private static long resolveSequenceBound(long bound, int msgCount) {
+        if (bound == MessageSet.WILDCARD) {
+            return msgCount;
+        }
+        return Math.min(bound, msgCount);
     }
 
     private long resolveUid(Mailbox mailbox, int msgNum)
