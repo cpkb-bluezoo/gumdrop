@@ -132,6 +132,47 @@ public class FieldTableTest {
         new FieldTable().put("bad", new Object());
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Issue #310: encode() must UTF-8 encode each distinct string exactly
+    // once, not once to compute the size and again to write it.
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Test
+    public void testEncodeUtf8sEachDistinctStringExactlyOnce() {
+        FieldTable table = new FieldTable()
+                .put("key1", "value1")
+                .put("key2", "value2")
+                .put("key3", 42)
+                .put("key4", "value4");
+        // 4 keys + 3 string values = 7 distinct strings.
+        FieldTable.utf8EncodeCountForTesting.set(0);
+        table.encode();
+        assertEquals("encode() should UTF-8 encode each distinct string exactly once, "
+                + "not once for sizing and again for writing",
+                7, FieldTable.utf8EncodeCountForTesting.get());
+    }
+
+    @Test
+    public void testEncodeNestedTableUtf8sEachStringOnce() {
+        FieldTable inner = new FieldTable().put("innerKey", "innerValue");
+        FieldTable outer = new FieldTable().put("outerKey", inner);
+        // outer key (1) + inner key (1) + inner string value (1) = 3.
+        FieldTable.utf8EncodeCountForTesting.set(0);
+        outer.encode();
+        assertEquals("nested field-table strings must also be encoded exactly once",
+                3, FieldTable.utf8EncodeCountForTesting.get());
+    }
+
+    @Test
+    public void testEncodeArrayOfStringsUtf8sEachOnce() {
+        FieldTable table = new FieldTable()
+                .put("list", Arrays.asList("a", "b", "c"));
+        // 1 key + 3 string array elements = 4.
+        FieldTable.utf8EncodeCountForTesting.set(0);
+        table.encode();
+        assertEquals(4, FieldTable.utf8EncodeCountForTesting.get());
+    }
+
     @Test
     public void testMultipleTablesInSequence() throws AMQPProtocolException {
         // Simulates two field-tables back to back in one buffer, as would

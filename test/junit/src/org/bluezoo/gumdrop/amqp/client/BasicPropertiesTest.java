@@ -102,6 +102,38 @@ public class BasicPropertiesTest {
         assertNull(decoded.getMessageId());
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Issue #310: encode() must UTF-8 encode each set property string
+    // exactly once, not once to compute the property-list size and again
+    // to write it.
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Test
+    public void testEncodeUtf8sEachSetPropertyStringExactlyOnce() {
+        BasicProperties props = new BasicProperties()
+                .withContentType("application/json")
+                .withCorrelationId("corr-1")
+                .withReplyTo("reply-q")
+                .withMessageId("msg-1");
+        // 4 distinct property strings.
+        FieldTable.utf8EncodeCountForTesting.set(0);
+        props.encode(0L);
+        assertEquals("encode() should UTF-8 encode each set property string exactly once",
+                4, FieldTable.utf8EncodeCountForTesting.get());
+    }
+
+    @Test
+    public void testEncodeWithHeadersCountsHeaderStringsOnce() {
+        FieldTable headers = new FieldTable().put("x-retry", "yes");
+        BasicProperties props = new BasicProperties()
+                .withContentType("text/plain")
+                .withHeaders(headers);
+        // "text/plain" (1) + headers key "x-retry" (1) + headers value "yes" (1) = 3.
+        FieldTable.utf8EncodeCountForTesting.set(0);
+        props.encode(0L);
+        assertEquals(3, FieldTable.utf8EncodeCountForTesting.get());
+    }
+
     @Test(expected = AMQPProtocolException.class)
     public void testWrongClassIdRejected() throws AMQPProtocolException {
         ByteBuffer buf = ByteBuffer.allocate(14);
