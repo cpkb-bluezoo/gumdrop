@@ -101,6 +101,9 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
 
     private boolean goaway;
 
+    /** Test-only: invoked on the loop thread when GOAWAY is received. */
+    public static volatile Runnable goawayReceivedObserver;
+
     /** Callback invoked when the h3 connection is ready for requests. */
     private Runnable readyCallback;
 
@@ -830,6 +833,10 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
     @Override
     public void goawayReceived(long lastStreamId) {
         goaway = true;
+        Runnable observer = goawayReceivedObserver;
+        if (observer != null) {
+            observer.run();
+        }
         if (LOGGER.isLoggable(Level.FINE)) {
             String formatted = MessageFormat.format(
                     L10N.getString("fine.goaway_received"), Long.valueOf(lastStreamId));

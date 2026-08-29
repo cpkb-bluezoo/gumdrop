@@ -207,21 +207,32 @@ public class DoQProductionEndToEndTest {
             // asynchronously, once the real handshake completes.
             final CountDownLatch warmupLatch = new CountDownLatch(1);
             final AtomicReference<Exception> warmupFailure = new AtomicReference<Exception>();
-            firstTransport.open(InetAddress.getLoopbackAddress(), port, loop,
-                    new DNSClientTransportHandler() {
-                        @Override
-                        public void onReceive(ByteBuffer data) {
-                            warmupLatch.countDown();
-                        }
+            final CountDownLatch firstConnected = new CountDownLatch(1);
+            DoQClientTransport.connectedObserver = new Runnable() {
+                @Override
+                public void run() {
+                    firstConnected.countDown();
+                }
+            };
+            try {
+                firstTransport.open(InetAddress.getLoopbackAddress(), port, loop,
+                        new DNSClientTransportHandler() {
+                            @Override
+                            public void onReceive(ByteBuffer data) {
+                                warmupLatch.countDown();
+                            }
 
-                        @Override
-                        public void onError(Exception cause) {
-                            warmupFailure.set(cause);
-                            warmupLatch.countDown();
-                        }
-                    });
-            assertTrue("First transport should become connected within 5s",
-                    awaitConnected(firstTransport, 5000));
+                            @Override
+                            public void onError(Exception cause) {
+                                warmupFailure.set(cause);
+                                warmupLatch.countDown();
+                            }
+                        });
+                assertTrue("First transport should become connected within 5s",
+                        firstConnected.await(5, TimeUnit.SECONDS));
+            } finally {
+                DoQClientTransport.connectedObserver = null;
+            }
             firstTransport.send(buildQuery(DNSMessage.OPCODE_QUERY));
 
             assertTrue("Warm-up query should complete within 5s", warmupLatch.await(5, TimeUnit.SECONDS));
@@ -229,14 +240,8 @@ public class DoQProductionEndToEndTest {
                 throw warmupFailure.get();
             }
 
-            SessionTicketCache.Entry entry = null;
-            long deadline = System.currentTimeMillis() + 3000;
-            while (entry == null && System.currentTimeMillis() < deadline) {
-                entry = SessionTicketCache.get(InetAddress.getLoopbackAddress().getHostAddress(), port);
-                if (entry == null) {
-                    Thread.sleep(50);
-                }
-            }
+            SessionTicketCache.Entry entry = awaitSessionTicket(
+                    InetAddress.getLoopbackAddress().getHostAddress(), port);
             assertNotNull("A session ticket should have been cached after the warm-up query", entry);
 
             // Second connection: 0-RTT-enabled (DoQClientTransport.open()
@@ -422,10 +427,20 @@ public class DoQProductionEndToEndTest {
             // test's own await() racing that timeout.
             resolver.setTimeoutMs(2000);
             resolver.addServer(InetAddress.getLoopbackAddress(), port);
-            resolver.open();
-
-            assertTrue("Transport should become connected within 5s",
-                    awaitConnected(transport, 5000));
+            final CountDownLatch transportConnected = new CountDownLatch(1);
+            DoQClientTransport.connectedObserver = new Runnable() {
+                @Override
+                public void run() {
+                    transportConnected.countDown();
+                }
+            };
+            try {
+                resolver.open();
+                assertTrue("Transport should become connected within 5s",
+                        transportConnected.await(5, TimeUnit.SECONDS));
+            } finally {
+                DoQClientTransport.connectedObserver = null;
+            }
 
             final CountDownLatch latch = new CountDownLatch(2);
             final AtomicReference<InetAddress> resultA = new AtomicReference<InetAddress>();
@@ -493,16 +508,27 @@ public class DoQProductionEndToEndTest {
         }
     }
 
-    private static boolean awaitConnected(DoQClientTransport transport, long timeoutMs) throws Exception {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            Boolean connected = getPrivateField(transport, "connected", Boolean.class);
-            if (connected.booleanValue()) {
-                return true;
-            }
-            Thread.sleep(25);
+    private static SessionTicketCache.Entry awaitSessionTicket(String host, int port) throws Exception {
+        SessionTicketCache.Entry existing = SessionTicketCache.get(host, port);
+        if (existing != null) {
+            return existing;
         }
-        return false;
+        final CountDownLatch cached = new CountDownLatch(1);
+        SessionTicketCache.putObserver = new Runnable() {
+            @Override
+            public void run() {
+                cached.countDown();
+            }
+        };
+        try {
+            assertTrue("A session ticket should have been cached after the warm-up query",
+                    cached.await(5, TimeUnit.SECONDS));
+            SessionTicketCache.Entry entry = SessionTicketCache.get(host, port);
+            assertNotNull(entry);
+            return entry;
+        } finally {
+            SessionTicketCache.putObserver = null;
+        }
     }
 
     private static ByteBuffer buildQuery(int opcode) {

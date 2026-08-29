@@ -63,6 +63,11 @@ public final class SessionTicketCache {
 
     private static final ConcurrentMap<String, Entry> cache = new ConcurrentHashMap<>();
 
+    /**
+     * Test-only: if non-null, invoked immediately after a ticket is stored.
+     */
+    public static volatile Runnable putObserver;
+
     private SessionTicketCache() {
     }
 
@@ -85,6 +90,10 @@ public final class SessionTicketCache {
         long expiry = System.currentTimeMillis() + Math.max(0, lifetimeSeconds) * 1000L;
         cache.put(key(host, port), new Entry(ticket.serialize(),
                 rememberedTransportParameters.encode(), expiry));
+        Runnable observer = putObserver;
+        if (observer != null) {
+            observer.run();
+        }
     }
 
     /**
