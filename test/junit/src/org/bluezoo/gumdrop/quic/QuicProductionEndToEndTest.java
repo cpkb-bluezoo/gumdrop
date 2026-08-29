@@ -4975,6 +4975,175 @@ public class QuicProductionEndToEndTest {
     }
 
     /**
+     * Regression test for issue #320: drainEligibleStreamChunks used to
+     * copy the whole pendingStream map into an ArrayList and re-sort it
+     * by priority on every call, an O(streams log streams) cost repeated
+     * on essentially every flush regardless of whether the pending set
+     * or any priority had actually changed since the last one. Queues
+     * many streams' worth of data once, then calls the (now
+     * incrementally-ordered) drain path many times, asserting the
+     * cumulative cost stays far below what repeatedly re-sorting the
+     * full set would take.
+     */
+    @Test(timeout = 30000)
+    public void testStreamPriorityFlushCostDoesNotScaleWithPendingStreamCount() throws Exception {
+        SelectorLoop loop = new SelectorLoop(0);
+        loop.start();
+        QuicEngine serverEngine = null;
+        QuicEngine clientEngine = null;
+        try {
+            QuicTransportFactory serverFactory = new QuicTransportFactory();
+            serverFactory.setApplicationProtocols(ALPN);
+            serverFactory.setCertFile(certFile);
+            serverFactory.setKeyFile(keyFile);
+            serverFactory.start();
+
+            serverEngine = serverFactory.createServerEngine(
+                    InetAddress.getLoopbackAddress(), 0,
+                    new StreamAcceptHandler() {
+                        @Override
+                        public ProtocolHandler acceptStream(Endpoint stream) {
+                            return new ProtocolHandler() {
+                                @Override
+                                public void connected(Endpoint endpoint) {
+                                }
+
+                                @Override
+                                public void receive(ByteBuffer data) {
+                                }
+
+                                @Override
+                                public void securityEstablished(SecurityInfo info) {
+                                }
+
+                                @Override
+                                public void disconnected() {
+                                }
+
+                                @Override
+                                public void error(Exception cause) {
+                                }
+                            };
+                        }
+                    }, loop);
+
+            InetSocketAddress serverAddress = (InetSocketAddress) serverEngine.getLocalAddress();
+
+            QuicTransportFactory clientFactory = new QuicTransportFactory();
+            clientFactory.setApplicationProtocols(ALPN);
+            clientFactory.setVerifyPeer(false);
+            clientFactory.start();
+
+            final CountDownLatch clientConnected = new CountDownLatch(1);
+            clientEngine = clientFactory.connect(
+                    InetAddress.getLoopbackAddress(), serverAddress.getPort(),
+                    new ProtocolHandler() {
+                        @Override
+                        public void connected(Endpoint endpoint) {
+                            clientConnected.countDown();
+                        }
+
+                        @Override
+                        public void receive(ByteBuffer data) {
+                        }
+
+                        @Override
+                        public void securityEstablished(SecurityInfo info) {
+                        }
+
+                        @Override
+                        public void disconnected() {
+                        }
+
+                        @Override
+                        public void error(Exception cause) {
+                        }
+                    }, loop, SERVER_NAME);
+
+            assertTrue("Client should have connected within 5s", clientConnected.await(5, TimeUnit.SECONDS));
+
+            final QuicConnection clientConnection =
+                    getPrivateField(clientEngine, "clientConnection", QuicConnection.class);
+
+            // Every touch of clientConnection below (queueStreamData,
+            // setStreamSendPriority, the reflective drain calls) must run
+            // on loop's own thread, matching QuicConnection's
+            // single-threaded-per-connection contract that every other
+            // test in this file already follows for such calls -- calling
+            // them directly from this (the JUnit) thread would race the
+            // loop thread's own concurrent handling of the connection.
+            final CountDownLatch done = new CountDownLatch(1);
+            final AtomicReference<Long> elapsedMsRef = new AtomicReference<Long>();
+            final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        int streamCount = 20000;
+                        byte[] payload = new byte[16];
+                        // queueStreamData's own requestFlush() would
+                        // otherwise synchronously drain-and-send each
+                        // stream's chunk as it's queued (up to flow
+                        // control), leaving far fewer than streamCount
+                        // entries pending by the time the benchmark below
+                        // runs -- suppressFlush (the same field receive()
+                        // uses to batch side effects) holds everything
+                        // queued until it's explicitly cleared.
+                        setPrivateField(clientConnection, "suppressFlush", Boolean.TRUE);
+                        for (int i = 0; i < streamCount; i++) {
+                            // Client-initiated bidirectional stream IDs
+                            // (RFC 9000 section 2.1: low two bits 0b00):
+                            // 0, 4, 8, ...
+                            long streamId = i * 4L;
+                            clientConnection.queueStreamData(streamId, ByteBuffer.wrap(payload), false);
+                            clientConnection.setStreamSendPriority(streamId, i % 8);
+                        }
+                        setPrivateField(clientConnection, "suppressFlush", Boolean.FALSE);
+
+                        Method drainEligibleStreamChunks =
+                                QuicConnection.class.getDeclaredMethod("drainEligibleStreamChunks");
+                        drainEligibleStreamChunks.setAccessible(true);
+
+                        long start = System.nanoTime();
+                        int iterations = 200;
+                        for (int i = 0; i < iterations; i++) {
+                            drainEligibleStreamChunks.invoke(clientConnection);
+                        }
+                        elapsedMsRef.set((System.nanoTime() - start) / 1000000);
+                    } catch (Throwable t) {
+                        failure.set(t);
+                    } finally {
+                        done.countDown();
+                    }
+                }
+            });
+
+            assertTrue("Priority-ordered drain benchmark should have finished within 30s",
+                    done.await(30, TimeUnit.SECONDS));
+            if (failure.get() != null) {
+                throw new AssertionError("Benchmark failed", failure.get());
+            }
+            long elapsedMs = elapsedMsRef.get();
+            int streamCount = 20000;
+            int iterations = 200;
+            assertTrue(iterations + " drainEligibleStreamChunks() calls against " + streamCount
+                    + " pending streams took " + elapsedMs
+                    + "ms -- expected an incrementally priority-ordered structure to keep this "
+                    + "far below the cost of re-sorting the full pending set on every call",
+                    elapsedMs < 800);
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            if (clientEngine != null) {
+                clientEngine.close();
+            }
+            if (serverEngine != null) {
+                serverEngine.close();
+            }
+        }
+    }
+
+    /**
      * Sends a datagram on a non-blocking channel, retrying if the OS
      * declines it without error (a non-blocking {@link DatagramChannel#send}
      * returns 0 rather than blocking or throwing when its send buffer is

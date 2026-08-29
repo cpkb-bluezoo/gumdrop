@@ -313,6 +313,28 @@ public final class QuicConnection implements QuicTlsEngineListener {
     private final Map<Long, List<PendingChunk>> pendingStream = new HashMap<Long, List<PendingChunk>>();
     // RFC 9218: higher values are sent sooner when multiplexing STREAM frames.
     private final Map<Long, Integer> streamSendPriority = new HashMap<Long, Integer>();
+    // Issue #320: pendingStream's key set, incrementally kept in the
+    // exact priority order (descending priority, then ascending stream
+    // ID for ties) drainEligibleStreamChunks needs -- rather than
+    // re-sorting the whole pending set from scratch on every flush.
+    // Every pendingStream mutation must go through
+    // addPendingStreamChunks/removePendingStream below rather than the
+    // map directly, to keep this in sync; a priority change for a stream
+    // already pending must remove-then-reinsert it here (a TreeSet's
+    // ordering invariant only holds while its comparator's inputs stay
+    // fixed for a member), which is why setStreamSendPriority does the
+    // same rather than just writing into streamSendPriority.
+    private final TreeSet<Long> pendingStreamOrder = new TreeSet<Long>(new Comparator<Long>() {
+        @Override
+        public int compare(Long a, Long b) {
+            int pa = streamSendPriority.containsKey(a) ? streamSendPriority.get(a).intValue() : 0;
+            int pb = streamSendPriority.containsKey(b) ? streamSendPriority.get(b).intValue() : 0;
+            if (pa != pb) {
+                return pb - pa;
+            }
+            return Long.compare(a.longValue(), b.longValue());
+        }
+    });
     private final Map<Long, Long> streamSendOffset = new HashMap<Long, Long>();
     // Per-stream reassembler for received data -- distinct from
     // checkAndRecordFlowControl's streamBytesReceived (which tracks the
@@ -1069,13 +1091,29 @@ public final class QuicConnection implements QuicTlsEngineListener {
         byte[] copy = new byte[data.remaining()];
         data.get(copy);
         long offset = getAndAdvanceStreamOffset(streamId, copy.length);
-        List<PendingChunk> chunks = pendingStream.get(Long.valueOf(streamId));
+        Long key = Long.valueOf(streamId);
+        List<PendingChunk> chunks = pendingStream.get(key);
         if (chunks == null) {
             chunks = new ArrayList<PendingChunk>();
-            pendingStream.put(Long.valueOf(streamId), chunks);
+            addPendingStreamChunks(key, chunks);
         }
         chunks.add(new PendingChunk(offset, copy, fin));
         requestFlush();
+    }
+
+    // Registers a brand-new pendingStream entry (chunks must not already
+    // be in pendingStream under this key) in both the map and the
+    // priority-ordered index -- see pendingStreamOrder's field comment.
+    private void addPendingStreamChunks(Long streamKey, List<PendingChunk> chunks) {
+        pendingStream.put(streamKey, chunks);
+        pendingStreamOrder.add(streamKey);
+    }
+
+    // Drops a pendingStream entry (once fully sent, reset, or otherwise
+    // discarded) from both the map and the priority-ordered index.
+    private void removePendingStream(Long streamKey) {
+        pendingStream.remove(streamKey);
+        pendingStreamOrder.remove(streamKey);
     }
 
     /**
@@ -1086,7 +1124,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
      * @param priority higher means sooner
      */
     public void setStreamSendPriority(long streamId, int priority) {
-        streamSendPriority.put(Long.valueOf(streamId), Integer.valueOf(priority));
+        Long key = Long.valueOf(streamId);
+        // pendingStreamOrder's comparator reads streamSendPriority, so a
+        // stream already pending must be pulled out before its priority
+        // changes underneath it and reinserted after -- otherwise its
+        // position in the tree would no longer match what the
+        // (now-changed) comparator says, corrupting the ordering
+        // invariant for every later lookup, not just this one entry.
+        boolean wasPending = pendingStreamOrder.remove(key);
+        streamSendPriority.put(key, Integer.valueOf(priority));
+        if (wasPending) {
+            pendingStreamOrder.add(key);
+        }
     }
 
     private long getAndAdvanceStreamOffset(long streamId, int length) {
@@ -1107,7 +1156,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         long finalSize = streamSendOffset.containsKey(Long.valueOf(streamId))
                 ? streamSendOffset.get(Long.valueOf(streamId)).longValue() : 0;
         pendingResetStreams.add(new long[] { streamId, errorCode, finalSize });
-        pendingStream.remove(Long.valueOf(streamId));
+        removePendingStream(Long.valueOf(streamId));
         requestFlush();
     }
 
@@ -1148,6 +1197,21 @@ public final class QuicConnection implements QuicTlsEngineListener {
             streamReassemblers.remove(key);
             pendingFinOffset.remove(key);
             streamSendPriority.remove(key);
+            // Deliberately NOT touching pendingStream/pendingStreamOrder
+            // here: isFullyClosed() (both directions logically closed)
+            // can be true before this stream's queued data has actually
+            // been flushed -- e.g. close() queues its FIN chunk and
+            // immediately calls this while still inside receive()'s
+            // suppressFlush window, well before that data is eligible to
+            // be sent. Removing the entry from pendingStreamOrder here
+            // (as this once did) orphaned it: pendingStream still held
+            // the unsent data, drainEligibleStreamChunks no longer knew
+            // to look for it, and the data was silently never sent --
+            // the response a DoQ query was waiting on, for one. The real
+            // removal happens once the data is actually drained, in
+            // buildProtectedPacket/buildZeroRttPacketOrNull's own
+            // post-send cleanup (removePendingStream), or in
+            // resetStream.
         }
     }
 
@@ -1857,7 +1921,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                     List<PendingChunk> chunks = pendingStream.get(entry.getKey());
                     if (chunks == null) {
                         chunks = new ArrayList<PendingChunk>();
-                        pendingStream.put(entry.getKey(), chunks);
+                        addPendingStreamChunks(entry.getKey(), chunks);
                     }
                     chunks.addAll(0, entry.getValue());
                 }
@@ -1877,7 +1941,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                     List<PendingChunk> chunks = pendingStream.get(entry.getKey());
                     if (chunks == null) {
                         chunks = new ArrayList<PendingChunk>();
-                        pendingStream.put(entry.getKey(), chunks);
+                        addPendingStreamChunks(entry.getKey(), chunks);
                     }
                     chunks.addAll(0, entry.getValue());
                 }
@@ -2508,28 +2572,19 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // queue under the same flow-control budget (0-RTT and 1-RTT share
     // one connection-level and per-stream send budget; RFC 9001 section
     // 4.6.1 doesn't create a separate one for 0-RTT).
+    //
+    // Issue #320: iterates pendingStreamOrder, which every pendingStream
+    // mutation already keeps in this exact priority order (see its field
+    // comment) -- no copy-and-sort of the whole pending set on every
+    // call. Nothing in this loop's body mutates pendingStream/
+    // pendingStreamOrder (the actual send-side removal happens later, in
+    // buildProtectedPacket/buildZeroRttPacketOrNull once this has
+    // returned), so iterating the live TreeSet directly is safe.
     private Map<Long, List<PendingChunk>> drainEligibleStreamChunks() {
         Map<Long, List<PendingChunk>> streamChunksToSend = new HashMap<Long, List<PendingChunk>>();
-        List<Map.Entry<Long, List<PendingChunk>>> entries =
-                new ArrayList<Map.Entry<Long, List<PendingChunk>>>(pendingStream.entrySet());
-        Collections.sort(entries, new Comparator<Map.Entry<Long, List<PendingChunk>>>() {
-            @Override
-            public int compare(Map.Entry<Long, List<PendingChunk>> a,
-                    Map.Entry<Long, List<PendingChunk>> b) {
-                int pa = streamSendPriority.containsKey(a.getKey())
-                        ? streamSendPriority.get(a.getKey()).intValue() : 0;
-                int pb = streamSendPriority.containsKey(b.getKey())
-                        ? streamSendPriority.get(b.getKey()).intValue() : 0;
-                if (pa != pb) {
-                    return pb - pa;
-                }
-                return Long.compare(a.getKey().longValue(), b.getKey().longValue());
-            }
-        });
-        for (int i = 0; i < entries.size(); i++) {
-            Map.Entry<Long, List<PendingChunk>> entry = entries.get(i);
-            long streamId = entry.getKey().longValue();
-            List<PendingChunk> queued = entry.getValue();
+        for (Long streamKey : pendingStreamOrder) {
+            long streamId = streamKey.longValue();
+            List<PendingChunk> queued = pendingStream.get(streamKey);
             List<PendingChunk> toSend = new ArrayList<PendingChunk>();
             for (PendingChunk chunk : queued) {
                 int blocked = checkSendBlocked(streamId, chunk.data.length);
@@ -2559,7 +2614,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 }
             }
             if (!toSend.isEmpty()) {
-                streamChunksToSend.put(entry.getKey(), toSend);
+                streamChunksToSend.put(streamKey, toSend);
             }
         }
         return streamChunksToSend;
@@ -2778,6 +2833,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         }
 
         Map<Long, List<PendingChunk>> sentStreamThisPacket = new HashMap<Long, List<PendingChunk>>();
+        List<QuicStreamEndpoint> streamsToNotify = new ArrayList<QuicStreamEndpoint>();
         for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
             long streamId = entry.getKey().longValue();
             for (PendingChunk chunk : entry.getValue()) {
@@ -2786,10 +2842,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             List<PendingChunk> queued = pendingStream.get(entry.getKey());
             queued.removeAll(entry.getValue());
             if (queued.isEmpty()) {
-                pendingStream.remove(entry.getKey());
+                removePendingStream(entry.getKey());
                 QuicStreamEndpoint stream = streams.get(entry.getKey());
                 if (stream != null) {
-                    stream.notifyWriteReady();
+                    streamsToNotify.add(stream);
                 }
             }
             sentStreamThisPacket.put(entry.getKey(), entry.getValue());
@@ -2918,6 +2974,20 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // lost.
         boolean inFlight = ackEliciting || paddingBytes > 0;
         lossDetector.onPacketSent(level, packetNumber, System.currentTimeMillis(), ackEliciting, inFlight, packet.length);
+        // Deferred until every bit of this packet's own construction and
+        // bookkeeping above is done: notifyWriteReady() synchronously
+        // runs application code, which can call stream.send(...) ->
+        // queueStreamData -> requestFlush() -> a reentrant flush() call.
+        // Firing it from inside the stream-sending loop above, while
+        // that loop was still mid-iteration, let such a reentrant call
+        // drain and remove a pendingStream entry the loop hadn't reached
+        // yet, so its own later pendingStream.get(entry.getKey())
+        // returned null -- a pre-existing intermittent
+        // NullPointerException here, traced during issue #320's CI
+        // investigation.
+        for (QuicStreamEndpoint stream : streamsToNotify) {
+            stream.notifyWriteReady();
+        }
         return packet;
     }
 
@@ -2982,6 +3052,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
 
         ByteBuffer payload = ByteBuffer.allocate(totalFrameBytes);
         Map<Long, List<PendingChunk>> sentThisPacket = new HashMap<Long, List<PendingChunk>>();
+        List<QuicStreamEndpoint> streamsToNotify = new ArrayList<QuicStreamEndpoint>();
         for (Map.Entry<Long, List<PendingChunk>> entry : streamChunksToSend.entrySet()) {
             long streamId = entry.getKey().longValue();
             for (PendingChunk chunk : entry.getValue()) {
@@ -2990,10 +3061,10 @@ public final class QuicConnection implements QuicTlsEngineListener {
             List<PendingChunk> queued = pendingStream.get(entry.getKey());
             queued.removeAll(entry.getValue());
             if (queued.isEmpty()) {
-                pendingStream.remove(entry.getKey());
+                removePendingStream(entry.getKey());
                 QuicStreamEndpoint stream = streams.get(entry.getKey());
                 if (stream != null) {
-                    stream.notifyWriteReady();
+                    streamsToNotify.add(stream);
                 }
             }
             sentThisPacket.put(entry.getKey(), entry.getValue());
@@ -3020,6 +3091,14 @@ public final class QuicConnection implements QuicTlsEngineListener {
         sentZeroRttStream.put(Long.valueOf(packetNumber), sentThisPacket);
         lossDetector.onPacketSent(EncryptionLevel.ONE_RTT, packetNumber, System.currentTimeMillis(), true, true,
                 packet.length);
+        // Deferred until every bit of this packet's own construction and
+        // bookkeeping above is done -- see the identical comment in
+        // buildProtectedPacket (issue #320's CI investigation) for why
+        // notifyWriteReady() cannot safely fire while pendingStream is
+        // still being read for this packet.
+        for (QuicStreamEndpoint stream : streamsToNotify) {
+            stream.notifyWriteReady();
+        }
         return packet;
     }
 
@@ -3549,7 +3628,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
                 List<PendingChunk> chunks = pendingStream.get(entry.getKey());
                 if (chunks == null) {
                     chunks = new ArrayList<PendingChunk>();
-                    pendingStream.put(entry.getKey(), chunks);
+                    addPendingStreamChunks(entry.getKey(), chunks);
                 }
                 chunks.addAll(0, entry.getValue());
             }
