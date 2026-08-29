@@ -734,6 +734,46 @@ public final class FTPProtocolHandler
         }
     }
 
+    /**
+     * As {@link #handleAuthenticationResult} but swallows I/O errors for use
+     * from storage-offload callbacks.
+     */
+    private void handleAuthenticationResultQuietly(FTPAuthenticationResult result) {
+        try {
+            handleAuthenticationResult(result);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to send authentication reply", e);
+        }
+    }
+
+    /**
+     * Runs blocking FTP authentication off the SelectorLoop and delivers
+     * the outcome on this connection's loop thread.
+     *
+     * <p>{@link FTPConnectionHandler#authenticate} may call
+     * {@link org.bluezoo.gumdrop.auth.Realm#passwordMatch}, which for a
+     * PBKDF2-backed realm runs a 210,000-iteration derivation -- genuinely
+     * CPU-bound work that must not block the loop (issue #344).
+     */
+    private void authenticateAsync(
+            final StorageExecutor.Callback<FTPAuthenticationResult> callback) {
+        if (handler == null) {
+            callback.completed(null);
+            return;
+        }
+        final String authUser = user;
+        final String authPassword = password;
+        final String authAccount = account;
+        submitStorage(new Callable<FTPAuthenticationResult>() {
+            @Override
+            public FTPAuthenticationResult call() {
+                return handler.authenticate(
+                        authUser, authPassword, authAccount, metadata);
+            }
+        }, callback);
+    }
+
     private void handleFileOperationResult(FTPFileOperationResult result, String path) throws IOException {
         switch (result) {
             case SUCCESS:
@@ -995,8 +1035,20 @@ public final class FTPProtocolHandler
         password = args;
 
         if (handler != null) {
-            FTPAuthenticationResult result = handler.authenticate(user, password, account, metadata);
-            handleAuthenticationResult(result);
+            authenticateAsync(new StorageExecutor.Callback<FTPAuthenticationResult>() {
+                @Override
+                public void completed(FTPAuthenticationResult result) {
+                    handleAuthenticationResultQuietly(result);
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    LOGGER.log(Level.WARNING,
+                            "FTP PASS authentication check failed", error);
+                    handleAuthenticationResultQuietly(
+                            FTPAuthenticationResult.INVALID_PASSWORD);
+                }
+            });
         } else {
             reply(530, L10N.getString("ftp.err.invalid_password"));
         }
@@ -1012,8 +1064,20 @@ public final class FTPProtocolHandler
         account = args;
 
         if (handler != null) {
-            FTPAuthenticationResult result = handler.authenticate(user, password, account, metadata);
-            handleAuthenticationResult(result);
+            authenticateAsync(new StorageExecutor.Callback<FTPAuthenticationResult>() {
+                @Override
+                public void completed(FTPAuthenticationResult result) {
+                    handleAuthenticationResultQuietly(result);
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    LOGGER.log(Level.WARNING,
+                            "FTP ACCT authentication check failed", error);
+                    handleAuthenticationResultQuietly(
+                            FTPAuthenticationResult.INVALID_PASSWORD);
+                }
+            });
         } else {
             reply(202, L10N.getString("ftp.command_ok"));
         }

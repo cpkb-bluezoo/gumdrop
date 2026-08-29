@@ -158,6 +158,13 @@ public class AsyncDiskOffloadBoundaryTest {
                 new FTPProtocolHandler(new FTPListener(), connHandler);
         StubEndpoint endpoint = new StubEndpoint();
 
+        handler.connected(endpoint);
+        endpoint.sentData.clear();
+        sendFtp(handler, "USER test");
+        sendFtp(handler, "PASS secret");
+        assertTrue("login failed: " + lastFtpResponse(endpoint),
+                awaitFtpReply(endpoint, "230", 5, TimeUnit.SECONDS));
+
         final AtomicReference<String> workThread =
                 new AtomicReference<String>();
         final CountDownLatch observed = new CountDownLatch(1);
@@ -168,13 +175,6 @@ public class AsyncDiskOffloadBoundaryTest {
                 observed.countDown();
             }
         };
-
-        handler.connected(endpoint);
-        endpoint.sentData.clear();
-        sendFtp(handler, "USER test");
-        sendFtp(handler, "PASS secret");
-        assertTrue("login failed: " + lastFtpResponse(endpoint),
-                lastFtpResponse(endpoint).startsWith("230"));
 
         endpoint.sentData.clear();
         sendFtp(handler, "CWD subdir");
