@@ -61,8 +61,35 @@ public final class CryptoStreamBuffer {
     private static final long MAX_BUFFERED_BYTES = 65536;
 
     private final StreamReassembler reassembler = new StreamReassembler(MAX_BUFFERED_BYTES);
-    private final ByteArrayOutputStream accumulator = new ByteArrayOutputStream();
+    private final GrowableBuffer accumulator = new GrowableBuffer();
     private int consumedLength;
+
+    /**
+     * A {@link ByteArrayOutputStream} exposing its backing array and
+     * length directly, so the reassembly loop below can read already
+     * -written bytes -- and discard an already-consumed prefix -- without
+     * paying for {@link ByteArrayOutputStream#toByteArray()}'s full-buffer
+     * copy on every access.
+     */
+    private static final class GrowableBuffer extends ByteArrayOutputStream {
+
+        byte[] array() {
+            return buf;
+        }
+
+        int length() {
+            return count;
+        }
+
+        /** Discards the first {@code n} bytes, shifting any remainder to the front. */
+        void discard(int n) {
+            if (n <= 0) {
+                return;
+            }
+            System.arraycopy(buf, n, buf, 0, count - n);
+            count -= n;
+        }
+    }
 
     /**
      * Accepts newly received CRYPTO frame data and returns every complete
@@ -92,23 +119,32 @@ public final class CryptoStreamBuffer {
         accumulator.write(contiguous, 0, contiguous.length);
 
         List<ByteBuffer> messages = new ArrayList<ByteBuffer>();
+        byte[] buffered = accumulator.array();
         while (true) {
-            byte[] all = accumulator.toByteArray();
-            int available = all.length - consumedLength;
+            int available = accumulator.length() - consumedLength;
             if (available < MESSAGE_HEADER_LENGTH) {
-                return messages;
+                break;
             }
 
-            int messageDataLength = ((all[consumedLength + 1] & 0xff) << 16)
-                    | ((all[consumedLength + 2] & 0xff) << 8)
-                    | (all[consumedLength + 3] & 0xff);
+            int messageDataLength = ((buffered[consumedLength + 1] & 0xff) << 16)
+                    | ((buffered[consumedLength + 2] & 0xff) << 8)
+                    | (buffered[consumedLength + 3] & 0xff);
             int fullMessageLength = MESSAGE_HEADER_LENGTH + messageDataLength;
             if (available < fullMessageLength) {
-                return messages;
+                break;
             }
 
-            messages.add(ByteBuffer.wrap(all, consumedLength, fullMessageLength));
+            byte[] message = new byte[fullMessageLength];
+            System.arraycopy(buffered, consumedLength, message, 0, fullMessageLength);
+            messages.add(ByteBuffer.wrap(message));
             consumedLength += fullMessageLength;
         }
+        // Shift any already-consumed prefix out of the buffer now rather
+        // than letting it grow for the life of the handshake -- the next
+        // call's array()/discard() calls then only ever touch this call's
+        // as-yet-unconsumed tail, not the whole stream received so far.
+        accumulator.discard(consumedLength);
+        consumedLength = 0;
+        return messages;
     }
 }
