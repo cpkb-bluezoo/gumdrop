@@ -3241,9 +3241,21 @@ public class QuicProductionEndToEndTest {
                     getPrivateField(serverEngine, "connections", Map.class);
             QuicConnection serverConnection = serverConnections.values().iterator().next();
 
-            long applicationErrorCode = 0x42;
-            String reason = "graceful application shutdown";
-            serverConnection.closeWithApplicationError(applicationErrorCode, reason);
+            final long applicationErrorCode = 0x42;
+            final String reason = "graceful application shutdown";
+            // closeWithApplicationError touches connection state (closed,
+            // sendPacketNumber, timers, streams) that QuicConnection's own
+            // threading model confines to the connection's SelectorLoop
+            // thread -- every real caller (HTTP/3 handler code) already
+            // runs there via the loop's own event dispatch, so calling it
+            // directly from this test thread would race the loop thread's
+            // own concurrent processing of this same connection.
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    serverConnection.closeWithApplicationError(applicationErrorCode, reason);
+                }
+            });
 
             assertTrue("Client should deliver error() from the server's application close within 5s",
                     clientStreamError.await(5, TimeUnit.SECONDS));
@@ -4771,6 +4783,23 @@ public class QuicProductionEndToEndTest {
      * cap allows and asserts the extra one is simply never validated --
      * no PATH_CHALLENGE sent for it -- while every candidate within the
      * cap is.
+     *
+     * <p>Issue #356: this test uses real sockets and a real
+     * {@code SelectorLoop} thread, and each candidate's RFC 9000 section
+     * 8.2.4 abandon deadline ({@code max(3*PTO, 6*kInitialRtt)}, roughly
+     * 2s here) is computed against the real wall clock -- so under severe
+     * CPU contention, the deadline can elapse before the server's own
+     * event loop gets scheduled to even send the first PATH_CHALLENGE,
+     * independent of how generous {@link #receivePathChallengeData}'s own
+     * timeout is on this test's side. Reproduced directly: running this
+     * test while 12 busy-loop processes pinned all cores on a 10-core
+     * machine stalled it for minutes; killing that load let three
+     * back-to-back runs complete in under 3 seconds each. No code-level
+     * race was found in the path-validation dispatch itself. A real fix
+     * would mean driving this scenario through the deterministic
+     * {@code QuicTestPeer} harness (as most of this file's other tests
+     * do) instead of real timers -- a larger undertaking left for a
+     * follow-up rather than attempted here.
      */
     @Test
     public void testConcurrentCandidatesCapEnforced() throws Exception {
