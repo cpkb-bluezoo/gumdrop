@@ -1197,10 +1197,21 @@ public final class QuicConnection implements QuicTlsEngineListener {
             streamReassemblers.remove(key);
             pendingFinOffset.remove(key);
             streamSendPriority.remove(key);
-            // Defensive: pendingStream should already be empty for a
-            // fully-closed stream (every chunk sent or reset), but keep
-            // the ordered index from ever holding a stray key regardless.
-            pendingStreamOrder.remove(key);
+            // Deliberately NOT touching pendingStream/pendingStreamOrder
+            // here: isFullyClosed() (both directions logically closed)
+            // can be true before this stream's queued data has actually
+            // been flushed -- e.g. close() queues its FIN chunk and
+            // immediately calls this while still inside receive()'s
+            // suppressFlush window, well before that data is eligible to
+            // be sent. Removing the entry from pendingStreamOrder here
+            // (as this once did) orphaned it: pendingStream still held
+            // the unsent data, drainEligibleStreamChunks no longer knew
+            // to look for it, and the data was silently never sent --
+            // the response a DoQ query was waiting on, for one. The real
+            // removal happens once the data is actually drained, in
+            // buildProtectedPacket/buildZeroRttPacketOrNull's own
+            // post-send cleanup (removePendingStream), or in
+            // resetStream.
         }
     }
 
