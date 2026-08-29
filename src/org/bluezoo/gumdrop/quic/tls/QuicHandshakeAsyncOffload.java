@@ -72,6 +72,20 @@ final class QuicHandshakeAsyncOffload {
         void process() throws TlsProtocolException, IOException;
     }
 
+    /**
+     * Invoked once a batch (and any deferred listener callbacks it
+     * triggered) has finished, on the loop thread -- the caller's chance
+     * to immediately start a follow-up batch (e.g. dispatching a CRYPTO
+     * frame that queued up while this one was running) before {@link
+     * #isBusy} can ever be observed reporting false. Returning true means
+     * a follow-up batch was submitted synchronously from within this
+     * call, so the busy state must be preserved; returning false means
+     * there is nothing further to do right now, so it may clear.
+     */
+    interface CompletionHandler {
+        boolean onBatchDone();
+    }
+
     private final QuicTlsEngineListener listener;
 
     // Read by the loop thread (isBusy(), from the concrete QuicTlsEngine
@@ -81,6 +95,15 @@ final class QuicHandshakeAsyncOffload {
     // driving these engines directly without a live Gumdrop can have that
     // callback delivered inline on whatever thread called submit(), so
     // this is volatile rather than relying on same-thread confinement.
+    //
+    // Only ever cleared after onDone (the CompletionHandler) has had its
+    // chance to synchronously start a follow-up batch and said it did not
+    // (issue #351) -- never unconditionally before calling onDone. A
+    // window where this reads false while onDone is about to resubmit
+    // would let a concurrent poller (e.g. QuicTestPeer's
+    // awaitHandshakeProcessingIdle) observe "idle" and act on
+    // not-yet-installed handshake state (e.g. PacketProtectionKeys a
+    // follow-up batch was about to derive).
     private volatile boolean taskInFlight;
     private boolean deferring;
     private List<Runnable> deferredCallbacks;
@@ -134,7 +157,7 @@ final class QuicHandshakeAsyncOffload {
      *               including replay of its deferred callbacks -- has
      *               finished, successfully or not
      */
-    void submit(final EncryptionLevel level, final BatchProcessor processor, final Runnable onDone) {
+    void submit(final EncryptionLevel level, final BatchProcessor processor, final CompletionHandler onDone) {
         taskInFlight = true;
         final Callable<List<Runnable>> op = new Callable<List<Runnable>>() {
             @Override
@@ -163,24 +186,31 @@ final class QuicHandshakeAsyncOffload {
             public void completed(List<Runnable> callbacks) {
                 // Deferred callbacks (cryptoDataReady, handshakeFinished,
                 // etc.) must have applied their effects before taskInFlight
-                // flips back to false -- drainPendingFrames() (onDone,
-                // below) uses that flag to decide whether it is safe to
-                // dispatch the next queued frame, and a test synchronizing
-                // on isBusy() must not observe "idle" before those effects
-                // are visible.
+                // can be observed false, and -- issue #351 -- so must any
+                // follow-up batch onDone starts synchronously (e.g.
+                // QuicTlsClientEngine/ServerEngine's drainPendingFrames
+                // dispatching a queued CRYPTO frame): only clear the flag
+                // once onDone itself confirms nothing new started, rather
+                // than clearing it first and correcting afterward, or a
+                // concurrent poller (a test synchronizing on isBusy(), or
+                // any real caller) could observe "idle" in between and act
+                // on handshake state the follow-up batch was still about
+                // to produce.
                 for (Runnable r : callbacks) {
                     r.run();
                 }
-                taskInFlight = false;
-                onDone.run();
+                if (!onDone.onBatchDone()) {
+                    taskInFlight = false;
+                }
             }
 
             @Override
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, "QUIC handshake delegated processing failed", error);
                 listener.cryptoProcessingFailed(level, error);
-                taskInFlight = false;
-                onDone.run();
+                if (!onDone.onBatchDone()) {
+                    taskInFlight = false;
+                }
             }
         };
         Gumdrop gumdrop = Gumdrop.getInstance();
