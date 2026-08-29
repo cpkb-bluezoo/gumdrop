@@ -212,6 +212,11 @@ public class DoQProductionEndToEndTest {
                 @Override
                 public void run() {
                     firstConnected.countDown();
+                    // Send on the same SelectorLoop thread that just
+                    // marked the transport connected -- issuing from the
+                    // JUnit thread raced openStream/flush and could miss
+                    // the 5s warm-up deadline on loaded CI hosts.
+                    firstTransport.send(buildQuery(DNSMessage.OPCODE_QUERY));
                 }
             };
             try {
@@ -233,7 +238,6 @@ public class DoQProductionEndToEndTest {
             } finally {
                 DoQClientTransport.connectedObserver = null;
             }
-            firstTransport.send(buildQuery(DNSMessage.OPCODE_QUERY));
 
             assertTrue("Warm-up query should complete within 5s", warmupLatch.await(5, TimeUnit.SECONDS));
             if (warmupFailure.get() != null) {
