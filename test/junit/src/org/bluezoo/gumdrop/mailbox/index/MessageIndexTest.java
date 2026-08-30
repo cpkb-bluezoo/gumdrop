@@ -377,6 +377,9 @@ public class MessageIndexTest {
         MessageIndexEntry entry5 = index.getEntryByUid(5L);
         assertNotNull(entry5);
         assertEquals(3, entry5.getMessageNumber());
+
+        assertEquals(3L, index.getEntryByMessageNumber(2).getUid());
+        assertNull(index.getEntryByMessageNumber(4));
     }
 
     // ========================================================================
@@ -590,6 +593,41 @@ public class MessageIndexTest {
         
         MessageIndexEntry entry = index.getEntryByMessageNumber(999);
         assertNull(entry);
+    }
+
+    @Test
+    public void testGetEntryByMessageNumberAfterRemove() {
+        index.addEntry(createEntry(1L, 1, "loc1", "a@test.com", "Subject 1"));
+        index.addEntry(createEntry(2L, 2, "loc2", "b@test.com", "Subject 2"));
+
+        index.removeEntry(2L);
+
+        assertNotNull(index.getEntryByMessageNumber(1));
+        assertNull(index.getEntryByMessageNumber(2));
+    }
+
+    /**
+     * Regression for issue #334: bulk sequence-number lookup must not scan
+     * the whole index per message number.
+     */
+    @Test(timeout = 5000)
+    public void testGetEntryByMessageNumberCostDoesNotScaleLinearlyWithMailboxSize() {
+        for (int i = 0; i < 100_000; i++) {
+            index.addEntry(createEntry(i + 1L, i + 1, "loc" + i,
+                    "user@test.com", "Subject " + i));
+        }
+
+        long start = System.nanoTime();
+        for (int msgNum = 1; msgNum <= 1000; msgNum++) {
+            MessageIndexEntry entry = index.getEntryByMessageNumber(msgNum);
+            assertNotNull(entry);
+            assertEquals(msgNum, entry.getUid());
+        }
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertTrue("1000 message-number lookups in a 100,000-message index took "
+                        + elapsedMs + "ms -- linear scan per lookup would be far slower",
+                elapsedMs < 2000);
     }
 
     // ========================================================================
