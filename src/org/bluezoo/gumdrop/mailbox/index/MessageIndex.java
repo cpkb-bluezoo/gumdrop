@@ -823,74 +823,89 @@ public class MessageIndex {
      * @throws IOException if saving fails
      */
     public void save() throws IOException {
-        // Write to temp file first
-        Path tempPath = indexPath.resolveSibling(indexPath.getFileName() + ".tmp");
-
-        try (DataOutputStream out = new DataOutputStream(
-                new BufferedOutputStream(Files.newOutputStream(tempPath)))) {
-            
-            // Prepare header data for checksum
-            CRC32 crc = new CRC32();
-
-            // Write magic
-            out.write(MAGIC);
-            crc.update(MAGIC);
-
-            // Write version
-            out.writeShort(VERSION);
-            updateCRC(crc, VERSION);
-
-            // Write flags (reserved)
-            out.writeShort(0);
-            updateCRC(crc, (short) 0);
-
-            // Write uidValidity
-            out.writeLong(uidValidity);
-            updateCRC(crc, uidValidity);
-
-            // Write uidNext
-            out.writeLong(uidNext);
-            updateCRC(crc, uidNext);
-
-            // Count non-null entries
-            int entryCount = 0;
-            for (MessageIndexEntry entry : entries) {
-                if (entry != null) {
-                    entryCount++;
-                }
-            }
-
-            // Write entry count
-            out.writeInt(entryCount);
-            updateCRC(crc, entryCount);
-
-            // Write header checksum
-            out.writeInt((int) crc.getValue());
-
-            // Write entries with checksum
-            CRC32 entryCrc = new CRC32();
-            for (MessageIndexEntry entry : entries) {
-                if (entry != null) {
-                    // Write entry to a buffer for checksumming
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    DataOutputStream entryOut = new DataOutputStream(baos);
-                    entry.writeTo(entryOut);
-                    byte[] entryBytes = baos.toByteArray();
-                    
-                    out.write(entryBytes);
-                    entryCrc.update(entryBytes);
-                }
-            }
-
-            // Write entry section checksum
-            out.writeInt((int) entryCrc.getValue());
+        Path parent = indexPath.getParent();
+        if (parent == null) {
+            throw new IOException("Index path has no parent directory: " + indexPath);
         }
+        // Unique temp name per save so concurrent sessions on the same maildir
+        // do not race on a single literal ".gidx.tmp" (issue #337).
+        String prefix = indexPath.getFileName().toString() + "-";
+        Path tempPath = Files.createTempFile(parent, prefix, ".tmp");
 
-        // Atomic move
-        Files.move(tempPath, indexPath, StandardCopyOption.REPLACE_EXISTING);
-        dirty = false;
+        try {
+            try (DataOutputStream out = new DataOutputStream(
+                    new BufferedOutputStream(Files.newOutputStream(tempPath)))) {
 
-        LOGGER.fine("Saved index with " + getEntryCount() + " entries to " + indexPath);
+                // Prepare header data for checksum
+                CRC32 crc = new CRC32();
+
+                // Write magic
+                out.write(MAGIC);
+                crc.update(MAGIC);
+
+                // Write version
+                out.writeShort(VERSION);
+                updateCRC(crc, VERSION);
+
+                // Write flags (reserved)
+                out.writeShort(0);
+                updateCRC(crc, (short) 0);
+
+                // Write uidValidity
+                out.writeLong(uidValidity);
+                updateCRC(crc, uidValidity);
+
+                // Write uidNext
+                out.writeLong(uidNext);
+                updateCRC(crc, uidNext);
+
+                // Count non-null entries
+                int entryCount = 0;
+                for (MessageIndexEntry entry : entries) {
+                    if (entry != null) {
+                        entryCount++;
+                    }
+                }
+
+                // Write entry count
+                out.writeInt(entryCount);
+                updateCRC(crc, entryCount);
+
+                // Write header checksum
+                out.writeInt((int) crc.getValue());
+
+                // Write entries with checksum
+                CRC32 entryCrc = new CRC32();
+                for (MessageIndexEntry entry : entries) {
+                    if (entry != null) {
+                        // Write entry to a buffer for checksumming
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        DataOutputStream entryOut = new DataOutputStream(baos);
+                        entry.writeTo(entryOut);
+                        byte[] entryBytes = baos.toByteArray();
+
+                        out.write(entryBytes);
+                        entryCrc.update(entryBytes);
+                    }
+                }
+
+                // Write entry section checksum
+                out.writeInt((int) entryCrc.getValue());
+            }
+
+            // Atomic move
+            Files.move(tempPath, indexPath, StandardCopyOption.REPLACE_EXISTING);
+            dirty = false;
+
+            LOGGER.fine("Saved index with " + getEntryCount() + " entries to " + indexPath);
+        } catch (IOException | RuntimeException e) {
+            try {
+                Files.deleteIfExists(tempPath);
+            } catch (IOException deleteFailed) {
+                e.addSuppressed(deleteFailed);
+            }
+            throw e;
+        }
     }
 
     /**
