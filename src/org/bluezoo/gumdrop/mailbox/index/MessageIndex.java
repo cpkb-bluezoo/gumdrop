@@ -62,6 +62,7 @@ import java.util.zip.CRC32;
  * <p>The index maintains:
  * <ul>
  *   <li>Primary index: list of {@link MessageIndexEntry} sorted by UID</li>
+ *   <li>UID and message-number maps for O(1) lookup by either key</li>
  *   <li>Flag sub-index: {@link BitSet} per flag for O(1) flag lookups</li>
  *   <li>Date sub-index: sorted map for range queries on dates</li>
  *   <li>Size sub-index: sorted map for range queries on sizes</li>
@@ -130,6 +131,9 @@ public class MessageIndex {
     /** Map from UID to entry index for fast lookup. */
     private final Map<Long, Integer> uidToIndex;
 
+    /** Map from message number to entry index for fast lookup. */
+    private final Map<Integer, Integer> messageNumberToIndex;
+
     /** Flag sub-indexes: BitSet per flag. */
     private final Map<Flag, BitSet> flagIndex;
 
@@ -170,6 +174,7 @@ public class MessageIndex {
         this.uidNext = uidNext;
         this.entries = new ArrayList<>();
         this.uidToIndex = new HashMap<>();
+        this.messageNumberToIndex = new HashMap<>();
         this.flagIndex = new EnumMap<>(Flag.class);
         this.internalDateIndex = new TreeMap<>();
         this.sentDateIndex = new TreeMap<>();
@@ -199,6 +204,7 @@ public class MessageIndex {
         int index = entries.size();
         entries.add(entry);
         uidToIndex.put(entry.getUid(), index);
+        messageNumberToIndex.put(entry.getMessageNumber(), index);
 
         // Update sub-indexes
         updateSubIndexes(entry, index, true);
@@ -231,6 +237,7 @@ public class MessageIndex {
         // Remove from primary structures
         entries.set(index, null); // Mark as removed
         uidToIndex.remove(uid);
+        messageNumberToIndex.remove(entry.getMessageNumber());
 
         dirty = true;
         return true;
@@ -284,6 +291,7 @@ public class MessageIndex {
         // Clear and rebuild everything
         entries.clear();
         uidToIndex.clear();
+        messageNumberToIndex.clear();
         clearSubIndexes();
 
         // Re-add entries with new message numbers
@@ -293,6 +301,7 @@ public class MessageIndex {
             int index = entries.size();
             entries.add(entry);
             uidToIndex.put(entry.getUid(), index);
+            messageNumberToIndex.put(entry.getMessageNumber(), index);
             updateSubIndexes(entry, index, true);
         }
 
@@ -699,12 +708,11 @@ public class MessageIndex {
      * @return the entry, or null if not found
      */
     public MessageIndexEntry getEntryByMessageNumber(int messageNumber) {
-        for (MessageIndexEntry entry : entries) {
-            if (entry != null && entry.getMessageNumber() == messageNumber) {
-                return entry;
-            }
+        Integer index = messageNumberToIndex.get(messageNumber);
+        if (index == null) {
+            return null;
         }
-        return null;
+        return entries.get(index);
     }
 
     /**
