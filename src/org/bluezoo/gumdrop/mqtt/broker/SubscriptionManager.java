@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.mqtt.broker;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,9 +43,6 @@ public class SubscriptionManager {
     private final RetainedMessageStore retainedStore = new RetainedMessageStore();
 
     private final ConcurrentHashMap<String, MQTTSession> sessions =
-            new ConcurrentHashMap<>();
-
-    private final ConcurrentHashMap<String, Set<String>> clientSubscriptions =
             new ConcurrentHashMap<>();
 
     public TopicTree getTopicTree() {
@@ -84,15 +80,6 @@ public class SubscriptionManager {
      */
     public void subscribe(String clientId, String topicFilter, QoS qos) {
         topicTree.subscribe(topicFilter, clientId, qos);
-        Set<String> subs = clientSubscriptions.get(clientId);
-        if (subs == null) {
-            subs = ConcurrentHashMap.newKeySet();
-            Set<String> existing = clientSubscriptions.putIfAbsent(clientId, subs);
-            if (existing != null) {
-                subs = existing;
-            }
-        }
-        subs.add(topicFilter);
     }
 
     /**
@@ -100,10 +87,6 @@ public class SubscriptionManager {
      */
     public void unsubscribe(String clientId, String topicFilter) {
         topicTree.unsubscribe(topicFilter, clientId);
-        Set<String> subs = clientSubscriptions.get(clientId);
-        if (subs != null) {
-            subs.remove(topicFilter);
-        }
     }
 
     /**
@@ -111,7 +94,6 @@ public class SubscriptionManager {
      */
     public void removeClient(String clientId) {
         topicTree.unsubscribeAll(clientId);
-        clientSubscriptions.remove(clientId);
         sessions.remove(clientId);
     }
 
@@ -119,8 +101,7 @@ public class SubscriptionManager {
      * Returns the set of topic filters a client is subscribed to.
      */
     public Set<String> getSubscriptions(String clientId) {
-        Set<String> subs = clientSubscriptions.get(clientId);
-        return subs != null ? Collections.unmodifiableSet(subs) : Collections.emptySet();
+        return topicTree.getClientTopicFilters(clientId);
     }
 
     /**
