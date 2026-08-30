@@ -403,6 +403,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      */
     private volatile ServletMappingIndex servletMappingIndex;
     private volatile FilterMappingIndex filterMappingIndex;
+    private volatile SecurityConstraintIndex securityConstraintIndex;
 
     String secureHost;
     String commonDir;
@@ -591,6 +592,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
         servletMappingIndex = null;
         filterMappingIndex = null;
+        securityConstraintIndex = null;
 
         initParams.clear();
         attributes.clear();
@@ -2167,6 +2169,24 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             if (index == null) {
                 index = FilterMappingIndex.build(filterMappings);
                 filterMappingIndex = index;
+            }
+            return index;
+        }
+    }
+
+    /**
+     * As {@link #servletMappingIndex()}, for {@link SecurityConstraintIndex}.
+     */
+    SecurityConstraintIndex securityConstraintIndex() {
+        SecurityConstraintIndex index = securityConstraintIndex;
+        if (index != null) {
+            return index;
+        }
+        synchronized (this) {
+            index = securityConstraintIndex;
+            if (index == null) {
+                index = SecurityConstraintIndex.build(securityConstraints);
+                securityConstraintIndex = index;
             }
             return index;
         }

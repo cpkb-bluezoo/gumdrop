@@ -27,10 +27,8 @@ import java.io.ObjectOutputStream;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
@@ -305,74 +303,91 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
             (request.match.pathInfo == null)
             ? request.match.servletPath
             : request.match.servletPath + request.match.pathInfo;
-        boolean authenticated = false;
+        AuthState authState = new AuthState();
 
-        // Build list of security constraints
         ServletDef servletDef = request.match.servletDef;
-        Set<SecurityConstraint> securityConstraints = new LinkedHashSet<>();
         if (servletDef.servletSecurity != null) {
-            // constraints specifically associated with this servlet
-            securityConstraints.addAll(servletDef.servletSecurity);
-        }
-        // constraints matching path
-        securityConstraints.addAll(context.securityConstraints);
-
-        // Authorize if necessary. For every security constraint that matches
-        // this request, enforce the transport guarantee and the authorization
-        // (role) constraint. Access is denied with 403 when the authenticated
-        // user is not a member of a permitted role, or when a deny-all
-        // constraint (an empty auth-constraint) applies.
-        for (SecurityConstraint sc : securityConstraints) {
-            if (!sc.matches(request.getMethod(), path)) {
-                continue;
-            }
-
-            // Check if HTTPS is required
-            if (sc.transportGuarantee != ServletSecurity.TransportGuarantee.NONE && !request.isSecure()) {
-                // Redirect to the secure host and port
-                if (context.secureHost == null) {
-                    String message = Context.L10N.getString("http.no_secure_host");
-                    response.sendError(500, message);
+            for (SecurityConstraint sc : servletDef.servletSecurity) {
+                if (!sc.matches(request.getMethod(), path)) {
+                    continue;
+                }
+                if (!enforceSecurityConstraint(sc, request, response, authState)) {
                     return false;
                 }
-                String url = request.getRequestURI();
-                String urlQueryString = request.getQueryString();
-                if (urlQueryString != null) {
-                    url = url + "?" + urlQueryString;
+            }
+        }
+
+        SecurityConstraintIndex index = context.securityConstraintIndex();
+        if (!index.forEachPathCandidate(path, new SecurityConstraintIndex.PathCandidate() {
+            @Override
+            public boolean accept(int i) throws ServletException, IOException {
+                SecurityConstraint sc = index.constraintAt(i);
+                if (!sc.matches(request.getMethod(), path)) {
+                    return true;
                 }
-                url = "https://" + context.secureHost + url;
-                response.sendRedirect(url);
+                return enforceSecurityConstraint(sc, request, response, authState);
+            }
+        })) {
+            return false;
+        }
+        return true;
+    }
+
+    private static final class AuthState {
+        boolean authenticated;
+    }
+
+    /**
+     * Applies one matched security constraint. Returns false if the
+     * response is committed to an error or redirect.
+     */
+    private boolean enforceSecurityConstraint(SecurityConstraint sc, Request request,
+            Response response, AuthState authState) throws ServletException, IOException {
+        // Check if HTTPS is required
+        if (sc.transportGuarantee != ServletSecurity.TransportGuarantee.NONE && !request.isSecure()) {
+            // Redirect to the secure host and port
+            if (context.secureHost == null) {
+                String message = Context.L10N.getString("http.no_secure_host");
+                response.sendError(500, message);
                 return false;
             }
+            String url = request.getRequestURI();
+            String urlQueryString = request.getQueryString();
+            if (urlQueryString != null) {
+                url = url + "?" + urlQueryString;
+            }
+            url = "https://" + context.secureHost + url;
+            response.sendRedirect(url);
+            return false;
+        }
 
-            ConstraintRequirement requirement = requirementOf(sc);
-            if (requirement == ConstraintRequirement.NONE) {
-                // No role restriction imposed by this constraint.
-                continue;
-            }
-            if (requirement == ConstraintRequirement.DENY_ALL) {
-                // An empty auth-constraint denies all access.
-                response.sendError(HttpServletResponse.SC_FORBIDDEN);
-                return false;
-            }
+        ConstraintRequirement requirement = requirementOf(sc);
+        if (requirement == ConstraintRequirement.NONE) {
+            // No role restriction imposed by this constraint.
+            return true;
+        }
+        if (requirement == ConstraintRequirement.DENY_ALL) {
+            // An empty auth-constraint denies all access.
+            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+            return false;
+        }
 
-            // A role constraint applies: the user must be authenticated.
-            if (!authenticated && !request.authenticate(response)) {
-                return false; // challenge already sent by authenticate()
-            }
-            authenticated = true;
+        // A role constraint applies: the user must be authenticated.
+        if (!authState.authenticated && !request.authenticate(response)) {
+            return false; // challenge already sent by authenticate()
+        }
+        authState.authenticated = true;
 
-            // The user must be a member of at least one permitted role.
-            final HttpServletRequest roleRequest = request;
-            if (!isRoleAuthorized(sc.authConstraints, new RoleTester() {
-                public boolean isUserInRole(String roleName) {
-                    return roleRequest.isUserInRole(roleName);
-                }
-            })) {
-                // Authenticated but not authorized for this resource.
-                response.sendError(HttpServletResponse.SC_FORBIDDEN);
-                return false;
+        // The user must be a member of at least one permitted role.
+        final HttpServletRequest roleRequest = request;
+        if (!isRoleAuthorized(sc.authConstraints, new RoleTester() {
+            public boolean isUserInRole(String roleName) {
+                return roleRequest.isUserInRole(roleName);
             }
+        })) {
+            // Authenticated but not authorized for this resource.
+            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+            return false;
         }
         return true;
     }
