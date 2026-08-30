@@ -318,17 +318,17 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
         }
 
         SecurityConstraintIndex index = context.securityConstraintIndex();
-        for (int i = 0; i < index.size(); i++) {
-            if (!index.mightApplyToPath(i, path)) {
-                continue;
+        if (!index.forEachPathCandidate(path, new SecurityConstraintIndex.PathCandidate() {
+            @Override
+            public boolean accept(int i) throws ServletException, IOException {
+                SecurityConstraint sc = index.constraintAt(i);
+                if (!sc.matches(request.getMethod(), path)) {
+                    return true;
+                }
+                return enforceSecurityConstraint(sc, request, response, authState);
             }
-            SecurityConstraint sc = index.constraintAt(i);
-            if (!sc.matches(request.getMethod(), path)) {
-                continue;
-            }
-            if (!enforceSecurityConstraint(sc, request, response, authState)) {
-                return false;
-            }
+        })) {
+            return false;
         }
         return true;
     }

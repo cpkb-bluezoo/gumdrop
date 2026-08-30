@@ -21,20 +21,26 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+
+import javax.servlet.ServletException;
 
 /**
  * Index over one {@link Context}'s {@code securityConstraints}, built once
- * (issue #313) so {@link ContextRequestDispatcher#authorize} can skip
- * constraints whose URL patterns cannot match the request path without
+ * (issue #313) so {@link ContextRequestDispatcher#authorize} can visit only
+ * constraints whose URL patterns could match the request path, without
  * copying every constraint into a fresh {@code Set} on each authenticated
  * request.
  *
  * <p>URL-pattern matching follows {@link ResourceCollection#matches}: exact,
  * {@code /*} prefix ({@code pattern.substring(0, pattern.length() - 1)}), then
  * extension ({@code *.ext} via {@code path.endsWith(pattern.substring(1))}).
- * Constraints are still returned in {@code securityConstraints} list order;
+ * Candidates are returned in {@code securityConstraints} list order;
  * {@link SecurityConstraint#matches(String, String)} is consulted for the
  * final method/resource-collection decision.
  *
@@ -43,21 +49,57 @@ import java.util.List;
  */
 final class SecurityConstraintIndex {
 
-    private final SecurityConstraint[] ordered;
-    private final PathPattern[] pathPatterns;
+    /**
+     * Visited for each constraint index whose URL patterns might match a path.
+     */
+    interface PathCandidate {
+        /**
+         * @return {@code false} to stop visiting further candidates
+         */
+        boolean accept(int index) throws ServletException, IOException;
+    }
 
-    private SecurityConstraintIndex(SecurityConstraint[] ordered, PathPattern[] pathPatterns) {
+    private final SecurityConstraint[] ordered;
+    private final Map<String, int[]> exactIndices;
+    private final PrefixTrie prefixTrie;
+    private final Map<String, int[]> extensionIndices;
+    private final int[] pathAgnosticIndices;
+
+    private final int[] candidateGeneration;
+    private final int[] candidateScratch;
+    private int candidateCount;
+    private int generation;
+
+    private SecurityConstraintIndex(SecurityConstraint[] ordered,
+            Map<String, int[]> exactIndices,
+            PrefixTrie prefixTrie,
+            Map<String, int[]> extensionIndices,
+            int[] pathAgnosticIndices) {
         this.ordered = ordered;
-        this.pathPatterns = pathPatterns;
+        this.exactIndices = exactIndices;
+        this.prefixTrie = prefixTrie;
+        this.extensionIndices = extensionIndices;
+        this.pathAgnosticIndices = pathAgnosticIndices;
+        this.candidateGeneration = new int[ordered.length];
+        this.candidateScratch = new int[ordered.length];
     }
 
     static SecurityConstraintIndex build(List<SecurityConstraint> constraints) {
         SecurityConstraint[] ordered = constraints.toArray(new SecurityConstraint[0]);
-        PathPattern[] pathPatterns = new PathPattern[ordered.length];
+        Map<String, List<Integer>> exact = new HashMap<>();
+        PrefixTrie prefixTrie = new PrefixTrie();
+        Map<String, List<Integer>> extension = new LinkedHashMap<>();
+        List<Integer> pathAgnostic = new ArrayList<>();
+
         for (int i = 0; i < ordered.length; i++) {
-            pathPatterns[i] = PathPattern.forConstraint(ordered[i]);
+            registerConstraint(ordered[i], i, exact, prefixTrie, extension, pathAgnostic);
         }
-        return new SecurityConstraintIndex(ordered, pathPatterns);
+
+        return new SecurityConstraintIndex(ordered,
+                freeze(exact),
+                prefixTrie,
+                freeze(extension),
+                toArray(pathAgnostic));
     }
 
     int size() {
@@ -69,74 +111,140 @@ final class SecurityConstraintIndex {
     }
 
     /**
-     * Returns whether the constraint at {@code index} has any resource
-     * collection whose URL patterns could match {@code path}. Method
-     * coverage is still decided by {@link SecurityConstraint#matches}.
+     * Invokes {@code consumer} for each constraint index whose URL patterns
+     * might match {@code path}, in {@code securityConstraints} list order.
+     * Method coverage is still decided by {@link SecurityConstraint#matches}.
      */
-    boolean mightApplyToPath(int index, String path) {
-        return pathPatterns[index].mightMatch(path);
+    boolean forEachPathCandidate(String path, PathCandidate consumer)
+            throws ServletException, IOException {
+        synchronized (this) {
+            int gen = ++generation;
+            if (generation == Integer.MAX_VALUE) {
+                java.util.Arrays.fill(candidateGeneration, 0);
+                generation = 1;
+                gen = 1;
+            }
+            candidateCount = 0;
+
+            markIndices(exactIndices.get(path), gen);
+            prefixTrie.collect(path, gen, this);
+            for (Map.Entry<String, int[]> entry : extensionIndices.entrySet()) {
+                String pattern = entry.getKey();
+                if (path.endsWith(pattern.substring(1))) {
+                    markIndices(entry.getValue(), gen);
+                }
+            }
+            markIndices(pathAgnosticIndices, gen);
+
+            if (candidateCount > 1) {
+                java.util.Arrays.sort(candidateScratch, 0, candidateCount);
+            }
+            for (int j = 0; j < candidateCount; j++) {
+                if (!consumer.accept(candidateScratch[j])) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
-    private static final class PathPattern {
-        private final boolean pathAgnostic;
-        private final String[] exactPaths;
-        private final String[] prefixKeys;
-        private final String[] extensionPatterns;
+    private void markIndices(int[] indices, int gen) {
+        if (indices == null) {
+            return;
+        }
+        for (int index : indices) {
+            if (candidateGeneration[index] != gen) {
+                candidateGeneration[index] = gen;
+                candidateScratch[candidateCount++] = index;
+            }
+        }
+    }
 
-        private PathPattern(boolean pathAgnostic, String[] exactPaths,
-                String[] prefixKeys, String[] extensionPatterns) {
-            this.pathAgnostic = pathAgnostic;
-            this.exactPaths = exactPaths;
-            this.prefixKeys = prefixKeys;
-            this.extensionPatterns = extensionPatterns;
+    private static void registerConstraint(SecurityConstraint constraint, int index,
+            Map<String, List<Integer>> exact,
+            PrefixTrie prefixTrie,
+            Map<String, List<Integer>> extension,
+            List<Integer> pathAgnostic) {
+        for (ResourceCollection rc : constraint.resourceCollections) {
+            if (rc.urlPatterns == null) {
+                pathAgnostic.add(index);
+                continue;
+            }
+            for (String pattern : rc.urlPatterns) {
+                if (pattern.endsWith("/*")) {
+                    prefixTrie.add(pattern.substring(0, pattern.length() - 1), index);
+                } else if (pattern.startsWith("*.")) {
+                    addIndex(extension, pattern, index);
+                } else {
+                    addIndex(exact, pattern, index);
+                }
+            }
+        }
+    }
+
+    private static void addIndex(Map<String, List<Integer>> bucket, String key, int index) {
+        List<Integer> indices = bucket.get(key);
+        if (indices == null) {
+            indices = new ArrayList<>();
+            bucket.put(key, indices);
+        }
+        indices.add(index);
+    }
+
+    private static Map<String, int[]> freeze(Map<String, List<Integer>> buckets) {
+        Map<String, int[]> frozen = new HashMap<>();
+        for (Map.Entry<String, List<Integer>> entry : buckets.entrySet()) {
+            frozen.put(entry.getKey(), toArray(entry.getValue()));
+        }
+        return frozen;
+    }
+
+    private static int[] toArray(List<Integer> indices) {
+        int[] array = new int[indices.size()];
+        for (int i = 0; i < indices.size(); i++) {
+            array[i] = indices.get(i);
+        }
+        return array;
+    }
+
+    private static final class PrefixTrie {
+        private final Map<Character, PrefixTrie> children = new HashMap<>();
+        private int[] indices;
+
+        void add(String prefixKey, int index) {
+            PrefixTrie node = this;
+            for (int i = 0; i < prefixKey.length(); i++) {
+                char c = prefixKey.charAt(i);
+                PrefixTrie next = node.children.get(c);
+                if (next == null) {
+                    next = new PrefixTrie();
+                    node.children.put(c, next);
+                }
+                node = next;
+            }
+            node.indices = append(node.indices, index);
         }
 
-        static PathPattern forConstraint(SecurityConstraint constraint) {
-            boolean pathAgnostic = false;
-            List<String> exact = new ArrayList<>();
-            List<String> prefix = new ArrayList<>();
-            List<String> extension = new ArrayList<>();
-            for (ResourceCollection rc : constraint.resourceCollections) {
-                if (rc.urlPatterns == null) {
-                    pathAgnostic = true;
-                    continue;
+        void collect(String path, int gen, SecurityConstraintIndex owner) {
+            PrefixTrie node = this;
+            owner.markIndices(node.indices, gen);
+            for (int i = 0; i < path.length(); i++) {
+                node = node.children.get(path.charAt(i));
+                if (node == null) {
+                    return;
                 }
-                for (String pattern : rc.urlPatterns) {
-                    if (pattern.endsWith("/*")) {
-                        prefix.add(pattern.substring(0, pattern.length() - 1));
-                    } else if (pattern.startsWith("*.")) {
-                        extension.add(pattern);
-                    } else {
-                        exact.add(pattern);
-                    }
-                }
+                owner.markIndices(node.indices, gen);
             }
-            return new PathPattern(pathAgnostic,
-                    exact.toArray(new String[0]),
-                    prefix.toArray(new String[0]),
-                    extension.toArray(new String[0]));
         }
 
-        boolean mightMatch(String path) {
-            if (pathAgnostic) {
-                return true;
+        private static int[] append(int[] existing, int index) {
+            if (existing == null) {
+                return new int[] { index };
             }
-            for (String exactPath : exactPaths) {
-                if (exactPath.equals(path)) {
-                    return true;
-                }
-            }
-            for (String prefixKey : prefixKeys) {
-                if (path.startsWith(prefixKey)) {
-                    return true;
-                }
-            }
-            for (String pattern : extensionPatterns) {
-                if (path.endsWith(pattern.substring(1))) {
-                    return true;
-                }
-            }
-            return false;
+            int[] merged = new int[existing.length + 1];
+            System.arraycopy(existing, 0, merged, 0, existing.length);
+            merged[existing.length] = index;
+            return merged;
         }
     }
 }

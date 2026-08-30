@@ -101,7 +101,7 @@ public class ContextSecurityConstraintIndexTest {
     }
 
     @Test
-    public void testIndexMightApplyMatchesFullConstraintScan() {
+    public void testIndexMightApplyMatchesFullConstraintScan() throws Exception {
         List<SecurityConstraint> constraints = new ArrayList<>();
         constraints.add(constraintForPattern("/noise0/*"));
         constraints.add(constraintForPattern("/target/*"));
@@ -117,21 +117,22 @@ public class ContextSecurityConstraintIndexTest {
             }
         }
 
-        List<SecurityConstraint> viaIndex = new ArrayList<>();
-        for (int i = 0; i < index.size(); i++) {
-            if (!index.mightApplyToPath(i, path)) {
-                continue;
+        final List<SecurityConstraint> viaIndex = new ArrayList<>();
+        index.forEachPathCandidate(path, new SecurityConstraintIndex.PathCandidate() {
+            @Override
+            public boolean accept(int i) {
+                SecurityConstraint sc = index.constraintAt(i);
+                if (sc.matches(method, path)) {
+                    viaIndex.add(sc);
+                }
+                return true;
             }
-            SecurityConstraint sc = index.constraintAt(i);
-            if (sc.matches(method, path)) {
-                viaIndex.add(sc);
-            }
-        }
+        });
         assertEquals(expected, viaIndex);
     }
 
     @Test(timeout = 3000)
-    public void testMatchingCostDoesNotScanEveryConstraint() {
+    public void testMatchingCostDoesNotScanEveryConstraint() throws Exception {
         for (int i = 0; i < 5000; i++) {
             context.securityConstraints.add(constraintForPattern("/noise" + i + "/*"));
         }
@@ -139,20 +140,21 @@ public class ContextSecurityConstraintIndexTest {
         SecurityConstraintIndex index = context.securityConstraintIndex();
 
         long start = System.nanoTime();
-        int hits = 0;
+        final int[] hits = { 0 };
         for (int i = 0; i < 50000; i++) {
-            for (int c = 0; c < index.size(); c++) {
-                if (!index.mightApplyToPath(c, "/target/page")) {
-                    continue;
+            index.forEachPathCandidate("/target/page", new SecurityConstraintIndex.PathCandidate() {
+                @Override
+                public boolean accept(int c) {
+                    if (index.constraintAt(c).matches("GET", "/target/page")) {
+                        hits[0]++;
+                    }
+                    return true;
                 }
-                if (index.constraintAt(c).matches("GET", "/target/page")) {
-                    hits++;
-                }
-            }
+            });
         }
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
-        assertTrue("expected at least one matching constraint", hits > 0);
+        assertTrue("expected at least one matching constraint", hits[0] > 0);
         assertTrue("50,000 indexed lookups against 5,001 constraints took " + elapsedMs
                         + "ms -- a per-request linear scan would be far slower",
                 elapsedMs < 2000);
