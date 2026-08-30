@@ -49,6 +49,9 @@ public class DefaultServlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
 
+    /** Fixed copy buffer for static resource streaming (issue #314). */
+    static final int COPY_BUFFER_SIZE = 4096;
+
     public String getServletName() {
         return "DefaultServlet";
     }
@@ -188,12 +191,20 @@ public class DefaultServlet extends HttpServlet {
             // Stream content
             InputStream in = connection.getInputStream();
             OutputStream out = response.getOutputStream();
-            byte[] buf = new byte[Math.max(4096, in.available())];
+            byte[] buf = newCopyBuffer();
             for (int len = in.read(buf); len != -1; len = in.read(buf)) {
                 out.write(buf, 0, len);
             }
             out.flush();
         }
+    }
+
+    /**
+     * Returns the fixed-size buffer used when streaming static resources.
+     * Package-private for regression tests (issue #314).
+     */
+    static byte[] newCopyBuffer() {
+        return new byte[COPY_BUFFER_SIZE];
     }
 
     /**
