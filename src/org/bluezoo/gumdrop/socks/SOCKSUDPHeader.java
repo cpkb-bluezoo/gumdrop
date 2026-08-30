@@ -29,6 +29,8 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
+import org.bluezoo.gumdrop.util.ByteBufferPool;
+
 import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
 
 /**
@@ -176,7 +178,9 @@ final class SOCKSUDPHeader {
      *
      * @param source the remote host's address and port
      * @param payload the response payload data
-     * @return a new buffer containing header + payload, ready to send
+     * @return a buffer containing header + payload, ready to send; the
+     *         caller must release it with {@link ByteBufferPool#release}
+     *         once the datagram has been sent
      */
     static ByteBuffer encode(InetSocketAddress source, ByteBuffer payload) {
         InetAddress addr = source.getAddress();
@@ -197,7 +201,7 @@ final class SOCKSUDPHeader {
         // RSV(2) + FRAG(1) + ATYP(1) + ADDR(var) + PORT(2) + DATA
         int headerLen = 4 + addrBytes.length + 2;
         int payloadLen = payload.remaining();
-        ByteBuffer buf = ByteBuffer.allocate(headerLen + payloadLen);
+        ByteBuffer buf = ByteBufferPool.acquire(headerLen + payloadLen);
 
         buf.putShort(SOCKS5_UDP_RSV);
         buf.put(SOCKS5_UDP_FRAG_STANDALONE);

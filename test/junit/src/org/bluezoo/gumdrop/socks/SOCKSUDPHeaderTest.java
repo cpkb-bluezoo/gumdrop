@@ -5,6 +5,7 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 
+import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -171,19 +172,23 @@ public class SOCKSUDPHeaderTest {
         ByteBuffer payload = ByteBuffer.wrap(new byte[]{0x48, 0x49});
 
         ByteBuffer result = SOCKSUDPHeader.encode(source, payload);
-        assertNotNull(result);
-        assertEquals(12, result.remaining()); // 4+4+2 header + 2 data
+        try {
+            assertNotNull(result);
+            assertEquals(12, result.remaining()); // 4+4+2 header + 2 data
 
-        assertEquals(0, result.getShort());         // RSV
-        assertEquals(0, result.get());              // FRAG
-        assertEquals(SOCKS5_ATYP_IPV4, result.get()); // ATYP
+            assertEquals(0, result.getShort());         // RSV
+            assertEquals(0, result.get());              // FRAG
+            assertEquals(SOCKS5_ATYP_IPV4, result.get()); // ATYP
 
-        byte[] addr = new byte[4];
-        result.get(addr);
-        assertEquals(93, addr[0] & 0xFF);
-        assertEquals(80, result.getShort() & 0xFFFF); // PORT
-        assertEquals(0x48, result.get());              // DATA[0]
-        assertEquals(0x49, result.get());              // DATA[1]
+            byte[] addr = new byte[4];
+            result.get(addr);
+            assertEquals(93, addr[0] & 0xFF);
+            assertEquals(80, result.getShort() & 0xFFFF); // PORT
+            assertEquals(0x48, result.get());              // DATA[0]
+            assertEquals(0x49, result.get());              // DATA[1]
+        } finally {
+            ByteBufferPool.release(result);
+        }
     }
 
     @Test
@@ -197,12 +202,16 @@ public class SOCKSUDPHeaderTest {
         ByteBuffer payload = ByteBuffer.wrap(new byte[]{0x01});
 
         ByteBuffer result = SOCKSUDPHeader.encode(source, payload);
-        // header = 4 + 16 + 2 = 22, data = 1
-        assertEquals(23, result.remaining());
+        try {
+            // header = 4 + 16 + 2 = 22, data = 1
+            assertEquals(23, result.remaining());
 
-        result.getShort(); // RSV
-        result.get();      // FRAG
-        assertEquals(SOCKS5_ATYP_IPV6, result.get());
+            result.getShort(); // RSV
+            result.get();      // FRAG
+            assertEquals(SOCKS5_ATYP_IPV6, result.get());
+        } finally {
+            ByteBufferPool.release(result);
+        }
     }
 
     @Test
@@ -212,7 +221,41 @@ public class SOCKSUDPHeaderTest {
         ByteBuffer payload = ByteBuffer.allocate(0);
 
         ByteBuffer result = SOCKSUDPHeader.encode(source, payload);
-        assertEquals(10, result.remaining()); // header only, 0 data
+        try {
+            assertEquals(10, result.remaining()); // header only, 0 data
+        } finally {
+            ByteBufferPool.release(result);
+        }
+    }
+
+    /**
+     * Regression for issue #333: outbound UDP ASSOCIATE headers must use
+     * {@link ByteBufferPool} rather than allocating a fresh heap buffer per
+     * datagram.
+     */
+    @Test
+    public void testEncodeUsesByteBufferPool() throws UnknownHostException {
+        InetSocketAddress source = new InetSocketAddress(
+                InetAddress.getByAddress(new byte[]{8, 8, 8, 8}), 53);
+        ByteBuffer payload = ByteBuffer.wrap(new byte[]{0x01, 0x02});
+
+        ByteBuffer encoded = SOCKSUDPHeader.encode(source, payload);
+        int capacity = encoded.capacity();
+        try {
+            SOCKSUDPHeader.Parsed parsed = SOCKSUDPHeader.parse(encoded.duplicate());
+            assertNotNull(parsed);
+            assertEquals(source.getAddress(), parsed.address);
+            assertEquals(source.getPort(), parsed.port);
+        } finally {
+            ByteBufferPool.release(encoded);
+        }
+
+        ByteBuffer reacquired = ByteBufferPool.acquire(capacity);
+        try {
+            assertSame("encode() must draw from ByteBufferPool", encoded, reacquired);
+        } finally {
+            ByteBufferPool.release(reacquired);
+        }
     }
 
     // ── round-trip ──
@@ -225,14 +268,18 @@ public class SOCKSUDPHeaderTest {
         ByteBuffer payload = ByteBuffer.wrap(data);
 
         ByteBuffer encoded = SOCKSUDPHeader.encode(original, payload);
-        SOCKSUDPHeader.Parsed parsed = SOCKSUDPHeader.parse(encoded);
+        try {
+            SOCKSUDPHeader.Parsed parsed = SOCKSUDPHeader.parse(encoded);
 
-        assertNotNull(parsed);
-        assertEquals(original.getAddress(), parsed.address);
-        assertEquals(original.getPort(), parsed.port);
-        assertEquals(0, parsed.frag);
+            assertNotNull(parsed);
+            assertEquals(original.getAddress(), parsed.address);
+            assertEquals(original.getPort(), parsed.port);
+            assertEquals(0, parsed.frag);
 
-        int remaining = encoded.limit() - parsed.dataOffset;
-        assertEquals(data.length, remaining);
+            int remaining = encoded.limit() - parsed.dataOffset;
+            assertEquals(data.length, remaining);
+        } finally {
+            ByteBufferPool.release(encoded);
+        }
     }
 }
