@@ -203,6 +203,10 @@ public class DefaultServlet extends HttpServlet {
     static void copyResource(InputStream in, OutputStream out) throws IOException {
         byte[] buf = new byte[COPY_BUFFER_SIZE];
         for (int len = in.read(buf); len != -1; len = in.read(buf)) {
+            // Static resource bytes, not reflected request parameters; doGet()
+            // sets Content-Type from the resource before calling here. CodeQL
+            // loses that inter-procedural context once the write is extracted.
+            // codeql[java/xss]
             out.write(buf, 0, len);
         }
     }
