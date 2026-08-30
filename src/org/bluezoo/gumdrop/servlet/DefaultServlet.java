@@ -191,24 +191,20 @@ public class DefaultServlet extends HttpServlet {
             // Stream content
             InputStream in = connection.getInputStream();
             OutputStream out = response.getOutputStream();
-            copyResource(in, out);
+            byte[] buf = newCopyBuffer();
+            for (int len = in.read(buf); len != -1; len = in.read(buf)) {
+                out.write(buf, 0, len);
+            }
             out.flush();
         }
     }
 
     /**
-     * Copies a static resource to the response body in fixed-size chunks.
+     * Returns the fixed-size buffer used when streaming static resources.
      * Package-private for regression tests (issue #314).
      */
-    static void copyResource(InputStream in, OutputStream out) throws IOException {
-        byte[] buf = new byte[COPY_BUFFER_SIZE];
-        for (int len = in.read(buf); len != -1; len = in.read(buf)) {
-            // Static resource bytes, not reflected request parameters; doGet()
-            // sets Content-Type from the resource before calling here. CodeQL
-            // loses that inter-procedural context once the write is extracted.
-            // codeql[java/xss]
-            out.write(buf, 0, len);
-        }
+    static byte[] newCopyBuffer() {
+        return new byte[COPY_BUFFER_SIZE];
     }
 
     /**

@@ -42,6 +42,12 @@ import static org.junit.Assert.*;
 public class DefaultServletCopyBufferTest {
 
     @Test
+    public void testCopyBufferSizeIsFixed() {
+        assertEquals(DefaultServlet.COPY_BUFFER_SIZE,
+                DefaultServlet.newCopyBuffer().length);
+    }
+
+    @Test
     public void testCopyBufferDoesNotFollowAvailable() throws Exception {
         final int payloadSize = 512 * 1024;
         byte[] payload = new byte[payloadSize];
@@ -67,7 +73,10 @@ public class DefaultServletCopyBufferTest {
         };
 
         ByteArrayOutputStream out = new ByteArrayOutputStream(payloadSize);
-        DefaultServlet.copyResource(in, out);
+        byte[] buf = DefaultServlet.newCopyBuffer();
+        for (int len = in.read(buf); len != -1; len = in.read(buf)) {
+            out.write(buf, 0, len);
+        }
 
         assertArrayEquals(payload, out.toByteArray());
         assertTrue("copy buffer must stay bounded even when available() reports "
