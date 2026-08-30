@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.mqtt.broker;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -174,6 +175,19 @@ public class TopicTree {
                 unsubscribePath(topicFilter, clientId);
             }
         }
+    }
+
+    /**
+     * Returns the topic filters the given client is currently subscribed to.
+     *
+     * @param clientId the client identifier
+     * @return an unmodifiable view of the client's topic filters, or empty
+     *         if the client has no subscriptions
+     */
+    public Set<String> getClientTopicFilters(String clientId) {
+        Set<String> filters = clientFilters.get(clientId);
+        return filters != null ? Collections.unmodifiableSet(filters)
+                : Collections.emptySet();
     }
 
     /**
