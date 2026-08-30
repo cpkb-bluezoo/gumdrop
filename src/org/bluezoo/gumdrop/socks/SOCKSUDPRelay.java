@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.UDPEndpoint;
 import org.bluezoo.gumdrop.UDPTransportFactory;
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
+import org.bluezoo.gumdrop.util.ByteBufferPool;
 
 import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
 
@@ -340,9 +341,12 @@ class SOCKSUDPRelay {
             // RFC 1928 §7: encapsulate with header
             ByteBuffer encapsulated =
                     SOCKSUDPHeader.encode(source, data);
-
-            clientFacingEndpoint.sendTo(
-                    encapsulated, clientDatagramAddress);
+            try {
+                clientFacingEndpoint.sendTo(
+                        encapsulated, clientDatagramAddress);
+            } finally {
+                ByteBufferPool.release(encapsulated);
+            }
 
             if (metrics != null && bytes > 0) {
                 metrics.bytesRelayed(bytes, "downstream");
