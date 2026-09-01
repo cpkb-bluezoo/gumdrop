@@ -2231,3 +2231,63 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 | Target address/port fixed for the life of the request (single target, not per-datagram) | §5 | **Compliant** | One `UDPTransportFactory.connect()` upstream socket per accepted request |
 | Idle relay teardown | §5 | **Compliant** (implementation choice, not RFC-mandated) | `ConnectUdpRelay` closes after a configurable idle timeout (default 5 minutes) with no traffic in either direction |
 | Target approval before relaying | §9 (Security Considerations) | **Compliant** | `ConnectUdpPolicy` — deliberately no permissive default implementation, to avoid an open relay by default |
+
+---
+
+## MASQUE — Proxying IP in HTTP (RFC 9484)
+
+### Applicable RFCs
+
+| RFC | Title | Status |
+|-----|-------|--------|
+| RFC 9484 | Proxying IP in HTTP | Implemented (server) |
+
+Server-side only; the client-side helper is tracked as a follow-up issue,
+matching how #393's client landed separately from its server (RFC 9298
+CONNECT-UDP, above).
+
+### RFC 9484 — Proxying IP in HTTP
+
+#### Section 3/4.6 — IP Proxying URI Template
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| URI Template `/.well-known/masque/ip/{target}/{ipproto}/` | §3 | **Compliant** | `ConnectIpTarget.parse()` / `.encode()` |
+| Wildcard (`"*"`) target/ipproto for "unspecified" | §4.6 | **Compliant** | `ConnectIpTarget.WILDCARD`, `isTargetUnspecified()`/`isIpProtoUnspecified()` — the common case for IP proxying, unlike RFC 9298's always-concrete target |
+| IPv6 prefix colons percent-encoded; prefix length's `"/"` percent-encoded as `"%2F"` | §4.6 | **Compliant** | `UriSegmentCodec` (shared with `ConnectUdpTarget`) — encodes/decodes any non-unreserved character, so both rules fall out of the same codec with no CONNECT-IP-specific logic |
+| `ipproto` as decimal Internet Protocol Number `[0, 255]` | §4.6 | **Compliant** | `ConnectIpTarget` validates range; `target` itself is decoded but not further interpreted (a policy/forwarding-layer concern) |
+
+#### Section 4.4/4.2 — Extended CONNECT / HTTP Upgrade Request
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| HTTP/2 and HTTP/3: Extended CONNECT (`:method: CONNECT`, `:protocol: connect-ip`) | §4.4/§4.5 | **Compliant** | `Stream.acceptConnectIp()` (H2), `H3Stream.acceptConnectIp()` (H3) — both share their implementation with `acceptConnectUdp()`, differing only in the `:protocol`/`Upgrade` token |
+| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-ip` (RFC 9110 §7.8) | §4.2 | **Compliant** | `Stream.acceptConnectIp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HTTPConnectionLike.switchToStreamTunnelMode()` |
+| 2xx response accepts the request (H2/H3) | §4.4/§4.5 | **Compliant** | `200` sent via `sendResponseHeaders`/`flushHeaders` before any packet forwarding begins |
+| `Capsule-Protocol: ?1` request header required | §4.2–4.5 | **Compliant** | `Capsule.capsuleProtocolEnabled()`; missing/false header rejected with `400` |
+| Non-2xx / malformed request rejected | §4 | **Compliant** | `ConnectIpRequestHandler`: `400` (malformed), `403` (policy-denied target) |
+
+#### Section 4.7 — Capsules
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| `ADDRESS_ASSIGN` (0x01): server-to-client, zero or more `Address` records | §4.7.1 | **Compliant** | `ConnectIpAddress.TYPE_ADDRESS_ASSIGN`, `.encodeList()`/`.decodeList()`; sent via `ConnectIpSession.sendAddressAssign()` |
+| `ADDRESS_REQUEST` (0x02): client-to-server, one or more `Address` records, non-zero unique Request ID | §4.7.2 | **Compliant** | `ConnectIpAddress.TYPE_ADDRESS_REQUEST`; delivered to `IpPacketHandler.addressRequested()` via `ConnectIpRequestHandler.capsuleReceived()`, using `HTTPRequestHandler`'s already-generic capsule-delivery path (RFC 9297) |
+| `ROUTE_ADVERTISEMENT` (0x03): server-to-client, zero or more non-overlapping `IP Address Range` records | §4.7.3 | **Compliant** | `ConnectIpRoute.TYPE_ROUTE_ADVERTISEMENT`, `.encodeList()`/`.decodeList()`; sent via `ConnectIpSession.sendRouteAdvertisement()` |
+| `Address`/`IP Address Range` wire format (Request ID varint, IP Version octet, 32/128-bit address, prefix length/protocol octet) | §4.7.1–4.7.3 | **Compliant** | Exact field widths/order per the RFC's packet diagrams |
+| Unknown capsule types ignored | RFC 9297 §3.2 | **Compliant** | `ConnectIpRequestHandler.capsuleReceived()` only reacts to `ADDRESS_REQUEST`; `HTTPRequestHandler.capsuleReceived()`'s own default is a no-op |
+
+#### Section 6 — HTTP Datagram Payload Format
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Context ID 0 carries a full IP packet (IPv4 or IPv6) | §6 | **Compliant** | `HttpDatagramContext.REGISTERED_CONTEXT_ID`; shared codec with RFC 9298 (RFC 9484 §5 references RFC 9298 §5's Context ID mechanism directly) |
+| Client-to-server packet delivery | §6 | **Compliant** | `ConnectIpRequestHandler.datagramReceived()` decodes and forwards to `IpPacketHandler.packetReceived()` |
+| Server-to-client packet delivery | §6 | **Compliant** | `ConnectIpSession.sendPacket()` |
+
+#### Forwarding backend
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| Pluggable IP packet forwarding, no built-in kernel TUN/raw-socket dependency | **Compliant** (design choice per the filed issue) | `IpPacketHandler` is a pure SPI — gumdrop core supplies the HTTP-level tunnel accept/capsule/datagram plumbing only; a test echo, userspace forwarder, or out-of-tree TUN/raw-socket adapter all implement the same interface |
+| Target scope approval before accepting | §9 (Security Considerations, by analogy with RFC 9298 §9) | **Compliant** | `ConnectIpPolicy` — deliberately no permissive default implementation |

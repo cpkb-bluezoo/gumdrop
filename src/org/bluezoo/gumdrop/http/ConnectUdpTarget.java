@@ -21,9 +21,6 @@
 
 package org.bluezoo.gumdrop.http;
 
-import java.io.UnsupportedEncodingException;
-import java.nio.charset.StandardCharsets;
-
 /**
  * The target host/port encoded in an RFC 9298 CONNECT-UDP request's
  * {@code :path}, per the URI Template (RFC 6570) registered in RFC 9298
@@ -97,7 +94,7 @@ public final class ConnectUdpTarget {
         if (hostSegment.isEmpty() || portSegment.isEmpty() || portSegment.indexOf('/') >= 0) {
             return null;
         }
-        String host = percentDecode(hostSegment);
+        String host = UriSegmentCodec.percentDecode(hostSegment);
         if (host == null) {
             return null;
         }
@@ -126,64 +123,6 @@ public final class ConnectUdpTarget {
         if (port < 1 || port > 65535) {
             throw new IllegalArgumentException("Port out of range: " + port);
         }
-        return PATH_PREFIX + percentEncode(host) + "/" + port + "/";
-    }
-
-    // RFC 3986 section 2.1: percent-encoding. Decodes strictly -- any
-    // malformed escape (not exactly %XX with two hex digits) fails the
-    // whole parse rather than silently passing through garbage bytes,
-    // since this feeds directly into a DNS lookup / connection attempt.
-    private static String percentDecode(String s) {
-        if (s.indexOf('%') < 0) {
-            return s;
-        }
-        byte[] out = new byte[s.length()];
-        int outLen = 0;
-        int i = 0;
-        int len = s.length();
-        while (i < len) {
-            char c = s.charAt(i);
-            if (c == '%') {
-                if (i + 2 >= len) {
-                    return null;
-                }
-                int hi = Character.digit(s.charAt(i + 1), 16);
-                int lo = Character.digit(s.charAt(i + 2), 16);
-                if (hi < 0 || lo < 0) {
-                    return null;
-                }
-                out[outLen++] = (byte) ((hi << 4) | lo);
-                i += 3;
-            } else {
-                if (c > 0x7f) {
-                    return null;
-                }
-                out[outLen++] = (byte) c;
-                i++;
-            }
-        }
-        try {
-            return new String(out, 0, outLen, "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            throw new AssertionError(e); // UTF-8 is always supported
-        }
-    }
-
-    private static final String UNRESERVED = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-
-    private static String percentEncode(String s) {
-        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
-        StringBuilder sb = new StringBuilder(bytes.length);
-        for (byte b : bytes) {
-            char c = (char) (b & 0xff);
-            if (c < 0x80 && UNRESERVED.indexOf(c) >= 0) {
-                sb.append(c);
-            } else {
-                sb.append('%');
-                sb.append(Character.forDigit((b >> 4) & 0xf, 16));
-                sb.append(Character.forDigit(b & 0xf, 16));
-            }
-        }
-        return sb.toString();
+        return PATH_PREFIX + UriSegmentCodec.percentEncode(host) + "/" + port + "/";
     }
 }
