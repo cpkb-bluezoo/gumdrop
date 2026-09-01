@@ -132,7 +132,17 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     private final boolean serverMode;
     private final byte[] connectionIdStaticKey;
 
+    // Non-null only for a channel-backed engine (see init(DatagramChannel))
+    // -- used solely by onReadable()'s pull-based receive, which only
+    // ever runs for an engine actually registered with a SelectorLoop's
+    // Selector. A path-backed engine (init(QuicDatagramPath)) has
+    // packets pushed to it instead, via receivePathDatagram, and never
+    // has onReadable() called at all.
     private DatagramChannel channel;
+    // Always non-null once init() has been called, regardless of which
+    // overload -- every send, the local address, isOpen(), and close()
+    // all go through this rather than channel directly (issue #392).
+    private QuicDatagramPath path;
     private SelectionKey selectionKey;
     private SelectorLoop selectorLoop;
     private ByteBuffer recvBuf;
@@ -155,7 +165,21 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     void init(DatagramChannel channel) {
         this.channel = channel;
+        this.path = new DatagramChannelPath(channel);
         this.recvBuf = ByteBuffer.allocateDirect(65535);
+    }
+
+    /**
+     * Initializes this engine to send and receive over {@code path}
+     * instead of a {@code DatagramChannel} (issue #392). The caller is
+     * responsible for also calling {@link #setSelectorLoop} -- there is
+     * no channel here for a {@link SelectorLoop} to register -- and for
+     * feeding received packets to {@link #receivePathDatagram}.
+     *
+     * @param path the datagram path
+     */
+    void init(QuicDatagramPath path) {
+        this.path = path;
     }
 
     QuicTransportFactory getFactory() {
@@ -260,7 +284,38 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         }
         byte[] bytes = new byte[recvBuf.remaining()];
         recvBuf.get(bytes);
+        receiveDatagram(bytes, source);
+    }
 
+    /**
+     * Delivers a datagram received over this engine's {@link
+     * QuicDatagramPath} when that path is not a {@code DatagramChannel}
+     * registered with a {@link SelectorLoop} -- so nothing would ever
+     * otherwise call {@link #onReadable} -- e.g. an RFC 9298 CONNECT-UDP
+     * client's {@code datagramReceived} callback, handing this engine the
+     * tunnelled bytes it just received (issue #392).
+     *
+     * <p>Always dispatches onto this engine's own {@link SelectorLoop}
+     * thread via {@link SelectorLoop#invokeLater} before processing,
+     * regardless of which thread calls this method -- the same thread
+     * affinity every other entry point into this engine's connections
+     * already requires ({@link SelectorLoop#invokeLater}'s own contract
+     * runs the task immediately if already called from that thread, so
+     * this costs nothing extra when it is).
+     *
+     * @param bytes the received packet bytes
+     * @param source the address the packet is considered to have come from
+     */
+    public void receivePathDatagram(final byte[] bytes, final InetSocketAddress source) {
+        selectorLoop.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                receiveDatagram(bytes, source);
+            }
+        });
+    }
+
+    private void receiveDatagram(byte[] bytes, InetSocketAddress source) {
         boolean longHeader = (bytes[0] & 0x80) != 0;
         byte[] dcid;
         LongHeaderPrefix prefix = null;
@@ -528,7 +583,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
      */
     void sendTo(SocketAddress address, byte[] packet) {
         try {
-            channel.send(ByteBuffer.wrap(packet), address);
+            path.send(address, ByteBuffer.wrap(packet));
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, L10N.getString("warn.send_retry_failed"), e);
         }
@@ -636,7 +691,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     void sendPacket(QuicConnection connection, byte[] packet) {
         try {
-            int sent = channel.send(ByteBuffer.wrap(packet), connection.getRemoteAddress());
+            int sent = path.send(connection.getRemoteAddress(), ByteBuffer.wrap(packet));
             if (sent == 0) {
                 LOGGER.fine(L10N.getString("fine.datagram_send_would_block"));
             }
@@ -646,11 +701,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     }
 
     private InetSocketAddress getLocalSocketAddress() {
-        try {
-            return (InetSocketAddress) channel.getLocalAddress();
-        } catch (IOException e) {
-            return new InetSocketAddress("localhost", 0);
-        }
+        return (InetSocketAddress) path.getLocalAddress();
     }
 
     private static byte[] generateConnectionId() {
@@ -689,7 +740,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
 
     @Override
     public boolean isOpen() {
-        return channel != null && channel.isOpen() && !closing;
+        return path != null && path.isOpen() && !closing;
     }
 
     @Override
@@ -711,9 +762,9 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             conn.close();
         }
         connections.clear();
-        if (channel != null) {
+        if (path != null) {
             try {
-                channel.close();
+                path.close();
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, L10N.getString("warn.close_channel_failed"), e);
             }
@@ -794,5 +845,43 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
     @Override
     public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
         return ChannelHandler.super.scheduleTimer(delayMs, callback);
+    }
+
+    /**
+     * The default {@link QuicDatagramPath}, backing every engine created
+     * via {@link #init(DatagramChannel)} -- a bound kernel UDP socket,
+     * exactly what every {@code QuicEngine} used before issue #392.
+     */
+    private static final class DatagramChannelPath implements QuicDatagramPath {
+
+        private final DatagramChannel channel;
+
+        DatagramChannelPath(DatagramChannel channel) {
+            this.channel = channel;
+        }
+
+        @Override
+        public int send(SocketAddress address, ByteBuffer packet) throws IOException {
+            return channel.send(packet, address);
+        }
+
+        @Override
+        public SocketAddress getLocalAddress() {
+            try {
+                return channel.getLocalAddress();
+            } catch (IOException e) {
+                return new InetSocketAddress("localhost", 0);
+            }
+        }
+
+        @Override
+        public boolean isOpen() {
+            return channel.isOpen();
+        }
+
+        @Override
+        public void close() throws IOException {
+            channel.close();
+        }
     }
 }
