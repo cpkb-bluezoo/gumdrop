@@ -690,7 +690,10 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
             return -1;
         }
 
-        H3ClientStream clientStream = H3ClientStream.forWebSocket(this, qpackDecoder, wsHandler, extensions);
+        H3ClientWebSocketResponseHandler wsResponseHandler =
+                new H3ClientWebSocketResponseHandler(extensions, wsHandler);
+        H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, wsResponseHandler);
+        wsResponseHandler.bindStream(clientStream);
         Headers headers = new Headers();
         headers.add(new Header(":method", "CONNECT"));
         headers.add(new Header(":protocol", "websocket"));
