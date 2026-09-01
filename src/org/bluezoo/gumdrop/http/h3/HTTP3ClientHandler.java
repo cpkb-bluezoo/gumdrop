@@ -40,9 +40,11 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.Capsule;
+import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
 import org.bluezoo.gumdrop.http.client.HTTPMethodSafety;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
@@ -766,6 +768,68 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         headers.add(new Header(":scheme", "https"));
         headers.add(new Header(":authority", authority));
         headers.add(new Header(":path", ConnectUdpTarget.encode(targetHost, targetPort)));
+        headers.add(new Header(Capsule.PROTOCOL_HEADER, "?1"));
+        clientStream.prepareRequest(headers, false);
+        quicConnection.openStream(clientStream);
+        return clientStream.getStreamId();
+    }
+
+    /**
+     * Initiates a CONNECT-IP tunnel over H3 Extended CONNECT (RFC 9484
+     * section 4.4): opens a new bidirectional stream, sends a {@code
+     * CONNECT} request with {@code :protocol: connect-ip} and {@code
+     * Capsule-Protocol: ?1} for the given target scope, and leaves the
+     * stream open in both directions -- like {@link #connectUdp}, this
+     * never closes the stream after sending headers. Once the proxy
+     * responds with a {@code 2xx}, {@code handler} starts receiving
+     * {@link ConnectIpEventHandler} callbacks; any other response, or a
+     * connection-level failure before then, is reported via {@link
+     * ConnectIpEventHandler#error}.
+     *
+     * @param authority the {@code :authority} pseudo-header value
+     * @param target the target scope hint ({@link
+     *               org.bluezoo.gumdrop.http.ConnectIpTarget#WILDCARD}
+     *               for "unspecified", the common case, or a hostname/IP
+     *               prefix), encoded into the request path per RFC 9484
+     *               section 3's URI Template
+     * @param ipProto the IP protocol scope hint ({@link
+     *                org.bluezoo.gumdrop.http.ConnectIpTarget#WILDCARD}
+     *                for "unspecified", or a decimal Internet Protocol Number)
+     * @param handler the handler to receive CONNECT-IP events
+     * @return the stream ID, or -1 if sending failed, was rejected, or
+     *         (the peer's support not yet being known) was deferred
+     */
+    public long connectIp(final String authority, final String target, final String ipProto,
+            final ConnectIpEventHandler handler) {
+        if (goaway) {
+            handler.error(new IOException("Connection received GOAWAY"));
+            return -1;
+        }
+        if (!initialSettingsReceived) {
+            whenConnectProtocolKnown(new Runnable() {
+                @Override
+                public void run() {
+                    connectIp(authority, target, ipProto, handler);
+                }
+            });
+            return -1;
+        }
+        if (!peerEnablesConnectProtocol) {
+            handler.error(new IOException("Server does not support Extended CONNECT "
+                    + "(RFC 9220/RFC 9484): SETTINGS_ENABLE_CONNECT_PROTOCOL was not advertised"));
+            return -1;
+        }
+
+        H3ClientConnectIpResponseHandler connectIpResponseHandler =
+                new H3ClientConnectIpResponseHandler(handler);
+        H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, connectIpResponseHandler);
+        connectIpResponseHandler.bindStream(clientStream);
+        Headers headers = new Headers();
+        headers.add(new Header(":method", "CONNECT"));
+        headers.add(new Header(":protocol", "connect-ip"));
+        headers.add(new Header(":scheme", "https"));
+        headers.add(new Header(":authority", authority));
+        headers.add(new Header(":path", ConnectIpTarget.encode(target, ipProto)));
         headers.add(new Header(Capsule.PROTOCOL_HEADER, "?1"));
         clientStream.prepareRequest(headers, false);
         quicConnection.openStream(clientStream);

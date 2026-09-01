@@ -1106,6 +1106,32 @@ public class HTTPClient implements AltSvcListener {
         h3Handler.connectUdp(authority, targetHost, targetPort, handler);
     }
 
+    /**
+     * Initiates a CONNECT-IP tunnel over HTTP/3 Extended CONNECT (RFC
+     * 9484 section 4.4). Requires {@link #setH3Enabled(boolean)} and a
+     * completed connection (called after {@link HTTPClientHandler#onSecurityEstablished}).
+     *
+     * @param target the target scope hint ({@link
+     *               org.bluezoo.gumdrop.http.ConnectIpTarget#WILDCARD}
+     *               for "unspecified", the common case, or a hostname/IP prefix)
+     * @param ipProto the IP protocol scope hint ({@link
+     *                org.bluezoo.gumdrop.http.ConnectIpTarget#WILDCARD}
+     *                for "unspecified", or a decimal Internet Protocol Number)
+     * @param handler the handler to receive CONNECT-IP events
+     */
+    public void connectIp(String target, String ipProto, ConnectIpEventHandler handler) {
+        if (h3Handler == null) {
+            handler.error(new IllegalStateException(
+                    "CONNECT-IP over HTTP/3 requires setH3Enabled(true) and an established connection"));
+            return;
+        }
+        String authority = host;
+        if (port != 443) {
+            authority = host + ":" + port;
+        }
+        h3Handler.connectIp(authority, target, ipProto, handler);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Alt-Svc discovery
     // ═══════════════════════════════════════════════════════════════════
