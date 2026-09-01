@@ -237,10 +237,11 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     /**
      * Writes {@code frameData} as a DATA frame (RFC 9114 section 7.2.1)
      * directly to this stream's endpoint. For an {@link HTTPResponseHandler}
-     * that reinterprets response body bytes as some other framing (e.g.
-     * {@link H3ClientWebSocketResponseHandler}'s RFC 6455 frames) and
-     * needs to write back on the same stream, once the tunnel has been
-     * accepted (see {@link #getStreamId}/{@link #connected}).
+     * that reinterprets response body bytes as some other framing --
+     * {@link H3ClientWebSocketResponseHandler}'s RFC 6455 frames, or
+     * {@link H3ClientConnectUdpResponseHandler}'s capsule-framed HTTP
+     * Datagrams -- and needs to write back on the same stream, once the
+     * tunnel has been accepted (see {@link #getStreamId}/{@link #connected}).
      *
      * @param frameData the frame payload
      */

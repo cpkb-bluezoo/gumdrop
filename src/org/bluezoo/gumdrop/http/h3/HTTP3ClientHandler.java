@@ -39,8 +39,11 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
+import org.bluezoo.gumdrop.http.Capsule;
+import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
 import org.bluezoo.gumdrop.http.client.HTTPMethodSafety;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
@@ -706,6 +709,64 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
         if (extensions != null && !extensions.isEmpty()) {
             headers.add(new Header("sec-websocket-extensions", WebSocketHandshake.formatOffers(extensions)));
         }
+        clientStream.prepareRequest(headers, false);
+        quicConnection.openStream(clientStream);
+        return clientStream.getStreamId();
+    }
+
+    /**
+     * Initiates a CONNECT-UDP tunnel over H3 Extended CONNECT (RFC 9298
+     * section 3): opens a new bidirectional stream, sends a {@code
+     * CONNECT} request with {@code :protocol: connect-udp} and {@code
+     * Capsule-Protocol: ?1} for the given target, and leaves the stream
+     * open in both directions -- like {@link #connectWebSocket}, this
+     * never closes the stream after sending headers. Once the server
+     * responds with a {@code 2xx}, {@code handler} starts receiving
+     * {@link ConnectUdpEventHandler} callbacks; any other response, or a
+     * connection-level failure before then, is reported via {@link
+     * ConnectUdpEventHandler#error}.
+     *
+     * @param authority the {@code :authority} pseudo-header value
+     * @param targetHost the UDP target's host (hostname or literal
+     *                    address), encoded into the request path per RFC
+     *                    9298 section 3's URI Template
+     * @param targetPort the UDP target's port
+     * @param handler the handler to receive CONNECT-UDP events
+     * @return the stream ID, or -1 if sending failed, was rejected, or
+     *         (the peer's support not yet being known) was deferred
+     */
+    public long connectUdp(final String authority, final String targetHost, final int targetPort,
+            final ConnectUdpEventHandler handler) {
+        if (goaway) {
+            handler.error(new IOException("Connection received GOAWAY"));
+            return -1;
+        }
+        if (!initialSettingsReceived) {
+            whenConnectProtocolKnown(new Runnable() {
+                @Override
+                public void run() {
+                    connectUdp(authority, targetHost, targetPort, handler);
+                }
+            });
+            return -1;
+        }
+        if (!peerEnablesConnectProtocol) {
+            handler.error(new IOException("Server does not support Extended CONNECT "
+                    + "(RFC 9220/RFC 9298): SETTINGS_ENABLE_CONNECT_PROTOCOL was not advertised"));
+            return -1;
+        }
+
+        H3ClientConnectUdpResponseHandler connectUdpResponseHandler =
+                new H3ClientConnectUdpResponseHandler(handler);
+        H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, connectUdpResponseHandler);
+        connectUdpResponseHandler.bindStream(clientStream);
+        Headers headers = new Headers();
+        headers.add(new Header(":method", "CONNECT"));
+        headers.add(new Header(":protocol", "connect-udp"));
+        headers.add(new Header(":scheme", "https"));
+        headers.add(new Header(":authority", authority));
+        headers.add(new Header(":path", ConnectUdpTarget.encode(targetHost, targetPort)));
+        headers.add(new Header(Capsule.PROTOCOL_HEADER, "?1"));
         clientStream.prepareRequest(headers, false);
         quicConnection.openStream(clientStream);
         return clientStream.getStreamId();
