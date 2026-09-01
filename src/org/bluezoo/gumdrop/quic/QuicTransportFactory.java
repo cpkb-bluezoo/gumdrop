@@ -533,6 +533,49 @@ public class QuicTransportFactory extends TransportFactory {
         return engine;
     }
 
+    /**
+     * Creates a server-mode {@link QuicEngine} sending and receiving over
+     * {@code path} instead of a bound {@code DatagramChannel} (issue
+     * #392), accepting new peer-initiated streams via {@code acceptHandler}.
+     *
+     * @param path the datagram path
+     * @param acceptHandler the handler for new peer-initiated streams
+     * @param loop the selector loop this engine's callbacks must run on
+     * @return the new engine
+     */
+    public QuicEngine createServerEngine(QuicDatagramPath path, StreamAcceptHandler acceptHandler, SelectorLoop loop) {
+        QuicEngine engine = newPathServerEngine(path, loop);
+        engine.setStreamAcceptHandler(acceptHandler);
+        return engine;
+    }
+
+    /**
+     * Creates a server-mode {@link QuicEngine} sending and receiving over
+     * {@code path} instead of a bound {@code DatagramChannel} (issue
+     * #392), notified of each new connection via {@code handler}, for
+     * connection-level protocols that manage their own stream acceptance
+     * per connection.
+     *
+     * @param path the datagram path
+     * @param handler the handler notified of each new connection
+     * @param loop the selector loop this engine's callbacks must run on
+     * @return the new engine
+     */
+    @SuppressWarnings("overloads")
+    public QuicEngine createServerEngine(QuicDatagramPath path, QuicEngine.ConnectionAcceptedHandler handler,
+            SelectorLoop loop) {
+        QuicEngine engine = newPathServerEngine(path, loop);
+        engine.setConnectionAcceptedHandler(handler);
+        return engine;
+    }
+
+    private QuicEngine newPathServerEngine(QuicDatagramPath path, SelectorLoop loop) {
+        QuicEngine engine = new QuicEngine(this, true);
+        engine.init(path);
+        engine.setSelectorLoop(loop);
+        return engine;
+    }
+
     // ── Client connection ──
 
     /**
@@ -628,6 +671,91 @@ public class QuicTransportFactory extends TransportFactory {
         QuicEngine engine = new QuicEngine(this, false);
         engine.init(dc);
         loop.registerDatagram(dc, engine);
+        return engine;
+    }
+
+    /**
+     * Opens a client-mode {@link QuicEngine} sending and receiving over
+     * {@code path} instead of a {@code DatagramChannel} (issue #392),
+     * auto-opening a first stream for {@code handler} once the handshake
+     * completes -- e.g. an RFC 9298 CONNECT-UDP client's inner QUIC
+     * connection, tunnelled as HTTP Datagrams rather than a bound UDP
+     * socket.
+     *
+     * @param path the datagram path
+     * @param remote the address this connection's peer is considered to
+     *        be at -- for QUIC connection state and diagnostics only;
+     *        {@code path} is what the packets actually travel over
+     * @param handler the handler for the auto-opened first stream
+     * @param loop the selector loop this engine's callbacks must run on
+     * @param serverName the SNI server name
+     * @return the new engine
+     */
+    public QuicEngine connect(QuicDatagramPath path, InetSocketAddress remote, ProtocolHandler handler,
+            SelectorLoop loop, String serverName) {
+        QuicEngine engine = newPathClientEngine(path, loop);
+        engine.connectTo(remote, handler, serverName);
+        return engine;
+    }
+
+    /**
+     * Opens a client-mode {@link QuicEngine} sending and receiving over
+     * {@code path} instead of a {@code DatagramChannel} (issue #392),
+     * notified via {@code connHandler} once the handshake completes, for
+     * connection-level protocols (HTTP/3) that manage their own streams.
+     *
+     * @param path the datagram path
+     * @param remote the address this connection's peer is considered to
+     *        be at -- for QUIC connection state and diagnostics only;
+     *        {@code path} is what the packets actually travel over
+     * @param connHandler notified once the handshake completes
+     * @param loop the selector loop this engine's callbacks must run on
+     * @param serverName the SNI server name
+     * @return the new engine
+     */
+    public QuicEngine connect(QuicDatagramPath path, InetSocketAddress remote,
+            QuicEngine.ConnectionAcceptedHandler connHandler, SelectorLoop loop, String serverName) {
+        QuicEngine engine = newPathClientEngine(path, loop);
+        engine.connectTo(remote, null, connHandler, serverName);
+        return engine;
+    }
+
+    /**
+     * Opens a client-mode {@link QuicEngine} sending and receiving over
+     * {@code path} instead of a {@code DatagramChannel} (issue #392),
+     * notified via {@code connHandler} once the handshake completes and
+     * {@code earlyDataHandler} if 0-RTT (RFC 9001 section 4.6.1) becomes
+     * available first -- see the {@code DatagramChannel}-backed overload
+     * of this method for why the call is routed through {@code loop}
+     * rather than run synchronously.
+     *
+     * @param path the datagram path
+     * @param remote the address this connection's peer is considered to
+     *        be at -- for QUIC connection state and diagnostics only;
+     *        {@code path} is what the packets actually travel over
+     * @param connHandler notified once the handshake completes
+     * @param earlyDataHandler notified once 0-RTT send keys are ready, may be null
+     * @param loop the selector loop this engine's callbacks must run on
+     * @param serverName the SNI server name, or null (e.g. DoQ)
+     * @return the new engine
+     */
+    public QuicEngine connect(QuicDatagramPath path, final InetSocketAddress remote,
+            QuicEngine.ConnectionAcceptedHandler connHandler, final QuicEngine.EarlyDataHandler earlyDataHandler,
+            SelectorLoop loop, String serverName) {
+        final QuicEngine engine = newPathClientEngine(path, loop);
+        loop.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                engine.connectTo(remote, null, connHandler, earlyDataHandler, serverName);
+            }
+        });
+        return engine;
+    }
+
+    private QuicEngine newPathClientEngine(QuicDatagramPath path, SelectorLoop loop) {
+        QuicEngine engine = new QuicEngine(this, false);
+        engine.init(path);
+        engine.setSelectorLoop(loop);
         return engine;
     }
 
