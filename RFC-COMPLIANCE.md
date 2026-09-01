@@ -2179,12 +2179,14 @@ The QUIC transport layer uses the **quiche** native library for all protocol pro
 
 | RFC | Title | Status |
 |-----|-------|--------|
-| RFC 9298 | Proxying UDP in HTTP | Implemented (server; client: HTTP/3) |
+| RFC 9298 | Proxying UDP in HTTP | Implemented |
 
-Server-side across HTTP/1.1, HTTP/2, and HTTP/3. Client-side is
-implemented for HTTP/3 (`HTTP3ClientHandler#connectUdp`); an HTTP/1.1 and
-HTTP/2 client, plus a version-agnostic `HTTPClient`-level API, are
-tracked as a follow-up.
+Server-side and client-side, across HTTP/1.1, HTTP/2, and HTTP/3. The
+client is available both as a low-level API per transport
+(`HTTP3ClientHandler#connectUdp`, `HTTPClient#connectUdp`) and as the
+high-level `ConnectUdpClient` facade, which negotiates the transport
+automatically (DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN,
+HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 
 ### RFC 9298 — Proxying UDP in HTTP
 
@@ -2200,14 +2202,16 @@ tracked as a follow-up.
 | `Capsule-Protocol: ?1` request header required | §3 | **Compliant** | `Capsule.capsuleProtocolEnabled()`; missing/false header rejected with `400` |
 | Non-2xx / malformed request rejected | §3 | **Compliant** | `ConnectUdpRequestHandler.rejectRequest()`: `400` (malformed), `403` (policy-denied target), `502` (DNS failure or upstream socket error) |
 
-#### Section 3 — Client (HTTP/3)
+#### Section 3 — Client
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Extended CONNECT request (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `HTTP3ClientHandler.connectUdp()`; mirrors `connectWebSocket()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
-| `Capsule-Protocol: ?1` request header | §3 | **Compliant** | Always sent by `connectUdp()` |
-| `2xx` response accepted, non-`2xx` reported as a failure | §3 | **Compliant** | `H3ClientConnectUdpResponseHandler` (an ordinary `HTTPResponseHandler`, per `H3ClientStream`'s protocol-agnostic dispatch — see its own class documentation) |
-| HTTP/1.1 and HTTP/2 clients | §3 | **Not implemented** | Tracked as a follow-up; RFC 9298 support is HTTP/3-client-only so far |
+| HTTP/3: Extended CONNECT request (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `HTTP3ClientHandler.connectUdp()`; mirrors `connectWebSocket()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
+| HTTP/2: Extended CONNECT request | §3 | **Compliant** | `ConnectUdpClient` sends via the generic `HTTPRequest` API (`:protocol` is just another header at that layer), same as `WebSocketClient#connectExtendedConnect`; response handled by `H2ConnectUdpResponseHandler` |
+| HTTP/1.1: HTTP Upgrade request (`Upgrade: connect-udp`, RFC 9110 §7.8) | §3 | **Compliant** | `ConnectUdpClientProtocolHandler.handleProtocolSwitch()`, mirroring `WebSocketClientProtocolHandler`'s use of the same extension hook |
+| `Capsule-Protocol: ?1` request header | §3 | **Compliant** | Sent on every transport's request |
+| `2xx`/`101` response accepted, rejection reported as a failure | §3 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler` (ordinary `HTTPResponseHandler`s), `ConnectUdpClientProtocolHandler` (H1.1) |
+| Automatic transport negotiation | §3 | **Compliant** | `ConnectUdpClient`: DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN, HTTP/1.1 fallback — mirrors `WebSocketClient` |
 
 #### Section 4 — Context IDs and Capsules
 
@@ -2222,8 +2226,8 @@ tracked as a follow-up.
 |-------------|---------|--------|-------|
 | Client-to-target datagram relay | §5 | **Compliant** | `ConnectUdpRelay.receiveDatagram()` forwards decoded payload to a connected `UDPEndpoint` |
 | Target-to-client datagram relay | §5 | **Compliant** | `ConnectUdpRelay.UpstreamHandler.receive()` re-encodes with Context ID 0 and calls `HTTPResponseState.sendDatagram()` |
-| Client-side outbound datagrams (HTTP/3) | §5 | **Compliant** | `ConnectUdpSession.sendDatagram()`, capsule-framed (RFC 9297 §3.5) so it works whether or not native QUIC DATAGRAM is negotiated |
-| Client-side inbound datagrams (HTTP/3) | §5 | **Compliant** | `H3ClientConnectUdpResponseHandler.datagramReceived()`, delivered via either native QUIC DATAGRAM or the capsule fallback — `H3ClientStream` dispatches both identically |
+| Client-side outbound datagrams | §5 | **Compliant** | `ConnectUdpSession.sendDatagram()`, capsule-framed (RFC 9297 §3.5) on every transport — for HTTP/3 this works whether or not native QUIC DATAGRAM is negotiated |
+| Client-side inbound datagrams | §5 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler`/`ConnectUdpClientProtocolHandler`'s `datagramReceived()`; HTTP/3 delivers via either native QUIC DATAGRAM or the capsule fallback — `H3ClientStream` dispatches both identically |
 | Target address/port fixed for the life of the request (single target, not per-datagram) | §5 | **Compliant** | One `UDPTransportFactory.connect()` upstream socket per accepted request |
 | Idle relay teardown | §5 | **Compliant** (implementation choice, not RFC-mandated) | `ConnectUdpRelay` closes after a configurable idle timeout (default 5 minutes) with no traffic in either direction |
 | Target approval before relaying | §9 (Security Considerations) | **Compliant** | `ConnectUdpPolicy` — deliberately no permissive default implementation, to avoid an open relay by default |
