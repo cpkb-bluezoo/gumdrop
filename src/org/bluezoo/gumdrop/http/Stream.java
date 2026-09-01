@@ -1387,32 +1387,45 @@ class Stream implements HTTPResponseState {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPResponseState.acceptConnectUdp Implementation (RFC 9298)
+    // HTTPResponseState.acceptConnectUdp/acceptConnectIp Implementation
+    // (RFC 9298, RFC 9484)
     // ─────────────────────────────────────────────────────────────────────────
 
-    private boolean isConnectUdpRequest() {
+    /**
+     * Returns whether this stream's request is Extended CONNECT for
+     * {@code protocolToken} (RFC 9298 section 3 / RFC 9484 section 4:
+     * {@code :method: CONNECT}, {@code :protocol: <protocolToken>} on
+     * HTTP/2; a literal {@code Upgrade: <protocolToken>} on HTTP/1.1,
+     * which has no {@code :protocol} pseudo-header of its own -- RFC 9110
+     * section 7.8 forbids Upgrade over HTTP/2, and neither RFC defines
+     * an interim response the way {@code isWebSocketUpgradeRequest()}'s
+     * sibling check would need to for RFC 8441).
+     *
+     * @param protocolToken the {@code :protocol}/{@code Upgrade} value,
+     *        e.g. {@code "connect-udp"} or {@code "connect-ip"}
+     */
+    private boolean isExtendedConnectRequest(String protocolToken) {
         if (headers == null) {
             return false;
         }
-        // RFC 9298 section 3: HTTP/2 (and, per this codebase's shared
-        // Stream class, HTTP/1.1) both use Extended CONNECT the same way
-        // RFC 8441 WebSocket does -- :method CONNECT, :protocol
-        // connect-udp. HTTP/1.1 has no :protocol pseudo-header of its
-        // own; requests arriving over HTTP/1.1 populate it the same way
-        // isWebSocketUpgradeRequest()'s sibling check does not need to,
-        // since HTTP/1.1 CONNECT-UDP instead uses a literal Upgrade:
-        // connect-udp -- RFC 9298 section 3 also permits this, and RFC
-        // 9110 section 7.8 forbids Upgrade over HTTP/2.
         if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
             return "CONNECT".equals(headers.getValue(":method"))
-                    && "connect-udp".equalsIgnoreCase(headers.getValue(":protocol"));
+                    && protocolToken.equalsIgnoreCase(headers.getValue(":protocol"));
         }
-        return "connect-udp".equalsIgnoreCase(headers.getValue("upgrade"));
+        return protocolToken.equalsIgnoreCase(headers.getValue("upgrade"));
     }
 
-    @Override
-    public boolean acceptConnectUdp() {
-        if (!isConnectUdpRequest()) {
+    /**
+     * Shared implementation behind {@link #acceptConnectUdp} and {@link
+     * #acceptConnectIp}: both accept identically at the HTTP layer,
+     * differing only in the {@code :protocol}/{@code Upgrade} token that
+     * identifies which one a given request is.
+     *
+     * @param protocolToken the {@code :protocol}/{@code Upgrade} value,
+     *        e.g. {@code "connect-udp"} or {@code "connect-ip"}
+     */
+    private boolean acceptExtendedConnect(String protocolToken) {
+        if (!isExtendedConnectRequest(protocolToken)) {
             return false;
         }
         if (responseState != ResponseState.INITIAL) {
@@ -1420,15 +1433,15 @@ class Stream implements HTTPResponseState {
         }
         try {
             if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
-                // RFC 9298 section 3: a 2xx response accepts the tunnel,
-                // the same shape RFC 8441 WebSocket uses.
+                // RFC 9298 section 3 / RFC 9484 section 4: a 2xx response
+                // accepts the tunnel, the same shape RFC 8441 WebSocket uses.
                 sendResponseHeaders(200, new Headers(), false);
             } else {
-                // RFC 9110 section 7.8 / RFC 9298 section 3: HTTP/1.1
-                // accepts via 101 Switching Protocols instead.
+                // RFC 9110 section 7.8: HTTP/1.1 accepts via 101
+                // Switching Protocols instead.
                 Headers responseHeaders = new Headers();
                 responseHeaders.add("connection", "upgrade");
-                responseHeaders.add("upgrade", "connect-udp");
+                responseHeaders.add("upgrade", protocolToken);
                 sendResponseHeaders(101, responseHeaders, false);
                 // Hand this connection's remaining raw bytes to this
                 // stream -- see switchToStreamTunnelMode's own
@@ -1443,6 +1456,16 @@ class Stream implements HTTPResponseState {
         } catch (ProtocolException e) {
             return false;
         }
+    }
+
+    @Override
+    public boolean acceptConnectUdp() {
+        return acceptExtendedConnect("connect-udp");
+    }
+
+    @Override
+    public boolean acceptConnectIp() {
+        return acceptExtendedConnect("connect-ip");
     }
 
     /**

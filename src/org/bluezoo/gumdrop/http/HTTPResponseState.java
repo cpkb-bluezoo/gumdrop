@@ -495,6 +495,30 @@ public interface HTTPResponseState {
     }
 
     /**
+     * Accepts this request as an RFC 9484 CONNECT-IP tunnel: sends the
+     * success response (a {@code 2xx} for HTTP/2 or HTTP/3 Extended
+     * CONNECT, {@code 101 Switching Protocols} for HTTP/1.1 Upgrade) and
+     * leaves the request open in both directions rather than completing
+     * it -- the exact same shape {@link #acceptConnectUdp} uses for RFC
+     * 9298.
+     *
+     * <p>The caller (typically {@link ConnectIpRequestHandler}) is
+     * responsible for validating the request as CONNECT-IP (RFC 9484
+     * section 4: {@code :method: CONNECT}, {@code :protocol: connect-ip},
+     * {@code Capsule-Protocol: ?1}, a path matching the URI Template) and
+     * for having an {@link IpPacketHandler} ready to receive packets via
+     * {@link HTTPRequestHandler#datagramReceived} before calling this --
+     * like {@link #acceptConnectUdp}, this method does not itself bridge
+     * to anything; it only performs the HTTP-level accept.
+     *
+     * @return true if the request was accepted; false if it was not a
+     *         valid CONNECT-IP request or the response had already started
+     */
+    default boolean acceptConnectIp() {
+        return false;
+    }
+
+    /**
      * Sends a Capsule Protocol capsule on this stream's data (RFC 9297
      * section 3.2). Use {@link #sendDatagram} for DATAGRAM capsules
      * unless a different type is required.

@@ -823,25 +823,32 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPResponseState.acceptConnectUdp Implementation (RFC 9298)
+    // HTTPResponseState.acceptConnectUdp/acceptConnectIp Implementation
+    // (RFC 9298, RFC 9484)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * RFC 9298 section 3 — CONNECT-UDP over HTTP/3 via Extended CONNECT.
-     * Sends a {@code 2xx} response accepting the tunnel and leaves the
-     * stream open in both directions -- unlike {@link
-     * #upgradeToWebSocketInternal}, there is nothing to bridge to here:
-     * datagrams already reach {@link HTTPRequestHandler#datagramReceived}
-     * (via native H3 Datagram, {@link #httpDatagramReceived}, or the
-     * Capsule Protocol fallback, {@link #dispatchCapsules}) whether this
-     * stream is CONNECT-UDP, some other Context ID-aware protocol, or
-     * nothing in particular -- the caller ({@link
-     * org.bluezoo.gumdrop.http.ConnectUdpRequestHandler}) already
+     * Shared implementation behind {@link #acceptConnectUdp} and {@link
+     * #acceptConnectIp} -- both RFC 9298 CONNECT-UDP and RFC 9484
+     * CONNECT-IP over HTTP/3 via Extended CONNECT, differing only in the
+     * {@code :protocol} pseudo-header value. Sends a {@code 2xx} response
+     * accepting the tunnel and leaves the stream open in both directions
+     * -- unlike {@link #upgradeToWebSocketInternal}, there is nothing to
+     * bridge to here: datagrams already reach {@link
+     * HTTPRequestHandler#datagramReceived} (via native H3 Datagram,
+     * {@link #httpDatagramReceived}, or the Capsule Protocol fallback,
+     * {@link #dispatchCapsules}) whether this stream is CONNECT-UDP,
+     * CONNECT-IP, some other Context ID-aware protocol, or nothing in
+     * particular -- the caller (typically {@link
+     * org.bluezoo.gumdrop.http.ConnectUdpRequestHandler}/{@link
+     * org.bluezoo.gumdrop.http.ConnectIpRequestHandler}) already
      * registered itself as this stream's handler before this runs.
+     *
+     * @param protocolToken the {@code :protocol} value, e.g. {@code
+     *        "connect-udp"} or {@code "connect-ip"}
      */
-    @Override
-    public boolean acceptConnectUdp() {
-        if (!"CONNECT".equals(method) || !"connect-udp".equalsIgnoreCase(protocol)) {
+    private boolean acceptExtendedConnect(String protocolToken) {
+        if (!"CONNECT".equals(method) || !protocolToken.equalsIgnoreCase(protocol)) {
             return false;
         }
         if (responseStarted) {
@@ -851,6 +858,16 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         pendingResponseHeaders.add(new Header(":status", "200"));
         flushHeaders(false);
         return true;
+    }
+
+    @Override
+    public boolean acceptConnectUdp() {
+        return acceptExtendedConnect("connect-udp");
+    }
+
+    @Override
+    public boolean acceptConnectIp() {
+        return acceptExtendedConnect("connect-ip");
     }
 
     /**
