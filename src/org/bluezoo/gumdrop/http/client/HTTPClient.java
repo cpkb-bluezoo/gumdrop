@@ -1084,6 +1084,28 @@ public class HTTPClient implements AltSvcListener {
         h3Handler.connectWebSocket(authority, path, subprotocol, extensions, wsHandler);
     }
 
+    /**
+     * Initiates a CONNECT-UDP tunnel over HTTP/3 Extended CONNECT (RFC
+     * 9298 section 3). Requires {@link #setH3Enabled(boolean)} and a
+     * completed connection (called after {@link HTTPClientHandler#onSecurityEstablished}).
+     *
+     * @param targetHost the UDP target's host (hostname or literal address)
+     * @param targetPort the UDP target's port
+     * @param handler the handler to receive CONNECT-UDP events
+     */
+    public void connectUdp(String targetHost, int targetPort, ConnectUdpEventHandler handler) {
+        if (h3Handler == null) {
+            handler.error(new IllegalStateException(
+                    "CONNECT-UDP over HTTP/3 requires setH3Enabled(true) and an established connection"));
+            return;
+        }
+        String authority = host;
+        if (port != 443) {
+            authority = host + ":" + port;
+        }
+        h3Handler.connectUdp(authority, targetHost, targetPort, handler);
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Alt-Svc discovery
     // ═══════════════════════════════════════════════════════════════════

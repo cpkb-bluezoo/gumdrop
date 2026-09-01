@@ -2179,10 +2179,14 @@ The QUIC transport layer uses the **quiche** native library for all protocol pro
 
 | RFC | Title | Status |
 |-----|-------|--------|
-| RFC 9298 | Proxying UDP in HTTP | Implemented (server) |
+| RFC 9298 | Proxying UDP in HTTP | Implemented |
 
-Server-side only; the client-side helper (`HTTPClient` CONNECT-UDP API,
-`H3ClientStream` support) is tracked as a follow-up issue.
+Server-side and client-side, across HTTP/1.1, HTTP/2, and HTTP/3. The
+client is available both as a low-level API per transport
+(`HTTP3ClientHandler#connectUdp`, `HTTPClient#connectUdp`) and as the
+high-level `ConnectUdpClient` facade, which negotiates the transport
+automatically (DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN,
+HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 
 ### RFC 9298 — Proxying UDP in HTTP
 
@@ -2198,6 +2202,17 @@ Server-side only; the client-side helper (`HTTPClient` CONNECT-UDP API,
 | `Capsule-Protocol: ?1` request header required | §3 | **Compliant** | `Capsule.capsuleProtocolEnabled()`; missing/false header rejected with `400` |
 | Non-2xx / malformed request rejected | §3 | **Compliant** | `ConnectUdpRequestHandler.rejectRequest()`: `400` (malformed), `403` (policy-denied target), `502` (DNS failure or upstream socket error) |
 
+#### Section 3 — Client
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| HTTP/3: Extended CONNECT request (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `HTTP3ClientHandler.connectUdp()`; mirrors `connectWebSocket()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
+| HTTP/2: Extended CONNECT request | §3 | **Compliant** | `ConnectUdpClient` sends via the generic `HTTPRequest` API (`:protocol` is just another header at that layer), same as `WebSocketClient#connectExtendedConnect`; response handled by `H2ConnectUdpResponseHandler` |
+| HTTP/1.1: HTTP Upgrade request (`Upgrade: connect-udp`, RFC 9110 §7.8) | §3 | **Compliant** | `ConnectUdpClientProtocolHandler.handleProtocolSwitch()`, mirroring `WebSocketClientProtocolHandler`'s use of the same extension hook |
+| `Capsule-Protocol: ?1` request header | §3 | **Compliant** | Sent on every transport's request |
+| `2xx`/`101` response accepted, rejection reported as a failure | §3 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler` (ordinary `HTTPResponseHandler`s), `ConnectUdpClientProtocolHandler` (H1.1) |
+| Automatic transport negotiation | §3 | **Compliant** | `ConnectUdpClient`: DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN, HTTP/1.1 fallback — mirrors `WebSocketClient` |
+
 #### Section 4 — Context IDs and Capsules
 
 | Requirement | Section | Status | Notes |
@@ -2211,6 +2226,8 @@ Server-side only; the client-side helper (`HTTPClient` CONNECT-UDP API,
 |-------------|---------|--------|-------|
 | Client-to-target datagram relay | §5 | **Compliant** | `ConnectUdpRelay.receiveDatagram()` forwards decoded payload to a connected `UDPEndpoint` |
 | Target-to-client datagram relay | §5 | **Compliant** | `ConnectUdpRelay.UpstreamHandler.receive()` re-encodes with Context ID 0 and calls `HTTPResponseState.sendDatagram()` |
+| Client-side outbound datagrams | §5 | **Compliant** | `ConnectUdpSession.sendDatagram()`, capsule-framed (RFC 9297 §3.5) on every transport — for HTTP/3 this works whether or not native QUIC DATAGRAM is negotiated |
+| Client-side inbound datagrams | §5 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler`/`ConnectUdpClientProtocolHandler`'s `datagramReceived()`; HTTP/3 delivers via either native QUIC DATAGRAM or the capsule fallback — `H3ClientStream` dispatches both identically |
 | Target address/port fixed for the life of the request (single target, not per-datagram) | §5 | **Compliant** | One `UDPTransportFactory.connect()` upstream socket per accepted request |
 | Idle relay teardown | §5 | **Compliant** (implementation choice, not RFC-mandated) | `ConnectUdpRelay` closes after a configurable idle timeout (default 5 minutes) with no traffic in either direction |
 | Target approval before relaying | §9 (Security Considerations) | **Compliant** | `ConnectUdpPolicy` — deliberately no permissive default implementation, to avoid an open relay by default |
