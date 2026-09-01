@@ -441,6 +441,23 @@ public interface HTTPResponseState {
     }
 
     /**
+     * Sends an HTTP Datagram prefixed with a Context ID (RFC 9298
+     * section 5), for MASQUE-style protocols (CONNECT-UDP, CONNECT-IP)
+     * that multiplex more than one flow over one request's datagrams --
+     * a convenience over calling {@link HttpDatagramContext#encode} and
+     * {@link #sendDatagram(ByteBuffer)} directly.
+     *
+     * @param contextId the Context ID (RFC 9298 section 5); {@link
+     *        HttpDatagramContext#REGISTERED_CONTEXT_ID} for the payload
+     *        registered to this request itself
+     * @param payload the flow's protocol data; copied
+     * @return true if the datagram was queued
+     */
+    default boolean sendDatagram(long contextId, ByteBuffer payload) {
+        return sendDatagram(HttpDatagramContext.encode(contextId, payload));
+    }
+
+    /**
      * Sends a Capsule Protocol capsule on this stream's data (RFC 9297
      * section 3.2). Use {@link #sendDatagram} for DATAGRAM capsules
      * unless a different type is required.
