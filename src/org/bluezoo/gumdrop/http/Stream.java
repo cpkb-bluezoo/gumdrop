@@ -44,6 +44,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.hpack.HeaderHandler;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
@@ -204,6 +205,11 @@ class Stream implements HTTPResponseState {
     @Override
     public SelectorLoop getSelectorLoop() {
         return connection.getSelectorLoop();
+    }
+
+    @Override
+    public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+        return connection.scheduleTimer(delayMs, callback);
     }
 
     @Override
@@ -1374,12 +1380,71 @@ class Stream implements HTTPResponseState {
             
             // Notify handler that connection is open
             webSocketAdapter.notifyConnectionOpen();
-            
+
         } catch (ProtocolException e) {
             throw new IllegalStateException("Failed to send WebSocket upgrade response", e);
         }
     }
-    
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HTTPResponseState.acceptConnectUdp Implementation (RFC 9298)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private boolean isConnectUdpRequest() {
+        if (headers == null) {
+            return false;
+        }
+        // RFC 9298 section 3: HTTP/2 (and, per this codebase's shared
+        // Stream class, HTTP/1.1) both use Extended CONNECT the same way
+        // RFC 8441 WebSocket does -- :method CONNECT, :protocol
+        // connect-udp. HTTP/1.1 has no :protocol pseudo-header of its
+        // own; requests arriving over HTTP/1.1 populate it the same way
+        // isWebSocketUpgradeRequest()'s sibling check does not need to,
+        // since HTTP/1.1 CONNECT-UDP instead uses a literal Upgrade:
+        // connect-udp -- RFC 9298 section 3 also permits this, and RFC
+        // 9110 section 7.8 forbids Upgrade over HTTP/2.
+        if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+            return "CONNECT".equals(headers.getValue(":method"))
+                    && "connect-udp".equalsIgnoreCase(headers.getValue(":protocol"));
+        }
+        return "connect-udp".equalsIgnoreCase(headers.getValue("upgrade"));
+    }
+
+    @Override
+    public boolean acceptConnectUdp() {
+        if (!isConnectUdpRequest()) {
+            return false;
+        }
+        if (responseState != ResponseState.INITIAL) {
+            return false;
+        }
+        try {
+            if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+                // RFC 9298 section 3: a 2xx response accepts the tunnel,
+                // the same shape RFC 8441 WebSocket uses.
+                sendResponseHeaders(200, new Headers(), false);
+            } else {
+                // RFC 9110 section 7.8 / RFC 9298 section 3: HTTP/1.1
+                // accepts via 101 Switching Protocols instead.
+                Headers responseHeaders = new Headers();
+                responseHeaders.add("connection", "upgrade");
+                responseHeaders.add("upgrade", "connect-udp");
+                sendResponseHeaders(101, responseHeaders, false);
+                // Hand this connection's remaining raw bytes to this
+                // stream -- see switchToStreamTunnelMode's own
+                // documentation for why this is safe to share with
+                // WebSocket's identical need despite the method's name.
+                // HTTP/2 needs no equivalent call: every other stream on
+                // the connection is unaffected either way (see that
+                // method's own HTTP/2 branch).
+                connection.switchToStreamTunnelMode(streamId);
+            }
+            return true;
+        } catch (ProtocolException e) {
+            return false;
+        }
+    }
+
     /**
      * Adapter that bridges WebSocketEventHandler to WebSocketConnection.
      */

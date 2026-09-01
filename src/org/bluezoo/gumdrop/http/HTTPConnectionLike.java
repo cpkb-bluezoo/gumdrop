@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
@@ -52,6 +53,7 @@ interface HTTPConnectionLike {
     void sendRstStream(int streamId, int errorCode);
     void sendGoaway(int errorCode);
     void switchToWebSocketMode(int streamId);
+    void switchToStreamTunnelMode(int streamId);
     Decoder getHpackDecoder();
     boolean isSecure();
     TelemetryConfig getTelemetryConfig();
@@ -66,6 +68,7 @@ interface HTTPConnectionLike {
     void sendPushPromise(int streamId, int promisedStreamId, ByteBuffer headerBlock, boolean endHeaders);
     Stream createPushedStream(int streamId, String method, String uri, Headers headers);
     SelectorLoop getSelectorLoop();
+    TimerHandle scheduleTimer(long delayMs, Runnable callback);
     int getMaxHeaderListSize();
     long getMaxRequestBodySize();
 

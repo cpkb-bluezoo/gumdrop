@@ -195,7 +195,14 @@ public final class HTTPProtocolHandler
         PRI_SETTINGS,            // RFC 9113 section 3.4: awaiting client SETTINGS
         HTTP2,                   // RFC 9113 section 4: HTTP/2 frame processing
         HTTP2_CONTINUATION,      // RFC 9113 section 6.10: CONTINUATION frame
-        WEBSOCKET                // RFC 6455: WebSocket
+        // RFC 6455: WebSocket -- despite the name, dispatch for this
+        // state (receiveWebSocket()) is not actually WebSocket-specific:
+        // it just hands the connection's raw remaining bytes to one
+        // stream (see switchToStreamTunnelMode()), which is exactly what
+        // any single-stream-owns-the-rest-of-the-connection upgrade
+        // needs, WebSocket or not (e.g. RFC 9298 CONNECT-UDP's own
+        // Capsule Protocol tunnel over HTTP/1.1).
+        WEBSOCKET
     }
 
     private Endpoint endpoint;
@@ -1245,21 +1252,39 @@ public final class HTTPProtocolHandler
             // routes this stream's DATA frame payloads to it per-stream.
             return;
         }
-        this.webSocketStreamId = streamId;
-        this.state = State.WEBSOCKET;
-        // May be called synchronously, from within the call stack of a
-        // LINE token's dispatch (e.g. an app accepting a WebSocket
-        // upgrade as soon as headers complete) — if the current buffer
-        // has more bytes after this point (a pipelined WebSocket frame),
-        // the lexer must stop trying to tokenise them as HTTP lines and
-        // hand them to receive()'s WEBSOCKET dispatch instead. Harmless
-        // if called asynchronously too: receive() checks state before
-        // ever calling lexer.feed(), so this just becomes a no-op wait
-        // for the next feed() call that will never come.
-        lexer.stopForHandoff();
+        switchToStreamTunnelMode(streamId);
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("Switched to WebSocket mode for stream " + streamId);
         }
+    }
+
+    @Override
+    public void switchToStreamTunnelMode(int streamId) {
+        if (version == HTTPVersion.HTTP_2_0) {
+            // See switchToWebSocketMode's identical HTTP/2 branch: HTTP/2
+            // framing never stops for any upgraded stream, since every
+            // other concurrent stream on the connection is unaffected by
+            // one being handed over to a tunnel (e.g. Stream.capsuleMode,
+            // already set by the time this runs, is all
+            // receiveRequestBody() needs to route this stream's DATA
+            // frame payloads as Capsule Protocol data instead of an
+            // ordinary request body).
+            return;
+        }
+        this.webSocketStreamId = streamId;
+        this.state = State.WEBSOCKET;
+        // May be called synchronously, from within the call stack of a
+        // LINE token's dispatch (e.g. an app accepting a CONNECT-UDP
+        // tunnel as soon as headers complete) — if the current buffer
+        // has more bytes after this point (a pipelined capsule), the
+        // lexer must stop trying to tokenise them as HTTP lines and hand
+        // them to receive()'s WEBSOCKET-state dispatch instead (that
+        // dispatch is not actually WebSocket-specific -- see
+        // receiveWebSocket()/State.WEBSOCKET's own documentation).
+        // Harmless if called asynchronously too: receive() checks state
+        // before ever calling lexer.feed(), so this just becomes a no-op
+        // wait for the next feed() call that will never come.
+        lexer.stopForHandoff();
     }
 
     @Override
@@ -1275,6 +1300,11 @@ public final class HTTPProtocolHandler
     @Override
     public SelectorLoop getSelectorLoop() {
         return endpoint != null ? endpoint.getSelectorLoop() : null;
+    }
+
+    @Override
+    public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+        return endpoint != null ? endpoint.scheduleTimer(delayMs, callback) : null;
     }
 
     @Override
