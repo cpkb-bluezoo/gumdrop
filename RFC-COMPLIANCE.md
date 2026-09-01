@@ -2240,11 +2240,13 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 
 | RFC | Title | Status |
 |-----|-------|--------|
-| RFC 9484 | Proxying IP in HTTP | Implemented (server) |
+| RFC 9484 | Proxying IP in HTTP | Implemented |
 
-Server-side only; the client-side helper is tracked as a follow-up issue,
-matching how #393's client landed separately from its server (RFC 9298
-CONNECT-UDP, above).
+Server-side and client-side, across HTTP/1.1, HTTP/2, and HTTP/3. The
+client is available both as a low-level API per transport
+(`HTTP3ClientHandler#connectIp`, `HTTPClient#connectIp`) and as the
+high-level `ConnectIpClient` facade, which negotiates the transport
+automatically the same way `ConnectUdpClient`/`WebSocketClient` do.
 
 ### RFC 9484 — Proxying IP in HTTP
 
@@ -2267,6 +2269,17 @@ CONNECT-UDP, above).
 | `Capsule-Protocol: ?1` request header required | §4.2–4.5 | **Compliant** | `Capsule.capsuleProtocolEnabled()`; missing/false header rejected with `400` |
 | Non-2xx / malformed request rejected | §4 | **Compliant** | `ConnectIpRequestHandler`: `400` (malformed), `403` (policy-denied target) |
 
+#### Section 4 — Client
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| HTTP/3: Extended CONNECT request | §4.4 | **Compliant** | `HTTP3ClientHandler.connectIp()`; mirrors `connectUdp()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
+| HTTP/2: Extended CONNECT request | §4.4 | **Compliant** | `ConnectIpClient` sends via the generic `HTTPRequest` API, same as `ConnectUdpClient#connectExtendedConnect`; response handled by `H2ConnectIpResponseHandler` |
+| HTTP/1.1: HTTP Upgrade request (`Upgrade: connect-ip`) | §4.2 | **Compliant** | `ConnectIpClientProtocolHandler.handleProtocolSwitch()`, mirroring `ConnectUdpClientProtocolHandler`'s use of the same extension hook |
+| `Capsule-Protocol: ?1` request header | §4.2–4.5 | **Compliant** | Sent on every transport's request |
+| `2xx`/`101` response accepted, rejection reported as a failure | §4 | **Compliant** | `H3ClientConnectIpResponseHandler`/`H2ConnectIpResponseHandler` (ordinary `HTTPResponseHandler`s), `ConnectIpClientProtocolHandler` (H1.1) |
+| Automatic transport negotiation | §4 | **Compliant** | `ConnectIpClient`: DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN, HTTP/1.1 fallback — mirrors `ConnectUdpClient`/`WebSocketClient` |
+
 #### Section 4.7 — Capsules
 
 | Requirement | Section | Status | Notes |
@@ -2276,6 +2289,8 @@ CONNECT-UDP, above).
 | `ROUTE_ADVERTISEMENT` (0x03): server-to-client, zero or more non-overlapping `IP Address Range` records | §4.7.3 | **Compliant** | `ConnectIpRoute.TYPE_ROUTE_ADVERTISEMENT`, `.encodeList()`/`.decodeList()`; sent via `ConnectIpSession.sendRouteAdvertisement()` |
 | `Address`/`IP Address Range` wire format (Request ID varint, IP Version octet, 32/128-bit address, prefix length/protocol octet) | §4.7.1–4.7.3 | **Compliant** | Exact field widths/order per the RFC's packet diagrams |
 | Unknown capsule types ignored | RFC 9297 §3.2 | **Compliant** | `ConnectIpRequestHandler.capsuleReceived()` only reacts to `ADDRESS_REQUEST`; `HTTPRequestHandler.capsuleReceived()`'s own default is a no-op |
+| Client-side `ADDRESS_ASSIGN`/`ROUTE_ADVERTISEMENT` delivery | §4.7.1/§4.7.3 | **Compliant** | `H3ClientConnectIpResponseHandler.capsuleReceived()` (via `H3ClientStream`'s already-generic per-capsule dispatch), `H2ConnectIpResponseHandler`/`ConnectIpClientProtocolHandler` (manual `CapsuleParser`, since H1.1/H2 have no such generic dispatch) |
+| Client-side `ADDRESS_REQUEST` sending | §4.7.2 | **Compliant** | `ConnectIpClientSession.sendAddressRequest()` on every transport |
 
 #### Section 6 — HTTP Datagram Payload Format
 
@@ -2284,6 +2299,8 @@ CONNECT-UDP, above).
 | Context ID 0 carries a full IP packet (IPv4 or IPv6) | §6 | **Compliant** | `HttpDatagramContext.REGISTERED_CONTEXT_ID`; shared codec with RFC 9298 (RFC 9484 §5 references RFC 9298 §5's Context ID mechanism directly) |
 | Client-to-server packet delivery | §6 | **Compliant** | `ConnectIpRequestHandler.datagramReceived()` decodes and forwards to `IpPacketHandler.packetReceived()` |
 | Server-to-client packet delivery | §6 | **Compliant** | `ConnectIpSession.sendPacket()` |
+| Client-side outbound packets | §6 | **Compliant** | `ConnectIpClientSession.sendPacket()`, capsule-framed (RFC 9297 §3.5) on every transport — for HTTP/3 this works whether or not native QUIC DATAGRAM is negotiated |
+| Client-side inbound packets | §6 | **Compliant** | `H3ClientConnectIpResponseHandler`/`H2ConnectIpResponseHandler`/`ConnectIpClientProtocolHandler`'s `datagramReceived()`/`packetReceived()`; HTTP/3 delivers via either native QUIC DATAGRAM or the capsule fallback — `H3ClientStream` dispatches both identically |
 
 #### Forwarding backend
 
