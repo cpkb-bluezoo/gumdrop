@@ -2170,3 +2170,47 @@ The QUIC transport layer uses the **quiche** native library for all protocol pro
 | Client CONNECT request (SOCKS4/4a) | SOCKS4 §Request | **Compliant** | `SOCKSClientHandler.sendSOCKS4Connect()` with SOCKS4a fallback |
 | Client reply parsing (SOCKS4) | SOCKS4 §Reply | **Compliant** | `SOCKSClientHandler.handleSOCKS4Reply()` checks CD=0x5a |
 | Composable handler wrapping | — | **Compliant** | `SOCKSClientHandler` wraps any `ProtocolHandler` for transparent tunneling |
+
+---
+
+## MASQUE — Proxying UDP in HTTP (RFC 9298)
+
+### Applicable RFCs
+
+| RFC | Title | Status |
+|-----|-------|--------|
+| RFC 9298 | Proxying UDP in HTTP | Implemented (server) |
+
+Server-side only; the client-side helper (`HTTPClient` CONNECT-UDP API,
+`H3ClientStream` support) is tracked as a follow-up issue.
+
+### RFC 9298 — Proxying UDP in HTTP
+
+#### Section 3 — UDP Proxying Request
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| URI Template `/.well-known/masque/udp/{target_host}/{target_port}/` | §3 | **Compliant** | `ConnectUdpTarget.parse()` / `.encode()` |
+| Percent-encoding of target_host (e.g. IPv6 literals) | §3 | **Compliant** | `ConnectUdpTarget` strict percent-decode/encode |
+| HTTP/2 and HTTP/3: Extended CONNECT (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `Stream.acceptConnectUdp()` (H2), `H3Stream.acceptConnectUdp()` (H3); mirrors RFC 8441 WebSocket |
+| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-udp` (RFC 9110 §7.8) | §3 | **Compliant** | `Stream.acceptConnectUdp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HTTPConnectionLike.switchToStreamTunnelMode()` |
+| 2xx response accepts the request (H2/H3) | §3 | **Compliant** | `200` sent via `sendResponseHeaders`/`flushHeaders` before any datagram relay begins |
+| `Capsule-Protocol: ?1` request header required | §3 | **Compliant** | `Capsule.capsuleProtocolEnabled()`; missing/false header rejected with `400` |
+| Non-2xx / malformed request rejected | §3 | **Compliant** | `ConnectUdpRequestHandler.rejectRequest()`: `400` (malformed), `403` (policy-denied target), `502` (DNS failure or upstream socket error) |
+
+#### Section 4 — Context IDs and Capsules
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Context ID prefix on every HTTP Datagram | §4 | **Compliant** | `HttpDatagramContext.encode()`/`.decode()` (see also RFC 9297) |
+| Context ID 0 reserved for UDP payloads (no capsule type) | §4 | **Compliant** | `HttpDatagramContext.REGISTERED_CONTEXT_ID`; non-zero context IDs dropped |
+
+#### Section 5 — UDP Proxying
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Client-to-target datagram relay | §5 | **Compliant** | `ConnectUdpRelay.receiveDatagram()` forwards decoded payload to a connected `UDPEndpoint` |
+| Target-to-client datagram relay | §5 | **Compliant** | `ConnectUdpRelay.UpstreamHandler.receive()` re-encodes with Context ID 0 and calls `HTTPResponseState.sendDatagram()` |
+| Target address/port fixed for the life of the request (single target, not per-datagram) | §5 | **Compliant** | One `UDPTransportFactory.connect()` upstream socket per accepted request |
+| Idle relay teardown | §5 | **Compliant** (implementation choice, not RFC-mandated) | `ConnectUdpRelay` closes after a configurable idle timeout (default 5 minutes) with no traffic in either direction |
+| Target approval before relaying | §9 (Security Considerations) | **Compliant** | `ConnectUdpPolicy` — deliberately no permissive default implementation, to avoid an open relay by default |

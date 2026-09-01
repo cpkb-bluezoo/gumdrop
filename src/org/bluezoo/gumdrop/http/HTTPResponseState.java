@@ -30,6 +30,7 @@ import java.util.List;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 
@@ -172,6 +173,19 @@ public interface HTTPResponseState {
      * @return the owning SelectorLoop, or null
      */
     SelectorLoop getSelectorLoop();
+
+    /**
+     * Schedules a one-shot timer callback on this request's own {@link
+     * SelectorLoop} thread.
+     *
+     * @param delayMs the delay in milliseconds
+     * @param callback the callback to run after the delay
+     * @return a handle that can cancel the timer, or {@code null} if
+     *         timers are not supported by this implementation
+     */
+    default TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+        return null;
+    }
 
     /**
      * Returns the current trace for distributed tracing, or null if none.
@@ -455,6 +469,29 @@ public interface HTTPResponseState {
      */
     default boolean sendDatagram(long contextId, ByteBuffer payload) {
         return sendDatagram(HttpDatagramContext.encode(contextId, payload));
+    }
+
+    /**
+     * Accepts this request as an RFC 9298 CONNECT-UDP tunnel: sends the
+     * success response (a {@code 2xx} for HTTP/2 or HTTP/3 Extended
+     * CONNECT, {@code 101 Switching Protocols} for HTTP/1.1 Upgrade) and
+     * leaves the request open in both directions rather than completing
+     * it, the same shape {@link #upgradeToWebSocket} uses for WebSocket.
+     *
+     * <p>The caller (typically {@link ConnectUdpRequestHandler}) is
+     * responsible for validating the request as CONNECT-UDP (RFC 9298
+     * section 3: {@code :method: CONNECT}, {@code :protocol: connect-udp},
+     * {@code Capsule-Protocol: ?1}, a path matching the URI Template) and
+     * for having a UDP relay ready to receive datagrams via {@link
+     * HTTPRequestHandler#datagramReceived} before calling this -- unlike
+     * {@link #upgradeToWebSocket}, this method does not itself bridge to
+     * anything; it only performs the HTTP-level accept.
+     *
+     * @return true if the request was accepted; false if it was not a
+     *         valid CONNECT-UDP request or the response had already started
+     */
+    default boolean acceptConnectUdp() {
+        return false;
     }
 
     /**

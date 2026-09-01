@@ -69,6 +69,8 @@ public class StreamContentLengthValidationTest {
         @Override public void sendRstStream(int streamId, int errorCode) { }
         @Override public void sendGoaway(int errorCode) { }
         @Override public void switchToWebSocketMode(int streamId) { }
+        @Override public void switchToStreamTunnelMode(int streamId) { }
+        @Override public org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) { return null; }
         @Override public Decoder getHpackDecoder() { return null; }
         @Override public boolean isSecure() { return false; }
         @Override public TelemetryConfig getTelemetryConfig() { return null; }

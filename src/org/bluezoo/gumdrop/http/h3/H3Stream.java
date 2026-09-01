@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
@@ -605,6 +606,11 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     }
 
     @Override
+    public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
+        return endpoint.scheduleTimer(delayMs, callback);
+    }
+
+    @Override
     public Trace getTrace() {
         return connection.getTrace();
     }
@@ -814,6 +820,37 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         }
 
         webSocketAdapter.notifyConnectionOpen();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // HTTPResponseState.acceptConnectUdp Implementation (RFC 9298)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * RFC 9298 section 3 — CONNECT-UDP over HTTP/3 via Extended CONNECT.
+     * Sends a {@code 2xx} response accepting the tunnel and leaves the
+     * stream open in both directions -- unlike {@link
+     * #upgradeToWebSocketInternal}, there is nothing to bridge to here:
+     * datagrams already reach {@link HTTPRequestHandler#datagramReceived}
+     * (via native H3 Datagram, {@link #httpDatagramReceived}, or the
+     * Capsule Protocol fallback, {@link #dispatchCapsules}) whether this
+     * stream is CONNECT-UDP, some other Context ID-aware protocol, or
+     * nothing in particular -- the caller ({@link
+     * org.bluezoo.gumdrop.http.ConnectUdpRequestHandler}) already
+     * registered itself as this stream's handler before this runs.
+     */
+    @Override
+    public boolean acceptConnectUdp() {
+        if (!"CONNECT".equals(method) || !"connect-udp".equalsIgnoreCase(protocol)) {
+            return false;
+        }
+        if (responseStarted) {
+            return false;
+        }
+        pendingResponseHeaders = new ArrayList<Header>();
+        pendingResponseHeaders.add(new Header(":status", "200"));
+        flushHeaders(false);
+        return true;
     }
 
     /**
