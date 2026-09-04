@@ -213,12 +213,27 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
             return;
         }
 
-        Socket socket = channel.socket();
-        socket.setTcpNoDelay(true);
+        // channel.socket() has no legacy java.net.Socket view for a UNIX
+        // domain socket channel (StandardProtocolFamily.UNIX) -- the JDK
+        // throws UnsupportedOperationException rather than returning one,
+        // since java.net.Socket is inherently an AF_INET/AF_INET6
+        // abstraction. TCP_NODELAY (Nagle's algorithm) and a TCP receive
+        // buffer size are both meaningless for a UNIX domain socket, so
+        // skip this tuning entirely rather than trying to detect the
+        // address family in advance -- the family isn't reliably knowable
+        // here anyway for a not-yet-connected client-mode channel.
+        Socket socket;
+        try {
+            socket = channel.socket();
+            socket.setTcpNoDelay(true);
+        } catch (UnsupportedOperationException e) {
+            socket = null;
+        }
 
         if (engine == null || !secure) {
-            bufferSize = Math.max(DEFAULT_BUFFER_SIZE,
-                    socket.getReceiveBufferSize());
+            bufferSize = (socket != null)
+                    ? Math.max(DEFAULT_BUFFER_SIZE, socket.getReceiveBufferSize())
+                    : DEFAULT_BUFFER_SIZE;
             timestampConnected = System.currentTimeMillis();
         }
 

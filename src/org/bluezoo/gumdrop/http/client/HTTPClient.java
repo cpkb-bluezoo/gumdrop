@@ -123,6 +123,7 @@ public class HTTPClient implements AltSvcListener {
 
     private final String host;
     private final int port;
+    private final String socketPath;
     private final SelectorLoop selectorLoop;
     private InetAddress hostAddress;
 
@@ -196,6 +197,7 @@ public class HTTPClient implements AltSvcListener {
         this.selectorLoop = selectorLoop;
         this.host = host;
         this.port = port;
+        this.socketPath = null;
     }
 
     /**
@@ -221,6 +223,50 @@ public class HTTPClient implements AltSvcListener {
         this.host = host.getHostAddress();
         this.hostAddress = host;
         this.port = port;
+        this.socketPath = null;
+    }
+
+    /**
+     * Creates an HTTP client for a UNIX domain socket, mirroring {@link
+     * org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     *
+     * <p>Uses the next available worker loop from the global {@link
+     * Gumdrop} instance. Incompatible with {@link #setH3Enabled(boolean)}
+     * -- HTTP/3 is inherently QUIC/UDP and has no filesystem-socket
+     * equivalent -- and with DNS/Alt-Svc transport negotiation, both
+     * skipped entirely for a path-based client. The {@code Host} header
+     * (HTTP/1.1) and {@code :authority} pseudo-header (HTTP/2) sent on
+     * requests default to {@code localhost}, matching common convention
+     * for clients dialing a UNIX domain socket (e.g. curl's
+     * {@code --unix-socket}); set an explicit header on individual
+     * requests to override.
+     *
+     * @param path the UNIX domain socket path
+     */
+    public HTTPClient(String path) {
+        this(null, path);
+    }
+
+    /**
+     * Creates an HTTP client for a UNIX domain socket with an explicit
+     * selector loop.
+     *
+     * <p>Use this constructor when integrating with server-side code
+     * that has its own selector loop management. See {@link #HTTPClient(
+     * String)} for the incompatibilities/defaults that apply to every
+     * UNIX-domain-socket client.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param path the UNIX domain socket path
+     */
+    public HTTPClient(SelectorLoop selectorLoop, String path) {
+        if (path == null) {
+            throw new NullPointerException("path");
+        }
+        this.selectorLoop = selectorLoop;
+        this.host = null;
+        this.port = -1;
+        this.socketPath = path;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -538,7 +584,18 @@ public class HTTPClient implements AltSvcListener {
         this.connectHandler = handler;
         if (Boolean.getBoolean("gumdrop.http.debug")) {
             Logger.getLogger(HTTPClient.class.getName()).info(
-                "[HTTPClient] connect() " + (host != null ? host : hostAddress) + ":" + port);
+                "[HTTPClient] connect() "
+                + (socketPath != null ? socketPath : (host != null ? host : hostAddress) + ":" + port));
+        }
+
+        if (socketPath != null) {
+            if (h3Enabled) {
+                handler.onError(new IOException(
+                        "HTTP/3 is not supported over a UNIX domain socket"));
+                return;
+            }
+            connectTcp(handler);
+            return;
         }
 
         if (h3Enabled) {
@@ -690,8 +747,17 @@ public class HTTPClient implements AltSvcListener {
         HTTPClientHandler poolAwareHandler = connectionPool != null
                 ? wrapHandlerForPool(handler) : handler;
 
-        endpointHandler = new HTTPClientProtocolHandler(
-                poolAwareHandler, host, port, secure);
+        // RFC 9110 section 7.2 / RFC 9113 section 8.3.1: a UNIX domain
+        // socket has no hostname of its own to put in the Host header /
+        // :authority pseudo-header -- "localhost" matches common
+        // convention for clients dialing a UNIX domain socket (e.g.
+        // curl's --unix-socket). The matching default port keeps
+        // sendHTTP11Request's port-suffix check from adding one.
+        endpointHandler = (socketPath != null)
+                ? new HTTPClientProtocolHandler(
+                        poolAwareHandler, "localhost", secure ? 443 : 80, secure)
+                : new HTTPClientProtocolHandler(
+                        poolAwareHandler, host, port, secure);
         if (traceContext != null) {
             endpointHandler.setTraceContext(traceContext);
         }
@@ -711,7 +777,11 @@ public class HTTPClient implements AltSvcListener {
         }
 
         try {
-            if (hostAddress != null) {
+            if (socketPath != null) {
+                clientEndpoint = (selectorLoop != null)
+                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
+                        : new ClientEndpoint(transportFactory, socketPath);
+            } else if (hostAddress != null) {
                 checkNotPrivate(hostAddress);
                 if (selectorLoop != null) {
                     clientEndpoint = new ClientEndpoint(
@@ -1138,6 +1208,14 @@ public class HTTPClient implements AltSvcListener {
 
     @Override
     public void altSvcReceived(String value) {
+        if (socketPath != null) {
+            // Alt-Svc advertises an alternate network address/port for
+            // this origin to upgrade to (typically HTTP/3) -- meaningless
+            // for a UNIX-domain-socket-addressed origin, which has
+            // neither a network address to cache one against nor a QUIC
+            // upgrade path available at all (see the connect() guard).
+            return;
+        }
         AltSvcListener.H3Entry parsed = AltSvcListener.parseAltSvcH3(value);
         if (parsed == null) {
             return;

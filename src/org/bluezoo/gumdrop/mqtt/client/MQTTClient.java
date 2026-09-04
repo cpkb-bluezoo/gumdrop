@@ -75,6 +75,7 @@ public class MQTTClient {
     private final String host;
     private final InetAddress hostAddress;
     private final int port;
+    private final String socketPath;
     private final SelectorLoop selectorLoop;
 
     private boolean secure;
@@ -110,6 +111,7 @@ public class MQTTClient {
         this.host = host;
         this.hostAddress = null;
         this.port = port;
+        this.socketPath = null;
     }
 
     public MQTTClient(InetAddress host, int port) {
@@ -121,6 +123,35 @@ public class MQTTClient {
         this.host = null;
         this.hostAddress = host;
         this.port = port;
+        this.socketPath = null;
+    }
+
+    /**
+     * Creates an MQTT client for a UNIX domain socket, mirroring
+     * {@link org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     *
+     * @param socketPath the UNIX domain socket path
+     */
+    public MQTTClient(String socketPath) {
+        this(null, socketPath);
+    }
+
+    /**
+     * Creates an MQTT client for a UNIX domain socket with an explicit
+     * selector loop.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param socketPath the UNIX domain socket path
+     */
+    public MQTTClient(SelectorLoop selectorLoop, String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.selectorLoop = selectorLoop;
+        this.host = null;
+        this.hostAddress = null;
+        this.port = -1;
+        this.socketPath = socketPath;
     }
 
     // ── Configuration ──
@@ -215,7 +246,11 @@ public class MQTTClient {
         }
         transportFactory.start();
 
-        if (selectorLoop != null) {
+        if (socketPath != null) {
+            clientEndpoint = (selectorLoop != null)
+                    ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
+                    : new ClientEndpoint(transportFactory, socketPath);
+        } else if (selectorLoop != null) {
             if (hostAddress != null) {
                 clientEndpoint = new ClientEndpoint(transportFactory,
                         selectorLoop, hostAddress, port);

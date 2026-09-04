@@ -114,6 +114,7 @@ public class WebSocketClient implements AltSvcListener {
     private final String host;
     private final InetAddress hostAddress;
     private final int port;
+    private final String socketPath;
     private final SelectorLoop selectorLoop;
 
     // Configuration (set before connect)
@@ -170,6 +171,7 @@ public class WebSocketClient implements AltSvcListener {
         this.host = host;
         this.hostAddress = null;
         this.port = port;
+        this.socketPath = null;
     }
 
     /**
@@ -195,6 +197,46 @@ public class WebSocketClient implements AltSvcListener {
         this.host = null;
         this.hostAddress = host;
         this.port = port;
+        this.socketPath = null;
+    }
+
+    /**
+     * Creates a WebSocket client for a UNIX domain socket, mirroring
+     * {@link org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     *
+     * <p>Uses the next available worker loop from the global {@link
+     * Gumdrop} instance. Incompatible with {@link #setH3Enabled(boolean)}
+     * -- HTTP/3 is inherently QUIC/UDP and has no filesystem-socket
+     * equivalent -- and with DNS/Alt-Svc transport negotiation, both
+     * skipped entirely for a path-based client.
+     *
+     * @param socketPath the UNIX domain socket path
+     */
+    public WebSocketClient(String socketPath) {
+        this(null, socketPath);
+    }
+
+    /**
+     * Creates a WebSocket client for a UNIX domain socket with an
+     * explicit selector loop.
+     *
+     * <p>Use this constructor when integrating with server-side code
+     * that has its own selector loop management. See {@link
+     * #WebSocketClient(String)} for the incompatibilities that apply to
+     * every UNIX-domain-socket client.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param socketPath the UNIX domain socket path
+     */
+    public WebSocketClient(SelectorLoop selectorLoop, String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.selectorLoop = selectorLoop;
+        this.host = null;
+        this.hostAddress = null;
+        this.port = -1;
+        this.socketPath = socketPath;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -412,6 +454,15 @@ public class WebSocketClient implements AltSvcListener {
      * @param handler the handler to receive WebSocket events
      */
     public void connect(String path, final WebSocketEventHandler handler) {
+        if (socketPath != null) {
+            if (h3Enabled) {
+                handler.error(new IOException(
+                        "WebSocket-over-HTTP/3 is not supported over a UNIX domain socket"));
+                return;
+            }
+            connectTcp(path, handler);
+            return;
+        }
         if (h3Enabled) {
             connectH3(path, handler);
             return;
@@ -599,8 +650,16 @@ public class WebSocketClient implements AltSvcListener {
             }
         };
 
-        protocolHandler = new WebSocketClientProtocolHandler(
-                internalHandler, handler, host, port, secure);
+        // RFC 9110 section 7.2 / RFC 9113 section 8.3.1: a UNIX domain
+        // socket has no hostname of its own -- "localhost" matches
+        // HTTPClient's own default for the same case (see its
+        // connectTcp()), with the matching default port keeping the
+        // Host header's port-suffix check from adding one.
+        protocolHandler = (socketPath != null)
+                ? new WebSocketClientProtocolHandler(
+                        internalHandler, handler, "localhost", secure ? 443 : 80, secure)
+                : new WebSocketClientProtocolHandler(
+                        internalHandler, handler, host, port, secure);
         protocolHandler.setWebSocketKey(key);
         protocolHandler.setRequestedExtensions(allExtensions);
 
@@ -620,7 +679,11 @@ public class WebSocketClient implements AltSvcListener {
         protocolHandler.setAltSvcListener(this);
 
         try {
-            if (host != null) {
+            if (socketPath != null) {
+                clientEndpoint = (selectorLoop != null)
+                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
+                        : new ClientEndpoint(transportFactory, socketPath);
+            } else if (host != null) {
                 if (selectorLoop != null) {
                     clientEndpoint = new ClientEndpoint(
                             transportFactory, selectorLoop,
@@ -671,6 +734,14 @@ public class WebSocketClient implements AltSvcListener {
      */
     @Override
     public void altSvcReceived(String value) {
+        if (socketPath != null) {
+            // Alt-Svc advertises an alternate network address/port for
+            // this origin to upgrade to (typically HTTP/3) -- meaningless
+            // for a UNIX-domain-socket-addressed origin, which has
+            // neither a network address to cache one against nor a QUIC
+            // upgrade path available at all (see the connect() guard).
+            return;
+        }
         AltSvcListener.H3Entry parsed = AltSvcListener.parseAltSvcH3(value);
         if (parsed == null) {
             return;

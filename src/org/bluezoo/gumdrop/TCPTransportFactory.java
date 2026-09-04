@@ -30,7 +30,10 @@ import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketOption;
+import java.net.StandardProtocolFamily;
+import java.net.UnixDomainSocketAddress;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -448,6 +451,70 @@ public class TCPTransportFactory extends TransportFactory {
             // Endpoint's own SelectorLoop thread -- must be dispatched via
             // invokeLater() rather than called inline; invokeLater() runs
             // them immediately only when already on that thread.
+            endpoint.setSelectorLoop(loop);
+            loop.invokeLater(new Runnable() {
+                @Override
+                public void run() {
+                    endpoint.connected();
+                    endpoint.initiateClientTLSHandshake();
+                }
+            });
+            loop.register(channel, endpoint);
+        } else {
+            loop.registerForConnect(channel, endpoint);
+        }
+
+        return endpoint;
+    }
+
+    /**
+     * Creates a client-side TCPEndpoint and connects to a UNIX domain
+     * socket, mirroring {@link TCPListener#setPath} on the server side:
+     * {@link StandardProtocolFamily#UNIX} instead of a TCP port.
+     *
+     * <p>The connection is initiated asynchronously, following the same
+     * endpoint setup/registration as {@link #connect(InetAddress, int,
+     * ProtocolHandler, SelectorLoop)}. TLS remains orthogonal to the
+     * addressing mode -- if this factory is secure, the TLS handshake
+     * proceeds the same way over the connected UNIX domain socket channel
+     * as it would over TCP; since a filesystem path has no meaningful
+     * hostname/port for the JSSE session ID or SNI, the SSLEngine is
+     * created without either.
+     *
+     * @param path the UNIX domain socket path
+     * @param handler the protocol handler
+     * @param loop the SelectorLoop to register with
+     * @return the new endpoint (connection is still in progress)
+     * @throws IOException if the connection cannot be initiated
+     */
+    public TCPEndpoint connect(String path, ProtocolHandler handler,
+                               SelectorLoop loop) throws IOException {
+        SocketChannel channel = SocketChannel.open(StandardProtocolFamily.UNIX);
+        channel.configureBlocking(false);
+
+        SSLEngine engine = null;
+        if (sslContext != null) {
+            engine = sslContext.createSSLEngine();
+            configureClientSSLEngine(engine);
+        }
+
+        TCPEndpoint endpoint = new TCPEndpoint(handler, engine, secure);
+        endpoint.setFactory(this);
+        endpoint.setChannel(channel);
+        endpoint.setClientMode(true);
+        endpoint.init();
+
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        gumdrop.addChannelHandler(endpoint);
+
+        UnixDomainSocketAddress remote = UnixDomainSocketAddress.of(Path.of(path));
+        boolean connected = channel.connect(remote);
+
+        if (connected) {
+            // See the InetAddress overload above for why this must be
+            // dispatched via invokeLater() rather than called inline --
+            // the same OS-completed-synchronously/off-loop-thread
+            // reasoning applies identically to a UNIX domain socket.
             endpoint.setSelectorLoop(loop);
             loop.invokeLater(new Runnable() {
                 @Override
