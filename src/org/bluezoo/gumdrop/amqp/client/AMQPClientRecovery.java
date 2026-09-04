@@ -152,6 +152,7 @@ public class AMQPClientRecovery {
     private final String host;
     private final InetAddress hostAddress;
     private final int port;
+    private final String socketPath;
     private final SelectorLoop selectorLoop;
 
     private String username = "guest";
@@ -190,6 +191,7 @@ public class AMQPClientRecovery {
         this.host = host;
         this.hostAddress = null;
         this.port = port;
+        this.socketPath = null;
     }
 
     public AMQPClientRecovery(InetAddress host, int port) {
@@ -201,6 +203,36 @@ public class AMQPClientRecovery {
         this.host = null;
         this.hostAddress = host;
         this.port = port;
+        this.socketPath = null;
+    }
+
+    /**
+     * Creates an AMQP client for a broker reached over a UNIX domain
+     * socket, mirroring {@link org.bluezoo.gumdrop.TCPListener#setPath}
+     * on the server side.
+     *
+     * @param socketPath the broker's UNIX domain socket path
+     */
+    public AMQPClientRecovery(String socketPath) {
+        this(null, socketPath);
+    }
+
+    /**
+     * Creates an AMQP client for a broker reached over a UNIX domain
+     * socket, with an explicit selector loop.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param socketPath the broker's UNIX domain socket path
+     */
+    public AMQPClientRecovery(SelectorLoop selectorLoop, String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.selectorLoop = selectorLoop;
+        this.host = null;
+        this.hostAddress = null;
+        this.port = -1;
+        this.socketPath = socketPath;
     }
 
     // ── configuration (before connect) ──
@@ -341,7 +373,11 @@ public class AMQPClientRecovery {
 
         try {
             ClientEndpoint endpoint;
-            if (host != null) {
+            if (socketPath != null) {
+                endpoint = (selectorLoop != null)
+                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
+                        : new ClientEndpoint(transportFactory, socketPath);
+            } else if (host != null) {
                 endpoint = (selectorLoop != null)
                         ? new ClientEndpoint(transportFactory, selectorLoop, host, port)
                         : new ClientEndpoint(transportFactory, host, port);

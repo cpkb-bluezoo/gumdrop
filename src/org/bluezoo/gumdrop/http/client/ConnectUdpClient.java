@@ -94,6 +94,7 @@ public class ConnectUdpClient implements AltSvcListener {
     private final String host;
     private final InetAddress hostAddress;
     private final int port;
+    private final String socketPath;
     private final SelectorLoop selectorLoop;
 
     // Configuration (set before connect)
@@ -147,6 +148,7 @@ public class ConnectUdpClient implements AltSvcListener {
         this.host = host;
         this.hostAddress = null;
         this.port = port;
+        this.socketPath = null;
     }
 
     /**
@@ -173,6 +175,49 @@ public class ConnectUdpClient implements AltSvcListener {
         this.host = null;
         this.hostAddress = host;
         this.port = port;
+        this.socketPath = null;
+    }
+
+    /**
+     * Creates a CONNECT-UDP client for a proxy reached over a UNIX domain
+     * socket, mirroring {@link org.bluezoo.gumdrop.TCPListener#setPath}
+     * on the server side. Only the proxy connection itself may be a UNIX
+     * domain socket -- the UDP target requested through the tunnel (see
+     * {@link #connect}) is always a network host/port, per RFC 9298.
+     *
+     * <p>Uses the next available worker loop from the global {@link
+     * Gumdrop} instance. Incompatible with {@link #setH3Enabled(boolean)}
+     * -- HTTP/3 is inherently QUIC/UDP and has no filesystem-socket
+     * equivalent -- and with DNS/Alt-Svc transport negotiation, both
+     * skipped entirely for a path-based client.
+     *
+     * @param socketPath the proxy's UNIX domain socket path
+     */
+    public ConnectUdpClient(String socketPath) {
+        this(null, socketPath);
+    }
+
+    /**
+     * Creates a CONNECT-UDP client for a proxy reached over a UNIX
+     * domain socket, with an explicit selector loop.
+     *
+     * <p>Use this constructor when integrating with server-side code
+     * that has its own selector loop management. See {@link
+     * #ConnectUdpClient(String)} for the incompatibilities that apply to
+     * every UNIX-domain-socket client.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param socketPath the proxy's UNIX domain socket path
+     */
+    public ConnectUdpClient(SelectorLoop selectorLoop, String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.selectorLoop = selectorLoop;
+        this.host = null;
+        this.hostAddress = null;
+        this.port = -1;
+        this.socketPath = socketPath;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -345,6 +390,15 @@ public class ConnectUdpClient implements AltSvcListener {
      * @param handler the handler to receive CONNECT-UDP events
      */
     public void connect(String targetHost, int targetPort, final ConnectUdpEventHandler handler) {
+        if (socketPath != null) {
+            if (h3Enabled) {
+                handler.error(new IOException(
+                        "CONNECT-UDP-over-HTTP/3 is not supported over a UNIX domain socket"));
+                return;
+            }
+            connectTcp(targetHost, targetPort, handler);
+            return;
+        }
         if (h3Enabled) {
             connectH3(targetHost, targetPort, handler);
             return;
@@ -519,8 +573,14 @@ public class ConnectUdpClient implements AltSvcListener {
             }
         };
 
-        protocolHandler = new ConnectUdpClientProtocolHandler(
-                internalHandler, handler, host, port, secure);
+        // RFC 9110 section 7.2 / RFC 9113 section 8.3.1: a UNIX domain
+        // socket has no hostname of its own -- "localhost" matches
+        // HTTPClient's own default for the same case.
+        protocolHandler = (socketPath != null)
+                ? new ConnectUdpClientProtocolHandler(
+                        internalHandler, handler, "localhost", secure ? 443 : 80, secure)
+                : new ConnectUdpClientProtocolHandler(
+                        internalHandler, handler, host, port, secure);
 
         protocolHandler.setH2Enabled(h2Enabled);
         if (h2WithPriorKnowledge) {
@@ -541,7 +601,11 @@ public class ConnectUdpClient implements AltSvcListener {
         protocolHandler.setAltSvcListener(this);
 
         try {
-            if (host != null) {
+            if (socketPath != null) {
+                clientEndpoint = (selectorLoop != null)
+                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
+                        : new ClientEndpoint(transportFactory, socketPath);
+            } else if (host != null) {
                 if (selectorLoop != null) {
                     clientEndpoint = new ClientEndpoint(
                             transportFactory, selectorLoop,
@@ -574,6 +638,14 @@ public class ConnectUdpClient implements AltSvcListener {
      */
     @Override
     public void altSvcReceived(String value) {
+        if (socketPath != null) {
+            // Alt-Svc advertises an alternate network address/port for
+            // this origin to upgrade to (typically HTTP/3) -- meaningless
+            // for a UNIX-domain-socket-addressed origin, which has
+            // neither a network address to cache one against nor a QUIC
+            // upgrade path available at all (see the connect() guard).
+            return;
+        }
         AltSvcListener.H3Entry parsed = AltSvcListener.parseAltSvcH3(value);
         if (parsed == null) {
             return;

@@ -80,6 +80,7 @@ public class ClientEndpoint {
     private final TransportFactory factory;
     private final String hostname;
     private final int port;
+    private final String path;
     private InetAddress host;
     private SelectorLoop selectorLoop;
     private Gumdrop gumdrop;
@@ -114,6 +115,7 @@ public class ClientEndpoint {
         this.selectorLoop = selectorLoop;
         this.hostname = host;
         this.port = port;
+        this.path = null;
     }
 
     /**
@@ -141,6 +143,39 @@ public class ClientEndpoint {
         this.hostname = null;
         this.host = host;
         this.port = port;
+        this.path = null;
+    }
+
+    /**
+     * Creates a client for a UNIX domain socket with a specific
+     * SelectorLoop for I/O, mirroring {@link TCPListener#setPath} on the
+     * server side. Requires a {@link TCPTransportFactory} -- there is no
+     * QUIC/UDP equivalent of a filesystem socket.
+     *
+     * <p>Use this constructor for server integration where the client
+     * should share a SelectorLoop with existing server connections.
+     *
+     * @param factory the transport factory (must already be started)
+     * @param selectorLoop the SelectorLoop for connection I/O
+     * @param path the UNIX domain socket path
+     */
+    public ClientEndpoint(TransportFactory factory,
+                          SelectorLoop selectorLoop,
+                          String path) {
+        if (factory == null) {
+            throw new NullPointerException("factory");
+        }
+        if (selectorLoop == null) {
+            throw new NullPointerException("selectorLoop");
+        }
+        if (path == null) {
+            throw new NullPointerException("path");
+        }
+        this.factory = factory;
+        this.selectorLoop = selectorLoop;
+        this.hostname = null;
+        this.port = -1;
+        this.path = path;
     }
 
     // ── Constructors without SelectorLoop (standalone usage) ──
@@ -168,6 +203,7 @@ public class ClientEndpoint {
         this.selectorLoop = null;
         this.hostname = host;
         this.port = port;
+        this.path = null;
     }
 
     /**
@@ -190,6 +226,33 @@ public class ClientEndpoint {
         this.hostname = null;
         this.host = host;
         this.port = port;
+        this.path = null;
+    }
+
+    /**
+     * Creates a client for a UNIX domain socket without a SelectorLoop,
+     * mirroring {@link TCPListener#setPath} on the server side. Requires a
+     * {@link TCPTransportFactory} -- there is no QUIC/UDP equivalent of a
+     * filesystem socket.
+     *
+     * <p>A SelectorLoop will be obtained automatically from the Gumdrop
+     * infrastructure when {@link #connect} is called.
+     *
+     * @param factory the transport factory (must already be started)
+     * @param path the UNIX domain socket path
+     */
+    public ClientEndpoint(TransportFactory factory, String path) {
+        if (factory == null) {
+            throw new NullPointerException("factory");
+        }
+        if (path == null) {
+            throw new NullPointerException("path");
+        }
+        this.factory = factory;
+        this.selectorLoop = null;
+        this.hostname = null;
+        this.port = -1;
+        this.path = path;
     }
 
     // ── Properties ──
@@ -213,12 +276,23 @@ public class ClientEndpoint {
     }
 
     /**
-     * Returns the target port.
+     * Returns the target port, or -1 if this client targets a UNIX
+     * domain socket ({@link #getPath} instead).
      *
-     * @return the port
+     * @return the port, or -1
      */
     public int getPort() {
         return port;
+    }
+
+    /**
+     * Returns the UNIX domain socket path, or null if this client
+     * targets a host/port instead.
+     *
+     * @return the socket path, or null
+     */
+    public String getPath() {
+        return path;
     }
 
     /**
@@ -337,7 +411,16 @@ public class ClientEndpoint {
     }
 
     private void doConnect(ProtocolHandler handler) throws IOException {
-        if (factory instanceof TCPTransportFactory) {
+        if (path != null) {
+            // UNIX domain socket -- QUIC has no filesystem-socket
+            // equivalent, so only TCPTransportFactory applies here.
+            if (!(factory instanceof TCPTransportFactory)) {
+                throw new UnsupportedOperationException(
+                        "Transport factory " + factory.getClass().getName()
+                        + " does not support UNIX domain socket connections");
+            }
+            ((TCPTransportFactory) factory).connect(path, handler, selectorLoop);
+        } else if (factory instanceof TCPTransportFactory) {
             ((TCPTransportFactory) factory).connect(
                     host, port, handler, selectorLoop);
         } else if (factory instanceof org.bluezoo.gumdrop.quic.QuicTransportFactory) {
@@ -350,8 +433,8 @@ public class ClientEndpoint {
         }
 
         if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Connecting to " + host.getHostAddress()
-                    + ":" + port + " via " + factory.getDescription());
+            String target = path != null ? path : host.getHostAddress() + ":" + port;
+            LOGGER.fine("Connecting to " + target + " via " + factory.getDescription());
         }
     }
 

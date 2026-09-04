@@ -100,6 +100,7 @@ public class POP3Client {
     private final String host;
     private final InetAddress hostAddress;
     private final int port;
+    private final String socketPath;
     private final SelectorLoop selectorLoop;
 
     private boolean secure;
@@ -142,6 +143,7 @@ public class POP3Client {
         this.host = host;
         this.hostAddress = null;
         this.port = port;
+        this.socketPath = null;
     }
 
     /**
@@ -168,6 +170,38 @@ public class POP3Client {
         this.host = null;
         this.hostAddress = host;
         this.port = port;
+        this.socketPath = null;
+    }
+
+    /**
+     * Creates a POP3 client for a UNIX domain socket, mirroring {@link
+     * org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     *
+     * <p>Uses the next available worker loop from the global {@link
+     * Gumdrop} instance.
+     *
+     * @param socketPath the UNIX domain socket path
+     */
+    public POP3Client(String socketPath) {
+        this(null, socketPath);
+    }
+
+    /**
+     * Creates a POP3 client for a UNIX domain socket with an explicit
+     * selector loop.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param socketPath the UNIX domain socket path
+     */
+    public POP3Client(SelectorLoop selectorLoop, String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.selectorLoop = selectorLoop;
+        this.host = null;
+        this.hostAddress = null;
+        this.port = -1;
+        this.socketPath = socketPath;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -281,7 +315,11 @@ public class POP3Client {
         endpointHandler.setSecure(secure);
 
         try {
-            if (host != null) {
+            if (socketPath != null) {
+                clientEndpoint = (selectorLoop != null)
+                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
+                        : new ClientEndpoint(transportFactory, socketPath);
+            } else if (host != null) {
                 if (selectorLoop != null) {
                     clientEndpoint = new ClientEndpoint(
                             transportFactory, selectorLoop,
