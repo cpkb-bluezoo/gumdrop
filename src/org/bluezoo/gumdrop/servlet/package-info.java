@@ -21,7 +21,7 @@
 
 /**
  * Servlet 4.0 (JSR 369) container, deploying and running Java web
- * applications on top of the {@link org.bluezoo.gumdrop.http} server.
+ * applications on top of a gumdrop HTTP service.
  *
  * <p>{@link org.bluezoo.gumdrop.servlet.Container} manages the deployed
  * web applications; each is a {@link org.bluezoo.gumdrop.servlet.Context}

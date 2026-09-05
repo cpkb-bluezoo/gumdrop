@@ -20,20 +20,20 @@
  */
 
 /**
- * gRPC server, riding gumdrop's HTTP/2 server rather than a dedicated
- * transport.
+ * gRPC server, riding gumdrop's generic HTTP request handling.
  *
  * <p>{@link org.bluezoo.gumdrop.grpc.server.GrpcService} is the
  * application service base, creating a {@link
  * org.bluezoo.gumdrop.grpc.server.GrpcHandler} (an {@link
- * org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler}) per call via a
- * {@link org.bluezoo.gumdrop.grpc.server.GrpcHandlerFactory}, so gRPC's
- * message framing and deframing ({@link org.bluezoo.gumdrop.grpc}) sits
- * directly on top of HTTP/2 request/response handling rather than a
- * separate connection type. {@link
- * org.bluezoo.gumdrop.grpc.server.GrpcResponseSender} sends a {@link
- * org.bluezoo.gumdrop.grpc.server.GrpcResponseMessage} back, applying
- * the gRPC wire framing.
+ * org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler}, the same base
+ * class an HTTP/1.1, HTTP/2, or HTTP/3 request handler would extend)
+ * per call via a {@link org.bluezoo.gumdrop.grpc.server.GrpcHandlerFactory},
+ * so gRPC's message framing and deframing ({@link
+ * org.bluezoo.gumdrop.grpc}) sits directly on top of ordinary HTTP
+ * request/response handling rather than a separate connection type.
+ * {@link org.bluezoo.gumdrop.grpc.server.GrpcResponseSender} sends a
+ * {@link org.bluezoo.gumdrop.grpc.server.GrpcResponseMessage} back,
+ * applying the gRPC wire framing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.grpc

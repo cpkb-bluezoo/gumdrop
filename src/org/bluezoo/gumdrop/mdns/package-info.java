@@ -20,7 +20,7 @@
  */
 
 /**
- * Multicast DNS (RFC 6762) and DNS-SD (RFC 6763) support for Gumdrop.
+ * Multicast DNS (RFC 6762) and DNS-SD (RFC 6763) support.
  *
  * <p>This package lets a Gumdrop instance:
  * <ul>

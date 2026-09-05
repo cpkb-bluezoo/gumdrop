@@ -20,8 +20,7 @@
  */
 
 /**
- * RFC 5322 Internet Message Format parsing and generation, used by the
- * mail server packages to parse and produce message headers.
+ * RFC 5322 Internet Message Format parsing and generation.
  *
  * <p>{@link org.bluezoo.gumdrop.mime.rfc5322.MessageParser} parses a
  * complete message, delivering parsed parts to a {@link

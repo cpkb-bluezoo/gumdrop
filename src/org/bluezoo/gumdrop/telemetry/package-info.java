@@ -21,8 +21,7 @@
 
 /**
  * OpenTelemetry implementation: distributed tracing, metrics, and log
- * correlation, exported via OTLP to any OpenTelemetry Collector, with no
- * dependency on the official OpenTelemetry SDK.
+ * correlation.
  *
  * <p>{@link org.bluezoo.gumdrop.telemetry.TelemetryConfig} is the entry
  * point, creating {@link org.bluezoo.gumdrop.telemetry.Trace}s (each a

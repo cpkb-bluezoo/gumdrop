@@ -20,11 +20,7 @@
  */
 
 /**
- * The standard JSP API ({@code JspWriter}, {@code PageContext}, {@code
- * JspFactory}), with gumdrop's own implementations ({@link
- * javax.servlet.jsp.DefaultJspWriter}, {@link
- * javax.servlet.jsp.DefaultPageContext}) backing the JSP support in
- * {@link org.bluezoo.gumdrop.servlet.jsp}.
+ * The standard JSP API.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.servlet.jsp

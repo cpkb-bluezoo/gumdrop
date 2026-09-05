@@ -20,9 +20,7 @@
  */
 
 /**
- * HTTP/2 (RFC 9113) frame parsing and writing, shared by the server
- * ({@code HTTPProtocolHandler}) and client ({@code
- * HTTPClientProtocolHandler}).
+ * HTTP/2 (RFC 9113) frame parsing and writing.
  *
  * <p>{@link org.bluezoo.gumdrop.http.h2.H2Parser} is a zero-allocation,
  * zero-copy push-parser: it consumes complete frames from a ByteBuffer

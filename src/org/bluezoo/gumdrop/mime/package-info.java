@@ -21,10 +21,7 @@
 
 /**
  * MIME parsing: multipart content, content-type/content-disposition
- * headers, and the Base64/quoted-printable transfer encodings, used by
- * the mail servers (SMTP, POP3, IMAP), {@link
- * org.bluezoo.gumdrop.mailbox} indexing, and the servlet container's
- * {@code multipart/form-data} {@code Part} implementation.
+ * headers, and Base64/quoted-printable transfer encodings.
  *
  * <p>{@link org.bluezoo.gumdrop.mime.MIMEParser} is a streaming parser
  * delivering parsed parts to a {@link org.bluezoo.gumdrop.mime.MIMEHandler};

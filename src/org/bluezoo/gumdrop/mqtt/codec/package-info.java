@@ -20,9 +20,7 @@
  */
 
 /**
- * MQTT packet encoding and decoding, for both 3.1.1 and 5.0 (the wire
- * difference between them is properties, {@link
- * org.bluezoo.gumdrop.mqtt.codec.MQTTProperties}, present only in 5.0).
+ * MQTT packet encoding and decoding for both 3.1.1 and 5.0.
  *
  * <p>{@link org.bluezoo.gumdrop.mqtt.codec.MQTTFrameParser} is a
  * streaming push-parser delivering decoded packets to a {@link

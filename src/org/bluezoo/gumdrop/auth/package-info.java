@@ -20,8 +20,8 @@
  */
 
 /**
- * Authentication and authorization shared by every protocol server
- * (HTTP, IMAP, POP3, SMTP, FTP).
+ * Authentication and authorization including SASL mechanisms shared by
+ * every protocol (HTTP, IMAP, POP3, SMTP, FTP).
  *
  * <p>{@link org.bluezoo.gumdrop.auth.Realm} is the contract every
  * authentication backend implements: password verification, role/group

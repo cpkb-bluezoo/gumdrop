@@ -20,14 +20,15 @@
  */
 
 /**
- * gRPC client, riding {@link org.bluezoo.gumdrop.http.client.HTTPClient}'s
- * HTTP/2 transport rather than owning a connection of its own.
+ * gRPC client, delegating to a gumdrop HTTP client.
  *
  * <p>{@link org.bluezoo.gumdrop.grpc.client.GrpcClient} takes a proto
- * schema ({@link org.bluezoo.gumdrop.grpc.proto.ProtoFile}) and, given a
- * caller-supplied {@code HTTPClient}, makes unary calls against it,
- * framing and deframing request/response messages per the gRPC wire
- * format ({@link org.bluezoo.gumdrop.grpc}). {@link
+ * schema ({@link org.bluezoo.gumdrop.grpc.proto.ProtoFile}) and makes
+ * unary calls through the generic {@link
+ * org.bluezoo.gumdrop.http.client.HTTPRequest}/{@link
+ * org.bluezoo.gumdrop.http.client.HTTPResponseHandler} API, framing and
+ * deframing request/response messages per the gRPC wire format ({@link
+ * org.bluezoo.gumdrop.grpc}). {@link
  * org.bluezoo.gumdrop.grpc.client.GrpcResponseHandler} is the callback
  * interface for a call's outcome.
  *

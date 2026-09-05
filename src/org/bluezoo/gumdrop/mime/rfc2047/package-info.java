@@ -22,8 +22,7 @@
 /**
  * RFC 2047 encoded words ({@code =?charset?encoding?text?=}, encoding
  * being {@code B} for Base64 or {@code Q} for Quoted-Printable) for
- * non-ASCII text in message headers -- Subject lines, display names in
- * address headers, and other structured fields.
+ * non-ASCII text in message headers.
  *
  * <p>{@link org.bluezoo.gumdrop.mime.rfc2047.RFC2047Encoder} and {@link
  * org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder} implement encoding

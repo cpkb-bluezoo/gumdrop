@@ -20,7 +20,7 @@
  */
 
 /**
- * MQTT protocol implementation (client and server).
+ * MQTT protocol implementation.
  *
  * <p>Supports MQTT 3.1.1 and MQTT 5.0 over raw TCP and WebSocket.
  *

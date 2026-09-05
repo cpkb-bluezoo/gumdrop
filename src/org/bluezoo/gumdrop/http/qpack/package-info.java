@@ -20,9 +20,7 @@
  */
 
 /**
- * QPACK header compression (RFC 9204), HTTP/3's replacement for HPACK
- * (RFC 7541), hand-written the same way {@code org.bluezoo.gumdrop.http.hpack}
- * was for HTTP/2.
+ * QPACK header compression for HTTP/3 (RFC 9204).
  *
  * <p>Two encoder/decoder pairs are provided:
  *

@@ -20,9 +20,7 @@
  */
 
 /**
- * HTTP/3 (RFC 9114), a first-class peer to HTTP/1.1 and HTTP/2, running
- * over the pure-Java {@link org.bluezoo.gumdrop.quic} transport and QPACK
- * header compression ({@link org.bluezoo.gumdrop.http.qpack}).
+ * HTTP/3 (RFC 9114) frame parsing and writing.
  *
  * <p>{@link org.bluezoo.gumdrop.http.h3.H3Parser}/{@link
  * org.bluezoo.gumdrop.http.h3.H3Writer} implement the HTTP/3 frame layer

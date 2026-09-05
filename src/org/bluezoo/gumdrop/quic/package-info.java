@@ -20,8 +20,8 @@
  */
 
 /**
- * QUIC transport (RFC 9000), a pure-Java implementation with no native or
- * JNI dependency. HTTP/3 ({@link org.bluezoo.gumdrop.http.h3}) and
+ * QUIC transport (RFC 9000).
+ * HTTP/3 ({@link org.bluezoo.gumdrop.http.h3}) and
  * DNS-over-QUIC ({@link org.bluezoo.gumdrop.dns.DoQListener}) both run on
  * top of it.
  *

@@ -20,9 +20,8 @@
  */
 
 /**
- * Typed, stateful callback interfaces for the AMQP 0-9-1 client
- * (mirrors {@link org.bluezoo.gumdrop.smtp.client.handler}). Each
- * interface exposes only the operations legal at that point in the
+ * Typed, stateful callback interfaces for the AMQP 0-9-1 client.
+ * Each interface exposes only the operations legal at that point in the
  * protocol, so the compiler rejects out-of-sequence calls:
  *
  * <pre>

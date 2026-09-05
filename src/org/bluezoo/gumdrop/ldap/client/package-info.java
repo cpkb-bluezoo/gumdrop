@@ -20,7 +20,7 @@
  */
 
 /**
- * Asynchronous LDAP client (RFC 4511), entirely callback-based.
+ * Asynchronous LDAP client (RFC 4511).
  *
  * <p>Different state interfaces are provided at each stage of the
  * session, enforcing valid sequencing at compile time -- {@link

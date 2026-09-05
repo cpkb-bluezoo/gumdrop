@@ -24,7 +24,7 @@
  * implementation: one file per message under {@code tmp/}/{@code new/}/
  * {@code cur/}, subfolders as dot-prefixed directories, requiring no
  * locking for concurrent access since delivery and flag changes are
- * atomic renames rather than in-place edits -- safe even on networked
+ * atomic renames rather than in-place edits; safe even on networked
  * filesystems (NFS).
  *
  * <p>Message filenames encode delivery timestamp, a unique ID, size, and

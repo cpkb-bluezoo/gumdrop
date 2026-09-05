@@ -20,8 +20,7 @@
  */
 
 /**
- * OpenTelemetry Metrics instrument types, obtained from a {@code Meter}
- * ({@link org.bluezoo.gumdrop.telemetry.TelemetryConfig#getMeter}).
+ * OpenTelemetry Metrics instrument types.
  *
  * <p>Synchronous instruments, recorded at measurement time: {@link
  * org.bluezoo.gumdrop.telemetry.metrics.LongCounter} (monotonic), {@link

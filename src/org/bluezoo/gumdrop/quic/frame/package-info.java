@@ -20,12 +20,7 @@
  */
 
 /**
- * QUIC frame encoding and decoding (RFC 9000 section 19), the transport
- * layer's analogue of {@code org.bluezoo.gumdrop.http.h2}'s frame codec:
- * a push-parser ({@link org.bluezoo.gumdrop.quic.frame.QuicFrameParser})
- * delivering typed callbacks to a
- * {@link org.bluezoo.gumdrop.quic.frame.QuicFrameHandler}, plus a writer
- * for the same frame types.
+ * QUIC frame encoding and decoding (RFC 9000 section 19).
  *
  * <p>Every RFC 9000 section 19 frame type is implemented: PADDING, PING,
  * ACK, RESET_STREAM, STOP_SENDING, CRYPTO, NEW_TOKEN, STREAM, the

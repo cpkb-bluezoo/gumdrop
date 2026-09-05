@@ -20,8 +20,7 @@
  */
 
 /**
- * Default XML configuration reader and dependency-injection container,
- * behind the {@link org.bluezoo.gumdrop.GumdropConfigurator} SPI.
+ * Default XML configuration reader and dependency-injection container.
  *
  * <p>{@link org.bluezoo.gumdrop.config.ConfigurationParser} reads a
  * {@code gumdroprc} file into {@link

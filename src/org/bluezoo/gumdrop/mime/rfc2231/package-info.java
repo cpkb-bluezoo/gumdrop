@@ -21,9 +21,7 @@
 
 /**
  * RFC 2231 extended parameter value encoding: charset/language tagging
- * and continuation for long parameter values (typically {@code
- * Content-Type}/{@code Content-Disposition} {@code filename*}), as used
- * for non-ASCII filenames in MIME attachments.
+ * and continuation for long parameter values.
  *
  * <p>{@link org.bluezoo.gumdrop.mime.rfc2231.RFC2231Decoder} decodes a
  * parameter value (or set of continuation segments) back to its

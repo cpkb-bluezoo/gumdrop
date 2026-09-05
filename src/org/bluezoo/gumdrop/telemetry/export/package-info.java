@@ -20,8 +20,7 @@
  */
 
 /**
- * The {@link org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory} SPI
- * implementation bundled in {@code gumdrop-telemetry.jar}.
+ * OTEL SPI implementation.
  *
  * <p>{@link org.bluezoo.gumdrop.telemetry.export.DefaultTelemetryExporterFactory}
  * picks OTLP/HTTP, OTLP/gRPC ({@link org.bluezoo.gumdrop.telemetry.otlp}),

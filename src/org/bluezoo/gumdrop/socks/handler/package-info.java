@@ -20,12 +20,7 @@
  */
 
 /**
- * Handler and state interfaces for the SOCKS server's policy decisions:
- * {@link ConnectHandler} (allow/deny a CONNECT request to a given
- * destination) with {@link ConnectState} to respond, and {@link
- * BindHandler} (allow/deny a BIND request) with {@link BindState}.
- * Version negotiation, authentication, and the relay itself are handled
- * automatically by {@link org.bluezoo.gumdrop.socks.SOCKSProtocolHandler}.
+ * Handler and state interfaces for the SOCKS server's policy decisions.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.socks.SOCKSProtocolHandler

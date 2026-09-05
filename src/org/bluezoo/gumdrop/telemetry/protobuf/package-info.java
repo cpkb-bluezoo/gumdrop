@@ -20,9 +20,7 @@
  */
 
 /**
- * Hand-written Protocol Buffers encoding/decoding for OTLP messages
- * (TracesData, MetricsData, LogsData), with no generated code or
- * dependency on the protobuf library.
+ * Asynchronous Protocol Buffers codec.
  *
  * <p>{@link org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter}
  * writes protobuf's four wire types (varint, 64-bit, length-delimited,

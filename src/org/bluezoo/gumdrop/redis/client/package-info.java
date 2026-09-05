@@ -20,8 +20,7 @@
  */
 
 /**
- * Asynchronous Redis client, entirely callback-based over the RESP wire
- * protocol ({@link org.bluezoo.gumdrop.redis.codec}).
+ * Asynchronous Redis RESP client.
  *
  * <p>{@link org.bluezoo.gumdrop.redis.client.RedisClientProtocolHandler}
  * drives the connection; {@link

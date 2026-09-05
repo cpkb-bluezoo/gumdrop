@@ -20,15 +20,7 @@
  */
 
 /**
- * Handler and state interfaces for the MQTT broker's policy decisions:
- * {@link ConnectHandler} (accept/reject a CONNECT, given credentials)
- * with {@link ConnectState} to respond; {@link PublishHandler} (accept,
- * reject, or modify a published message) with {@link PublishState};
- * {@link SubscribeHandler} (authorize a subscription request) with
- * {@link SubscribeState}. Everything else -- topic matching, retained
- * messages, QoS handshakes, Will delivery -- is handled automatically by
- * {@link org.bluezoo.gumdrop.mqtt.MQTTProtocolHandler} using {@link
- * org.bluezoo.gumdrop.mqtt.broker}.
+ * Handler and state interfaces for the MQTT broker's policy decisions.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.mqtt.MQTTProtocolHandler
