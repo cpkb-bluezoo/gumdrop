@@ -21,8 +21,7 @@
 
 /**
  * QUIC packet protection: AEAD payload encryption and header protection
- * (RFC 9001 sections 5.1-5.4), replacing the packet-level role BoringSSL
- * played via quiche.
+ * (RFC 9001 sections 5.1-5.4).
  *
  * <p>Key derivation for a given encryption level (Initial, Handshake, or
  * 1-RTT) produces a {@link org.bluezoo.gumdrop.quic.packet.PacketProtectionKeys}

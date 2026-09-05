@@ -65,15 +65,13 @@ import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
 
 /**
- * One UDP socket multiplexing many {@link QuicConnection}s, the
- * pure-Java replacement for the native quiche-backed implementation.
+ * One UDP socket multiplexing many {@link QuicConnection}s.
  *
  * <p>Demultiplexes received datagrams by destination connection ID
  * (parsed via {@link LongHeaderCodec}/fixed-length short-header
- * assumption -- see {@link #CONNECTION_ID_LENGTH}) instead of
- * {@code quiche_header_info}, and accepts new server-side connections by
- * constructing a {@link QuicTlsServerEngine} + {@link QuicConnection}
- * pair directly instead of {@code quiche_conn_new_with_tls}.
+ * assumption -- see {@link #CONNECTION_ID_LENGTH}), and accepts new
+ * server-side connections by constructing a {@link QuicTlsServerEngine}
+ * + {@link QuicConnection} pair for each.
  *
  * <p>Sending is synchronous and immediate ({@link #requestFlush} calls
  * {@link QuicConnection#flush} directly rather than deferring to

@@ -31,13 +31,14 @@ import java.security.cert.Certificate;
  * <ul>
  * <li>TCP with TLS (backed by JSSE SSLSession)</li>
  * <li>UDP with DTLS (backed by JSSE SSLSession)</li>
- * <li>QUIC (backed by quiche/BoringSSL via JNI)</li>
+ * <li>QUIC (always TLS 1.3, backed by {@link org.bluezoo.gumdrop.quic.QuicSecurityInfo})</li>
  * </ul>
  *
  * <p>Implementations:
  * <ul>
  * <li>JSSESecurityInfo -- wraps an SSLEngine's session (TCP TLS, UDP DTLS)</li>
- * <li>QuicSecurityInfo -- reads security state from quiche via JNI</li>
+ * <li>{@link org.bluezoo.gumdrop.quic.QuicSecurityInfo} -- reads negotiated
+ *     TLS 1.3 state from the QUIC connection</li>
  * <li>{@link NullSecurityInfo} -- singleton for plaintext endpoints</li>
  * </ul>
  *

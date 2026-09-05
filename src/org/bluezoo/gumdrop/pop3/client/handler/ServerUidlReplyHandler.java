@@ -34,7 +34,7 @@ package org.bluezoo.gumdrop.pop3.client.handler;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ClientTransactionState#uidl()
+ * @see ClientTransactionState#uidl(ServerUidlReplyHandler)
  * @see ClientTransactionState#uidl(int, ServerUidlReplyHandler)
  */
 public interface ServerUidlReplyHandler extends ServerReplyHandler {

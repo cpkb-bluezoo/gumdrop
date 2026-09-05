@@ -52,9 +52,9 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  * {@link org.bluezoo.gumdrop.http.HTTPListener}. It creates a
  * {@link QuicTransportFactory} with ALPN "h3" (RFC 9114 section 3.1),
  * binds to the configured UDP port, and installs an
- * {@link HTTP3ServerHandler} on each new QUIC connection to bridge
- * between the quiche h3 module and the gumdrop
- * {@link org.bluezoo.gumdrop.http.HTTPRequestHandler} API.
+ * {@link HTTP3ServerHandler} on each new QUIC connection to dispatch
+ * requests to the gumdrop {@link org.bluezoo.gumdrop.http.HTTPRequestHandler}
+ * API.
  *
  * <p>Per RFC 9114 section 3, HTTP/3 runs exclusively over QUIC
  * (RFC 9000) with mandatory TLS 1.3 (RFC 9001). Retry-based address

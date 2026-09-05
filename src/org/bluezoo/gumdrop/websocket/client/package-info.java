@@ -20,25 +20,24 @@
  */
 
 /**
- * WebSocket client support.
+ * WebSocket client support, over HTTP/1.1, HTTP/2, or HTTP/3.
  *
- * <p>Provides {@link org.bluezoo.gumdrop.websocket.client.WebSocketClient},
- * a high-level facade for connecting to WebSocket servers. The client
- * uses the same {@link org.bluezoo.gumdrop.websocket.WebSocketEventHandler}
- * interface as the server side, so application code can be reused in
- * both roles.
+ * <p>{@link org.bluezoo.gumdrop.websocket.client.WebSocketClient} is the
+ * high-level facade for connecting to WebSocket servers, with the same
+ * automatic transport negotiation as {@link
+ * org.bluezoo.gumdrop.http.client.HTTPClient}. It uses the same {@link
+ * org.bluezoo.gumdrop.websocket.WebSocketEventHandler} interface as the
+ * server side, so application code can be reused in both roles.
  *
- * <h3>Architecture</h3>
- *
- * <p>The client composes a TCP transport with a
- * {@code WebSocketClientProtocolHandler} that extends
- * {@link org.bluezoo.gumdrop.http.client.HTTPClientProtocolHandler}.
- * The HTTP layer handles the initial upgrade handshake; once the
- * server responds with 101 Switching Protocols, the protocol handler
- * switches to WebSocket mode and all subsequent I/O bypasses HTTP
- * parsing entirely.
+ * <p>Over HTTP/1.1, a {@code WebSocketClientProtocolHandler} extending
+ * {@link org.bluezoo.gumdrop.http.client.HTTPClientProtocolHandler}
+ * handles the RFC 6455 upgrade handshake; once the server responds with
+ * 101 Switching Protocols, it switches to WebSocket mode and all
+ * subsequent I/O bypasses HTTP parsing entirely. Over HTTP/2 and HTTP/3,
+ * the equivalent is RFC 9220's Extended CONNECT.
  *
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220: WebSocket over HTTP/2 and HTTP/3</a>
  * @see org.bluezoo.gumdrop.websocket.client.WebSocketClient
  * @see org.bluezoo.gumdrop.websocket.WebSocketEventHandler
  * @see org.bluezoo.gumdrop.websocket.WebSocketSession

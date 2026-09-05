@@ -20,54 +20,50 @@
  */
 
 /**
- * HTTP/3 (RFC 9114) support using quiche's h3 module via JNI.
+ * HTTP/3 (RFC 9114), a first-class peer to HTTP/1.1 and HTTP/2, running
+ * over the pure-Java {@link org.bluezoo.gumdrop.quic} transport and QPACK
+ * header compression ({@link org.bluezoo.gumdrop.http.qpack}).
  *
- * <p>HTTP/3 runs over QUIC (RFC 9000) and uses QPACK (RFC 9204) for
- * header compression (replacing HPACK used by HTTP/2). The quiche
- * library handles all HTTP/3 framing (RFC 9114 section 7) and QPACK
- * encoding/decoding internally. This package bridges between the quiche
- * h3 event model and the gumdrop
- * {@link org.bluezoo.gumdrop.http.HTTPRequestHandler} API.
- *
- * <p>Key classes:
- * <ul>
- * <li>{@link org.bluezoo.gumdrop.http.h3.HTTP3Listener} -- QUIC transport
- *     listener on a UDP port for incoming HTTP/3 connections</li>
- * <li>{@link org.bluezoo.gumdrop.http.h3.HTTP3ServerHandler} -- server-side
- *     h3 handler on top of a QUIC connection, polls for events</li>
- * <li>{@link org.bluezoo.gumdrop.http.h3.H3Stream} -- per-request server
- *     stream implementing
- *     {@link org.bluezoo.gumdrop.http.HTTPResponseState}</li>
- * <li>{@link org.bluezoo.gumdrop.http.h3.HTTP3ClientHandler} -- client-side
- *     h3 handler for outgoing requests</li>
- * <li>{@link org.bluezoo.gumdrop.http.h3.H3ClientStream} -- per-request
- *     client stream translating h3 events into
- *     {@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler}
- *     callbacks</li>
- * </ul>
+ * <p>{@link org.bluezoo.gumdrop.http.h3.H3Parser}/{@link
+ * org.bluezoo.gumdrop.http.h3.H3Writer} implement the HTTP/3 frame layer
+ * (RFC 9114 section 7) directly. On the server side, {@link
+ * org.bluezoo.gumdrop.http.h3.HTTP3Listener} binds the QUIC transport and
+ * installs an {@link org.bluezoo.gumdrop.http.h3.HTTP3ServerHandler} per
+ * connection; each request is a {@link
+ * org.bluezoo.gumdrop.http.h3.H3Stream}, itself the QUIC stream's
+ * protocol handler, implementing {@link
+ * org.bluezoo.gumdrop.http.HTTPResponseState} so request handlers work
+ * identically to HTTP/1.1 and HTTP/2. On the client side, {@link
+ * org.bluezoo.gumdrop.http.h3.HTTP3ClientHandler} owns the connection's
+ * control stream and SETTINGS exchange, and {@link
+ * org.bluezoo.gumdrop.http.h3.H3ClientStream} translates each request's
+ * response frames into {@link
+ * org.bluezoo.gumdrop.http.client.HTTPResponseHandler} callbacks.
  *
  * <h2>103 Early Hints (RFC 8297)</h2>
  *
  * <p>{@link org.bluezoo.gumdrop.http.h3.H3Stream#sendInformational} sends
- * 1xx informational responses before the final response. The first
- * HEADERS frame uses {@code quiche_h3_send_response}; subsequent frames
- * (additional 1xx or the final response) use
- * {@code quiche_h3_send_additional_headers} since quiche only allows
- * {@code send_response} once per stream.
+ * 1xx informational responses before the final response, exactly as the
+ * HTTP/1.1 and HTTP/2 implementations do.
  *
- * <h2>WebSocket over HTTP/3 (RFC 9220)</h2>
+ * <h2>Extended CONNECT (RFC 9220)</h2>
  *
  * <p>The server advertises {@code SETTINGS_ENABLE_CONNECT_PROTOCOL = 1}
- * in the initial SETTINGS frame (configured via
- * {@code quiche_h3_config_enable_extended_connect} in JNI). Clients may
- * then send an Extended CONNECT request with {@code :protocol = "websocket"}
- * to establish a WebSocket connection over an HTTP/3 stream.
- * {@link org.bluezoo.gumdrop.http.h3.H3Stream#upgradeToWebSocket} handles
- * the upgrade by sending a {@code :status 200} response and bridging the
- * stream to a {@link org.bluezoo.gumdrop.websocket.WebSocketConnection}.
- * The {@link org.bluezoo.gumdrop.websocket.HTTP3WebSocketListener} provides
- * the service-level integration.
+ * in its initial SETTINGS frame; the client defers any Extended CONNECT
+ * request until it has seen the same setting from the peer. This
+ * underpins WebSocket over HTTP/3 ({@link
+ * org.bluezoo.gumdrop.http.h3.H3Stream#upgradeToWebSocket} on accept,
+ * {@link org.bluezoo.gumdrop.websocket.HTTP3WebSocketListener} for the
+ * service-level integration, {@link
+ * org.bluezoo.gumdrop.http.h3.H3ClientWebSocketResponseHandler} on the
+ * client), CONNECT-UDP (RFC 9298, {@link
+ * org.bluezoo.gumdrop.http.h3.H3ClientConnectUdpResponseHandler}), and
+ * CONNECT-IP (RFC 9484, {@link
+ * org.bluezoo.gumdrop.http.h3.H3ClientConnectIpResponseHandler}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9114">RFC 9114</a>
+ * @see org.bluezoo.gumdrop.quic
+ * @see org.bluezoo.gumdrop.http.qpack
  */
 package org.bluezoo.gumdrop.http.h3;

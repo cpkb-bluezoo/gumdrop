@@ -21,9 +21,8 @@
 
 /**
  * Type-safe stage interfaces and reply callbacks for the FTP client
- * (RFC 959), following the same stateful-handler pattern as {@code
- * pop3.client.handler}, {@code smtp.client.handler}, and {@code
- * imap.client.handler}.
+ * (RFC 959): each interface exposes only the commands legal at that
+ * point in the session, so the compiler rejects out-of-sequence calls.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.ftp.client.FTPClientProtocolHandler

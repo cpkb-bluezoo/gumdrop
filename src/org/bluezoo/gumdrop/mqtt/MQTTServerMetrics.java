@@ -33,8 +33,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  * OpenTelemetry metrics for MQTT servers.
  *
  * <p>Provides standardized MQTT server metrics for monitoring
- * broker operations, following the same pattern as
- * {@code SMTPServerMetrics} and {@code HTTPServerMetrics}.
+ * broker operations.
  *
  * <p>Metrics provided:
  * <ul>

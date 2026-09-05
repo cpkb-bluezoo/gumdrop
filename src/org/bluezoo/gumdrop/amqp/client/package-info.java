@@ -21,83 +21,35 @@
 
 /**
  * Non-blocking AMQP 0-9-1 client for publishing and consuming messages
- * against a broker such as RabbitMQ (issue #154).
+ * against a broker such as RabbitMQ.
  *
- * <p>This package is under active development.
+ * <p>{@link org.bluezoo.gumdrop.amqp.client.AMQPFrameParser} is a
+ * push-parser for the frame envelope: it never assumes a network read
+ * contains a complete frame, or that a message body fits in memory.
+ * {@link org.bluezoo.gumdrop.amqp.client.AMQPClientProtocolHandler}
+ * drives the connection and channel lifecycle -- the protocol header,
+ * {@code connection.start}/{@code tune}/{@code open} and their replies,
+ * {@code channel.open}, exchange/queue declaration and binding, publish
+ * and consume (both streamed to/from the application in whatever chunks
+ * arrive, never materialised as one buffer), ack/nack/reject/cancel,
+ * transactions, and flow control -- entirely through the typed-state
+ * handler API in {@link org.bluezoo.gumdrop.amqp.client.handler}.
  *
- * <p>Implemented and unit tested so far:
- * <ul>
- *   <li>The wire-format codec: {@link org.bluezoo.gumdrop.amqp.client.AMQPFrameParser}
- *       (a push-parser for the frame envelope, in the same style as
- *       {@link org.bluezoo.gumdrop.http.h2.H2Parser} — no assumption is ever
- *       made that a read from the network contains a complete frame, or that
- *       a message body fits in memory), {@link org.bluezoo.gumdrop.amqp.client.FieldTable}
- *       (AMQP field-table type), {@link org.bluezoo.gumdrop.amqp.client.BasicProperties}
- *       (content-header properties for the {@code basic} class), and the
- *       per-class method-argument codecs ({@code ConnectionMethods},
- *       {@code ChannelMethods}, {@code ExchangeMethods}, {@code QueueMethods},
- *       {@code BasicMethods}, {@code TxMethods}, {@code ConfirmMethods}).</li>
- *   <li>{@link org.bluezoo.gumdrop.amqp.client.AMQPClientProtocolHandler}: the
- *       connection and channel lifecycle — protocol header, {@code
- *       connection.start}/{@code start-ok}, {@code tune}/
- *       {@code tune-ok}, {@code open}/{@code open-ok}, {@code channel.open}/
- *       {@code open-ok}, graceful and unsolicited close on both; exchange/
- *       queue declaration and binding; publish ({@link
- *       org.bluezoo.gumdrop.amqp.client.handler.PublishBody} — a message body
- *       is written in whatever chunks the caller has them in, never
- *       materialised as one buffer, mirroring {@link
- *       org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData}); and
- *       consume ({@link org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler}
- *       — a delivered body is likewise streamed to the application as
- *       content-body frames arrive, one chunk per callback, never
- *       accumulated by this layer) plus ack/nack/reject/cancel; transactions
- *       ({@code tx.select}/{@code commit}/{@code rollback}); and flow control
- *       ({@code channel.flow} in both directions — broker-initiated flow is
- *       always acknowledged automatically and surfaced via {@link
- *       org.bluezoo.gumdrop.amqp.client.handler.FlowListener}, client-initiated
- *       flow is a normal request/reply call). All via the typed-state handler
- *       API in {@link org.bluezoo.gumdrop.amqp.client.handler} (mirroring
- *       {@link org.bluezoo.gumdrop.smtp.client.handler}).</li>
- *   <li>{@link org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery}: automatic
- *       reconnect (exponential backoff, see {@link
- *       org.bluezoo.gumdrop.amqp.client.RecoveryPolicy}) and topology
- *       recovery — exchange/queue declarations, bindings, and consumers
- *       registered once via {@link
- *       org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler#onFirstConnect}
- *       are automatically replayed against each new connection after a
- *       reconnect, so the application's {@code ClientChannel} references
- *       keep working without re-running setup. This is the facade most
- *       applications should use; {@code AMQPClientProtocolHandler} directly
- *       is for callers that want to handle reconnection themselves.</li>
- *   <li>Publisher confirms ({@code confirm.select}, RabbitMQ extension):
- *       {@link org.bluezoo.gumdrop.amqp.client.handler.ClientChannel#confirmSelect}
- *       puts a channel into confirm mode, after which every {@link
- *       org.bluezoo.gumdrop.amqp.client.handler.PublishBody#getSequenceNumber}
- *       is acknowledged (or rejected) by the broker via {@link
- *       org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener}.
- *       {@code basic.get} was considered and deliberately left out — it's a
- *       polling pattern (send {@code basic.get}, get one message or
- *       {@code basic.get-empty} back) that {@code basic.consume}/{@code
- *       basic.deliver} already covers strictly better in an async client,
- *       down to the one-at-a-time case via {@code basic.qos}
- *       prefetch=1.</li>
- *   <li>SASL authentication (issue #188): {@code PLAIN} (the default),
- *       {@code AMQPLAIN} (RabbitMQ's field-table-encoded credentials —
- *       {@link org.bluezoo.gumdrop.amqp.client.AMQPLainClientMechanism},
- *       package-private since it is broker-specific rather than an
- *       IANA-registered mechanism), {@code EXTERNAL} (TLS client
- *       certificate), and {@code GSSAPI} (Kerberos, worker-thread
- *       offloaded for KDC contact) — all driven through {@link
- *       org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake}'s
- *       {@link org.bluezoo.gumdrop.auth.SASLClientMechanism}-based
- *       overloads, reusing {@link org.bluezoo.gumdrop.auth.SASLUtils}
- *       for every mechanism except {@code AMQPLAIN}. Multi-step
- *       mechanisms are supported via {@code connection.secure}/{@code
- *       secure-ok} round trips before {@code tune}.</li>
- * </ul>
+ * <p>{@link org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery} is the
+ * facade most applications should use: automatic reconnect with
+ * exponential backoff ({@link
+ * org.bluezoo.gumdrop.amqp.client.RecoveryPolicy}), replaying recorded
+ * topology (declarations, bindings, consumers) against each new
+ * connection so the application's channel references keep working
+ * across a reconnect. {@code AMQPClientProtocolHandler} directly is for
+ * callers that want to handle reconnection themselves.
+ *
+ * <p>Publisher confirms (RabbitMQ's {@code confirm.select} extension)
+ * and SASL authentication ({@code PLAIN}, {@code AMQPLAIN}, {@code
+ * EXTERNAL}, {@code GSSAPI}) are both supported.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.client
+ * @see org.bluezoo.gumdrop.amqp.client.handler
  * @see <a href="https://www.rabbitmq.com/resources/specs/amqp0-9-1.pdf">AMQP 0-9-1 specification</a>
  */
 package org.bluezoo.gumdrop.amqp.client;

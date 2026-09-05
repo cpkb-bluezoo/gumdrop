@@ -117,7 +117,7 @@ public class DoQClientTransport implements DNSClientTransport {
      * default trust store. Must be called before {@link #open}.
      *
      * @param caFile the CA certificate file path
-     * @see org.bluezoo.gumdrop.TransportFactory#setCaFile(Path)
+     * @see org.bluezoo.gumdrop.quic.QuicTransportFactory#setCaFile(Path)
      */
     public void setCaFile(Path caFile) {
         this.caFile = caFile;

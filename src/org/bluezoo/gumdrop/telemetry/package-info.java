@@ -20,167 +20,40 @@
  */
 
 /**
- * OpenTelemetry implementation for Gumdrop.
+ * OpenTelemetry implementation: distributed tracing, metrics, and log
+ * correlation, exported via OTLP to any OpenTelemetry Collector, with no
+ * dependency on the official OpenTelemetry SDK.
  *
- * <p>This package provides a lightweight, native implementation of OpenTelemetry
- * for distributed tracing, metrics, and log correlation. It integrates with
- * Gumdrop's event-driven architecture and exports data via OTLP/HTTP to any
- * OpenTelemetry Collector.
+ * <p>{@link org.bluezoo.gumdrop.telemetry.TelemetryConfig} is the entry
+ * point, creating {@link org.bluezoo.gumdrop.telemetry.Trace}s (each a
+ * tree of {@link org.bluezoo.gumdrop.telemetry.Span}s, with W3C Trace
+ * Context propagation) and {@code Meter}s for metric instruments ({@link
+ * org.bluezoo.gumdrop.telemetry.metrics}). Every protocol server
+ * (HTTP, SMTP, IMAP, POP3, FTP, and more) instruments itself
+ * automatically -- each has a dedicated {@code *ServerMetrics} class --
+ * once telemetry is configured with an OTLP endpoint; HTTPS is strongly
+ * recommended for that endpoint to protect telemetry data in transit.
+ * {@link org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory} is the
+ * SPI other export formats plug into; OTLP/HTTP, OTLP/gRPC, and JSONL
+ * exporters ship in the optional {@code gumdrop-telemetry.jar}, loaded
+ * via {@link java.util.ServiceLoader}.
  *
- * <h2>Features</h2>
+ * <p>When metrics are enabled, {@link
+ * org.bluezoo.gumdrop.telemetry.TelemetryJMXBridge} also exposes them
+ * under {@code org.bluezoo.gumdrop:type=Telemetry} for JMX-based tools
+ * (jconsole, VisualVM, the Prometheus JMX exporter), reading from the
+ * same OpenTelemetry state on each attribute access rather than
+ * maintaining a separate copy.
  *
+ * <h2>Subpackages</h2>
  * <ul>
- *   <li>Distributed tracing with W3C Trace Context propagation
- *   <li>Metrics collection (counters, histograms, gauges)
- *   <li>Hierarchical spans with attributes, events, and status
- *   <li>Zero-dependency protobuf serialization
- *   <li>Native HTTP client for non-blocking OTLP export
- *   <li>HTTPS/TLS support with configurable truststore for secure export
- *   <li>HTTP/2 and HTTP/1.1 with ALPN negotiation
- *   <li>Connection pooling with SelectorLoop affinity
+ *   <li>{@link org.bluezoo.gumdrop.telemetry.metrics} - metric instrument types</li>
+ *   <li>{@link org.bluezoo.gumdrop.telemetry.otlp} - OTLP/HTTP and OTLP/gRPC export</li>
+ *   <li>{@link org.bluezoo.gumdrop.telemetry.json} - OTLP JSON Lines file/stdout export</li>
+ *   <li>{@link org.bluezoo.gumdrop.telemetry.protobuf} - the Protocol Buffers codec OTLP export uses</li>
  * </ul>
- *
- * <h2>Tracing</h2>
- *
- * <p>The tracing API provides distributed request tracing across services:
- *
- * <pre>
- * // Create a trace
- * TelemetryConfig config = server.getTelemetryConfig();
- * Trace trace = config.createTrace("Process request", SpanKind.SERVER);
- *
- * // Add attributes
- * trace.addAttribute("request.id", requestId);
- *
- * // Create child spans for sub-operations
- * Span childSpan = trace.startSpan("Database query", SpanKind.CLIENT);
- * try {
- *     // ... operation ...
- *     childSpan.setStatusOk();
- * } catch (Exception e) {
- *     childSpan.recordException(e);
- * } finally {
- *     childSpan.end();
- * }
- *
- * trace.end(); // Exports automatically
- * </pre>
- *
- * <h2>Metrics</h2>
- *
- * <p>The metrics API provides collection of numeric measurements:
- *
- * <pre>
- * // Get a meter
- * Meter meter = config.getMeter("org.bluezoo.gumdrop.http");
- *
- * // Create instruments
- * LongCounter requests = meter.counterBuilder("http.requests")
- *     .setDescription("Total HTTP requests")
- *     .build();
- *
- * DoubleHistogram latency = meter.histogramBuilder("http.duration")
- *     .setDescription("Request latency")
- *     .setUnit("ms")
- *     .build();
- *
- * // Record measurements
- * requests.add(1, Attributes.of("method", "GET"));
- * latency.record(45.2, Attributes.of("method", "GET"));
- *
- * // Observable gauges for current state
- * meter.gaugeBuilder("http.connections.active")
- *     .buildWithCallback(new ObservableCallback() {
- *         public void observe(ObservableMeasurement m) {
- *             m.record(server.getActiveEndpointCount());
- *         }
- *     });
- * </pre>
- *
- * <h3>Instrument Types</h3>
- *
- * <ul>
- *   <li><b>LongCounter</b> - Monotonically increasing counter (requests, bytes)
- *   <li><b>LongUpDownCounter</b> - Bidirectional counter (active connections)
- *   <li><b>DoubleHistogram</b> - Distribution of values (latency, size)
- *   <li><b>ObservableGauge</b> - Point-in-time value via callback (memory, CPU)
- *   <li><b>ObservableCounter</b> - Async monotonic counter (system metrics)
- *   <li><b>ObservableUpDownCounter</b> - Async bidirectional counter
- * </ul>
- *
- * <h2>Configuration</h2>
- *
- * <p>Configure telemetry via the DI framework in gumdroprc. <b>HTTPS is
- * strongly recommended</b> for OTLP export to protect telemetry data in
- * transit:
- *
- * <pre>
- * &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
- *     &lt;property name="service-name"&gt;my-service&lt;/property&gt;
- *     
- *     &lt;!-- OTLP endpoint - use HTTPS in production --&gt;
- *     &lt;property name="endpoint"&gt;https://otel-collector:4318&lt;/property&gt;
- *     
- *     &lt;!-- TLS configuration for HTTPS endpoints --&gt;
- *     &lt;property name="truststore-file"&gt;/etc/gumdrop/otlp-truststore.p12&lt;/property&gt;
- *     &lt;property name="truststore-pass"&gt;changeit&lt;/property&gt;
- *     
- *     &lt;!-- Metrics configuration --&gt;
- *     &lt;property name="metrics-enabled"&gt;true&lt;/property&gt;
- *     &lt;property name="metrics-temporality-name"&gt;cumulative&lt;/property&gt;
- *     &lt;property name="metrics-interval-ms"&gt;60000&lt;/property&gt;
- * &lt;/component&gt;
- * </pre>
- *
- * <p>The truststore should contain the CA certificate(s) that signed the
- * OpenTelemetry Collector's TLS certificate. Create with keytool:
- *
- * <pre>
- * keytool -importcert -alias otel-ca -file ca-cert.pem \
- *     -keystore otlp-truststore.p12 -storetype PKCS12 -storepass changeit
- * </pre>
- *
- * <h2>Built-in Instrumentation</h2>
- *
- * <p>Gumdrop provides automatic instrumentation for:
- * <ul>
- *   <li>HTTP server - request spans and metrics (requests, connections, duration, size)
- *   <li>SMTP server - connection spans and metrics (messages, authentication, sessions)
- *   <li>IMAP server - session spans and metrics (commands, messages, authentication)
- *   <li>POP3 server - session spans and metrics (messages, authentication, bytes)
- *   <li>FTP server - session spans and metrics (transfers, authentication, commands)
- * </ul>
- *
- * <p>Each server type has a dedicated metrics class (e.g., {@code HTTPServerMetrics},
- * {@code SMTPServerMetrics}) that collects OpenTelemetry-compatible metrics automatically
- * when telemetry is enabled.
- *
- * <h2>JMX Bridge</h2>
- *
- * <p>When metrics are enabled, OpenTelemetry metrics are also exposed via JMX under
- * {@code org.bluezoo.gumdrop:type=Telemetry}. This allows JMX-based monitoring tools
- * (jconsole, VisualVM, Prometheus JMX exporter) to access the same metrics. OpenTelemetry
- * remains the single source of truth; the JMX bridge reads from it on each attribute access.
- * Disable with {@code jmxBridgeEnabled=false} on TelemetryConfig.
- *
- * <h2>Core Classes</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.TelemetryConfig} - Configuration and factory
- *   <li>{@link org.bluezoo.gumdrop.telemetry.Trace} - Distributed trace container
- *   <li>{@link org.bluezoo.gumdrop.telemetry.Span} - Unit of work with timing and attributes
- *   <li>{@link org.bluezoo.gumdrop.telemetry.Attribute} - Key-value span metadata
- *   <li>{@link org.bluezoo.gumdrop.telemetry.SpanKind} - Categorises span role
- *   <li>{@link org.bluezoo.gumdrop.telemetry.SpanStatus} - Operation outcome
- *   <li>{@link org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory} - SPI for optional export
- *   <li>{@link org.bluezoo.gumdrop.telemetry.TelemetryJMXBridge} - JMX exposure of metrics
- * </ul>
- *
- * <p>OTLP/HTTP, OTLP/gRPC, and JSONL export implementations live in the optional
- * {@code gumdrop-telemetry.jar} (loaded via {@link java.util.ServiceLoader}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.telemetry.metrics
  */
 package org.bluezoo.gumdrop.telemetry;
-

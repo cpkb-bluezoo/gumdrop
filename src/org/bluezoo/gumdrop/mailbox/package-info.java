@@ -20,85 +20,27 @@
  */
 
 /**
- * Mailbox storage abstraction for mail access protocols.
+ * Mailbox storage abstraction shared by the POP3 and IMAP servers.
  *
- * <p>This package provides common interfaces for accessing mailbox contents,
- * shared across multiple mail access protocols including POP3 and IMAP.
+ * <p>{@link org.bluezoo.gumdrop.mailbox.Mailbox} is a single mailbox
+ * (POP3's whole world; one selected folder in IMAP); {@link
+ * org.bluezoo.gumdrop.mailbox.MailboxStore} is IMAP's multi-folder view
+ * over several {@code Mailbox} instances; {@link
+ * org.bluezoo.gumdrop.mailbox.MailboxFactory} creates either for a given
+ * backend. {@link org.bluezoo.gumdrop.mailbox.MessageDescriptor} (and
+ * IMAP's richer {@link org.bluezoo.gumdrop.mailbox.IMAPMessageDescriptor})
+ * describe one message's metadata; {@link
+ * org.bluezoo.gumdrop.mailbox.AsyncMessageContent}/{@link
+ * org.bluezoo.gumdrop.mailbox.AsyncMessageWriter} provide non-blocking
+ * message read/append. {@link org.bluezoo.gumdrop.mailbox.MailboxNameCodec}
+ * encodes Unicode/filesystem-unsafe mailbox names into a safe form (a
+ * modified Quoted-Printable) without losing the original name.
  *
- * <h2>Core Interfaces</h2>
+ * <h2>Implementations</h2>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.Mailbox} - Interface for single mailbox operations</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.MailboxStore} - Interface for multi-folder mail stores (IMAP)</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.MailboxFactory} - Factory for creating mailbox/store instances</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.MessageDescriptor} - Interface for message metadata</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.SimpleMessageDescriptor} - Basic implementation for POP3</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.IMAPMessageDescriptor} - Extended interface for IMAP</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.MailboxNameCodec} - Encodes mailbox names for filesystem safety</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.AsyncMessageContent} - Async message content reading</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.AsyncMessageWriter} - Async message append writing</li>
+ *   <li>{@link org.bluezoo.gumdrop.mailbox.mbox} - Unix mbox format</li>
+ *   <li>{@link org.bluezoo.gumdrop.mailbox.maildir} - Maildir++ format</li>
  * </ul>
- *
- * <h2>Mailbox Name Encoding</h2>
- *
- * <p>Mailbox names may contain Unicode characters (e.g., "Données", "日本語") and
- * characters that are invalid on certain filesystems. The {@link org.bluezoo.gumdrop.mailbox.MailboxNameCodec}
- * class provides encoding/decoding using a modified Quoted-Printable format:
- * <ul>
- *   <li>All non-ASCII characters are encoded as UTF-8 bytes in {@code =XX} hex format</li>
- *   <li>Path separators ({@code /}, {@code \}) are always encoded</li>
- *   <li>Windows-forbidden characters ({@code /}: * ? " &lt; &gt; {@code \}) are encoded</li>
- *   <li>The escape character ({@code =}) itself is encoded</li>
- * </ul>
- *
- * <p>This ensures mailbox names are safely stored on all major filesystems
- * (Unix, Windows, macOS) while preserving the original Unicode names.
- *
- * <h2>Usage Patterns</h2>
- *
- * <h3>POP3 (Single Mailbox)</h3>
- * <pre>{@code
- * MailboxFactory factory = new MboxMailboxFactory(new File("/var/mail"));
- * Mailbox mailbox = factory.createMailbox();
- * mailbox.open(username);
- * // Access messages...
- * mailbox.close(true); // expunge deleted messages
- * }</pre>
- *
- * <h3>IMAP (Multiple Mailboxes)</h3>
- * <pre>{@code
- * MailboxFactory factory = ...;
- * MailboxStore store = factory.createStore();
- * store.open(username);
- * 
- * // List mailboxes
- * List<String> folders = store.listMailboxes("", "*");
- * 
- * // Open a specific folder
- * Mailbox inbox = store.openMailbox("INBOX", false);
- * // Access messages, flags, search...
- * 
- * store.close();
- * }</pre>
- *
- * <h2>Available Implementations</h2>
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.mbox} - Standard Unix mbox file format</li>
- * </ul>
- *
- * <h2>Protocol Support</h2>
- * <table border="1" cellpadding="5">
- *   <caption>Feature Support by Protocol</caption>
- *   <tr><th>Feature</th><th>POP3</th><th>IMAP</th></tr>
- *   <tr><td>Single mailbox</td><td>✓</td><td>✓</td></tr>
- *   <tr><td>Multiple mailboxes</td><td>✗</td><td>✓</td></tr>
- *   <tr><td>Message flags</td><td>Deleted only</td><td>Full support</td></tr>
- *   <tr><td>Message search</td><td>✗</td><td>✓</td></tr>
- *   <tr><td>Append messages</td><td>✗</td><td>✓</td></tr>
- *   <tr><td>Copy/Move</td><td>✗</td><td>✓</td></tr>
- *   <tr><td>MODSEQ tracking</td><td>✗</td><td>✓ (CONDSTORE)</td></tr>
- *   <tr><td>Async content read</td><td>✓</td><td>✓</td></tr>
- *   <tr><td>Async content write</td><td>✗</td><td>✓</td></tr>
- * </table>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.pop3.POP3Listener

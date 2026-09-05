@@ -20,94 +20,29 @@
  */
 
 /**
- * IMAP4rev2 server implementation for Gumdrop.
+ * IMAP4rev2 (RFC 9051) server for mailbox access.
  *
- * <p>This package provides a complete IMAP server implementation following
- * RFC 9051 (IMAP4rev2), with support for essential extensions.
+ * <p>{@link org.bluezoo.gumdrop.imap.IMAPService} is the abstract base
+ * for IMAP application services; {@link
+ * org.bluezoo.gumdrop.imap.IMAPListener} is the TCP transport listener;
+ * {@link org.bluezoo.gumdrop.imap.IMAPProtocolHandler} handles the
+ * protocol logic. Unlike SMTP and POP3's simpler sequential state
+ * machines, IMAP's NOT_AUTHENTICATED/AUTHENTICATED/SELECTED/LOGOUT
+ * states are each a dedicated state object (package {@link
+ * org.bluezoo.gumdrop.imap.handler}), needed to handle IDLE, multiple
+ * concurrent selected mailboxes, and unsolicited updates cleanly.
  *
- * <h2>Architecture</h2>
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.imap.IMAPService} - Abstract base for
- *       IMAP application services; owns configuration and creates
- *       per-connection handlers</li>
- *   <li>{@link org.bluezoo.gumdrop.imap.IMAPListener} - TCP transport listener for IMAP connections</li>
- *   <li>{@link org.bluezoo.gumdrop.imap.IMAPProtocolHandler} - Endpoint handler for IMAP protocol logic</li>
- * </ul>
+ * <p>Extensions beyond the RFC 9051 core: IDLE (RFC 2177), NAMESPACE
+ * (RFC 2342), MOVE (RFC 6851), QUOTA (RFC 9208), LITERAL- (RFC 7888,
+ * non-synchronizing literals up to 4096 bytes), and CONDSTORE/QRESYNC
+ * (RFC 7162) -- MODSEQ tracking via {@link
+ * org.bluezoo.gumdrop.mailbox.Mailbox}, HIGHESTMODSEQ on
+ * SELECT/EXAMINE/STATUS, MODSEQ in FETCH/SEARCH, UNCHANGEDSINCE for
+ * STORE, and VANISHED in place of EXPUNGE once QRESYNC is enabled.
  *
- * <h2>Supported RFCs</h2>
- * <table border="1" cellpadding="5">
- *   <caption>IMAP RFC Support</caption>
- *   <tr><th>RFC</th><th>Title</th><th>Status</th></tr>
- *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051</a></td>
- *       <td>IMAP4rev2</td><td>Core implementation</td></tr>
- *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc2177">RFC 2177</a></td>
- *       <td>IDLE</td><td>Supported</td></tr>
- *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc2342">RFC 2342</a></td>
- *       <td>NAMESPACE</td><td>Supported</td></tr>
- *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc6851">RFC 6851</a></td>
- *       <td>MOVE</td><td>Supported</td></tr>
- *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc9208">RFC 9208</a></td>
- *       <td>QUOTA</td><td>Supported</td></tr>
- *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc7888">RFC 7888</a></td>
- *       <td>LITERAL-</td><td>Supported</td></tr>
- *   <tr><td><a href="https://www.rfc-editor.org/rfc/rfc7162">RFC 7162</a></td>
- *       <td>CONDSTORE/QRESYNC</td><td>Supported</td></tr>
- * </table>
- *
- * <p><b>Extension implementation notes:</b>
- * LITERAL- (RFC 7888) allows non-synchronizing literals up to 4096 bytes.
- * The command parser in {@code processLine()} detects {@code {N+}} suffixes
- * and buffers the partial command while consuming the literal data, then
- * assembles the complete command for dispatch. APPEND handles its own
- * literal via the specialized binary data path.
- * CONDSTORE/QRESYNC (RFC 7162) is enabled per-session
- * via the ENABLE command. CONDSTORE provides MODSEQ tracking via the
- * {@link org.bluezoo.gumdrop.mailbox.Mailbox} interface, HIGHESTMODSEQ in
- * SELECT/EXAMINE/STATUS, MODSEQ in FETCH and SEARCH responses, and
- * UNCHANGEDSINCE for STORE. QRESYNC adds VANISHED (EARLIER) during SELECT
- * resynchronization and replaces EXPUNGE with VANISHED notifications
- * throughout the session.</p>
- *
- * <h2>Protocol States</h2>
- * <ul>
- *   <li><b>NOT_AUTHENTICATED</b> - Initial state, must authenticate</li>
- *   <li><b>AUTHENTICATED</b> - Logged in, can list/select mailboxes</li>
- *   <li><b>SELECTED</b> - Mailbox selected, can access messages</li>
- *   <li><b>LOGOUT</b> - Connection closing</li>
- * </ul>
- *
- * <h2>State Pattern</h2>
- *
- * <p>IMAP uses separate state objects for each protocol state
- * (NOT_AUTHENTICATED, AUTHENTICATED, SELECTED, LOGOUT) rather than
- * having the protocol handler implement all states as a single class.
- * This differs from SMTP and POP3, which have simpler, strictly
- * sequential state machines that fit naturally in the protocol handler.
- * IMAP's concurrent state complexity (e.g. IDLE, multiple selected
- * mailboxes, unsolicited updates) benefits from dedicated state objects
- * that encapsulate per-state command dispatch and transitions.
- *
- * <h2>Security Features</h2>
- * <ul>
- *   <li>IMAPS (implicit TLS on port 993)</li>
- *   <li>STARTTLS for connection upgrade</li>
- *   <li>SASL authentication mechanisms via {@link org.bluezoo.gumdrop.auth}</li>
- *   <li>LOGINDISABLED until TLS established</li>
- * </ul>
- *
- * <h2>Configuration Example</h2>
- * <pre>{@code
- * IMAPListener imap = new IMAPListener();
- * imap.setPort(143);
- * imap.setRealm(myRealm);
- * imap.setMailboxFactory(new MboxMailboxFactory(new File("/var/mail")));
- * 
- * // Optional: Enable implicit TLS
- * IMAPListener imaps = new IMAPListener();
- * imaps.setPort(993);
- * imaps.setSecure(true);
- * imaps.setSSLContext(sslContext);
- * }</pre>
+ * <p>Transport security is implicit TLS (IMAPS, port 993) or STARTTLS,
+ * with LOGINDISABLED advertised until TLS is established. Authentication
+ * runs through {@link org.bluezoo.gumdrop.auth.Realm}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 - IMAP4rev2</a>
@@ -115,4 +50,3 @@
  * @see org.bluezoo.gumdrop.auth
  */
 package org.bluezoo.gumdrop.imap;
-

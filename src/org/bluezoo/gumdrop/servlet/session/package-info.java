@@ -20,62 +20,31 @@
  */
 
 /**
- * HTTP session management and cluster replication.
+ * HTTP session management, with optional cluster replication.
  *
- * <p>This package provides session management for Gumdrop's servlet container,
- * including support for distributed sessions across a cluster of nodes.
+ * <p>{@link org.bluezoo.gumdrop.servlet.session.SessionManager} owns
+ * session lifecycle (creation, retrieval, invalidation) for one context;
+ * {@link org.bluezoo.gumdrop.servlet.session.SessionContext} and {@link
+ * org.bluezoo.gumdrop.servlet.session.ClusterContainer} are the
+ * interfaces the servlet {@code Context}/{@code Container} implement so
+ * this package needs no direct dependency on those classes. Applications
+ * interact with sessions only through the standard {@code HttpSession}
+ * interface.
  *
- * <h2>Key Components</h2>
- *
- * <h3>{@link org.bluezoo.gumdrop.servlet.session.SessionManager}</h3>
- * <p>The main entry point for session management. Each servlet context creates
- * a SessionManager to handle session lifecycle, including creation, retrieval,
- * invalidation, and optional cluster replication.</p>
- *
- * <h3>{@link org.bluezoo.gumdrop.servlet.session.SessionContext}</h3>
- * <p>Interface implemented by the servlet context to provide session configuration
- * and listener access. This allows the session package to work with contexts
- * without a direct dependency on the Context class.</p>
- *
- * <h3>{@link org.bluezoo.gumdrop.servlet.session.ClusterContainer}</h3>
- * <p>Interface implemented by the servlet container to provide cluster
- * configuration and context lookup for distributed session replication.</p>
- *
- * <h2>Cluster Session Replication</h2>
- *
- * <p>When clustering is enabled, sessions marked as distributable are
- * replicated across all nodes using UDP multicast. Features include:</p>
- * <ul>
- *   <li>Delta replication: Only changed attributes are transmitted</li>
- *   <li>Message fragmentation: Large sessions are split across packets</li>
- *   <li>Replay protection: Sequence numbers and timestamps prevent attacks</li>
- *   <li>AES-256-GCM encryption: All cluster traffic is encrypted</li>
- *   <li>Strict deserialization allowlist for Java-serialized attributes</li>
- *   <li>OpenTelemetry metrics: Counters and histograms for monitoring</li>
- * </ul>
- *
- * <p>Primitive session attributes are encoded directly in protobuf. Complex
- * objects use Java serialization with a strict class allowlist; arbitrary
- * webapp types are rejected unless named via the container property
- * {@code replication-allowed-classes}.
- *
- * <h3>{@link org.bluezoo.gumdrop.servlet.session.ClusterMetrics}</h3>
- * <p>When telemetry is configured, the cluster provides metrics for session
- * replication, message traffic, fragmentation, and security events. Metrics
- * include node counts, session replication rates, bytes transferred, and
- * error counters for decryption failures, replay attacks, and timestamp
- * drift.</p>
- *
- * <h2>Usage</h2>
- *
- * <p>The session package is used internally by the servlet container. Web
- * applications interact with sessions through the standard {@code HttpSession}
- * interface obtained via {@code HttpServletRequest.getSession()}.</p>
+ * <p>When clustering is enabled, sessions marked distributable replicate
+ * across nodes over UDP multicast: delta replication (only changed
+ * attributes are sent), fragmentation for large sessions, AES-256-GCM
+ * encryption of all cluster traffic, and replay protection via sequence
+ * numbers and timestamps. Primitive attributes are encoded directly in
+ * protobuf; complex objects use Java serialization against a strict
+ * class allowlist (the container property {@code
+ * replication-allowed-classes}) rather than accepting arbitrary webapp
+ * types. {@link org.bluezoo.gumdrop.servlet.session.ClusterMetrics}
+ * reports replication, traffic, and security-event metrics when
+ * telemetry is configured.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see javax.servlet.http.HttpSession
  * @see org.bluezoo.gumdrop.servlet.session.SessionManager
  */
 package org.bluezoo.gumdrop.servlet.session;
-
-

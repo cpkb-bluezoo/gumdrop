@@ -70,10 +70,10 @@ import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
  * HTTP/3 requests: each request opens a new bidirectional stream
  * handled by its own {@link H3ClientStream}, which owns its own
  * {@link H3Parser} and translates response frames into
- * {@link HTTPResponseHandler} callbacks directly -- unlike the previous
- * quiche-backed implementation, this class does not poll for events.
- * Public send entry points marshal onto the connection's
- * {@code SelectorLoop} so callers need not share that thread affinity.
+ * {@link HTTPResponseHandler} callbacks directly as they arrive, rather
+ * than through any polling loop. Public send entry points marshal onto
+ * the connection's {@code SelectorLoop} so callers need not share that
+ * thread affinity.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see H3ClientStream

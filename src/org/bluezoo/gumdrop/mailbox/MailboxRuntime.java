@@ -29,8 +29,9 @@ import org.bluezoo.gumdrop.mailbox.index.MailboxWatcher;
 /**
  * Shared mailbox background services for maildir/mbox stores.
  *
- * <p>Started via {@link MailboxLifecycle} when {@code gumdrop-mailbox.jar} is
- * on the classpath; {@code null} indexer/watcher when the jar is absent.
+ * <p>Started via {@link org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle}
+ * when {@code gumdrop-mailbox.jar} is on the classpath; {@code null}
+ * indexer/watcher when the jar is absent.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

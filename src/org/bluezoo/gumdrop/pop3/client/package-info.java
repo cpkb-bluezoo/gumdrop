@@ -56,48 +56,10 @@
  *   <li>Async DNS resolution via the gumdrop DNSResolver</li>
  * </ul>
  *
- * <h2>Stateful Handler Pattern</h2>
- *
- * <p>The POP3 client uses a stateful handler pattern where different interfaces
- * are provided at each stage of the protocol, ensuring that only valid commands
- * can be issued at each point. This provides compile-time safety against
- * protocol violations.
- *
- * <h2>Usage Example</h2>
- *
- * <pre>{@code
- * POP3Client client = new POP3Client(selectorLoop, "pop.example.com", 110);
- * client.setSSLContext(sslContext);
- * client.connect(new ServerGreeting() {
- *
- *     public void handleGreeting(ClientAuthorizationState auth,
- *                                String message, String apopTimestamp) {
- *         auth.capa(new ServerCapaReplyHandler() {
- *             public void handleCapabilities(ClientAuthorizationState auth,
- *                     boolean stls, List<String> saslMechanisms,
- *                     boolean top, boolean uidl, boolean user,
- *                     boolean pipelining, String implementation) {
- *                 if (stls) {
- *                     auth.stls(stlsHandler);
- *                 } else {
- *                     auth.user("alice", userHandler);
- *                 }
- *             }
- *             public void handleError(ClientAuthorizationState auth,
- *                                     String message) {
- *                 auth.user("alice", userHandler);
- *             }
- *             public void handleServiceClosing(String message) { }
- *         });
- *     }
- *
- *     public void handleServiceUnavailable(String message) { }
- *     public void onConnected(Endpoint endpoint) { }
- *     public void onSecurityEstablished(SecurityInfo info) { }
- *     public void onError(Exception cause) { cause.printStackTrace(); }
- *     public void onDisconnected() { }
- * });
- * }</pre>
+ * <p>Different state interfaces (package {@link
+ * org.bluezoo.gumdrop.pop3.client.handler}) are provided at each stage
+ * of the protocol, so only the commands valid at that point can be
+ * issued -- compile-time safety against protocol violations.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.pop3.client.POP3Client

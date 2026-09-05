@@ -37,16 +37,7 @@ import org.bluezoo.gumdrop.auth.Realm;
  *
  * <p>Supports SOCKS on port 1080 (plaintext) and port 1081 (TLS).
  * Port 1080 is the IANA-assigned port for SOCKS (RFC 1928 uses this
- * implicitly). Follows the same pattern as {@code MQTTListener} and
- * {@code FTPListener}.
- *
- * <h2>Configuration Example</h2>
- * <pre>{@code
- * <listener class="org.bluezoo.gumdrop.socks.SOCKSListener"
- *         port="1080"/>
- * <listener class="org.bluezoo.gumdrop.socks.SOCKSListener"
- *         port="1081" secure="true"/>
- * }</pre>
+ * implicitly).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SOCKSService

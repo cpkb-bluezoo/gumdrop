@@ -33,8 +33,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  * OpenTelemetry metrics for SOCKS proxy servers.
  *
  * <p>Provides standardized SOCKS server metrics for monitoring proxy
- * operations, following the same pattern as {@code MQTTServerMetrics}
- * and {@code SMTPServerMetrics}.
+ * operations.
  *
  * <p>Metrics provided:
  * <ul>

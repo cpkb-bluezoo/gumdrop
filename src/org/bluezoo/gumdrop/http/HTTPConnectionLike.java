@@ -87,10 +87,9 @@ interface HTTPConnectionLike {
      * <p>For HTTP/1.1 this registers on the TCP endpoint's write-complete
      * callback.  For HTTP/2 this is tracked per-stream; the callback fires
      * when the stream's flow-control send window opens (WINDOW_UPDATE
-     * received) or when the TCP write buffer drains.  For HTTP/3 the
-     * callback fires when the QUIC congestion/flow-control window opens
-     * after a previous {@code QUICHE_ERR_DONE} from
-     * {@code quiche_h3_send_body}.
+     * received) or when the TCP write buffer drains.  For HTTP/3 this
+     * delegates to the underlying QUIC stream's own write-readiness
+     * callback, firing once its congestion/flow-control send window opens.
      *
      * @param streamId the stream requesting write-readiness notification
      * @param callback the callback, or null to clear
@@ -108,10 +107,9 @@ interface HTTPConnectionLike {
      * will stop sending DATA on this stream, without affecting other
      * streams on the same connection.
      *
-     * <p>For HTTP/3, this stops consuming body data from the QUIC
-     * stream via {@code quiche_h3_recv_body}.  The peer's
-     * flow-control window fills naturally and it stops sending,
-     * without affecting other streams.
+     * <p>For HTTP/3, this pauses reading on the underlying QUIC stream.
+     * The peer's flow-control window fills naturally and it stops
+     * sending, without affecting other streams.
      *
      * @param streamId the stream to pause
      */
@@ -128,9 +126,9 @@ interface HTTPConnectionLike {
      * increment that was withheld while the stream was paused,
      * allowing the peer to resume sending DATA.
      *
-     * <p>For HTTP/3, this resumes draining body data from the QUIC
-     * stream.  quiche will automatically send MAX_STREAM_DATA as
-     * data is consumed, re-opening the peer's flow-control window.
+     * <p>For HTTP/3, this resumes reading on the underlying QUIC stream,
+     * which sends MAX_STREAM_DATA as data is consumed, re-opening the
+     * peer's flow-control window.
      *
      * @param streamId the stream to resume
      */

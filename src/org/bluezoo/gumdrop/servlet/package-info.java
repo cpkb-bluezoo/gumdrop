@@ -20,83 +20,27 @@
  */
 
 /**
- * Servlet 4.0 container implementation.
+ * Servlet 4.0 (JSR 369) container, deploying and running Java web
+ * applications on top of the {@link org.bluezoo.gumdrop.http} server.
  *
- * <p>This package provides a full Servlet 4.0 (JSR 369) container for
- * deploying and running Java web applications. It integrates with the
- * Gumdrop HTTP server to handle servlet requests.
- *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.servlet.Container} - The main servlet
- *       container managing multiple web applications</li>
- *   <li>{@link org.bluezoo.gumdrop.servlet.Context} - Represents a single
- *       web application (ServletContext)</li>
- *   <li>{@link org.bluezoo.gumdrop.servlet.Request} - HTTP request
- *       implementation (HttpServletRequest)</li>
- *   <li>{@link org.bluezoo.gumdrop.servlet.Response} - HTTP response
- *       implementation (HttpServletResponse)</li>
- * </ul>
- *
- * <h2>Servlet 4.0 Features</h2>
- *
- * <ul>
- *   <li>HTTP/2 server push</li>
- *   <li>Servlet mapping API</li>
- *   <li>Default methods in listener interfaces</li>
- *   <li>GenericFilter and HttpFilter</li>
- *   <li>Trailer headers for chunked responses</li>
- * </ul>
- *
- * <h2>Configuration Example</h2>
- *
- * <pre>{@code
- * <container id="mainContainer">
- *   <property name="contexts">
- *     <list>
- *       <context path="" root="web"/>
- *       <context path="/myapp" root="/var/webapps/myapp"/>
- *     </list>
- *   </property>
- * </container>
- *
- * <service class="org.bluezoo.gumdrop.servlet.ServletService">
- *   <property name="container" ref="#mainContainer"/>
- *   <listener class="org.bluezoo.gumdrop.http.HTTPListener"
- *           port="8080"/>
- * </service>
- * }</pre>
- *
- * <h2>Web Application Deployment</h2>
- *
- * <p>Web applications can be deployed as:
- * <ul>
- *   <li>Exploded directories with WEB-INF/web.xml</li>
- *   <li>WAR files (automatically extracted)</li>
- *   <li>Programmatic registration via ServletContainerInitializer</li>
- * </ul>
- *
- * <h2>Session Management</h2>
- *
- * <p>Sessions are managed by the {@link org.bluezoo.gumdrop.servlet.session}
- * subpackage, with optional clustering support for session replication
- * across multiple nodes.
- *
- * <h2>JNDI Resources</h2>
- *
- * <p>The container provides a JNDI namespace for resource injection,
- * implemented in the {@link org.bluezoo.gumdrop.servlet.jndi} subpackage.
+ * <p>{@link org.bluezoo.gumdrop.servlet.Container} manages the deployed
+ * web applications; each is a {@link org.bluezoo.gumdrop.servlet.Context}
+ * (the {@code ServletContext} implementation). {@link
+ * org.bluezoo.gumdrop.servlet.Request}/{@link
+ * org.bluezoo.gumdrop.servlet.Response} implement {@code
+ * HttpServletRequest}/{@code HttpServletResponse} over gumdrop's HTTP
+ * layer, so servlets get HTTP/2 server push and 1xx informational
+ * responses without any servlet-side awareness of protocol version.
+ * Applications deploy as exploded {@code WEB-INF} directories, WAR
+ * files, or programmatic {@code ServletContainerInitializer} registration.
  *
  * <h2>Subpackages</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.servlet.session} - Session management
- *       and clustering</li>
- *   <li>{@link org.bluezoo.gumdrop.servlet.jndi} - JNDI resource binding
- *       and injection</li>
- *   <li>{@link org.bluezoo.gumdrop.servlet.jsp} - JSP compilation support</li>
- *   <li>{@link org.bluezoo.gumdrop.servlet.manager} - Management interface</li>
+ *   <li>{@link org.bluezoo.gumdrop.servlet.session} - session management and cluster replication</li>
+ *   <li>{@link org.bluezoo.gumdrop.servlet.jndi} - JNDI resource binding and injection</li>
+ *   <li>{@link org.bluezoo.gumdrop.servlet.jsp} - JSP compilation and execution</li>
+ *   <li>{@link org.bluezoo.gumdrop.servlet.manager} - web-based deployment management</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -105,5 +49,3 @@
  * @see javax.servlet.http.HttpServlet
  */
 package org.bluezoo.gumdrop.servlet;
-
-

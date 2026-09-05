@@ -20,84 +20,48 @@
  */
 
 /**
- * HTTP/1.1 and HTTP/2 server implementation.
+ * HTTP/1.1 and HTTP/2 server implementation, with automatic protocol
+ * negotiation via ALPN on TLS connections. HTTP/3 is a first-class peer
+ * protocol implemented in the sibling {@link org.bluezoo.gumdrop.http.h3}
+ * package, running over QUIC rather than TCP; {@link
+ * org.bluezoo.gumdrop.http.HTTPResponseState} and {@link
+ * org.bluezoo.gumdrop.http.HTTPRequestHandler} are shared by all three
+ * versions, so request handlers are written once.
  *
- * <p>This package provides a full-featured HTTP server supporting both
- * HTTP/1.1 and HTTP/2 protocols, with automatic protocol negotiation
- * via ALPN (Application-Layer Protocol Negotiation) for TLS connections.
+ * <p>{@link org.bluezoo.gumdrop.http.HTTPService} is the abstract base
+ * for HTTP application services, owning listeners and the request
+ * handler factory; {@link org.bluezoo.gumdrop.http.HTTPListener} is the
+ * TCP transport listener for HTTP/1.1 and HTTP/2; {@link
+ * org.bluezoo.gumdrop.http.HTTPProtocolHandler} handles a single
+ * connection in either version; {@link org.bluezoo.gumdrop.http.Stream}
+ * represents one HTTP/2 stream or HTTP/1.1 request/response pair.
+ * HTTP/2 framing (binary framing, multiplexed streams, server push, flow
+ * control, prioritization) is parsed and written by {@link
+ * org.bluezoo.gumdrop.http.h2}, with header compression in {@link
+ * org.bluezoo.gumdrop.http.hpack} (HPACK, RFC 7541) -- HTTP/3 uses QPACK
+ * ({@link org.bluezoo.gumdrop.http.qpack}, RFC 9204) instead.
  *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.http.HTTPService} - Abstract base for
- *       HTTP application services; owns listeners and provides the
- *       handler factory and authentication provider</li>
- *   <li>{@link org.bluezoo.gumdrop.http.HTTPListener} - TCP transport
- *       listener for HTTP/1.1 and HTTP/2 connections</li>
- *   <li>{@link org.bluezoo.gumdrop.http.HTTPProtocolHandler} - Handles
- *       a single HTTP session, supporting both HTTP/1.1 and HTTP/2</li>
- *   <li>{@link org.bluezoo.gumdrop.http.Stream} - Represents an HTTP/2
- *       stream or HTTP/1.1 request/response pair</li>
- *   <li>{@link org.bluezoo.gumdrop.http.Headers} - HTTP header collection</li>
- * </ul>
- *
- * <h2>HTTP/2 Support</h2>
- *
- * <p>HTTP/2 features include:
- * <ul>
- *   <li>Binary framing with multiplexed streams</li>
- *   <li>HPACK header compression</li>
- *   <li>Server push</li>
- *   <li>Flow control per stream and connection</li>
- *   <li>Stream prioritization</li>
- * </ul>
- *
- * <p>HTTP/2 frame parsing and writing is handled by the
- * {@link org.bluezoo.gumdrop.http.h2} package, which provides a zero-allocation,
- * callback-based API for frame handling.
- *
- * <h2>Informational Responses (RFC 8297)</h2>
- *
- * <p>Handlers can send 1xx informational responses (e.g. 103 Early Hints)
- * before the final response via
- * {@link org.bluezoo.gumdrop.http.HTTPResponseState#sendInformational}.
- * This is supported for HTTP/1.1, HTTP/2, and HTTP/3 (via the h3 package).
- * HTTP/1.0 connections silently ignore informational responses.
- *
- * <h2>Configuration Example</h2>
- *
- * <pre>{@code
- * <http-server id="https" port="443">
- *   <property name="keystore-file">/etc/gumdrop/keystore.p12</property>
- *   <property name="keystore-password">secret</property>
- *   <property name="handler">
- *     <file-handler document-root="/var/www"/>
- *   </property>
- * </http-server>
- * }</pre>
+ * <p>Handlers can send 1xx informational responses (e.g. 103 Early
+ * Hints, RFC 8297) before the final response via {@link
+ * org.bluezoo.gumdrop.http.HTTPResponseState#sendInformational}, across
+ * all three HTTP versions.
  *
  * <h2>Subpackages</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.http.client} - HTTP client</li>
- *   <li>{@link org.bluezoo.gumdrop.webdav} - Static file serving and WebDAV</li>
+ *   <li>{@link org.bluezoo.gumdrop.http.h3} - HTTP/3 over QUIC</li>
  *   <li>{@link org.bluezoo.gumdrop.http.h2} - HTTP/2 frame parsing and writing</li>
- *   <li>{@link org.bluezoo.gumdrop.http.hpack} - HPACK compression</li>
- *   <li>{@link org.bluezoo.gumdrop.websocket} - WebSocket support (separate package)</li>
- * </ul>
- *
- * <h2>Telemetry</h2>
- *
- * <p>When telemetry is configured, the HTTP server provides:
- * <ul>
- *   <li>Distributed tracing with W3C Trace Context propagation</li>
- *   <li>Request/response metrics (latency, size, status codes)</li>
- *   <li>Connection and stream metrics</li>
+ *   <li>{@link org.bluezoo.gumdrop.http.hpack} - HPACK header compression</li>
+ *   <li>{@link org.bluezoo.gumdrop.http.qpack} - QPACK header compression</li>
+ *   <li>{@link org.bluezoo.gumdrop.http.client} - HTTP client (all three versions)</li>
+ *   <li>{@link org.bluezoo.gumdrop.websocket} - WebSocket, over any HTTP version</li>
+ *   <li>{@link org.bluezoo.gumdrop.webdav} - static file serving and WebDAV</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.http.HTTPListener
  * @see org.bluezoo.gumdrop.http.HTTPProtocolHandler
+ * @see org.bluezoo.gumdrop.http.h3
  * @see org.bluezoo.gumdrop.websocket
  */
 package org.bluezoo.gumdrop.http;

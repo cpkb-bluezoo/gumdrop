@@ -20,106 +20,24 @@
  */
 
 /**
- * Non-blocking SMTP client for sending outbound email.
+ * Non-blocking SMTP client (RFC 5321) for sending outbound email, with
+ * STARTTLS, SASL authentication, and transparent BDAT (CHUNKING) support.
  *
- * <p>This package provides an asynchronous, event-driven SMTP client for
- * sending email messages, with support for STARTTLS, SASL authentication,
- * and transparent BDAT (CHUNKING) support.
- *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler} -
- *       Handles SMTP protocol exchanges with automatic dot-stuffing or BDAT</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting} -
- *       Entry point callback interface for receiving the initial greeting</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState} -
- *       State interface after EHLO/HELO for envelope commands</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeState} -
- *       State interface during envelope (MAIL FROM, RCPT TO, DATA)</li>
- *   <li>{@link org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData} -
- *       Interface for streaming message content</li>
- * </ul>
- *
- * <h2>Features</h2>
- *
- * <ul>
- *   <li>Non-blocking I/O using the shared SelectorLoop</li>
- *   <li>STARTTLS support for upgrading to encrypted connections</li>
- *   <li>SASL authentication (PLAIN, LOGIN, CRAM-MD5, XOAUTH2)</li>
- *   <li>Streaming message content without memory buffering</li>
- *   <li>Automatic dot-stuffing for DATA or transparent BDAT when available</li>
- *   <li>Type-safe stateful handler pattern enforcing correct command sequences</li>
- * </ul>
- *
- * <h2>Stateful Handler Pattern</h2>
- *
- * <p>The SMTP client uses a stateful handler pattern where different interfaces
- * are provided at each stage of the protocol, ensuring that only valid commands
- * can be issued at each point. This provides compile-time safety against
- * protocol violations.
- *
- * <h2>Usage Example</h2>
- *
- * <pre>{@code
- * // Create transport and connect
- * TCPTransportFactory factory = new TCPTransportFactory();
- * factory.start();
- * ServerGreeting handler = new ServerGreeting() {
- *
- *     public void onConnected(Endpoint endpoint) {
- *         // TCP connected, waiting for greeting
- *     }
- *
- *     public void handleGreeting(ServerGreeting greeting) {
- *         // Server greeting received, send EHLO
- *         greeting.ehlo("myhost.example.org", new ServerHelloReplyHandler() {
- *             public void handleEhloOk(EHLOCapabilities caps, ClientEnvelopeReady envelope) {
- *                 // EHLO succeeded, start transaction
- *                 envelope.mailFrom(sender, new ServerMailReplyHandler() {
- *                     public void handleMailOk(ClientEnvelopeState state) {
- *                         state.rcptTo(recipient, rcptHandler);
- *                     }
- *                     // ... error handlers
- *                 });
- *             }
- *             // ... error handlers
- *         });
- *     }
- *
- *     public void handleServiceNotAvailable() {
- *         // Server not accepting connections
- *     }
- *
- *     public void onDisconnected() {
- *         // Connection closed
- *     }
- *
- *     public void onError(Exception e) {
- *         // Handle error
- *     }
- *
- *     public void onSecurityEstablished(SecurityInfo info) {
- *         // TLS handshake complete
- *     }
- * };
- * SMTPClientProtocolHandler endpointHandler = new SMTPClientProtocolHandler(handler);
- * ClientEndpoint endpoint = new ClientEndpoint(factory, selectorLoop, "mail.example.com", 25);
- * endpoint.connect(endpointHandler);
- * }</pre>
- *
- * <h2>STARTTLS</h2>
- *
- * <p>To upgrade to TLS, use the {@code starttls()} method on {@code ClientHelloState}
- * after receiving EHLO capabilities. When the server accepts and TLS handshake
- * completes, the handler receives a new {@code ClientHelloState} and must
- * re-issue EHLO per RFC requirements.
- *
- * <h2>BDAT (CHUNKING)</h2>
- *
- * <p>If the server advertises CHUNKING support in EHLO, the client automatically
- * uses BDAT for message transmission instead of DATA. This is transparent to the
- * handler - the same {@code ClientMessageData} interface is used in both cases.
+ * <p>{@link org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler}
+ * drives the protocol exchange, using BDAT instead of dot-stuffed DATA
+ * transparently whenever the server advertises CHUNKING support. The
+ * protocol flow is modeled as a sequence of state interfaces (package
+ * {@link org.bluezoo.gumdrop.smtp.client.handler}) so only the commands
+ * legal at each point can be issued: {@link
+ * org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting} is the entry
+ * point, through {@link
+ * org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState} (post
+ * EHLO/HELO), {@link
+ * org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeState} (MAIL
+ * FROM/RCPT TO/DATA), to {@link
+ * org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData} for
+ * streaming the message body. After STARTTLS succeeds, the handler must
+ * re-issue EHLO per RFC 5321 section 4.1.1.1, receiving a fresh state.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler

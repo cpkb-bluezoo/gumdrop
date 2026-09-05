@@ -33,16 +33,15 @@ import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
 
 /**
- * {@link SecurityInfo} backed by Agent15's negotiated TLS 1.3 state
- * instead of native quiche/BoringSSL calls. QUIC always uses TLS 1.3, so
- * the protocol is always "QUICv1".
+ * {@link SecurityInfo} backed by the QUIC connection's negotiated TLS 1.3
+ * state. QUIC always uses TLS 1.3, so the protocol is always "QUICv1".
  *
- * <p>Not yet available: ALPN was never added to the handshake (a gap
- * already noted in earlier stages of this migration, not something this
- * stage adds), so {@link #getApplicationProtocol} always returns
- * {@code null}; the server side has no client certificate chain
- * accessor (mutual TLS is not exercised), so {@link #getPeerCertificates}
- * is only ever populated on the client side.
+ * <p>Not yet available: although ALPN itself is negotiated (it selects
+ * "h3" for HTTP/3), the negotiated value isn't surfaced here, so {@link
+ * #getApplicationProtocol} always returns {@code null}; the server side
+ * has no client certificate chain accessor (mutual TLS is not
+ * exercised), so {@link #getPeerCertificates} is only ever populated on
+ * the client side.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SecurityInfo

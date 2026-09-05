@@ -20,56 +20,21 @@
  */
 
 /**
- * SMTP server handler interfaces.
+ * Staged handler and state interfaces for the SMTP server (RFC 5321).
  *
- * <p>This package contains the staged handler interfaces used to process
- * SMTP sessions. The handler pattern provides type-safe protocol flow where
- * each interface represents a stage in the SMTP transaction.
+ * <p>Handler interfaces are what an application implements: {@link
+ * ClientConnected} (new connection), {@link HelloHandler} (HELO/EHLO,
+ * STARTTLS, AUTH), {@link MailFromHandler} (MAIL FROM), {@link
+ * RecipientHandler} (RCPT TO, DATA/BDAT), {@link MessageDataHandler}
+ * (message completion). State interfaces are handed to those callbacks
+ * by {@link org.bluezoo.gumdrop.smtp.SMTPProtocolHandler} to accept or
+ * reject each step: {@link ConnectedState}, {@link HelloState}, {@link
+ * AuthenticateState}, {@link MailFromState}, {@link RecipientState},
+ * {@link MessageStartState}, {@link MessageEndState}, {@link ResetState}.
  *
- * <h2>Handler Interfaces (what you implement)</h2>
- * <p>These interfaces define callbacks your handler receives at each protocol stage:
- * <ul>
- *   <li>{@link ClientConnected} - Entry point for new connections</li>
- *   <li>{@link HelloHandler} - Receives HELO/EHLO, TLS notifications, authenticated Principal</li>
- *   <li>{@link MailFromHandler} - Receives MAIL FROM commands</li>
- *   <li>{@link RecipientHandler} - Receives RCPT TO, DATA/BDAT</li>
- *   <li>{@link MessageDataHandler} - Receives message content and completion</li>
- * </ul>
- *
- * <h2>State Interfaces (provided by SMTPProtocolHandler)</h2>
- * <p>These interfaces are passed to your handler callbacks, allowing you to
- * accept or reject each protocol element:
- * <ul>
- *   <li>{@link ConnectedState} - Accept/reject initial connection</li>
- *   <li>{@link HelloState} - Accept/reject HELO/EHLO greeting</li>
- *   <li>{@link AuthenticateState} - Accept/reject authenticated Principal</li>
- *   <li>{@link MailFromState} - Accept/reject message sender</li>
- *   <li>{@link RecipientState} - Accept/reject recipients</li>
- *   <li>{@link MessageStartState} - Accept/reject message data phase</li>
- *   <li>{@link MessageEndState} - Accept/reject completed message</li>
- *   <li>{@link ResetState} - Handle RSET command</li>
- * </ul>
- *
- * <h2>Protocol Mechanics Handled by Endpoint Handler</h2>
- * <p>The following are handled automatically by SMTPProtocolHandler,
- * with the handler receiving only policy-relevant notifications:
- * <ul>
- *   <li><b>STARTTLS</b> - Accepted automatically if TLS is configured.
- *       Handler receives {@link HelloHandler#tlsEstablished} notification.</li>
- *   <li><b>SASL Authentication</b> - Challenge/response exchange handled
- *       by endpoint handler. Handler receives {@link HelloHandler#authenticated}
- *       with the authenticated Principal.</li>
- * </ul>
- *
- * <h2>Service Integration</h2>
- * <p>Handler instances are created by {@link org.bluezoo.gumdrop.smtp.SMTPService}
- * subclasses via their {@code createHandler(TCPListener)} method:
- *
- * <pre>{@code
- * <service class="com.example.MySmtpService">
- *   <listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/>
- * </service>
- * }</pre>
+ * <p>STARTTLS and SASL authentication mechanics are handled entirely by
+ * the protocol handler; the application only sees the outcome, via
+ * {@link HelloHandler#tlsEstablished} and {@link HelloHandler#authenticated}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.smtp
@@ -80,5 +45,3 @@
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3030">RFC 3030</a> (BDAT)
  */
 package org.bluezoo.gumdrop.smtp.handler;
-
-

@@ -472,7 +472,7 @@ public class TCPTransportFactory extends TransportFactory {
      * socket, mirroring {@link TCPListener#setPath} on the server side:
      * {@link StandardProtocolFamily#UNIX} instead of a TCP port.
      *
-     * <p>The connection is initiated asynchronously, following the same
+     * <p>The connection is initiated asynchronously, with the same
      * endpoint setup/registration as {@link #connect(InetAddress, int,
      * ProtocolHandler, SelectorLoop)}. TLS remains orthogonal to the
      * addressing mode -- if this factory is secure, the TLS handshake

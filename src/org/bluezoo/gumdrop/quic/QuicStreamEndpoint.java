@@ -45,10 +45,9 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * {@link #onWriteReady} as an advisory pacing signal rather than a hard
  * backpressure block) and drains as much as the current flow-control
  * window and congestion window allow on each
- * {@link QuicConnection#flush()}. This is also where the flow-control
- * buffering HTTP/3's old quiche-backed implementation used to duplicate
- * per-protocol now lives instead, shared by every protocol running over
- * QUIC.
+ * {@link QuicConnection#flush()}. This flow-control buffering is shared
+ * by every protocol running over QUIC, rather than duplicated per
+ * protocol.
  *
  * <p>Received STREAM data is reassembled into stream order before
  * delivery to the handler -- out-of-order or overlapping frames are

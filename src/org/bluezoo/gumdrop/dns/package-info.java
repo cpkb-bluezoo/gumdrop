@@ -20,88 +20,25 @@
  */
 
 /**
- * DNS service implementation for Gumdrop.
+ * DNS service: resolve locally, proxy to upstream servers, and cache
+ * responses respecting TTL. {@link org.bluezoo.gumdrop.dns.DNSService}
+ * owns configuration, caching, and resolution logic, overridable for
+ * custom name resolution. Three transport listeners share it: {@link
+ * org.bluezoo.gumdrop.dns.DNSListener} for plain UDP queries, {@link
+ * org.bluezoo.gumdrop.dns.DoTListener} for DNS-over-TLS (RFC 7858), and
+ * {@link org.bluezoo.gumdrop.dns.DoQListener} for DNS-over-QUIC (RFC
+ * 9250, over {@link org.bluezoo.gumdrop.quic}).
  *
- * <p>This package provides a DNS service that can:
- * <ul>
- * <li>Resolve queries locally via custom implementation</li>
- * <li>Proxy queries to upstream DNS servers</li>
- * <li>Cache responses respecting TTL</li>
- * </ul>
- *
- * <h2>Architecture</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.dns.DNSService} - Application service
- *       owning configuration, caching, and query resolution logic</li>
- *   <li>{@link org.bluezoo.gumdrop.dns.DNSListener} - UDP transport
- *       listener for standard DNS queries</li>
- *   <li>{@link org.bluezoo.gumdrop.dns.DoTListener} - TCP/TLS
- *       transport listener for DNS-over-TLS (RFC 7858)</li>
- *   <li>{@link org.bluezoo.gumdrop.dns.DoQListener} - QUIC
- *       transport listener for DNS-over-QUIC (RFC 9250)</li>
- * </ul>
- *
- * <h2>Usage</h2>
- *
- * <p>The simplest way to run a DNS proxy service:
- * <pre>{@code
- * <service class="org.bluezoo.gumdrop.dns.DNSService">
- *   <property name="upstream-servers">8.8.8.8 1.1.1.1</property>
- *   <listener class="org.bluezoo.gumdrop.dns.DNSListener"
- *           port="5353"/>
- * </service>
- * }</pre>
- *
- * <h2>Custom Resolution</h2>
- *
- * <p>To implement custom name resolution, subclass
- * {@link org.bluezoo.gumdrop.dns.DNSService} and override the
- * {@code resolve()} method:
- *
- * <pre>{@code
- * public class InternalDNSService extends DNSService {
- *     @Override
- *     protected DNSMessage resolve(DNSMessage query) {
- *         DNSQuestion q = query.getQuestions().get(0);
- *
- *         // Handle internal domains
- *         if (q.getName().endsWith(".internal")) {
- *             InetAddress addr = lookupInternal(q.getName());
- *             if (addr != null) {
- *                 List answers = new ArrayList();
- *                 answers.add(DNSResourceRecord.a(q.getName(), 3600, addr));
- *                 return query.createResponse(answers);
- *             }
- *             return query.createErrorResponse(DNSMessage.RCODE_NXDOMAIN);
- *         }
- *
- *         // Let everything else go to upstream
- *         return null;
- *     }
- * }
- * }</pre>
- *
- * <h2>Record Types</h2>
- *
- * <p>The following record types are supported:
- * <ul>
- * <li>A - IPv4 address</li>
- * <li>AAAA - IPv6 address</li>
- * <li>CNAME - Canonical name (alias)</li>
- * <li>MX - Mail exchange</li>
- * <li>NS - Name server</li>
- * <li>PTR - Pointer (reverse DNS)</li>
- * <li>SOA - Start of authority</li>
- * <li>TXT - Text record</li>
- * </ul>
- *
- * <p>See {@link org.bluezoo.gumdrop.dns.DNSResourceRecord} for convenience
- * factory methods to create these record types.
+ * <p>{@link org.bluezoo.gumdrop.dns.DNSResourceRecord} provides factory
+ * methods for the common record types (A, AAAA, CNAME, MX, NS, PTR, SOA,
+ * TXT). {@link org.bluezoo.gumdrop.mdns} builds on this package's
+ * message format for multicast DNS and DNS-SD.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.dns.DNSService
  * @see org.bluezoo.gumdrop.dns.DNSMessage
  * @see org.bluezoo.gumdrop.dns.DNSResourceRecord
+ * @see org.bluezoo.gumdrop.dns.client
+ * @see org.bluezoo.gumdrop.mdns
  */
 package org.bluezoo.gumdrop.dns;

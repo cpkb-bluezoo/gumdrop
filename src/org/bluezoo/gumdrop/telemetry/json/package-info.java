@@ -20,30 +20,20 @@
  */
 
 /**
- * OTLP JSON serialization and file export for OpenTelemetry data.
+ * OTLP JSON Lines ({@code .jsonl}) export to a file or stdout,
+ * implementing the OpenTelemetry Protocol
+ * <a href="https://opentelemetry.io/docs/specs/otel/protocol/file-exporter/">File Exporter</a>
+ * specification.
  *
- * <p>This package implements the
- * <a href="https://opentelemetry.io/docs/specs/otel/protocol/file-exporter/">
- * OpenTelemetry Protocol File Exporter</a> specification. It provides JSON
- * serializers for traces, logs, and metrics using the OTLP JSON Protobuf
- * encoding, and a file exporter that writes OTLP JSON Lines ({@code .jsonl})
- * output to files or stdout.
- *
- * <p>The serializers use the
+ * <p>{@link org.bluezoo.gumdrop.telemetry.json.OTLPFileExporter}
+ * implements {@link org.bluezoo.gumdrop.telemetry.TelemetryExporter};
+ * {@link org.bluezoo.gumdrop.telemetry.json.TraceJsonSerializer}, {@link
+ * org.bluezoo.gumdrop.telemetry.json.LogJsonSerializer}, and {@link
+ * org.bluezoo.gumdrop.telemetry.json.MetricJsonSerializer} render
+ * traces, logs, and metrics respectively into OTLP's JSON-Protobuf
+ * encoding, streamed via the
  * <a href="https://github.com/cpkb-bluezoo/jsonparser">jsonparser</a>
- * library's streaming {@code JSONWriter} for efficient, buffered output.
- *
- * <h2>Key Classes</h2>
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.json.OTLPFileExporter} -
- *       File/stdout exporter implementing {@code TelemetryExporter}</li>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.json.TraceJsonSerializer} -
- *       Serializes traces to OTLP JSON</li>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.json.LogJsonSerializer} -
- *       Serializes logs to OTLP JSON</li>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.json.MetricJsonSerializer} -
- *       Serializes metrics to OTLP JSON</li>
- * </ul>
+ * library's {@code JSONWriter}.
  *
  * @see org.bluezoo.gumdrop.telemetry.TelemetryExporter
  * @see org.bluezoo.gumdrop.telemetry.TelemetryConfig

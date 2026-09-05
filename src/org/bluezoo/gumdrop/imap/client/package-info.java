@@ -69,48 +69,10 @@
  *   <li>Async DNS resolution via the gumdrop DNSResolver</li>
  * </ul>
  *
- * <h2>Stateful Handler Pattern</h2>
- *
- * <p>The IMAP client uses a stateful handler pattern where different interfaces
- * are provided at each stage of the protocol, ensuring that only valid commands
- * can be issued at each point. This provides compile-time safety against
- * protocol violations.
- *
- * <h2>Usage Example</h2>
- *
- * <pre>{@code
- * IMAPClient client = new IMAPClient(selectorLoop, "imap.example.com", 143);
- * client.setSSLContext(sslContext);
- * client.connect(new ServerGreeting() {
- *
- *     public void handleGreeting(ClientNotAuthenticatedState auth,
- *                                String greeting,
- *                                List<String> preAuthCapabilities) {
- *         auth.login("alice", "secret", new ServerLoginReplyHandler() {
- *             public void handleAuthenticated(ClientAuthenticatedState session,
- *                                             List<String> capabilities) {
- *                 session.select("INBOX", selectHandler);
- *             }
- *             public void handleAuthFailed(ClientNotAuthenticatedState auth,
- *                                          String message) {
- *                 auth.logout();
- *             }
- *             public void handleServiceClosing(String message) { }
- *         });
- *     }
- *
- *     public void handlePreAuthenticated(ClientAuthenticatedState auth,
- *                                        String greeting) {
- *         auth.select("INBOX", selectHandler);
- *     }
- *
- *     public void handleServiceUnavailable(String message) { }
- *     public void onConnected(Endpoint endpoint) { }
- *     public void onSecurityEstablished(SecurityInfo info) { }
- *     public void onError(Exception cause) { cause.printStackTrace(); }
- *     public void onDisconnected() { }
- * });
- * }</pre>
+ * <p>Different state interfaces (package {@link
+ * org.bluezoo.gumdrop.imap.client.handler}) are provided at each stage
+ * of the protocol, so only the commands valid at that point can be
+ * issued -- compile-time safety against protocol violations.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.imap.client.IMAPClient

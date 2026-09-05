@@ -20,51 +20,20 @@
  */
 
 /**
- * RFC 5322 Internet Message Format parsing and generation.
+ * RFC 5322 Internet Message Format parsing and generation, used by the
+ * mail server packages to parse and produce message headers.
  *
- * <p>This package implements RFC 5322 (Internet Message Format), providing
- * parsing and generation of email message headers and structure.
- *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mime.rfc5322.EmailAddressParser} -
- *       Parses email address lists (From, To, Cc, Bcc, etc.)</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.rfc5322.MessageDateTimeFormatter} -
- *       Formats and parses RFC 5322 date-time values</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.rfc5322.MessageParser} - Parses
- *       complete email messages</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.rfc5322.MessageHandler} - Callback
- *       interface for parsed message parts</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.rfc5322.EmailAddress} - Represents
- *       an email address</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.rfc5322.GroupEmailAddress} -
- *       Represents an email group address</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.rfc5322.MessageIDParser} - Parses
- *       Message-ID and References headers</li>
- * </ul>
- *
- * <h2>Address Format</h2>
- *
- * <p>Supported address formats include:
- * <ul>
- *   <li>Simple addresses: user@example.com</li>
- *   <li>Named addresses: "Display Name" &lt;user@example.com&gt;</li>
- *   <li>Groups: Group Name: addr1@ex.com, addr2@ex.com;</li>
- * </ul>
- *
- * <h2>Date Format</h2>
- *
- * <p>RFC 5322 date-time format:
- * <pre>Thu, 13 Feb 2020 14:30:00 +0000</pre>
- *
- * <p>The parser is lenient and handles common variations found in
- * real-world email messages.
- *
- * <h2>Usage</h2>
- *
- * <p>This package is used internally by the mail server packages for
- * parsing and generating email message headers.
+ * <p>{@link org.bluezoo.gumdrop.mime.rfc5322.MessageParser} parses a
+ * complete message, delivering parsed parts to a {@link
+ * org.bluezoo.gumdrop.mime.rfc5322.MessageHandler}; {@link
+ * org.bluezoo.gumdrop.mime.rfc5322.EmailAddressParser} parses address
+ * lists (From, To, Cc, Bcc), including groups, into {@link
+ * org.bluezoo.gumdrop.mime.rfc5322.EmailAddress}/{@link
+ * org.bluezoo.gumdrop.mime.rfc5322.GroupEmailAddress}; {@link
+ * org.bluezoo.gumdrop.mime.rfc5322.MessageDateTimeFormatter} handles the
+ * RFC 5322 date-time format leniently enough for real-world messages;
+ * {@link org.bluezoo.gumdrop.mime.rfc5322.MessageIDParser} parses
+ * Message-ID and References headers.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc5322">RFC 5322</a>

@@ -20,52 +20,23 @@
  */
 
 /**
- * HPACK header compression for HTTP/2.
+ * HPACK header compression for HTTP/2 (RFC 7541).
  *
- * <p>This package implements RFC 7541 (HPACK: Header Compression for HTTP/2),
- * providing efficient encoding and decoding of HTTP headers for HTTP/2
- * connections.
- *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.http.hpack.Encoder} - Compresses HTTP
- *       headers into HPACK format</li>
- *   <li>{@link org.bluezoo.gumdrop.http.hpack.Decoder} - Decompresses HPACK
- *       encoded headers back to key-value pairs</li>
- *   <li>{@link org.bluezoo.gumdrop.http.hpack.HeaderHandler} - Callback
- *       interface for decoded headers</li>
- *   <li>{@link org.bluezoo.gumdrop.http.hpack.Huffman} - Huffman coding
- *       implementation for string literals</li>
- *   <li>{@link org.bluezoo.gumdrop.http.hpack.HPACKConstants} - Static
- *       table and protocol constants</li>
- * </ul>
- *
- * <h2>HPACK Features</h2>
- *
- * <ul>
- *   <li>Static table with 61 predefined header fields</li>
- *   <li>Dynamic table with configurable size limit</li>
- *   <li>Huffman encoding for string literals</li>
- *   <li>Indexed header field representation</li>
- *   <li>Literal header field with/without indexing</li>
- *   <li>Never-indexed sensitive headers</li>
- * </ul>
- *
- * <h2>Security Considerations</h2>
- *
- * <p>The implementation includes protections against compression-based
- * attacks (CRIME/BREACH) by supporting never-indexed headers for
- * sensitive values like cookies and authorization tokens.
- *
- * <h2>Usage</h2>
- *
- * <p>This package is used internally by the HTTP/2 implementation and
- * is not typically used directly by application code.
+ * <p>{@link org.bluezoo.gumdrop.http.hpack.Encoder}/{@link
+ * org.bluezoo.gumdrop.http.hpack.Decoder} implement the full codec: the
+ * static table (61 predefined fields), a configurable-size dynamic
+ * table, Huffman coding for string literals ({@link
+ * org.bluezoo.gumdrop.http.hpack.Huffman}), and both indexed and literal
+ * header field representations, including never-indexed fields for
+ * sensitive values (cookies, authorization tokens) as a mitigation
+ * against compression-oracle attacks (CRIME/BREACH). {@link
+ * org.bluezoo.gumdrop.http.hpack.HeaderHandler} is the callback
+ * interface the decoder delivers headers through; {@link
+ * org.bluezoo.gumdrop.http.hpack.HPACKConstants} holds the static table
+ * and other protocol constants.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see <a href="https://tools.ietf.org/html/rfc7541">RFC 7541 - HPACK</a>
- * @see org.bluezoo.gumdrop.http.hpack.Encoder
- * @see org.bluezoo.gumdrop.http.hpack.Decoder
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7541">RFC 7541</a>
+ * @see org.bluezoo.gumdrop.http.qpack
  */
 package org.bluezoo.gumdrop.http.hpack;

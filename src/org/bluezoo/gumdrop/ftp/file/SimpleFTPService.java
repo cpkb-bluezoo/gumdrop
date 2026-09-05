@@ -35,8 +35,9 @@ import org.bluezoo.gumdrop.ftp.FTPService;
  * authentication.
  *
  * <p>This service provides a simple FTP server that serves files from a
- * configured root directory. When a {@link Realm} is set, users are
- * authenticated against it; otherwise any non-empty password is accepted.
+ * configured root directory. When a {@link org.bluezoo.gumdrop.auth.Realm}
+ * is set, users are authenticated against it; otherwise any non-empty
+ * password is accepted.
  *
  * <h2>Configuration Example</h2>
  * <pre>{@code

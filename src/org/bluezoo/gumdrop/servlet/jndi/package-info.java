@@ -20,35 +20,19 @@
  */
 
 /**
- * JNDI resource management for the Gumdrop servlet container.
+ * JNDI resource management for the servlet container's {@code
+ * java:comp/env} namespace.
  *
- * <p>This package provides the JNDI (Java Naming and Directory Interface)
- * implementation for web applications, including:
- *
- * <ul>
- * <li><strong>Resource definitions</strong> - DataSource, MailSession, JMS,
- *     JCA connection factories and administered objects</li>
- * <li><strong>Resource references</strong> - Injectable references to
- *     environment entries, EJBs, persistence units, and web services</li>
- * <li><strong>JNDI context</strong> - Implementation of javax.naming.Context
- *     for the java:comp/env namespace</li>
- * <li><strong>Resource injection</strong> - Support for @Resource annotation
- *     on servlet fields and methods</li>
- * </ul>
- *
- * <h2>Key Classes</h2>
- * <ul>
- * <li>{@link org.bluezoo.gumdrop.servlet.jndi.Resource} - Base class for
- *     JNDI-bound resource definitions</li>
- * <li>{@link org.bluezoo.gumdrop.servlet.jndi.Injectable} - Interface for
- *     resources that can be injected into servlets</li>
- * <li>{@link org.bluezoo.gumdrop.servlet.jndi.ServletInitialContext} -
- *     JNDI context implementation for web applications</li>
- * <li>{@link org.bluezoo.gumdrop.servlet.jndi.ResourceInjector} -
- *     Processes @Resource annotations for dependency injection</li>
- * </ul>
+ * <p>{@link org.bluezoo.gumdrop.servlet.jndi.ServletInitialContext}
+ * implements {@code javax.naming.Context} for a web application's
+ * environment; {@link org.bluezoo.gumdrop.servlet.jndi.Resource} is the
+ * base class for resource definitions (DataSource, MailSession, JMS and
+ * JCA connection factories); {@link
+ * org.bluezoo.gumdrop.servlet.jndi.Injectable} marks resources that can
+ * be looked up this way; {@link
+ * org.bluezoo.gumdrop.servlet.jndi.ResourceInjector} processes
+ * {@code @Resource} annotations on servlet fields and methods.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 package org.bluezoo.gumdrop.servlet.jndi;
-

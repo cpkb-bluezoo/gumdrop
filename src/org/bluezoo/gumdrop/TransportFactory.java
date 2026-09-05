@@ -43,7 +43,8 @@ import java.util.logging.Logger;
  * <ul>
  * <li>TCPTransportFactory -- JSSE SSLContext / SSLEngine</li>
  * <li>UDPTransportFactory -- JSSE SSLContext / SSLEngine for DTLS</li>
- * <li>QuicTransportFactory -- quiche config / BoringSSL SSL_CTX via JNI</li>
+ * <li>{@link org.bluezoo.gumdrop.quic.QuicTransportFactory} -- the
+ *     pure-Java {@link org.bluezoo.gumdrop.quic} engine (always TLS 1.3)</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

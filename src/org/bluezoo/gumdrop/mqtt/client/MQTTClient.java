@@ -44,8 +44,7 @@ import org.bluezoo.gumdrop.mqtt.store.MQTTMessageStore;
  *
  * <p>Provides a simple API for connecting to MQTT brokers. Internally
  * creates a {@link TCPTransportFactory}, {@link ClientEndpoint}, and
- * {@link MQTTClientProtocolHandler}, following the same pattern as
- * {@code SMTPClient}.
+ * {@link MQTTClientProtocolHandler}.
  *
  * <h4>Usage</h4>
  * <pre>{@code

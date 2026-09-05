@@ -20,44 +20,17 @@
  */
 
 /**
- * Utility classes for the Gumdrop server.
+ * General-purpose utilities used throughout gumdrop: I/O and SSL/TLS
+ * helpers, and small standalone algorithms.
  *
- * <p>This package provides common utility classes used throughout the
- * Gumdrop codebase, including I/O helpers, SSL utilities, and
- * general-purpose algorithms.
- *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.util.CIDRNetwork} - Represents a CIDR
- *       network block for IP address matching</li>
- *   <li>{@link org.bluezoo.gumdrop.util.SNIKeyManager} - SSL KeyManager
- *       with Server Name Indication (SNI) support</li>
- *   <li>{@link org.bluezoo.gumdrop.util.EmptyX509TrustManager} - Trust
- *       manager that accepts all certificates (for testing)</li>
- *   <li>{@link org.bluezoo.gumdrop.util.JarInputStream} - Extended JAR
- *       input stream with additional utilities</li>
- *   <li>{@link org.bluezoo.gumdrop.util.IteratorEnumeration} - Adapter
- *       from Iterator to Enumeration</li>
- *   <li>{@link org.bluezoo.gumdrop.util.LaconicFormatter} - Compact log
- *       formatter for java.util.logging</li>
- *   <li>{@link org.bluezoo.gumdrop.util.MessageFormatter} - Message
- *       formatting utilities</li>
- * </ul>
- *
- * <h2>Design Principles</h2>
- *
- * <ul>
- *   <li>No external dependencies</li>
- *   <li>Thread-safe where applicable</li>
- *   <li>Memory efficient</li>
- *   <li>Java 17 compatible</li>
- * </ul>
- *
- * <h2>Internal Use</h2>
- *
- * <p>While these utilities are used internally by Gumdrop, they may also
- * be useful for applications built on top of the framework.
+ * <p>{@link org.bluezoo.gumdrop.util.CIDRNetwork} matches an address
+ * against a CIDR block; {@link org.bluezoo.gumdrop.util.SNIKeyManager}
+ * is an SSL {@code KeyManager} that selects a certificate by SNI
+ * hostname, for virtual hosting; {@link
+ * org.bluezoo.gumdrop.util.EmptyX509TrustManager} accepts any
+ * certificate (test/dev use only); {@link
+ * org.bluezoo.gumdrop.util.LaconicFormatter} is a compact {@code
+ * java.util.logging} formatter.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

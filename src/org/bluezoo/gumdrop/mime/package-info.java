@@ -20,56 +20,29 @@
  */
 
 /**
- * MIME (Multipurpose Internet Mail Extensions) parsing utilities.
+ * MIME parsing: multipart content, content-type/content-disposition
+ * headers, and the Base64/quoted-printable transfer encodings, used by
+ * the mail servers (SMTP, POP3, IMAP), {@link
+ * org.bluezoo.gumdrop.mailbox} indexing, and the servlet container's
+ * {@code multipart/form-data} {@code Part} implementation.
  *
- * <p>This package provides low-level parsers for MIME message formats,
- * including RFC 822/5322 headers, RFC 2047 encoded words, and MIME
- * multipart content.
- *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mime.MIMEParser} - Main parser for
- *       MIME messages and multipart content</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.MIMEHandler} - Callback interface
- *       for parsed MIME parts</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.ContentType} - Represents and
- *       parses MIME content-type headers</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.ContentDisposition} - Represents
- *       content-disposition headers</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.Base64Decoder} - Base64 decoding</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.QuotedPrintableDecoder} -
- *       Quoted-printable decoding</li>
- * </ul>
+ * <p>{@link org.bluezoo.gumdrop.mime.MIMEParser} is a streaming parser
+ * delivering parsed parts to a {@link org.bluezoo.gumdrop.mime.MIMEHandler};
+ * {@link org.bluezoo.gumdrop.mime.ContentType} and {@link
+ * org.bluezoo.gumdrop.mime.ContentDisposition} parse and represent those
+ * headers; {@link org.bluezoo.gumdrop.mime.Base64Decoder} and {@link
+ * org.bluezoo.gumdrop.mime.QuotedPrintableDecoder} handle the two
+ * standard transfer encodings.
  *
  * <h2>Subpackages</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mime.rfc2047} - Encoded word handling
- *       for non-ASCII text in headers</li>
- *   <li>{@link org.bluezoo.gumdrop.mime.rfc5322} - Internet message format
- *       parsing and generation</li>
+ *   <li>{@link org.bluezoo.gumdrop.mime.rfc2047} - encoded words for non-ASCII header text</li>
+ *   <li>{@link org.bluezoo.gumdrop.mime.rfc2231} - extended parameter encoding</li>
+ *   <li>{@link org.bluezoo.gumdrop.mime.rfc5322} - Internet Message Format parsing/generation</li>
  * </ul>
- *
- * <h2>Features</h2>
- *
- * <ul>
- *   <li>Streaming parser for memory efficiency</li>
- *   <li>Charset conversion with fallback handling</li>
- *   <li>Quoted-printable and Base64 decoding</li>
- *   <li>Multipart boundary detection</li>
- *   <li>Content-type parameter parsing</li>
- * </ul>
- *
- * <h2>Internal Use</h2>
- *
- * <p>These utilities are used internally by HttpServletRequest Part
- * implementation for handling HTTP multipart/form-data requests, the mail
- * server packages (SMTP, POP3, IMAP) and the mailbox package for
- * message parsing and indexing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.mime.rfc2047
  * @see org.bluezoo.gumdrop.mime.rfc5322
  */
 package org.bluezoo.gumdrop.mime;

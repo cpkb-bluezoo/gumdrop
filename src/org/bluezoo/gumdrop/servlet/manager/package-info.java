@@ -20,89 +20,20 @@
  */
 
 /**
- * Web application management interface.
+ * Web-based management interface for the servlet container: list,
+ * deploy, undeploy, start, stop, and reload web applications, and view
+ * active session information.
  *
- * <p>This package provides a web-based management interface for the servlet
- * container, allowing administrators to deploy, undeploy, start, stop, and
- * monitor web applications.
- *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.servlet.manager.ManagerServlet} - The
- *       main management servlet handling admin requests</li>
- *   <li>{@link org.bluezoo.gumdrop.servlet.manager.ManagerContextService} -
- *       Interface for context management operations</li>
- *   <li>{@link org.bluezoo.gumdrop.servlet.manager.ManagerContainerService} -
- *       Interface for container management operations</li>
- * </ul>
- *
- * <h2>Management Operations</h2>
- *
- * <ul>
- *   <li><b>list</b> - List all deployed web applications</li>
- *   <li><b>deploy</b> - Deploy a new web application</li>
- *   <li><b>undeploy</b> - Remove a deployed application</li>
- *   <li><b>start</b> - Start a stopped application</li>
- *   <li><b>stop</b> - Stop a running application</li>
- *   <li><b>reload</b> - Reload an application (hot deployment)</li>
- *   <li><b>sessions</b> - View active session information</li>
- * </ul>
- *
- * <h2>Deployment</h2>
- *
- * <p>The manager application is deployed as a standard WAR file within
- * the container's context list:
- *
- * <pre>{@code
- * <container id="mainContainer">
- *   <property name="contexts">
- *     <list>
- *       <context path="/manager" root="dist/manager.war"/>
- *     </list>
- *   </property>
- * </container>
- * }</pre>
- *
- * <h2>Security</h2>
- *
- * <p>The manager webapp is protected by standard servlet security constraints.
- * Access requires authentication and membership in the {@code manager} role.
- * The webapp's web.xml configures HTTP Basic authentication by default.
- *
- * <p>To grant access, configure a realm with users in the {@code manager}
- * role and associate it with the container:
- *
- * <pre>{@code
- * <realm id="mainRealm" class="org.bluezoo.gumdrop.BasicRealm">
- *   <property name="href">realm.xml</property>
- * </realm>
- *
- * <container id="mainContainer">
- *   <property name="realms">
- *     <map>
- *       <entry key="Gumdrop Manager" ref="#mainRealm"/>
- *     </map>
- *   </property>
- *   ...
- * </container>
- * }</pre>
- *
- * <p>The realm XML file defines groups (with id for linking and name for
- * the role) and users (referencing groups by id via IDREFS):
- *
- * <pre>{@code
- * <realm>
- *   <!-- id is for IDREFS linking, name is the role for authorization -->
- *   <group id="managerGroup" name="manager"/>
- *   
- *   <!-- users reference groups by id (space-separated for multiple) -->
- *   <user name="admin" password="secret" groups="managerGroup"/>
- * </realm>
- * }</pre>
- *
- * <p><b>Important:</b> In production, the manager should only be accessible
- * over HTTPS to protect credentials in transit.
+ * <p>{@link org.bluezoo.gumdrop.servlet.manager.ManagerServlet} handles
+ * the admin requests, delegating to {@link
+ * org.bluezoo.gumdrop.servlet.manager.ManagerContainerService} and
+ * {@link org.bluezoo.gumdrop.servlet.manager.ManagerContextService} for
+ * the actual container/context operations. The manager application
+ * itself deploys as an ordinary WAR file and is protected by standard
+ * servlet security constraints, requiring authentication and membership
+ * in the {@code manager} role -- it should only be exposed over HTTPS,
+ * since it grants deployment control over every application in the
+ * container.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.servlet.manager.ManagerServlet

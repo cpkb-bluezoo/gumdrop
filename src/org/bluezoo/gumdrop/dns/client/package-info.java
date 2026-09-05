@@ -20,20 +20,27 @@
  */
 
 /**
- * Asynchronous DNS client for Gumdrop.
+ * Asynchronous, callback-based DNS resolver with a pluggable transport.
  *
- * <p>This package provides a non-blocking DNS resolver with pluggable
- * transport support:
- * <ul>
- * <li>{@link org.bluezoo.gumdrop.dns.client.DNSResolver} - Main resolver
- *     with callback-based query API</li>
- * <li>{@link org.bluezoo.gumdrop.dns.client.DNSClientTransport} - Transport
- *     interface for pluggable wire protocols</li>
- * <li>{@link org.bluezoo.gumdrop.dns.client.UDPDNSClientTransport} - Plain
- *     UDP transport (default)</li>
- * </ul>
+ * <p>{@link org.bluezoo.gumdrop.dns.client.DNSResolver} is the client
+ * applications use, consulting {@code /etc/hosts} ({@link
+ * org.bluezoo.gumdrop.dns.client.HostsFile}) and {@code
+ * /etc/resolv.conf} ({@link org.bluezoo.gumdrop.dns.client.ResolvConf})
+ * before querying, and caching responses by TTL across query types
+ * ({@link org.bluezoo.gumdrop.dns.client.DNSMultiQTypeCache}). The wire
+ * transport is pluggable via {@link
+ * org.bluezoo.gumdrop.dns.client.DNSClientTransport}: {@link
+ * org.bluezoo.gumdrop.dns.client.UDPDNSClientTransport} (plain UDP, the
+ * default, falling back to TCP on truncation), {@link
+ * org.bluezoo.gumdrop.dns.client.TCPDNSClientTransport} (RFC 7766, with
+ * {@link org.bluezoo.gumdrop.dns.client.TCPDNSConnectionPool} for
+ * connection reuse), and {@link
+ * org.bluezoo.gumdrop.dns.client.DoQClientTransport} (DNS-over-QUIC, RFC
+ * 9250, over {@link org.bluezoo.gumdrop.quic}, pooled by {@link
+ * org.bluezoo.gumdrop.dns.client.DoQConnectionPool}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.dns.client.DNSResolver
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9250">RFC 9250 - DNS over QUIC</a>
  */
 package org.bluezoo.gumdrop.dns.client;

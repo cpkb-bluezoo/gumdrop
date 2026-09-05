@@ -20,73 +20,22 @@
  */
 
 /**
- * HTTP/2 framing support shared by server and client.
+ * HTTP/2 (RFC 9113) frame parsing and writing, shared by the server
+ * ({@code HTTPProtocolHandler}) and client ({@code
+ * HTTPClientProtocolHandler}).
  *
- * <p>This package provides low-level HTTP/2 frame parsing and writing
- * that can be used by both server-side ({@code HTTPProtocolHandler})
- * and client-side ({@code HTTPClientProtocolHandler}) implementations.
- *
- * <h2>Key Components</h2>
- *
- * <dl>
- *   <dt>{@link org.bluezoo.gumdrop.http.h2.H2Parser}</dt>
- *   <dd>Push-parser for HTTP/2 frames. Consumes complete frames from a
- *       ByteBuffer and delivers them via typed callback methods. Uses
- *       zero-copy parsing with ByteBuffer slices. No Frame objects are
- *       allocated - data flows directly to the handler.</dd>
- *
- *   <dt>{@link org.bluezoo.gumdrop.http.h2.H2Writer}</dt>
- *   <dd>Streaming writer for HTTP/2 frames. Provides methods for each
- *       frame type with automatic buffering and NIO channel support.
- *       No Frame objects required.</dd>
- *
- *   <dt>{@link org.bluezoo.gumdrop.http.h2.H2FrameHandler}</dt>
- *   <dd>Callback interface for receiving parsed frames. Has typed methods
- *       for each frame type (dataFrameReceived, headersFrameReceived, etc.)
- *       with parsed fields as parameters. Also defines constants for frame
- *       types, flags, error codes, and SETTINGS parameters.</dd>
- * </dl>
- *
- * <h2>Design Principles</h2>
- *
- * <ul>
- *   <li><strong>Zero allocation</strong> - No intermediate Frame objects</li>
- *   <li><strong>Zero copy</strong> - ByteBuffer slices for payloads</li>
- *   <li><strong>Push parsing</strong> - Data pushed in, callbacks invoked</li>
- *   <li><strong>Typed callbacks</strong> - Explicit parameters per frame type</li>
- * </ul>
- *
- * <h2>Usage Pattern</h2>
- *
- * <pre>{@code
- * // Implement the handler interface
- * class MyConnection implements H2FrameHandler {
- *     public void dataFrameReceived(int streamId, boolean endStream, ByteBuffer data) {
- *         // Process data frame
- *     }
- *     // ... other frame handlers
- * }
- *
- * // Parser setup
- * H2Parser parser = new H2Parser(myConnection);
- *
- * // Writer setup
- * H2Writer writer = new H2Writer(channel);
- *
- * // Receive data and parse frames
- * void onDataReceived(ByteBuffer data) {
- *     parser.receive(data);
- *     data.compact(); // Preserve partial frames
- * }
- *
- * // Send frames
- * writer.writeSettings(settings);
- * writer.writeHeaders(streamId, headerBlock, true, true, 0, 0, false);
- * writer.writeData(streamId, data, true);
- * writer.flush();
- * }</pre>
+ * <p>{@link org.bluezoo.gumdrop.http.h2.H2Parser} is a zero-allocation,
+ * zero-copy push-parser: it consumes complete frames from a ByteBuffer
+ * using buffer slices for payloads, delivering each to a typed callback
+ * on {@link org.bluezoo.gumdrop.http.h2.H2FrameHandler} -- no
+ * intermediate frame objects are allocated. {@link
+ * org.bluezoo.gumdrop.http.h2.H2Writer} is the corresponding streaming
+ * writer, one method per frame type. {@code H2FrameHandler} also defines
+ * the frame type, flag, error code, and SETTINGS parameter constants
+ * (RFC 9113 sections 4, 6, 7, 6.5.2).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9113">RFC 9113</a>
  * @see org.bluezoo.gumdrop.http.hpack
  */
 package org.bluezoo.gumdrop.http.h2;

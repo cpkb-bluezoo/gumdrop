@@ -20,95 +20,31 @@
  */
 
 /**
- * Message indexing system for fast IMAP SEARCH operations.
- * 
- * <h2>Overview</h2>
- * <p>This package provides a message indexing system that pre-extracts and stores
- * searchable metadata from messages, enabling fast IMAP SEARCH operations without
- * parsing messages from disk.
- * 
- * <h2>Key Classes</h2>
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.index.MessageIndex} - Main index class
- *       managing primary index and auxiliary sub-indexes</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.index.MessageIndexEntry} - Single message's
- *       indexed metadata with property descriptor format</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.index.MessageIndexBuilder} - Builds entries
- *       by parsing messages using the message parser</li>
- *   <li>{@link org.bluezoo.gumdrop.mailbox.index.IndexedMessageContext} - MessageContext
- *       implementation backed by index entry for search evaluation</li>
- * </ul>
- * 
- * <h2>Indexed Fields</h2>
- * <p>The following message attributes are indexed:
- * <ul>
- *   <li>UID and message number</li>
- *   <li>Message size</li>
- *   <li>Internal date and sent date</li>
- *   <li>System flags (Seen, Answered, Flagged, Deleted, Draft, Recent)</li>
- *   <li>From, To, Cc, Bcc header values</li>
- *   <li>Subject header</li>
- *   <li>Message-ID header</li>
- *   <li>Custom keywords</li>
- * </ul>
- * 
- * <h2>Not Indexed</h2>
- * <p>Body text and full headers are NOT indexed to keep index size manageable.
- * TEXT and BODY searches fall back to parsing the actual messages.
- * 
- * <h2>Sub-Indexes</h2>
- * <p>The index maintains auxiliary structures for fast lookups:
- * <ul>
- *   <li>Flag BitSets - O(1) lookup of messages with/without specific flags</li>
- *   <li>Date TreeMaps - Range queries on internal/sent dates</li>
- *   <li>Size TreeMap - Range queries for LARGER/SMALLER searches</li>
- *   <li>Address reverse indexes - Lookup by individual email address</li>
- *   <li>Keyword reverse index - Lookup by keyword</li>
- * </ul>
- * 
- * <h2>File Format</h2>
- * <p>Indexes are persisted as {@code .gidx} files alongside the mailbox:
- * <ul>
- *   <li>For mbox: {@code mailbox.mbox.gidx}</li>
- *   <li>For Maildir: {@code .gidx} in the Maildir directory</li>
- * </ul>
- * 
- * <h2>Session Model</h2>
- * <p>Each mailbox session loads its own copy of the index. This provides:
- * <ul>
- *   <li>No locking between sessions</li>
- *   <li>Isolation of modifications until close</li>
- *   <li>Simple per-session memory management</li>
- * </ul>
- * 
- * <h2>Incremental Updates</h2>
- * <p>The index supports incremental updates:
- * <ul>
- *   <li>New messages are indexed and added on append</li>
- *   <li>Deleted messages are removed on expunge</li>
- *   <li>Flag changes update the index immediately</li>
- *   <li>Changes are persisted when the mailbox is closed</li>
- * </ul>
- * 
- * <h2>Corruption Detection</h2>
- * <p>The index file includes:
- * <ul>
- *   <li>Magic number for format identification</li>
- *   <li>Version number for compatibility</li>
- *   <li>CRC32 checksums for header and entry sections</li>
- *   <li>UID validity for mailbox consistency validation</li>
- * </ul>
- * <p>If corruption is detected, the index is rebuilt from scratch.
- * 
- * <h2>Future Enhancements</h2>
- * <p>TODO: Progressive index building - currently index building is synchronous.
- * A future enhancement could implement background building where searches on
- * non-indexed messages fall back to parsing, while newly indexed messages
- * become searchable immediately.
+ * Message index for fast IMAP SEARCH, avoiding a full parse of every
+ * message on disk.
+ *
+ * <p>{@link org.bluezoo.gumdrop.mailbox.index.MessageIndex} owns a
+ * primary index plus auxiliary structures for common queries -- flag
+ * bitsets, date and size TreeMaps for range queries, and reverse indexes
+ * for address/keyword lookups. {@link
+ * org.bluezoo.gumdrop.mailbox.index.MessageIndexBuilder} builds one
+ * {@link org.bluezoo.gumdrop.mailbox.index.MessageIndexEntry} per
+ * message by parsing it once; {@link
+ * org.bluezoo.gumdrop.mailbox.index.IndexedMessageContext} then answers
+ * search evaluation directly from the indexed entry. UID, message
+ * number, size, dates, system flags, keywords, and the From/To/Cc/Bcc/
+ * Subject/Message-ID headers are indexed; body text and full headers are
+ * not, so TEXT/BODY searches fall back to parsing the actual message.
+ *
+ * <p>Indexes persist as a {@code .gidx} file alongside the mailbox
+ * (mbox) or inside its directory (Maildir), versioned with a magic
+ * number and CRC32 checksums; a failed checksum triggers a full rebuild
+ * rather than serving stale or corrupt data. Each session loads its own
+ * copy, so there is no cross-session locking, and updates (append,
+ * expunge, flag change) apply incrementally and persist on close.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.mailbox.SearchCriteria
  * @see org.bluezoo.gumdrop.mailbox.Mailbox#search(org.bluezoo.gumdrop.mailbox.SearchCriteria)
  */
 package org.bluezoo.gumdrop.mailbox.index;
-

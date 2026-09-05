@@ -20,15 +20,11 @@
  */
 
 /**
- * Storage quota management for Gumdrop services.
- *
- * This package provides a flexible quota management system that supports
- * both user-specific quotas and role-based quotas. The system is shared
- * across all Gumdrop services including FTP and IMAP.
+ * Storage quota management shared across services that need it (FTP,
+ * IMAP): both per-user and role-based quotas.
  *
  * @author Chris Burdess
  * @see org.bluezoo.gumdrop.quota.QuotaManager
  * @see org.bluezoo.gumdrop.quota.Quota
  */
 package org.bluezoo.gumdrop.quota;
-

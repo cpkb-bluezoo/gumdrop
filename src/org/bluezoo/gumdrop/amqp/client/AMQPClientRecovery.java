@@ -95,9 +95,10 @@ import org.bluezoo.gumdrop.auth.SASLUtils;
  * <p>{@code onFirstConnect} runs once. If the connection later drops,
  * this class waits (per {@link RecoveryPolicy}), reconnects, redeclares
  * every exchange/queue/binding and re-registers every consumer in the
- * order they were first issued, then the same {@link ClientChannel}
- * instances the application is already holding become live again — no
- * further action needed from the application.
+ * order they were first issued, then the same {@link
+ * org.bluezoo.gumdrop.amqp.client.handler.ClientChannel} instances the
+ * application is already holding become live again — no further action
+ * needed from the application.
  *
  * <p>Reconnect delays are scheduled on a small dedicated daemon thread
  * (see {@code RETRY_EXECUTOR}'s javadoc), deliberately <em>not</em>

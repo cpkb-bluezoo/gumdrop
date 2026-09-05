@@ -286,7 +286,7 @@ public class FTPListener extends TCPListener {
 
     /**
      * No-op: server channel cleanup is handled centrally by
-     * {@link org.bluezoo.gumdrop.Gumdrop#closeServerChannels} during
+     * {@link org.bluezoo.gumdrop.TCPListener#closeServerChannels} during
      * unregister/shutdown, so individual listeners do not need to
      * close their own channels.
      */

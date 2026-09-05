@@ -23,21 +23,19 @@
  * Non-blocking FTP client (RFC 959) for driving remote or in-process FTP
  * servers.
  *
- * <p>This package provides an asynchronous, event-driven FTP client
- * following the same architecture as the {@code smtp.client}, {@code
- * pop3.client}, and {@code imap.client} packages: a single {@link
- * org.bluezoo.gumdrop.ProtocolHandler} implementation for the control
- * connection, a type-safe stateful handler pattern
- * ({@code ClientLoginState}, {@code ClientAuthenticatedState}, etc.), and a
- * streaming {@link org.bluezoo.gumdrop.ByteStreamLexer}-based reply parser
- * (issue #85) rather than a buffered-line model.
+ * <p>{@link org.bluezoo.gumdrop.ftp.client.FTPClientProtocolHandler}
+ * drives the control connection; different state interfaces (package
+ * {@link org.bluezoo.gumdrop.ftp.client.handler}) are provided at each
+ * stage of the protocol, so only the commands valid at that point can be
+ * issued. Replies are parsed by a streaming {@link
+ * org.bluezoo.gumdrop.ByteStreamLexer}-based reader rather than a
+ * buffered-line model, so a multi-line reply never needs to be
+ * materialised whole before dispatch.
  *
- * <p>FTP is a two-connection protocol (control + data). The control
- * connection is handled by {@link
- * org.bluezoo.gumdrop.ftp.client.FTPClientProtocolHandler} exactly like the
- * other client protocol handlers; data connections (PASV/EPSV/PORT/EPRT for
- * RETR/STOR/LIST) are handled separately, mirroring the design of the FTP
- * server's own {@code FTPDataConnectionCoordinator}.
+ * <p>FTP is a two-connection protocol: the control connection above
+ * handles commands and replies, while data connections (PASV/EPSV/PORT/
+ * EPRT for RETR/STOR/LIST) are negotiated and managed separately,
+ * mirroring the server side's own {@code FTPDataConnectionCoordinator}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.ftp.client.FTPClientProtocolHandler

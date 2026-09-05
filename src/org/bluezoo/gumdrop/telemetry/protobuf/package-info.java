@@ -20,104 +20,29 @@
  */
 
 /**
- * Protocol Buffers encoding and decoding for OTLP.
+ * Hand-written Protocol Buffers encoding/decoding for OTLP messages
+ * (TracesData, MetricsData, LogsData), with no generated code or
+ * dependency on the protobuf library.
  *
- * <p>This package provides a lightweight Protocol Buffers implementation
- * for encoding and decoding OpenTelemetry Protocol (OTLP) messages without
- * requiring the full protobuf library or generated code.
+ * <p>{@link org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter}
+ * writes protobuf's four wire types (varint, 64-bit, length-delimited,
+ * 32-bit) to a {@link java.nio.channels.WritableByteChannel}, typically
+ * {@link org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel}, an
+ * auto-expanding in-memory channel. {@link
+ * org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser} is the
+ * corresponding push parser, delivering decoded fields incrementally to
+ * a {@link org.bluezoo.gumdrop.telemetry.protobuf.ProtobufHandler};
+ * {@link org.bluezoo.gumdrop.telemetry.protobuf.DefaultProtobufHandler}
+ * supplies value-interpretation helpers so most handlers only override
+ * the field callbacks they care about.
  *
- * <h2>Key Components</h2>
- *
- * <h3>Writing (Serialization)</h3>
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter} -
- *       Writes protobuf-encoded binary data to a {@link java.nio.channels.WritableByteChannel}</li>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel} -
- *       A channel implementation that writes to an auto-expanding ByteBuffer</li>
- * </ul>
- *
- * <h3>Reading (Deserialization)</h3>
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser} -
- *       Push-based parser that processes protobuf data incrementally</li>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.protobuf.ProtobufHandler} -
- *       Callback interface for receiving parsed field values</li>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.protobuf.DefaultProtobufHandler} -
- *       Default handler implementation with helper methods for value interpretation</li>
- * </ul>
- *
- * <h2>Wire Format Support</h2>
- *
- * <p>The implementation supports all protobuf wire types:
- * <ul>
- *   <li>Varint (int32, int64, uint32, uint64, sint32, sint64, bool, enum)</li>
- *   <li>64-bit (fixed64, sfixed64, double)</li>
- *   <li>Length-delimited (string, bytes, embedded messages, packed repeated)</li>
- *   <li>32-bit (fixed32, sfixed32, float)</li>
- * </ul>
- *
- * <h2>Push Parser Usage</h2>
- *
- * <pre>
- * ProtobufHandler handler = new DefaultProtobufHandler() {
- *     &#64;Override
- *     public void handleVarint(int fieldNumber, long value) {
- *         // Process varint field
- *     }
- *
- *     &#64;Override
- *     public void handleBytes(int fieldNumber, ByteBuffer data) {
- *         // Process bytes/string field
- *     }
- *
- *     &#64;Override
- *     public boolean isMessage(int fieldNumber) {
- *         return fieldNumber == 1; // Field 1 is an embedded message
- *     }
- *
- *     &#64;Override
- *     public void startMessage(int fieldNumber) {
- *         // Push nested context
- *     }
- *
- *     &#64;Override
- *     public void endMessage() {
- *         // Pop nested context
- *     }
- * };
- *
- * ProtobufParser parser = new ProtobufParser(handler);
- * parser.receive(buffer);
- * parser.close();
- * </pre>
- *
- * <h2>OTLP Message Types</h2>
- *
- * <p>This package is used to encode:
- * <ul>
- *   <li>TracesData - Distributed tracing spans</li>
- *   <li>MetricsData - Metric measurements</li>
- *   <li>LogsData - Log records</li>
- * </ul>
- *
- * <h2>Design</h2>
- *
- * <p>Unlike generated protobuf code, this implementation uses manual
- * encoding/decoding with explicit field numbers. This provides:
- * <ul>
- *   <li>Zero external dependencies</li>
- *   <li>Smaller code footprint</li>
- *   <li>Full control over serialization</li>
- *   <li>Incremental parsing support for streaming</li>
- * </ul>
- *
- * <h2>Internal Use</h2>
- *
- * <p>This package is used internally by the OTLP exporter and session
- * replication, and is not intended for direct use by application code.
+ * <p>Used internally by OTLP export ({@link
+ * org.bluezoo.gumdrop.telemetry.otlp}) and by {@link
+ * org.bluezoo.gumdrop.servlet.session}'s cluster replication; not
+ * intended for direct use by application code.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.telemetry.OTLPExporter
+ * @see org.bluezoo.gumdrop.telemetry.otlp
  * @see <a href="https://protobuf.dev/programming-guides/encoding/">Protobuf Encoding</a>
  */
 package org.bluezoo.gumdrop.telemetry.protobuf;

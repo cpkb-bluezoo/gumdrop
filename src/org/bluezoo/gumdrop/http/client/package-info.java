@@ -20,102 +20,28 @@
  */
 
 /**
- * Non-blocking HTTP client with an event-driven handler pattern.
+ * Non-blocking HTTP client supporting HTTP/1.1, HTTP/2, and HTTP/3, with
+ * automatic transport negotiation (DNS HTTPS-record discovery, cached
+ * Alt-Svc, ALPN) choosing between them.
  *
- * <p>This package provides an asynchronous HTTP client that integrates with
- * Gumdrop's event-driven architecture. It supports HTTP/1.1 and HTTP/2,
- * connection multiplexing, server push, streaming bodies, and trailer headers.
+ * <p>{@link org.bluezoo.gumdrop.http.client.HTTPClient} is the facade
+ * applications use to make requests; {@link
+ * org.bluezoo.gumdrop.http.client.HTTPRequest} represents one request,
+ * {@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler} the
+ * callback interface for response events (status, headers including
+ * trailers, streamed body, completion), and {@link
+ * org.bluezoo.gumdrop.http.client.HTTPResponse} carries status and
+ * redirect information. {@link org.bluezoo.gumdrop.http.client.PushPromise}
+ * exposes HTTP/2 server push. Request and response bodies are streamed
+ * rather than buffered, with backpressure support for large uploads.
  *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.http.client.HTTPClient} - Interface for
- *       making HTTP requests to a server</li>
- *   <li>{@link org.bluezoo.gumdrop.http.client.HTTPRequest} - Represents a
- *       request to be sent</li>
- *   <li>{@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler} - Callback
- *       interface for receiving response events</li>
- *   <li>{@link org.bluezoo.gumdrop.http.client.HTTPResponse} - Response status
- *       and redirect information</li>
- *   <li>{@link org.bluezoo.gumdrop.http.HTTPStatus} - Symbolic HTTP
- *       status codes</li>
- *   <li>{@link org.bluezoo.gumdrop.http.client.PushPromise} - HTTP/2 server
- *       push promise</li>
- * </ul>
- *
- * <h2>Features</h2>
- *
- * <ul>
- *   <li>Non-blocking I/O using the shared SelectorLoop</li>
- *   <li>HTTP/1.1 with keep-alive support</li>
- *   <li>HTTP/2 with stream multiplexing and server push</li>
- *   <li>Event-driven header delivery (including trailers)</li>
- *   <li>Streaming request and response bodies</li>
- *   <li>Backpressure support for large uploads</li>
- *   <li>SSL/TLS with ALPN protocol negotiation</li>
- *   <li>Automatic redirect following</li>
- *   <li>Request cancellation</li>
- *   <li>Authentication (Basic, Bearer, Digest, OAuth)</li>
- * </ul>
- *
- * <h2>Usage Example</h2>
- *
- * <pre>{@code
- * // Simple GET request
- * HTTPRequest request = client.get("/api/users");
- * request.header("Accept", "application/json");
- * request.send(new DefaultHTTPResponseHandler() {
- *     @Override
- *     public void ok(HTTPResponse response) {
- *         System.out.println("Success: " + response.getStatus());
- *     }
- *
- *     @Override
- *     public void header(String name, String value) {
- *         System.out.println(name + ": " + value);
- *     }
- *
- *     @Override
- *     public void responseBodyContent(ByteBuffer data) {
- *         // Process body chunk
- *     }
- *
- *     @Override
- *     public void close() {
- *         System.out.println("Response complete");
- *     }
- * });
- *
- * // POST with body
- * HTTPRequest post = client.post("/api/users");
- * post.header("Content-Type", "application/json");
- * post.startRequestBody(handler);
- * post.requestBodyContent(ByteBuffer.wrap(jsonBytes));
- * post.endRequestBody();
- *
- * // Multiple concurrent requests (HTTP/2)
- * if (client.getVersion() != null && client.getVersion().supportsMultiplexing()) {
- *     for (String path : paths) {
- *         client.get(path).send(handler);
- *     }
- * }
- * }</pre>
- *
- * <h2>Event Flow</h2>
- *
- * <p>For a successful response with body and trailers:
- * <ol>
- *   <li>{@code ok(HTTPResponse)} - status received</li>
- *   <li>{@code header(name, value)} - for each response header</li>
- *   <li>{@code startResponseBody()} - body begins</li>
- *   <li>{@code responseBodyContent(ByteBuffer)} - for each body chunk</li>
- *   <li>{@code endResponseBody()} - body complete</li>
- *   <li>{@code header(name, value)} - for each trailer header</li>
- *   <li>{@code close()} - response complete</li>
- * </ol>
+ * <p>Also supported: keep-alive and stream multiplexing appropriate to
+ * the negotiated version, automatic redirect following, request
+ * cancellation, and Basic/Bearer/Digest/OAuth authentication.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.http.client.HTTPClient
  * @see org.bluezoo.gumdrop.http.client.HTTPResponseHandler
+ * @see org.bluezoo.gumdrop.http.h3
  */
 package org.bluezoo.gumdrop.http.client;

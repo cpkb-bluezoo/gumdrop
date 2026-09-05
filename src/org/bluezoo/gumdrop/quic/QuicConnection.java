@@ -85,12 +85,10 @@ import org.bluezoo.gumdrop.quic.tls.StreamReassembler;
  * keys, connection ID lifecycle, loss detection/congestion control, and
  * every stream on the connection.
  *
- * <p>This is the pure-Java replacement for the native quiche-backed
- * implementation, composing the already-built toolkit packages
- * ({@code quic.tls}, {@code quic.packet}, {@code quic.frame},
- * {@code quic.cid}, {@code quic.recovery}) the same way
- * {@code test/.../quic/QuicTestPeer} demonstrated, but driven by real
- * socket I/O via {@link QuicEngine} instead of hand-called from a test.
+ * <p>It composes the toolkit packages {@code quic.tls}, {@code
+ * quic.packet}, {@code quic.frame}, {@code quic.cid}, and {@code
+ * quic.recovery} into a single connection state machine, driven by real
+ * socket I/O via {@link QuicEngine}.
  *
  * <p>{@link #flush} coalesces every encryption level with pending data
  * into a single UDP datagram (RFC 9000 section 12.2) rather than sending

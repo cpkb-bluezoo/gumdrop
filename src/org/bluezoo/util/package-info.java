@@ -20,38 +20,13 @@
  */
 
 /**
- * Low-level byte manipulation utilities.
+ * Low-level byte array utilities used throughout gumdrop for binary
+ * data handling.
  *
- * <p>This package provides fundamental byte array and buffer utilities
- * used throughout the Gumdrop codebase for efficient binary data handling.
- *
- * <h2>Key Components</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.util.ByteArrays} - Static utility methods for
- *       byte array operations (searching, copying, comparison)</li>
- * </ul>
- *
- * <h2>ByteArrays</h2>
- *
- * <p>Provides efficient algorithms for:
- * <ul>
- *   <li>Pattern searching in byte arrays</li>
- *   <li>Array slicing and concatenation</li>
- *   <li>Comparison and equality checks</li>
- * </ul>
- *
- * <h2>Design</h2>
- *
- * <p>These utilities are designed for:
- * <ul>
- *   <li>Zero-copy operations where possible</li>
- *   <li>Minimal memory allocation</li>
- *   <li>Performance in hot paths</li>
- * </ul>
+ * <p>{@link org.bluezoo.util.ByteArrays} provides pattern searching,
+ * slicing/concatenation, and comparison over byte arrays, favouring
+ * zero-copy operation and minimal allocation for use in hot paths.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 package org.bluezoo.util;
-
-

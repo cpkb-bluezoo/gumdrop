@@ -49,15 +49,13 @@ import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 
 /**
- * Configuration and bootstrap for QUIC transports, the pure-Java
- * replacement for the native quiche/BoringSSL-config-backed
- * implementation.
+ * Configuration and bootstrap for QUIC transports.
  *
- * <p>Translates the same PEM cert/key/CA file configuration the native
- * path used into an Agent15 {@link TlsServerEngineFactory} (via
- * {@link PemCredentials}) and an {@link X509TrustManager}, and the same
- * flow-control/idle-timeout limits into a {@link TransportParameters}
- * instance shared by every connection this factory's engines create.
+ * <p>Translates PEM cert/key/CA file configuration into an Agent15
+ * {@link TlsServerEngineFactory} (via {@link PemCredentials}) and an
+ * {@link X509TrustManager}, and flow-control/idle-timeout limits into a
+ * {@link TransportParameters} instance shared by every connection this
+ * factory's engines create.
  *
  * <p>{@link #setCipherSuites} and {@link #setNamedGroups} (both
  * inherited from {@link TransportFactory}) are both consulted, filtered

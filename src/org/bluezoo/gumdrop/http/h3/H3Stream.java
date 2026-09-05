@@ -76,17 +76,15 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * {@link HTTPRequestHandler} implementations can send responses
  * identically to HTTP/2.
  *
- * <p>Unlike the previous quiche-backed implementation, this class is
- * itself the QUIC stream's {@link ProtocolHandler} and {@link H3FrameHandler}
- * -- it owns its own {@link H3Parser}, fed directly from {@link #receive},
- * and decodes/encodes header blocks itself via the connection-shared
- * {@link Decoder}/{@link Encoder} (RFC 9204's full dynamic-table QPACK
- * codec); any resulting encoder/decoder-stream instructions are flushed
- * back through {@link HTTP3ServerHandler}, which owns the actual QPACK
- * stream endpoints. Response-body flow-control buffering, which the quiche-backed version
- * duplicated per stream ({@code pendingWriteQueue}/{@code resumeWrite}),
- * is gone entirely -- {@link Endpoint#send} now buffers and paces that
- * itself, the same as every other protocol running over QUIC.
+ * <p>This class is itself the QUIC stream's {@link ProtocolHandler} and
+ * {@link H3FrameHandler} -- it owns its own {@link H3Parser}, fed directly
+ * from {@link #receive}, and decodes/encodes header blocks itself via the
+ * connection-shared {@link Decoder}/{@link Encoder} (RFC 9204's full
+ * dynamic-table QPACK codec); any resulting encoder/decoder-stream
+ * instructions are flushed back through {@link HTTP3ServerHandler}, which
+ * owns the actual QPACK stream endpoints. Response-body flow-control
+ * buffering is handled once, generically, by {@link Endpoint#send} itself,
+ * the same as every other protocol running over QUIC.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HTTP3ServerHandler

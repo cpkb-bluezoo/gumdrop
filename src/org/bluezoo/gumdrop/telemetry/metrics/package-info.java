@@ -20,87 +20,27 @@
  */
 
 /**
- * OpenTelemetry Metrics implementation for Gumdrop.
+ * OpenTelemetry Metrics instrument types, obtained from a {@code Meter}
+ * ({@link org.bluezoo.gumdrop.telemetry.TelemetryConfig#getMeter}).
  *
- * <p>This package provides a lightweight implementation of OpenTelemetry Metrics,
- * enabling collection and export of metric data from Gumdrop servers and applications.
+ * <p>Synchronous instruments, recorded at measurement time: {@link
+ * org.bluezoo.gumdrop.telemetry.metrics.LongCounter} (monotonic), {@link
+ * org.bluezoo.gumdrop.telemetry.metrics.LongUpDownCounter}
+ * (bidirectional), {@link
+ * org.bluezoo.gumdrop.telemetry.metrics.DoubleHistogram} (value
+ * distributions, with configurable explicit buckets). Asynchronous
+ * instruments, invoked via callback at collection time: {@link
+ * org.bluezoo.gumdrop.telemetry.metrics.ObservableGauge}, {@link
+ * org.bluezoo.gumdrop.telemetry.metrics.ObservableCounter}, {@link
+ * org.bluezoo.gumdrop.telemetry.metrics.ObservableUpDownCounter}.
  *
- * <h2>Instrument Types</h2>
- *
- * <p><b>Synchronous Instruments</b> - recorded at measurement time:
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.metrics.LongCounter} - monotonically increasing counter
- *   <li>{@link org.bluezoo.gumdrop.telemetry.metrics.LongUpDownCounter} - bidirectional counter
- *   <li>{@link org.bluezoo.gumdrop.telemetry.metrics.DoubleHistogram} - distribution of values
- * </ul>
- *
- * <p><b>Asynchronous Instruments</b> - callback-based, invoked at collection time:
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.metrics.ObservableGauge} - point-in-time value
- *   <li>{@link org.bluezoo.gumdrop.telemetry.metrics.ObservableCounter} - async monotonic counter
- *   <li>{@link org.bluezoo.gumdrop.telemetry.metrics.ObservableUpDownCounter} - async bidirectional counter
- * </ul>
- *
- * <h2>Usage Example</h2>
- *
- * <pre>
- * // Get a meter from TelemetryConfig
- * Meter meter = telemetryConfig.getMeter("org.bluezoo.gumdrop.http");
- *
- * // Create a counter
- * LongCounter requestCounter = meter.counterBuilder("http.server.requests")
- *     .setDescription("Total HTTP requests received")
- *     .setUnit("requests")
- *     .build();
- *
- * // Create a histogram for latency
- * DoubleHistogram latencyHistogram = meter.histogramBuilder("http.server.duration")
- *     .setDescription("HTTP request latency")
- *     .setUnit("ms")
- *     .setExplicitBuckets(5, 10, 25, 50, 100, 250, 500, 1000)
- *     .build();
- *
- * // Create an observable gauge
- * meter.gaugeBuilder("http.server.active_connections")
- *     .setDescription("Currently active connections")
- *     .buildWithCallback(new ObservableCallback() {
- *         public void observe(ObservableMeasurement measurement) {
- *             measurement.record(server.getActiveEndpointCount());
- *         }
- *     });
- *
- * // Record measurements in request handling
- * requestCounter.add(1, Attributes.of("http.method", "GET", "http.status_code", 200));
- * latencyHistogram.record(45.2, Attributes.of("http.method", "GET"));
- * </pre>
- *
- * <h2>Aggregation Temporality</h2>
- *
- * <p>Metrics can be exported with different temporalities:
- * <ul>
- *   <li><b>DELTA</b> - Values represent change since last export. Preferred for push-based
- *       systems and stateless collectors.
- *   <li><b>CUMULATIVE</b> - Values represent total since process start. Preferred for
- *       Prometheus-style scrapers and pull-based systems.
- * </ul>
- *
- * <p>Configure the temporality in the TelemetryConfig:
- * <pre>
- * &lt;property name="metrics-temporality-name"&gt;delta&lt;/property&gt;
- * </pre>
- *
- * <h2>Export</h2>
- *
- * <p>Metrics are automatically collected and exported via the OTLP exporter at the
- * configured interval (default: 60 seconds). The export endpoint can be configured:
- * <pre>
- * &lt;property name="metrics-endpoint"&gt;http://localhost:4318/v1/metrics&lt;/property&gt;
- * &lt;property name="metrics-interval-ms"&gt;30000&lt;/property&gt;
- * </pre>
+ * <p>Metrics export with either DELTA temporality (value since last
+ * export, for push-based/stateless collectors) or CUMULATIVE (value
+ * since process start, for Prometheus-style scrapers), configured on
+ * {@link org.bluezoo.gumdrop.telemetry.TelemetryConfig}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.telemetry.TelemetryConfig
- * @see org.bluezoo.gumdrop.telemetry.OTLPExporter
+ * @see org.bluezoo.gumdrop.telemetry.otlp
  */
 package org.bluezoo.gumdrop.telemetry.metrics;
-

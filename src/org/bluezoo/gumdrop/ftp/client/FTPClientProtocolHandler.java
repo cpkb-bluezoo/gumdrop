@@ -65,8 +65,7 @@ import org.bluezoo.gumdrop.ftp.client.handler.ServerUserReplyHandler;
 
 /**
  * FTP client protocol handler implementing RFC 959 (FTP) control-connection
- * commands, following the same architecture as {@code
- * SMTPClientProtocolHandler} and {@code POP3ClientProtocolHandler}.
+ * commands.
  *
  * <p>Implements a type-safe FTP client state machine ({@code
  * ClientLoginState}, {@code ClientAuthenticatedState}, etc.) and delegates
