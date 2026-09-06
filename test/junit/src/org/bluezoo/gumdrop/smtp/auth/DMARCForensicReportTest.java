@@ -26,6 +26,13 @@ import static org.junit.Assert.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Date;
 
 /**
@@ -159,7 +166,9 @@ public class DMARCForensicReportTest {
     @Test
     public void testWriteMIMEWithFullMessage() throws IOException {
         DMARCForensicReport report = createTestReport();
-        report.setOriginalMessage("From: sender@bad.example.com\r\nSubject: Test\r\n\r\nBody");
+        report.setOriginalMessage(ByteBuffer.wrap(
+                "From: sender@bad.example.com\r\nSubject: Test\r\n\r\nBody"
+                        .getBytes(StandardCharsets.US_ASCII)));
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Content-Type: message/rfc822"));
@@ -349,6 +358,74 @@ public class DMARCForensicReportTest {
         assertTrue(mime.contains("Identity-Alignment: none"));
     }
 
+    /**
+     * {@code writeMIME} must accept any {@code WritableByteChannel}, not
+     * just the {@code Channels.newChannel} adapter the other tests use
+     * -- verify against a genuine {@link FileChannel}.
+     */
+    @Test
+    public void testWriteMIMEAcceptsARealFileChannel() throws IOException {
+        DMARCForensicReport report = createTestReport();
+        Path tempFile = Files.createTempFile("dmarc-forensic-", ".eml");
+        try {
+            try (FileChannel channel = FileChannel.open(tempFile,
+                    StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                report.writeMIME(channel, "B1");
+            }
+            String mime = new String(Files.readAllBytes(tempFile), "UTF-8");
+            assertTrue(mime.contains("--B1"));
+            assertTrue(mime.contains("Content-Type: message/feedback-report"));
+            assertTrue(mime.endsWith("--B1--" + "\r\n"));
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
+    }
+
+    /**
+     * RFC 6591/RFC 5322: the original message/headers part must be
+     * 8-bit clean -- the exact bytes a caller decoded into {@code
+     * originalHeaders} must appear unchanged in the MIME output, not
+     * re-encoded through UTF-8 (which would turn every byte >= 0x80
+     * into a different, multi-byte sequence).
+     */
+    @Test
+    public void testOriginalHeadersAreWrittenByteForByteNotReencoded() throws IOException {
+        // Includes bytes >= 0x80 that aren't even a valid UTF-8 sequence
+        // together -- if these were ever decoded to a String and
+        // re-encoded through any Charset, this exact sequence could not
+        // survive unchanged.
+        byte[] rawHeaderBytes = new byte[] {
+                'F', 'r', 'o', 'm', ':', ' ',
+                (byte) 0x80, (byte) 0xE9, (byte) 0xFF,
+                '\r', '\n'
+        };
+
+        DMARCForensicReport report = createTestReport();
+        report.setOriginalHeaders(ByteBuffer.wrap(rawHeaderBytes));
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        report.writeMIME(Channels.newChannel(out), "B1");
+        byte[] mime = out.toByteArray();
+
+        assertTrue("Original header bytes must appear verbatim in the "
+                        + "output -- this content is wire bytes, not text, "
+                        + "and must never be decoded/re-encoded",
+                indexOf(mime, rawHeaderBytes) >= 0);
+    }
+
+    private static int indexOf(byte[] haystack, byte[] needle) {
+        outer:
+        for (int i = 0; i <= haystack.length - needle.length; i++) {
+            for (int j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
+    }
+
     private DMARCForensicReport createTestReport() {
         DMARCForensicReport report = new DMARCForensicReport();
         report.setReporterDomain("receiver.example.com");
@@ -362,13 +439,15 @@ public class DMARCForensicReportTest {
         report.setDmarcPolicy(DMARCPolicy.REJECT);
         report.setSpfResult(SPFResult.FAIL);
         report.setDkimResult(DKIMResult.FAIL);
-        report.setOriginalHeaders("From: sender@bad.example.com\r\nSubject: Test\r\n");
+        report.setOriginalHeaders(ByteBuffer.wrap(
+                "From: sender@bad.example.com\r\nSubject: Test\r\n"
+                        .getBytes(StandardCharsets.US_ASCII)));
         return report;
     }
 
     private String writeToString(DMARCForensicReport report, String boundary) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        report.writeMIME(out, boundary);
+        report.writeMIME(Channels.newChannel(out), boundary);
         return out.toString("UTF-8");
     }
 

@@ -25,7 +25,7 @@ import org.bluezoo.gonzalez.IndentConfig;
 import org.bluezoo.gonzalez.XMLWriter;
 
 import java.io.IOException;
-import java.io.OutputStream;
+import java.nio.channels.WritableByteChannel;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -70,7 +70,7 @@ import java.util.Map;
  *     DKIMResult.PASS, "sender.example.com", "sel1");
  *
  * // Generate the XML report
- * report.writeXML(outputStream);
+ * report.writeXML(writableByteChannel);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -252,11 +252,11 @@ public class DMARCAggregateReport {
     /**
      * RFC 7489 §7.1, Appendix C — writes the aggregate report as XML.
      *
-     * @param out the output stream to write to
+     * @param out the channel to write to
      * @throws IOException if an I/O error occurs
      */
-    public void writeXML(OutputStream out) throws IOException {
-        XMLWriter xml = new XMLWriter(out, IndentConfig.spaces2());
+    public void writeXML(WritableByteChannel out) throws IOException {
+        XMLWriter xml = new XMLWriter(out, 4096, IndentConfig.spaces2());
         // gonzalez's XMLWriter has no dedicated document-declaration call;
         // emit it explicitly to match RFC 7489 Appendix C example reports.
         xml.writeRaw("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
