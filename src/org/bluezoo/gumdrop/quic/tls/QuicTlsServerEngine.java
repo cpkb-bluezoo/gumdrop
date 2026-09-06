@@ -184,13 +184,22 @@ public final class QuicTlsServerEngine
     @Override
     public void receiveCryptoData(EncryptionLevel level, long offset, ByteBuffer data)
             throws StreamReassembler.BufferLimitExceededException {
-        if (asyncOffload.isBusy()) {
-            byte[] copy = new byte[data.remaining()];
-            data.get(copy);
-            pendingFrames.add(new PendingFrame(level, offset, copy));
-            return;
+        // Issue #427: this decision must be atomic with respect to a
+        // concurrently-finishing batch's own drain of pendingFrames
+        // (QuicHandshakeAsyncOffload.submit's completion handling holds
+        // the same lock around calling drainPendingFrames) -- otherwise
+        // a frame that arrives exactly as that drain finds the queue
+        // empty could be enqueued here a moment too late for anything
+        // to ever drain it again, silently losing it forever.
+        synchronized (asyncOffload.lock()) {
+            if (asyncOffload.isBusy()) {
+                byte[] copy = new byte[data.remaining()];
+                data.get(copy);
+                pendingFrames.add(new PendingFrame(level, offset, copy));
+                return;
+            }
+            dispatchFrame(level, offset, data);
         }
-        dispatchFrame(level, offset, data);
     }
 
     // Returns whether this actually submitted a new batch -- false if the

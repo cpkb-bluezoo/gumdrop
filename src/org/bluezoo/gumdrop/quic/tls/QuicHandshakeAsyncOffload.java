@@ -94,7 +94,8 @@ final class QuicHandshakeAsyncOffload {
     // via listener.execute(...) -- ordinarily the loop thread, but a test
     // driving these engines directly without a live Gumdrop can have that
     // callback delivered inline on whatever thread called submit(), so
-    // this is volatile rather than relying on same-thread confinement.
+    // all access is guarded by `lock` (see lock()) rather than relying on
+    // same-thread confinement.
     //
     // Only ever cleared after onDone (the CompletionHandler) has had its
     // chance to synchronously start a follow-up batch and said it did not
@@ -104,12 +105,43 @@ final class QuicHandshakeAsyncOffload {
     // awaitHandshakeProcessingIdle) observe "idle" and act on
     // not-yet-installed handshake state (e.g. PacketProtectionKeys a
     // follow-up batch was about to derive).
-    private volatile boolean taskInFlight;
+    //
+    // Beyond plain visibility, running onDone.onBatchDone() itself while
+    // holding `lock` (issue #427) is what lets a caller's own
+    // isBusy()-then-enqueue-or-dispatch decision (receiveCryptoData, in
+    // the concrete engines) synchronize on the same lock and never race
+    // onBatchDone()'s drain of its pending-frame queue -- without that,
+    // a frame arriving in the narrow window between a batch finishing
+    // and its completion handler draining that queue could be enqueued
+    // a moment too late to ever be drained, silently losing it forever.
+    private boolean taskInFlight;
     private boolean deferring;
     private List<Runnable> deferredCallbacks;
 
+    private final Object lock = new Object();
+
     QuicHandshakeAsyncOffload(QuicTlsEngineListener listener) {
         this.listener = listener;
+    }
+
+    /**
+     * The lock a caller must hold around any decision that depends on
+     * {@link #isBusy} for as long as that decision has an effect a
+     * concurrently completing batch could race against -- e.g. {@code
+     * QuicTlsClientEngine}/{@code QuicTlsServerEngine}'s {@code
+     * receiveCryptoData} enqueueing a CRYPTO frame for later versus
+     * dispatching it now. {@link #submit} holds this same lock across
+     * running a batch's completion handler and deciding whether to
+     * clear the busy state, so the two operations can never interleave
+     * in a way that loses a frame (issue #427: previously, a frame
+     * arriving in the narrow window between a batch finishing and its
+     * completion handler draining the pending-frame queue could be
+     * enqueued a moment too late to ever be drained).
+     *
+     * @return the lock object
+     */
+    Object lock() {
+        return lock;
     }
 
     /**
@@ -121,7 +153,9 @@ final class QuicHandshakeAsyncOffload {
      * @return true if a batch is in flight
      */
     boolean isBusy() {
-        return taskInFlight;
+        synchronized (lock) {
+            return taskInFlight;
+        }
     }
 
     /**
@@ -158,7 +192,9 @@ final class QuicHandshakeAsyncOffload {
      *               finished, successfully or not
      */
     void submit(final EncryptionLevel level, final BatchProcessor processor, final CompletionHandler onDone) {
-        taskInFlight = true;
+        synchronized (lock) {
+            taskInFlight = true;
+        }
         final Callable<List<Runnable>> op = new Callable<List<Runnable>>() {
             @Override
             public List<Runnable> call() {
@@ -199,8 +235,17 @@ final class QuicHandshakeAsyncOffload {
                 for (Runnable r : callbacks) {
                     r.run();
                 }
-                if (!onDone.onBatchDone()) {
-                    taskInFlight = false;
+                // Issue #427: onDone itself (drainPendingFrames, for the
+                // concrete engines) must run under `lock`, the same lock
+                // receiveCryptoData holds around its own isBusy()-then-
+                // enqueue-or-dispatch decision -- otherwise a frame that
+                // arrives exactly as this drain finds nothing can be
+                // enqueued a moment too late for anything to ever drain
+                // it again.
+                synchronized (lock) {
+                    if (!onDone.onBatchDone()) {
+                        taskInFlight = false;
+                    }
                 }
             }
 
@@ -208,8 +253,10 @@ final class QuicHandshakeAsyncOffload {
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, "QUIC handshake delegated processing failed", error);
                 listener.cryptoProcessingFailed(level, error);
-                if (!onDone.onBatchDone()) {
-                    taskInFlight = false;
+                synchronized (lock) {
+                    if (!onDone.onBatchDone()) {
+                        taskInFlight = false;
+                    }
                 }
             }
         };
