@@ -31,6 +31,7 @@ import org.bluezoo.gumdrop.UDPListener;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
 
 /**
  * UDP transport listener for DNS queries.
@@ -105,6 +106,18 @@ public class DNSListener extends UDPListener {
         getEndpoint().sendTo(data, destination);
     }
 
+    /**
+     * Returns the SelectorLoop this listener's endpoint is registered
+     * with, or null if the listener has not been started (e.g. a test
+     * double that never calls {@link #start()}).
+     *
+     * @return the SelectorLoop, or null if unbound
+     */
+    SelectorLoop getSelectorLoop() {
+        Endpoint ep = getEndpoint();
+        return (ep != null) ? ep.getSelectorLoop() : null;
+    }
+
     @Override
     protected ProtocolHandler createProtocolHandler() {
         return new DNSDatagramHandler();
@@ -134,11 +147,13 @@ public class DNSListener extends UDPListener {
                 return;
             }
             connectionOpened(source);
-            try {
-                service.handleDatagram(DNSListener.this, data, source);
-            } finally {
-                connectionClosed(source);
-            }
+            service.handleDatagram(DNSListener.this, data, source,
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            connectionClosed(source);
+                        }
+                    });
         }
 
         private void logRejection(SocketAddress remoteAddress) {

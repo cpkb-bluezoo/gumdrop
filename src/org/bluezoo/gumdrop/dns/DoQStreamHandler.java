@@ -144,7 +144,7 @@ final class DoQStreamHandler implements ProtocolHandler {
                 return;
             }
             ByteBuffer queryBuf = ByteBuffer.wrap(raw, 2, msgLen);
-            DNSMessage query = DNSMessage.parse(queryBuf);
+            final DNSMessage query = DNSMessage.parse(queryBuf);
 
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
@@ -153,7 +153,7 @@ final class DoQStreamHandler implements ProtocolHandler {
                         query, endpoint.getRemoteAddress()));
             }
 
-            DNSServerMetrics metrics = service.getMetrics();
+            final DNSServerMetrics metrics = service.getMetrics();
             if (metrics != null && !query.getQuestions().isEmpty()) {
                 DNSQuestion q =
                         query.getQuestions().get(0);
@@ -173,16 +173,28 @@ final class DoQStreamHandler implements ProtocolHandler {
                 return;
             }
 
-            long startNanos = System.nanoTime();
-            DNSMessage response = service.processQuery(query);
-            if (metrics != null) {
-                double durationMs =
-                        (System.nanoTime() - startNanos) / 1_000_000.0;
-                metrics.responseSent(
-                        DNSService.rcodeToString(response.getRcode()),
-                        durationMs, "doq");
-            }
-            sendResponseAndClose(response);
+            final long startNanos = System.nanoTime();
+            service.processQuery(query, endpoint.getSelectorLoop(),
+                    new DNSQueryCallback() {
+                        @Override
+                        public void onResponse(DNSMessage response) {
+                            if (metrics != null) {
+                                double durationMs = (System.nanoTime()
+                                        - startNanos) / 1_000_000.0;
+                                metrics.responseSent(
+                                        DNSService.rcodeToString(
+                                                response.getRcode()),
+                                        durationMs, "doq");
+                            }
+                            sendResponseAndClose(response);
+                        }
+
+                        @Override
+                        public void onError(String error) {
+                            sendResponseAndClose(query.createErrorResponse(
+                                    DNSMessage.RCODE_SERVFAIL));
+                        }
+                    });
 
         } catch (DNSFormatException e) {
             LOGGER.log(Level.FINE, MessageFormat.format(
