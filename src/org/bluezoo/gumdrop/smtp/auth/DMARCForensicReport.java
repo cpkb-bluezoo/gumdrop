@@ -22,9 +22,10 @@
 package org.bluezoo.gumdrop.smtp.auth;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
+import java.io.StringWriter;
 import java.io.Writer;
+import java.nio.ByteBuffer;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -71,7 +72,7 @@ import java.util.TimeZone;
  * report.setDkimResult(DKIMResult.FAIL);
  * report.setOriginalHeaders(headerText);
  *
- * report.writeMIME(outputStream, boundary);
+ * report.writeMIME(writableByteChannel, boundary);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -291,12 +292,12 @@ public class DMARCForensicReport {
      * envelope headers (To: ruf address, From: reporter, Subject, etc.)
      * and for the outer Content-Type with the boundary parameter.
      *
-     * @param out the output stream to write to
+     * @param out the channel to write to
      * @param boundary the MIME boundary string to use
      * @throws IOException if an I/O error occurs
      */
-    public void writeMIME(OutputStream out, String boundary) throws IOException {
-        Writer w = new OutputStreamWriter(out, StandardCharsets.UTF_8);
+    public void writeMIME(WritableByteChannel out, String boundary) throws IOException {
+        StringWriter w = new StringWriter();
 
         // Part 1: Human-readable description
         w.write("--" + boundary + CRLF);
@@ -317,7 +318,12 @@ public class DMARCForensicReport {
 
         // Closing boundary
         w.write("--" + boundary + "--" + CRLF);
-        w.flush();
+
+        ByteBuffer buf = ByteBuffer.wrap(
+                w.toString().getBytes(StandardCharsets.UTF_8));
+        while (buf.hasRemaining()) {
+            out.write(buf);
+        }
     }
 
     /**

@@ -26,6 +26,11 @@ import static org.junit.Assert.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Date;
 
 /**
@@ -349,6 +354,29 @@ public class DMARCForensicReportTest {
         assertTrue(mime.contains("Identity-Alignment: none"));
     }
 
+    /**
+     * {@code writeMIME} must accept any {@code WritableByteChannel}, not
+     * just the {@code Channels.newChannel} adapter the other tests use
+     * -- verify against a genuine {@link FileChannel}.
+     */
+    @Test
+    public void testWriteMIMEAcceptsARealFileChannel() throws IOException {
+        DMARCForensicReport report = createTestReport();
+        Path tempFile = Files.createTempFile("dmarc-forensic-", ".eml");
+        try {
+            try (FileChannel channel = FileChannel.open(tempFile,
+                    StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                report.writeMIME(channel, "B1");
+            }
+            String mime = new String(Files.readAllBytes(tempFile), "UTF-8");
+            assertTrue(mime.contains("--B1"));
+            assertTrue(mime.contains("Content-Type: message/feedback-report"));
+            assertTrue(mime.endsWith("--B1--" + "\r\n"));
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
+    }
+
     private DMARCForensicReport createTestReport() {
         DMARCForensicReport report = new DMARCForensicReport();
         report.setReporterDomain("receiver.example.com");
@@ -368,7 +396,7 @@ public class DMARCForensicReportTest {
 
     private String writeToString(DMARCForensicReport report, String boundary) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        report.writeMIME(out, boundary);
+        report.writeMIME(Channels.newChannel(out), boundary);
         return out.toString("UTF-8");
     }
 
