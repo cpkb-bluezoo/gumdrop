@@ -254,14 +254,33 @@ public class UDPTransportFactory extends TransportFactory {
         endpoint.init();
 
         Gumdrop gumdrop = Gumdrop.getInstance();
-        SelectorLoop workerLoop = (loop != null) ? loop : gumdrop.nextWorkerLoop();
+        final SelectorLoop workerLoop = (loop != null) ? loop : gumdrop.nextWorkerLoop();
         workerLoop.registerDatagram(channel, endpoint);
         gumdrop.addChannelHandler(endpoint);
 
-        handler.connected(endpoint);
-        // Issue #190: a DTLS client must send the initial ClientHello
-        // proactively; a server instead waits and reacts on first receive.
-        endpoint.startClientDtlsHandshake();
+        // registerDatagram() defers the real channel.register() (and the
+        // endpoint's SelectionKey) to workerLoop's own thread. Calling
+        // handler.connected() synchronously here, on whatever thread
+        // called connect(), would race that: a handler that sends
+        // immediately from connected() would queue the datagram and
+        // request OP_WRITE before the endpoint has a SelectionKey, which
+        // SelectorLoop.requestDatagramWrite() silently ignores -- the
+        // datagram is queued but never flushed. Route through
+        // invokeLater() instead, the same way TCPTransportFactory.connect
+        // already does for its analogous synchronous-connect case, so
+        // connected() always runs after registration, on workerLoop's
+        // own thread.
+        final UDPEndpoint endpointForCallback = endpoint;
+        workerLoop.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+                handler.connected(endpointForCallback);
+                // Issue #190: a DTLS client must send the initial
+                // ClientHello proactively; a server instead waits and
+                // reacts on first receive.
+                endpointForCallback.startClientDtlsHandshake();
+            }
+        });
 
         return endpoint;
     }

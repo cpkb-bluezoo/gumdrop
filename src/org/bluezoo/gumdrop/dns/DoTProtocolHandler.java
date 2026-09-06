@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
  * <p>A single DoT connection may carry multiple sequential
  * query-response pairs. The handler accumulates incoming bytes until
  * a complete length-prefixed message is available, then delegates to
- * {@link DNSService#processQuery(DNSMessage)}.
+ * {@link DNSService#processQuery(DNSMessage, org.bluezoo.gumdrop.SelectorLoop, DNSQueryCallback)}.
  *
  * <p>RFC 7858 section 3.4: connections SHOULD be reused for multiple
  * queries. Idle connections may be closed by either party.
@@ -146,7 +146,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
 
     private void processMessage(ByteBuffer messageBuf) {
         try {
-            DNSMessage query = DNSMessage.parse(messageBuf);
+            final DNSMessage query = DNSMessage.parse(messageBuf);
 
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
@@ -155,7 +155,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
                         query, endpoint.getRemoteAddress()));
             }
 
-            DNSServerMetrics metrics = service.getMetrics();
+            final DNSServerMetrics metrics = service.getMetrics();
             if (metrics != null && !query.getQuestions().isEmpty()) {
                 DNSQuestion q =
                         query.getQuestions().get(0);
@@ -175,16 +175,28 @@ final class DoTProtocolHandler implements ProtocolHandler {
                 return;
             }
 
-            long startNanos = System.nanoTime();
-            DNSMessage response = service.processQuery(query);
-            if (metrics != null) {
-                double durationMs =
-                        (System.nanoTime() - startNanos) / 1_000_000.0;
-                metrics.responseSent(
-                        DNSService.rcodeToString(response.getRcode()),
-                        durationMs, "dot");
-            }
-            sendResponse(response);
+            final long startNanos = System.nanoTime();
+            service.processQuery(query, endpoint.getSelectorLoop(),
+                    new DNSQueryCallback() {
+                        @Override
+                        public void onResponse(DNSMessage response) {
+                            if (metrics != null) {
+                                double durationMs = (System.nanoTime()
+                                        - startNanos) / 1_000_000.0;
+                                metrics.responseSent(
+                                        DNSService.rcodeToString(
+                                                response.getRcode()),
+                                        durationMs, "dot");
+                            }
+                            sendResponse(response);
+                        }
+
+                        @Override
+                        public void onError(String error) {
+                            sendResponse(query.createErrorResponse(
+                                    DNSMessage.RCODE_SERVFAIL));
+                        }
+                    });
 
         } catch (DNSFormatException e) {
             LOGGER.log(Level.FINE, MessageFormat.format(
