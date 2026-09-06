@@ -12,9 +12,39 @@ import static org.junit.Assert.*;
 import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
 
 /**
- * Unit tests for {@link SOCKSUDPHeader}.
+ * Unit tests for {@link SOCKSUDPHeader}. {@link SOCKSUDPHeader#parse}
+ * is a push-style callback API (no materialized "parsed header"
+ * object), so {@link #parse} below records a call into a small local
+ * test-only holder for assertions.
  */
 public class SOCKSUDPHeaderTest {
+
+    private static class Recorded {
+        boolean called;
+        byte frag;
+        InetAddress address;
+        String hostname;
+        int port;
+        byte[] payload;
+    }
+
+    private Recorded parse(ByteBuffer data) {
+        final Recorded r = new Recorded();
+        SOCKSUDPHeader.parse(data, new SOCKSUDPHeader.Handler() {
+            @Override
+            public void datagram(byte frag, InetAddress address,
+                    String hostname, int port, ByteBuffer payload) {
+                r.called = true;
+                r.frag = frag;
+                r.address = address;
+                r.hostname = hostname;
+                r.port = port;
+                r.payload = new byte[payload.remaining()];
+                payload.get(r.payload);
+            }
+        });
+        return r;
+    }
 
     // ── parse() ──
 
@@ -30,18 +60,13 @@ public class SOCKSUDPHeaderTest {
         buf.put(new byte[]{0x41, 0x42});     // DATA ("AB")
         buf.flip();
 
-        SOCKSUDPHeader.Parsed p = SOCKSUDPHeader.parse(buf);
-        assertNotNull(p);
-        assertEquals(0, p.frag);
-        assertEquals(InetAddress.getByAddress(new byte[]{10, 0, 0, 1}),
-                     p.address);
-        assertNull(p.hostname);
-        assertEquals(8080, p.port);
-        assertEquals(10, p.dataOffset);
-
-        InetSocketAddress sa = p.toSocketAddress();
-        assertNotNull(sa);
-        assertEquals(8080, sa.getPort());
+        Recorded r = parse(buf);
+        assertTrue(r.called);
+        assertEquals(0, r.frag);
+        assertEquals(InetAddress.getByAddress(new byte[]{10, 0, 0, 1}), r.address);
+        assertNull(r.hostname);
+        assertEquals(8080, r.port);
+        assertArrayEquals(new byte[]{0x41, 0x42}, r.payload);
     }
 
     @Test
@@ -60,13 +85,12 @@ public class SOCKSUDPHeaderTest {
         buf.put(new byte[]{1, 2, 3});
         buf.flip();
 
-        SOCKSUDPHeader.Parsed p = SOCKSUDPHeader.parse(buf);
-        assertNotNull(p);
-        assertEquals(InetAddress.getByAddress(ipv6), p.address);
-        assertNull(p.hostname);
-        assertEquals(443, p.port);
-        assertEquals(22, p.dataOffset);
-        assertNotNull(p.toSocketAddress());
+        Recorded r = parse(buf);
+        assertTrue(r.called);
+        assertEquals(InetAddress.getByAddress(ipv6), r.address);
+        assertNull(r.hostname);
+        assertEquals(443, r.port);
+        assertArrayEquals(new byte[]{1, 2, 3}, r.payload);
     }
 
     @Test
@@ -85,12 +109,11 @@ public class SOCKSUDPHeaderTest {
         buf.put(new byte[]{0x0A, 0x0B});
         buf.flip();
 
-        SOCKSUDPHeader.Parsed p = SOCKSUDPHeader.parse(buf);
-        assertNotNull(p);
-        assertNull(p.address);
-        assertEquals("example.com", p.hostname);
-        assertEquals(53, p.port);
-        assertNull(p.toSocketAddress());
+        Recorded r = parse(buf);
+        assertTrue(r.called);
+        assertNull(r.address);
+        assertEquals("example.com", r.hostname);
+        assertEquals(53, r.port);
     }
 
     @Test
@@ -104,9 +127,9 @@ public class SOCKSUDPHeaderTest {
         buf.put(new byte[]{0x41, 0x42});
         buf.flip();
 
-        SOCKSUDPHeader.Parsed p = SOCKSUDPHeader.parse(buf);
-        assertNotNull(p);
-        assertEquals(3, p.frag);
+        Recorded r = parse(buf);
+        assertTrue(r.called);
+        assertEquals(3, r.frag);
     }
 
     @Test
@@ -114,7 +137,7 @@ public class SOCKSUDPHeaderTest {
         ByteBuffer buf = ByteBuffer.allocate(3);
         buf.put(new byte[]{0, 0, 0});
         buf.flip();
-        assertNull(SOCKSUDPHeader.parse(buf));
+        assertFalse(parse(buf).called);
     }
 
     @Test
@@ -125,7 +148,7 @@ public class SOCKSUDPHeaderTest {
         buf.put(SOCKS5_ATYP_IPV4);
         buf.put(new byte[]{1, 2, 3}); // only 3 bytes, need 4 + 2
         buf.flip();
-        assertNull(SOCKSUDPHeader.parse(buf));
+        assertFalse(parse(buf).called);
     }
 
     @Test
@@ -136,7 +159,7 @@ public class SOCKSUDPHeaderTest {
         buf.put(SOCKS5_ATYP_IPV6);
         buf.put(new byte[]{1, 2, 3, 4, 5, 6}); // 6 bytes, need 16 + 2
         buf.flip();
-        assertNull(SOCKSUDPHeader.parse(buf));
+        assertFalse(parse(buf).called);
     }
 
     @Test
@@ -148,7 +171,7 @@ public class SOCKSUDPHeaderTest {
         buf.put((byte) 10); // claims 10 bytes, but only 3 remain
         buf.put(new byte[]{0x61, 0x62, 0x63});
         buf.flip();
-        assertNull(SOCKSUDPHeader.parse(buf));
+        assertFalse(parse(buf).called);
     }
 
     @Test
@@ -159,7 +182,7 @@ public class SOCKSUDPHeaderTest {
         buf.put((byte) 0x99); // unknown ATYP
         buf.put(new byte[]{1, 2, 3, 4, 5, 6});
         buf.flip();
-        assertNull(SOCKSUDPHeader.parse(buf));
+        assertFalse(parse(buf).called);
     }
 
     // ── encode() ──
@@ -242,10 +265,10 @@ public class SOCKSUDPHeaderTest {
         ByteBuffer encoded = SOCKSUDPHeader.encode(source, payload);
         int capacity = encoded.capacity();
         try {
-            SOCKSUDPHeader.Parsed parsed = SOCKSUDPHeader.parse(encoded.duplicate());
-            assertNotNull(parsed);
-            assertEquals(source.getAddress(), parsed.address);
-            assertEquals(source.getPort(), parsed.port);
+            Recorded r = parse(encoded.duplicate());
+            assertTrue(r.called);
+            assertEquals(source.getAddress(), r.address);
+            assertEquals(source.getPort(), r.port);
         } finally {
             ByteBufferPool.release(encoded);
         }
@@ -269,15 +292,13 @@ public class SOCKSUDPHeaderTest {
 
         ByteBuffer encoded = SOCKSUDPHeader.encode(original, payload);
         try {
-            SOCKSUDPHeader.Parsed parsed = SOCKSUDPHeader.parse(encoded);
+            Recorded r = parse(encoded);
 
-            assertNotNull(parsed);
-            assertEquals(original.getAddress(), parsed.address);
-            assertEquals(original.getPort(), parsed.port);
-            assertEquals(0, parsed.frag);
-
-            int remaining = encoded.limit() - parsed.dataOffset;
-            assertEquals(data.length, remaining);
+            assertTrue(r.called);
+            assertEquals(original.getAddress(), r.address);
+            assertEquals(original.getPort(), r.port);
+            assertEquals(0, r.frag);
+            assertArrayEquals(data, r.payload);
         } finally {
             ByteBufferPool.release(encoded);
         }
