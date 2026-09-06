@@ -29,12 +29,15 @@
  * before querying, and caching responses by TTL across query types
  * ({@link org.bluezoo.gumdrop.dns.client.DNSMultiQTypeCache}). The wire
  * transport is pluggable via {@link
- * org.bluezoo.gumdrop.dns.client.DNSClientTransport}: {@link
- * org.bluezoo.gumdrop.dns.client.UDPDNSClientTransport} (plain UDP, the
- * default, falling back to TCP on truncation), {@link
- * org.bluezoo.gumdrop.dns.client.TCPDNSClientTransport} (RFC 7766, with
- * {@link org.bluezoo.gumdrop.dns.client.TCPDNSConnectionPool} for
- * connection reuse), and {@link
+ * org.bluezoo.gumdrop.dns.client.DNSClientTransport}, one persistent
+ * connection per configured server reused for the resolver's lifetime:
+ * {@link org.bluezoo.gumdrop.dns.client.UDPDNSClientTransport} (plain
+ * UDP, the default, falling back to TCP on truncation), {@link
+ * org.bluezoo.gumdrop.dns.client.TCPDNSClientTransport} (RFC 7766 plain
+ * DNS-over-TCP, or RFC 7858 DNS-over-TLS via {@link
+ * org.bluezoo.gumdrop.dns.client.TCPDNSClientTransport#createDoT()},
+ * with the "dot" ALPN identifier and either SPKI pinning or a pluggable
+ * {@code X509TrustManager}), and {@link
  * org.bluezoo.gumdrop.dns.client.DoQClientTransport} (DNS-over-QUIC, RFC
  * 9250, over {@link org.bluezoo.gumdrop.quic}, pooled by {@link
  * org.bluezoo.gumdrop.dns.client.DoQConnectionPool}).

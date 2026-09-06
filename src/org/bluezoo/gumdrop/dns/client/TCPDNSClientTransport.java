@@ -26,6 +26,8 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.Set;
 
+import javax.net.ssl.X509TrustManager;
+
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -43,8 +45,16 @@ import org.bluezoo.gumdrop.TimerHandle;
  * RFC 7858 section 3.3: all DoT messages use the same 2-octet length framing.
  *
  * <p>By default this is a plain TCP transport on port 53. When configured
- * with {@link #setSecure(boolean) setSecure(true)}, it becomes a
- * DNS-over-TLS (DoT) transport on port 853.
+ * with {@link #setSecure(boolean) setSecure(true)} (or via the {@link
+ * #createDoT()} factory), it becomes a DNS-over-TLS (DoT) transport on
+ * port 853, advertising the {@code "dot"} ALPN identifier as required
+ * by RFC 7858 section 3.1. Server certificate verification uses the
+ * JVM's default WebPKI trust store unless overridden with {@link
+ * #setTrustManager} (an arbitrary {@code X509TrustManager}, e.g. {@link
+ * org.bluezoo.gumdrop.dns.DANETrustManager}) or {@link
+ * #setPinnedSPKIFingerprints} (RFC 7858 section 4.2's Strict usage
+ * profile); when both are set, the trust manager is used as the SPKI
+ * check's delegate rather than being replaced by it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DNSClientTransport
@@ -59,6 +69,8 @@ public class TCPDNSClientTransport implements DNSClientTransport {
     private static final int LENGTH_PREFIX_SIZE = 2;
     // RFC 1035 section 4.2.2: max message size 65535 octets
     private static final int MAX_DNS_MESSAGE_SIZE = 65535;
+    // RFC 7858 section 3.1: the ALPN protocol identifier for DoT
+    private static final String DOT_ALPN_PROTOCOL = "dot";
 
     private boolean secure;
     private int defaultPort = DEFAULT_TCP_PORT;
@@ -70,6 +82,14 @@ public class TCPDNSClientTransport implements DNSClientTransport {
      * verified against these pins after TLS handshake.
      */
     private Set<String> spkiFingerprints;
+
+    /**
+     * A custom trust manager for TLS certificate verification, used in
+     * preference to the JVM's default WebPKI trust store. Combined with
+     * {@link #spkiFingerprints}, when both are set, as the delegate for
+     * the SPKI pin check rather than being replaced by it.
+     */
+    private X509TrustManager trustManager;
 
     /**
      * Returns a transport configured for DNS-over-TLS (port 853, TLS enabled).
@@ -105,6 +125,20 @@ public class TCPDNSClientTransport implements DNSClientTransport {
     }
 
     /**
+     * Sets a custom trust manager for TLS certificate verification, in
+     * preference to the JVM's default WebPKI trust store -- e.g. a
+     * {@link org.bluezoo.gumdrop.dns.DANETrustManager} to authenticate
+     * this resolver's upstream against TLSA records, or a private CA.
+     * If {@link #setPinnedSPKIFingerprints} is also set, this trust
+     * manager is used as its delegate rather than being replaced by it.
+     *
+     * @param trustManager the trust manager, or null to use JVM defaults
+     */
+    public void setTrustManager(X509TrustManager trustManager) {
+        this.trustManager = trustManager;
+    }
+
+    /**
      * Overrides the default port.
      *
      * @param port the default port to use when the caller passes port &lt;= 0
@@ -116,27 +150,45 @@ public class TCPDNSClientTransport implements DNSClientTransport {
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
                      DNSClientTransportHandler handler) throws IOException {
-        TCPTransportFactory factory = new TCPTransportFactory();
-        if (secure) {
-            factory.setSecure(true);
-            // RFC 7858 section 3.4, RFC 7413: use TCP Fast Open
-            // when re-establishing DoT connections.
-            factory.setTcpFastOpen(true);
-        }
-        // RFC 7858 section 4.2: SPKI fingerprint verification
-        if (spkiFingerprints != null && !spkiFingerprints.isEmpty()) {
-            factory.setTrustManager(
-                    new org.bluezoo.gumdrop.util
-                            .SPKIPinnedCertTrustManager(
-                            spkiFingerprints.toArray(
-                                    new String[0])));
-        }
+        TCPTransportFactory factory = createTransportFactory();
         factory.start();
         if (port <= 0) {
             port = defaultPort;
         }
         this.endpoint = factory.connect(server, port,
                 new TCPProtocolHandler(handler), loop);
+    }
+
+    /**
+     * Builds the (not yet started) transport factory for this
+     * transport's current configuration. Package-private rather than
+     * private so tests can inspect the resulting ALPN/trust manager
+     * configuration without a live connection.
+     */
+    TCPTransportFactory createTransportFactory() {
+        TCPTransportFactory factory = new TCPTransportFactory();
+        if (secure) {
+            factory.setSecure(true);
+            // RFC 7858 section 3.4, RFC 7413: use TCP Fast Open
+            // when re-establishing DoT connections.
+            factory.setTcpFastOpen(true);
+            // RFC 7858 section 3.1: the "dot" ALPN identifier MUST be
+            // used for DNS-over-TLS.
+            factory.setApplicationProtocols(DOT_ALPN_PROTOCOL);
+        }
+        // RFC 7858 section 4.2: SPKI fingerprint verification
+        if (spkiFingerprints != null && !spkiFingerprints.isEmpty()) {
+            String[] fingerprints = spkiFingerprints.toArray(new String[0]);
+            factory.setTrustManager(trustManager != null
+                    ? new org.bluezoo.gumdrop.util
+                            .SPKIPinnedCertTrustManager(
+                            trustManager, fingerprints)
+                    : new org.bluezoo.gumdrop.util
+                            .SPKIPinnedCertTrustManager(fingerprints));
+        } else if (trustManager != null) {
+            factory.setTrustManager(trustManager);
+        }
+        return factory;
     }
 
     // RFC 1035 section 4.2.2: prefix each message with 2-byte big-endian length
