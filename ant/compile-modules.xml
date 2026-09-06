@@ -213,6 +213,7 @@
         <include name='org/bluezoo/gumdrop/health/**'/>
         <exclude name='**/*.java'/>
       </fileset>
+      <fileset dir='${ant.services}/http' includes='META-INF/**'/>
     </copy>
   </target>
 

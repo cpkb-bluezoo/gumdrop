@@ -36,6 +36,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -78,9 +79,16 @@ import org.bluezoo.gumdrop.dns.DNSType;
  * <p>RFC 1034 section 3.6.2: CNAME records are chased up to a
  * configurable depth limit.
  *
- * <p>The transport used for DNS communication is pluggable via
- * {@link DNSClientTransport}. By default, plain UDP is used
- * ({@link UDPDNSClientTransport}).
+ * <p>The transport used for DNS communication is pluggable via {@link
+ * DNSClientTransport} and {@link #setTransport}. Without an explicit
+ * override, each configured server gets its own transport chosen by
+ * descending preference -- RFC 9250 DoQ, then RFC 7858 DoT, then RFC
+ * 8484 DoH, then plain UDP ({@link UDPDNSClientTransport}) -- based on
+ * what {@link DNSServerCapabilityCache} already knows that server
+ * supports (seeded for well-known public resolvers; otherwise plain
+ * UDP, since most servers support none of the encrypted transports and
+ * probing every configured server for them by default would add
+ * connection-timeout latency to the common case).
  *
  * <p>SelectorLoop affinity: when used inside a Gumdrop service (e.g. from an
  * HTTP or SMTP handler), call {@link #setSelectorLoop(SelectorLoop)} with
@@ -245,10 +253,13 @@ public class DNSResolver {
     // -- Configuration --
 
     /**
-     * Sets the transport implementation to use for DNS communication.
+     * Sets the transport implementation to use for DNS communication,
+     * overriding automatic per-server transport preference/fallback
+     * (see the class Javadoc) with this exact instance for every
+     * configured server.
      *
-     * <p>Must be called before {@link #open()}. If not called,
-     * {@link UDPDNSClientTransport} is used by default.
+     * <p>Must be called before {@link #open()}. If not called, each
+     * server gets its own transport chosen automatically.
      *
      * @param transport the transport prototype to use for each server
      */
@@ -371,7 +382,10 @@ public class DNSResolver {
      * <p>Discovers the platform's configured nameservers by parsing
      * {@code /etc/resolv.conf} (see {@link ResolvConf}). Falls back to
      * well-known public resolvers (8.8.8.8 and 1.1.1.1) if none are found
-     * or none are valid.
+     * or none are valid -- {@link DNSServerCapabilityCache} knows these
+     * addresses support DoQ/DoT/DoH, so (absent an explicit {@link
+     * #setTransport} override) this fallback path prefers an encrypted
+     * transport rather than landing on plain UDP.
      */
     public void useSystemResolvers() {
         for (String ns : ResolvConf.getNameservers()) {
@@ -415,12 +429,10 @@ public class DNSResolver {
             }
             chainValidator = new DNSSECChainValidator(this, trustAnchor);
         }
-        TransportCallback callback = new TransportCallback();
-        for (InetSocketAddress server : servers) {
-            DNSClientTransport transport = createTransport();
-            transport.open(server.getAddress(), server.getPort(),
-                    selectorLoop, callback);
-            transports.add(transport);
+        for (int i = 0; i < servers.size(); i++) {
+            InetSocketAddress server = servers.get(i);
+            TransportCallback callback = new TransportCallback(i);
+            transports.add(openBestTransport(server, callback));
         }
         opened = true;
     }
@@ -909,11 +921,122 @@ public class DNSResolver {
         }
     }
 
-    private DNSClientTransport createTransport() {
+    // Descending preference (issue #408): encrypted QUIC-based transport
+    // first, then TLS-based, then HTTPS-based, then plain TCP/UDP.
+    private static final DNSTransportType[] TRANSPORT_PREFERENCE_ORDER = {
+        DNSTransportType.DOQ, DNSTransportType.DOT, DNSTransportType.DOH, DNSTransportType.PLAIN
+    };
+
+    /**
+     * Opens a transport to {@code server}. If an explicit transport was
+     * configured via {@link #setTransport}, that override is used as
+     * before, with no capability-based selection. Otherwise, transports
+     * are tried in {@link #TRANSPORT_PREFERENCE_ORDER}, skipping any
+     * {@link DNSServerCapabilityCache} already knows this server doesn't
+     * support, and falling through to the next preference if one fails
+     * to open synchronously. Plain UDP is always the last preference and
+     * essentially never fails synchronously, so this always returns a
+     * transport or propagates its open() failure.
+     *
+     * <p>A transport that opens successfully here but later fails
+     * asynchronously (e.g. a QUIC/TLS handshake failure reported after
+     * this method returns) is handled reactively by {@link
+     * TransportCallback#onError}, which records the failure in the
+     * capability cache for future opens rather than replacing the
+     * transport mid-session -- see that method's comment for why.
+     */
+    private DNSClientTransport openBestTransport(InetSocketAddress server,
+                                                  TransportCallback callback) throws IOException {
         if (transportPrototype != null) {
+            transportPrototype.open(server.getAddress(), server.getPort(),
+                    selectorLoop, callback);
             return transportPrototype;
         }
-        return new UDPDNSClientTransport();
+        DNSServerCapabilities caps = DNSServerCapabilityCache.get(server);
+        IOException lastFailure = null;
+        for (DNSTransportType type : TRANSPORT_PREFERENCE_ORDER) {
+            if (!supports(caps, type) || DNSServerCapabilityCache.isKnownUnsupported(server, type)) {
+                continue;
+            }
+            DNSClientTransport transport = newTransportInstance(type, caps);
+            if (transport == null) {
+                continue; // e.g. DoH with no provider on the classpath
+            }
+            try {
+                transport.open(server.getAddress(), server.getPort(), selectorLoop, callback);
+                callback.transportType = type;
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine(MessageFormat.format(
+                            L10N.getString("debug.transport_selected"), type, server));
+                }
+                return transport;
+            } catch (IOException e) {
+                lastFailure = e;
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.log(Level.FINE, MessageFormat.format(
+                            L10N.getString("debug.transport_open_failed"), type, server), e);
+                }
+                if (type != DNSTransportType.PLAIN) {
+                    DNSServerCapabilityCache.markUnsupported(server, type);
+                }
+            }
+        }
+        // PLAIN is always in TRANSPORT_PREFERENCE_ORDER and always
+        // "supported" (see supports() below), so the loop only reaches
+        // here if even plain UDP's open() failed.
+        throw lastFailure != null ? lastFailure
+                : new IOException(L10N.getString("err.no_dns_servers"));
+    }
+
+    private static boolean supports(DNSServerCapabilities caps, DNSTransportType type) {
+        switch (type) {
+            case DOQ: return caps.isDoqSupported();
+            case DOT: return caps.isDotSupported();
+            case DOH: return caps.isDohSupported();
+            case PLAIN: default: return true;
+        }
+    }
+
+    // Package-private (not private) and non-final so tests can override
+    // it to inject mock transports per type, the same way
+    // createTcpRetryTransport() below is overridable for the TC-retry path.
+    DNSClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
+        switch (type) {
+            case DOQ:
+                return new DoQClientTransport();
+            case DOT:
+                return TCPDNSClientTransport.createDoT();
+            case DOH:
+                return createDohTransport(caps.getDohPath());
+            case PLAIN:
+            default:
+                return new UDPDNSClientTransport();
+        }
+    }
+
+    private static volatile DoHTransportFactory dohTransportFactory;
+    private static volatile boolean dohTransportFactoryLoaded;
+
+    /**
+     * Creates a DoH transport via the {@link DoHTransportFactory} SPI
+     * (implemented by the HTTP module, which core cannot depend on
+     * directly -- see that interface's Javadoc), or null if no provider
+     * is on the classpath.
+     */
+    private static DNSClientTransport createDohTransport(String path) {
+        if (!dohTransportFactoryLoaded) {
+            synchronized (DNSResolver.class) {
+                if (!dohTransportFactoryLoaded) {
+                    for (DoHTransportFactory factory : ServiceLoader.load(DoHTransportFactory.class)) {
+                        dohTransportFactory = factory;
+                        break;
+                    }
+                    dohTransportFactoryLoaded = true;
+                }
+            }
+        }
+        DoHTransportFactory factory = dohTransportFactory;
+        return factory != null ? factory.createTransport(path) : null;
     }
 
     // RFC 1035 section 7.3: match response to query by Message ID
@@ -1367,6 +1490,20 @@ public class DNSResolver {
 
     private class TransportCallback implements DNSClientTransportHandler {
 
+        private final int serverIndex;
+
+        /**
+         * Set by {@link #openBestTransport} once its transport.open()
+         * call succeeds; null while an explicit {@link #setTransport}
+         * override is in effect, since there's nothing to fall back
+         * from in that case.
+         */
+        volatile DNSTransportType transportType;
+
+        TransportCallback(int serverIndex) {
+            this.serverIndex = serverIndex;
+        }
+
         @Override
         public void onReceive(ByteBuffer data) {
             try {
@@ -1382,6 +1519,21 @@ public class DNSResolver {
         public void onError(Exception cause) {
             LOGGER.log(Level.WARNING,
                     "DNS resolver transport error", cause);
+            // An asynchronous failure (e.g. a QUIC/TLS handshake that
+            // fails after open() already returned successfully) means
+            // this transport doesn't actually work for this server.
+            // Record that in the process-wide capability cache so
+            // future opens -- this resolver's next one, or another
+            // resolver's for the same server -- prefer a transport more
+            // likely to succeed, rather than replacing this session's
+            // already-open transport mid-flight. In-flight queries on
+            // this session still recover via the existing per-server
+            // retry-on-timeout in handleTimeout().
+            DNSTransportType type = transportType;
+            if (type != null && type != DNSTransportType.PLAIN
+                    && serverIndex >= 0 && serverIndex < servers.size()) {
+                DNSServerCapabilityCache.markUnsupported(servers.get(serverIndex), type);
+            }
         }
     }
 
