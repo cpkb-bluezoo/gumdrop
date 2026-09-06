@@ -66,6 +66,14 @@ public class AcceptSelectorLoop implements Runnable {
      * Handler for raw socket channel accepts.
      * Used by subsystems like FTP data that need the raw channel
      * without the endpoint/connection infrastructure.
+     *
+     * <p>{@code sc} arrives in non-blocking mode, on the single accept
+     * thread shared by every listener in the process. {@code accepted}
+     * must not perform blocking I/O on it (or otherwise block) --
+     * doing so would stall acceptance of new connections on every
+     * other listener until it returns. Queue the channel or hand it
+     * off to another thread/{@link SelectorLoop} instead, the way
+     * {@code FTPClientDataConnectionCoordinator} does.
      */
     public interface RawAcceptHandler {
         void accepted(SocketChannel sc) throws IOException;
@@ -214,8 +222,9 @@ public class AcceptSelectorLoop implements Runnable {
 
     /**
      * Registers a raw accept handler for an already-bound ServerSocketChannel.
-     * The handler receives raw SocketChannels without endpoint/connection
-     * infrastructure. Used by subsystems like FTP data that use blocking I/O.
+     * The handler receives raw, non-blocking SocketChannels without
+     * endpoint/connection infrastructure. Used by subsystems like FTP
+     * data that need the channel itself rather than a full endpoint.
      *
      * @param channel an already-bound ServerSocketChannel
      * @param handler the handler to receive accepted connections
@@ -361,7 +370,13 @@ public class AcceptSelectorLoop implements Runnable {
                         acceptListener(
                                 (TCPListener) attachment, sc, remoteAddress);
                     } else if (attachment instanceof RawAcceptHandler) {
-                        sc.configureBlocking(true);
+                        // ServerSocketChannel.accept() always returns a
+                        // channel in blocking mode, regardless of the
+                        // listening channel's own mode -- flip it to
+                        // non-blocking before handing it to the handler,
+                        // the same as acceptListener() does below, per
+                        // RawAcceptHandler's contract.
+                        sc.configureBlocking(false);
                         ((RawAcceptHandler) attachment).accepted(sc);
                     }
                 } catch (IOException e) {
