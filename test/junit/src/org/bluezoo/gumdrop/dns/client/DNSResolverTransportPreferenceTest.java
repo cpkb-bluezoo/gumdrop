@@ -199,7 +199,7 @@ public class DNSResolverTransportPreferenceTest {
     @Test
     public void testDohTransportInstanceResolvesViaServiceLoader() {
         DNSResolver resolver = new DNSResolver();
-        DNSServerCapabilities caps = DNSServerCapabilities.of(false, false, "/dns-query");
+        DNSServerCapabilities caps = DNSServerCapabilities.of(false, 0, false, 0, "/dns-query", 0);
         DNSClientTransport transport = resolver.newTransportInstance(DNSTransportType.DOH, caps);
         assertNotNull("DoHTransportFactory should be discovered from gumdrop-http.jar on the test classpath",
                 transport);
@@ -220,6 +220,40 @@ public class DNSResolverTransportPreferenceTest {
         resolver.close();
     }
 
+    /**
+     * Regression: an encrypted transport must not be opened on the
+     * plaintext port (53) just because that's the port the server was
+     * configured with -- DoQ/DoT/DoH almost never share it (RFC 7858
+     * §3.1 / RFC 9250 §4.1.1: 853; RFC 8484 §5.1: 443). Port 0 tells
+     * the transport to use its own well-known default.
+     */
+    @Test
+    public void testEncryptedTransportOpensWithDefaultPortNotPlaintextPort() throws Exception {
+        RecordingTransport doq = new RecordingTransport();
+        TestableResolver resolver = new TestableResolver();
+        resolver.transports.put(DNSTransportType.DOQ, doq);
+        resolver.addServer("8.8.8.8", 53);
+        resolver.open();
+
+        assertEquals(Collections.singletonList(DNSTransportType.DOQ), resolver.attempted);
+        assertEquals("DoQ should open with port 0 (use transport default), not the plaintext port 53",
+                0, doq.openedPort);
+        resolver.close();
+    }
+
+    @Test
+    public void testPlainTransportUsesTheConfiguredPort() throws Exception {
+        TestableResolver resolver = new TestableResolver();
+        RecordingTransport plain = new RecordingTransport();
+        resolver.transports.put(DNSTransportType.PLAIN, plain);
+        resolver.addServer("203.0.113.1", 5353); // not a seeded resolver, and a non-default port
+        resolver.open();
+
+        assertEquals(Collections.singletonList(DNSTransportType.PLAIN), resolver.attempted);
+        assertEquals(5353, plain.openedPort);
+        resolver.close();
+    }
+
     // ── Helpers ──
 
     private static InetSocketAddress server(String address) throws Exception {
@@ -230,11 +264,13 @@ public class DNSResolverTransportPreferenceTest {
 
     private static class RecordingTransport implements DNSClientTransport {
         DNSClientTransportHandler handler;
+        int openedPort = Integer.MIN_VALUE;
 
         @Override
         public void open(InetAddress server, int port, SelectorLoop loop,
                          DNSClientTransportHandler handler) {
             this.handler = handler;
+            this.openedPort = port;
         }
 
         @Override

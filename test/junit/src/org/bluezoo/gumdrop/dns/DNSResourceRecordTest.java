@@ -362,6 +362,27 @@ public class DNSResourceRecordTest {
     }
 
     @Test
+    public void testSvcbRecordDohPathParam() {
+        Map<Integer, byte[]> params = new LinkedHashMap<>();
+        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
+                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h2")));
+        params.put(DNSResourceRecord.SVCB_PARAM_DOHPATH,
+                DNSResourceRecord.encodeSVCBDohPath("/dns-query{?dns}"));
+        DNSResourceRecord svcb = DNSResourceRecord.svcb(
+                "_dns.resolver.arpa", 300, 1, ".", params);
+
+        assertEquals("/dns-query{?dns}", svcb.getSVCBDohPath());
+        assertEquals(Arrays.asList("h2"), svcb.getSVCBAlpnProtocols());
+    }
+
+    @Test
+    public void testSvcbRecordDohPathAbsent() {
+        DNSResourceRecord svcb = DNSResourceRecord.svcb(
+                "_dns.resolver.arpa", 300, 1, ".", null);
+        assertNull(svcb.getSVCBDohPath());
+    }
+
+    @Test
     public void testSvcbRecordType() {
         DNSResourceRecord svcb = DNSResourceRecord.svcb(
                 "example.com", 3600, 1, ".", null);
