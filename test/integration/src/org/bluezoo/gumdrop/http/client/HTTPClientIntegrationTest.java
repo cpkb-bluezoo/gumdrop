@@ -42,6 +42,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -514,6 +518,42 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertNotNull("Should have response body", body);
         assertTrue("Response should contain echoed content",
             body.contains(testContent));
+    }
+
+    /**
+     * Exercises the command-line client's file-based request body
+     * (-d @file) and output (-o file) handling end to end: the request
+     * body must be read from a real file via {@code FileChannel} and
+     * the echoed response written back to a real output file via a
+     * {@code WritableByteChannel}, with the round-tripped bytes intact.
+     */
+    @Test
+    public void testCLIFileBasedRequestBodyAndOutputRoundTrip() throws Exception {
+        String testContent = "Hello from a real file, read via FileChannel "
+                + "and written back via WritableByteChannel.";
+        Path bodyFile = Files.createTempFile("httpclient-cli-body-", ".txt");
+        Path outputFile = Files.createTempFile("httpclient-cli-output-", ".txt");
+        try {
+            Files.write(bodyFile, testContent.getBytes(StandardCharsets.UTF_8));
+
+            List<String> requestHeaders = new ArrayList<String>();
+            HTTPClient.runRequest(
+                    Gumdrop.getInstance().nextWorkerLoop(),
+                    TEST_HOST, HTTP_PORT, "http", "/echo", "POST",
+                    requestHeaders,
+                    bodyFile.toString(), outputFile.toString(),
+                    null, null, null, false, false, false);
+
+            String actual = new String(
+                    Files.readAllBytes(outputFile), StandardCharsets.UTF_8);
+            assertTrue("Output file should contain the content that was "
+                            + "read from the request body file and echoed "
+                            + "back by the server",
+                    actual.contains(testContent));
+        } finally {
+            Files.deleteIfExists(bodyFile);
+            Files.deleteIfExists(outputFile);
+        }
     }
 
     @Test
