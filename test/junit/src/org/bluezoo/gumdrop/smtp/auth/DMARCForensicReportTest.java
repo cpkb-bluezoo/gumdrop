@@ -26,6 +26,7 @@ import static org.junit.Assert.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -165,7 +166,9 @@ public class DMARCForensicReportTest {
     @Test
     public void testWriteMIMEWithFullMessage() throws IOException {
         DMARCForensicReport report = createTestReport();
-        report.setOriginalMessage("From: sender@bad.example.com\r\nSubject: Test\r\n\r\nBody");
+        report.setOriginalMessage(ByteBuffer.wrap(
+                "From: sender@bad.example.com\r\nSubject: Test\r\n\r\nBody"
+                        .getBytes(StandardCharsets.US_ASCII)));
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Content-Type: message/rfc822"));
@@ -387,22 +390,26 @@ public class DMARCForensicReportTest {
      */
     @Test
     public void testOriginalHeadersAreWrittenByteForByteNotReencoded() throws IOException {
+        // Includes bytes >= 0x80 that aren't even a valid UTF-8 sequence
+        // together -- if these were ever decoded to a String and
+        // re-encoded through any Charset, this exact sequence could not
+        // survive unchanged.
         byte[] rawHeaderBytes = new byte[] {
                 'F', 'r', 'o', 'm', ':', ' ',
                 (byte) 0x80, (byte) 0xE9, (byte) 0xFF,
                 '\r', '\n'
         };
-        String rawHeaderText = new String(rawHeaderBytes, StandardCharsets.ISO_8859_1);
 
         DMARCForensicReport report = createTestReport();
-        report.setOriginalHeaders(rawHeaderText);
+        report.setOriginalHeaders(ByteBuffer.wrap(rawHeaderBytes));
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         report.writeMIME(Channels.newChannel(out), "B1");
         byte[] mime = out.toByteArray();
 
         assertTrue("Original header bytes must appear verbatim in the "
-                        + "output, not re-encoded through UTF-8",
+                        + "output -- this content is wire bytes, not text, "
+                        + "and must never be decoded/re-encoded",
                 indexOf(mime, rawHeaderBytes) >= 0);
     }
 
@@ -432,7 +439,9 @@ public class DMARCForensicReportTest {
         report.setDmarcPolicy(DMARCPolicy.REJECT);
         report.setSpfResult(SPFResult.FAIL);
         report.setDkimResult(DKIMResult.FAIL);
-        report.setOriginalHeaders("From: sender@bad.example.com\r\nSubject: Test\r\n");
+        report.setOriginalHeaders(ByteBuffer.wrap(
+                "From: sender@bad.example.com\r\nSubject: Test\r\n"
+                        .getBytes(StandardCharsets.US_ASCII)));
         return report;
     }
 
