@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.dns;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -36,11 +37,20 @@ import java.util.concurrent.ConcurrentHashMap;
  * anchors (the root KSK DS records). Custom trust anchors can be
  * added for private/split-horizon zones.
  *
+ * <p>A trust anchor can also be a DNSKEY trusted directly rather than
+ * through a DS digest, which is how {@link DNSSECTrustAnchorUpdater}
+ * (RFC 5011 automated rollover) promotes a newly-observed key to
+ * trusted -- RFC 5011 tracks and trusts DNSKEYs directly, since the
+ * whole point is to keep trusting a zone whose parent-published DS
+ * record a resolver may never re-fetch.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see DNSSECTrustAnchorUpdater
  */
 public final class DNSSECTrustAnchor {
 
     private final Map<String, List<AnchorDS>> anchors;
+    private final Map<String, List<AnchorKey>> dnskeyAnchors;
 
     /**
      * Creates a trust anchor store with the IANA root zone
@@ -48,6 +58,7 @@ public final class DNSSECTrustAnchor {
      */
     public DNSSECTrustAnchor() {
         this.anchors = new ConcurrentHashMap<>();
+        this.dnskeyAnchors = new ConcurrentHashMap<>();
         loadRootAnchors();
     }
 
@@ -100,23 +111,22 @@ public final class DNSSECTrustAnchor {
     }
 
     /**
-     * Checks whether a DNSKEY is directly trusted by matching it
-     * against the configured DS trust anchors for its zone.
+     * Checks whether a DNSKEY is trusted -- either by matching it
+     * against the configured DS trust anchors for its zone, or by
+     * matching a DNSKEY trusted directly via {@link
+     * #addDNSKEYAnchor(String, DNSResourceRecord)} (as RFC 5011
+     * automated rollover does once it promotes a key).
      *
      * @param zone the zone the DNSKEY belongs to
      * @param dnskey the DNSKEY record
-     * @return true if the DNSKEY matches a trust anchor DS
+     * @return true if the DNSKEY matches a trust anchor
      */
     public boolean isDNSKEYTrusted(String zone,
                                    DNSResourceRecord dnskey) {
-        List<AnchorDS> zoneAnchors = getAnchors(zone);
-        if (zoneAnchors.isEmpty()) {
-            return false;
-        }
-
         int keyTag = dnskey.computeKeyTag();
         int algorithm = dnskey.getDNSKEYAlgorithm();
 
+        List<AnchorDS> zoneAnchors = getAnchors(zone);
         for (int i = 0; i < zoneAnchors.size(); i++) {
             AnchorDS anchor = zoneAnchors.get(i);
             if (anchor.keyTag != keyTag
@@ -130,16 +140,84 @@ public final class DNSSECTrustAnchor {
                 return true;
             }
         }
+
+        byte[] publicKey = dnskey.getDNSKEYPublicKey();
+        List<AnchorKey> zoneKeyAnchors = getDNSKEYAnchors(zone);
+        for (int i = 0; i < zoneKeyAnchors.size(); i++) {
+            AnchorKey anchor = zoneKeyAnchors.get(i);
+            if (anchor.algorithm == algorithm
+                    && Arrays.equals(anchor.publicKey, publicKey)) {
+                return true;
+            }
+        }
         return false;
     }
 
     /**
-     * Removes all trust anchors for a zone.
+     * Adds a DNSKEY trusted directly, rather than through a DS digest.
+     * Matched by algorithm and public key material only -- not the key
+     * tag or flags -- since {@link DNSSECTrustAnchorUpdater} may need
+     * to keep trusting a key across a REVOKE-bit flip, which changes
+     * the key tag (RFC 5011 section 5.1) but not the key itself.
+     *
+     * @param zone the zone this key belongs to
+     * @param dnskey the DNSKEY record to trust directly
+     */
+    public void addDNSKEYAnchor(String zone, DNSResourceRecord dnskey) {
+        String key = normalizeZone(zone);
+        AnchorKey anchor = new AnchorKey(
+                dnskey.getDNSKEYAlgorithm(), dnskey.getDNSKEYPublicKey());
+        List<AnchorKey> list = dnskeyAnchors.get(key);
+        if (list == null) {
+            list = new ArrayList<>();
+            dnskeyAnchors.put(key, list);
+        }
+        if (!list.contains(anchor)) {
+            list.add(anchor);
+        }
+    }
+
+    /**
+     * Removes a directly-trusted DNSKEY previously added via {@link
+     * #addDNSKEYAnchor(String, DNSResourceRecord)}, matched the same
+     * way: by algorithm and public key material.
+     *
+     * @param zone the zone this key belongs to
+     * @param dnskey the DNSKEY record to stop trusting
+     */
+    public void removeDNSKEYAnchor(String zone, DNSResourceRecord dnskey) {
+        List<AnchorKey> list = dnskeyAnchors.get(normalizeZone(zone));
+        if (list == null) {
+            return;
+        }
+        list.remove(new AnchorKey(
+                dnskey.getDNSKEYAlgorithm(), dnskey.getDNSKEYPublicKey()));
+    }
+
+    /**
+     * Returns the directly-trusted DNSKEY anchors for a zone.
+     *
+     * @param zone the zone name
+     * @return the anchors, or an empty list if none exist
+     */
+    public List<AnchorKey> getDNSKEYAnchors(String zone) {
+        List<AnchorKey> list = dnskeyAnchors.get(normalizeZone(zone));
+        if (list == null) {
+            return Collections.emptyList();
+        }
+        return Collections.unmodifiableList(list);
+    }
+
+    /**
+     * Removes all trust anchors for a zone, DS-based and
+     * directly-trusted DNSKEYs alike.
      *
      * @param zone the zone name
      */
     public void removeAnchors(String zone) {
-        anchors.remove(normalizeZone(zone));
+        String key = normalizeZone(zone);
+        anchors.remove(key);
+        dnskeyAnchors.remove(key);
     }
 
     /**
@@ -147,6 +225,7 @@ public final class DNSSECTrustAnchor {
      */
     public void clear() {
         anchors.clear();
+        dnskeyAnchors.clear();
     }
 
     // -- Root trust anchors --
@@ -267,6 +346,55 @@ public final class DNSSECTrustAnchor {
          */
         public byte[] getDigest() {
             return digest.clone();
+        }
+    }
+
+    /**
+     * A directly-trusted DNSKEY anchor entry, identified by algorithm
+     * and public key material (not key tag or flags -- see {@link
+     * #addDNSKEYAnchor(String, DNSResourceRecord)}).
+     */
+    public static final class AnchorKey {
+
+        final int algorithm;
+        final byte[] publicKey;
+
+        AnchorKey(int algorithm, byte[] publicKey) {
+            this.algorithm = algorithm;
+            this.publicKey = publicKey.clone();
+        }
+
+        /**
+         * Returns the algorithm number.
+         *
+         * @return the algorithm
+         */
+        public int getAlgorithm() {
+            return algorithm;
+        }
+
+        /**
+         * Returns the public key bytes.
+         *
+         * @return a copy of the public key material
+         */
+        public byte[] getPublicKey() {
+            return publicKey.clone();
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof AnchorKey)) {
+                return false;
+            }
+            AnchorKey other = (AnchorKey) o;
+            return algorithm == other.algorithm
+                    && Arrays.equals(publicKey, other.publicKey);
+        }
+
+        @Override
+        public int hashCode() {
+            return algorithm * 31 + Arrays.hashCode(publicKey);
         }
     }
 

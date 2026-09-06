@@ -442,6 +442,66 @@ public final class DNSResourceRecord {
     }
 
     /**
+     * Creates a DNSKEY record.
+     * RFC 4034 section 2.1: RDATA is Flags(2) + Protocol(1, always 3)
+     * + Algorithm(1) + PublicKey (the rest).
+     *
+     * @param name the zone name this key belongs to
+     * @param ttl time to live in seconds
+     * @param flags the DNSKEY flags (e.g. 0x0100 zone key, 0x0101
+     *              zone key + SEP/KSK, 0x0180 zone key + REVOKE)
+     * @param algorithm the DNSSEC algorithm number (RFC 4034 Appendix A.1)
+     * @param publicKey the algorithm-specific public key wire format
+     * @return the resource record
+     */
+    public static DNSResourceRecord dnskey(String name, int ttl, int flags,
+                                            int algorithm, byte[] publicKey) {
+        ByteBuffer buf = ByteBuffer.allocate(4 + publicKey.length);
+        buf.putShort((short) flags);
+        buf.put((byte) 3); // RFC 4034 section 2.1.2: protocol, MUST be 3
+        buf.put((byte) algorithm);
+        buf.put(publicKey);
+        return new DNSResourceRecord(name, DNSType.DNSKEY, DNSClass.IN, ttl, buf.array());
+    }
+
+    /**
+     * Creates an RRSIG record.
+     * RFC 4034 section 3.1: RDATA is TypeCovered(2) + Algorithm(1) +
+     * Labels(1) + OriginalTTL(4) + SigExpiration(4) + SigInception(4) +
+     * KeyTag(2) + SignerName (uncompressed) + Signature.
+     *
+     * @param name the owner name of the covered RRset
+     * @param ttl time to live in seconds
+     * @param typeCovered the RR type this signature covers
+     * @param algorithm the DNSSEC algorithm number, matching the signing DNSKEY
+     * @param labels the number of labels in the original owner name
+     * @param originalTTL the covered RRset's original TTL
+     * @param expiration the signature expiration, as seconds since the epoch
+     * @param inception the signature inception, as seconds since the epoch
+     * @param keyTag the signing DNSKEY's key tag
+     * @param signerName the name of the zone that signed this RRset
+     * @param signature the signature bytes
+     * @return the resource record
+     */
+    public static DNSResourceRecord rrsig(String name, int ttl, DNSType typeCovered,
+                                           int algorithm, int labels, int originalTTL,
+                                           long expiration, long inception, int keyTag,
+                                           String signerName, byte[] signature) {
+        byte[] signerBytes = DNSMessage.encodeName(signerName);
+        ByteBuffer buf = ByteBuffer.allocate(18 + signerBytes.length + signature.length);
+        buf.putShort((short) typeCovered.getValue());
+        buf.put((byte) algorithm);
+        buf.put((byte) labels);
+        buf.putInt(originalTTL);
+        buf.putInt((int) expiration);
+        buf.putInt((int) inception);
+        buf.putShort((short) keyTag);
+        buf.put(signerBytes);
+        buf.put(signature);
+        return new DNSResourceRecord(name, DNSType.RRSIG, DNSClass.IN, ttl, buf.array());
+    }
+
+    /**
      * Creates a TXT record.
      * RFC 1035 section 3.3.14: TXT RDATA is one or more character-strings.
      * Each character-string is a length octet (max 255) followed by that
@@ -1191,6 +1251,21 @@ public final class DNSResourceRecord {
      */
     public boolean isDNSKEYSecureEntryPoint() {
         return (getDNSKEYFlags() & 0x0001) != 0;
+    }
+
+    /**
+     * Returns true if this key is marked revoked (bit 8 of flags).
+     * RFC 5011 section 3: the REVOKE bit, set by the zone operator to
+     * signal that a key is no longer trusted, ahead of removing it --
+     * used by automated trust anchor rollover to retire a key as soon
+     * as its self-signed revocation is observed, rather than waiting
+     * for it to merely disappear from the DNSKEY RRset.
+     *
+     * @return true if the REVOKE flag is set
+     * @throws IllegalStateException if this is not a DNSKEY record
+     */
+    public boolean isDNSKEYRevoked() {
+        return (getDNSKEYFlags() & 0x0080) != 0;
     }
 
     /**
