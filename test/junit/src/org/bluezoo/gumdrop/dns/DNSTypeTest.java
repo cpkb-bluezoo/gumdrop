@@ -44,6 +44,7 @@ public class DNSTypeTest {
         assertEquals(28, DNSType.AAAA.getValue());
         assertEquals(33, DNSType.SRV.getValue());
         assertEquals(41, DNSType.OPT.getValue());
+        assertEquals(52, DNSType.TLSA.getValue());
         assertEquals(64, DNSType.SVCB.getValue());
         assertEquals(65, DNSType.HTTPS.getValue());
         assertEquals(255, DNSType.ANY.getValue());
@@ -61,6 +62,7 @@ public class DNSTypeTest {
         assertEquals(DNSType.AAAA, DNSType.fromValue(28));
         assertEquals(DNSType.SRV, DNSType.fromValue(33));
         assertEquals(DNSType.OPT, DNSType.fromValue(41));
+        assertEquals(DNSType.TLSA, DNSType.fromValue(52));
         assertEquals(DNSType.ANY, DNSType.fromValue(255));
     }
     
