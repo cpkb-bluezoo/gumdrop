@@ -28,6 +28,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -375,6 +376,47 @@ public class DMARCForensicReportTest {
         } finally {
             Files.deleteIfExists(tempFile);
         }
+    }
+
+    /**
+     * RFC 6591/RFC 5322: the original message/headers part must be
+     * 8-bit clean -- the exact bytes a caller decoded into {@code
+     * originalHeaders} must appear unchanged in the MIME output, not
+     * re-encoded through UTF-8 (which would turn every byte >= 0x80
+     * into a different, multi-byte sequence).
+     */
+    @Test
+    public void testOriginalHeadersAreWrittenByteForByteNotReencoded() throws IOException {
+        byte[] rawHeaderBytes = new byte[] {
+                'F', 'r', 'o', 'm', ':', ' ',
+                (byte) 0x80, (byte) 0xE9, (byte) 0xFF,
+                '\r', '\n'
+        };
+        String rawHeaderText = new String(rawHeaderBytes, StandardCharsets.ISO_8859_1);
+
+        DMARCForensicReport report = createTestReport();
+        report.setOriginalHeaders(rawHeaderText);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        report.writeMIME(Channels.newChannel(out), "B1");
+        byte[] mime = out.toByteArray();
+
+        assertTrue("Original header bytes must appear verbatim in the "
+                        + "output, not re-encoded through UTF-8",
+                indexOf(mime, rawHeaderBytes) >= 0);
+    }
+
+    private static int indexOf(byte[] haystack, byte[] needle) {
+        outer:
+        for (int i = 0; i <= haystack.length - needle.length; i++) {
+            for (int j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
     }
 
     private DMARCForensicReport createTestReport() {
