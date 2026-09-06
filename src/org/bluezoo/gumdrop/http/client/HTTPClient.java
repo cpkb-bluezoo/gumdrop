@@ -22,13 +22,15 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.KeyStore;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
@@ -1473,7 +1475,10 @@ public class HTTPClient implements AltSvcListener {
         System.exit(0);
     }
 
-    private static void runRequest(
+    // Package-private (not private) so integration tests in this
+    // package can drive the CLI's actual request/response file
+    // handling without going through main()'s System.exit() calls.
+    static void runRequest(
             final SelectorLoop loop,
             final String targetHost, final int targetPort,
             final String scheme, final String path,
@@ -1562,11 +1567,14 @@ public class HTTPClient implements AltSvcListener {
             }
         }
 
-        final OutputStream out;
-        if (outputFile != null && !"-".equals(outputFile)) {
-            out = new FileOutputStream(outputFile);
+        final boolean outputToStdout = outputFile == null || "-".equals(outputFile);
+        final WritableByteChannel out;
+        if (!outputToStdout) {
+            out = FileChannel.open(Path.of(outputFile),
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
         } else {
-            out = System.out;
+            out = Channels.newChannel(System.out);
         }
 
         final AtomicReference<Exception> responseError = new AtomicReference<Exception>();
@@ -1585,33 +1593,35 @@ public class HTTPClient implements AltSvcListener {
         }
 
         if (bodyFile != null) {
-            InputStream bodyIn;
-            if ("-".equals(bodyFile)) {
-                bodyIn = System.in;
-            } else {
-                bodyIn = new FileInputStream(bodyFile);
-            }
+            boolean bodyFromStdin = "-".equals(bodyFile);
+            ReadableByteChannel bodyIn = bodyFromStdin
+                    ? Channels.newChannel(System.in)
+                    : FileChannel.open(Path.of(bodyFile), StandardOpenOption.READ);
             req.startRequestBody(createResponseHandler(
-                    out, verbose, headersOnly, responseLatch,
+                    out, outputToStdout, verbose, headersOnly, responseLatch,
                     responseError, client));
-            byte[] buf = new byte[8192];
+            ByteBuffer buf = ByteBuffer.allocate(8192);
             int n;
             while ((n = bodyIn.read(buf)) >= 0) {
-                req.requestBodyContent(ByteBuffer.wrap(buf, 0, n));
+                if (n > 0) {
+                    buf.flip();
+                    req.requestBodyContent(buf);
+                    buf.clear();
+                }
             }
             req.endRequestBody();
-            if (!"-".equals(bodyFile)) {
+            if (!bodyFromStdin) {
                 bodyIn.close();
             }
         } else {
             req.send(createResponseHandler(
-                    out, verbose, headersOnly, responseLatch,
+                    out, outputToStdout, verbose, headersOnly, responseLatch,
                     responseError, client));
         }
 
         responseLatch.await();
 
-        if (out != System.out) {
+        if (!outputToStdout) {
             out.close();
         }
 
@@ -1687,7 +1697,8 @@ public class HTTPClient implements AltSvcListener {
     }
 
     private static HTTPResponseHandler createResponseHandler(
-            final OutputStream out,
+            final WritableByteChannel out,
+            final boolean outputToStdout,
             final boolean verbose,
             final boolean headersOnly,
             final CountDownLatch doneLatch,
@@ -1739,16 +1750,12 @@ public class HTTPClient implements AltSvcListener {
                     return;
                 }
                 try {
-                    if (data.hasArray()) {
-                        out.write(data.array(),
-                                data.arrayOffset() + data.position(),
-                                data.remaining());
-                    } else {
-                        byte[] tmp = new byte[data.remaining()];
-                        data.get(tmp);
-                        out.write(tmp);
+                    while (data.hasRemaining()) {
+                        out.write(data);
                     }
-                    out.flush();
+                    if (outputToStdout) {
+                        System.out.flush();
+                    }
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING,
                             "Error writing response body", e);
