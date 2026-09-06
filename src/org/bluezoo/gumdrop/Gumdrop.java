@@ -150,6 +150,19 @@ public class Gumdrop {
     private volatile Thread pendingAsyncShutdown;
     private volatile boolean ready;
 
+    // Guards the decision-and-flag step of checkAutoShutdown() (checking
+    // activeClients/services/serverListeners are empty and publishing
+    // pendingAsyncShutdown) so it is atomic with start()'s own read of
+    // pendingAsyncShutdown/started (issue #426): without this, a client's
+    // disconnect could be judged "nothing left running" and decide to tear
+    // the infrastructure down in the exact instant between a new client's
+    // start() observing no pending shutdown and it (wrongly) trusting the
+    // still-true started flag, handing out a SelectorLoop that is about to
+    // be shut down out from under the new connection. The lock is held only
+    // around that quick decision, never across the (possibly long-running)
+    // shutdown()/join() itself, so it cannot serialise unrelated drains.
+    private final Object lifecycleLock = new Object();
+
     /**
      * Graceful-drain timeout in milliseconds. Overridable via the
      * {@code gumdrop.drainTimeoutMs} system property (and, from
@@ -499,14 +512,75 @@ public class Gumdrop {
      * Registers an active client connection.
      *
      * <p>Called by {@link ClientEndpoint#connect} when a client-initiated
-     * connection begins. The client remains registered until
-     * {@link #removeClient} is called (on disconnect, error, or explicit
-     * close). Active clients gate automatic shutdown.
+     * connection already has a {@link SelectorLoop} of its own (server
+     * integration mode). The client remains registered until {@link
+     * #removeClient} is called (on disconnect, error, or explicit close).
+     * Active clients gate automatic shutdown.
+     *
+     * <p>Registration is serialised with {@link #checkAutoShutdown()}'s
+     * decision through {@link #lifecycleLock} (issue #426): otherwise a
+     * concurrent disconnect elsewhere could judge everything empty, decide
+     * to shut down, and then have this client's registration either race
+     * that decision unseen, or land in {@link #activeClients} just before
+     * {@link #shutdown()}'s Phase 3 clears it, silently dropping a client
+     * that believes it is registered.
      *
      * @param client the client endpoint to register
      */
     public void addClient(ClientEndpoint client) {
-        activeClients.add(client);
+        for (;;) {
+            Thread pending;
+            synchronized (lifecycleLock) {
+                pending = pendingAsyncShutdown;
+                if (pending == null) {
+                    activeClients.add(client);
+                    return;
+                }
+            }
+            awaitPendingShutdown(pending);
+        }
+    }
+
+    /**
+     * Ensures the infrastructure is started, obtains a worker loop from
+     * it, and registers {@code client} as a reason to keep it running --
+     * as one operation with respect to {@link #checkAutoShutdown()}'s
+     * decision (issue #426).
+     *
+     * <p>Doing this as three separate calls ({@link #start()}, {@link
+     * #nextWorkerLoop()}, {@link #addClient}), as {@link ClientEndpoint}
+     * used to, left windows where a disconnecting client's auto-shutdown
+     * decision could be judged against a stale "already started" state
+     * that {@code start()} trusted without knowing the decision was
+     * already made, or could tear down the very loop just handed back
+     * before this client's own registration had a chance to prevent it.
+     *
+     * @param client the client that is about to start using the returned loop
+     * @return a worker loop of the now-guaranteed-running instance
+     */
+    public SelectorLoop startForClient(ClientEndpoint client) {
+        for (;;) {
+            Thread pending;
+            boolean needsInit;
+            synchronized (lifecycleLock) {
+                pending = pendingAsyncShutdown;
+                if (pending == null) {
+                    needsInit = !started;
+                    started = true;
+                    activeClients.add(client);
+                } else {
+                    needsInit = false;
+                }
+            }
+            if (pending != null) {
+                awaitPendingShutdown(pending);
+                continue;
+            }
+            if (needsInit) {
+                doStart();
+            }
+            return nextWorkerLoop();
+        }
     }
 
     /**
@@ -555,14 +629,14 @@ public class Gumdrop {
      * at start time.
      */
     public void start() {
-        awaitPendingAsyncShutdown();
-
-        if (started) {
-            return;
+        if (claimStart()) {
+            doStart();
         }
+    }
 
+    /** The actual (re)initialisation work of {@link #start()}, run only once {@link #claimStart()} or {@link #startForClient} has claimed the started state. */
+    private void doStart() {
         long t1 = System.currentTimeMillis();
-        started = true;
         ready = false;
         draining = false;
 
@@ -715,91 +789,114 @@ public class Gumdrop {
      * {@link #shutdown()}.
      */
     private void checkAutoShutdown() {
-        if (!started) {
-            return;
-        }
-        if (services.isEmpty() && serverListeners.isEmpty()
-                && activeClients.isEmpty()) {
-            if (isWorkerLoopThread(Thread.currentThread())) {
-                // removeClient() can be invoked from a ClientEndpoint's
-                // disconnected()/error() callback, which runs on the
-                // SelectorLoop thread handling that very connection --
-                // making this a reentrant call from a worker loop's own
-                // thread. shutdown() below calls SelectorLoop.awaitQuiesce()
-                // on every loop including this one, and a thread cannot
-                // join itself: awaitQuiesce() short-circuits without
-                // actually waiting, but shutdown() never checks that
-                // return value, so it proceeds believing every loop is
-                // stopped while this one's thread is still alive and
-                // mid-unwind. A concurrent nextWorkerLoop()/start() call
-                // from another thread then sees isRunning()==true (the
-                // thread hasn't exited yet) and hands out a reference to
-                // it -- whatever gets registered on it afterwards is
-                // silently lost the moment this thread finishes exiting
-                // its dispatch loop, since nothing will ever come back to
-                // process it. Running shutdown() off-thread instead lets
-                // awaitQuiesce() perform a real join() for every loop,
-                // closing the window entirely -- provided every path back
-                // into this instance (start(), in practice) waits for
-                // that thread first; see pendingAsyncShutdown and start().
-                Thread shutdownThread = new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        shutdown();
-                    }
-                }, "gumdrop-auto-shutdown");
-                shutdownThread.setDaemon(true);
-                pendingAsyncShutdown = shutdownThread;
-                shutdownThread.start();
-            } else {
-                shutdown();
+        // The emptiness check and the publishing of pendingAsyncShutdown
+        // must be atomic with claimStart()'s own read of the same field
+        // plus the started flag (issue #426): otherwise a disconnecting
+        // client's checkAutoShutdown() and a new client's start() can
+        // interleave so that start() observes neither a pending shutdown
+        // nor started==false, hands out a SelectorLoop reference, and only
+        // then sees the shutdown it missed tear that very loop down.
+        Thread shutdownThread;
+        synchronized (lifecycleLock) {
+            if (!started) {
+                return;
             }
+            if (!(services.isEmpty() && serverListeners.isEmpty()
+                    && activeClients.isEmpty())) {
+                return;
+            }
+            // Always dispatch to a separate thread, even when not called
+            // from a worker loop's own thread: removeClient() can be
+            // invoked from a ClientEndpoint's disconnected()/error()
+            // callback, which runs on the SelectorLoop thread handling
+            // that very connection -- making this a reentrant call from a
+            // worker loop's own thread. shutdown() below calls
+            // SelectorLoop.awaitQuiesce() on every loop including this
+            // one, and a thread cannot join itself: awaitQuiesce()
+            // short-circuits without actually waiting, but shutdown()
+            // never checks that return value, so it proceeds believing
+            // every loop is stopped while this one's thread is still
+            // alive and mid-unwind. A concurrent nextWorkerLoop()/start()
+            // call from another thread then sees isRunning()==true (the
+            // thread hasn't exited yet) and hands out a reference to it --
+            // whatever gets registered on it afterwards is silently lost
+            // the moment this thread finishes exiting its dispatch loop,
+            // since nothing will ever come back to process it. Running
+            // shutdown() off-thread unconditionally lets awaitQuiesce()
+            // perform a real join() for every loop, closing the window
+            // entirely -- provided every path back into this instance
+            // (start(), in practice) waits for that thread first; see
+            // claimStart().
+            shutdownThread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    shutdown();
+                }
+            }, "gumdrop-auto-shutdown");
+            shutdownThread.setDaemon(true);
+            pendingAsyncShutdown = shutdownThread;
+        }
+        shutdownThread.start();
+    }
+
+    /**
+     * Atomically waits out any shutdown already decided by {@link
+     * #checkAutoShutdown()} (whether or not its thread has been started
+     * yet) and then claims the started state for this call, so {@link
+     * #start()} never proceeds while racing a shutdown still being
+     * decided or run.
+     *
+     * <p>Loops rather than doing a single check-then-join: after joining
+     * a terminated thread, another shutdown could in principle already
+     * have been decided (and a new {@link #pendingAsyncShutdown} published)
+     * before this method re-takes {@link #lifecycleLock}, so the
+     * pending-shutdown check is redone under the lock each time round
+     * rather than assumed to still hold from before the join.
+     *
+     * @return true if the caller should (re)initialise the infrastructure;
+     *      false if it is already running and there is nothing to do
+     */
+    private boolean claimStart() {
+        for (;;) {
+            Thread pending;
+            synchronized (lifecycleLock) {
+                pending = pendingAsyncShutdown;
+                if (pending == null) {
+                    if (started) {
+                        return false;
+                    }
+                    started = true;
+                    return true;
+                }
+            }
+            awaitPendingShutdown(pending);
         }
     }
 
     /**
-     * Blocks until any shutdown() dispatched asynchronously by {@link
-     * #checkAutoShutdown()} has fully completed, so {@link #start()}
-     * never observes (or races against) a shutdown still in progress.
+     * Joins an in-flight shutdown thread published as {@link
+     * #pendingAsyncShutdown} (without holding {@link #lifecycleLock}
+     * across the join -- {@link #shutdown()} can run for as long as its
+     * drain timeout), then clears the field once it has genuinely
+     * terminated. Callers loop and re-check {@link #pendingAsyncShutdown}
+     * under the lock afterwards rather than assuming it is now null: a
+     * new shutdown can in principle have been decided in the gap between
+     * this method returning and the caller re-taking the lock.
      *
-     * <p>Loops rather than doing a single {@code join()}: the async
-     * thread is started immediately after {@link #pendingAsyncShutdown}
-     * is assigned, but not atomically with it, so a caller could in
-     * principle observe the field before {@code Thread.start()} has run
-     * -- {@code join()} on a not-yet-started thread returns immediately
-     * (it isn't alive yet) rather than actually waiting, so a single
-     * call could wrongly conclude shutdown is done. Rechecking the
-     * thread's state closes that window without needing the assignment
-     * and the start to be atomic.
+     * @param pending the shutdown thread to wait for
      */
-    private void awaitPendingAsyncShutdown() {
-        Thread pending = pendingAsyncShutdown;
-        while (pending != null) {
-            try {
-                pending.join();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            if (pending.getState() == Thread.State.TERMINATED) {
+    private void awaitPendingShutdown(Thread pending) {
+        try {
+            pending.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        synchronized (lifecycleLock) {
+            if (pendingAsyncShutdown == pending
+                    && pending.getState() == Thread.State.TERMINATED) {
                 pendingAsyncShutdown = null;
-                return;
-            }
-            pending = pendingAsyncShutdown;
-        }
-    }
-
-    /** Whether the given thread is one of the current worker SelectorLoops' own thread. */
-    private boolean isWorkerLoopThread(Thread thread) {
-        SelectorLoop[] loops = workerLoops;
-        if (loops == null) {
-            return false;
-        }
-        for (SelectorLoop loop : loops) {
-            if (loop != null && loop.isCurrentThread(thread)) {
-                return true;
             }
         }
-        return false;
     }
 
     /**

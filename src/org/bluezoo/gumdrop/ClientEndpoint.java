@@ -343,9 +343,20 @@ public class ClientEndpoint {
             throw new NullPointerException("handler");
         }
 
-        ensureSelectorLoop();
         gumdrop = Gumdrop.getInstance();
-        gumdrop.addClient(this);
+        if (selectorLoop == null) {
+            // Ensuring the infrastructure is started, obtaining a loop,
+            // and registering this client as a reason to keep it running
+            // must happen as one operation with respect to a concurrent
+            // disconnect's auto-shutdown decision elsewhere (issue #426);
+            // see Gumdrop#startForClient.
+            selectorLoop = gumdrop.startForClient(this);
+        } else {
+            // Server integration mode: the caller already supplied a
+            // SelectorLoop, so there is nothing to start -- just register
+            // for auto-shutdown bookkeeping.
+            gumdrop.addClient(this);
+        }
 
         final ProtocolHandler wrapped = wrapHandler(handler);
 
@@ -481,15 +492,4 @@ public class ClientEndpoint {
         }
     }
 
-    /**
-     * Ensures a SelectorLoop is available, obtaining one from Gumdrop
-     * infrastructure if needed.
-     */
-    private void ensureSelectorLoop() {
-        if (selectorLoop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            gumdrop.start();
-            selectorLoop = gumdrop.nextWorkerLoop();
-        }
-    }
 }
