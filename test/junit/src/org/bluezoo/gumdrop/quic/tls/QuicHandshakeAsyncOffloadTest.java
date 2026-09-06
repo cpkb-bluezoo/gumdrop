@@ -38,7 +38,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Regression test for issue #351: a concurrent poller of {@link
+ * Regression tests for two related concurrency bugs in {@link
+ * QuicHandshakeAsyncOffload}:
+ *
+ * <p><b>Issue #351</b>: a concurrent poller of {@link
  * QuicHandshakeAsyncOffload#isBusy} (e.g. {@code QuicTestPeer}'s
  * {@code awaitHandshakeProcessingIdle}) must never be able to observe
  * "idle" while a batch's completion handler is synchronously starting a
@@ -55,6 +58,22 @@ import static org.junit.Assert.assertTrue;
  * matches the intermittent NPE in {@code QuicHandshakeAsyncOffloadTest}
  * (the higher-level end-to-end test in the {@code quic} package) where
  * {@code QuicTestPeer} built a packet with not-yet-installed keys.
+ *
+ * <p><b>Issue #427</b>: fixing #351 closed that specific window, but left
+ * a second one: {@code QuicTlsClientEngine}/{@code QuicTlsServerEngine}'s
+ * {@code receiveCryptoData} checks {@link QuicHandshakeAsyncOffload#isBusy}
+ * and then either enqueues a CRYPTO frame (if busy) or dispatches it
+ * directly (if not) -- but that check-then-act sequence wasn't atomic
+ * with respect to a concurrently-running batch's own completion handler
+ * draining that same pending-frame queue. A frame arriving in the exact
+ * window between a batch finishing and its completion handler draining
+ * the queue could be enqueued a moment too late for anything to ever
+ * drain it again, silently losing that byte range of the handshake
+ * stream forever -- reproduced under CPU load as an intermittent timeout
+ * in {@code awaitSendKeys} (the higher-level end-to-end test's server
+ * never received the client's Finished message, so never completed its
+ * own handshake). Fixed by having both operations synchronize on the
+ * same {@link QuicHandshakeAsyncOffload#lock()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -118,6 +137,80 @@ public class QuicHandshakeAsyncOffloadTest {
                 + "synchronously starting a follow-up batch -- a concurrent poller "
                 + "(e.g. QuicTestPeer.awaitHandshakeProcessingIdle) must never be able "
                 + "to observe idle in this window", busyWhenFollowUpDecided.get());
+    }
+
+    @Test(timeout = 10000)
+    public void testReceiveCryptoDataCannotRaceCompletionHandlerDrain() throws Exception {
+        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener());
+        final CountDownLatch onBatchDoneEntered = new CountDownLatch(1);
+        final CountDownLatch contenderStarted = new CountDownLatch(1);
+        final CountDownLatch onBatchDoneMayFinish = new CountDownLatch(1);
+        final AtomicBoolean onBatchDoneFinished = new AtomicBoolean();
+        final AtomicBoolean contenderObservedFinished = new AtomicBoolean();
+
+        // Deliberately no Thread.sleep/deadline-polling anywhere below
+        // (see NoThreadSleepGuardTest): correctness is proven by which
+        // value the contender thread observes, not by timing how long
+        // it takes -- if issue #427's fix holds offload.lock() for the
+        // whole of onBatchDone(), the contender's synchronized block
+        // literally cannot execute until onBatchDoneFinished has
+        // already been set true and the lock released, regardless of
+        // scheduling speed.
+        QuicHandshakeAsyncOffload.CompletionHandler blockingHandler =
+                new QuicHandshakeAsyncOffload.CompletionHandler() {
+            @Override
+            public boolean onBatchDone() {
+                onBatchDoneEntered.countDown();
+                try {
+                    // Wait for the contender to exist and be about to
+                    // attempt offload.lock() before finishing this
+                    // method -- otherwise the contender might simply
+                    // not have started yet, which would prove nothing.
+                    assertTrue(contenderStarted.await(5, TimeUnit.SECONDS));
+                    assertTrue(onBatchDoneMayFinish.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                onBatchDoneFinished.set(true);
+                return false;
+            }
+        };
+
+        offload.submit(EncryptionLevel.INITIAL, new QuicHandshakeAsyncOffload.BatchProcessor() {
+            @Override
+            public void process() {
+            }
+        }, blockingHandler);
+
+        assertTrue("completion handler should have started", onBatchDoneEntered.await(5, TimeUnit.SECONDS));
+
+        // onBatchDone() is now blocked mid-execution, holding
+        // offload.lock() if issue #427's fix is in place. A concurrent
+        // caller trying to acquire that same lock -- exactly what
+        // QuicTlsClientEngine/ServerEngine's receiveCryptoData does
+        // before deciding whether to enqueue a CRYPTO frame or dispatch
+        // it directly -- must block until onBatchDone() returns, or that
+        // decision could be made against a batch that is about to drain
+        // (or has just drained) its pending-frame queue, silently
+        // losing a frame that arrives in between.
+        Thread contender = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                contenderStarted.countDown();
+                synchronized (offload.lock()) {
+                    contenderObservedFinished.set(onBatchDoneFinished.get());
+                }
+            }
+        });
+        contender.start();
+        onBatchDoneMayFinish.countDown();
+        contender.join(5000);
+
+        assertTrue("a concurrent caller acquiring offload.lock() must always observe "
+                + "onBatchDone() as already finished -- otherwise its own "
+                + "isBusy()-then-enqueue-or-dispatch decision could race the drain "
+                + "and silently lose a CRYPTO frame (issue #427)",
+                contenderObservedFinished.get());
     }
 
     @Test(timeout = 10000)
