@@ -251,39 +251,34 @@ class SOCKSUDPRelay {
                 return;
             }
 
-            SOCKSUDPHeader.Parsed parsed = SOCKSUDPHeader.parse(data);
-            if (parsed == null) {
-                return;
-            }
+            SOCKSUDPHeader.parse(data, new SOCKSUDPHeader.Handler() {
+                @Override
+                public void datagram(byte frag, InetAddress address,
+                        String hostname, int port, ByteBuffer payload) {
+                    // RFC 1928 §7: drop fragmented datagrams
+                    if (frag != SOCKS5_UDP_FRAG_STANDALONE) {
+                        if (LOGGER.isLoggable(Level.FINE)) {
+                            LOGGER.fine(MessageFormat.format(
+                                    L10N.getString("log.udp_fragment_dropped"),
+                                    frag & 0xFF));
+                        }
+                        return;
+                    }
 
-            // RFC 1928 §7: drop fragmented datagrams
-            if (parsed.frag != SOCKS5_UDP_FRAG_STANDALONE) {
-                if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine(MessageFormat.format(
-                            L10N.getString("log.udp_fragment_dropped"),
-                            parsed.frag & 0xFF));
+                    clientDatagramAddress = source;
+                    resetIdleTimer();
+
+                    if (!payload.hasRemaining()) {
+                        return;
+                    }
+
+                    if (hostname != null) {
+                        resolveAndForward(hostname, port, payload);
+                    } else if (address != null) {
+                        forwardUpstream(new InetSocketAddress(address, port), payload);
+                    }
                 }
-                return;
-            }
-
-            clientDatagramAddress = source;
-            resetIdleTimer();
-
-            // Extract payload from after the header
-            int payloadLen = data.limit() - parsed.dataOffset;
-            if (payloadLen <= 0) {
-                return;
-            }
-            ByteBuffer payload = data.duplicate();
-            payload.position(parsed.dataOffset);
-
-            if (parsed.hostname != null) {
-                resolveAndForward(parsed, payload);
-            } else if (parsed.address != null) {
-                InetSocketAddress dest = new InetSocketAddress(
-                        parsed.address, parsed.port);
-                forwardUpstream(dest, payload);
-            }
+            });
         }
 
         @Override
@@ -379,10 +374,10 @@ class SOCKSUDPRelay {
     // DNS resolution for DOMAINNAME destinations
     // ═══════════════════════════════════════════════════════════════════
 
-    private void resolveAndForward(final SOCKSUDPHeader.Parsed parsed,
+    private void resolveAndForward(final String hostname, final int port,
                                    final ByteBuffer payload) {
         DNSResolver resolver = DNSResolver.forLoop(selectorLoop);
-        resolver.resolve(parsed.hostname, new ResolveCallback() {
+        resolver.resolve(hostname, new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {
                 // Validate every resolved address before forwarding.
@@ -393,8 +388,7 @@ class SOCKSUDPRelay {
                     }
                 }
                 InetAddress resolved = addresses.get(0);
-                InetSocketAddress dest = new InetSocketAddress(
-                        resolved, parsed.port);
+                InetSocketAddress dest = new InetSocketAddress(resolved, port);
                 forwardUpstream(dest, payload);
             }
 
@@ -403,7 +397,7 @@ class SOCKSUDPRelay {
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine(MessageFormat.format(
                             L10N.getString("log.dns_resolution_failed"),
-                            parsed.hostname, error));
+                            hostname, error));
                 }
                 // RFC 1928 §7: silently drop datagrams we cannot relay
             }

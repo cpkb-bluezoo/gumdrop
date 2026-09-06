@@ -48,59 +48,48 @@ import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928#section-7">
  *      RFC 1928 §7</a>
  */
-final class SOCKSUDPHeader {
+public final class SOCKSUDPHeader {
 
     private SOCKSUDPHeader() {
     }
 
     /**
-     * Result of parsing a UDP request header.
+     * Receives the semantic result of parsing one RFC 1928 §7 UDP
+     * request header -- a push-style callback, so a well-formed header
+     * is delivered as an event rather than a materialized value object.
      */
-    static final class Parsed {
-
-        final byte frag;
-        final InetAddress address;
-        final String hostname;
-        final int port;
-        final int dataOffset;
-
-        Parsed(byte frag, InetAddress address, String hostname,
-               int port, int dataOffset) {
-            this.frag = frag;
-            this.address = address;
-            this.hostname = hostname;
-            this.port = port;
-            this.dataOffset = dataOffset;
-        }
+    public interface Handler {
 
         /**
-         * Returns the destination as an {@link InetSocketAddress} if
-         * the address is resolved, or null if only a hostname was
-         * provided.
+         * A well-formed header was parsed. Called at most once per
+         * {@link #parse(ByteBuffer, Handler) parse} call, synchronously,
+         * before it returns.
+         *
+         * @param frag the FRAG field (RFC 1928 §7: 0x00 for a standalone datagram)
+         * @param address the destination address (ATYP IPv4/IPv6), or null if a hostname was given instead
+         * @param hostname the destination hostname (ATYP DOMAINNAME), or null if an address was given instead
+         * @param port the destination port
+         * @param payload the datagram payload, positioned at the data start; only valid for the duration of this call
          */
-        InetSocketAddress toSocketAddress() {
-            if (address != null) {
-                return new InetSocketAddress(address, port);
-            }
-            return null;
-        }
+        void datagram(byte frag, InetAddress address, String hostname, int port, ByteBuffer payload);
     }
 
     /**
-     * Parses the RFC 1928 §7 UDP request header from the given buffer.
+     * Parses the RFC 1928 §7 UDP request header from the given buffer
+     * and, if well-formed, delivers it to {@code handler}.
      *
-     * <p>On success, the returned {@link Parsed} contains the
-     * destination address (or hostname for ATYP 0x03), port, fragment
-     * number, and the offset within the buffer where the payload data
-     * begins.
+     * <p>A malformed or too-short datagram is silently dropped -- UDP
+     * has no notion of a partial read to wait on the way a TCP stream
+     * does, so there is nothing to retry once a single datagram fails
+     * to parse.
      *
      * @param data the datagram contents (position at start)
-     * @return the parsed header, or null if the datagram is too short
+     * @param handler receives the parsed header and payload, if any
      */
-    static Parsed parse(ByteBuffer data) {
+    public static void parse(ByteBuffer data, Handler handler) {
         // RSV(2) + FRAG(1) + ATYP(1) = 4 minimum before address
         if (data.remaining() < 4) {
-            return null;
+            return;
         }
         int startPos = data.position();
 
@@ -116,14 +105,14 @@ final class SOCKSUDPHeader {
                 // RFC 1928 §5: IPv4 — 4 octets
                 if (data.remaining() < 6) { // 4 addr + 2 port
                     data.position(startPos);
-                    return null;
+                    return;
                 }
                 byte[] ipv4 = new byte[4];
                 data.get(ipv4);
                 try {
                     address = InetAddress.getByAddress(ipv4);
                 } catch (UnknownHostException e) {
-                    return null;
+                    return;
                 }
                 break;
             }
@@ -131,12 +120,12 @@ final class SOCKSUDPHeader {
                 // RFC 1928 §5: DOMAINNAME — 1-octet length + FQDN
                 if (data.remaining() < 1) {
                     data.position(startPos);
-                    return null;
+                    return;
                 }
                 int nameLen = data.get() & 0xFF;
                 if (data.remaining() < nameLen + 2) { // name + 2 port
                     data.position(startPos);
-                    return null;
+                    return;
                 }
                 byte[] nameBytes = new byte[nameLen];
                 data.get(nameBytes);
@@ -147,25 +136,25 @@ final class SOCKSUDPHeader {
                 // RFC 1928 §5: IPv6 — 16 octets
                 if (data.remaining() < 18) { // 16 addr + 2 port
                     data.position(startPos);
-                    return null;
+                    return;
                 }
                 byte[] ipv6 = new byte[16];
                 data.get(ipv6);
                 try {
                     address = InetAddress.getByAddress(ipv6);
                 } catch (UnknownHostException e) {
-                    return null;
+                    return;
                 }
                 break;
             }
             default:
-                return null;
+                return;
         }
 
         int port = ((data.get() & 0xFF) << 8) | (data.get() & 0xFF);
-        int dataOffset = data.position();
+        ByteBuffer payload = data.slice();
 
-        return new Parsed(frag, address, hostname, port, dataOffset);
+        handler.datagram(frag, address, hostname, port, payload);
     }
 
     /**
@@ -182,7 +171,7 @@ final class SOCKSUDPHeader {
      *         caller must release it with {@link ByteBufferPool#release}
      *         once the datagram has been sent
      */
-    static ByteBuffer encode(InetSocketAddress source, ByteBuffer payload) {
+    public static ByteBuffer encode(InetSocketAddress source, ByteBuffer payload) {
         InetAddress addr = source.getAddress();
         byte atyp;
         byte[] addrBytes;
