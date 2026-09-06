@@ -24,6 +24,8 @@ package org.bluezoo.gumdrop.smtp.client;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
@@ -32,6 +34,13 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.dns.DANETrustManager;
+import org.bluezoo.gumdrop.dns.DNSMessage;
+import org.bluezoo.gumdrop.dns.DNSResourceRecord;
+import org.bluezoo.gumdrop.dns.DNSSECAwareQueryCallback;
+import org.bluezoo.gumdrop.dns.DNSSECStatus;
+import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
 
 /**
@@ -64,12 +73,21 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
  * client.connect(greetingHandler);
  * }</pre>
  *
+ * <h4>Opportunistic DANE (RFC 7672)</h4>
+ * <pre>{@code
+ * SMTPClient client = new SMTPClient("mail.example.com", 25);
+ * client.setDaneResolver(myResolver); // a DNSSEC-enabled DNSResolver
+ * client.connect(greetingHandler);
+ * }</pre>
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ServerGreeting
  * @see SMTPClientProtocolHandler
+ * @see org.bluezoo.gumdrop.dns.DANETrustManager
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> (Implicit TLS, SMTPS port 465)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc7672">RFC 7672</a> (SMTP DANE)
  */
 public class SMTPClient {
 
@@ -85,6 +103,7 @@ public class SMTPClient {
     private Path keystoreFile;
     private String keystorePass;
     private String keystoreFormat;
+    private DNSResolver daneResolver;
 
     private TCPTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
@@ -225,6 +244,26 @@ public class SMTPClient {
     }
 
     /**
+     * Enables opportunistic DANE authentication (RFC 7672) of the
+     * destination's certificate, using the given resolver to look up
+     * TLSA records for {@code _<port>._tcp.<host>} before connecting.
+     *
+     * <p>DANE only takes effect when the lookup itself comes back
+     * DNSSEC-secure (RFC 7672 section 3.1.3) and returns at least one
+     * TLSA record -- otherwise {@code connect} proceeds exactly as it
+     * would without this call. When it does take effect, any trust
+     * manager set via {@link #setTrustManager} is used as the DANE
+     * PKIX-TA/PKIX-EE delegate rather than being replaced outright.
+     * Requires a hostname (not an address or UNIX socket) target.
+     *
+     * @param resolver the resolver to use for the TLSA lookup, or
+     *                 null to disable DANE
+     */
+    public void setDaneResolver(DNSResolver resolver) {
+        this.daneResolver = resolver;
+    }
+
+    /**
      * Sets the keystore file for client certificate authentication.
      *
      * @param path the keystore file path
@@ -262,14 +301,65 @@ public class SMTPClient {
     /**
      * Connects to the remote SMTP server.
      *
-     * <p>Creates the transport factory, endpoint handler, and client
+     * <p>If a DANE resolver was configured via {@link
+     * #setDaneResolver}, first looks up TLSA records for this
+     * client's host and port; otherwise connects immediately.
+     *
+     * @param handler the handler to receive the server greeting and
+     *                lifecycle events
+     */
+    public void connect(final ServerGreeting handler) {
+        if (daneResolver != null && host != null) {
+            lookupDane(handler);
+        } else {
+            doConnect(handler);
+        }
+    }
+
+    /**
+     * Looks up TLSA records for this client's host/port and, if the
+     * lookup is DNSSEC-secure and non-empty, installs a {@link
+     * DANETrustManager} before proceeding to {@link #doConnect}.
+     * RFC 7672 section 3.1.3: an insecure or empty lookup is not an
+     * error -- it just means DANE does not apply, so the connection
+     * proceeds with whatever trust manager was already configured.
+     */
+    private void lookupDane(final ServerGreeting handler) {
+        String tlsaName = "_" + port + "._tcp." + host;
+        daneResolver.queryTLSA(tlsaName, new DNSSECAwareQueryCallback() {
+            @Override
+            public void onResponse(DNSMessage response, DNSSECStatus status) {
+                if (status == DNSSECStatus.SECURE) {
+                    List<DNSResourceRecord> tlsaRecords = new ArrayList<>();
+                    for (DNSResourceRecord rr : response.getAnswers()) {
+                        if (rr.getType() == DNSType.TLSA) {
+                            tlsaRecords.add(rr);
+                        }
+                    }
+                    if (!tlsaRecords.isEmpty()) {
+                        trustManager = new DANETrustManager(
+                                trustManager, tlsaRecords);
+                    }
+                }
+                doConnect(handler);
+            }
+
+            @Override
+            public void onError(String error) {
+                doConnect(handler);
+            }
+        });
+    }
+
+    /**
+     * Creates the transport factory, endpoint handler, and client
      * endpoint, then initiates the connection. Lifecycle events are
      * forwarded to the given handler.
      *
      * @param handler the handler to receive the server greeting and
      *                lifecycle events
      */
-    public void connect(ServerGreeting handler) {
+    private void doConnect(ServerGreeting handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
         if (sslContext != null) {

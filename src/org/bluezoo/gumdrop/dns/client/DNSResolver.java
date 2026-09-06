@@ -54,6 +54,7 @@ import org.bluezoo.gumdrop.dns.DNSMultiQType;
 import org.bluezoo.gumdrop.dns.DNSQueryCallback;
 import org.bluezoo.gumdrop.dns.DNSQuestion;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
+import org.bluezoo.gumdrop.dns.DNSSECAwareQueryCallback;
 import org.bluezoo.gumdrop.dns.DNSSECChainValidator;
 import org.bluezoo.gumdrop.dns.DNSSECStatus;
 import org.bluezoo.gumdrop.dns.DNSSECTrustAnchor;
@@ -536,6 +537,25 @@ public class DNSResolver {
         query(name, DNSType.HTTPS, callback);
     }
 
+    /**
+     * Queries for TLSA records (DANE).
+     * RFC 6698: TLSA records bind a certificate or public key to a
+     * domain name for a specific port and protocol, e.g.
+     * {@code _25._tcp.mail.example.com}.
+     *
+     * <p>Use a {@link DNSSECAwareQueryCallback} rather than a plain
+     * {@link DNSQueryCallback} to find out whether the answer was
+     * DNSSEC-validated -- RFC 7672 section 3.1.3 requires a TLSA
+     * lookup to be ignored unless it came back
+     * {@link org.bluezoo.gumdrop.dns.DNSSECStatus#SECURE}.
+     *
+     * @param name the TLSA owner name (e.g. "_25._tcp.mail.example.com")
+     * @param callback the callback to receive results
+     */
+    public void queryTLSA(String name, DNSQueryCallback callback) {
+        query(name, DNSType.TLSA, callback);
+    }
+
     // -- High-Level Resolution --
 
     /**
@@ -978,11 +998,29 @@ public class DNSResolver {
                             if (LOGGER.isLoggable(Level.FINE)) {
                                 LOGGER.fine("DNSSEC status: " + status);
                             }
-                            cb.onResponse(validated);
+                            deliverToCallback(cb, validated, status);
                         }
                     });
         } else {
-            pending.callback.onResponse(response);
+            deliverToCallback(pending.callback, response,
+                    DNSSECStatus.INDETERMINATE);
+        }
+    }
+
+    /**
+     * Delivers a response to a query callback, passing the DNSSEC
+     * validation status through to callbacks that asked for it
+     * (RFC 7672 section 3.1.3 needs this to reject an insecure DANE
+     * lookup) without changing behavior for plain callbacks.
+     */
+    private static void deliverToCallback(DNSQueryCallback callback,
+                                          DNSMessage response,
+                                          DNSSECStatus status) {
+        if (callback instanceof DNSSECAwareQueryCallback) {
+            ((DNSSECAwareQueryCallback) callback)
+                    .onResponse(response, status);
+        } else {
+            callback.onResponse(response);
         }
     }
 

@@ -483,5 +483,36 @@ public class DNSResourceRecordTest {
         }
         DNSResourceRecord.txt("example.local", 4500, Arrays.asList(sb.toString()));
     }
+
+    @Test
+    public void testTLSARecord() {
+        byte[] hash = new byte[32];
+        Arrays.fill(hash, (byte) 0xAB);
+        DNSResourceRecord rr = DNSResourceRecord.tlsa(
+                "_25._tcp.mail.example.com", 3600, 3, 1, 1, hash);
+
+        assertEquals(DNSType.TLSA, rr.getType());
+        assertEquals(3, rr.getTLSACertUsage());
+        assertEquals(1, rr.getTLSASelector());
+        assertEquals(1, rr.getTLSAMatchingType());
+        assertArrayEquals(hash, rr.getTLSACertificateAssociationData());
+        assertEquals(3 + hash.length, rr.getRData().length);
+    }
+
+    @Test
+    public void testToStringTLSA() {
+        byte[] hash = new byte[32];
+        DNSResourceRecord rr = DNSResourceRecord.tlsa(
+                "_443._tcp.example.com", 3600, 2, 0, 2, hash);
+        String s = rr.toString();
+        assertTrue(s.contains("2 0 2"));
+        assertTrue(s.contains("[32 bytes]"));
+    }
+
+    @Test(expected = IllegalStateException.class)
+    public void testGetTLSACertUsageOnNonTLSA() throws Exception {
+        InetAddress ip = InetAddress.getByName("192.168.1.1");
+        DNSResourceRecord.a("example.com", 300, ip).getTLSACertUsage();
+    }
 }
 

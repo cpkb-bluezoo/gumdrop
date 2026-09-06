@@ -53,7 +53,6 @@ package org.bluezoo.gumdrop.dns;
  * <li>DHCID (49) - DHCP identifier</li>
  * <li>NSEC3 (50) - NSEC version 3</li>
  * <li>NSEC3PARAM (51) - NSEC3 parameters</li>
- * <li>TLSA (52) - TLS association</li>
  * <li>SMIMEA (53) - S/MIME association</li>
  * <li>HIP (55) - Host identity protocol</li>
  * <li>CDS (59) - Child DS</li>
@@ -116,6 +115,9 @@ public enum DNSType {
 
     /** NSEC3 parameters. RFC 5155 section 4. */
     NSEC3PARAM(51),
+
+    /** TLS association (DANE). RFC 6698 section 2. */
+    TLSA(52),
 
     /** Service binding. RFC 9460 section 2.2. */
     SVCB(64),

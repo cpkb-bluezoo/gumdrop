@@ -31,6 +31,8 @@ import org.bluezoo.gumdrop.dns.DNSMultiQType;
 import org.bluezoo.gumdrop.dns.DNSQueryCallback;
 import org.bluezoo.gumdrop.dns.DNSQuestion;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
+import org.bluezoo.gumdrop.dns.DNSSECAwareQueryCallback;
+import org.bluezoo.gumdrop.dns.DNSSECStatus;
 import org.bluezoo.gumdrop.dns.DNSType;
 import org.junit.After;
 import org.junit.Before;
@@ -192,6 +194,127 @@ public class DNSResolverTest {
 
         assertNotNull("Callback should receive response", result.get());
         assertEquals(1, result.get().getAnswers().size());
+        resolver.close();
+    }
+
+    // -- DNSSEC-aware callback delivery --
+
+    @Test
+    public void testDnssecAwareCallbackReceivesValidationStatus() throws Exception {
+        MockTransport mockTransport = new MockTransport();
+        DNSResolver resolver = new DNSResolver();
+        resolver.setTransport(mockTransport);
+        resolver.addServer("127.0.0.1");
+        resolver.setDnssecEnabled(true);
+        resolver.open();
+
+        final AtomicReference<DNSMessage> result = new AtomicReference<>();
+        final AtomicReference<DNSSECStatus> statusRef = new AtomicReference<>();
+        resolver.queryTLSA("_25._tcp.mail.example.com",
+                new DNSSECAwareQueryCallback() {
+                    @Override
+                    public void onResponse(DNSMessage response, DNSSECStatus status) {
+                        result.set(response);
+                        statusRef.set(status);
+                    }
+
+                    @Override
+                    public void onError(String err) {
+                        fail("Should not get error: " + err);
+                    }
+                });
+
+        int queryId = extractId(mockTransport.lastSentData);
+        // A NODATA response (no answers, no authority NSEC/NSEC3) is
+        // provably insecure per RFC 4035 section 5: DNSSECChainValidator
+        // has nothing to walk a chain of trust from.
+        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
+        DNSMessage nodata = new DNSMessage(queryId, flags,
+                Collections.singletonList(
+                        new DNSQuestion("_25._tcp.mail.example.com", DNSType.TLSA)),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList());
+        mockTransport.handler.onReceive(nodata.serialize());
+
+        assertNotNull("Callback should receive response", result.get());
+        assertEquals("An unsigned NODATA response must be reported "
+                        + "INSECURE, not silently treated as validated",
+                DNSSECStatus.INSECURE, statusRef.get());
+        resolver.close();
+    }
+
+    @Test
+    public void testPlainCallbackStillDeliveredWhenDnssecEnabled() throws Exception {
+        MockTransport mockTransport = new MockTransport();
+        DNSResolver resolver = new DNSResolver();
+        resolver.setTransport(mockTransport);
+        resolver.addServer("127.0.0.1");
+        resolver.setDnssecEnabled(true);
+        resolver.open();
+
+        final AtomicReference<DNSMessage> result = new AtomicReference<>();
+        resolver.queryTLSA("_25._tcp.mail.example.com",
+                new DNSQueryCallback() {
+                    @Override
+                    public void onResponse(DNSMessage response) {
+                        result.set(response);
+                    }
+
+                    @Override
+                    public void onError(String err) {
+                        fail("Should not get error: " + err);
+                    }
+                });
+
+        int queryId = extractId(mockTransport.lastSentData);
+        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
+        DNSMessage nodata = new DNSMessage(queryId, flags,
+                Collections.singletonList(
+                        new DNSQuestion("_25._tcp.mail.example.com", DNSType.TLSA)),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DNSResourceRecord>emptyList());
+        mockTransport.handler.onReceive(nodata.serialize());
+
+        assertNotNull("A plain DNSQueryCallback must still be delivered "
+                + "the response even though it can't see the DNSSEC status",
+                result.get());
+        resolver.close();
+    }
+
+    @Test
+    public void testDnssecAwareCallbackGetsIndeterminateWhenDnssecDisabled()
+            throws Exception {
+        MockTransport mockTransport = new MockTransport();
+        DNSResolver resolver = new DNSResolver();
+        resolver.setTransport(mockTransport);
+        resolver.addServer("127.0.0.1");
+        resolver.open();
+
+        final AtomicReference<DNSSECStatus> statusRef = new AtomicReference<>();
+        resolver.query("wire.example.com", DNSType.A,
+                new DNSSECAwareQueryCallback() {
+                    @Override
+                    public void onResponse(DNSMessage response, DNSSECStatus status) {
+                        statusRef.set(status);
+                    }
+
+                    @Override
+                    public void onError(String err) {
+                        fail("Should not get error: " + err);
+                    }
+                });
+
+        int queryId = extractId(mockTransport.lastSentData);
+        DNSMessage response = buildResponse(queryId, "wire.example.com",
+                false, new byte[]{1, 2, 3, 4});
+        mockTransport.handler.onReceive(response.serialize());
+
+        assertEquals("Without DNSSEC enabled there is nothing to "
+                        + "validate, so status must be INDETERMINATE, "
+                        + "never SECURE",
+                DNSSECStatus.INDETERMINATE, statusRef.get());
         resolver.close();
     }
 

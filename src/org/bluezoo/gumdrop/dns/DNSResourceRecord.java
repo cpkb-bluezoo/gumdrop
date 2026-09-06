@@ -514,6 +514,95 @@ public final class DNSResourceRecord {
     }
 
     /**
+     * Creates a TLSA record (DANE).
+     * RFC 6698 section 2.1: RDATA is CertUsage(1) + Selector(1) +
+     * MatchingType(1) + CertificateAssociationData.
+     *
+     * @param name the domain name (e.g. "_25._tcp.mail.example.com")
+     * @param ttl time to live in seconds
+     * @param certUsage the certificate usage field (0-3)
+     * @param selector the selector field (0-1)
+     * @param matchingType the matching type field (0-2)
+     * @param certificateAssociationData the certificate association data
+     * @return the resource record
+     */
+    public static DNSResourceRecord tlsa(String name, int ttl,
+                                          int certUsage, int selector,
+                                          int matchingType,
+                                          byte[] certificateAssociationData) {
+        ByteBuffer buf = ByteBuffer.allocate(3 + certificateAssociationData.length);
+        buf.put((byte) certUsage);
+        buf.put((byte) selector);
+        buf.put((byte) matchingType);
+        buf.put(certificateAssociationData);
+        return new DNSResourceRecord(name, DNSType.TLSA, DNSClass.IN,
+                ttl, buf.array());
+    }
+
+    // -- TLSA RDATA accessors (RFC 6698 section 2.1) --
+
+    private void checkTLSA() {
+        if (type != DNSType.TLSA) {
+            throw new IllegalStateException("Not a TLSA record: " + type);
+        }
+    }
+
+    /**
+     * Returns the TLSA certificate usage field.
+     * RFC 6698 section 2.1.1: octet 0 -- 0 (PKIX-TA), 1 (PKIX-EE),
+     * 2 (DANE-TA), or 3 (DANE-EE).
+     *
+     * @return the certificate usage value
+     * @throws IllegalStateException if this is not a TLSA record
+     */
+    public int getTLSACertUsage() {
+        checkTLSA();
+        return rdata[0] & 0xFF;
+    }
+
+    /**
+     * Returns the TLSA selector field.
+     * RFC 6698 section 2.1.2: octet 1 -- 0 (full certificate) or
+     * 1 (SubjectPublicKeyInfo).
+     *
+     * @return the selector value
+     * @throws IllegalStateException if this is not a TLSA record
+     */
+    public int getTLSASelector() {
+        checkTLSA();
+        return rdata[1] & 0xFF;
+    }
+
+    /**
+     * Returns the TLSA matching type field.
+     * RFC 6698 section 2.1.3: octet 2 -- 0 (exact match), 1 (SHA-256
+     * hash), or 2 (SHA-512 hash).
+     *
+     * @return the matching type value
+     * @throws IllegalStateException if this is not a TLSA record
+     */
+    public int getTLSAMatchingType() {
+        checkTLSA();
+        return rdata[2] & 0xFF;
+    }
+
+    /**
+     * Returns the TLSA certificate association data.
+     * RFC 6698 section 2.1.4: octets 3 onward -- the full certificate,
+     * SubjectPublicKeyInfo, or hash thereof, per the selector and
+     * matching type fields.
+     *
+     * @return the certificate association data
+     * @throws IllegalStateException if this is not a TLSA record
+     */
+    public byte[] getTLSACertificateAssociationData() {
+        checkTLSA();
+        byte[] data = new byte[rdata.length - 3];
+        System.arraycopy(rdata, 3, data, 0, data.length);
+        return data;
+    }
+
+    /**
      * Creates an OPT pseudo-record for EDNS0.
      * RFC 6891 section 6.1.1: the OPT record signals extended DNS
      * capabilities. The record name is root (empty), TYPE is OPT(41),
@@ -1473,6 +1562,17 @@ public final class DNSResourceRecord {
                         sb.append(" port=");
                         sb.append(svcbPort);
                     }
+                    break;
+                case TLSA:
+                    sb.append(" ");
+                    sb.append(getTLSACertUsage());
+                    sb.append(" ");
+                    sb.append(getTLSASelector());
+                    sb.append(" ");
+                    sb.append(getTLSAMatchingType());
+                    sb.append(" [");
+                    sb.append(getTLSACertificateAssociationData().length);
+                    sb.append(" bytes]");
                     break;
                 case RRSIG:
                     DNSType covered = DNSType.fromValue(getRRSIGTypeCovered());
