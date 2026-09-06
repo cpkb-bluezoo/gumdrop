@@ -23,7 +23,17 @@ package org.bluezoo.gumdrop.dns.client;
 
 /**
  * A DNS server's known support for encrypted transports, as recorded by
- * {@link DNSServerCapabilityCache}.
+ * {@link DNSServerCapabilityCache} -- either seeded in advance for a
+ * well-known public resolver, or learned at runtime via RFC 9462
+ * Discovery of Designated Resolvers (DDR).
+ *
+ * <p>Each transport's port defaults to 0, meaning "let the transport
+ * use its own well-known default" (RFC 7858 §3.1 / RFC 9250 §4.1.1:
+ * 853 for DoT/DoQ; RFC 8484 §5.1: 443 for DoH) -- the same "port &lt;= 0
+ * means use the default" convention {@link DNSClientTransport}
+ * implementations already follow. DDR's {@code port} SvcParam (RFC
+ * 9460 §7.3) overrides this when a resolver advertises a non-default
+ * port for a given transport.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DNSServerCapabilityCache
@@ -32,36 +42,58 @@ final class DNSServerCapabilities {
 
     /** No known support for any encrypted transport. */
     static final DNSServerCapabilities UNKNOWN =
-            new DNSServerCapabilities(false, false, null);
+            new DNSServerCapabilities(false, 0, false, 0, null, 0);
 
     private final boolean doqSupported;
+    private final int doqPort;
     private final boolean dotSupported;
+    private final int dotPort;
     private final String dohPath;
+    private final int dohPort;
 
-    private DNSServerCapabilities(boolean doqSupported, boolean dotSupported,
-                                  String dohPath) {
+    private DNSServerCapabilities(boolean doqSupported, int doqPort,
+                                  boolean dotSupported, int dotPort,
+                                  String dohPath, int dohPort) {
         this.doqSupported = doqSupported;
+        this.doqPort = doqPort;
         this.dotSupported = dotSupported;
+        this.dotPort = dotPort;
         this.dohPath = dohPath;
+        this.dohPort = dohPort;
     }
 
     /**
      * @param doqSupported true if the server is known to speak RFC 9250 DoQ
+     * @param doqPort the DoQ port, or 0 for the transport's default (853)
      * @param dotSupported true if the server is known to speak RFC 7858 DoT
+     * @param dotPort the DoT port, or 0 for the transport's default (853)
      * @param dohPath the RFC 8484 §4.1 URI template path, if the server
      *                is known to speak DoH, or null otherwise
+     * @param dohPort the DoH port, or 0 for the transport's default (443)
      */
-    static DNSServerCapabilities of(boolean doqSupported, boolean dotSupported,
-                                    String dohPath) {
-        return new DNSServerCapabilities(doqSupported, dotSupported, dohPath);
+    static DNSServerCapabilities of(boolean doqSupported, int doqPort,
+                                    boolean dotSupported, int dotPort,
+                                    String dohPath, int dohPort) {
+        return new DNSServerCapabilities(doqSupported, doqPort, dotSupported, dotPort,
+                dohPath, dohPort);
     }
 
     boolean isDoqSupported() {
         return doqSupported;
     }
 
+    /** The DoQ port, or 0 to use the transport's own default (853). */
+    int getDoqPort() {
+        return doqPort;
+    }
+
     boolean isDotSupported() {
         return dotSupported;
+    }
+
+    /** The DoT port, or 0 to use the transport's own default (853). */
+    int getDotPort() {
+        return dotPort;
     }
 
     boolean isDohSupported() {
@@ -74,5 +106,10 @@ final class DNSServerCapabilities {
      */
     String getDohPath() {
         return dohPath;
+    }
+
+    /** The DoH port, or 0 to use the transport's own default (443). */
+    int getDohPort() {
+        return dohPort;
     }
 }

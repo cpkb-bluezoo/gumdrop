@@ -332,6 +332,9 @@ public final class DNSResourceRecord {
     /** SvcParamKey for "port". RFC 9460 section 7.3. */
     public static final int SVCB_PARAM_PORT = 3;
 
+    /** SvcParamKey for "dohpath". RFC 9461 section 5. */
+    public static final int SVCB_PARAM_DOHPATH = 7;
+
     /**
      * Creates an HTTPS (or SVCB) record.
      * RFC 9460 section 2.2: RDATA is SvcPriority(2) + uncompressed
@@ -424,6 +427,18 @@ public final class DNSResourceRecord {
         ByteBuffer buf = ByteBuffer.allocate(2);
         buf.putShort((short) port);
         return buf.array();
+    }
+
+    /**
+     * Encodes a "dohpath" SvcParamValue (RFC 9461 section 5): a UTF-8
+     * URI Template, with no additional length-prefixing beyond the
+     * SvcParamValue's own length.
+     *
+     * @param uriTemplate the URI Template (e.g. {@code "/dns-query{?dns}"})
+     * @return the encoded SvcParamValue
+     */
+    public static byte[] encodeSVCBDohPath(String uriTemplate) {
+        return uriTemplate.getBytes(StandardCharsets.UTF_8);
     }
 
     /**
@@ -935,6 +950,20 @@ public final class DNSResourceRecord {
             return -1;
         }
         return ((value[0] & 0xFF) << 8) | (value[1] & 0xFF);
+    }
+
+    /**
+     * Returns the URI Template path advertised by SvcParamKey 7
+     * ("dohpath", RFC 9461 section 5) -- e.g. {@code "/dns-query{?dns}"}
+     * -- used by RFC 9462 Discovery of Designated Resolvers to learn a
+     * plaintext resolver's DNS-over-HTTPS path.
+     *
+     * @return the raw UTF-8 SvcParamValue, or null if not present
+     * @throws IllegalStateException if this is not an SVCB/HTTPS record
+     */
+    public String getSVCBDohPath() {
+        byte[] value = getSVCBParams().get(SVCB_PARAM_DOHPATH);
+        return value != null ? new String(value, StandardCharsets.UTF_8) : null;
     }
 
     // -- RRSIG RDATA accessors (RFC 4034 section 3.1) --

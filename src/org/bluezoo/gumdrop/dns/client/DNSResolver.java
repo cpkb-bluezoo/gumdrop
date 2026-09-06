@@ -237,6 +237,9 @@ public class DNSResolver {
     private DNSSECChainValidator chainValidator;
     private DNSSECTrustAnchor trustAnchor;
 
+    /** RFC 9462: when true, opportunistically discover encrypted endpoints. */
+    private boolean ddrEnabled;
+
     /**
      * Creates a new DNS resolver with no servers configured.
      * Call {@link #addServer(String)} or {@link #addServer(InetAddress, int)}
@@ -353,6 +356,43 @@ public class DNSResolver {
     }
 
     /**
+     * Enables or disables RFC 9462 Discovery of Designated Resolvers (DDR).
+     *
+     * <p>When enabled, {@link #open()} opportunistically asks each
+     * configured server whose encrypted transport support isn't already
+     * known (i.e. it was opened on plain UDP by default, not because
+     * {@link DNSServerCapabilityCache} already knew better) whether it
+     * also offers an encrypted equivalent, via a single extra plaintext
+     * SVCB query to {@code _dns.resolver.arpa} sent to that same
+     * server. On success, the discovered capability is recorded for
+     * future opens -- this resolver's and others', since the cache is
+     * process-wide -- and this server's active transport is upgraded
+     * immediately. A DDR failure, timeout, or malformed response is
+     * silently ignored: DDR never blocks or fails ordinary resolution,
+     * it just leaves the server on the plaintext transport it already
+     * has.
+     *
+     * <p>Must be called before {@link #open()}. Disabled by default,
+     * like {@link #setDnssecEnabled}, since it adds an extra query per
+     * not-yet-known server; has no effect when a transport was
+     * explicitly configured via {@link #setTransport}.
+     *
+     * @param enabled true to enable DDR discovery
+     */
+    public void setDdrEnabled(boolean enabled) {
+        this.ddrEnabled = enabled;
+    }
+
+    /**
+     * Returns true if RFC 9462 DDR discovery is enabled.
+     *
+     * @return true if DDR is enabled
+     */
+    public boolean isDdrEnabled() {
+        return ddrEnabled;
+    }
+
+    /**
      * Sets a custom trust anchor store. If not set and DNSSEC is
      * enabled, a default store with the IANA root anchors is used.
      *
@@ -433,6 +473,13 @@ public class DNSResolver {
             InetSocketAddress server = servers.get(i);
             TransportCallback callback = new TransportCallback(i);
             transports.add(openBestTransport(server, callback));
+            // callback.transportType is only ever PLAIN here when nothing
+            // better was already known (an explicit setTransport override
+            // never sets it at all, so this also naturally excludes that
+            // case) -- exactly the condition worth spending one DDR query on.
+            if (ddrEnabled && callback.transportType == DNSTransportType.PLAIN) {
+                startDdrDiscovery(i, server);
+            }
         }
         opened = true;
     }
@@ -963,7 +1010,7 @@ public class DNSResolver {
                 continue; // e.g. DoH with no provider on the classpath
             }
             try {
-                transport.open(server.getAddress(), server.getPort(), selectorLoop, callback);
+                transport.open(server.getAddress(), portFor(type, caps, server), selectorLoop, callback);
                 callback.transportType = type;
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine(MessageFormat.format(
@@ -994,6 +1041,24 @@ public class DNSResolver {
             case DOT: return caps.isDotSupported();
             case DOH: return caps.isDohSupported();
             case PLAIN: default: return true;
+        }
+    }
+
+    /**
+     * Returns the port to connect on for {@code type}: the server's own
+     * configured port for PLAIN, or the capability's known port for an
+     * encrypted transport -- which is usually 0 (meaning "let the
+     * transport use its own well-known default", e.g. 853 for DoT/DoQ,
+     * 443 for DoH), since encrypted DNS almost never runs on the same
+     * port as plaintext DNS. Forwarding {@code server.getPort()}
+     * (typically 53) to an encrypted transport here would be wrong.
+     */
+    private static int portFor(DNSTransportType type, DNSServerCapabilities caps, InetSocketAddress server) {
+        switch (type) {
+            case DOQ: return caps.getDoqPort();
+            case DOT: return caps.getDotPort();
+            case DOH: return caps.getDohPort();
+            case PLAIN: default: return server.getPort();
         }
     }
 
@@ -1270,6 +1335,224 @@ public class DNSResolver {
                 LOGGER.fine("TCP retry timed out for " + pending.name);
             }
             deliverResponse(pending, truncatedResponse);
+            transport.close();
+        }
+    }
+
+    // -- RFC 9462: Discovery of Designated Resolvers (DDR) --
+
+    // RFC 9462 §5.1: the special-use name a client queries on the
+    // plaintext resolver itself to learn its encrypted equivalents.
+    private static final String DDR_QUERY_NAME = "_dns.resolver.arpa";
+    // Bounded and independent of the ordinary query timeout: DDR is
+    // best-effort and must never make resolution wait longer than
+    // necessary on a resolver that doesn't answer this query at all.
+    private static final long DDR_TIMEOUT_MS = 3000;
+
+    /**
+     * Test-only seam: overridable to inject a mock transport for DDR's
+     * one-off discovery query, the same way {@link
+     * #createTcpRetryTransport} is overridable for the truncation-retry
+     * path.
+     */
+    DNSClientTransport createDdrTransport() {
+        return new UDPDNSClientTransport();
+    }
+
+    /**
+     * RFC 9462 §5.1: sends a SVCB query for {@link #DDR_QUERY_NAME} to
+     * {@code server}, over a fresh plaintext connection to that same
+     * server, and on a usable response records what was discovered and
+     * upgrades that server's active transport. See {@link
+     * #setDdrEnabled} for the full behavior and failure handling.
+     */
+    private void startDdrDiscovery(final int serverIndex, final InetSocketAddress server) {
+        try {
+            final DNSClientTransport transport = createDdrTransport();
+            final DDRHandler handler = new DDRHandler(serverIndex, server, transport);
+            transport.open(server.getAddress(), server.getPort(), selectorLoop, handler);
+            handler.timeoutHandle = transport.scheduleTimer(DDR_TIMEOUT_MS, new Runnable() {
+                @Override
+                public void run() {
+                    handler.onTimeout();
+                }
+            });
+            List<DNSQuestion> questions = Collections.singletonList(
+                    new DNSQuestion(DDR_QUERY_NAME, DNSType.SVCB, DNSClass.IN));
+            DNSMessage queryMsg = new DNSMessage(
+                    DNSQueryIdGenerator.allocateSynthetic(), DNSMessage.FLAG_RD, questions,
+                    Collections.<DNSResourceRecord>emptyList(),
+                    Collections.<DNSResourceRecord>emptyList(),
+                    Collections.<DNSResourceRecord>emptyList());
+            transport.send(queryMsg.serialize());
+        } catch (IOException e) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, "DDR discovery failed to start for " + server, e);
+            }
+        }
+    }
+
+    /**
+     * Parses a DDR SVCB response into discovered capabilities, or
+     * returns null if nothing usable was found (a NODATA/NXDOMAIN
+     * response, or SVCB records advertising none of the ALPN IDs below).
+     *
+     * <p>RFC 9461 §4: the ALPN identifiers "dot" and "doq" indicate
+     * DoT/DoQ support; "h2"/"h3" (RFC 9113/9114) alongside a "dohpath"
+     * SvcParam (RFC 9461 §5, defaulting to {@link
+     * DNSServerCapabilityCache#DOH_PATH} if absent per that section)
+     * indicate DoH support. AliasForm records (SvcPriority 0) carry no
+     * SvcParams and are skipped.
+     */
+    private DNSServerCapabilities parseDdrResponse(DNSMessage response) {
+        if (response.getRcode() != DNSMessage.RCODE_NOERROR) {
+            return null;
+        }
+        boolean doq = false;
+        int doqPort = 0;
+        boolean dot = false;
+        int dotPort = 0;
+        String dohPath = null;
+        int dohPort = 0;
+        for (DNSResourceRecord rr : response.getAnswers()) {
+            if (rr.getType() != DNSType.SVCB || rr.isSVCBAliasForm()) {
+                continue;
+            }
+            List<String> alpns = rr.getSVCBAlpnProtocols();
+            int recordPort = rr.getSVCBPort(); // -1 if absent
+            if (!doq && alpns.contains("doq")) {
+                doq = true;
+                doqPort = recordPort > 0 ? recordPort : 0;
+            }
+            if (!dot && alpns.contains("dot")) {
+                dot = true;
+                dotPort = recordPort > 0 ? recordPort : 0;
+            }
+            if (dohPath == null && (alpns.contains("h2") || alpns.contains("h3"))) {
+                String path = rr.getSVCBDohPath();
+                dohPath = stripUriTemplateSuffix(path != null ? path : DNSServerCapabilityCache.DOH_PATH);
+                dohPort = recordPort > 0 ? recordPort : 0;
+            }
+        }
+        if (!doq && !dot && dohPath == null) {
+            return null;
+        }
+        return DNSServerCapabilities.of(doq, doqPort, dot, dotPort, dohPath, dohPort);
+    }
+
+    // RFC 9461 §5: "dohpath" is a URI Template that must contain
+    // "{?dns}" for GET-style expansion; gumdrop's DoH client always
+    // POSTs (RFC 8484 §4.1) and has no use for the template, so only
+    // the literal path prefix before it is kept.
+    private static String stripUriTemplateSuffix(String uriTemplate) {
+        int braceIndex = uriTemplate.indexOf('{');
+        return braceIndex >= 0 ? uriTemplate.substring(0, braceIndex) : uriTemplate;
+    }
+
+    /**
+     * Re-selects and opens the best transport for {@code
+     * servers.get(serverIndex)} using freshly-discovered capability
+     * data, replacing its entry in {@link #transports} and closing the
+     * old one. A no-op if the resolver has since closed, or the index
+     * is otherwise stale.
+     *
+     * <p>A query already in flight on the old transport at the moment
+     * of the swap simply recovers via the existing per-server
+     * retry-on-timeout in {@link #handleTimeout} -- the same accepted
+     * trade-off as {@link TransportCallback#onError}'s reactive
+     * negative-caching, for the same reason: DDR discovery is a rare,
+     * early, one-time event, not a live mid-query renegotiation.
+     */
+    private void upgradeServerTransport(int serverIndex) {
+        if (serverIndex < 0 || serverIndex >= servers.size() || serverIndex >= transports.size()) {
+            return;
+        }
+        InetSocketAddress server = servers.get(serverIndex);
+        DNSClientTransport oldTransport = transports.get(serverIndex);
+        TransportCallback callback = new TransportCallback(serverIndex);
+        try {
+            DNSClientTransport newTransport = openBestTransport(server, callback);
+            transports.set(serverIndex, newTransport);
+            oldTransport.close();
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine(MessageFormat.format(
+                        L10N.getString("debug.ddr_upgraded"), server, callback.transportType));
+            }
+        } catch (IOException e) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, "DDR-triggered transport upgrade failed for " + server, e);
+            }
+        }
+    }
+
+    /**
+     * Handles the one-off DDR discovery exchange for a single server,
+     * independent of the ordinary {@link #pendingQueries}/{@link
+     * #handleTimeout} machinery (which is designed to fail over
+     * between servers, not to bound a single side query like this
+     * one) -- the same reasoning behind {@link TcpRetryHandler}'s
+     * separate, dedicated transport and handler for the truncation-retry
+     * path.
+     */
+    private class DDRHandler implements DNSClientTransportHandler {
+
+        private final int serverIndex;
+        private final InetSocketAddress server;
+        private final DNSClientTransport transport;
+        TimerHandle timeoutHandle;
+        private boolean completed;
+
+        DDRHandler(int serverIndex, InetSocketAddress server, DNSClientTransport transport) {
+            this.serverIndex = serverIndex;
+            this.server = server;
+            this.transport = transport;
+        }
+
+        @Override
+        public void onReceive(ByteBuffer data) {
+            if (completed) {
+                return;
+            }
+            completed = true;
+            if (timeoutHandle != null) {
+                timeoutHandle.cancel();
+            }
+            try {
+                DNSMessage response = DNSMessage.parse(data);
+                DNSServerCapabilities discovered = parseDdrResponse(response);
+                if (discovered != null) {
+                    DNSServerCapabilityCache.learn(server, discovered);
+                    if (LOGGER.isLoggable(Level.FINE)) {
+                        LOGGER.fine(MessageFormat.format(
+                                L10N.getString("debug.ddr_discovered"), server));
+                    }
+                    upgradeServerTransport(serverIndex);
+                }
+            } catch (DNSFormatException e) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.log(Level.FINE, "Malformed DDR response from " + server, e);
+                }
+            }
+            transport.close();
+        }
+
+        @Override
+        public void onError(Exception cause) {
+            finish();
+        }
+
+        void onTimeout() {
+            finish();
+        }
+
+        private void finish() {
+            if (completed) {
+                return;
+            }
+            completed = true;
+            if (timeoutHandle != null) {
+                timeoutHandle.cancel();
+            }
             transport.close();
         }
     }
