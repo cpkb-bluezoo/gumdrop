@@ -152,6 +152,16 @@ public class TCPTransportFactory extends TransportFactory {
     }
 
     /**
+     * Returns the configured ALPN protocols.
+     *
+     * @return the ALPN protocol names, or null if not configured
+     */
+    public String[] getApplicationProtocols() {
+        return applicationProtocols != null
+                ? applicationProtocols.clone() : null;
+    }
+
+    /**
      * Enables TCP Fast Open (RFC 7413) on client connections.
      * When enabled, the kernel can send data in the SYN packet,
      * eliminating one RTT from connection setup for repeat connections.
@@ -204,6 +214,15 @@ public class TCPTransportFactory extends TransportFactory {
      */
     public void setTrustManager(X509TrustManager trustManager) {
         this.trustManager = trustManager;
+    }
+
+    /**
+     * Returns the configured trust manager.
+     *
+     * @return the trust manager, or null if using JVM defaults
+     */
+    public X509TrustManager getTrustManager() {
+        return trustManager;
     }
 
     // -- Lifecycle --

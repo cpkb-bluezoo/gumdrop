@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.dns.client;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.dns.DNSMessage;
 import org.bluezoo.gumdrop.dns.DNSType;
 import org.junit.Test;
@@ -29,9 +30,17 @@ import org.junit.Test;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.nio.ByteBuffer;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+
+import javax.net.ssl.X509TrustManager;
 
 import static org.junit.Assert.*;
 
@@ -83,7 +92,139 @@ public class TCPDNSClientTransportTest {
     @Test
     public void testDoTEnablesTcpFastOpen() {
         TCPDNSClientTransport transport = TCPDNSClientTransport.createDoT();
-        assertNotNull(transport);
+        TCPTransportFactory factory = transport.createTransportFactory();
+        assertTrue(factory.isTcpFastOpen());
+        transport.close();
+    }
+
+    // -- DoT ALPN and trust manager configuration --
+
+    /**
+     * RFC 7858 section 3.1: the "dot" ALPN identifier MUST be
+     * advertised for DNS-over-TLS.
+     */
+    @Test
+    public void testCreateDoTAdvertisesDotAlpn() {
+        TCPDNSClientTransport transport = TCPDNSClientTransport.createDoT();
+        TCPTransportFactory factory = transport.createTransportFactory();
+        assertArrayEquals(new String[]{ "dot" },
+                factory.getApplicationProtocols());
+        transport.close();
+    }
+
+    @Test
+    public void testPlainTcpTransportHasNoAlpn() {
+        TCPDNSClientTransport transport = new TCPDNSClientTransport();
+        TCPTransportFactory factory = transport.createTransportFactory();
+        assertNull(factory.getApplicationProtocols());
+        transport.close();
+    }
+
+    @Test
+    public void testSetTrustManagerUsedDirectlyWhenNoSpkiPins() {
+        TCPDNSClientTransport transport = TCPDNSClientTransport.createDoT();
+        X509TrustManager custom = new X509TrustManager() {
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType) {
+            }
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType) {
+            }
+            @Override
+            public X509Certificate[] getAcceptedIssuers() {
+                return new X509Certificate[0];
+            }
+        };
+        transport.setTrustManager(custom);
+
+        TCPTransportFactory factory = transport.createTransportFactory();
+        assertSame(custom, factory.getTrustManager());
+        transport.close();
+    }
+
+    @Test
+    public void testPlainTransportHasNoTrustManagerByDefault() {
+        TCPDNSClientTransport transport = TCPDNSClientTransport.createDoT();
+        TCPTransportFactory factory = transport.createTransportFactory();
+        assertNull(factory.getTrustManager());
+        transport.close();
+    }
+
+    /**
+     * RFC 7858 section 4.2: when both a custom trust manager and SPKI
+     * pins are configured, the trust manager must be used as the SPKI
+     * check's delegate rather than being discarded.
+     */
+    @Test
+    public void testCustomTrustManagerUsedAsSpkiDelegate() throws Exception {
+        TCPDNSClientTransport transport = TCPDNSClientTransport.createDoT();
+        final AtomicBoolean delegateCalled = new AtomicBoolean();
+        X509TrustManager custom = new X509TrustManager() {
+            @Override
+            public void checkClientTrusted(X509Certificate[] chain, String authType) {
+            }
+            @Override
+            public void checkServerTrusted(X509Certificate[] chain, String authType)
+                    throws CertificateException {
+                delegateCalled.set(true);
+                throw new CertificateException("marker: delegate reached");
+            }
+            @Override
+            public X509Certificate[] getAcceptedIssuers() {
+                return new X509Certificate[0];
+            }
+        };
+        transport.setTrustManager(custom);
+        Set<String> pins = new HashSet<>(Arrays.asList(
+                "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+                        + ":aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"));
+        transport.setPinnedSPKIFingerprints(pins);
+
+        TCPTransportFactory factory = transport.createTransportFactory();
+        X509TrustManager wrapped = factory.getTrustManager();
+        assertTrue(wrapped instanceof
+                org.bluezoo.gumdrop.util.SPKIPinnedCertTrustManager);
+
+        try {
+            wrapped.checkServerTrusted(new X509Certificate[0], "RSA");
+            fail("Expected the custom trust manager's exception to propagate");
+        } catch (CertificateException e) {
+            assertEquals("marker: delegate reached", e.getMessage());
+        }
+        assertTrue("Custom trust manager should be consulted as the "
+                        + "SPKI check's delegate",
+                delegateCalled.get());
+        transport.close();
+    }
+
+    /**
+     * Regression guard: SPKI pinning without an explicit custom trust
+     * manager must still fall back to a real (JVM default) delegate,
+     * not a null one that would NPE on the first handshake.
+     */
+    @Test
+    public void testSpkiPinningWithoutCustomTrustManagerUsesJvmDefault()
+            throws Exception {
+        TCPDNSClientTransport transport = TCPDNSClientTransport.createDoT();
+        transport.setPinnedSPKIFingerprints(new HashSet<>(Arrays.asList(
+                "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+                        + ":aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99")));
+
+        TCPTransportFactory factory = transport.createTransportFactory();
+        X509TrustManager wrapped = factory.getTrustManager();
+
+        try {
+            wrapped.checkServerTrusted(new X509Certificate[0], "RSA");
+            fail("Expected rejection of an empty chain, not silent success");
+        } catch (NullPointerException e) {
+            fail("A null delegate was wired in instead of the JVM "
+                    + "default trust manager: " + e);
+        } catch (Exception expected) {
+            // The JVM default X509TrustManagerImpl rejects the empty
+            // chain itself (IllegalArgumentException) before the SPKI
+            // fingerprint check ever runs -- reaching any exception
+            // *other than* NPE proves a real delegate was wired in.
+        }
         transport.close();
     }
 
