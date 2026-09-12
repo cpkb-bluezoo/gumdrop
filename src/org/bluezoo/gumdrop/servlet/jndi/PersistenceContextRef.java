@@ -118,6 +118,12 @@ public final class PersistenceContextRef implements Injectable {
         unitName = config.unitName();
     }
 
+    public void init(jakarta.persistence.PersistenceContext config) {
+        name = config.name();
+        type = PersistenceContextType.valueOf(config.type().name());
+        unitName = config.unitName();
+    }
+
     // -- Injectable --
 
     @Override public String getLookupName() {

@@ -1133,8 +1133,27 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         securityRole.roleName = roleName;
                         descriptor.addSecurityRole(securityRole);
                     }
+                } else if (annotation instanceof jakarta.annotation.security.DeclareRoles) {
+                    jakarta.annotation.security.DeclareRoles declareRoles =
+                            (jakarta.annotation.security.DeclareRoles) annotation;
+                    for (String roleName : declareRoles.value()) {
+                        SecurityRole securityRole = new SecurityRole();
+                        securityRole.roleName = roleName;
+                        descriptor.addSecurityRole(securityRole);
+                    }
                 } else if (annotation instanceof RunAs) {
                     RunAs runAs = (RunAs) annotation;
+                    ServletDef servletDef;
+                    if (target == null) {
+                        servletDef = new ServletDef();
+                        target = servletDef;
+                    } else {
+                        servletDef = (ServletDef) target;
+                    }
+                    servletDef.init(runAs);
+                } else if (annotation instanceof jakarta.annotation.security.RunAs) {
+                    jakarta.annotation.security.RunAs runAs =
+                            (jakarta.annotation.security.RunAs) annotation;
                     ServletDef servletDef;
                     if (target == null) {
                         servletDef = new ServletDef();
@@ -1153,14 +1172,32 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     for (PersistenceContext persistenceContext : persistenceContexts.value()) {
                         initPersistenceContextRef(persistenceContext);
                     }
+                } else if (annotation instanceof jakarta.persistence.PersistenceContexts) {
+                    jakarta.persistence.PersistenceContexts persistenceContexts =
+                            (jakarta.persistence.PersistenceContexts) annotation;
+                    for (jakarta.persistence.PersistenceContext persistenceContext : persistenceContexts.value()) {
+                        initPersistenceContextRef(persistenceContext);
+                    }
                 } else if (annotation instanceof PersistenceUnits) {
                     PersistenceUnits persistenceUnits = (PersistenceUnits) annotation;
                     for (PersistenceUnit persistenceUnit : persistenceUnits.value()) {
                         initPersistenceUnitRef(persistenceUnit);
                     }
+                } else if (annotation instanceof jakarta.persistence.PersistenceUnits) {
+                    jakarta.persistence.PersistenceUnits persistenceUnits =
+                            (jakarta.persistence.PersistenceUnits) annotation;
+                    for (jakarta.persistence.PersistenceUnit persistenceUnit : persistenceUnits.value()) {
+                        initPersistenceUnitRef(persistenceUnit);
+                    }
                 } else if (annotation instanceof Resources) {
                     Resources resources = (Resources) annotation;
                     for (javax.annotation.Resource resource : resources.value()) {
+                        initResourceRef(resource);
+                    }
+                } else if (annotation instanceof jakarta.annotation.Resources) {
+                    jakarta.annotation.Resources resources =
+                            (jakarta.annotation.Resources) annotation;
+                    for (jakarta.annotation.Resource resource : resources.value()) {
                         initResourceRef(resource);
                     }
                 } else if (annotation instanceof WebServiceRefs) {
@@ -1181,12 +1218,26 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         javax.annotation.Resource resource = (javax.annotation.Resource) annotation;
                         ResourceRef resourceRef = initResourceRef(resource);
                         addInjectionTarget(resourceRef, className, field.getName());
+                    } else if (annotation instanceof jakarta.annotation.Resource) {
+                        jakarta.annotation.Resource resource = (jakarta.annotation.Resource) annotation;
+                        ResourceRef resourceRef = initResourceRef(resource);
+                        addInjectionTarget(resourceRef, className, field.getName());
                     } else if (annotation instanceof PersistenceContext) {
                         PersistenceContext persistenceContext = (PersistenceContext) annotation;
                         PersistenceContextRef persistenceContextRef = initPersistenceContextRef(persistenceContext);
                         addInjectionTarget(persistenceContextRef, className, field.getName());
+                    } else if (annotation instanceof jakarta.persistence.PersistenceContext) {
+                        jakarta.persistence.PersistenceContext persistenceContext =
+                                (jakarta.persistence.PersistenceContext) annotation;
+                        PersistenceContextRef persistenceContextRef = initPersistenceContextRef(persistenceContext);
+                        addInjectionTarget(persistenceContextRef, className, field.getName());
                     } else if (annotation instanceof PersistenceUnit) {
                         PersistenceUnit persistenceUnit = (PersistenceUnit) annotation;
+                        PersistenceUnitRef persistenceUnitRef = initPersistenceUnitRef(persistenceUnit);
+                        addInjectionTarget(persistenceUnitRef, className, field.getName());
+                    } else if (annotation instanceof jakarta.persistence.PersistenceUnit) {
+                        jakarta.persistence.PersistenceUnit persistenceUnit =
+                                (jakarta.persistence.PersistenceUnit) annotation;
                         PersistenceUnitRef persistenceUnitRef = initPersistenceUnitRef(persistenceUnit);
                         addInjectionTarget(persistenceUnitRef, className, field.getName());
                     } else if (annotation instanceof WebServiceRef) {
@@ -1199,12 +1250,14 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             // method annotations
             for (Method method : t.getMethods()) {
                 for (Annotation annotation : method.getAnnotations()) {
-                    if (annotation instanceof PostConstruct) {
+                    if (annotation instanceof PostConstruct
+                            || annotation instanceof jakarta.annotation.PostConstruct) {
                         LifecycleCallback callback = new LifecycleCallback();
                         callback.className = className;
                         callback.methodName = method.getName();
                         addPostConstruct(callback);
-                    } else if (annotation instanceof PreDestroy) {
+                    } else if (annotation instanceof PreDestroy
+                            || annotation instanceof jakarta.annotation.PreDestroy) {
                         LifecycleCallback callback = new LifecycleCallback();
                         callback.className = className;
                         callback.methodName = method.getName();
@@ -1256,6 +1309,20 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return resourceRef;
     }
 
+    ResourceRef initResourceRef(jakarta.annotation.Resource config) {
+        String name = config.name();
+        for (ResourceRef resourceRef : resourceRefs) {
+            if (name.equals(resourceRef.getName())) {
+                resourceRef.init(config);
+                return resourceRef;
+            }
+        }
+        ResourceRef resourceRef = new ResourceRef();
+        resourceRef.init(config);
+        addResourceRef(resourceRef);
+        return resourceRef;
+    }
+
     PersistenceContextRef initPersistenceContextRef(PersistenceContext config) {
         String name = config.name();
         if (name != null) {
@@ -1273,6 +1340,22 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return persistenceContextRef;
     }
 
+    PersistenceContextRef initPersistenceContextRef(jakarta.persistence.PersistenceContext config) {
+        String name = config.name();
+        if (name != null) {
+            for (PersistenceContextRef persistenceContextRef : persistenceContextRefs) {
+                if (name.equals(persistenceContextRef.getName())) {
+                    persistenceContextRef.init(config);
+                    return persistenceContextRef;
+                }
+            }
+        }
+        PersistenceContextRef persistenceContextRef = new PersistenceContextRef();
+        persistenceContextRef.init(config);
+        addPersistenceContextRef(persistenceContextRef);
+        return persistenceContextRef;
+    }
+
     PersistenceUnitRef initPersistenceUnitRef(PersistenceUnit config) {
         String name = config.name();
         if (name != null) {
@@ -1284,6 +1367,22 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             }
         }
         // create
+        PersistenceUnitRef persistenceUnitRef = new PersistenceUnitRef();
+        persistenceUnitRef.init(config);
+        addPersistenceUnitRef(persistenceUnitRef);
+        return persistenceUnitRef;
+    }
+
+    PersistenceUnitRef initPersistenceUnitRef(jakarta.persistence.PersistenceUnit config) {
+        String name = config.name();
+        if (name != null) {
+            for (PersistenceUnitRef persistenceUnitRef : persistenceUnitRefs) {
+                if (name.equals(persistenceUnitRef.getName())) {
+                    persistenceUnitRef.init(config);
+                    return persistenceUnitRef;
+                }
+            }
+        }
         PersistenceUnitRef persistenceUnitRef = new PersistenceUnitRef();
         persistenceUnitRef.init(config);
         addPersistenceUnitRef(persistenceUnitRef);

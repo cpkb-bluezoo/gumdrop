@@ -143,7 +143,22 @@ class Response implements HttpServletResponse {
             buf.append(domain);
         }
         if (secure) {
-            buf.append("; secure");
+            buf.append("; Secure");
+        }
+        if (cookie.isHttpOnly()) {
+            buf.append("; HttpOnly");
+        }
+        Map<String,String> attrs = cookie.getAttributes();
+        if (attrs != null) {
+            for (Map.Entry<String,String> entry : attrs.entrySet()) {
+                buf.append("; ");
+                buf.append(entry.getKey());
+                String attrValue = entry.getValue();
+                if (attrValue != null && !attrValue.isEmpty()) {
+                    buf.append('=');
+                    buf.append(attrValue);
+                }
+            }
         }
         addHeader("Set-Cookie", buf.toString());
     }
@@ -366,11 +381,14 @@ class Response implements HttpServletResponse {
         }
         // Session management
         if (request.sessionId != null) {
-            // Add JSESSIONID cookie
             HttpSession session = context.getSessionManager().getSession(request.sessionId);
             if (session != null) {
-                Cookie cookie = new Cookie("JSESSIONID", request.sessionId);
-                cookie.setMaxAge(session.getMaxInactiveInterval());
+                CookieConfig cookieConfig = (CookieConfig) context.getSessionCookieConfig();
+                Cookie cookie = cookieConfig.createSessionCookie(
+                        request.sessionId, request.getContextPath());
+                if (cookieConfig.getMaxAge() == -1) {
+                    cookie.setMaxAge(session.getMaxInactiveInterval());
+                }
                 addCookie(cookie);
             }
         }

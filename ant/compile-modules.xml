@@ -11,8 +11,10 @@
     <pathelement location='${lib}/${servlet.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${annotation.jar}'/>
+    <pathelement location='${lib}/${jakarta.annotation.jar}'/>
     <pathelement location='${lib}/${ejb.jar}'/>
     <pathelement location='${lib}/${persistence.jar}'/>
+    <pathelement location='${lib}/${jakarta.persistence.jar}'/>
     <pathelement location='${lib}/${jaxws.jar}'/>
   </path>
 

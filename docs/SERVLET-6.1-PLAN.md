@@ -66,11 +66,11 @@ Tests: `Servlet61ApiTest`, `SessionTest.testGetAccessorAllowsAccessOutsideReques
 
 ---
 
-## Phase 4 — Coupled follow-ups (same branch or follow-on PRs)
+## Phase 4 — Coupled follow-ups ✓
 
-- JSP runtime alignment with Jakarta JSP 4.0 (EE 11) if claiming full web stack
-- Cookie `Partitioned` / 6.1 cookie attrs audit on `CookieConfig`
-- `javax.annotation` / `javax.persistence` scan annotations → Jakarta equivalents where still used in `Context.scanClass`
+- JSP runtime alignment with Jakarta JSP 4.0 API namespace (`jakarta.servlet.jsp`); runtime still implements JSP 2.3 / EL 3.0 features
+- Cookie `Partitioned` / 6.1 cookie attrs on `CookieConfig`, web.xml parsing, and `Set-Cookie` emission
+- `jakarta.annotation` / `jakarta.persistence` scan in `Context.scanClass` (alongside legacy `javax.*` annotations)
 
 ---
 

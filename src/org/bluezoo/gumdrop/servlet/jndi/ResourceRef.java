@@ -141,6 +141,16 @@ public final class ResourceRef implements Injectable {
         resSharingScope = config.shareable() ? "Shareable" : "Unshareable";
     }
 
+    public void init(jakarta.annotation.Resource config) {
+        description = config.description();
+        name = config.name();
+        resAuth = Resource.AuthenticationType.valueOf(config.authenticationType().name());
+        lookupName = config.lookup();
+        mappedName = config.mappedName();
+        className = config.type().getName();
+        resSharingScope = config.shareable() ? "Shareable" : "Unshareable";
+    }
+
     // -- Injectable --
 
     @Override public String getLookupName() {

@@ -119,6 +119,10 @@ final class ServletDef implements ServletConfig, Comparable<ServletDef>, Servlet
         runAs = config.value();
     }
 
+    void init(jakarta.annotation.security.RunAs config) {
+        runAs = config.value();
+    }
+
     /**
      * Compare for sorting according to the value of loadOnStartup
      */

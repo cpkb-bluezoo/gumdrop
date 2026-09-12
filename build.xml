@@ -28,6 +28,8 @@
   <property name='gonzalez.jar' value='gonzalez-core-${gonzalez.version}.jar'/>
   <property name='jsonparser.jar' value='jsonparser-${jsonparser.version}.jar'/>
   <property name='servlet.jar' value='jakarta.servlet-api-${jakarta.servlet.api.version}.jar'/>
+  <property name='jakarta.annotation.jar' value='jakarta.annotation-api-${jakarta.annotation.api.version}.jar'/>
+  <property name='jakarta.persistence.jar' value='jakarta.persistence-api-${jakarta.persistence.api.version}.jar'/>
   <property name='javamail.jar' value='javax.mail-${javax.mail.version}.jar'/>
   <property name='annotation.jar' value='javax.annotation-api-${javax.annotation.api.version}.jar'/>
   <property name='ejb.jar' value='javax.ejb-api-${javax.ejb.api.version}.jar'/>
@@ -160,6 +162,10 @@
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/jakarta/servlet/jakarta.servlet-api/${jakarta.servlet.api.version}/jakarta.servlet-api-${jakarta.servlet.api.version}.jar'
          dest='${lib}/${servlet.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/jakarta/annotation/jakarta.annotation-api/${jakarta.annotation.api.version}/jakarta.annotation-api-${jakarta.annotation.api.version}.jar'
+         dest='${lib}/${jakarta.annotation.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/jakarta/persistence/jakarta.persistence-api/${jakarta.persistence.api.version}/jakarta.persistence-api-${jakarta.persistence.api.version}.jar'
+         dest='${lib}/${jakarta.persistence.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/com/sun/mail/javax.mail/${javax.mail.version}/javax.mail-${javax.mail.version}.jar'
          dest='${lib}/${javamail.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/javax/annotation/javax.annotation-api/${javax.annotation.api.version}/javax.annotation-api-${javax.annotation.api.version}.jar'

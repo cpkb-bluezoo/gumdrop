@@ -438,6 +438,31 @@ public class DeploymentDescriptorParserTest {
         assertTrue(descriptor.sessionConfig.cookieConfig.isSecure());
     }
 
+    @Test
+    public void testParseSessionCookieConfig61() throws Exception {
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                "<web-app xmlns=\"https://jakarta.ee/xml/ns/jakartaee\" version=\"6.1\">\n" +
+                "  <session-config>\n" +
+                "    <cookie-config>\n" +
+                "      <same-site>None</same-site>\n" +
+                "      <partitioned/>\n" +
+                "      <attribute>\n" +
+                "        <name>Custom-Flag</name>\n" +
+                "        <value>on</value>\n" +
+                "      </attribute>\n" +
+                "    </cookie-config>\n" +
+                "  </session-config>\n" +
+                "</web-app>";
+
+        parse(xml);
+
+        CookieConfig cookieConfig = descriptor.sessionConfig.cookieConfig;
+        assertNotNull(cookieConfig);
+        assertEquals(CookieConfig.SameSite.None, cookieConfig.sameSite);
+        assertTrue(cookieConfig.partitioned);
+        assertEquals("on", cookieConfig.getAttribute("Custom-Flag"));
+    }
+
     // ===== Welcome File List Tests =====
 
     @Test

@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import jakarta.servlet.SessionCookieConfig;
+import jakarta.servlet.http.Cookie;
 
 /**
  * Definition of a cookie-config.
@@ -48,7 +49,49 @@ final class CookieConfig implements SessionCookieConfig {
     boolean secure = false;
     int maxAge = -1;
     SameSite sameSite = SameSite.Lax;
+    boolean partitioned;
     final Map<String,String> attributes = new LinkedHashMap<>();
+
+    /** Parsed {@code <attribute>} element under {@code cookie-config}. */
+    static final class AttributePair {
+        String name;
+        String value = "";
+    }
+
+    /**
+     * Builds a session {@code Set-Cookie} from this descriptor and a session id.
+     */
+    Cookie createSessionCookie(String sessionId, String contextPath) {
+        Cookie cookie = new Cookie(name, sessionId);
+        if (domain != null) {
+            cookie.setDomain(domain);
+        }
+        String cookiePath = path;
+        if (cookiePath == null && contextPath != null && !contextPath.isEmpty()) {
+            cookiePath = contextPath;
+        }
+        if (cookiePath != null) {
+            cookie.setPath(cookiePath);
+        }
+        if (maxAge != -1) {
+            cookie.setMaxAge(maxAge);
+        }
+        cookie.setHttpOnly(httpOnly);
+        cookie.setSecure(secure);
+        if (comment != null) {
+            cookie.setComment(comment);
+        }
+        if (sameSite != null) {
+            cookie.setAttribute("SameSite", sameSite.name());
+        }
+        if (partitioned) {
+            cookie.setAttribute("Partitioned", "");
+        }
+        for (Map.Entry<String,String> entry : attributes.entrySet()) {
+            cookie.setAttribute(entry.getKey(), entry.getValue());
+        }
+        return cookie;
+    }
 
     // -- SessionCookieConfig --
 
