@@ -49,8 +49,8 @@ import static org.junit.Assert.*;
 /**
  * End-to-end test of DTLS support in {@link UDPEndpoint} (issue #190):
  * a real client and server, each with their own {@link UDPTransportFactory},
- * talking DTLSv1.2 over real loopback UDP sockets through a running
- * {@link Gumdrop} instance -- no mocking of the network or the SSLEngine.
+ * talking DTLS 1.2 over real loopback UDP sockets through a running
+ * {@link Gumdrop} instance -- no mocking of the network or the record engine.
  *
  * <p>Uses the same checked-in test PKI ({@code test/integration/certs/
  * test-keystore.p12} / {@code test-truststore.p12}, password {@code

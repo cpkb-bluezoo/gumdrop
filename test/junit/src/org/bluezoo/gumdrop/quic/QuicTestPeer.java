@@ -33,10 +33,6 @@ import java.util.Map;
 
 import javax.net.ssl.X509TrustManager;
 
-import tech.kwik.agent15.NewSessionTicket;
-import tech.kwik.agent15.TlsConstants;
-import tech.kwik.agent15.engine.TlsServerEngineFactory;
-
 import org.bluezoo.gumdrop.quic.frame.QuicFrameHandler;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameParser;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
@@ -50,12 +46,15 @@ import org.bluezoo.gumdrop.quic.packet.QuicAeadAlgorithm;
 import org.bluezoo.gumdrop.quic.packet.ShortHeaderCodec;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
-import org.bluezoo.gumdrop.quic.tls.Hkdf;
+import org.bluezoo.gumdrop.crypto.Hkdf;
 import org.bluezoo.gumdrop.quic.tls.InitialSecrets;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
+import org.bluezoo.gumdrop.tls.CipherSuite;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.SessionTicket;
 
 /**
  * One side of an in-process QUIC connection used by the quic package's
@@ -105,10 +104,10 @@ public class QuicTestPeer implements QuicTlsEngineListener {
     public volatile boolean handshakeDoneReadyToSend;
     public volatile boolean handshakeConfirmed;
     public volatile TransportParameters peerTransportParameters;
-    public volatile NewSessionTicket receivedSessionTicket;
+    public volatile SessionTicket receivedSessionTicket;
     public volatile boolean earlySecretsAvailableFired;
     public volatile boolean earlyDataAccepted;
-    private TlsConstants.CipherSuite earlyDataCipher;
+    private CipherSuite earlyDataCipher;
     private PacketProtectionKeys zeroRttSendKeys;
     private PacketProtectionKeys zeroRttRecvKeys;
     private Exception deliveryError;
@@ -146,17 +145,16 @@ public class QuicTestPeer implements QuicTlsEngineListener {
      * @param clientInitialDcid the Destination Connection ID from the
      *                          client's first Initial packet
      * @param localTransportParameters this peer's own transport parameters
-     * @param certificateFactory factory holding the server's certificate
-     *                           chain and private key
+     * @param serverCredentials the server's certificate chain and private key
      * @return the new server peer
      */
     public static QuicTestPeer newServer(byte[] clientInitialDcid, TransportParameters localTransportParameters,
-            TlsServerEngineFactory certificateFactory) {
-        return new QuicTestPeer(false, clientInitialDcid, localTransportParameters, certificateFactory, null);
+            ServerCredentials serverCredentials) {
+        return new QuicTestPeer(false, clientInitialDcid, localTransportParameters, serverCredentials, null);
     }
 
     private QuicTestPeer(boolean isClient, byte[] clientInitialDcid,
-            TransportParameters localTransportParameters, TlsServerEngineFactory certificateFactory,
+            TransportParameters localTransportParameters, ServerCredentials serverCredentials,
             String applicationProtocol) {
         this.isClient = isClient;
         this.nextLocalBidiStreamId = isClient ? 0 : 1;
@@ -182,7 +180,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         } else {
             sendKeys.put(EncryptionLevel.INITIAL, serverInitialKeys);
             recvKeys.put(EncryptionLevel.INITIAL, clientInitialKeys);
-            this.tlsEngine = new QuicTlsServerEngine(certificateFactory, localTransportParameters, this, false);
+            this.tlsEngine = new QuicTlsServerEngine(serverCredentials, localTransportParameters, this, false);
         }
     }
 
@@ -202,15 +200,15 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         }
     }
 
-    private static Hkdf hkdfFor(TlsConstants.CipherSuite cipher) {
-        if (cipher == TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384) {
+    private static Hkdf hkdfFor(CipherSuite cipher) {
+        if (cipher == CipherSuite.TLS_AES_256_GCM_SHA384) {
             return Hkdf.sha384();
         }
         return Hkdf.sha256();
     }
 
-    private static QuicAeadAlgorithm aeadFor(TlsConstants.CipherSuite cipher) {
-        if (cipher == TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384) {
+    private static QuicAeadAlgorithm aeadFor(CipherSuite cipher) {
+        if (cipher == CipherSuite.TLS_AES_256_GCM_SHA384) {
             return QuicAeadAlgorithm.AES_256_GCM;
         }
         return QuicAeadAlgorithm.AES_128_GCM;
@@ -221,19 +219,19 @@ public class QuicTestPeer implements QuicTlsEngineListener {
     }
 
     /**
-     * Client-only: presents a previously received session ticket,
-     * attempting PSK resumption (and 0-RTT, if the server accepts) on
-     * the next {@link #startHandshake}. Must be called before
-     * {@link #startHandshake}.
+     * Client-only: presents a previously received session ticket. No-op
+     * -- session resumption is not implemented yet (see
+     * {@link org.bluezoo.gumdrop.quic.SessionTicketCache}'s class
+     * documentation) -- kept so tests exercising the API shape still
+     * compile.
      *
      * @param ticket the session ticket to present
      */
-    public void presentSessionTicket(NewSessionTicket ticket) {
-        earlyDataCipher = ticket.getCipher();
+    public void presentSessionTicket(SessionTicket ticket) {
         ((QuicTlsClientEngine) tlsEngine).presentSessionTicket(ticket);
     }
 
-    public TlsConstants.CipherSuite getSelectedCipher() {
+    public CipherSuite getSelectedCipher() {
         if (isClient) {
             return ((QuicTlsClientEngine) tlsEngine).getSelectedCipher();
         }
@@ -253,7 +251,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
 
     @Override
     public void handshakeSecretsAvailable() {
-        TlsConstants.CipherSuite cipher = getSelectedCipher();
+        CipherSuite cipher = getSelectedCipher();
         Hkdf hkdf = hkdfFor(cipher);
         QuicAeadAlgorithm aead = aeadFor(cipher);
         byte[] clientSecret = tlsEngine.getClientHandshakeTrafficSecret();
@@ -263,7 +261,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
 
     @Override
     public void handshakeFinished() {
-        TlsConstants.CipherSuite cipher = getSelectedCipher();
+        CipherSuite cipher = getSelectedCipher();
         Hkdf hkdf = hkdfFor(cipher);
         QuicAeadAlgorithm aead = aeadFor(cipher);
         byte[] clientSecret = tlsEngine.getClientApplicationTrafficSecret();
@@ -284,7 +282,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
     @Override
     public void earlySecretsAvailable() {
         earlySecretsAvailableFired = true;
-        TlsConstants.CipherSuite cipher = isClient ? earlyDataCipher : getSelectedCipher();
+        CipherSuite cipher = isClient ? earlyDataCipher : getSelectedCipher();
         if (cipher == null) {
             return;
         }
@@ -299,7 +297,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
     }
 
     @Override
-    public void newSessionTicketReceived(NewSessionTicket ticket) {
+    public void newSessionTicketReceived(SessionTicket ticket) {
         receivedSessionTicket = ticket;
     }
 
@@ -526,6 +524,18 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         // is non-decreasing in padding size and the varint length class
         // has only 4 possible values, so this converges in at most a
         // few iterations.
+        //
+        // Independently of minDatagramSize, RFC 9001 section 5.4.2 needs
+        // at least 4 bytes of sample offset plus a 16-byte sample after
+        // the packet number -- i.e. pnLength + ciphertext length must be
+        // at least 20 bytes -- or header protection has nothing to
+        // sample and this harness's own header-protection application
+        // below reads past the end of the packet. A packet carrying only
+        // a HANDSHAKE_DONE frame (1 byte) is exactly this case: nothing
+        // else pads it out the way e.g. a bundled NewSessionTicket would
+        // have. Enforced here, for every level, rather than only for
+        // Initial's minDatagramSize padding.
+        int minSamplePayload = 4 + QuicAeadAlgorithm.SAMPLE_LENGTH - QuicAeadAlgorithm.TAG_LENGTH - pnLength;
         int paddingBytes = 0;
         byte[] header;
         while (true) {
@@ -533,8 +543,10 @@ public class QuicTestPeer implements QuicTlsEngineListener {
                     ? LongHeaderCodec.build(packetType, 1, dcid, scid, token,
                             packetNumber, pnLength, frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH)
                     : ShortHeaderCodec.build(dcid, false, packetNumber, pnLength);
-            int required = minDatagramSize - (header.length + frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
-            int nextPadding = Math.max(0, paddingBytes + required);
+            int requiredForDatagramSize =
+                    minDatagramSize - (header.length + frameBytes + paddingBytes + QuicAeadAlgorithm.TAG_LENGTH);
+            int requiredForSample = minSamplePayload - (frameBytes + paddingBytes);
+            int nextPadding = Math.max(0, paddingBytes + Math.max(requiredForDatagramSize, requiredForSample));
             if (nextPadding == paddingBytes) {
                 break;
             }

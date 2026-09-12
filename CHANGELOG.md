@@ -145,7 +145,7 @@ Planned as **2.3.0** (minor bump for new HTTP/QUIC functionality).
   gumdrop's own server, covering SMTP (Postfix), FTP (vsftpd), SOCKS5
   (Dante), LDAP (OpenLDAP), Redis (Redis), MQTT (Eclipse Mosquitto), gRPC
   (Python `grpcio`), and DNS over UDP/TCP/DoT/DoH/DoQ (AdGuard Home).
-- `DoHClientTransport.setSSLContext`/`setTrustManager` and
+- `DoHClientTransport.setTrustManager` and
   `DoQClientTransport.setPinnedCertFingerprint`/`setCaFile`: allow the DNS
   client's DoH and DoQ transports to trust a private or self-signed CA
   instead of the platform default trust store, needed to verify these

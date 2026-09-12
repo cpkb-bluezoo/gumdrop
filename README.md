@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Java-17+-orange?style=flat-square" alt="Java 17+"/>
+  <img src="https://img.shields.io/badge/Java-25+-orange?style=flat-square" alt="Java 25+"/>
   <img src="https://img.shields.io/badge/100%25-Pure%20Java-brightgreen?style=flat-square" alt="100% Pure Java"/>
   <img src="https://img.shields.io/badge/License-LGPL%20v3-blue?style=flat-square" alt="LGPL v3"/>
   <img src="https://img.shields.io/badge/Dependencies-Low-brightgreen?style=flat-square" alt="Low Dependencies"/>
@@ -54,10 +54,10 @@ non-blocking, event-driven I/O.
     - pluggable authentication via Realm interface
     - pluggable storage via MailboxFactory interface
 - low external dependencies, all pure Java
-    - [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) (XML), [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) (JSON), [agent15](https://github.com/ptrd/agent15) (TLS 1.3, used for QUIC), and J2EE APIs
-    - self-contained implementations (QUIC/HTTP-3, protobuf, HPACK, ASN.1, OTel, etc.)
+    - [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) (XML), [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) (JSON), and J2EE APIs
+    - self-contained implementations (QUIC/HTTP-3, TLS 1.3, protobuf, HPACK, ASN.1, OTel, etc.)
     - no dependency injection framework required
-- requires Java 17+ (LTS)
+- requires Java 25+ (LTS)
     - UNIX domain socket support available natively
     - no native library or build step required for any feature, including QUIC/HTTP-3
 - transparent security

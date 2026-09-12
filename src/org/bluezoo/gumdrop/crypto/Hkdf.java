@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.quic.tls;
+package org.bluezoo.gumdrop.crypto;
 
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -30,8 +30,9 @@ import javax.crypto.spec.SecretKeySpec;
 
 /**
  * HKDF (RFC 5869) and the TLS 1.3 HKDF-Expand-Label construction
- * (RFC 8446 section 7.1) that QUIC's key schedule (RFC 9001 section 5.1)
- * is built from.
+ * (RFC 8446 section 7.1) that the TLS 1.3 handshake and record key
+ * schedules, and QUIC's key schedule (RFC 9001 section 5.1), are built
+ * from.
  *
  * <p>Every operation here is a pure function of its arguments: no state,
  * no I/O, safe to call directly on the {@code SelectorLoop} thread.
@@ -43,7 +44,10 @@ import javax.crypto.spec.SecretKeySpec;
 public final class Hkdf {
 
     /** The TLS 1.3 label prefix prepended to every HKDF-Expand-Label label (RFC 8446 section 7.1). */
-    private static final byte[] LABEL_PREFIX = "tls13 ".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] TLS13_LABEL_PREFIX = "tls13 ".getBytes(StandardCharsets.US_ASCII);
+
+    /** RFC 9147 section 5.9: DTLS 1.3 uses {@code "dtls13"} with no trailing space. */
+    private static final byte[] DTLS13_LABEL_PREFIX = "dtls13".getBytes(StandardCharsets.US_ASCII);
 
     private final String macAlgorithm;
     private final int hashLength;
@@ -104,6 +108,22 @@ public final class Hkdf {
     }
 
     /**
+     * Plain HMAC under this instance's algorithm: {@code HMAC-Hash(key, data)}.
+     * Used for the TLS 1.3 {@code Finished} message's verify-data
+     * (RFC 8446 section 4.4.4), which is an HMAC keyed by a
+     * HKDF-Expand-Label-derived {@code finished_key}, not itself an
+     * HKDF-Extract/Expand step.
+     *
+     * @param key the HMAC key
+     * @param data the data to authenticate
+     * @return the HMAC, {@code hashLength} bytes
+     */
+    public byte[] hmac(byte[] key, byte[] data) {
+        Mac mac = newMac(key);
+        return mac.doFinal(data);
+    }
+
+    /**
      * HKDF-Expand (RFC 5869 section 2.3): expands a pseudorandom key into
      * {@code length} bytes of output keying material.
      *
@@ -152,22 +172,47 @@ public final class Hkdf {
      * @return the output keying material, {@code length} bytes
      */
     public byte[] expandLabel(byte[] secret, String label, byte[] context, int length) {
+        return expandLabelWithPrefix(TLS13_LABEL_PREFIX, secret, label, context, length);
+    }
+
+    /**
+     * HKDF-Expand-Label with an explicit prefix (RFC 8446 section 7.1 /
+     * RFC 9147 section 5.9).
+     *
+     * @param labelPrefix the prefix bytes, e.g. {@code "tls13 "} or {@code "dtls13"}
+     * @param secret the secret to expand from
+     * @param label the label without the prefix
+     * @param context the context octets
+     * @param length the length in bytes of output keying material
+     * @return the output keying material
+     */
+    public byte[] expandLabelWithPrefix(byte[] labelPrefix, byte[] secret, String label, byte[] context,
+            int length) {
         byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
-        int fullLabelLength = LABEL_PREFIX.length + labelBytes.length;
+        int fullLabelLength = labelPrefix.length + labelBytes.length;
 
         byte[] hkdfLabel = new byte[2 + 1 + fullLabelLength + 1 + context.length];
         int pos = 0;
         hkdfLabel[pos++] = (byte) ((length >> 8) & 0xff);
         hkdfLabel[pos++] = (byte) (length & 0xff);
         hkdfLabel[pos++] = (byte) fullLabelLength;
-        System.arraycopy(LABEL_PREFIX, 0, hkdfLabel, pos, LABEL_PREFIX.length);
-        pos += LABEL_PREFIX.length;
+        System.arraycopy(labelPrefix, 0, hkdfLabel, pos, labelPrefix.length);
+        pos += labelPrefix.length;
         System.arraycopy(labelBytes, 0, hkdfLabel, pos, labelBytes.length);
         pos += labelBytes.length;
         hkdfLabel[pos++] = (byte) context.length;
         System.arraycopy(context, 0, hkdfLabel, pos, context.length);
 
         return expand(secret, hkdfLabel, length);
+    }
+
+    /**
+     * Returns the RFC 9147 {@code "dtls13"} HKDF-Expand-Label prefix bytes.
+     *
+     * @return the prefix without a trailing space
+     */
+    public static byte[] dtls13LabelPrefix() {
+        return DTLS13_LABEL_PREFIX.clone();
     }
 
     private Mac newMac(byte[] key) {

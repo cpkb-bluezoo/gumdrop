@@ -26,7 +26,6 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
@@ -44,6 +43,7 @@ import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
 /**
@@ -100,7 +100,7 @@ public class ConnectUdpClient implements AltSvcListener {
     // Configuration (set before connect)
     private boolean secure;
     private boolean verifyPeer = true;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
@@ -238,8 +238,8 @@ public class ConnectUdpClient implements AltSvcListener {
      *
      * @param context the SSL context
      */
-    public void setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
     }
 
     /**
@@ -501,8 +501,8 @@ public class ConnectUdpClient implements AltSvcListener {
 
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
-        if (sslContext != null) {
-            transportFactory.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            transportFactory.setClientCredentials(clientCredentials);
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);

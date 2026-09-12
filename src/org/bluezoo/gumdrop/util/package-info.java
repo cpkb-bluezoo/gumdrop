@@ -24,8 +24,8 @@
  * helpers, and small standalone algorithms.
  *
  * <p>{@link org.bluezoo.gumdrop.util.CIDRNetwork} matches an address
- * against a CIDR block; {@link org.bluezoo.gumdrop.util.SNIKeyManager}
- * is an SSL {@code KeyManager} that selects a certificate by SNI
+ * against a CIDR block; {@link org.bluezoo.gumdrop.util.SniCredentialsResolver}
+ * selects a {@link org.bluezoo.gumdrop.tls.ServerCredentials} by SNI
  * hostname, for virtual hosting; {@link
  * org.bluezoo.gumdrop.util.EmptyX509TrustManager} accepts any
  * certificate (test/dev use only); {@link

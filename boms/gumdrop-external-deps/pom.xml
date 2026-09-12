@@ -17,7 +17,7 @@
     <packaging>pom</packaging>
 
     <name>Gumdrop external dependencies</name>
-    <description>gonzalez-core, jsonparser, agent15, hkdf, J2EE API, and test dependency version pins</description>
+    <description>gonzalez-core, jsonparser, J2EE API, and test dependency version pins</description>
 
     <dependencyManagement>
         <dependencies>
@@ -41,16 +41,6 @@
             <groupId>org.bluezoo</groupId>
             <artifactId>jsonparser</artifactId>
             <version>1.3</version>
-        </dependency>
-        <dependency>
-            <groupId>tech.kwik</groupId>
-            <artifactId>agent15</artifactId>
-            <version>3.3</version>
-        </dependency>
-        <dependency>
-            <groupId>at.favre.lib</groupId>
-            <artifactId>hkdf</artifactId>
-            <version>2.0.0</version>
         </dependency>
         <dependency>
             <groupId>javax.servlet</groupId>

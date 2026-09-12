@@ -93,8 +93,8 @@ public interface LDAPConnected {
      * Initiates a STARTTLS upgrade to encrypt the connection.
      * 
      * <p>This should be called before binding to protect credentials.
-     * The {@link LDAPClient} must have been configured with an
-     * {@link javax.net.ssl.SSLContext} before connecting.
+     * The {@link LDAPClient} must have been configured with TLS
+     * credentials/trust before connecting.
      * 
      * <p>After successful TLS upgrade, the handler receives an
      * {@link LDAPPostTLS} interface and should proceed to bind.

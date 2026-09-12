@@ -14,7 +14,6 @@ module org.bluezoo.gumdrop {
 
     requires org.bluezoo.gonzalez;
     requires org.bluezoo.json;
-    requires tech.kwik.agent15;
 
     exports org.bluezoo.gumdrop;
     exports org.bluezoo.gumdrop.config;
@@ -23,6 +22,8 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.ratelimit;
     exports org.bluezoo.gumdrop.auth;
     exports org.bluezoo.gumdrop.auth.oauth;
+    exports org.bluezoo.gumdrop.crypto;
+    exports org.bluezoo.gumdrop.tls;
     exports org.bluezoo.gumdrop.auth.ldap;
     exports org.bluezoo.gumdrop.http;
     exports org.bluezoo.gumdrop.http.client;

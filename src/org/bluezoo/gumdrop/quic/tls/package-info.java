@@ -20,24 +20,30 @@
  */
 
 /**
- * TLS 1.3 key schedule support for QUIC (RFC 9001) and the bridge to the
- * Agent15 handshake engine.
+ * TLS 1.3 key schedule support for QUIC (RFC 9001) and the bridge to
+ * {@link org.bluezoo.gumdrop.tls.HandshakeEngine}, gumdrop's own in-tree
+ * TLS 1.3 handshake engine over JCA.
  *
- * <p>Agent15 (<a href="https://github.com/ptrd/agent15">tech.kwik:agent15</a>)
- * implements the TLS 1.3 handshake message layer (RFC 8446 section 4) only;
- * it does not implement the TLS record layer, since QUIC does not use it
- * (RFC 9001 section 3). This package supplies the pieces RFC 9001 requires
- * on top of that: the HKDF-Expand-Label key derivation function (RFC 8446
- * section 7.1), the fixed Initial secret derivation (RFC 9001 section 5.2),
- * and the adapter classes that feed handshake bytes to and from Agent15's
- * {@code TlsClientEngine}/{@code TlsServerEngine} on QUIC CRYPTO frames.
+ * <p>{@code HandshakeEngine} implements the TLS 1.3 handshake message
+ * layer (RFC 8446 section 4) only; it does not implement the TLS record
+ * layer, since QUIC does not use it (RFC 9001 section 3). This package
+ * supplies the pieces RFC 9001 requires on top of that: the fixed
+ * Initial secret derivation (RFC 9001 section 5.2), and the adapter
+ * classes ({@link org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine},
+ * {@link org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine}) that feed
+ * handshake bytes to and from {@code HandshakeEngine} on QUIC CRYPTO
+ * frames, reassembling them via {@link
+ * org.bluezoo.gumdrop.quic.tls.CryptoStreamBuffer} and offloading the
+ * actual handshake processing off the connection's loop thread via
+ * {@link org.bluezoo.gumdrop.quic.tls.QuicHandshakeAsyncOffload}.
  *
  * <p>Key classes:
  * <ul>
- * <li>{@link org.bluezoo.gumdrop.quic.tls.Hkdf} -- HKDF-Extract,
- *     HKDF-Expand (RFC 5869), and HKDF-Expand-Label (RFC 8446 section 7.1)</li>
  * <li>{@link org.bluezoo.gumdrop.quic.tls.InitialSecrets} -- the
  *     connection-ID-derived Initial secrets (RFC 9001 section 5.2)</li>
+ * <li>{@link org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine},
+ *     {@link org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine} -- the
+ *     {@code HandshakeEngine} bridge</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
@@ -31,10 +30,6 @@ import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.security.KeyStore;
-import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
@@ -45,10 +40,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.KeyManager;
-import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
@@ -72,6 +63,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 
@@ -131,7 +123,7 @@ public class HTTPClient implements AltSvcListener {
 
     // Configuration (set before connect)
     private boolean secure;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
@@ -285,12 +277,14 @@ public class HTTPClient implements AltSvcListener {
     }
 
     /**
-     * Sets an externally-configured SSL context.
+     * Sets this client's own identity (certificate chain and private key)
+     * to present if the server requests client certificate authentication
+     * (mTLS).
      *
-     * @param context the SSL context
+     * @param clientCredentials the client's own credentials
      */
-    public void setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
     }
 
     /**
@@ -717,12 +711,13 @@ public class HTTPClient implements AltSvcListener {
     private void connectTcp(final HTTPClientHandler handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
-        if (sslContext != null) {
-            transportFactory.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            transportFactory.setClientCredentials(clientCredentials);
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);
         } else if (!verifyPeer) {
+            LOGGER.warning(L10N.getString("warn.tls_verification_disabled"));
             transportFactory.setTrustManager(new EmptyX509TrustManager());
         }
         if (keystoreFile != null) {
@@ -733,6 +728,12 @@ public class HTTPClient implements AltSvcListener {
         }
         if (keystoreFormat != null) {
             transportFactory.setKeystoreFormat(keystoreFormat);
+        }
+        if (certFile != null) {
+            transportFactory.setCertFile(certFile);
+        }
+        if (keyFile != null) {
+            transportFactory.setKeyFile(keyFile);
         }
         // RFC 9113 section 3.2 / RFC 7301: advertise HTTP/2 via ALPN on TLS so
         // the server can negotiate "h2". Without this the ClientHello carries
@@ -1497,11 +1498,6 @@ public class HTTPClient implements AltSvcListener {
         client.setSecure(isSecure);
         client.setVerifyPeer(!skipVerify);
 
-        if (isSecure && !"3".equals(forceVersion)) {
-            SSLContext ctx = createClientSSLContext(
-                    pemCert, pemKey, skipVerify);
-            client.setSSLContext(ctx);
-        }
         if (pemCert != null) {
             client.setCertFile(pemCert);
         }
@@ -1631,69 +1627,6 @@ public class HTTPClient implements AltSvcListener {
         if (respErr != null) {
             throw respErr;
         }
-    }
-
-    /**
-     * Builds the SSL context for the command-line client.
-     *
-     * <p>By default ({@code skipVerify == false}) the JDK's default trust
-     * managers are used, so server certificates are fully validated. When the
-     * {@code -k} flag is given ({@code skipVerify == true}) certificate
-     * verification is disabled using a trust-all trust manager. This is
-     * <strong>insecure</strong> and intended only for local debugging against
-     * self-signed certificates; it must never be enabled in production. A
-     * warning is logged whenever it is active.
-     *
-     * @param pemCert optional PEM client certificate path
-     * @param pemKey optional PEM client key path
-     * @param skipVerify whether to disable server certificate verification
-     * @return the configured SSL context
-     */
-    private static SSLContext createClientSSLContext(
-            String pemCert, String pemKey, boolean skipVerify)
-            throws Exception {
-        TrustManager[] tm = null;
-        if (skipVerify) {
-            LOGGER.warning(L10N.getString("warn.tls_verification_disabled"));
-            tm = new TrustManager[] {
-                new X509TrustManager() {
-                    @Override
-                    public X509Certificate[] getAcceptedIssuers() {
-                        return new X509Certificate[0];
-                    }
-
-                    @Override
-                    public void checkClientTrusted(
-                            X509Certificate[] certs, String authType) {
-                    }
-
-                    @Override
-                    public void checkServerTrusted(
-                            X509Certificate[] certs, String authType) {
-                    }
-                }
-            };
-        }
-
-        KeyManager[] km = null;
-        if (pemCert != null && pemKey != null) {
-            KeyStore ks = KeyStore.getInstance("PKCS12");
-            ks.load(null, null);
-            CertificateFactory cf =
-                    CertificateFactory.getInstance("X.509");
-            FileInputStream certIn = new FileInputStream(pemCert);
-            Certificate cert = cf.generateCertificate(certIn);
-            certIn.close();
-            ks.setCertificateEntry("client-cert", cert);
-            KeyManagerFactory kmf = KeyManagerFactory.getInstance(
-                    KeyManagerFactory.getDefaultAlgorithm());
-            kmf.init(ks, new char[0]);
-            km = kmf.getKeyManagers();
-        }
-
-        SSLContext ctx = SSLContext.getInstance("TLS");
-        ctx.init(km, tm, null);
-        return ctx;
     }
 
     private static HTTPResponseHandler createResponseHandler(

@@ -21,9 +21,8 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
-import tech.kwik.agent15.NewSessionTicket;
-
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.tls.SessionTicket;
 
 /**
  * Callback interface through which {@link QuicTlsClientEngine} and
@@ -92,9 +91,12 @@ public interface QuicTlsEngineListener {
      * once the server has determined the client's presented PSK resumes
      * a valid session -- in both cases, before either side has decided
      * whether 0-RTT will actually be accepted (see
-     * {@code QuicTlsServerEngine#isEarlyDataAccepted}). The client early
+     * {@code QuicTlsServerEngine#wasEarlyDataAccepted}). The client early
      * traffic secret is available from this point via
      * {@link QuicTlsEngine#getClientEarlyTrafficSecret()}.
+     *
+     * <p>Session resumption and 0-RTT are not implemented yet -- nothing
+     * calls this today.
      */
     void earlySecretsAvailable();
 
@@ -104,9 +106,15 @@ public interface QuicTlsEngineListener {
      * presented on a future connection to the same server to attempt
      * PSK resumption and, if the ticket allows it, 0-RTT.
      *
+     * <p>Session resumption is not implemented yet -- nothing calls this
+     * today. The method stays part of this interface (typed against
+     * gumdrop's own {@link SessionTicket} rather than Agent15's) so this
+     * package has no remaining dependency on Agent15 at all, even in an
+     * as-yet-unreachable code path.
+     *
      * @param ticket the received session ticket
      */
-    void newSessionTicketReceived(NewSessionTicket ticket);
+    void newSessionTicketReceived(SessionTicket ticket);
 
     /**
      * Client-only: called once EncryptedExtensions arrives, reporting

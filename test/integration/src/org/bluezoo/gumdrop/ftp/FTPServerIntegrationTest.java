@@ -135,14 +135,13 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
             this.client = new ClientEndpoint(factory, selectorLoop, TEST_HOST, port);
         }
 
-        void setSSLContext(javax.net.ssl.SSLContext sslContext) {
-            factory.setSSLContext(sslContext);
+        void setTrustManager(javax.net.ssl.X509TrustManager trustManager) {
+            factory.setTrustManager(trustManager);
+            factory.setSecure(true);
         }
 
         void connect(ServerGreeting handler) throws Exception {
-            FTPClientProtocolHandler endpointHandler = new FTPClientProtocolHandler(handler);
-            endpointHandler.setSSLContext(factory.getSSLContext());
-            client.connect(endpointHandler);
+            client.connect(new FTPClientProtocolHandler(handler));
         }
     }
 
@@ -546,7 +545,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
     @Test
     public void testAuthTlsUpgrade() throws Exception {
         FTPTestClient client = createClient(FTP_PORT);
-        client.setSSLContext(certManager.createClientSSLContext());
+        client.setTrustManager(certManager.createClientTrustManager());
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicBoolean tlsEstablished = new AtomicBoolean();
@@ -619,7 +618,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
     @Test
     public void testProtPStorRetrRoundTrip() throws Exception {
         FTPTestClient client = createClient(FTP_PORT);
-        client.setSSLContext(certManager.createClientSSLContext());
+        client.setTrustManager(certManager.createClientTrustManager());
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<String> downloaded = new AtomicReference<>();

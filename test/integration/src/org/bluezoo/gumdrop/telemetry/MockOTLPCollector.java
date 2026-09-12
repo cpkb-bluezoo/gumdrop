@@ -32,7 +32,6 @@ import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.http.HTTPListener;
 import org.bluezoo.gumdrop.http.HTTPStatus;
 
-import javax.net.ssl.SSLContext;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.net.InetSocketAddress;
@@ -128,8 +127,8 @@ public class MockOTLPCollector {
             }
             
             // Configure server TLS
-            SSLContext sslContext = certManager.createServerSSLContext(password, false);
-            server.setSSLContext(sslContext);
+            server.setKeystoreFile(certManager.getSharedKeystoreFile().getPath());
+            server.setKeystorePass(password);
             server.setSecure(true);
         }
 

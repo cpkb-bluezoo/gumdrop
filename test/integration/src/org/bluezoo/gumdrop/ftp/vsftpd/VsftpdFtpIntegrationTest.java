@@ -54,7 +54,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
@@ -176,11 +175,9 @@ public class VsftpdFtpIntegrationTest {
     @Test
     public void testAuthTlsProtPThenStorRetr() throws Exception {
         X509Certificate serverCert = VsftpdTestSupport.loadServerCertificate();
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, new javax.net.ssl.TrustManager[] { pinningTrustManager(serverCert) }, null);
 
         FTPClient client = new FTPClient(VsftpdTestSupport.HOST, VsftpdTestSupport.PORT);
-        client.setSSLContext(sslContext);
+        client.setTrustManager(pinningTrustManager(serverCert));
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();

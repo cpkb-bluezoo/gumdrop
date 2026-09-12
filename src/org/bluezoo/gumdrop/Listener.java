@@ -42,11 +42,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLContext;
-
 import org.bluezoo.gumdrop.ratelimit.AuthenticationRateLimiter;
 import org.bluezoo.gumdrop.ratelimit.ConnectionRateLimiter;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.DtlsVersion;
+import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.CIDRNetwork;
 
 /**
@@ -91,7 +92,9 @@ public abstract class Listener {
     // ── Connector-level configuration ──
 
     protected boolean secure = false;
-    protected SSLContext context;
+    protected ServerCredentials serverCredentials;
+    protected TlsVersion tlsVersion = TlsVersion.TLS_1_3;
+    protected DtlsVersion dtlsVersion = DtlsVersion.DTLS_1_2;
     protected Path keystoreFile;
     protected String keystorePass;
     protected String keystoreFormat = "PKCS12";
@@ -239,29 +242,82 @@ public abstract class Listener {
         this.namedGroups = namedGroups;
     }
 
-    public void setSSLContext(SSLContext context) {
-        this.context = context;
+    /**
+     * Sets this server's identity (certificate chain and private key)
+     * directly, bypassing keystore-file loading.
+     *
+     * @param serverCredentials the server credentials
+     */
+    public void setServerCredentials(ServerCredentials serverCredentials) {
+        this.serverCredentials = serverCredentials;
     }
 
-    public SSLContext getSSLContext() {
-        return context;
+    /**
+     * Returns this server's identity.
+     *
+     * @return the server credentials, or null if not set
+     */
+    public ServerCredentials getServerCredentials() {
+        return serverCredentials;
+    }
+
+    /**
+     * Returns the TLS protocol version this listener's secure connections
+     * speak.
+     *
+     * @return the TLS version, defaulting to {@link TlsVersion#TLS_1_3}
+     */
+    public TlsVersion getTlsVersion() {
+        return tlsVersion;
+    }
+
+    /**
+     * Sets the TLS protocol version this listener's secure connections
+     * speak -- a deployment-time choice, not negotiated per-connection.
+     * See {@link TlsVersion}'s own doc comment for why a deployment
+     * wanting to serve both TLS 1.3 and TLS 1.2 peers configures two
+     * listeners rather than one that detects the version at runtime.
+     *
+     * @param tlsVersion the TLS version
+     */
+    public void setTlsVersion(TlsVersion tlsVersion) {
+        this.tlsVersion = (tlsVersion != null) ? tlsVersion : TlsVersion.TLS_1_3;
+    }
+
+    /**
+     * Returns the DTLS protocol version UDP listeners are pinned to.
+     *
+     * @return the DTLS version
+     */
+    public DtlsVersion getDtlsVersion() {
+        return dtlsVersion;
+    }
+
+    /**
+     * Sets the DTLS protocol version UDP listeners speak.
+     *
+     * @param dtlsVersion the DTLS version
+     */
+    public void setDtlsVersion(DtlsVersion dtlsVersion) {
+        this.dtlsVersion = (dtlsVersion != null) ? dtlsVersion : DtlsVersion.DTLS_1_2;
     }
 
     /**
      * Indicates whether this listener has TLS material configured, either
-     * an explicitly injected {@link SSLContext} or a keystore from which the
-     * transport factory builds one at start time.
+     * explicitly injected {@link ServerCredentials} or a keystore from
+     * which the transport factory builds them at start time.
      *
      * <p>This is the correct basis for STARTTLS/STLS availability on a
-     * cleartext listener. The SSLContext used for an in-band TLS upgrade is
-     * created by the transport factory from the configured keystore, so
-     * checking {@link #context} alone (which is populated only via
-     * {@link #setSSLContext}) would miss the common keystore-configured case.
+     * cleartext listener. Credentials for an in-band TLS upgrade are
+     * built by the transport factory from the configured keystore, so
+     * checking {@link #serverCredentials} alone (which is populated only
+     * via {@link #setServerCredentials}) would miss the common
+     * keystore-configured case.
      *
      * @return true if this listener can provide TLS
      */
     protected boolean isTLSConfigured() {
-        return context != null
+        return serverCredentials != null
                 || (keystoreFile != null && keystorePass != null);
     }
 
@@ -589,9 +645,10 @@ public abstract class Listener {
 
         if (factory instanceof TCPTransportFactory) {
             TCPTransportFactory tcpFactory = (TCPTransportFactory) factory;
-            if (context != null) {
-                tcpFactory.setSSLContext(context);
+            if (serverCredentials != null) {
+                tcpFactory.setServerCredentials(serverCredentials);
             }
+            tcpFactory.setTlsVersion(tlsVersion);
             if (needClientAuth) {
                 tcpFactory.setNeedClientAuth(true);
             }
@@ -600,6 +657,22 @@ public abstract class Listener {
             }
             if (sniDefaultAlias != null) {
                 tcpFactory.setSniDefaultAlias(sniDefaultAlias);
+            }
+        }
+        if (factory instanceof UDPTransportFactory) {
+            UDPTransportFactory udpFactory = (UDPTransportFactory) factory;
+            if (serverCredentials != null) {
+                udpFactory.setServerCredentials(serverCredentials);
+            }
+            udpFactory.setDtlsVersion(dtlsVersion);
+            if (needClientAuth) {
+                udpFactory.setNeedClientAuth(true);
+            }
+            if (sniHostnameToAlias != null) {
+                udpFactory.setSniHostnames(sniHostnameToAlias);
+            }
+            if (sniDefaultAlias != null) {
+                udpFactory.setSniDefaultAlias(sniDefaultAlias);
             }
         }
     }

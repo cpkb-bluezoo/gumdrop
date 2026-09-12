@@ -35,7 +35,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
 import javax.security.auth.Subject;
 
@@ -55,6 +54,7 @@ import org.bluezoo.gumdrop.amqp.client.handler.ServerOpenHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.ServerTuneHandler;
 import org.bluezoo.gumdrop.auth.SASLClientMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * AMQP client facade with automatic reconnect and topology recovery.
@@ -163,7 +163,7 @@ public class AMQPClientRecovery {
     private RecoveryListener listener;
 
     private boolean secure;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
@@ -304,8 +304,8 @@ public class AMQPClientRecovery {
         return this;
     }
 
-    public AMQPClientRecovery setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public AMQPClientRecovery setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
         return this;
     }
 
@@ -352,8 +352,8 @@ public class AMQPClientRecovery {
         }
         TCPTransportFactory transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
-        if (sslContext != null) {
-            transportFactory.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            transportFactory.setClientCredentials(clientCredentials);
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);

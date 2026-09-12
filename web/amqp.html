@@ -321,8 +321,8 @@ AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5671)
 </pre>
 
 <p>
-A custom <code>SSLContext</code> or <code>TrustManager</code> may be
-supplied instead via <code>setSSLContext</code> / <code>setTrustManager</code>
+A custom <code>TrustManager</code> may be supplied via
+<code>setTrustManager</code>
 for full control over certificate validation. There is no STARTTLS-equivalent
 negotiation; TLS is established at connect time.
 </p>

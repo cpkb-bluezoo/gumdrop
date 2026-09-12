@@ -29,7 +29,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import tech.kwik.agent15.NewSessionTicket;
+import org.bluezoo.gumdrop.tls.SessionTicket;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
@@ -259,7 +259,7 @@ public class QuicHandshakeAsyncOffloadTest {
         }
 
         @Override
-        public void newSessionTicketReceived(NewSessionTicket ticket) {
+        public void newSessionTicketReceived(SessionTicket ticket) {
         }
 
         @Override

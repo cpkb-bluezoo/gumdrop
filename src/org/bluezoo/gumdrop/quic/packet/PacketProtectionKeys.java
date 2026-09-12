@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.quic.packet;
 
 import javax.crypto.spec.SecretKeySpec;
 
-import org.bluezoo.gumdrop.quic.tls.Hkdf;
+import org.bluezoo.gumdrop.crypto.Hkdf;
 
 /**
  * The packet- and header-protection keys derived from a single traffic
@@ -78,6 +78,25 @@ public final class PacketProtectionKeys {
         byte[] ivBytes = hkdf.expandLabel(secret, "quic iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
         byte[] hpBytes = hkdf.expandLabel(secret, "quic hp", EMPTY_CONTEXT, keyLength);
 
+        SecretKeySpec aeadKey = new SecretKeySpec(keyBytes, algorithm.getKeyAlgorithm());
+        SecretKeySpec headerProtectionKey = new SecretKeySpec(hpBytes, algorithm.getKeyAlgorithm());
+        return new PacketProtectionKeys(algorithm, aeadKey, ivBytes, headerProtectionKey);
+    }
+
+    /**
+     * Derives DTLS 1.3 record protection keys (RFC 9147 section 5.9).
+     *
+     * @param hkdf the HKDF instance for the negotiated hash
+     * @param secret the traffic secret for this direction and epoch
+     * @param algorithm the negotiated AEAD algorithm
+     * @return the derived keys
+     */
+    public static PacketProtectionKeys deriveForDtls(Hkdf hkdf, byte[] secret, QuicAeadAlgorithm algorithm) {
+        byte[] prefix = Hkdf.dtls13LabelPrefix();
+        int keyLength = algorithm.getKeyLength();
+        byte[] keyBytes = hkdf.expandLabelWithPrefix(prefix, secret, "key", EMPTY_CONTEXT, keyLength);
+        byte[] ivBytes = hkdf.expandLabelWithPrefix(prefix, secret, "iv", EMPTY_CONTEXT, QuicAeadAlgorithm.IV_LENGTH);
+        byte[] hpBytes = hkdf.expandLabelWithPrefix(prefix, secret, "hp", EMPTY_CONTEXT, keyLength);
         SecretKeySpec aeadKey = new SecretKeySpec(keyBytes, algorithm.getKeyAlgorithm());
         SecretKeySpec headerProtectionKey = new SecretKeySpec(hpBytes, algorithm.getKeyAlgorithm());
         return new PacketProtectionKeys(algorithm, aeadKey, ivBytes, headerProtectionKey);

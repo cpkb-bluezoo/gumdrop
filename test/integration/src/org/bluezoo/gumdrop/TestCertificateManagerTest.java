@@ -30,14 +30,14 @@ import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.util.Enumeration;
 
-import javax.net.ssl.SSLContext;
+import javax.net.ssl.X509TrustManager;
 
 import static org.junit.Assert.*;
 
 /**
  * Tests for TestCertificateManager.
  * 
- * <p>Verifies certificate generation, keystore creation, and SSLContext setup
+ * <p>Verifies certificate generation, keystore creation, and trust manager setup
  * for integration testing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -230,15 +230,14 @@ public class TestCertificateManagerTest {
     }
 
     @Test
-    public void testClientCertificateSSLContext() throws Exception {
+    public void testClientCertificateTrustManager() throws Exception {
         manager.generateCA("Test CA", 365);
         
         TestCertificateManager.ClientCertificate clientCert = 
             manager.generateClientCertificate("user@test.com", "Test User", 365);
         
-        SSLContext ctx = clientCert.createSSLContext("testpass");
-        assertNotNull("SSLContext should be created", ctx);
-        assertNotNull("Should have socket factory", ctx.getSocketFactory());
+        X509TrustManager tm = clientCert.createTrustManager("testpass");
+        assertNotNull("TrustManager should be created", tm);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -261,35 +260,33 @@ public class TestCertificateManagerTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // SSLContext Tests
+    // Trust manager Tests
     // ─────────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testCreateServerSSLContext() throws Exception {
+    public void testCreateClientTrustManager() throws Exception {
         manager.generateCA("Test CA", 365);
-        manager.generateServerCertificate("localhost", 365);
         
-        SSLContext ctx = manager.createServerSSLContext("serverpass", false);
-        assertNotNull("Server SSLContext should be created", ctx);
-        assertNotNull("Should have server socket factory", ctx.getServerSocketFactory());
+        X509TrustManager tm = manager.createClientTrustManager();
+        assertNotNull("Client TrustManager should be created", tm);
     }
 
     @Test
-    public void testCreateServerSSLContextWithClientAuth() throws Exception {
+    public void testCreateServerClientAuthTrustManager() throws Exception {
         manager.generateCA("Test CA", 365);
-        manager.generateServerCertificate("localhost", 365);
         
-        SSLContext ctx = manager.createServerSSLContext("serverpass", true);
-        assertNotNull("Server SSLContext with client auth should be created", ctx);
+        X509TrustManager tm = manager.createServerClientAuthTrustManager();
+        assertNotNull("Server client-auth TrustManager should be created", tm);
     }
 
     @Test
-    public void testCreateClientSSLContext() throws Exception {
+    public void testSharedKeystorePaths() throws Exception {
         manager.generateCA("Test CA", 365);
-        
-        SSLContext ctx = manager.createClientSSLContext();
-        assertNotNull("Client SSLContext should be created", ctx);
-        assertNotNull("Should have socket factory", ctx.getSocketFactory());
+        manager.generateServerCertificate("localhost", 365);
+        manager.publishSharedTestPki("sharedpass");
+
+        assertTrue("Shared keystore should exist", manager.getSharedKeystoreFile().exists());
+        assertTrue("Shared truststore should exist", manager.getSharedTruststoreFile().exists());
     }
 
     // ─────────────────────────────────────────────────────────────────────────────

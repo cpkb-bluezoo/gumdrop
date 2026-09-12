@@ -30,7 +30,8 @@ import org.bluezoo.gumdrop.http.client.HTTPRequest;
 
 import org.bluezoo.gumdrop.util.TLSUtils;
 
-import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
@@ -69,7 +70,7 @@ class OTLPEndpoint {
     private Path truststoreFile;
     private String truststorePass;
     private String truststoreFormat = "PKCS12";
-    private volatile SSLContext sslContext;
+    private volatile X509TrustManager trustManager;
 
     private HTTPClient client;
     private volatile boolean connecting;
@@ -184,32 +185,34 @@ class OTLPEndpoint {
     }
 
     /**
-     * Gets or creates an SSLContext for secure connections.
+     * Gets or creates a trust manager for secure connections.
      *
-     * <p>If a truststore is configured, creates an SSLContext that trusts
+     * <p>If a truststore is configured, loads a trust manager that trusts
      * certificates from that truststore. Otherwise returns null to use
      * the JVM's default trust settings.
      *
-     * @return the SSLContext, or null to use defaults
+     * @return the trust manager, or null to use defaults
      */
-    private SSLContext getOrCreateSSLContext() {
-        SSLContext ctx = sslContext;
-        if (ctx != null) {
-            return ctx;
+    private X509TrustManager getOrCreateTrustManager() {
+        X509TrustManager tm = trustManager;
+        if (tm != null) {
+            return tm;
         }
         synchronized (this) {
-            ctx = sslContext;
-            if (ctx != null) {
-                return ctx;
+            tm = trustManager;
+            if (tm != null) {
+                return tm;
             }
             if (truststoreFile != null && truststorePass != null) {
                 try {
-                    sslContext = SSLContext.getInstance("TLS");
-                    sslContext.init(null,
-                            TLSUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat),
-                            null);
-                    logger.fine("Loaded truststore for " + name + " endpoint: " + truststoreFile);
-                    return sslContext;
+                    TrustManager[] managers = TLSUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat);
+                    for (int i = 0; i < managers.length; i++) {
+                        if (managers[i] instanceof X509TrustManager) {
+                            trustManager = (X509TrustManager) managers[i];
+                            logger.fine("Loaded truststore for " + name + " endpoint: " + truststoreFile);
+                            return trustManager;
+                        }
+                    }
                 } catch (Exception e) {
                     logger.log(Level.WARNING, "Failed to load truststore for " + name + " endpoint", e);
                 }
@@ -308,9 +311,9 @@ class OTLPEndpoint {
             client = new HTTPClient(host, port);
             if (secure) {
                 client.setSecure(true);
-                SSLContext ctx = getOrCreateSSLContext();
-                if (ctx != null) {
-                    client.setSSLContext(ctx);
+                X509TrustManager tm = getOrCreateTrustManager();
+                if (tm != null) {
+                    client.setTrustManager(tm);
                 }
             }
 

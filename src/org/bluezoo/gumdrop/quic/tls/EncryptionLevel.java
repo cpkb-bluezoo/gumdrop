@@ -21,17 +21,11 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
-import tech.kwik.agent15.ProtectionKeysType;
-
 /**
  * QUIC's three packet-protection encryption levels that carry CRYPTO
  * frames (RFC 9001 section 4.1): Initial, Handshake, and 1-RTT
  * (Application). 0-RTT packets carry application data, not handshake
  * messages, and are not part of this enumeration.
- *
- * <p>Each level corresponds to one of Agent15's
- * {@link ProtectionKeysType} values, used to tell the TLS engine which
- * keys protected a given handshake message.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9001#section-4.1">RFC 9001 section 4.1</a>
@@ -39,27 +33,12 @@ import tech.kwik.agent15.ProtectionKeysType;
 public enum EncryptionLevel {
 
     /** ClientHello and ServerHello are always sent here, unprotected at the TLS layer. */
-    INITIAL(ProtectionKeysType.None),
+    INITIAL,
 
     /** EncryptedExtensions, Certificate, CertificateVerify, and both Finished messages. */
-    HANDSHAKE(ProtectionKeysType.Handshake),
+    HANDSHAKE,
 
     /** Post-handshake messages only (NewSessionTicket); no handshake-completing message is sent here. */
-    ONE_RTT(ProtectionKeysType.Application);
+    ONE_RTT
 
-    private final ProtectionKeysType protectionKeysType;
-
-    EncryptionLevel(ProtectionKeysType protectionKeysType) {
-        this.protectionKeysType = protectionKeysType;
-    }
-
-    /**
-     * Returns the Agent15 {@link ProtectionKeysType} corresponding to
-     * this encryption level.
-     *
-     * @return the protection keys type
-     */
-    public ProtectionKeysType getProtectionKeysType() {
-        return protectionKeysType;
-    }
 }

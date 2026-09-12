@@ -46,7 +46,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
@@ -65,8 +64,7 @@ import static org.junit.Assume.assumeTrue;
  * same-lineage fake server can't. Writing the DoH and DoQ cases surfaced
  * a real gap -- neither {@code DoHClientTransport} nor {@code
  * DoQClientTransport} exposed any way to configure TLS trust (no
- * {@code setTrustManager}/{@code setSSLContext}/{@code
- * setPinnedCertFingerprint} equivalent), even though the transport
+ * {@code setTrustManager}/{@code setPinnedCertFingerprint} equivalent), even though the transport
  * layers underneath both already supported it. Without that, gumdrop's
  * DNS client could never be used against any DoH/DoQ server whose
  * certificate isn't from a public CA -- including this very test
@@ -180,11 +178,9 @@ public class AdGuardDnsClientIntegrationTest {
     @Test
     public void testDohResolves() throws Exception {
         X509Certificate serverCert = AdGuardTestSupport.loadServerCertificate();
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, new javax.net.ssl.TrustManager[] { pinningTrustManager(serverCert) }, null);
 
         DoHClientTransport transport = new DoHClientTransport();
-        transport.setSSLContext(sslContext);
+        transport.setTrustManager(pinningTrustManager(serverCert));
 
         DNSResolver resolver = new DNSResolver();
         resolver.setSelectorLoop(loop());

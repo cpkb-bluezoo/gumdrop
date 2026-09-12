@@ -4,7 +4,7 @@ This document covers how to build and run Gumdrop.
 
 ## Building
 
-Building Gumdrop is straightforward. You need Java 17+ and [Apache Ant](https://ant.apache.org/) (you can also use [Gantt](https://github.com/cpkb-bluezoo/gantt)).
+Building Gumdrop is straightforward. You need Java 25+ and [Apache Ant](https://ant.apache.org/) (you can also use [Gantt](https://github.com/cpkb-bluezoo/gantt)).
 
 ```bash
 ant
@@ -16,7 +16,7 @@ Or explicitly:
 ant dist
 ```
 
-This compiles the project and creates the distribution artifacts. External jars (Gonzalez, jsonparser, agent15, hkdf, and the six javax.* API jars) are **not** in the repository; the first build downloads them into `lib/` via `ant resolve-deps` (Ant only — no Maven required). That target runs automatically when compiling or assembling the container. Versions are pinned in `boms/versions.properties`; Dependabot proposes updates via root `pom.xml`. You need network access on a fresh clone until `lib/` is populated.
+This compiles the project and creates the distribution artifacts. External jars (Gonzalez, jsonparser, and the six javax.* API jars) are **not** in the repository; the first build downloads them into `lib/` via `ant resolve-deps` (Ant only — no Maven required). That target runs automatically when compiling or assembling the container. Versions are pinned in `boms/versions.properties`; Dependabot proposes updates via root `pom.xml`. You need network access on a fresh clone until `lib/` is populated.
 
 JUnit and Hamcrest (under `test/junit/lib/`) are downloaded separately by `ant resolve-test-deps`, which runs automatically when you invoke test targets (`ant test`, `ant integration-test`, etc.) but **not** for a compile-only build (`ant`, `ant dist`).
 

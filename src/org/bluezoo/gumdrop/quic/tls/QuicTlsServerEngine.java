@@ -21,122 +21,123 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 
-import tech.kwik.agent15.NewSessionTicket;
-import tech.kwik.agent15.TlsConstants;
-import tech.kwik.agent15.TlsProtocolException;
-import tech.kwik.agent15.engine.ServerMessageSender;
-import tech.kwik.agent15.engine.TlsMessageParser;
-import tech.kwik.agent15.engine.TlsServerEngine;
-import tech.kwik.agent15.engine.TlsServerEngineFactory;
-import tech.kwik.agent15.engine.TlsStatusEventHandler;
-import tech.kwik.agent15.extension.ApplicationLayerProtocolNegotiationExtension;
-import tech.kwik.agent15.extension.Extension;
-import tech.kwik.agent15.handshake.CertificateMessage;
-import tech.kwik.agent15.handshake.CertificateVerifyMessage;
-import tech.kwik.agent15.handshake.EncryptedExtensions;
-import tech.kwik.agent15.handshake.FinishedMessage;
-import tech.kwik.agent15.handshake.NewSessionTicketMessage;
-import tech.kwik.agent15.handshake.ServerHello;
-
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.tls.AntiReplay;
+import org.bluezoo.gumdrop.tls.CipherSuite;
+import org.bluezoo.gumdrop.tls.HandshakeConfig;
+import org.bluezoo.gumdrop.tls.HandshakeEngine;
+import org.bluezoo.gumdrop.tls.HandshakeRole;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.TicketKeys;
+import org.bluezoo.gumdrop.tls.TlsEventSink;
+import org.bluezoo.gumdrop.tls.TlsProtocolError;
+import org.bluezoo.gumdrop.tls.TransportParameterConsistencyChecker;
 
 /**
- * Bridges Agent15's {@link TlsServerEngine} to gumdrop's QUIC transport,
- * the server-side counterpart of {@link QuicTlsClientEngine}. See that
- * class's documentation for the scope of this implementation's minimal
- * ALPN (RFC 7301) support.
+ * Bridges gumdrop's in-tree {@link HandshakeEngine} to the QUIC
+ * transport, the server-side counterpart of {@link QuicTlsClientEngine}.
+ * Replaces the former Agent15-backed implementation; the {@link
+ * QuicTlsEngine}/{@link QuicTlsEngineListener} seam this class sits
+ * behind, and every other public method on this class, are unchanged --
+ * only what drives the handshake underneath.
+ *
+ * <p>{@code earlyDataEnabled} governs whether 0-RTT is accepted at all;
+ * ticket issuance (required for a peer to ever have something to resume)
+ * is a separate, optional opt-in via {@link #setTicketKeys}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicTlsClientEngine
  */
-public final class QuicTlsServerEngine
-        implements ServerMessageSender, TlsStatusEventHandler, QuicTlsEngine {
+public final class QuicTlsServerEngine implements QuicTlsEngine {
 
-    private final TlsServerEngine engine;
+    private final HandshakeEngine engine;
+    private final HandshakeConfig config;
     private final QuicTlsEngineListener listener;
-    private final TlsMessageParser messageParser = new TlsMessageParser();
     private final QuicHandshakeAsyncOffload asyncOffload;
+    private final Sink sink = new Sink();
 
     private final CryptoStreamBuffer initialReceiveBuffer = new CryptoStreamBuffer();
     private final CryptoStreamBuffer handshakeReceiveBuffer = new CryptoStreamBuffer();
     private final CryptoStreamBuffer applicationReceiveBuffer = new CryptoStreamBuffer();
 
     // Raw CRYPTO frame bytes received while a batch of handshake message
-    // processing is already in flight on a crypto thread -- Agent15's
-    // engines are not safe for concurrent use, so these wait, in arrival
-    // order, until the in-flight batch completes (see #drainPendingFrames).
+    // processing is already in flight on a crypto thread -- HandshakeEngine
+    // is not safe for concurrent use, so these wait, in arrival order,
+    // until the in-flight batch completes (see #drainPendingFrames).
     private final Deque<PendingFrame> pendingFrames = new ArrayDeque<PendingFrame>();
 
     private long initialSendOffset;
     private long handshakeSendOffset;
-    private long applicationSendOffset;
 
-    // RFC 9001 section 4.6.1: whether this listener/connection is willing
-    // to accept 0-RTT at all -- consulted (and its outcome cached) in
-    // isEarlyDataAccepted(), called by Agent15 only after PSK resumption
-    // has already succeeded and the client asked for early data.
-    private final boolean earlyDataEnabled;
-    private boolean earlyDataAccepted;
-    private final List<String> supportedApplicationProtocols;
+    // The first message this engine ever emits (ServerHello) goes at
+    // EncryptionLevel.INITIAL (RFC 9001 section 4.1.3); every message
+    // after that (EncryptedExtensions, Certificate, CertificateVerify,
+    // Finished) goes at EncryptionLevel.HANDSHAKE. HandshakeEngine's
+    // events don't carry a level of their own, so this flag tracks which
+    // regime the next outbound message falls into.
+    private boolean serverHelloSent;
+
+    // Set from TlsEventSink#quicEarlyKeysReady when the client's offered
+    // PSK is accepted with 0-RTT.
+    private byte[] clientEarlyTrafficSecret;
 
     /**
      * Creates a server-side TLS engine that offers no ALPN application
      * protocols.
      *
-     * @param certificateFactory factory holding the server's certificate
-     *                           chain and private key
+     * @param serverCredentials the server's certificate chain and private key
      * @param transportParameters this endpoint's QUIC transport
      *                            parameters, sent in EncryptedExtensions
      *                            (RFC 9001 section 8.2)
      * @param listener notified of handshake progress
-     * @param earlyDataEnabled whether to accept 0-RTT early data when a
-     *                         client offers it (RFC 9001 section 4.6.1)
+     * @param earlyDataEnabled whether 0-RTT is accepted -- see
+     *                         {@link #setTicketKeys} for the other half
+     *                         resumption needs (a ticket to resume)
      */
-    public QuicTlsServerEngine(TlsServerEngineFactory certificateFactory,
+    public QuicTlsServerEngine(ServerCredentials serverCredentials,
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled) {
-        this(certificateFactory, transportParameters, listener, earlyDataEnabled, null);
+        this(serverCredentials, transportParameters, listener, earlyDataEnabled, null);
     }
 
     /**
      * Creates a server-side TLS engine with no cipher-suite preference
      * (offers gumdrop's full default list).
      *
-     * @param certificateFactory factory holding the server's certificate
-     *                           chain and private key
+     * @param serverCredentials the server's certificate chain and private key
      * @param transportParameters this endpoint's QUIC transport
      *                            parameters, sent in EncryptedExtensions
      *                            (RFC 9001 section 8.2)
      * @param listener notified of handshake progress
-     * @param earlyDataEnabled whether to accept 0-RTT early data when a
-     *                         client offers it (RFC 9001 section 4.6.1)
+     * @param earlyDataEnabled whether 0-RTT is accepted -- see {@link #setTicketKeys}
+     *                         for the other half resumption needs
      * @param applicationProtocols the ALPN application protocol(s) this
      *                             server supports (RFC 7301),
      *                             comma-separated, or null to support none
      */
-    public QuicTlsServerEngine(TlsServerEngineFactory certificateFactory,
+    public QuicTlsServerEngine(ServerCredentials serverCredentials,
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled, String applicationProtocols) {
-        this(certificateFactory, transportParameters, listener, earlyDataEnabled, applicationProtocols, null);
+        this(serverCredentials, transportParameters, listener, earlyDataEnabled, applicationProtocols, null);
     }
 
     /**
      * Creates a server-side TLS engine.
      *
-     * @param certificateFactory factory holding the server's certificate
-     *                           chain and private key
+     * @param serverCredentials the server's certificate chain and private key
      * @param transportParameters this endpoint's QUIC transport
      *                            parameters, sent in EncryptedExtensions
      *                            (RFC 9001 section 8.2)
      * @param listener notified of handshake progress
-     * @param earlyDataEnabled whether to accept 0-RTT early data when a
-     *                         client offers it (RFC 9001 section 4.6.1)
+     * @param earlyDataEnabled whether 0-RTT is accepted -- see {@link #setTicketKeys}
+     *                         for the other half resumption needs
      * @param applicationProtocols the ALPN application protocol(s) this
      *                             server supports (RFC 7301),
      *                             comma-separated, or null to support none
@@ -149,30 +150,70 @@ public final class QuicTlsServerEngine
      *                     layer actually implements are accepted -- see
      *                     {@link QuicCipherSuites#resolve}.
      */
-    public QuicTlsServerEngine(TlsServerEngineFactory certificateFactory,
+    public QuicTlsServerEngine(ServerCredentials serverCredentials,
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled, String applicationProtocols, String cipherSuites) {
         this.listener = listener;
         this.asyncOffload = new QuicHandshakeAsyncOffload(listener);
-        this.earlyDataEnabled = earlyDataEnabled;
-        this.supportedApplicationProtocols = applicationProtocols != null && !applicationProtocols.isEmpty()
-                ? java.util.Arrays.asList(applicationProtocols.split(","))
-                : java.util.Collections.<String>emptyList();
-        this.engine = certificateFactory.createServerEngine(this, this);
+        this.config = new HandshakeConfig(HandshakeRole.SERVER);
+        config.setServerCredentials(serverCredentials);
+        config.setLocalTransportParameters(transportParameters.encode());
+        config.setCipherSuites(QuicCipherSuites.resolve(cipherSuites));
+        config.setApplicationProtocols(applicationProtocols != null && !applicationProtocols.isEmpty()
+                ? Arrays.asList(applicationProtocols.split(","))
+                : Collections.<String>emptyList());
+        config.setEnableEarlyData(earlyDataEnabled);
+        config.setTransportParameterConsistencyChecker(new TransportParameterConsistencyChecker() {
+            @Override
+            public boolean isConsistent(byte[] remembered, byte[] current) {
+                if (remembered == null || current == null) {
+                    return false;
+                }
+                TransportParameters rememberedParams = TransportParameters.decode(ByteBuffer.wrap(remembered));
+                TransportParameters currentParams = TransportParameters.decode(ByteBuffer.wrap(current));
+                return rememberedParams.getInitialMaxData() <= currentParams.getInitialMaxData()
+                        && rememberedParams.getInitialMaxStreamsBidi() <= currentParams.getInitialMaxStreamsBidi()
+                        && rememberedParams.getInitialMaxStreamsUni() <= currentParams.getInitialMaxStreamsUni()
+                        && rememberedParams.getInitialMaxStreamDataBidiLocal() <= currentParams.getInitialMaxStreamDataBidiLocal()
+                        && rememberedParams.getInitialMaxStreamDataBidiRemote() <= currentParams.getInitialMaxStreamDataBidiRemote()
+                        && rememberedParams.getInitialMaxStreamDataUni() <= currentParams.getInitialMaxStreamDataUni()
+                        && rememberedParams.getMaxDatagramFrameSize() <= currentParams.getMaxDatagramFrameSize();
+            }
+        });
+        this.engine = new HandshakeEngine(config);
+    }
 
-        engine.addSupportedCiphers(QuicCipherSuites.resolve(cipherSuites));
-        engine.addServerExtensions(new QuicTransportParametersExtension(transportParameters));
+    /**
+     * Sets the server's session-ticket encryption keyring, enabling
+     * automatic {@code NewSessionTicket} issuance on every completed
+     * handshake -- without this, {@code earlyDataEnabled} alone is not
+     * enough for a peer to ever have something to resume, since no
+     * ticket is ever issued.
+     *
+     * @param ticketKeys the ticket keyring
+     */
+    public void setTicketKeys(TicketKeys ticketKeys) {
+        config.setTicketKeys(ticketKeys);
+    }
+
+    /**
+     * Sets the server's 0-RTT anti-replay cache.
+     *
+     * @param antiReplay the anti-replay cache, or null to accept every 0-RTT attempt
+     */
+    public void setAntiReplay(AntiReplay antiReplay) {
+        config.setAntiReplay(antiReplay);
     }
 
     /**
      * Feeds received CRYPTO frame data at the given level into
      * handshake message reassembly. Complete messages are dispatched to
-     * Agent15 asynchronously, off the caller's thread, via {@link
-     * QuicHandshakeAsyncOffload}; a processing failure reaches {@link
-     * QuicTlsEngineListener#cryptoProcessingFailed} rather than being
-     * thrown back through this call. The ClientHello, received at
-     * {@link EncryptionLevel#INITIAL}, starts the server's handshake
-     * processing and its own reply.
+     * {@link HandshakeEngine} asynchronously, off the caller's thread,
+     * via {@link QuicHandshakeAsyncOffload}; a processing failure
+     * reaches {@link QuicTlsEngineListener#cryptoProcessingFailed}
+     * rather than being thrown back through this call. The ClientHello,
+     * received at {@link EncryptionLevel#INITIAL}, starts the server's
+     * handshake processing and its own reply.
      *
      * @param level the encryption level the data was received at
      * @param offset the byte offset of {@code data} within this level's
@@ -184,13 +225,6 @@ public final class QuicTlsServerEngine
     @Override
     public void receiveCryptoData(EncryptionLevel level, long offset, ByteBuffer data)
             throws StreamReassembler.BufferLimitExceededException {
-        // Issue #427: this decision must be atomic with respect to a
-        // concurrently-finishing batch's own drain of pendingFrames
-        // (QuicHandshakeAsyncOffload.submit's completion handling holds
-        // the same lock around calling drainPendingFrames) -- otherwise
-        // a frame that arrives exactly as that drain finds the queue
-        // empty could be enqueued here a moment too late for anything
-        // to ever drain it again, silently losing it forever.
         synchronized (asyncOffload.lock()) {
             if (asyncOffload.isBusy()) {
                 byte[] copy = new byte[data.remaining()];
@@ -202,10 +236,7 @@ public final class QuicTlsServerEngine
         }
     }
 
-    // Returns whether this actually submitted a new batch -- false if the
-    // reassembled data didn't yet complete a message, in which case
-    // there's nothing in flight for this call.
-    private boolean dispatchFrame(EncryptionLevel level, long offset, ByteBuffer data)
+    private boolean dispatchFrame(final EncryptionLevel level, long offset, ByteBuffer data)
             throws StreamReassembler.BufferLimitExceededException {
         final List<ByteBuffer> messages = bufferFor(level).receiveAndExtractMessages(offset, data);
         if (messages.isEmpty()) {
@@ -213,9 +244,11 @@ public final class QuicTlsServerEngine
         }
         asyncOffload.submit(level, new QuicHandshakeAsyncOffload.BatchProcessor() {
             @Override
-            public void process() throws TlsProtocolException, IOException {
+            public void process() {
                 for (ByteBuffer msg : messages) {
-                    messageParser.parseAndProcessHandshakeMessage(msg, engine, level.getProtectionKeysType());
+                    byte[] message = new byte[msg.remaining()];
+                    msg.get(message);
+                    engine.processMessage(message, sink);
                 }
             }
         }, new QuicHandshakeAsyncOffload.CompletionHandler() {
@@ -227,13 +260,6 @@ public final class QuicTlsServerEngine
         return true;
     }
 
-    // Called once a batch completes: dispatches queued CRYPTO frames, one
-    // at a time, until either the queue empties or one of them actually
-    // submits a follow-up batch. Returns whether a follow-up batch is in
-    // flight -- QuicHandshakeAsyncOffload.submit's caller-visible busy
-    // state must stay set across it (issue #351), so this reports that
-    // precisely rather than the caller re-querying isBusy() (the exact
-    // flag this method's own follow-up submission is about to set).
     private boolean drainPendingFrames() {
         PendingFrame next;
         while ((next = pendingFrames.poll()) != null) {
@@ -275,10 +301,8 @@ public final class QuicTlsServerEngine
 
     /**
      * Whether a batch of handshake message processing is currently
-     * running off the caller's thread. Test-harness synchronization only
-     * (e.g. a hand-scripted, no-socket peer that needs to know when it is
-     * safe to read state a just-submitted batch's deferred callbacks
-     * will populate); production code has no need to poll this, since
+     * running off the caller's thread. Test-harness synchronization only;
+     * production code has no need to poll this, since
      * {@link QuicTlsEngineListener} callbacks already arrive back on the
      * loop thread in order.
      *
@@ -294,99 +318,115 @@ public final class QuicTlsServerEngine
      *
      * @return the negotiated cipher suite
      */
-    public TlsConstants.CipherSuite getSelectedCipher() {
-        return engine.getSelectedCipher();
+    public CipherSuite getSelectedCipher() {
+        return engine.getNegotiatedCipherSuite();
     }
 
-    /**
-     * Returns the client Handshake traffic secret (RFC 9001 section 4.1).
-     *
-     * @return the client Handshake traffic secret
-     */
     @Override
     public byte[] getClientHandshakeTrafficSecret() {
         return engine.getClientHandshakeTrafficSecret();
     }
 
-    /**
-     * Returns the server Handshake traffic secret (RFC 9001 section 4.1).
-     *
-     * @return the server Handshake traffic secret
-     */
     @Override
     public byte[] getServerHandshakeTrafficSecret() {
         return engine.getServerHandshakeTrafficSecret();
     }
 
-    /**
-     * Returns the client 1-RTT (Application) traffic secret.
-     *
-     * @return the client Application traffic secret
-     */
     @Override
     public byte[] getClientApplicationTrafficSecret() {
         return engine.getClientApplicationTrafficSecret();
     }
 
-    /**
-     * Returns the server 1-RTT (Application) traffic secret.
-     *
-     * @return the server Application traffic secret
-     */
     @Override
     public byte[] getServerApplicationTrafficSecret() {
         return engine.getServerApplicationTrafficSecret();
     }
 
     /**
-     * Returns the client early (0-RTT) traffic secret.
+     * Returns the client early (0-RTT) traffic secret, once
+     * {@link QuicTlsEngineListener#earlySecretsAvailable} has fired.
      *
-     * @return the client early traffic secret
+     * @return the client early traffic secret, or null if 0-RTT was never attempted
      */
     @Override
     public byte[] getClientEarlyTrafficSecret() {
-        return engine.getClientEarlyTrafficSecret();
+        return clientEarlyTrafficSecret;
     }
 
-    // ── ServerMessageSender ──
-
-    @Override
-    public void send(ServerHello sh) throws IOException {
-        sendAtInitialLevel(sh.getBytes());
+    /**
+     * Returns whether 0-RTT early data was accepted for this connection.
+     *
+     * @return true if early data was accepted
+     */
+    public boolean wasEarlyDataAccepted() {
+        return engine.wasEarlyDataAccepted();
     }
 
-    @Override
-    public void send(EncryptedExtensions ee) throws IOException {
-        sendAtHandshakeLevel(ee.getBytes());
-    }
+    /** Translates {@link HandshakeEngine} events into {@link QuicTlsEngineListener} calls. */
+    private final class Sink implements TlsEventSink {
 
-    @Override
-    public void send(CertificateMessage cm) throws IOException {
-        sendAtHandshakeLevel(cm.getBytes());
-    }
-
-    @Override
-    public void send(CertificateVerifyMessage cv) throws IOException {
-        sendAtHandshakeLevel(cv.getBytes());
-    }
-
-    @Override
-    public void send(FinishedMessage finished) throws IOException {
-        sendAtHandshakeLevel(finished.getBytes());
-    }
-
-    @Override
-    public void send(NewSessionTicketMessage ticket) throws IOException {
-        // RFC 9001 section 4.6: post-handshake messages are sent at 1-RTT.
-        final byte[] data = ticket.getBytes();
-        final long offset = applicationSendOffset;
-        applicationSendOffset += data.length;
-        asyncOffload.dispatch(new Runnable() {
-            @Override
-            public void run() {
-                listener.cryptoDataReady(EncryptionLevel.ONE_RTT, offset, data);
+        @Override
+        public void handshakeDataReady(byte[] data) {
+            if (!serverHelloSent) {
+                serverHelloSent = true;
+                sendAtInitialLevel(data);
+            } else {
+                sendAtHandshakeLevel(data);
             }
-        });
+        }
+
+        @Override
+        public void handshakeSecretsReady() {
+            asyncOffload.dispatch(new Runnable() {
+                @Override
+                public void run() {
+                    listener.handshakeSecretsAvailable();
+                }
+            });
+        }
+
+        @Override
+        public void applicationSecretsReady() {
+            asyncOffload.dispatch(new Runnable() {
+                @Override
+                public void run() {
+                    listener.handshakeFinished();
+                }
+            });
+        }
+
+        @Override
+        public void peerTransportParameters(byte[] parameters) {
+            final TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(parameters));
+            asyncOffload.dispatch(new Runnable() {
+                @Override
+                public void run() {
+                    listener.transportParametersReceived(decoded);
+                }
+            });
+        }
+
+        @Override
+        public void protocolError(final TlsProtocolError error) {
+            asyncOffload.dispatch(new Runnable() {
+                @Override
+                public void run() {
+                    listener.cryptoProcessingFailed(EncryptionLevel.HANDSHAKE,
+                            new java.io.IOException(error.toString()));
+                }
+            });
+        }
+
+        @Override
+        public void quicEarlyKeysReady(CipherSuite suite, byte[] secret) {
+            clientEarlyTrafficSecret = secret;
+            asyncOffload.dispatch(new Runnable() {
+                @Override
+                public void run() {
+                    listener.earlySecretsAvailable();
+                }
+            });
+        }
     }
 
     private void sendAtInitialLevel(byte[] data) {
@@ -413,93 +453,4 @@ public final class QuicTlsServerEngine
         });
     }
 
-    // ── TlsStatusEventHandler ──
-
-    @Override
-    public void earlySecretsKnown() {
-        asyncOffload.dispatch(new Runnable() {
-            @Override
-            public void run() {
-                listener.earlySecretsAvailable();
-            }
-        });
-    }
-
-    @Override
-    public void handshakeSecretsKnown() {
-        asyncOffload.dispatch(new Runnable() {
-            @Override
-            public void run() {
-                listener.handshakeSecretsAvailable();
-            }
-        });
-    }
-
-    @Override
-    public void handshakeFinished() {
-        asyncOffload.dispatch(new Runnable() {
-            @Override
-            public void run() {
-                listener.handshakeFinished();
-            }
-        });
-    }
-
-    @Override
-    public void newSessionTicketReceived(NewSessionTicket ticket) {
-        // Not applicable server-side; NewSessionTicket is sent, not received, here.
-    }
-
-    @Override
-    public void extensionsReceived(List<Extension> extensions) throws TlsProtocolException {
-        // RFC 9000 section 7.3 requires this extension to be present;
-        // that is not enforced yet, so a missing extension is silently
-        // ignored rather than closing the connection.
-        final TransportParameters transportParameters = QuicTransportParametersExtension.find(extensions);
-        if (transportParameters != null) {
-            asyncOffload.dispatch(new Runnable() {
-                @Override
-                public void run() {
-                    listener.transportParametersReceived(transportParameters);
-                }
-            });
-        }
-        // RFC 7301: pick the first client-offered protocol this server
-        // also supports. No match (or nothing configured either side)
-        // just leaves the selected protocol unset -- this minimal
-        // implementation doesn't enforce RFC 7301's negotiation-failure
-        // closing behaviour (see the class documentation). Selecting the
-        // protocol on the engine itself is not a listener callback, so
-        // it runs immediately rather than through asyncOffload.
-        for (Extension extension : extensions) {
-            if (extension instanceof ApplicationLayerProtocolNegotiationExtension) {
-                for (String offered : ((ApplicationLayerProtocolNegotiationExtension) extension).getProtocols()) {
-                    if (supportedApplicationProtocols.contains(offered)) {
-                        engine.setSelectedApplicationLayerProtocol(offered);
-                        break;
-                    }
-                }
-                break;
-            }
-        }
-    }
-
-    @Override
-    public boolean isEarlyDataAccepted() {
-        earlyDataAccepted = earlyDataEnabled;
-        return earlyDataAccepted;
-    }
-
-    /**
-     * Returns whether 0-RTT early data was accepted for this connection.
-     * Only meaningful after {@link #isEarlyDataAccepted()} has been
-     * called by Agent15 (i.e. once a client's PSK resumption attempt
-     * that also requested early data has been processed) -- false
-     * beforehand, and false if the client never attempted 0-RTT at all.
-     *
-     * @return whether early data was accepted
-     */
-    public boolean wasEarlyDataAccepted() {
-        return earlyDataAccepted;
-    }
 }

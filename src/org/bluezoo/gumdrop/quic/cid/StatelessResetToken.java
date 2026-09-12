@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.quic.cid;
 
 import java.util.Arrays;
 
-import org.bluezoo.gumdrop.quic.tls.Hkdf;
+import org.bluezoo.gumdrop.crypto.Hkdf;
 
 /**
  * Stateless reset token generation (RFC 9000 section 10.3).

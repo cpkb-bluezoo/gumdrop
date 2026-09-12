@@ -30,7 +30,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import tech.kwik.agent15.TlsConstants;
+import org.bluezoo.gumdrop.tls.CipherSuite;
 
 /**
  * Resolves {@code QuicTransportFactory#setCipherSuites} against the
@@ -49,16 +49,13 @@ final class QuicCipherSuites {
 
     /**
      * Every cipher suite {@code QuicAeadAlgorithm} actually implements,
-     * in gumdrop's own preference order. Agent15 additionally knows
-     * {@code TLS_AES_128_CCM_SHA256}/{@code TLS_AES_128_CCM_8_SHA256}
-     * (RFC 9001 section 5.3 permits CCM for constrained implementations),
-     * which gumdrop's AEAD layer has no algorithm for -- never offered,
-     * regardless of configuration.
+     * in gumdrop's own preference order -- the full set {@link CipherSuite}
+     * defines.
      */
-    static final List<TlsConstants.CipherSuite> DEFAULT = Collections.unmodifiableList(Arrays.asList(
-            TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256,
-            TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384,
-            TlsConstants.CipherSuite.TLS_CHACHA20_POLY1305_SHA256));
+    static final List<CipherSuite> DEFAULT = Collections.unmodifiableList(Arrays.asList(
+            CipherSuite.TLS_AES_128_GCM_SHA256,
+            CipherSuite.TLS_AES_256_GCM_SHA384,
+            CipherSuite.TLS_CHACHA20_POLY1305_SHA256));
 
     private QuicCipherSuites() {
     }
@@ -66,29 +63,28 @@ final class QuicCipherSuites {
     /**
      * Resolves a colon-separated {@code cipherSuites} configuration
      * string against {@link #DEFAULT}, preserving the configured order
-     * and dropping duplicates. Names Agent15 doesn't recognise at all,
-     * or recognises but gumdrop has no AEAD implementation for (CCM),
-     * are silently skipped. Falls back to {@link #DEFAULT} (with a
-     * logged warning) if nothing configured resolves to anything usable;
-     * falls back to it silently if nothing was configured at all.
+     * and dropping duplicates. Unrecognised names are silently skipped.
+     * Falls back to {@link #DEFAULT} (with a logged warning) if nothing
+     * configured resolves to anything usable; falls back to it silently
+     * if nothing was configured at all.
      *
      * @param cipherSuites the raw {@code QuicTransportFactory
      *                     #getCipherSuites()} value, or null
      * @return the cipher suites to offer/accept, in order, never empty
      */
-    static List<TlsConstants.CipherSuite> resolve(String cipherSuites) {
+    static List<CipherSuite> resolve(String cipherSuites) {
         if (cipherSuites == null || cipherSuites.isEmpty()) {
             return DEFAULT;
         }
-        List<TlsConstants.CipherSuite> resolved = new ArrayList<TlsConstants.CipherSuite>();
+        List<CipherSuite> resolved = new ArrayList<CipherSuite>();
         for (String name : cipherSuites.split(":")) {
             name = name.trim();
             if (name.isEmpty()) {
                 continue;
             }
-            TlsConstants.CipherSuite suite;
+            CipherSuite suite;
             try {
-                suite = TlsConstants.CipherSuite.valueOf(name);
+                suite = CipherSuite.valueOf(name);
             } catch (IllegalArgumentException e) {
                 continue;
             }

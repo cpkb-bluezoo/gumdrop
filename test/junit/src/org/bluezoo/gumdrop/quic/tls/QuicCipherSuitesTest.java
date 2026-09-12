@@ -25,7 +25,7 @@ import org.junit.Test;
 
 import java.util.List;
 
-import tech.kwik.agent15.TlsConstants;
+import org.bluezoo.gumdrop.tls.CipherSuite;
 
 import static org.junit.Assert.*;
 
@@ -48,29 +48,30 @@ public class QuicCipherSuitesTest {
 
     @Test
     public void testSingleSupportedCipherResolves() {
-        assertEquals(List.of(TlsConstants.CipherSuite.TLS_CHACHA20_POLY1305_SHA256),
+        assertEquals(List.of(CipherSuite.TLS_CHACHA20_POLY1305_SHA256),
                 QuicCipherSuites.resolve("TLS_CHACHA20_POLY1305_SHA256"));
     }
 
     @Test
     public void testMultipleSupportedCiphersPreserveConfiguredOrder() {
-        assertEquals(List.of(TlsConstants.CipherSuite.TLS_CHACHA20_POLY1305_SHA256,
-                        TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256),
+        assertEquals(List.of(CipherSuite.TLS_CHACHA20_POLY1305_SHA256,
+                        CipherSuite.TLS_AES_128_GCM_SHA256),
                 QuicCipherSuites.resolve("TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256"));
     }
 
     @Test
     public void testUnimplementedCcmSuiteSkipped() {
-        // TLS_AES_128_CCM_SHA256 is a real Agent15 cipher (RFC 9001
-        // section 5.3 permits CCM) but gumdrop's AEAD layer has no
-        // algorithm for it -- must be dropped, not offered.
-        assertEquals(List.of(TlsConstants.CipherSuite.TLS_AES_256_GCM_SHA384),
+        // TLS_AES_128_CCM_SHA256 is a real TLS 1.3 cipher suite (RFC 9001
+        // section 5.3 permits CCM) but gumdrop's AEAD layer, and this
+        // engine's own CipherSuite enum, have no support for it -- must
+        // be dropped, not offered.
+        assertEquals(List.of(CipherSuite.TLS_AES_256_GCM_SHA384),
                 QuicCipherSuites.resolve("TLS_AES_128_CCM_SHA256:TLS_AES_256_GCM_SHA384"));
     }
 
     @Test
     public void testUnknownNameSkipped() {
-        assertEquals(List.of(TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256),
+        assertEquals(List.of(CipherSuite.TLS_AES_128_GCM_SHA256),
                 QuicCipherSuites.resolve("NOT_A_REAL_CIPHER:TLS_AES_128_GCM_SHA256"));
     }
 
@@ -82,13 +83,13 @@ public class QuicCipherSuitesTest {
 
     @Test
     public void testDuplicatesCollapsed() {
-        assertEquals(List.of(TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256),
+        assertEquals(List.of(CipherSuite.TLS_AES_128_GCM_SHA256),
                 QuicCipherSuites.resolve("TLS_AES_128_GCM_SHA256:TLS_AES_128_GCM_SHA256"));
     }
 
     @Test
     public void testBlankTokensIgnored() {
-        assertEquals(List.of(TlsConstants.CipherSuite.TLS_AES_128_GCM_SHA256),
+        assertEquals(List.of(CipherSuite.TLS_AES_128_GCM_SHA256),
                 QuicCipherSuites.resolve(":: TLS_AES_128_GCM_SHA256 :"));
     }
 

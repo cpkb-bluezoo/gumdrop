@@ -208,7 +208,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
     private HTTPClientProtocolHandler createSecureConnectedClient(String host, int port) throws Exception {
         TCPTransportFactory factory = new TCPTransportFactory();
         factory.setSecure(true);
-        factory.setSSLContext(certManager.createClientSSLContext());
+        factory.setTrustManager(certManager.createClientTrustManager());
         factory.start();
 
         HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(

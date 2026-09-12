@@ -29,8 +29,6 @@ import java.nio.channels.SocketChannel;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import javax.net.ssl.SSLContext;
-
 import org.bluezoo.gumdrop.AcceptSelectorLoop;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
@@ -38,6 +36,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TCPEndpoint;
 import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * Opens the FTP client's data connection (RFC 959 §3.2), the client-side
@@ -84,7 +83,7 @@ final class FTPClientDataConnectionCoordinator {
     // lazily so plaintext transfers never pay for one. Active-mode
     // (PORT/EPRT) TLS protection is not yet supported — see acceptNext().
     private boolean dataProtectionEnabled;
-    private SSLContext dataSslContext;
+    private ServerCredentials dataClientCredentials;
     private TCPTransportFactory secureTransportFactory;
 
     FTPClientDataConnectionCoordinator(Endpoint controlEndpoint) {
@@ -93,15 +92,15 @@ final class FTPClientDataConnectionCoordinator {
 
     /**
      * Sets whether passive-mode data connections should be TLS-protected
-     * (RFC 4217 §9, PROT P), and the SSL context to use for them.
+     * (RFC 4217 §9, PROT P), and the client credentials to present on them.
      *
      * @param enabled true if PROT P is active
-     * @param sslContext the SSL context to secure data connections with,
-     *      or null to use the platform default
+     * @param clientCredentials the client's own credentials to present on
+     *      secured data connections, or null for none
      */
-    void setDataProtection(boolean enabled, SSLContext sslContext) {
+    void setDataProtection(boolean enabled, ServerCredentials clientCredentials) {
         this.dataProtectionEnabled = enabled;
-        this.dataSslContext = sslContext;
+        this.dataClientCredentials = clientCredentials;
     }
 
     /**
@@ -138,8 +137,8 @@ final class FTPClientDataConnectionCoordinator {
         if (secureTransportFactory == null) {
             secureTransportFactory = new TCPTransportFactory();
             secureTransportFactory.setSecure(true);
-            if (dataSslContext != null) {
-                secureTransportFactory.setSSLContext(dataSslContext);
+            if (dataClientCredentials != null) {
+                secureTransportFactory.setClientCredentials(dataClientCredentials);
             }
             secureTransportFactory.start();
         }

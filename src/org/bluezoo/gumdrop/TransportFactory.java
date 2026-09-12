@@ -41,8 +41,10 @@ import java.util.logging.Logger;
  * <p>Subclasses translate the shared configuration into the appropriate
  * backend:
  * <ul>
- * <li>TCPTransportFactory -- JSSE SSLContext / SSLEngine</li>
- * <li>UDPTransportFactory -- JSSE SSLContext / SSLEngine for DTLS</li>
+ * <li>TCPTransportFactory -- the in-tree {@link org.bluezoo.gumdrop.tls}
+ *     engine, TLS 1.3 or TLS 1.2 (a deployment-time choice, see
+ *     {@code TCPTransportFactory#setTlsVersion})</li>
+ * <li>UDPTransportFactory -- in-tree DTLS 1.2 engine (see {@code Dtls12RecordEngine})</li>
  * <li>{@link org.bluezoo.gumdrop.quic.QuicTransportFactory} -- the
  *     pure-Java {@link org.bluezoo.gumdrop.quic} engine (always TLS 1.3)</li>
  * </ul>
@@ -170,7 +172,7 @@ public abstract class TransportFactory {
 
     /**
      * Sets the Java keystore file path.
-     * Used by TCP (JSSE) and UDP (JSSE DTLS) transports.
+     * Used by TCP (the in-tree TLS engine) and UDP (JSSE DTLS) transports.
      *
      * @param file the keystore file path
      */
@@ -449,8 +451,8 @@ public abstract class TransportFactory {
      * Starts this factory.
      *
      * <p>Subclasses must call {@code super.start()} and then initialise
-     * their transport-specific security context (JSSE SSLContext,
-     * BoringSSL SSL_CTX, etc.).
+     * their transport-specific security context (in-tree TLS engines,
+     * QUIC {@code SSL_CTX}, etc.).
      */
     public void start() {
     }

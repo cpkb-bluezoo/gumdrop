@@ -25,12 +25,11 @@ import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.List;
 
-import tech.kwik.agent15.TlsConstants;
-
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
+import org.bluezoo.gumdrop.tls.CipherSuite;
 
 /**
  * {@link SecurityInfo} backed by the QUIC connection's negotiated TLS 1.3
@@ -64,7 +63,7 @@ final class QuicSecurityInfo implements SecurityInfo {
      *                          0-RTT was never attempted at all
      */
     QuicSecurityInfo(QuicTlsEngine tlsEngine, boolean isServer, long handshakeStartTime, boolean earlyDataAccepted) {
-        TlsConstants.CipherSuite selected = isServer
+        CipherSuite selected = isServer
                 ? ((QuicTlsServerEngine) tlsEngine).getSelectedCipher()
                 : ((QuicTlsClientEngine) tlsEngine).getSelectedCipher();
         this.cipherSuite = selected != null ? selected.toString() : null;
@@ -119,9 +118,7 @@ final class QuicSecurityInfo implements SecurityInfo {
 
     @Override
     public boolean isSessionResumed() {
-        // Agent15 doesn't expose a "PSK resumption succeeded" signal
-        // independent of 0-RTT acceptance, so there is no accurate value
-        // to report here short of guessing; always false.
+        // Session resumption is not implemented yet -- always false.
         return false;
     }
 

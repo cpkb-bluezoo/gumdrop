@@ -27,13 +27,13 @@ import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * High-level Redis client facade.
@@ -82,7 +82,7 @@ public class RedisClient {
 
     // Configuration (set before connect)
     private boolean secure;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
@@ -196,12 +196,14 @@ public class RedisClient {
     }
 
     /**
-     * Sets an externally-configured SSL context.
+     * Sets this client's own identity (certificate chain and private key)
+     * to present if the server requests client certificate authentication
+     * (mTLS).
      *
-     * @param context the SSL context
+     * @param clientCredentials the client's own credentials
      */
-    public void setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
     }
 
     /**
@@ -262,8 +264,8 @@ public class RedisClient {
     public void connect(RedisConnectionReady handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
-        if (sslContext != null) {
-            transportFactory.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            transportFactory.setClientCredentials(clientCredentials);
         }
         if (keystoreFile != null) {
             transportFactory.setKeystoreFile(keystoreFile);

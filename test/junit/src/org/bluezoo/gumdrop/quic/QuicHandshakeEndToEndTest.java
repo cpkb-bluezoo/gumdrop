@@ -33,7 +33,8 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import tech.kwik.agent15.engine.TlsServerEngineFactory;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
 
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 
@@ -63,7 +64,7 @@ public class QuicHandshakeEndToEndTest {
     private static final String SERVER_NAME = "test.gumdrop.local";
 
     private static Path certsDirectory;
-    private static TlsServerEngineFactory serverCertificateFactory;
+    private static org.bluezoo.gumdrop.tls.ServerCredentials serverCredentials;
 
     @BeforeClass
     public static void generateServerCertificate() throws Exception {
@@ -92,7 +93,12 @@ public class QuicHandshakeEndToEndTest {
         try (InputStream in = Files.newInputStream(keystorePath)) {
             keyStore.load(in, "changeit".toCharArray());
         }
-        serverCertificateFactory = new TlsServerEngineFactory(keyStore, "server", "changeit".toCharArray());
+        java.util.List<java.security.cert.X509Certificate> chain = new java.util.ArrayList<java.security.cert.X509Certificate>();
+        for (Certificate cert : keyStore.getCertificateChain("server")) {
+            chain.add((java.security.cert.X509Certificate) cert);
+        }
+        PrivateKey key = (PrivateKey) keyStore.getKey("server", "changeit".toCharArray());
+        serverCredentials = new org.bluezoo.gumdrop.tls.ServerCredentials(chain, key);
     }
 
     @AfterClass
@@ -149,7 +155,7 @@ public class QuicHandshakeEndToEndTest {
 
         QuicTestPeer client = QuicTestPeer.newClient(clientInitialDcid, defaultTransportParameters(clientScid));
         QuicTestPeer server = QuicTestPeer.newServer(
-                clientInitialDcid, defaultTransportParameters(serverScid), serverCertificateFactory);
+                clientInitialDcid, defaultTransportParameters(serverScid), serverCredentials);
 
         QuicTestPeer.completeHandshake(client, server, clientInitialDcid, clientScid, serverScid, SERVER_NAME);
 

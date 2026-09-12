@@ -24,8 +24,6 @@ package org.bluezoo.gumdrop.ftp;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLEngine;
-
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TCPListener;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -246,25 +244,6 @@ public class FTPListener extends TCPListener {
      */
     public boolean isSTARTTLSAvailable() {
         return isTLSConfigured();
-    }
-
-    /**
-     * Creates a new SSLEngine for a data connection.
-     *
-     * @return a new SSLEngine configured for server mode, or null if
-     *         TLS not available
-     */
-    public SSLEngine createDataSSLEngine() {
-        if (context == null) {
-            return null;
-        }
-        SSLEngine engine = context.createSSLEngine();
-        engine.setUseClientMode(false);
-        if (needClientAuth) {
-            engine.setNeedClientAuth(true);
-        }
-        // Don't request client certificates unless explicitly configured
-        return engine;
     }
 
     public void start() {

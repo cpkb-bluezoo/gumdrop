@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -29,32 +28,31 @@ import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import tech.kwik.agent15.TlsProtocolException;
-
 import org.bluezoo.gumdrop.CryptoExecutor;
 import org.bluezoo.gumdrop.Gumdrop;
 
 /**
- * Runs Agent15's handshake message processing -- the actual ECDHE
- * key-exchange math and certificate-chain validation/signing that happen
- * inside {@code TlsMessageParser.parseAndProcessHandshakeMessage} -- off
- * the QUIC connection's {@code SelectorLoop} thread, on {@link
- * CryptoExecutor}, mirroring the equivalent offload already done for
- * TCP/TLS ({@code SSLState}) and DTLS ({@code DTLSSession}).
+ * Runs {@code org.bluezoo.gumdrop.tls.HandshakeEngine}'s handshake
+ * message processing -- the actual key-exchange math and
+ * certificate-chain validation/signing -- off the QUIC connection's
+ * {@code SelectorLoop} thread, on {@link CryptoExecutor}, mirroring the
+ * equivalent offload already done for TCP/TLS ({@code SSLState}) and
+ * DTLS ({@code DTLSSession}).
  *
- * <p>Unlike {@code SSLEngine}, Agent15 has no delegated-task API: a single
- * call to {@code parseAndProcessHandshakeMessage} synchronously performs
- * all of a handshake message's crypto work and, from inside that same
- * call, may invoke callbacks back out onto whichever {@link
- * QuicTlsEngineListener} was supplied at construction ({@code
- * cryptoDataReady}, {@code handshakeSecretsAvailable}, etc.) -- callbacks
- * that are only safe to run on the connection's loop thread. Since the
- * whole call is what needs to move off-loop, not a sub-task, those
- * callbacks-out cannot simply be forwarded to the listener as they occur
- * on the crypto thread. Instead, {@link #submit} runs the batch with
- * {@link #dispatch} routed to an in-memory queue rather than the listener
- * directly, and replays that queue, in order, back on the loop thread
- * once the batch completes.
+ * <p>Like Agent15 before it, {@code HandshakeEngine} has no
+ * delegated-task API of its own: a single call to
+ * {@code HandshakeEngine#processMessage} synchronously performs all of a
+ * handshake message's crypto work and, from inside that same call, may
+ * invoke callbacks back out onto whichever {@link QuicTlsEngineListener}
+ * was supplied at construction ({@code cryptoDataReady}, {@code
+ * handshakeSecretsAvailable}, etc.) -- callbacks that are only safe to
+ * run on the connection's loop thread. Since the whole call is what
+ * needs to move off-loop, not a sub-task, those callbacks-out cannot
+ * simply be forwarded to the listener as they occur on the crypto
+ * thread. Instead, {@link #submit} runs the batch with {@link #dispatch}
+ * routed to an in-memory queue rather than the listener directly, and
+ * replays that queue, in order, back on the loop thread once the batch
+ * completes.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicTlsServerEngine
@@ -65,11 +63,16 @@ final class QuicHandshakeAsyncOffload {
     private static final Logger LOGGER = Logger.getLogger(QuicHandshakeAsyncOffload.class.getName());
 
     /**
-     * A batch of Agent15 handshake message processing to run on a crypto
-     * thread.
+     * A batch of handshake message processing to run on a crypto thread.
+     * {@code HandshakeEngine#processMessage} reports failures through its
+     * {@code TlsEventSink} rather than throwing, so this interface
+     * declares no checked exceptions -- unlike the failure paths below it
+     * (an unexpected {@code RuntimeException}, or {@link CryptoExecutor}
+     * itself failing), which remain real possibilities this class still
+     * guards against.
      */
     interface BatchProcessor {
-        void process() throws TlsProtocolException, IOException;
+        void process();
     }
 
     /**
@@ -202,14 +205,16 @@ final class QuicHandshakeAsyncOffload {
                 deferredCallbacks = callbacks;
                 deferring = true;
                 try {
+                    // HandshakeEngine#processMessage reports failures
+                    // through the TlsEventSink it was given (already
+                    // routed through #dispatch, hence into `callbacks`
+                    // above), not by throwing -- an exception escaping
+                    // here would be a genuine bug, not a protocol
+                    // failure, so it is left to propagate to this
+                    // Callable's own caller (CryptoExecutor's failure
+                    // path, or the synchronous fallback below), same as
+                    // any other unexpected RuntimeException would be.
                     processor.process();
-                } catch (final TlsProtocolException | IOException e) {
-                    callbacks.add(new Runnable() {
-                        @Override
-                        public void run() {
-                            listener.cryptoProcessingFailed(level, e);
-                        }
-                    });
                 } finally {
                     deferring = false;
                     deferredCallbacks = null;

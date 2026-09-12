@@ -33,7 +33,8 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import tech.kwik.agent15.engine.TlsServerEngineFactory;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
 
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
@@ -64,7 +65,7 @@ public class QuicStreamEndToEndTest {
     private static final String SERVER_NAME = "test.gumdrop.local";
 
     private static Path certsDirectory;
-    private static TlsServerEngineFactory serverCertificateFactory;
+    private static org.bluezoo.gumdrop.tls.ServerCredentials serverCredentials;
 
     @BeforeClass
     public static void generateServerCertificate() throws Exception {
@@ -93,7 +94,12 @@ public class QuicStreamEndToEndTest {
         try (InputStream in = Files.newInputStream(keystorePath)) {
             keyStore.load(in, "changeit".toCharArray());
         }
-        serverCertificateFactory = new TlsServerEngineFactory(keyStore, "server", "changeit".toCharArray());
+        java.util.List<java.security.cert.X509Certificate> chain = new java.util.ArrayList<java.security.cert.X509Certificate>();
+        for (Certificate cert : keyStore.getCertificateChain("server")) {
+            chain.add((java.security.cert.X509Certificate) cert);
+        }
+        PrivateKey key = (PrivateKey) keyStore.getKey("server", "changeit".toCharArray());
+        serverCredentials = new org.bluezoo.gumdrop.tls.ServerCredentials(chain, key);
     }
 
     @AfterClass
@@ -132,7 +138,7 @@ public class QuicStreamEndToEndTest {
         QuicTestPeer client = QuicTestPeer.newClient(
                 clientInitialDcid, QuicHandshakeEndToEndTest.defaultTransportParameters(clientScid));
         QuicTestPeer server = QuicTestPeer.newServer(clientInitialDcid,
-                QuicHandshakeEndToEndTest.defaultTransportParameters(serverScid), serverCertificateFactory);
+                QuicHandshakeEndToEndTest.defaultTransportParameters(serverScid), serverCredentials);
 
         QuicTestPeer.completeHandshake(client, server, clientInitialDcid, clientScid, serverScid, SERVER_NAME);
         assertTrue("Handshake should have been confirmed before opening a stream", client.handshakeConfirmed);
@@ -170,7 +176,7 @@ public class QuicStreamEndToEndTest {
         QuicTestPeer client = QuicTestPeer.newClient(
                 clientInitialDcid, QuicHandshakeEndToEndTest.defaultTransportParameters(clientScid));
         QuicTestPeer server = QuicTestPeer.newServer(clientInitialDcid,
-                QuicHandshakeEndToEndTest.defaultTransportParameters(serverScid), serverCertificateFactory);
+                QuicHandshakeEndToEndTest.defaultTransportParameters(serverScid), serverCredentials);
 
         QuicTestPeer.completeHandshake(client, server, clientInitialDcid, clientScid, serverScid, SERVER_NAME);
 

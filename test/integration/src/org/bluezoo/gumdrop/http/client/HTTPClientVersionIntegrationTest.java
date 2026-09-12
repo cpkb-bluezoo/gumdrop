@@ -348,7 +348,7 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
         client.setAltSvcEnabled(false);
         if (secure) {
             client.setSecure(true);
-            client.setSSLContext(certManager.createClientSSLContext());
+            client.setTrustManager(certManager.createClientTrustManager());
         }
         if (forceHttp11) {
             client.setH2Enabled(false);

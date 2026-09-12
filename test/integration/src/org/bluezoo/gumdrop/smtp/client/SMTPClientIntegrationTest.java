@@ -119,7 +119,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         private final TCPTransportFactory factory;
         private final int port;
         private boolean secure;
-        private javax.net.ssl.SSLContext sslContext;
+        private javax.net.ssl.X509TrustManager trustManager;
 
         SMTPClientHelper(int port) throws Exception {
             this.port = port;
@@ -134,16 +134,16 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
             this.secure = secure;
         }
 
-        void setSSLContext(javax.net.ssl.SSLContext sslContext) {
-            this.sslContext = sslContext;
+        void setTrustManager(javax.net.ssl.X509TrustManager trustManager) {
+            this.trustManager = trustManager;
         }
 
         void connect(ServerGreeting handler) throws Exception {
-            if (secure && sslContext != null) {
+            if (secure) {
                 factory.setSecure(true);
-                factory.setSSLContext(sslContext);
-            } else if (sslContext != null) {
-                factory.setSSLContext(sslContext);
+            }
+            if (trustManager != null) {
+                factory.setTrustManager(trustManager);
             }
             client.connect(new SMTPClientProtocolHandler(handler));
         }
@@ -451,7 +451,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         SMTPClientHelper client = createClient(SMTPS_PORT);
         client.setSecure(true);
-        client.setSSLContext(certManager.createClientSSLContext());
+        client.setTrustManager(certManager.createClientTrustManager());
 
         CountDownLatch completeLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
@@ -526,7 +526,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         service.clearMessages();
 
         SMTPClientHelper client = createClient(SMTP_PORT);
-        client.setSSLContext(certManager.createClientSSLContext());
+        client.setTrustManager(certManager.createClientTrustManager());
 
         CountDownLatch completeLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();

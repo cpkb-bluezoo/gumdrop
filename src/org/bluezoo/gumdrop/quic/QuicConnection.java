@@ -44,8 +44,6 @@ import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import tech.kwik.agent15.NewSessionTicket;
-import tech.kwik.agent15.TlsConstants;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -74,11 +72,13 @@ import org.bluezoo.gumdrop.quic.recovery.LossDetector;
 import org.bluezoo.gumdrop.quic.recovery.RttEstimator;
 import org.bluezoo.gumdrop.quic.recovery.SentPacket;
 import org.bluezoo.gumdrop.quic.tls.EncryptionLevel;
-import org.bluezoo.gumdrop.quic.tls.Hkdf;
+import org.bluezoo.gumdrop.crypto.Hkdf;
 import org.bluezoo.gumdrop.quic.tls.InitialSecrets;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsEngineListener;
 import org.bluezoo.gumdrop.quic.tls.StreamReassembler;
+import org.bluezoo.gumdrop.tls.CipherSuite;
+import org.bluezoo.gumdrop.tls.SessionTicket;
 
 /**
  * One QUIC connection: owns the TLS 1.3 handshake, packet protection
@@ -3498,7 +3498,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // all -- so calling this twice (once early, once at
     // handshakeSecretsAvailable time) is a safe, idempotent re-set of the
     // same values, not a real state change.
-    private void selectHkdfAead(TlsConstants.CipherSuite cipher) {
+    private void selectHkdfAead(CipherSuite cipher) {
         // A proper mapping, not a two-way ternary: an unrecognised cipher
         // must fail loudly rather than silently be treated as AES-128-GCM
         // (which would derive keys of the wrong length/interpretation and
@@ -3637,21 +3637,18 @@ public final class QuicConnection implements QuicTlsEngineListener {
     @Override
     public void earlySecretsAvailable() {
         // RFC 9001 section 4.6.1: fires before either side has decided
-        // whether 0-RTT will actually be accepted -- server-side,
-        // Agent15 has already called isEarlyDataAccepted() by this point
-        // (see QuicTlsServerEngine), so that decision is known; skip key
-        // derivation entirely if the server isn't going to use them.
+        // whether 0-RTT will actually be accepted. 0-RTT/session
+        // resumption is not implemented yet (see SessionTicketCache's
+        // class documentation), so wasEarlyDataAccepted() is always
+        // false and getEarlyDataCipher() is always null -- this method
+        // never actually derives anything today; kept in the same shape
+        // it was in so restoring 0-RTT support is a matter of the
+        // underlying engine methods starting to return real values, not
+        // rewriting this callback.
         if (isServer && !((org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine) tlsEngine).wasEarlyDataAccepted()) {
             return;
         }
-        // Agent15 fires this callback on the client side for every
-        // handshake, once ServerHello arrives, regardless of whether a
-        // session ticket was ever presented (confirmed against its own
-        // source -- an internal artifact, not something gumdrop can or
-        // needs to influence). A null cipher here just means this
-        // connection never attempted resumption; nothing to derive, and
-        // nothing worth logging -- this is the common case, not an error.
-        TlsConstants.CipherSuite cipher = isServer
+        CipherSuite cipher = isServer
                 ? ((org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine) tlsEngine).getSelectedCipher()
                 : ((org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine) tlsEngine).getEarlyDataCipher();
         if (cipher == null) {
@@ -3674,14 +3671,8 @@ public final class QuicConnection implements QuicTlsEngineListener {
     }
 
     @Override
-    public void newSessionTicketReceived(NewSessionTicket ticket) {
-        // Client-only (a server never receives a NewSessionTicket message
-        // -- it sends them); and nothing useful to remember before this
-        // connection's own transport parameters are known.
-        if (isServer || peerTransportParameters == null) {
-            return;
-        }
-        String host = serverName != null ? serverName : remoteAddress.getHostString();
+    public void newSessionTicketReceived(SessionTicket ticket) {
+        String host = (serverName != null) ? serverName : remoteAddress.getAddress().getHostAddress();
         SessionTicketCache.put(host, remoteAddress.getPort(), ticket, peerTransportParameters);
     }
 
@@ -3751,7 +3742,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         requestFlush();
     }
 
-    private TlsConstants.CipherSuite selectedCipher() {
+    private CipherSuite selectedCipher() {
         return isServer
                 ? ((org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine) tlsEngine).getSelectedCipher()
                 : ((org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine) tlsEngine).getSelectedCipher();

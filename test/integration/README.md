@@ -150,7 +150,7 @@ mgr.saveServerKeystore(new File(certsDir, "server.p12"), "password");
 // Client certificate for auth testing
 ClientCertificate client = mgr.generateClientCertificate(
     "user@example.com", "Test User", 365);
-SSLContext ctx = client.createSSLContext("password");
+X509TrustManager tm = client.createTrustManager("password");
 ```
 
 ## Test Output

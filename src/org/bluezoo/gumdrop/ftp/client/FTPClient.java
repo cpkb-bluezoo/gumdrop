@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
@@ -33,6 +32,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerGreeting;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * High-level FTP client facade.
@@ -47,7 +47,7 @@ import org.bluezoo.gumdrop.ftp.client.handler.ServerGreeting;
  * <h4>Plaintext with AUTH TLS (explicit FTPS)</h4>
  * <pre>{@code
  * FTPClient client = new FTPClient("ftp.example.com", 21);
- * client.setSSLContext(sslContext);
+ * client.setClientCredentials(clientCredentials);
  * client.connect(new ServerGreeting() {
  *     public void handleGreeting(ClientLoginState login, String message) {
  *         login.authTls(authTlsHandler);
@@ -60,7 +60,7 @@ import org.bluezoo.gumdrop.ftp.client.handler.ServerGreeting;
  * <pre>{@code
  * FTPClient client = new FTPClient("ftp.example.com", 990);
  * client.setSecure(true);
- * client.setSSLContext(sslContext);
+ * client.setClientCredentials(clientCredentials);
  * client.connect(greetingHandler);
  * }</pre>
  *
@@ -79,7 +79,7 @@ public class FTPClient {
     private final SelectorLoop selectorLoop;
 
     private boolean secure;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
@@ -196,12 +196,15 @@ public class FTPClient {
     }
 
     /**
-     * Sets the SSL context for TLS connections.
+     * Sets this client's own identity (certificate chain and private key)
+     * to present if the server requests client certificate authentication
+     * (mTLS), for both the control connection and any TLS-protected data
+     * connections (RFC 4217 §9, PROT P).
      *
-     * @param context the SSL context
+     * @param clientCredentials the client's own credentials
      */
-    public void setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
     }
 
     /**
@@ -257,8 +260,8 @@ public class FTPClient {
     public void connect(ServerGreeting handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
-        if (sslContext != null) {
-            transportFactory.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            transportFactory.setClientCredentials(clientCredentials);
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);
@@ -276,8 +279,8 @@ public class FTPClient {
 
         endpointHandler = new FTPClientProtocolHandler(handler);
         endpointHandler.setSecure(secure);
-        if (sslContext != null) {
-            endpointHandler.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            endpointHandler.setClientCredentials(clientCredentials);
         }
 
         try {

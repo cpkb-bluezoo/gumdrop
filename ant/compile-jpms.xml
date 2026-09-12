@@ -8,8 +8,6 @@
   <path id='jpms.lib.modulepath'>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
-    <pathelement location='${lib}/${agent15.jar}'/>
-    <pathelement location='${lib}/${hkdf.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>
 
