@@ -28,11 +28,9 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.lang.reflect.Field;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.util.Deque;
 
 import static org.junit.Assert.*;
 
@@ -80,10 +78,9 @@ public class UDPEndpointTest {
         UDPEndpoint endpoint = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0, new NoopHandler());
         try {
-            ByteBuffer netIn = getNetIn(endpoint);
-            assertNotNull(netIn);
+            assertNotNull(endpoint.netIn);
             assertTrue("netIn must be a direct buffer, not a heap allocation",
-                    netIn.isDirect());
+                    endpoint.netIn.isDirect());
         } finally {
             endpoint.close();
         }
@@ -96,11 +93,11 @@ public class UDPEndpointTest {
 
         UDPEndpoint endpoint = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0, new NoopHandler());
-        ByteBuffer netIn = getNetIn(endpoint);
+        ByteBuffer netIn = endpoint.netIn;
         int capacity = netIn.capacity();
 
         endpoint.close();
-        assertNull("netIn must be cleared once released", getNetIn(endpoint));
+        assertNull("netIn must be cleared once released", endpoint.netIn);
 
         // If close() actually released the buffer back to the pool, the
         // very next same-size acquire on this thread must hand back the
@@ -127,13 +124,17 @@ public class UDPEndpointTest {
         int capacity = pending.capacity();
 
         try {
-            endpoint.sendOwnedRawDatagram(pending,
-                    (InetSocketAddress) endpoint.getLocalAddress());
-            Deque<?> queue = getPendingDatagrams(endpoint);
-            assertFalse("datagram must be queued for write", queue.isEmpty());
+            // Enqueue without requestDatagramWrite() so the selector loop
+            // does not drain the queue before we assert on close() cleanup.
+            assertTrue("datagram must be accepted into the pending queue",
+                    endpoint.enqueuePendingDatagram(pending,
+                            (InetSocketAddress) endpoint.getLocalAddress()));
+            assertFalse("datagram must be queued for write",
+                    endpoint.pendingDatagrams.isEmpty());
 
             endpoint.close();
-            assertTrue("pending queue must be drained on close", queue.isEmpty());
+            assertTrue("pending queue must be drained on close",
+                    endpoint.pendingDatagrams.isEmpty());
 
             ByteBuffer reacquired = ByteBufferPool.acquire(capacity);
             try {
@@ -163,13 +164,15 @@ public class UDPEndpointTest {
             ByteBuffer first = ByteBufferPool.acquire(64);
             first.put(new byte[60]);
             first.flip();
-            endpoint.sendOwnedRawDatagram(first, dest);
+            assertTrue("first datagram must fit under queue cap",
+                    endpoint.enqueuePendingDatagram(first, dest));
             assertTrue("endpoint stays open under queue cap", endpoint.isOpen());
 
             ByteBuffer second = ByteBufferPool.acquire(64);
             second.put(new byte[50]);
             second.flip();
-            endpoint.sendOwnedRawDatagram(second, dest);
+            assertFalse("overflowing the pending queue must reject the datagram",
+                    endpoint.enqueuePendingDatagram(second, dest));
             assertFalse("overflowing the pending queue must close the endpoint",
                     endpoint.isOpen());
         } finally {
@@ -177,12 +180,6 @@ public class UDPEndpointTest {
                 endpoint.close();
             }
         }
-    }
-
-    private static Deque<?> getPendingDatagrams(UDPEndpoint endpoint) throws Exception {
-        Field field = UDPEndpoint.class.getDeclaredField("pendingDatagrams");
-        field.setAccessible(true);
-        return (Deque<?>) field.get(endpoint);
     }
 
     @Test
@@ -197,11 +194,5 @@ public class UDPEndpointTest {
         } finally {
             DirectByteBufferPool.release(reacquired);
         }
-    }
-
-    private static ByteBuffer getNetIn(UDPEndpoint endpoint) throws Exception {
-        Field field = UDPEndpoint.class.getDeclaredField("netIn");
-        field.setAccessible(true);
-        return (ByteBuffer) field.get(endpoint);
     }
 }

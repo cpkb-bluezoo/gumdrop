@@ -474,7 +474,7 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         pendingDatagramBytes = 0;
     }
 
-    private boolean enqueuePendingDatagram(ByteBuffer data, InetSocketAddress dest) {
+    boolean enqueuePendingDatagram(ByteBuffer data, InetSocketAddress dest) {
         int bytes = data.remaining();
         int cap = getMaxNetOutSize();
         if (cap > 0 && pendingDatagramBytes + bytes > cap) {
