@@ -92,7 +92,21 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     ByteBuffer netIn;
     ByteBuffer netOut;
+    /**
+     * Guards {@link #netOut} append, grow, socket write, and release.
+     * Intentionally separate from {@link #tlsEngineLock} so
+     * {@link SelectorLoop} can drain pending ciphertext to the socket
+     * while record-layer decrypt/encrypt runs.
+     */
     final Object netOutLock = new Object();
+
+    /**
+     * Guards TLS record-engine wrap/unwrap on this connection. The engine
+     * is not safe for concurrent access; handshake offload still mutates
+     * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on a crypto thread,
+     * coordinated by {@link org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler}.
+     */
+    final Object tlsEngineLock = new Object();
     boolean closeRequested;
 
     // Write-completion callback for backpressure support.
@@ -120,6 +134,18 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     // protocol handler having to opt in.
     private TimerHandle handshakeTimeoutHandle;
     private TimerHandle firstByteTimeoutHandle;
+    private final Runnable handshakeTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            onHandshakeTimeout();
+        }
+    };
+    private final Runnable firstByteTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            onFirstByteTimeout();
+        }
+    };
 
     // -- Lifecycle --
 
@@ -812,12 +838,7 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         }
         long t = listener.getConnectionTimeoutMs();
         if (t > 0 && handshakeTimeoutHandle == null) {
-            handshakeTimeoutHandle = scheduleTimer(t, new Runnable() {
-                @Override
-                public void run() {
-                    onHandshakeTimeout();
-                }
-            });
+            handshakeTimeoutHandle = scheduleTimer(t, handshakeTimeoutRunnable);
         }
     }
 
@@ -827,12 +848,7 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         }
         long t = listener.getReadTimeoutMs();
         if (t > 0 && firstByteTimeoutHandle == null) {
-            firstByteTimeoutHandle = scheduleTimer(t, new Runnable() {
-                @Override
-                public void run() {
-                    onFirstByteTimeout();
-                }
-            });
+            firstByteTimeoutHandle = scheduleTimer(t, firstByteTimeoutRunnable);
         }
     }
 

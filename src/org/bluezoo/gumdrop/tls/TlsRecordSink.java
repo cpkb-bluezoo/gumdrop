@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import java.util.Arrays;
+
 /**
  * Events pushed by a {@link TlsRecordEngine} -- the TCP-facing
  * counterpart of {@link TlsEventSink}, matching its same pull-based,
@@ -47,6 +49,24 @@ public interface TlsRecordSink {
      * @param data the record bytes
      */
     void ciphertextReady(byte[] data);
+
+    /**
+     * TLS record bytes to write to the socket, taken from a slice of an
+     * existing array. The default implementation copies; embedders that
+     * can consume the slice directly should override.
+     *
+     * @param data the record bytes
+     * @param offset the start offset within {@code data}
+     * @param length the number of bytes to write
+     */
+    default void ciphertextReady(byte[] data, int offset, int length) {
+        if (offset == 0 && length == data.length) {
+            ciphertextReady(data);
+            return;
+        }
+        byte[] copy = Arrays.copyOfRange(data, offset, offset + length);
+        ciphertextReady(copy);
+    }
 
     /**
      * Decrypted application data (a post-handshake {@code ApplicationData}

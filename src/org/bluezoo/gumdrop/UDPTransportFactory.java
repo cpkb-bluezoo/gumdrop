@@ -87,6 +87,10 @@ public class UDPTransportFactory extends TransportFactory {
     private boolean requireCookie;
     private byte[] cookieSecret;
     private int maxFragmentSize = 1024;
+    private int maxDtlsPeers = DEFAULT_MAX_DTLS_PEERS;
+
+    /** Default cap on concurrent DTLS peers per bound UDP socket (server mode). */
+    public static final int DEFAULT_MAX_DTLS_PEERS = 4096;
 
     private Dtls12HandshakeConfig sharedServerConfig;
     private Dtls13HandshakeConfig sharedServerConfig13;
@@ -149,6 +153,23 @@ public class UDPTransportFactory extends TransportFactory {
 
     public void setMaxFragmentSize(int maxFragmentSize) {
         this.maxFragmentSize = maxFragmentSize;
+    }
+
+    /**
+     * Maximum number of concurrent DTLS peers tracked on one server-mode
+     * {@link UDPEndpoint}. {@code 0} means unlimited.
+     *
+     * @param maxDtlsPeers the peer cap
+     */
+    public void setMaxDtlsPeers(int maxDtlsPeers) {
+        this.maxDtlsPeers = maxDtlsPeers;
+    }
+
+    /**
+     * @return the DTLS peer cap, or {@code 0} if unlimited
+     */
+    public int getMaxDtlsPeers() {
+        return maxDtlsPeers;
     }
 
     public boolean isSNIEnabled() {

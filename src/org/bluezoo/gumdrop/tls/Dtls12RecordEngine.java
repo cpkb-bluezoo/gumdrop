@@ -26,6 +26,7 @@ import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 /**
  * DTLS 1.2 record layer (RFC 6347) wrapping {@link Tls12HandshakeEngine}.
@@ -58,6 +59,10 @@ public final class Dtls12RecordEngine {
     private final DtlsReassembler reassembler = new DtlsReassembler();
     private final int maxFragmentSize;
     private final InnerSink innerSink = new InnerSink();
+    private final HandshakeRunner handshakeRunner = new HandshakeRunner();
+    private final HandshakeFailureHandler handshakeFailure = new HandshakeFailureHandler();
+    private final Tls12DeferredDispatch deferredDispatch;
+    private final HandshakeAsyncScheduler handshakeAsync;
 
     Dtls12DirectionalKeys write;
     Dtls12DirectionalKeys read;
@@ -95,9 +100,15 @@ public final class Dtls12RecordEngine {
      * @param maxFragmentSize maximum handshake fragment payload size
      */
     public Dtls12RecordEngine(Tls12HandshakeConfig config, int maxFragmentSize) {
+        this(config, maxFragmentSize, null);
+    }
+
+    public Dtls12RecordEngine(Tls12HandshakeConfig config, int maxFragmentSize, Executor loopExecutor) {
         this.role = config.getRole();
         this.engine = new Tls12HandshakeEngine(config);
         this.maxFragmentSize = Math.max(1, Math.min(maxFragmentSize, MAX_FRAGMENT));
+        this.handshakeAsync = new HandshakeAsyncScheduler(loopExecutor, handshakeRunner, handshakeFailure);
+        this.deferredDispatch = new Tls12DeferredDispatch(handshakeAsync, innerSink);
     }
 
     /**
@@ -106,7 +117,8 @@ public final class Dtls12RecordEngine {
      * @param sink where to push resulting events
      */
     public void start(TlsRecordSink sink) {
-        engine.start(innerSink(sink));
+        innerSink.outer = sink;
+        handshakeAsync.scheduleStart();
     }
 
     /**
@@ -134,35 +146,41 @@ public final class Dtls12RecordEngine {
      * @param sink where to push resulting events
      */
     public void feedDatagram(byte[] datagram, TlsRecordSink sink) {
+        feedDatagram(datagram, 0, datagram.length, sink);
+    }
+
+    public void feedDatagram(byte[] datagram, int offset, int length, TlsRecordSink sink) {
         if (failed) {
             return;
         }
-        int offset = 0;
-        while (offset < datagram.length) {
-            if (datagram.length - offset < RECORD_HEADER_LEN) {
+        innerSink.outer = sink;
+        int end = offset + length;
+        int pos = offset;
+        while (pos < end) {
+            if (end - pos < RECORD_HEADER_LEN) {
                 fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS record header");
                 return;
             }
-            int contentType = datagram[offset] & 0xff;
-            int versionMajor = datagram[offset + 1] & 0xff;
-            int versionMinor = datagram[offset + 2] & 0xff;
-            int epoch = ((datagram[offset + 3] & 0xff) << 8) | (datagram[offset + 4] & 0xff);
+            int contentType = datagram[pos] & 0xff;
+            int versionMajor = datagram[pos + 1] & 0xff;
+            int versionMinor = datagram[pos + 2] & 0xff;
+            int epoch = ((datagram[pos + 3] & 0xff) << 8) | (datagram[pos + 4] & 0xff);
             long seq = 0L;
             for (int i = 0; i < 6; i++) {
-                seq = (seq << 8) | (datagram[offset + 5 + i] & 0xff);
+                seq = (seq << 8) | (datagram[pos + 5 + i] & 0xff);
             }
-            int length = ((datagram[offset + 11] & 0xff) << 8) | (datagram[offset + 12] & 0xff);
+            int recordLength = ((datagram[pos + 11] & 0xff) << 8) | (datagram[pos + 12] & 0xff);
             if (versionMajor != DTLS_VERSION_MAJOR || versionMinor != DTLS_VERSION_MINOR) {
                 fail(sink, AlertDescription.PROTOCOL_VERSION, "unexpected DTLS version");
                 return;
             }
-            if (offset + RECORD_HEADER_LEN + length > datagram.length) {
+            if (pos + RECORD_HEADER_LEN + recordLength > end) {
                 fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS record body");
                 return;
             }
-            byte[] body = Arrays.copyOfRange(datagram, offset + RECORD_HEADER_LEN,
-                    offset + RECORD_HEADER_LEN + length);
-            offset += RECORD_HEADER_LEN + length;
+            byte[] body = Arrays.copyOfRange(datagram, pos + RECORD_HEADER_LEN,
+                    pos + RECORD_HEADER_LEN + recordLength);
+            pos += RECORD_HEADER_LEN + recordLength;
 
             if (!processRecord(contentType, epoch, seq, body, sink)) {
                 return;
@@ -177,6 +195,10 @@ public final class Dtls12RecordEngine {
      * @param sink where to push ciphertext datagrams
      */
     public void sendApplicationData(byte[] plaintext, TlsRecordSink sink) {
+        sendApplicationData(plaintext, 0, plaintext.length, sink);
+    }
+
+    public void sendApplicationData(byte[] plaintext, int offset, int length, TlsRecordSink sink) {
         if (failed) {
             return;
         }
@@ -185,7 +207,7 @@ public final class Dtls12RecordEngine {
                     "application data sent before handshake completed"));
             return;
         }
-        writeOneRecord(CONTENT_APPLICATION_DATA, plaintext, sink);
+        writeOneRecord(CONTENT_APPLICATION_DATA, plaintext, offset, length, sink);
         if (write.overConfidentialityLimit()) {
             fail(sink, AlertDescription.INTERNAL_ERROR, "AES-GCM write key exceeded its confidentiality limit");
         }
@@ -232,6 +254,33 @@ public final class Dtls12RecordEngine {
     private Tls12EventSink innerSink(TlsRecordSink outer) {
         innerSink.outer = outer;
         return innerSink;
+    }
+
+    private final class HandshakeRunner implements HandshakeAsyncScheduler.Runner {
+        @Override
+        public void runStart() {
+            deferredDispatch.resetSlots();
+            engine.start(innerSink);
+        }
+
+        @Override
+        public void runMessages(List<byte[]> messages) {
+            for (int i = 0; i < messages.size(); i++) {
+                deferredDispatch.resetSlots();
+                engine.processMessage(messages.get(i), innerSink);
+                if (failed || engine.isFailed()) {
+                    break;
+                }
+            }
+        }
+    }
+
+    private final class HandshakeFailureHandler implements TlsHandshakeAsyncOffload.FailureHandler {
+        @Override
+        public void failed(Throwable error) {
+            fail(innerSink.outer, AlertDescription.INTERNAL_ERROR,
+                    "handshake processing failed: " + error);
+        }
     }
 
     private boolean processRecord(int contentType, int epoch, long seq, byte[] body, TlsRecordSink sink) {
@@ -407,11 +456,8 @@ public final class Dtls12RecordEngine {
         }
         try {
             List<byte[]> messages = reassembler.addFragment(payload);
-            for (int i = 0; i < messages.size(); i++) {
-                engine.processMessage(messages.get(i), innerSink(sink));
-                if (failed || engine.isFailed()) {
-                    return false;
-                }
+            if (!messages.isEmpty()) {
+                handshakeAsync.scheduleMessages(messages);
             }
         } catch (HandshakeFormatException e) {
             fail(sink, AlertDescription.DECODE_ERROR, "malformed DTLS handshake fragment: " + e.getMessage());
@@ -485,29 +531,43 @@ public final class Dtls12RecordEngine {
     }
 
     private void writeOneRecord(int contentType, byte[] payload, TlsRecordSink sink) {
+        writeOneRecord(contentType, payload, 0, payload.length, sink);
+    }
+
+    private void writeOneRecord(int contentType, byte[] payload, int offset, int length, TlsRecordSink sink) {
         byte[] datagram;
         if (write == null) {
-            datagram = framePlaintextRecord(contentType, writeEpoch, plaintextWriteSeq, payload);
+            datagram = framePlaintextRecord(contentType, writeEpoch, plaintextWriteSeq, payload, offset, length);
             plaintextWriteSeq++;
         } else {
-            datagram = frameEncryptedRecord(contentType, write, payload);
+            datagram = frameEncryptedRecord(contentType, write, payload, offset, length);
         }
         sink.ciphertextReady(datagram);
     }
 
     private byte[] framePlaintextRecord(int contentType, int epoch, long seq, byte[] payload) {
+        return framePlaintextRecord(contentType, epoch, seq, payload, 0, payload.length);
+    }
+
+    private byte[] framePlaintextRecord(int contentType, int epoch, long seq, byte[] payload,
+            int offset, int length) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        writeRecordHeader(out, contentType, epoch, seq, payload.length);
-        out.write(payload, 0, payload.length);
+        writeRecordHeader(out, contentType, epoch, seq, length);
+        out.write(payload, offset, length);
         return out.toByteArray();
     }
 
     private byte[] frameEncryptedRecord(int contentType, Dtls12DirectionalKeys keys, byte[] payload) {
-        byte[] aad = keys.additionalData(contentType, payload.length);
+        return frameEncryptedRecord(contentType, keys, payload, 0, payload.length);
+    }
+
+    private byte[] frameEncryptedRecord(int contentType, Dtls12DirectionalKeys keys, byte[] payload,
+            int offset, int length) {
+        byte[] aad = keys.additionalData(contentType, length);
         byte[] nonce = keys.localNonce();
         byte[] sealed;
         try {
-            sealed = keys.sealAppendTag(nonce, aad, payload);
+            sealed = keys.sealAppendTag(nonce, aad, payload, offset, length);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Record seal failed", e);
         }
@@ -578,17 +638,43 @@ public final class Dtls12RecordEngine {
         sink.protocolError(new TlsProtocolError(alert, message));
     }
 
-    private final class InnerSink implements Tls12EventSink {
+    private final class InnerSink implements Tls12EventSink, Tls12DeferredDispatch.Target {
 
         TlsRecordSink outer;
 
         @Override
         public void handshakeDataReady(byte[] data) {
-            writeHandshakeMessage(data, outer);
+            deferredDispatch.handshakeDataReady(data);
         }
 
         @Override
         public void keysReady(Tls12CipherSuite cipher, DirectionalKeyMaterial client, DirectionalKeyMaterial server) {
+            deferredDispatch.keysReady(cipher, client, server);
+        }
+
+        @Override
+        public void sendChangeCipherSpec() {
+            deferredDispatch.sendChangeCipherSpec();
+        }
+
+        @Override
+        public void handshakeComplete() {
+            deferredDispatch.handshakeComplete();
+        }
+
+        @Override
+        public void protocolError(TlsProtocolError error) {
+            deferredDispatch.protocolError(error);
+        }
+
+        @Override
+        public void deliverHandshakeData(byte[] data) {
+            writeHandshakeMessage(data, outer);
+        }
+
+        @Override
+        public void deliverKeysReady(Tls12CipherSuite cipher, DirectionalKeyMaterial client,
+                DirectionalKeyMaterial server) {
             stagedSuite = cipher;
             if (role == HandshakeRole.CLIENT) {
                 pendingWrite = client;
@@ -600,18 +686,18 @@ public final class Dtls12RecordEngine {
         }
 
         @Override
-        public void sendChangeCipherSpec() {
+        public void deliverChangeCipherSpec() {
             writeOneRecord(CONTENT_CHANGE_CIPHER_SPEC, new byte[] { 0x01 }, outer);
             activateWrite();
         }
 
         @Override
-        public void handshakeComplete() {
+        public void deliverHandshakeComplete() {
             outer.handshakeComplete();
         }
 
         @Override
-        public void protocolError(TlsProtocolError error) {
+        public void deliverProtocolError(TlsProtocolError error) {
             sendFatalAlert(error.getAlert(), outer);
             outer.protocolError(error);
         }

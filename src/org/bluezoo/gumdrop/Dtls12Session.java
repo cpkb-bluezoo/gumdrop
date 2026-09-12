@@ -26,7 +26,9 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -84,6 +86,10 @@ final class Dtls12Session implements TlsRecordSink {
     }
 
     void receive(byte[] datagram) {
+        receive(datagram, 0, datagram.length);
+    }
+
+    void receive(byte[] datagram, int offset, int length) {
         if (closed) {
             return;
         }
@@ -91,14 +97,14 @@ final class Dtls12Session implements TlsRecordSink {
         cancelRetransmitTimer();
 
         if (config.getRole() == HandshakeRole.SERVER && config.isRequireCookie() && engine == null) {
-            if (!handleServerCookieExchange(datagram)) {
+            if (!handleServerCookieExchange(datagram, offset, length)) {
                 return;
             }
         }
 
         ensureEngine(null);
         flightBuilder.clear();
-        engine.feedDatagram(datagram, this);
+        engine.feedDatagram(datagram, offset, length, this);
         commitFlightIfNeeded();
     }
 
@@ -116,11 +122,15 @@ final class Dtls12Session implements TlsRecordSink {
      * Sends application data, enqueueing ciphertext datagrams on the endpoint.
      */
     void sendApplicationData(byte[] plaintext) {
+        sendApplicationData(plaintext, 0, plaintext.length);
+    }
+
+    void sendApplicationData(byte[] plaintext, int offset, int length) {
         if (closed || !handshakeComplete || engine == null) {
             return;
         }
         flightBuilder.clear();
-        engine.sendApplicationData(plaintext, this);
+        engine.sendApplicationData(plaintext, offset, length, this);
         flushOutboundFlight();
     }
 
@@ -193,8 +203,12 @@ final class Dtls12Session implements TlsRecordSink {
         endpoint.removeDtlsSession(remoteAddress);
     }
 
-    private boolean handleServerCookieExchange(byte[] datagram) {
-        Dtls12HelloVerify.ClientHelloFields fields = Dtls12HelloVerify.parseClientHelloFields(datagram);
+    private boolean handleServerCookieExchange(byte[] datagram, int offset, int length) {
+        byte[] view = datagram;
+        if (offset != 0 || length != datagram.length) {
+            view = Arrays.copyOfRange(datagram, offset, offset + length);
+        }
+        Dtls12HelloVerify.ClientHelloFields fields = Dtls12HelloVerify.parseClientHelloFields(view);
         if (fields == null) {
             return false;
         }
@@ -225,7 +239,7 @@ final class Dtls12Session implements TlsRecordSink {
         if (cookie != null) {
             base.setDtlsCookie(cookie);
         }
-        engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize());
+        engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize(), loopExecutor(endpoint));
         if (config.getRole() == HandshakeRole.CLIENT) {
             engine.setHelloVerifyCallback(new Dtls12RecordEngine.HelloVerifyCallback() {
                 @Override
@@ -242,7 +256,7 @@ final class Dtls12Session implements TlsRecordSink {
         Tls12HandshakeConfig base = config.copyBaseForEngine();
         base.setDtlsClientRandom(preservedRandom);
         base.setDtlsCookie(cookieFromServer);
-        engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize());
+        engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize(), loopExecutor(endpoint));
         engine.setHelloVerifyCallback(new Dtls12RecordEngine.HelloVerifyCallback() {
             @Override
             public void onHelloVerifyRequest(byte[] ignored) {
@@ -339,6 +353,15 @@ final class Dtls12Session implements TlsRecordSink {
         retransmit.onProgress();
         flightBuilder.clear();
         endpoint.onDtlsSessionFailed(remoteAddress, new IOException(reason));
+    }
+
+    private static Executor loopExecutor(final UDPEndpoint endpoint) {
+        return new Executor() {
+            @Override
+            public void execute(Runnable task) {
+                endpoint.execute(task);
+            }
+        };
     }
 
 }

@@ -44,6 +44,13 @@ final class Dtls12DirectionalKeys {
     private final Tls12CipherSuite suite;
     private final byte[] key;
     private final byte[] fixedIv;
+    private final SecretKeySpec keySpec;
+    private final Cipher encryptCipher;
+    private final Cipher decryptCipher;
+    private final byte[] nonceScratch = new byte[12];
+    private final byte[] combinedSeqBytesScratch = new byte[8];
+    private final byte[] aadScratch = new byte[13];
+
     final int epoch;
 
     long seq;
@@ -53,6 +60,14 @@ final class Dtls12DirectionalKeys {
         this.key = key;
         this.fixedIv = fixedIv;
         this.epoch = epoch;
+        this.keySpec = new SecretKeySpec(key, suite.getAeadKeyAlgorithm());
+        try {
+            String transformation = suite.getAeadTransformation();
+            this.encryptCipher = Cipher.getInstance(transformation);
+            this.decryptCipher = Cipher.getInstance(transformation);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Could not initialize AEAD ciphers", e);
+        }
     }
 
     static Dtls12DirectionalKeys fromMaterial(Tls12CipherSuite suite, DirectionalKeyMaterial material, int epoch) {
@@ -76,41 +91,38 @@ final class Dtls12DirectionalKeys {
     }
 
     private byte[] gcmNonce(byte[] explicitNonce) {
-        byte[] n = new byte[12];
-        System.arraycopy(fixedIv, 0, n, 0, 4);
-        System.arraycopy(explicitNonce, 0, n, 4, 8);
-        return n;
+        System.arraycopy(fixedIv, 0, nonceScratch, 0, 4);
+        System.arraycopy(explicitNonce, 0, nonceScratch, 4, 8);
+        return nonceScratch;
     }
 
     private byte[] chachaNonce() {
-        byte[] n = fixedIv.clone();
+        System.arraycopy(fixedIv, 0, nonceScratch, 0, fixedIv.length);
         byte[] seqBytes = combinedSeqBytes();
         for (int i = 0; i < 8; i++) {
-            n[4 + i] ^= seqBytes[i];
+            nonceScratch[4 + i] ^= seqBytes[i];
         }
-        return n;
+        return nonceScratch;
     }
 
     byte[] combinedSeqBytes() {
-        byte[] b = new byte[8];
-        b[0] = (byte) ((epoch >> 8) & 0xff);
-        b[1] = (byte) (epoch & 0xff);
+        combinedSeqBytesScratch[0] = (byte) ((epoch >> 8) & 0xff);
+        combinedSeqBytesScratch[1] = (byte) (epoch & 0xff);
         for (int i = 0; i < 6; i++) {
-            b[2 + i] = (byte) (seq >>> (40 - 8 * i));
+            combinedSeqBytesScratch[2 + i] = (byte) (seq >>> (40 - 8 * i));
         }
-        return b;
+        return combinedSeqBytesScratch;
     }
 
     byte[] additionalData(int contentType, int plaintextLen) {
-        byte[] aad = new byte[13];
         byte[] combined = combinedSeqBytes();
-        System.arraycopy(combined, 0, aad, 0, 8);
-        aad[8] = (byte) contentType;
-        aad[9] = (byte) 0xfe;
-        aad[10] = (byte) 0xfd;
-        aad[11] = (byte) ((plaintextLen >> 8) & 0xff);
-        aad[12] = (byte) (plaintextLen & 0xff);
-        return aad;
+        System.arraycopy(combined, 0, aadScratch, 0, 8);
+        aadScratch[8] = (byte) contentType;
+        aadScratch[9] = (byte) 0xfe;
+        aadScratch[10] = (byte) 0xfd;
+        aadScratch[11] = (byte) ((plaintextLen >> 8) & 0xff);
+        aadScratch[12] = (byte) (plaintextLen & 0xff);
+        return aadScratch;
     }
 
     void advance() {
@@ -122,18 +134,21 @@ final class Dtls12DirectionalKeys {
     }
 
     byte[] sealAppendTag(byte[] nonce, byte[] aad, byte[] plaintext) throws GeneralSecurityException {
-        Cipher cipher = Cipher.getInstance(suite.getAeadTransformation());
-        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, suite.getAeadKeyAlgorithm()), parameterSpec(nonce));
-        cipher.updateAAD(aad);
-        return cipher.doFinal(plaintext);
+        return sealAppendTag(nonce, aad, plaintext, 0, plaintext.length);
+    }
+
+    byte[] sealAppendTag(byte[] nonce, byte[] aad, byte[] plaintext, int offset, int length)
+            throws GeneralSecurityException {
+        encryptCipher.init(Cipher.ENCRYPT_MODE, keySpec, parameterSpec(nonce));
+        encryptCipher.updateAAD(aad);
+        return encryptCipher.doFinal(plaintext, offset, length);
     }
 
     byte[] openInPlace(byte[] nonce, byte[] aad, byte[] ciphertext) throws GeneralSecurityException {
-        Cipher cipher = Cipher.getInstance(suite.getAeadTransformation());
-        cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, suite.getAeadKeyAlgorithm()), parameterSpec(nonce));
-        cipher.updateAAD(aad);
+        decryptCipher.init(Cipher.DECRYPT_MODE, keySpec, parameterSpec(nonce));
+        decryptCipher.updateAAD(aad);
         try {
-            return cipher.doFinal(ciphertext);
+            return decryptCipher.doFinal(ciphertext);
         } catch (AEADBadTagException e) {
             return null;
         }

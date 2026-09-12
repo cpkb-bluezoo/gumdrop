@@ -80,7 +80,7 @@ public final class KeySchedule {
     public KeySchedule(CipherSuite suite) {
         this.hkdf = suite.newHkdf();
         this.hashLength = suite.getHashLength();
-        this.emptyHash = Transcript.create(suite).hash();
+        this.emptyHash = Transcript.emptyHash(suite);
     }
 
     /**
@@ -95,8 +95,8 @@ public final class KeySchedule {
      *         {@link #deriveHandshakeSecret}'s salt derivation
      */
     public byte[] deriveEarlySecret(byte[] psk) {
-        byte[] ikm = (psk != null) ? psk : new byte[hashLength];
-        earlySecret = hkdf.extract(new byte[hashLength], ikm);
+        byte[] ikm = (psk != null) ? psk : hkdf.zeroSalt();
+        earlySecret = hkdf.extract(hkdf.zeroSalt(), ikm);
         return earlySecret;
     }
 
@@ -122,7 +122,7 @@ public final class KeySchedule {
      */
     public void deriveMasterSecret() {
         byte[] salt = deriveSecret(handshakeSecret, "derived", emptyHash);
-        masterSecret = hkdf.extract(salt, new byte[hashLength]);
+        masterSecret = hkdf.extract(salt, hkdf.zeroSalt());
     }
 
     /**
@@ -203,7 +203,7 @@ public final class KeySchedule {
      * @return the binder value, {@code hashLength} bytes
      */
     public byte[] computePskBinder(byte[] psk, byte[] truncatedClientHelloHash) {
-        byte[] earlySecretForPsk = hkdf.extract(new byte[hashLength], psk);
+        byte[] earlySecretForPsk = hkdf.extract(hkdf.zeroSalt(), psk);
         byte[] binderKey = deriveResumptionBinderKey(earlySecretForPsk);
         return computeFinishedVerifyData(binderKey, truncatedClientHelloHash);
     }
@@ -221,7 +221,7 @@ public final class KeySchedule {
      * @return the client early traffic secret
      */
     public byte[] deriveEarlyTrafficSecret(byte[] psk, byte[] clientHelloHash) {
-        byte[] earlySecretForPsk = hkdf.extract(new byte[hashLength], psk);
+        byte[] earlySecretForPsk = hkdf.extract(hkdf.zeroSalt(), psk);
         return deriveSecret(earlySecretForPsk, "c e traffic", clientHelloHash);
     }
 

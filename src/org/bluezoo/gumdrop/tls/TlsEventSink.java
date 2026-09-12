@@ -33,10 +33,11 @@ package org.bluezoo.gumdrop.tls;
  * <p>Certificate chain verification is deliberately <em>not</em> an
  * asynchronous gate on this interface (contrast with hopf's own
  * {@code verification_requested}/{@code feed_verification_result}):
- * {@link HandshakeEngine#processMessage} already always runs off the
- * {@code SelectorLoop} thread, submitted through the same
- * {@code CryptoExecutor}-backed offload every caller of this engine
- * already uses for the entire message-processing call (mirroring how
+ * {@link HandshakeEngine#processMessage} is submitted through the same
+ * {@code CryptoExecutor}-backed offload every production caller of this
+ * engine uses ({@link org.bluezoo.gumdrop.tls.TlsRecordEngine},
+ * {@link org.bluezoo.gumdrop.tls.Dtls13RecordEngine},
+ * {@link org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine}), mirroring how
  * agent15's own synchronous certificate validation was already offloaded
  * the same way). A separate per-verification gate would only be useful
  * for a caller that does not already offload the whole handshake step --

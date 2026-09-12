@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -37,8 +38,10 @@ import org.bluezoo.gumdrop.util.DirectByteBufferPool;
  * sibling of {@link TlsRecordState}, playing the exact same role relative
  * to {@link TCPEndpoint}: same {@link TlsRecordState.Callback} shape
  * (reused unchanged -- it has no TLS-1.3-specific coupling), same
- * {@code netIn}/{@code netOut} buffer ownership, same {@code netOutLock}
- * discipline.
+ * {@code netIn}/{@code netOut} buffer ownership. {@link TCPEndpoint#tlsEngineLock}
+ * serializes engine access; {@link TCPEndpoint#netOutLock} guards
+ * {@code netOut} alone so the selector loop can write ciphertext to the
+ * socket while decrypt runs.
  *
  * <p>Implements the same {@link TlsRecordSink} interface
  * {@link TlsRecordState} does, unchanged -- {@link Tls12RecordEngine}
@@ -64,7 +67,7 @@ final class Tls12RecordState implements TlsRecordSink {
     private ByteBuffer pendingAppData;
 
     Tls12RecordState(Tls12HandshakeConfig config, TCPEndpoint tcpEndpoint, TlsRecordState.Callback callback) {
-        this.engine = new Tls12RecordEngine(config);
+        this.engine = new Tls12RecordEngine(config, loopExecutor(tcpEndpoint));
         this.tcpEndpoint = tcpEndpoint;
         this.callback = callback;
     }
@@ -94,7 +97,7 @@ final class Tls12RecordState implements TlsRecordSink {
         if (closed) {
             return;
         }
-        synchronized (tcpEndpoint.netOutLock) {
+        synchronized (tcpEndpoint.tlsEngineLock) {
             if (!handshakeStarted) {
                 handshakeStarted = true;
                 engine.start(this);
@@ -112,14 +115,12 @@ final class Tls12RecordState implements TlsRecordSink {
             return;
         }
         try {
-            synchronized (tcpEndpoint.netOutLock) {
+            synchronized (tcpEndpoint.tlsEngineLock) {
                 ByteBuffer in = netIn();
                 if (in == null) {
                     return;
                 }
-                byte[] data = new byte[in.remaining()];
-                in.get(data);
-                engine.feedCiphertext(data, this);
+                feedCiphertextFromBuffer(in);
             }
         } finally {
             ByteBuffer in = netIn();
@@ -137,9 +138,11 @@ final class Tls12RecordState implements TlsRecordSink {
         if (closed) {
             return;
         }
-        synchronized (tcpEndpoint.netOutLock) {
-            if (netOut() == null) {
-                return;
+        synchronized (tcpEndpoint.tlsEngineLock) {
+            synchronized (tcpEndpoint.netOutLock) {
+                if (netOut() == null) {
+                    return;
+                }
             }
             if (!handshakeStarted) {
                 handshakeStarted = true;
@@ -149,6 +152,30 @@ final class Tls12RecordState implements TlsRecordSink {
                 bufferPendingAppData(data);
                 return;
             }
+            sendApplicationDataFromBuffer(data);
+        }
+    }
+
+    private void feedCiphertextFromBuffer(ByteBuffer in) {
+        if (in.hasArray()) {
+            int offset = in.arrayOffset() + in.position();
+            int length = in.remaining();
+            engine.feedCiphertext(in.array(), offset, length, this);
+            in.position(in.limit());
+        } else {
+            byte[] data = new byte[in.remaining()];
+            in.get(data);
+            engine.feedCiphertext(data, this);
+        }
+    }
+
+    private void sendApplicationDataFromBuffer(ByteBuffer data) {
+        if (data.hasArray()) {
+            int offset = data.arrayOffset() + data.position();
+            int length = data.remaining();
+            engine.sendApplicationData(data.array(), offset, length, this);
+            data.position(data.limit());
+        } else {
             byte[] plaintext = new byte[data.remaining()];
             data.get(plaintext);
             engine.sendApplicationData(plaintext, this);
@@ -164,9 +191,11 @@ final class Tls12RecordState implements TlsRecordSink {
             return;
         }
         closed = true;
-        synchronized (tcpEndpoint.netOutLock) {
-            if (netOut() == null) {
-                return;
+        synchronized (tcpEndpoint.tlsEngineLock) {
+            synchronized (tcpEndpoint.netOutLock) {
+                if (netOut() == null) {
+                    return;
+                }
             }
             engine.sendCloseNotify(this);
         }
@@ -174,6 +203,12 @@ final class Tls12RecordState implements TlsRecordSink {
 
     private void bufferPendingAppData(ByteBuffer data) {
         int needed = data.remaining();
+        int cap = tcpEndpoint.getMaxNetOutSize();
+        int current = pendingAppData != null ? pendingAppData.position() : 0;
+        if (cap > 0 && current + needed > cap) {
+            handleOverflow();
+            return;
+        }
         if (pendingAppData == null) {
             pendingAppData = ByteBuffer.allocate(Math.max(needed, DEFAULT_BUFFER_SIZE));
         } else if (pendingAppData.remaining() < needed) {
@@ -199,14 +234,21 @@ final class Tls12RecordState implements TlsRecordSink {
 
     @Override
     public void ciphertextReady(byte[] data) {
-        if (netOut() == null) {
-            return;
+        boolean overflow = false;
+        synchronized (tcpEndpoint.netOutLock) {
+            if (netOut() == null) {
+                return;
+            }
+            if (!ensureNetOutCapacityOrOverflow(data.length)) {
+                overflow = true;
+            } else {
+                netOut().put(data);
+            }
         }
-        if (!ensureNetOutCapacityOrOverflow(data.length)) {
+        if (overflow) {
             handleOverflow();
             return;
         }
-        netOut().put(data);
         requestWrite();
     }
 
@@ -294,6 +336,15 @@ final class Tls12RecordState implements TlsRecordSink {
             LOGGER.fine("TLS closed during " + context);
         }
         callback.onClosed();
+    }
+
+    private static Executor loopExecutor(final TCPEndpoint endpoint) {
+        return new Executor() {
+            @Override
+            public void execute(Runnable task) {
+                endpoint.execute(task);
+            }
+        };
     }
 
 }

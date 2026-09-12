@@ -26,6 +26,7 @@ import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 /**
  * The TLS 1.2 record layer (RFC 5246 section 6, RFC 5288 GCM, RFC 7905
@@ -92,6 +93,10 @@ public final class Tls12RecordEngine {
             System.arraycopy(buf, n, buf, 0, count - n);
             count -= n;
         }
+
+        public void reset() {
+            count = 0;
+        }
     }
 
     private static final class Record {
@@ -107,7 +112,13 @@ public final class Tls12RecordEngine {
     private final Tls12HandshakeEngine engine;
     private final HandshakeRole role;
     private final InnerSink innerSink = new InnerSink();
+    private final HandshakeRunner handshakeRunner = new HandshakeRunner();
+    private final HandshakeFailureHandler handshakeFailure = new HandshakeFailureHandler();
+    private final Tls12DeferredDispatch deferredDispatch;
+    private final HandshakeAsyncScheduler handshakeAsync;
     private final GrowableBuffer inbound = new GrowableBuffer();
+    private final GrowableBuffer outbound = new GrowableBuffer();
+    private final byte[] aadScratch = new byte[13];
 
     // Package-private, not private: Tls12RecordEngineTest fast-forwards
     // Tls12DirectionalKeys.seq directly on these to exercise the
@@ -131,8 +142,22 @@ public final class Tls12RecordEngine {
      * @param config this side's configuration
      */
     public Tls12RecordEngine(Tls12HandshakeConfig config) {
+        this(config, null);
+    }
+
+    /**
+     * Creates a TCP record-layer engine with optional handshake offload.
+     *
+     * @param config this side's configuration
+     * @param loopExecutor marshals deferred handshake callbacks onto the
+     *                     connection's {@code SelectorLoop}; {@code null}
+     *                     runs handshake work inline (unit tests)
+     */
+    public Tls12RecordEngine(Tls12HandshakeConfig config, Executor loopExecutor) {
         this.role = config.getRole();
         this.engine = new Tls12HandshakeEngine(config);
+        this.handshakeAsync = new HandshakeAsyncScheduler(loopExecutor, handshakeRunner, handshakeFailure);
+        this.deferredDispatch = new Tls12DeferredDispatch(handshakeAsync, innerSink);
     }
 
     /**
@@ -142,7 +167,8 @@ public final class Tls12RecordEngine {
      * @param sink where to push resulting events
      */
     public void start(TlsRecordSink sink) {
-        engine.start(innerSink(sink));
+        innerSink.outer = sink;
+        handshakeAsync.scheduleStart();
     }
 
     /**
@@ -162,10 +188,15 @@ public final class Tls12RecordEngine {
      * @param sink where to push resulting events
      */
     public void feedCiphertext(byte[] input, TlsRecordSink sink) {
+        feedCiphertext(input, 0, input.length, sink);
+    }
+
+    public void feedCiphertext(byte[] input, int offset, int length, TlsRecordSink sink) {
         if (failed) {
             return;
         }
-        inbound.write(input, 0, input.length);
+        innerSink.outer = sink;
+        inbound.write(input, offset, length);
         while (true) {
             Record record;
             try {
@@ -202,6 +233,10 @@ public final class Tls12RecordEngine {
      * @param sink where to push resulting events
      */
     public void sendApplicationData(byte[] plaintext, TlsRecordSink sink) {
+        sendApplicationData(plaintext, 0, plaintext.length, sink);
+    }
+
+    public void sendApplicationData(byte[] plaintext, int offset, int length, TlsRecordSink sink) {
         if (failed) {
             return;
         }
@@ -210,7 +245,7 @@ public final class Tls12RecordEngine {
                     "application data sent before handshake completed"));
             return;
         }
-        writeFragmented(CONTENT_APPLICATION_DATA, plaintext, sink);
+        writeFragmented(CONTENT_APPLICATION_DATA, plaintext, offset, length, sink);
         // Same reasoning as the read-side check above: no rekey mechanism
         // exists in TLS 1.2, so close rather than keep encrypting past
         // the AES-GCM safety margin.
@@ -273,6 +308,33 @@ public final class Tls12RecordEngine {
         return innerSink;
     }
 
+    private final class HandshakeRunner implements HandshakeAsyncScheduler.Runner {
+        @Override
+        public void runStart() {
+            deferredDispatch.resetSlots();
+            engine.start(innerSink);
+        }
+
+        @Override
+        public void runMessages(List<byte[]> messages) {
+            for (int i = 0; i < messages.size(); i++) {
+                deferredDispatch.resetSlots();
+                engine.processMessage(messages.get(i), innerSink);
+                if (failed || engine.isFailed()) {
+                    break;
+                }
+            }
+        }
+    }
+
+    private final class HandshakeFailureHandler implements TlsHandshakeAsyncOffload.FailureHandler {
+        @Override
+        public void failed(Throwable error) {
+            fail(innerSink.outer, AlertDescription.INTERNAL_ERROR,
+                    "handshake processing failed: " + error);
+        }
+    }
+
     /**
      * Dispatches one already-decrypted {@code (content type, payload)}
      * pair. Returns false if the caller should stop processing further
@@ -308,7 +370,7 @@ public final class Tls12RecordEngine {
                 return false;
             }
             case CONTENT_HANDSHAKE:
-                engine.processMessage(payload, innerSink(sink));
+                handshakeAsync.scheduleMessage(payload);
                 return true;
             case CONTENT_APPLICATION_DATA:
                 if (!engine.isComplete()) {
@@ -341,27 +403,30 @@ public final class Tls12RecordEngine {
         if (available < 5 + len) {
             return null;
         }
-        byte[] body = Arrays.copyOfRange(buffered, 5, 5 + len);
-        inbound.discard(5 + len);
+        int bodyOffset = 5;
 
         if (hdrType == CONTENT_CHANGE_CIPHER_SPEC) {
+            inbound.discard(5 + len);
             return new Record(CONTENT_CHANGE_CIPHER_SPEC, new byte[0]);
         }
         if (read == null) {
+            byte[] body = Arrays.copyOfRange(buffered, bodyOffset, bodyOffset + len);
+            inbound.discard(5 + len);
             return new Record(hdrType, body);
         }
 
         boolean hasExplicit = read.hasExplicitNonce();
         int overhead = (hasExplicit ? 8 : 0) + 16;
-        if (body.length < overhead) {
+        if (len < overhead) {
             throw new HandshakeFormatException("ciphertext shorter than AEAD overhead");
         }
         int ciphertextStart = hasExplicit ? 8 : 0;
-        int plainLen = body.length - overhead;
+        int plainLen = len - overhead;
         byte[] aad = additionalData(read.seq, hdrType, plainLen);
-        byte[] nonce = hasExplicit ? read.nonceFromWire(Arrays.copyOfRange(body, 0, 8)) : read.localNonce();
-        byte[] ciphertext = Arrays.copyOfRange(body, ciphertextStart, body.length);
-        byte[] plain = read.openInPlace(nonce, aad, ciphertext);
+        byte[] nonce = hasExplicit ? read.nonceFromWire(buffered, bodyOffset) : read.localNonce();
+        byte[] plain = read.openInPlace(nonce, aad, 0, aad.length, buffered,
+                bodyOffset + ciphertextStart, len - ciphertextStart);
+        inbound.discard(5 + len);
         read.advance();
         if (plain == null) {
             throw new HandshakeFormatException("AEAD tag verification failed");
@@ -370,56 +435,57 @@ public final class Tls12RecordEngine {
     }
 
     /** RFC 5288 section 3 AEAD {@code additional_data} (adapted from RFC 5246 section 6.2.3.3's MAC input). */
-    private static byte[] additionalData(long seq, int contentType, int plaintextLen) {
-        byte[] aad = new byte[13];
+    private byte[] additionalData(long seq, int contentType, int plaintextLen) {
         for (int i = 0; i < 8; i++) {
-            aad[i] = (byte) (seq >>> (56 - 8 * i));
+            aadScratch[i] = (byte) (seq >>> (56 - 8 * i));
         }
-        aad[8] = (byte) contentType;
-        aad[9] = 0x03;
-        aad[10] = 0x03;
-        aad[11] = (byte) ((plaintextLen >> 8) & 0xff);
-        aad[12] = (byte) (plaintextLen & 0xff);
-        return aad;
+        aadScratch[8] = (byte) contentType;
+        aadScratch[9] = 0x03;
+        aadScratch[10] = 0x03;
+        aadScratch[11] = (byte) ((plaintextLen >> 8) & 0xff);
+        aadScratch[12] = (byte) (plaintextLen & 0xff);
+        return aadScratch;
     }
 
     private void writeFragmented(int contentType, byte[] data, TlsRecordSink sink) {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        int offset = 0;
+        writeFragmented(contentType, data, 0, data.length, sink);
+    }
+
+    private void writeFragmented(int contentType, byte[] data, int offset, int length, TlsRecordSink sink) {
+        outbound.reset();
+        int end = offset + length;
+        int pos = offset;
         do {
-            int chunkLen = Math.min(MAX_FRAGMENT, data.length - offset);
-            byte[] chunk = Arrays.copyOfRange(data, offset, offset + chunkLen);
+            int chunkLen = Math.min(MAX_FRAGMENT, end - pos);
             if (write == null) {
-                writePlaintextRecord(contentType, chunk, out);
+                writePlaintextRecord(contentType, data, pos, chunkLen, outbound);
             } else {
-                writeEncryptedRecord(contentType, chunk, out);
+                writeEncryptedRecord(contentType, data, pos, chunkLen, outbound);
             }
-            offset += chunkLen;
-        } while (offset < data.length);
-        byte[] wire = out.toByteArray();
-        if (wire.length > 0) {
-            sink.ciphertextReady(wire);
+            pos += chunkLen;
+        } while (pos < end);
+        if (outbound.length() > 0) {
+            sink.ciphertextReady(Arrays.copyOfRange(outbound.array(), 0, outbound.length()));
         }
     }
 
-    private static void writePlaintextRecord(int contentType, byte[] payload, ByteArrayOutputStream out) {
+    private static void writePlaintextRecord(int contentType, byte[] payload, int offset, int length,
+            GrowableBuffer out) {
         out.write(contentType);
         out.write(0x03);
         out.write(0x03);
-        out.write((payload.length >> 8) & 0xff);
-        out.write(payload.length & 0xff);
-        out.write(payload, 0, payload.length);
+        out.write((length >> 8) & 0xff);
+        out.write(length & 0xff);
+        out.write(payload, offset, length);
     }
 
-    private void writeEncryptedRecord(int contentType, byte[] payload, ByteArrayOutputStream out) {
-        byte[] aad = additionalData(write.seq, contentType, payload.length);
+    private void writeEncryptedRecord(int contentType, byte[] payload, int offset, int length, GrowableBuffer out) {
+        byte[] aad = additionalData(write.seq, contentType, length);
         byte[] nonce = write.localNonce();
         byte[] sealed;
         try {
-            sealed = write.sealAppendTag(nonce, aad, payload);
+            sealed = write.sealAppendTag(nonce, aad, payload, offset, length);
         } catch (GeneralSecurityException e) {
-            // A freshly derived key sealing a well-formed plaintext never
-            // fails; a real JCE provider never reaches this.
             throw new IllegalStateException("Record seal failed", e);
         }
         boolean hasExplicit = write.hasExplicitNonce();
@@ -464,17 +530,43 @@ public final class Tls12RecordEngine {
     }
 
     /** Bridges {@link Tls12HandshakeEngine}'s handshake-message events onto record framing. */
-    private final class InnerSink implements Tls12EventSink {
+    private final class InnerSink implements Tls12EventSink, Tls12DeferredDispatch.Target {
 
         TlsRecordSink outer;
 
         @Override
         public void handshakeDataReady(byte[] data) {
-            writeFragmented(CONTENT_HANDSHAKE, data, outer);
+            deferredDispatch.handshakeDataReady(data);
         }
 
         @Override
         public void keysReady(Tls12CipherSuite cipher, DirectionalKeyMaterial client, DirectionalKeyMaterial server) {
+            deferredDispatch.keysReady(cipher, client, server);
+        }
+
+        @Override
+        public void sendChangeCipherSpec() {
+            deferredDispatch.sendChangeCipherSpec();
+        }
+
+        @Override
+        public void handshakeComplete() {
+            deferredDispatch.handshakeComplete();
+        }
+
+        @Override
+        public void protocolError(TlsProtocolError error) {
+            deferredDispatch.protocolError(error);
+        }
+
+        @Override
+        public void deliverHandshakeData(byte[] data) {
+            writeFragmented(CONTENT_HANDSHAKE, data, outer);
+        }
+
+        @Override
+        public void deliverKeysReady(Tls12CipherSuite cipher, DirectionalKeyMaterial client,
+                DirectionalKeyMaterial server) {
             stagedSuite = cipher;
             if (role == HandshakeRole.CLIENT) {
                 pendingWrite = client;
@@ -486,7 +578,7 @@ public final class Tls12RecordEngine {
         }
 
         @Override
-        public void sendChangeCipherSpec() {
+        public void deliverChangeCipherSpec() {
             writeFragmented(CONTENT_CHANGE_CIPHER_SPEC, new byte[] { 0x01 }, outer);
             if (pendingWrite != null) {
                 write = Tls12DirectionalKeys.fromMaterial(stagedSuite, pendingWrite);
@@ -495,12 +587,12 @@ public final class Tls12RecordEngine {
         }
 
         @Override
-        public void handshakeComplete() {
+        public void deliverHandshakeComplete() {
             outer.handshakeComplete();
         }
 
         @Override
-        public void protocolError(TlsProtocolError error) {
+        public void deliverProtocolError(TlsProtocolError error) {
             sendFatalAlert(error.getAlert(), outer);
             outer.protocolError(error);
         }

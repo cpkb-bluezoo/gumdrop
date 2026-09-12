@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 import org.bluezoo.gumdrop.quic.packet.PacketProtection;
 import org.bluezoo.gumdrop.quic.packet.PacketProtectionException;
@@ -49,6 +50,10 @@ public final class Dtls13RecordEngine {
     private final DtlsReassembler reassembler = new DtlsReassembler();
     private final int maxFragmentSize;
     private final InnerSink innerSink = new InnerSink();
+    private final HandshakeRunner handshakeRunner = new HandshakeRunner();
+    private final HandshakeFailureHandler handshakeFailure = new HandshakeFailureHandler();
+    private final Tls13DeferredDispatch deferredDispatch;
+    private final HandshakeAsyncScheduler handshakeAsync;
 
     Dtls13DirectionalKeys write;
     Dtls13DirectionalKeys read;
@@ -67,15 +72,22 @@ public final class Dtls13RecordEngine {
     private boolean failed;
 
     public Dtls13RecordEngine(Dtls13HandshakeConfig config, int maxFragmentSize) {
+        this(config, maxFragmentSize, null);
+    }
+
+    public Dtls13RecordEngine(Dtls13HandshakeConfig config, int maxFragmentSize, Executor loopExecutor) {
         this.role = config.getBase().getRole();
         HandshakeConfig base = config.getBase();
         base.setMode(HandshakeMode.DTLS);
         this.engine = new HandshakeEngine(base);
         this.maxFragmentSize = Math.max(1, Math.min(maxFragmentSize, MAX_FRAGMENT));
+        this.handshakeAsync = new HandshakeAsyncScheduler(loopExecutor, handshakeRunner, handshakeFailure);
+        this.deferredDispatch = new Tls13DeferredDispatch(handshakeAsync, innerSink);
     }
 
     public void start(TlsRecordSink sink) {
-        engine.start(innerSink(sink));
+        innerSink.outer = sink;
+        handshakeAsync.scheduleStart();
     }
 
     public boolean isComplete() {
@@ -87,22 +99,25 @@ public final class Dtls13RecordEngine {
     }
 
     public void feedDatagram(byte[] datagram, TlsRecordSink sink) {
+        feedDatagram(datagram, 0, datagram.length, sink);
+    }
+
+    public void feedDatagram(byte[] datagram, int baseOffset, int length, TlsRecordSink sink) {
         if (failed) {
             return;
         }
-        int offset = 0;
-        while (offset < datagram.length) {
-            if (offset >= datagram.length) {
-                break;
-            }
+        innerSink.outer = sink;
+        int end = baseOffset + length;
+        int offset = baseOffset;
+        while (offset < end) {
             if ((datagram[offset] & 0xe0) == 0x20) {
-                if (datagram.length - offset < UNIFIED_HEADER_LEN) {
+                if (end - offset < UNIFIED_HEADER_LEN) {
                     fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS unified header");
                     return;
                 }
                 int epoch = datagram[offset] & 0x03;
                 int bodyLength = ((datagram[offset + 3] & 0xff) << 8) | (datagram[offset + 4] & 0xff);
-                if (offset + UNIFIED_HEADER_LEN + bodyLength > datagram.length) {
+                if (offset + UNIFIED_HEADER_LEN + bodyLength > end) {
                     fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS unified record body");
                     return;
                 }
@@ -112,7 +127,7 @@ public final class Dtls13RecordEngine {
                     return;
                 }
             } else {
-                if (datagram.length - offset < RECORD_HEADER_LEN) {
+                if (end - offset < RECORD_HEADER_LEN) {
                     fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS record header");
                     return;
                 }
@@ -127,14 +142,14 @@ public final class Dtls13RecordEngine {
                 for (int i = 0; i < 6; i++) {
                     seq = (seq << 8) | (datagram[offset + 5 + i] & 0xff);
                 }
-                int length = ((datagram[offset + 11] & 0xff) << 8) | (datagram[offset + 12] & 0xff);
-                if (offset + RECORD_HEADER_LEN + length > datagram.length) {
+                int recordLength = ((datagram[offset + 11] & 0xff) << 8) | (datagram[offset + 12] & 0xff);
+                if (offset + RECORD_HEADER_LEN + recordLength > end) {
                     fail(sink, AlertDescription.DECODE_ERROR, "truncated DTLS record body");
                     return;
                 }
                 byte[] body = Arrays.copyOfRange(datagram, offset + RECORD_HEADER_LEN,
-                        offset + RECORD_HEADER_LEN + length);
-                offset += RECORD_HEADER_LEN + length;
+                        offset + RECORD_HEADER_LEN + recordLength);
+                offset += RECORD_HEADER_LEN + recordLength;
                 if (!processCleartextRecord(contentType, epoch, seq, body, sink)) {
                     return;
                 }
@@ -143,6 +158,10 @@ public final class Dtls13RecordEngine {
     }
 
     public void sendApplicationData(byte[] plaintext, TlsRecordSink sink) {
+        sendApplicationData(plaintext, 0, plaintext.length, sink);
+    }
+
+    public void sendApplicationData(byte[] plaintext, int offset, int length, TlsRecordSink sink) {
         if (failed) {
             return;
         }
@@ -151,7 +170,7 @@ public final class Dtls13RecordEngine {
                     "application data sent before handshake completed"));
             return;
         }
-        writeUnifiedRecord(CONTENT_APPLICATION_DATA, plaintext, sink);
+        writeUnifiedRecord(CONTENT_APPLICATION_DATA, plaintext, offset, length, sink);
         if (write.overConfidentialityLimit()) {
             fail(sink, AlertDescription.INTERNAL_ERROR, "AES-GCM write key exceeded its confidentiality limit");
         }
@@ -189,6 +208,33 @@ public final class Dtls13RecordEngine {
     private TlsEventSink innerSink(TlsRecordSink outer) {
         innerSink.outer = outer;
         return innerSink;
+    }
+
+    private final class HandshakeRunner implements HandshakeAsyncScheduler.Runner {
+        @Override
+        public void runStart() {
+            deferredDispatch.resetSlots();
+            engine.start(innerSink);
+        }
+
+        @Override
+        public void runMessages(List<byte[]> messages) {
+            for (int i = 0; i < messages.size(); i++) {
+                deferredDispatch.resetSlots();
+                engine.processMessage(messages.get(i), innerSink);
+                if (failed || engine.isFailed()) {
+                    break;
+                }
+            }
+        }
+    }
+
+    private final class HandshakeFailureHandler implements TlsHandshakeAsyncOffload.FailureHandler {
+        @Override
+        public void failed(Throwable error) {
+            fail(innerSink.outer, AlertDescription.INTERNAL_ERROR,
+                    "handshake processing failed: " + error);
+        }
     }
 
     private boolean processCleartextRecord(int contentType, int epoch, long seq, byte[] body, TlsRecordSink sink) {
@@ -314,11 +360,8 @@ public final class Dtls13RecordEngine {
         }
         try {
             List<byte[]> messages = reassembler.addFragment(payload);
-            for (int i = 0; i < messages.size(); i++) {
-                engine.processMessage(messages.get(i), innerSink(sink));
-                if (failed || engine.isFailed()) {
-                    return false;
-                }
+            if (!messages.isEmpty()) {
+                handshakeAsync.scheduleMessages(messages);
             }
         } catch (HandshakeFormatException e) {
             fail(sink, AlertDescription.DECODE_ERROR, "malformed DTLS handshake fragment: " + e.getMessage());
@@ -397,13 +440,18 @@ public final class Dtls13RecordEngine {
     }
 
     private void writeUnifiedRecord(int innerContentType, byte[] payload, TlsRecordSink sink) {
+        writeUnifiedRecord(innerContentType, payload, 0, payload.length, sink);
+    }
+
+    private void writeUnifiedRecord(int innerContentType, byte[] payload, int offset, int length,
+            TlsRecordSink sink) {
         if (write == null) {
             sink.protocolError(new TlsProtocolError(AlertDescription.INTERNAL_ERROR, "no write keys"));
             return;
         }
-        byte[] innerPlain = new byte[payload.length + 1];
-        System.arraycopy(payload, 0, innerPlain, 0, payload.length);
-        innerPlain[payload.length] = (byte) innerContentType;
+        byte[] innerPlain = new byte[length + 1];
+        System.arraycopy(payload, offset, innerPlain, 0, length);
+        innerPlain[length] = (byte) innerContentType;
         long seq = write.seq;
         byte[] header = new byte[UNIFIED_HEADER_LEN];
         header[0] = (byte) (UNIFIED_HEADER_BASE | write.epoch);
@@ -551,22 +599,52 @@ public final class Dtls13RecordEngine {
         sink.protocolError(new TlsProtocolError(alert, message));
     }
 
-    private final class InnerSink implements TlsEventSink {
+    private final class InnerSink implements TlsEventSink, Tls13DeferredDispatch.Target {
 
         TlsRecordSink outer;
 
         @Override
         public void handshakeDataReady(byte[] data) {
-            writeHandshakeMessage(data, outer);
+            deferredDispatch.handshakeDataReady(data);
         }
 
         @Override
         public void handshakeSecretsReady() {
-            installDirectionalKeys(EPOCH_HANDSHAKE);
+            deferredDispatch.handshakeSecretsReady();
         }
 
         @Override
         public void applicationSecretsReady() {
+            deferredDispatch.applicationSecretsReady();
+        }
+
+        @Override
+        public void applicationTrafficSecretUpdated(KeyUpdateDirection direction, byte[] newSecret) {
+            deferredDispatch.applicationTrafficSecretUpdated(direction, newSecret);
+        }
+
+        @Override
+        public void protocolError(TlsProtocolError error) {
+            deferredDispatch.protocolError(error);
+        }
+
+        @Override
+        public void peerClosed() {
+            deferredDispatch.peerClosed();
+        }
+
+        @Override
+        public void deliverHandshakeData(byte[] data) {
+            writeHandshakeMessage(data, outer);
+        }
+
+        @Override
+        public void deliverHandshakeSecretsReady() {
+            installDirectionalKeys(EPOCH_HANDSHAKE);
+        }
+
+        @Override
+        public void deliverApplicationSecretsReady() {
             installDirectionalKeys(EPOCH_APPLICATION);
             pendingAck = true;
             outer.handshakeComplete();
@@ -574,18 +652,18 @@ public final class Dtls13RecordEngine {
         }
 
         @Override
-        public void applicationTrafficSecretUpdated(KeyUpdateDirection direction, byte[] newSecret) {
+        public void deliverKeyUpdate(KeyUpdateDirection direction, byte[] newSecret) {
             fail(outer, AlertDescription.UNEXPECTED_MESSAGE, "KeyUpdate is not supported over DTLS 1.3");
         }
 
         @Override
-        public void protocolError(TlsProtocolError error) {
+        public void deliverProtocolError(TlsProtocolError error) {
             sendFatalAlert(error.getAlert(), outer);
             outer.protocolError(error);
         }
 
         @Override
-        public void peerClosed() {
+        public void deliverPeerClosed() {
             outer.peerClosed();
         }
     }

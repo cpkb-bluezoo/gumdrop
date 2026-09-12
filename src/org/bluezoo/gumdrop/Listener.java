@@ -128,6 +128,12 @@ public abstract class Listener {
     private int maxConnections = 0;
 
     /**
+     * Maximum concurrent DTLS peers on one secure UDP listener socket.
+     * {@code 0} means unlimited. See {@link UDPTransportFactory#getMaxDtlsPeers()}.
+     */
+    private int maxDtlsPeers = UDPTransportFactory.DEFAULT_MAX_DTLS_PEERS;
+
+    /**
      * Number of currently open connections accepted by this listener.
      * Incremented on the accept thread and decremented (from worker threads)
      * when an endpoint closes, so it must be atomic.
@@ -469,6 +475,26 @@ public abstract class Listener {
     }
 
     /**
+     * Returns the maximum number of concurrent DTLS peers tracked on one
+     * secure UDP socket for this listener, or {@code 0} if unlimited.
+     *
+     * @return the DTLS peer cap
+     */
+    public int getMaxDtlsPeers() {
+        return maxDtlsPeers;
+    }
+
+    /**
+     * Sets the maximum number of concurrent DTLS peers on one secure UDP
+     * listener socket. {@code 0} disables the limit.
+     *
+     * @param max the DTLS peer cap
+     */
+    public void setMaxDtlsPeers(int max) {
+        this.maxDtlsPeers = max;
+    }
+
+    /**
      * Returns the number of connections currently open on this listener.
      *
      * @return the active connection count
@@ -665,6 +691,7 @@ public abstract class Listener {
                 udpFactory.setServerCredentials(serverCredentials);
             }
             udpFactory.setDtlsVersion(dtlsVersion);
+            udpFactory.setMaxDtlsPeers(maxDtlsPeers);
             if (needClientAuth) {
                 udpFactory.setNeedClientAuth(true);
             }

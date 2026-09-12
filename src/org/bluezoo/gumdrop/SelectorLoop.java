@@ -556,7 +556,7 @@ public class SelectorLoop implements Runnable {
                     endpoint.pendingDatagrams.addFirst(pending);
                     return;
                 }
-                ByteBufferPool.release(data);
+                endpoint.onPendingDatagramFullySent(pending);
             }
 
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);

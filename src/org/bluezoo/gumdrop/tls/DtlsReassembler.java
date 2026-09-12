@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.tls;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.BitSet;
 import java.util.List;
 import java.util.TreeMap;
 
@@ -41,22 +41,27 @@ public final class DtlsReassembler {
         final int msgType;
         final int totalLength;
         final byte[] buffer;
-        final boolean[] received;
+        final BitSet received;
+        int receivedCount;
 
         PartialMessage(int msgType, int totalLength) {
             this.msgType = msgType;
             this.totalLength = totalLength;
             this.buffer = new byte[totalLength];
-            this.received = new boolean[totalLength];
+            this.received = new BitSet(totalLength);
+            this.receivedCount = 0;
+        }
+
+        void markReceived(int index, byte value) {
+            if (!received.get(index)) {
+                received.set(index);
+                receivedCount++;
+                buffer[index] = value;
+            }
         }
 
         boolean isComplete() {
-            for (int i = 0; i < received.length; i++) {
-                if (!received[i]) {
-                    return false;
-                }
-            }
-            return true;
+            return receivedCount == totalLength;
         }
     }
 
@@ -118,14 +123,9 @@ public final class DtlsReassembler {
             throw new HandshakeFormatException("conflicting DTLS fragment metadata");
         }
 
-        byte[] fragmentBody = Arrays.copyOfRange(recordPayload, FRAGMENT_HEADER_LEN,
-                FRAGMENT_HEADER_LEN + fragmentLength);
+        int bodyOffset = FRAGMENT_HEADER_LEN;
         for (int i = 0; i < fragmentLength; i++) {
-            int index = fragmentOffset + i;
-            if (!partial.received[index]) {
-                partial.received[index] = true;
-                partial.buffer[index] = fragmentBody[i];
-            }
+            partial.markReceived(fragmentOffset + i, recordPayload[bodyOffset + i]);
         }
 
         List<byte[]> ready = new ArrayList<byte[]>();

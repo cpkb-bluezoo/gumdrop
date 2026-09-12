@@ -78,6 +78,38 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
     private final QuicTlsEngineListener listener;
     private final QuicHandshakeAsyncOffload asyncOffload;
     private final Sink sink = new Sink();
+    private final QuicTlsDeferredDispatch deferredDispatch;
+
+    private List<ByteBuffer> activeMessages;
+
+    private final QuicHandshakeAsyncOffload.BatchProcessor startBatchProcessor =
+            new QuicHandshakeAsyncOffload.BatchProcessor() {
+                @Override
+                public void process() {
+                    deferredDispatch.resetSlots();
+                    engine.start(sink);
+                }
+            };
+    private final QuicHandshakeAsyncOffload.BatchProcessor messageBatchProcessor =
+            new QuicHandshakeAsyncOffload.BatchProcessor() {
+                @Override
+                public void process() {
+                    for (int i = 0; i < activeMessages.size(); i++) {
+                        ByteBuffer msg = activeMessages.get(i);
+                        byte[] message = new byte[msg.remaining()];
+                        msg.get(message);
+                        deferredDispatch.resetSlots();
+                        engine.processMessage(message, sink);
+                    }
+                }
+            };
+    private final QuicHandshakeAsyncOffload.CompletionHandler drainCompletionHandler =
+            new QuicHandshakeAsyncOffload.CompletionHandler() {
+                @Override
+                public boolean onBatchDone() {
+                    return drainPendingFrames();
+                }
+            };
 
     private final CryptoStreamBuffer initialReceiveBuffer = new CryptoStreamBuffer();
     private final CryptoStreamBuffer handshakeReceiveBuffer = new CryptoStreamBuffer();
@@ -186,6 +218,7 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
             String applicationProtocols, String namedGroups, String cipherSuites) {
         this.listener = listener;
         this.asyncOffload = new QuicHandshakeAsyncOffload(listener);
+        this.deferredDispatch = new QuicTlsDeferredDispatch(asyncOffload, sink);
 
         this.config = new HandshakeConfig(HandshakeRole.CLIENT);
         config.setLocalTransportParameters(transportParameters.encode());
@@ -264,7 +297,16 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
      */
     public void startHandshake(String serverName) {
         config.setServerName(serverName);
-        engine.start(sink);
+        synchronized (asyncOffload.lock()) {
+            if (asyncOffload.isBusy()) {
+                throw new IllegalStateException("handshake already in progress");
+            }
+            submitStartBatch();
+        }
+    }
+
+    private void submitStartBatch() {
+        asyncOffload.submit(EncryptionLevel.INITIAL, startBatchProcessor, drainCompletionHandler);
     }
 
     /**
@@ -302,21 +344,8 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
         if (messages.isEmpty()) {
             return false;
         }
-        asyncOffload.submit(level, new QuicHandshakeAsyncOffload.BatchProcessor() {
-            @Override
-            public void process() {
-                for (ByteBuffer msg : messages) {
-                    byte[] message = new byte[msg.remaining()];
-                    msg.get(message);
-                    engine.processMessage(message, sink);
-                }
-            }
-        }, new QuicHandshakeAsyncOffload.CompletionHandler() {
-            @Override
-            public boolean onBatchDone() {
-                return drainPendingFrames();
-            }
-        });
+        activeMessages = messages;
+        asyncOffload.submit(level, messageBatchProcessor, drainCompletionHandler);
         return true;
     }
 
@@ -455,7 +484,7 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
     }
 
     /** Translates {@link HandshakeEngine} events into {@link QuicTlsEngineListener} calls. */
-    private final class Sink implements TlsEventSink {
+    private final class Sink implements TlsEventSink, QuicTlsDeferredDispatch.Target {
 
         @Override
         public void handshakeDataReady(byte[] data) {
@@ -469,101 +498,92 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
 
         @Override
         public void handshakeSecretsReady() {
-            asyncOffload.dispatch(new Runnable() {
-                @Override
-                public void run() {
-                    listener.handshakeSecretsAvailable();
-                }
-            });
+            deferredDispatch.handshakeSecretsAvailable();
         }
 
         @Override
         public void applicationSecretsReady() {
-            asyncOffload.dispatch(new Runnable() {
-                @Override
-                public void run() {
-                    listener.handshakeFinished();
-                }
-            });
+            deferredDispatch.handshakeFinished();
         }
 
         @Override
         public void peerTransportParameters(byte[] parameters) {
-            final TransportParameters decoded = TransportParameters.decode(ByteBuffer.wrap(parameters));
-            asyncOffload.dispatch(new Runnable() {
-                @Override
-                public void run() {
-                    listener.transportParametersReceived(decoded);
-                }
-            });
+            deferredDispatch.transportParameters(TransportParameters.decode(ByteBuffer.wrap(parameters)));
         }
 
         @Override
-        public void protocolError(final TlsProtocolError error) {
-            asyncOffload.dispatch(new Runnable() {
-                @Override
-                public void run() {
-                    listener.cryptoProcessingFailed(EncryptionLevel.HANDSHAKE,
-                            new java.io.IOException(error.toString()));
-                }
-            });
+        public void protocolError(TlsProtocolError error) {
+            deferredDispatch.protocolError(EncryptionLevel.HANDSHAKE, error);
         }
 
         @Override
         public void quicEarlyKeysReady(CipherSuite suite, byte[] secret) {
             earlyDataCipherSuite = suite;
             clientEarlyTrafficSecret = secret;
-            asyncOffload.dispatch(new Runnable() {
-                @Override
-                public void run() {
-                    listener.earlySecretsAvailable();
-                }
-            });
+            deferredDispatch.earlySecretsAvailable();
         }
 
         @Override
-        public void earlyDataAccepted(final boolean accepted) {
-            asyncOffload.dispatch(new Runnable() {
-                @Override
-                public void run() {
-                    listener.earlyDataOutcomeKnown(accepted);
-                }
-            });
+        public void earlyDataAccepted(boolean accepted) {
+            deferredDispatch.earlyDataOutcomeKnown(accepted);
         }
 
         @Override
-        public void sessionTicketReceived(final SessionTicket ticket) {
-            asyncOffload.dispatch(new Runnable() {
-                @Override
-                public void run() {
-                    listener.newSessionTicketReceived(ticket);
-                }
-            });
+        public void sessionTicketReceived(SessionTicket ticket) {
+            deferredDispatch.newSessionTicketReceived(ticket);
+        }
+
+        @Override
+        public void deliverCryptoData(EncryptionLevel level, long offset, byte[] data) {
+            listener.cryptoDataReady(level, offset, data);
+        }
+
+        @Override
+        public void deliverHandshakeSecretsAvailable() {
+            listener.handshakeSecretsAvailable();
+        }
+
+        @Override
+        public void deliverHandshakeFinished() {
+            listener.handshakeFinished();
+        }
+
+        @Override
+        public void deliverTransportParameters(TransportParameters parameters) {
+            listener.transportParametersReceived(parameters);
+        }
+
+        @Override
+        public void deliverCryptoProcessingFailed(EncryptionLevel level, Throwable cause) {
+            listener.cryptoProcessingFailed(level, cause);
+        }
+
+        @Override
+        public void deliverEarlySecretsAvailable() {
+            listener.earlySecretsAvailable();
+        }
+
+        @Override
+        public void deliverEarlyDataOutcomeKnown(boolean accepted) {
+            listener.earlyDataOutcomeKnown(accepted);
+        }
+
+        @Override
+        public void deliverNewSessionTicketReceived(SessionTicket ticket) {
+            listener.newSessionTicketReceived(ticket);
         }
     }
 
     private void sendAtInitialLevel(byte[] data) {
-        final long offset = initialSendOffset;
+        long offset = initialSendOffset;
         initialSendOffset += data.length;
-        final byte[] finalData = data;
-        asyncOffload.dispatch(new Runnable() {
-            @Override
-            public void run() {
-                listener.cryptoDataReady(EncryptionLevel.INITIAL, offset, finalData);
-            }
-        });
+        deferredDispatch.initialCryptoData(offset, data);
     }
 
     private void sendAtHandshakeLevel(byte[] data) {
-        final long offset = handshakeSendOffset;
+        long offset = handshakeSendOffset;
         handshakeSendOffset += data.length;
-        final byte[] finalData = data;
-        asyncOffload.dispatch(new Runnable() {
-            @Override
-            public void run() {
-                listener.cryptoDataReady(EncryptionLevel.HANDSHAKE, offset, finalData);
-            }
-        });
+        deferredDispatch.handshakeCryptoData(offset, data);
     }
 
 }

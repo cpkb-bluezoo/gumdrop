@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.util.DirectByteBufferPool;
 
 import org.junit.After;
@@ -29,7 +30,9 @@ import org.junit.Test;
 
 import java.lang.reflect.Field;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.Deque;
 
 import static org.junit.Assert.*;
 
@@ -106,6 +109,91 @@ public class UDPEndpointTest {
         try {
             assertSame("closing the endpoint must release netIn back to the pool",
                     netIn, reacquired);
+        } finally {
+            DirectByteBufferPool.release(reacquired);
+        }
+    }
+
+    @Test
+    public void testPendingDatagramBuffersReleasedOnClose() throws Exception {
+        UDPTransportFactory factory = new UDPTransportFactory();
+        factory.start();
+
+        UDPEndpoint endpoint = factory.createServerEndpoint(
+                InetAddress.getLoopbackAddress(), 0, new NoopHandler());
+        ByteBuffer pending = ByteBufferPool.acquire(128);
+        pending.put(new byte[64]);
+        pending.flip();
+        int capacity = pending.capacity();
+
+        try {
+            endpoint.sendOwnedRawDatagram(pending,
+                    (InetSocketAddress) endpoint.getLocalAddress());
+            Deque<?> queue = getPendingDatagrams(endpoint);
+            assertFalse("datagram must be queued for write", queue.isEmpty());
+
+            endpoint.close();
+            assertTrue("pending queue must be drained on close", queue.isEmpty());
+
+            ByteBuffer reacquired = ByteBufferPool.acquire(capacity);
+            try {
+                assertSame("close() must release queued datagram buffers",
+                        pending, reacquired);
+            } finally {
+                ByteBufferPool.release(reacquired);
+            }
+        } finally {
+            if (endpoint.isOpen()) {
+                endpoint.close();
+            }
+        }
+    }
+
+    @Test
+    public void testPendingDatagramQueueCapClosesEndpoint() throws Exception {
+        UDPTransportFactory factory = new UDPTransportFactory();
+        factory.setMaxNetOutSize(100);
+        factory.start();
+
+        UDPEndpoint endpoint = factory.createServerEndpoint(
+                InetAddress.getLoopbackAddress(), 0, new NoopHandler());
+        InetSocketAddress dest = (InetSocketAddress) endpoint.getLocalAddress();
+
+        try {
+            ByteBuffer first = ByteBufferPool.acquire(64);
+            first.put(new byte[60]);
+            first.flip();
+            endpoint.sendOwnedRawDatagram(first, dest);
+            assertTrue("endpoint stays open under queue cap", endpoint.isOpen());
+
+            ByteBuffer second = ByteBufferPool.acquire(64);
+            second.put(new byte[50]);
+            second.flip();
+            endpoint.sendOwnedRawDatagram(second, dest);
+            assertFalse("overflowing the pending queue must close the endpoint",
+                    endpoint.isOpen());
+        } finally {
+            if (endpoint.isOpen()) {
+                endpoint.close();
+            }
+        }
+    }
+
+    private static Deque<?> getPendingDatagrams(UDPEndpoint endpoint) throws Exception {
+        Field field = UDPEndpoint.class.getDeclaredField("pendingDatagrams");
+        field.setAccessible(true);
+        return (Deque<?>) field.get(endpoint);
+    }
+
+    @Test
+    public void testDirectBufferPoolReusesThreadLocalStash() {
+        ByteBuffer buf = DirectByteBufferPool.acquire(4096);
+        int capacity = buf.capacity();
+        DirectByteBufferPool.release(buf);
+        ByteBuffer reacquired = DirectByteBufferPool.acquire(capacity);
+        try {
+            assertSame("release/acquire on one thread should reuse the thread-local stash",
+                    buf, reacquired);
         } finally {
             DirectByteBufferPool.release(reacquired);
         }

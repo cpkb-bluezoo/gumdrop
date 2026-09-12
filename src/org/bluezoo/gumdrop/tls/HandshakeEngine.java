@@ -71,6 +71,16 @@ import org.bluezoo.gumdrop.crypto.SignatureScheme;
  */
 public final class HandshakeEngine {
 
+    private static final List<SignatureScheme> ALL_SIGNATURE_SCHEMES;
+    static {
+        SignatureScheme[] values = SignatureScheme.values();
+        List<SignatureScheme> schemes = new ArrayList<SignatureScheme>(values.length);
+        for (int i = 0; i < values.length; i++) {
+            schemes.add(values[i]);
+        }
+        ALL_SIGNATURE_SCHEMES = Collections.unmodifiableList(schemes);
+    }
+
     private enum State {
         INITIAL,
         WAIT_SERVER_HELLO,
@@ -180,17 +190,12 @@ public final class HandshakeEngine {
             clientHelloRandom = random;
         }
 
-        List<SignatureScheme> signatureAlgorithms = new ArrayList<SignatureScheme>();
-        for (SignatureScheme scheme : SignatureScheme.values()) {
-            signatureAlgorithms.add(scheme);
-        }
-
         HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
         params.random = clientHelloRandom;
         params.cipherSuites = config.getCipherSuites();
         params.groups = config.getNamedGroups();
         params.keyShares = shares;
-        params.signatureAlgorithms = signatureAlgorithms;
+        params.signatureAlgorithms = ALL_SIGNATURE_SCHEMES;
         params.applicationProtocols = config.getApplicationProtocols();
         params.serverName = config.getServerName();
         params.quicTransportParameters = config.getLocalTransportParameters();

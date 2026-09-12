@@ -21,14 +21,6 @@
 
 package org.bluezoo.gumdrop.quic.packet;
 
-import java.security.GeneralSecurityException;
-import java.security.spec.AlgorithmParameterSpec;
-
-import javax.crypto.Cipher;
-import javax.crypto.spec.ChaCha20ParameterSpec;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.IvParameterSpec;
-
 /**
  * AEAD packet protection and header protection for QUIC (RFC 9001
  * sections 5.3-5.4).
@@ -112,26 +104,7 @@ public final class PacketProtection {
      */
     public static byte[] seal(PacketProtectionKeys keys, long packetNumber,
             byte[] associatedData, byte[] plaintext) throws PacketProtectionException {
-        byte[] nonce = computeNonce(keys.getIv(), packetNumber);
-        try {
-            Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getAeadTransformation());
-            cipher.init(Cipher.ENCRYPT_MODE, keys.getAeadKey(), aeadParameterSpec(keys.getAlgorithm(), nonce));
-            cipher.updateAAD(associatedData);
-            return cipher.doFinal(plaintext);
-        } catch (GeneralSecurityException e) {
-            throw new PacketProtectionException("AEAD seal failed", e);
-        }
-    }
-
-    // JCE's "ChaCha20-Poly1305" transformation only accepts an
-    // IvParameterSpec (its tag length is fixed at 16 bytes -- QUIC's own
-    // requirement -- so there's nothing to configure); the AES-GCM
-    // transformations need a GCMParameterSpec to carry the tag length
-    // explicitly.
-    private static AlgorithmParameterSpec aeadParameterSpec(QuicAeadAlgorithm algorithm, byte[] nonce) {
-        return algorithm == QuicAeadAlgorithm.CHACHA20_POLY1305
-                ? new IvParameterSpec(nonce)
-                : new GCMParameterSpec(QuicAeadAlgorithm.TAG_LENGTH * 8, nonce);
+        return keys.seal(packetNumber, associatedData, plaintext);
     }
 
     /**
@@ -152,15 +125,7 @@ public final class PacketProtection {
      */
     public static byte[] open(PacketProtectionKeys keys, long packetNumber,
             byte[] associatedData, byte[] ciphertext) throws PacketProtectionException {
-        byte[] nonce = computeNonce(keys.getIv(), packetNumber);
-        try {
-            Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getAeadTransformation());
-            cipher.init(Cipher.DECRYPT_MODE, keys.getAeadKey(), aeadParameterSpec(keys.getAlgorithm(), nonce));
-            cipher.updateAAD(associatedData);
-            return cipher.doFinal(ciphertext);
-        } catch (GeneralSecurityException e) {
-            throw new PacketProtectionException("AEAD open failed", e);
-        }
+        return keys.open(packetNumber, associatedData, ciphertext);
     }
 
     /**
@@ -184,31 +149,7 @@ public final class PacketProtection {
      */
     public static byte[] headerProtectionMask(PacketProtectionKeys keys, byte[] sample)
             throws PacketProtectionException {
-        if (sample.length != QuicAeadAlgorithm.SAMPLE_LENGTH) {
-            throw new PacketProtectionException(
-                    "Header protection sample must be " + QuicAeadAlgorithm.SAMPLE_LENGTH
-                    + " bytes, got " + sample.length);
-        }
-        try {
-            if (keys.getAlgorithm() == QuicAeadAlgorithm.CHACHA20_POLY1305) {
-                int counter = (sample[0] & 0xff) | ((sample[1] & 0xff) << 8)
-                        | ((sample[2] & 0xff) << 16) | ((sample[3] & 0xff) << 24);
-                byte[] nonce = new byte[12];
-                System.arraycopy(sample, 4, nonce, 0, 12);
-                Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getHeaderProtectionTransformation());
-                cipher.init(Cipher.ENCRYPT_MODE, keys.getHeaderProtectionKey(),
-                        new ChaCha20ParameterSpec(nonce, counter));
-                return cipher.doFinal(new byte[5]);
-            }
-            Cipher cipher = Cipher.getInstance(keys.getAlgorithm().getHeaderProtectionTransformation());
-            cipher.init(Cipher.ENCRYPT_MODE, keys.getHeaderProtectionKey());
-            byte[] block = cipher.doFinal(sample);
-            byte[] mask = new byte[5];
-            System.arraycopy(block, 0, mask, 0, mask.length);
-            return mask;
-        } catch (GeneralSecurityException e) {
-            throw new PacketProtectionException("Header protection mask computation failed", e);
-        }
+        return keys.headerProtectionMask(sample);
     }
 
     /**

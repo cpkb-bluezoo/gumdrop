@@ -96,6 +96,7 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
     ByteBuffer netIn;
     final Deque<PendingDatagram> pendingDatagrams =
             new ConcurrentLinkedDeque<PendingDatagram>();
+    private int pendingDatagramBytes;
 
     private boolean secure;
     private volatile boolean closing;
@@ -121,16 +122,22 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
 
     private Trace trace;
 
+    /** Accepting listener for admission control (secure server mode). */
+    private Listener listener;
+
     /**
      * A pending datagram waiting to be sent.
      */
     static final class PendingDatagram {
         final ByteBuffer data;
         final InetSocketAddress destination;
+        /** {@link ByteBuffer#remaining()} at enqueue time, for queue accounting. */
+        final int queuedBytes;
 
         PendingDatagram(ByteBuffer data, InetSocketAddress destination) {
             this.data = data;
             this.destination = destination;
+            this.queuedBytes = data.remaining();
         }
     }
 
@@ -172,6 +179,15 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         this.remoteAddress = address;
     }
 
+    /**
+     * Associates this server-mode endpoint with its accepting listener for
+     * CIDR, rate-limit, and connection-cap admission before new DTLS sessions
+     * are created.
+     */
+    void setListener(Listener listener) {
+        this.listener = listener;
+    }
+
     void init() {
         netIn = DirectByteBufferPool.acquire(DEFAULT_BUFFER_SIZE);
     }
@@ -188,9 +204,13 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
     void startClientDtlsHandshake() {
         if (secure && clientMode && remoteAddress != null) {
             if (usesDtls13) {
-                getOrCreateDtls13Session(remoteAddress);
+                if (getOrCreateDtls13Session(remoteAddress) == null) {
+                    handler.error(new IOException("DTLS session refused"));
+                }
             } else {
-                getOrCreateDtls12Session(remoteAddress);
+                if (getOrCreateDtls12Session(remoteAddress) == null) {
+                    handler.error(new IOException("DTLS session refused"));
+                }
             }
         }
     }
@@ -199,6 +219,9 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         Dtls12Session existing = dtlsSessions.get(peer);
         if (existing != null) {
             return existing;
+        }
+        if (!admitNewDtlsPeer(peer)) {
+            return null;
         }
         UDPTransportFactory udpFactory = (UDPTransportFactory) factory;
         Dtls12HandshakeConfig config;
@@ -213,6 +236,7 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         }
         Dtls12Session created = new Dtls12Session(config, this, peer);
         dtlsSessions.put(peer, created);
+        notifyDtlsSessionOpened(peer);
         created.beginHandshake();
         return created;
     }
@@ -221,6 +245,9 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         Dtls13Session existing = dtls13Sessions.get(peer);
         if (existing != null) {
             return existing;
+        }
+        if (!admitNewDtlsPeer(peer)) {
+            return null;
         }
         UDPTransportFactory udpFactory = (UDPTransportFactory) factory;
         Dtls13HandshakeConfig config;
@@ -235,8 +262,36 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         }
         Dtls13Session created = new Dtls13Session(config, this, peer);
         dtls13Sessions.put(peer, created);
+        notifyDtlsSessionOpened(peer);
         created.beginHandshake();
         return created;
+    }
+
+    private boolean admitNewDtlsPeer(InetSocketAddress peer) {
+        if (!canAcceptNewDtlsSession()) {
+            return false;
+        }
+        if (listener != null && !clientMode) {
+            if (!listener.acceptConnection(peer)) {
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("DTLS session rejected for " + peer);
+                }
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void notifyDtlsSessionOpened(InetSocketAddress peer) {
+        if (listener != null && !clientMode) {
+            listener.connectionOpened(peer);
+        }
+    }
+
+    private void notifyDtlsSessionClosed(InetSocketAddress peer) {
+        if (listener != null && !clientMode) {
+            listener.connectionClosed(peer);
+        }
     }
 
     // -- Endpoint implementation --
@@ -271,22 +326,32 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
     public void sendTo(ByteBuffer data, InetSocketAddress dest) {
         if (secure) {
             if (usesDtls13) {
-                Dtls13Session session = getOrCreateDtls13Session(dest);
-                if (!session.isHandshakeComplete()) {
+                Dtls13Session session = dtls13Sessions.get(dest);
+                if (session == null || !session.isHandshakeComplete()) {
                     return;
                 }
+                if (data.hasArray()) {
+                    session.sendApplicationData(data.array(),
+                            data.arrayOffset() + data.position(), data.remaining());
+                } else {
+                    byte[] plaintext = new byte[data.remaining()];
+                    data.get(plaintext);
+                    session.sendApplicationData(plaintext);
+                }
+                return;
+            }
+            Dtls12Session session = dtlsSessions.get(dest);
+            if (session == null || !session.isHandshakeComplete()) {
+                return;
+            }
+            if (data.hasArray()) {
+                session.sendApplicationData(data.array(),
+                        data.arrayOffset() + data.position(), data.remaining());
+            } else {
                 byte[] plaintext = new byte[data.remaining()];
                 data.get(plaintext);
                 session.sendApplicationData(plaintext);
-                return;
             }
-            Dtls12Session session = getOrCreateDtls12Session(dest);
-            if (!session.isHandshakeComplete()) {
-                return;
-            }
-            byte[] plaintext = new byte[data.remaining()];
-            data.get(plaintext);
-            session.sendApplicationData(plaintext);
             return;
         }
         sendRawDatagram(data, dest);
@@ -299,8 +364,9 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
      * Callers must not use or release {@code data} after this call.
      */
     void sendOwnedRawDatagram(ByteBuffer data, InetSocketAddress dest) {
-        pendingDatagrams.add(new PendingDatagram(data, dest));
-
+        if (!enqueuePendingDatagram(data, dest)) {
+            return;
+        }
         if (selectorLoop != null) {
             selectorLoop.requestDatagramWrite(this);
         }
@@ -321,8 +387,9 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         ByteBuffer copy = ByteBufferPool.acquire(data.remaining());
         copy.put(data);
         copy.flip();
-        pendingDatagrams.add(new PendingDatagram(copy, dest));
-
+        if (!enqueuePendingDatagram(copy, dest)) {
+            return;
+        }
         if (selectorLoop != null) {
             selectorLoop.requestDatagramWrite(this);
         }
@@ -385,7 +452,73 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
             netIn = null;
         }
 
+        drainPendingDatagrams();
+
         handler.disconnected();
+    }
+
+    /**
+     * Called by {@link SelectorLoop} once a queued datagram has been fully
+     * written and its buffer can return to {@link ByteBufferPool}.
+     */
+    void onPendingDatagramFullySent(PendingDatagram pending) {
+        pendingDatagramBytes -= pending.queuedBytes;
+        ByteBufferPool.release(pending.data);
+    }
+
+    private void drainPendingDatagrams() {
+        PendingDatagram pending;
+        while ((pending = pendingDatagrams.poll()) != null) {
+            ByteBufferPool.release(pending.data);
+        }
+        pendingDatagramBytes = 0;
+    }
+
+    private boolean enqueuePendingDatagram(ByteBuffer data, InetSocketAddress dest) {
+        int bytes = data.remaining();
+        int cap = getMaxNetOutSize();
+        if (cap > 0 && pendingDatagramBytes + bytes > cap) {
+            ByteBufferPool.release(data);
+            handlePendingDatagramOverflow();
+            return false;
+        }
+        pendingDatagramBytes += bytes;
+        pendingDatagrams.add(new PendingDatagram(data, dest));
+        return true;
+    }
+
+    private int getMaxNetOutSize() {
+        return factory != null ? factory.getMaxNetOutSize() : 0;
+    }
+
+    private void handlePendingDatagramOverflow() {
+        if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.warning(MessageFormat.format(
+                    Gumdrop.L10N.getString("warn.outbound_buffer_overflow"),
+                    Integer.valueOf(getMaxNetOutSize()), getRemoteAddress()));
+        }
+        close();
+    }
+
+    private boolean canAcceptNewDtlsSession() {
+        if (clientMode) {
+            return true;
+        }
+        if (!(factory instanceof UDPTransportFactory)) {
+            return true;
+        }
+        int cap = ((UDPTransportFactory) factory).getMaxDtlsPeers();
+        if (cap <= 0) {
+            return true;
+        }
+        if (dtlsSessions.size() + dtls13Sessions.size() >= cap) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("DTLS peer limit reached (" + cap
+                        + "); refusing new session");
+            }
+            return false;
+        }
+        return true;
     }
 
     @Override
@@ -532,14 +665,30 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         }
 
         if (secure) {
-            byte[] datagram = new byte[data.remaining()];
-            data.get(datagram);
             if (usesDtls13) {
                 Dtls13Session session = getOrCreateDtls13Session(source);
-                session.receive(datagram);
+                if (session == null) {
+                    return;
+                }
+                if (data.hasArray()) {
+                    session.receive(data.array(), data.arrayOffset() + data.position(), data.remaining());
+                } else {
+                    byte[] datagram = new byte[data.remaining()];
+                    data.get(datagram);
+                    session.receive(datagram);
+                }
             } else {
                 Dtls12Session session = getOrCreateDtls12Session(source);
-                session.receive(datagram);
+                if (session == null) {
+                    return;
+                }
+                if (data.hasArray()) {
+                    session.receive(data.array(), data.arrayOffset() + data.position(), data.remaining());
+                } else {
+                    byte[] datagram = new byte[data.remaining()];
+                    data.get(datagram);
+                    session.receive(datagram);
+                }
             }
             return;
         }
@@ -577,12 +726,12 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
      * that peer's session is dropped.
      */
     void onDtlsSessionFailed(InetSocketAddress peer, Exception cause) {
-        dtlsSessions.remove(peer);
+        removeDtlsSession(peer);
         onDtlsFailure(peer, cause);
     }
 
     void onDtls13SessionFailed(InetSocketAddress peer, Exception cause) {
-        dtls13Sessions.remove(peer);
+        removeDtls13Session(peer);
         onDtlsFailure(peer, cause);
     }
 
@@ -600,11 +749,15 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
      * so the endpoint stops tracking it.
      */
     void removeDtlsSession(InetSocketAddress peer) {
-        dtlsSessions.remove(peer);
+        if (dtlsSessions.remove(peer) != null) {
+            notifyDtlsSessionClosed(peer);
+        }
     }
 
     void removeDtls13Session(InetSocketAddress peer) {
-        dtls13Sessions.remove(peer);
+        if (dtls13Sessions.remove(peer) != null) {
+            notifyDtlsSessionClosed(peer);
+        }
     }
 
     /**

@@ -38,6 +38,9 @@ import java.security.NoSuchAlgorithmException;
  */
 public final class Transcript {
 
+    private static final byte[] EMPTY_HASH_SHA256 = digestEmpty("SHA-256");
+    private static final byte[] EMPTY_HASH_SHA384 = digestEmpty("SHA-384");
+
     private final MessageDigest digest;
 
     private Transcript(MessageDigest digest) {
@@ -69,6 +72,37 @@ public final class Transcript {
             return new Transcript(MessageDigest.getInstance(hashAlgorithm));
         } catch (NoSuchAlgorithmException e) {
             // Programming error: every JDK bundles SHA-256/SHA-384.
+            throw new IllegalStateException("Hash algorithm not available: " + hashAlgorithm, e);
+        }
+    }
+
+    /**
+     * Returns the transcript hash of an empty handshake (RFC 8446
+     * section 4.4.1 with no messages appended). The returned array is
+     * shared and must not be modified.
+     *
+     * @param suite the cipher suite whose hash algorithm to use
+     * @return the empty transcript hash
+     */
+    public static byte[] emptyHash(CipherSuite suite) {
+        return emptyHash(suite.getHashAlgorithm());
+    }
+
+    /**
+     * Returns the transcript hash of an empty handshake for a JCA digest
+     * algorithm name. The returned array is shared and must not be modified.
+     *
+     * @param hashAlgorithm the JCA digest algorithm name
+     * @return the empty transcript hash
+     */
+    public static byte[] emptyHash(String hashAlgorithm) {
+        return "SHA-384".equals(hashAlgorithm) ? EMPTY_HASH_SHA384 : EMPTY_HASH_SHA256;
+    }
+
+    private static byte[] digestEmpty(String hashAlgorithm) {
+        try {
+            return MessageDigest.getInstance(hashAlgorithm).digest();
+        } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("Hash algorithm not available: " + hashAlgorithm, e);
         }
     }

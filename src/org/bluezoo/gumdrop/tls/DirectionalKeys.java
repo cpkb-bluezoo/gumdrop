@@ -64,6 +64,10 @@ final class DirectionalKeys {
     private final CipherSuite suite;
     private final byte[] key;
     private final byte[] iv;
+    private final SecretKeySpec keySpec;
+    private final Cipher encryptCipher;
+    private final Cipher decryptCipher;
+    private final byte[] nonceScratch = new byte[NONCE_LENGTH];
 
     // Package-private and mutable: TlsRecordEngineTest fast-forwards this
     // directly to exercise the confidentiality-limit rotation without
@@ -74,6 +78,14 @@ final class DirectionalKeys {
         this.suite = suite;
         this.key = key;
         this.iv = iv;
+        this.keySpec = new SecretKeySpec(key, suite.getAeadKeyAlgorithm());
+        try {
+            String transformation = suite.getAeadTransformation();
+            this.encryptCipher = Cipher.getInstance(transformation);
+            this.decryptCipher = Cipher.getInstance(transformation);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Could not initialize AEAD ciphers", e);
+        }
     }
 
     /**
@@ -96,15 +108,18 @@ final class DirectionalKeys {
     /**
      * Returns the nonce for the current sequence number: {@link #iv} XOR
      * the sequence number as 8 big-endian octets in the last 8 bytes.
+     * The returned array is scratch space reused across calls on this
+     * direction; consume it before the next {@link #nonce()} or record
+     * operation on the same {@code DirectionalKeys} instance.
      *
-     * @return the 12-byte nonce
+     * @return the 12-byte nonce scratch buffer
      */
     byte[] nonce() {
-        byte[] n = iv.clone();
+        System.arraycopy(iv, 0, nonceScratch, 0, NONCE_LENGTH);
         for (int i = 0; i < 8; i++) {
-            n[4 + i] ^= (byte) (seq >>> (56 - 8 * i));
+            nonceScratch[4 + i] ^= (byte) (seq >>> (56 - 8 * i));
         }
-        return n;
+        return nonceScratch;
     }
 
     /** Advances to the next record's sequence number. */
@@ -131,10 +146,14 @@ final class DirectionalKeys {
      * @return the ciphertext with the tag appended
      */
     byte[] sealAppendTag(byte[] nonce, byte[] aad, byte[] plaintext) throws GeneralSecurityException {
-        Cipher cipher = Cipher.getInstance(suite.getAeadTransformation());
-        cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, suite.getAeadKeyAlgorithm()), parameterSpec(nonce));
-        cipher.updateAAD(aad);
-        return cipher.doFinal(plaintext);
+        return sealAppendTag(nonce, aad, 0, aad.length, plaintext, 0, plaintext.length);
+    }
+
+    byte[] sealAppendTag(byte[] nonce, byte[] aad, int aadOffset, int aadLength,
+            byte[] plaintext, int plaintextOffset, int plaintextLength) throws GeneralSecurityException {
+        encryptCipher.init(Cipher.ENCRYPT_MODE, keySpec, parameterSpec(nonce));
+        encryptCipher.updateAAD(aad, aadOffset, aadLength);
+        return encryptCipher.doFinal(plaintext, plaintextOffset, plaintextLength);
     }
 
     /**
@@ -147,11 +166,15 @@ final class DirectionalKeys {
      * @return the plaintext, or null if the tag does not verify
      */
     byte[] openInPlace(byte[] nonce, byte[] aad, byte[] ciphertext) throws GeneralSecurityException {
-        Cipher cipher = Cipher.getInstance(suite.getAeadTransformation());
-        cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, suite.getAeadKeyAlgorithm()), parameterSpec(nonce));
-        cipher.updateAAD(aad);
+        return openInPlace(nonce, aad, 0, aad.length, ciphertext, 0, ciphertext.length);
+    }
+
+    byte[] openInPlace(byte[] nonce, byte[] aad, int aadOffset, int aadLength,
+            byte[] ciphertext, int ciphertextOffset, int ciphertextLength) throws GeneralSecurityException {
+        decryptCipher.init(Cipher.DECRYPT_MODE, keySpec, parameterSpec(nonce));
+        decryptCipher.updateAAD(aad, aadOffset, aadLength);
         try {
-            return cipher.doFinal(ciphertext);
+            return decryptCipher.doFinal(ciphertext, ciphertextOffset, ciphertextLength);
         } catch (AEADBadTagException e) {
             return null;
         }

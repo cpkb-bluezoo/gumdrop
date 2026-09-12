@@ -415,6 +415,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
             byte[] clientInitialDcid, byte[] clientScid, byte[] serverScid, String serverName)
             throws Exception {
         client.startHandshake(serverName);
+        client.awaitInitialHandshakeOutput();
         byte[] clientInitialDatagram = client.buildPacket(EncryptionLevel.INITIAL,
                 clientInitialDcid, clientScid, false, false, MIN_CLIENT_INITIAL_DATAGRAM_SIZE);
 
@@ -755,6 +756,26 @@ public class QuicTestPeer implements QuicTlsEngineListener {
             if (System.currentTimeMillis() > deadline) {
                 throw new IllegalStateException(
                         "Timed out waiting for async QUIC handshake processing to settle");
+            }
+            Thread.sleep(1);
+        }
+    }
+
+    /**
+     * Blocks until {@link #startHandshake} has produced Initial-level
+     * CRYPTO output. Needed when a live {@link org.bluezoo.gumdrop.CryptoExecutor}
+     * runs {@code engine.start()} asynchronously.
+     */
+    private void awaitInitialHandshakeOutput() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 10000;
+        while (pendingCrypto.get(EncryptionLevel.INITIAL).isEmpty()) {
+            awaitHandshakeProcessingIdle();
+            if (!pendingCrypto.get(EncryptionLevel.INITIAL).isEmpty()) {
+                return;
+            }
+            if (System.currentTimeMillis() > deadline) {
+                throw new IllegalStateException(
+                        "Timed out waiting for ClientHello CRYPTO output");
             }
             Thread.sleep(1);
         }

@@ -34,8 +34,12 @@ import javax.crypto.spec.SecretKeySpec;
  * schedules, and QUIC's key schedule (RFC 9001 section 5.1), are built
  * from.
  *
- * <p>Every operation here is a pure function of its arguments: no state,
- * no I/O, safe to call directly on the {@code SelectorLoop} thread.
+ * <p>Each instance caches one {@link Mac} per thread ({@link ThreadLocal})
+ * and re-{@code init}s it per operation instead of calling
+ * {@code Mac.getInstance} on every extract/expand step. Instances may be
+ * shared across threads (e.g. {@link org.bluezoo.gumdrop.quic.tls.InitialSecrets})
+ * but must not be used reentrantly on one thread before a prior operation
+ * on the same instance returns.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5869">RFC 5869</a>
@@ -49,8 +53,13 @@ public final class Hkdf {
     /** RFC 9147 section 5.9: DTLS 1.3 uses {@code "dtls13"} with no trailing space. */
     private static final byte[] DTLS13_LABEL_PREFIX = "dtls13".getBytes(StandardCharsets.US_ASCII);
 
+    private static final byte[] ZERO_SALT_32 = new byte[32];
+    private static final byte[] ZERO_SALT_48 = new byte[48];
+
     private final String macAlgorithm;
     private final int hashLength;
+    private final SecretKeySpec zeroLengthKeySpec;
+    private final ThreadLocal<Mac> macHolder;
 
     /**
      * Creates an HKDF instance bound to a specific hash algorithm.
@@ -62,6 +71,17 @@ public final class Hkdf {
     public Hkdf(String macAlgorithm, int hashLength) {
         this.macAlgorithm = macAlgorithm;
         this.hashLength = hashLength;
+        this.zeroLengthKeySpec = new SecretKeySpec(new byte[hashLength], macAlgorithm);
+        this.macHolder = new ThreadLocal<Mac>() {
+            @Override
+            protected Mac initialValue() {
+                try {
+                    return Mac.getInstance(macAlgorithm);
+                } catch (NoSuchAlgorithmException e) {
+                    throw new IllegalStateException("HMAC algorithm not available: " + macAlgorithm, e);
+                }
+            }
+        };
     }
 
     /**
@@ -96,6 +116,17 @@ public final class Hkdf {
     }
 
     /**
+     * Returns the RFC 5869 / TLS 1.3 all-zero salt or zero PSK of
+     * {@link #getHashLength()} bytes. The returned array is shared and
+     * must not be modified.
+     *
+     * @return the zero salt bytes
+     */
+    public byte[] zeroSalt() {
+        return hashLength == 32 ? ZERO_SALT_32 : ZERO_SALT_48;
+    }
+
+    /**
      * HKDF-Extract (RFC 5869 section 2.2): {@code HMAC-Hash(salt, ikm)}.
      *
      * @param salt the salt value (a non-secret random value)
@@ -103,7 +134,7 @@ public final class Hkdf {
      * @return the pseudorandom key, {@code hashLength} bytes
      */
     public byte[] extract(byte[] salt, byte[] ikm) {
-        Mac mac = newMac(salt);
+        Mac mac = macForKey(salt);
         return mac.doFinal(ikm);
     }
 
@@ -119,7 +150,7 @@ public final class Hkdf {
      * @return the HMAC, {@code hashLength} bytes
      */
     public byte[] hmac(byte[] key, byte[] data) {
-        Mac mac = newMac(key);
+        Mac mac = macForKey(key);
         return mac.doFinal(data);
     }
 
@@ -133,7 +164,7 @@ public final class Hkdf {
      * @return the output keying material, {@code length} bytes
      */
     public byte[] expand(byte[] prk, byte[] info, int length) {
-        Mac mac = newMac(prk);
+        Mac mac = macForKey(prk);
         int n = (length + hashLength - 1) / hashLength;
         byte[] output = new byte[length];
         byte[] previousBlock = new byte[0];
@@ -147,6 +178,9 @@ public final class Hkdf {
             System.arraycopy(block, 0, output, written, copyLength);
             written += copyLength;
             previousBlock = block;
+            if (i < n) {
+                mac = macForKey(prk);
+            }
         }
         return output;
     }
@@ -215,22 +249,14 @@ public final class Hkdf {
         return DTLS13_LABEL_PREFIX.clone();
     }
 
-    private Mac newMac(byte[] key) {
-        // RFC 5869 section 2.2: an all-zero key of hashLength bytes is used
-        // when no salt is provided; QUIC always supplies an explicit salt
-        // or secret, so that case does not arise here.
-        SecretKeySpec keySpec = new SecretKeySpec(
-                key.length == 0 ? new byte[hashLength] : key, macAlgorithm);
+    private Mac macForKey(byte[] key) {
+        SecretKeySpec keySpec = key.length == 0 ? zeroLengthKeySpec : new SecretKeySpec(key, macAlgorithm);
+        Mac mac = macHolder.get();
         try {
-            Mac mac = Mac.getInstance(macAlgorithm);
             mac.init(keySpec);
-            return mac;
-        } catch (NoSuchAlgorithmException e) {
-            // Programming error: every JCE provider bundled with the JDK
-            // supports HmacSHA256/HmacSHA384.
-            throw new IllegalStateException("HMAC algorithm not available: " + macAlgorithm, e);
         } catch (InvalidKeyException e) {
             throw new IllegalStateException("Invalid HMAC key", e);
         }
+        return mac;
     }
 }

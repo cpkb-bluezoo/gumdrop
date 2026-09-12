@@ -11,6 +11,7 @@ import java.nio.ByteBuffer;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -65,6 +66,10 @@ final class Dtls13Session implements TlsRecordSink {
     }
 
     void receive(byte[] datagram) {
+        receive(datagram, 0, datagram.length);
+    }
+
+    void receive(byte[] datagram, int offset, int length) {
         if (closed) {
             return;
         }
@@ -72,16 +77,20 @@ final class Dtls13Session implements TlsRecordSink {
         cancelRetransmitTimer();
         ensureEngine();
         flightBuilder.clear();
-        engine.feedDatagram(datagram, this);
+        engine.feedDatagram(datagram, offset, length, this);
         commitFlightIfNeeded();
     }
 
     void sendApplicationData(byte[] plaintext) {
+        sendApplicationData(plaintext, 0, plaintext.length);
+    }
+
+    void sendApplicationData(byte[] plaintext, int offset, int length) {
         if (closed || !handshakeComplete || engine == null) {
             return;
         }
         flightBuilder.clear();
-        engine.sendApplicationData(plaintext, this);
+        engine.sendApplicationData(plaintext, offset, length, this);
         flushOutboundFlight();
     }
 
@@ -168,7 +177,7 @@ final class Dtls13Session implements TlsRecordSink {
             base.setCookieValidator(new Dtls13CookieValidator(secret, remoteAddress));
         }
         Dtls13HandshakeConfig engineConfig = wrapConfig(base);
-        engine = new Dtls13RecordEngine(engineConfig, config.getMaxFragmentSize());
+        engine = new Dtls13RecordEngine(engineConfig, config.getMaxFragmentSize(), loopExecutor(endpoint));
     }
 
     private Dtls13HandshakeConfig wrapConfig(HandshakeConfig base) {
@@ -264,5 +273,14 @@ final class Dtls13Session implements TlsRecordSink {
         retransmit.onProgress();
         flightBuilder.clear();
         endpoint.onDtls13SessionFailed(remoteAddress, new IOException(reason));
+    }
+
+    private static Executor loopExecutor(final UDPEndpoint endpoint) {
+        return new Executor() {
+            @Override
+            public void execute(Runnable task) {
+                endpoint.execute(task);
+            }
+        };
     }
 }

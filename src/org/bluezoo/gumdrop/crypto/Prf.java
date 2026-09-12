@@ -39,8 +39,9 @@ import javax.crypto.spec.SecretKeySpec;
  * -- this is the older, plain-HMAC-iteration key schedule TLS 1.2 uses
  * instead, not a variant of HKDF.
  *
- * <p>Every operation here is a pure function of its arguments: no state,
- * no I/O, safe to call directly on the {@code SelectorLoop} thread.
+ * <p>Each instance caches one {@link Mac} per thread and re-{@code init}s
+ * it per {@link #compute} call instead of calling {@code Mac.getInstance}
+ * on every HMAC iteration.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5246#section-5">RFC 5246 section 5</a>
@@ -48,9 +49,20 @@ import javax.crypto.spec.SecretKeySpec;
 public final class Prf {
 
     private final String macAlgorithm;
+    private final ThreadLocal<Mac> macHolder;
 
     private Prf(String macAlgorithm) {
         this.macAlgorithm = macAlgorithm;
+        this.macHolder = new ThreadLocal<Mac>() {
+            @Override
+            protected Mac initialValue() {
+                try {
+                    return Mac.getInstance(macAlgorithm);
+                } catch (NoSuchAlgorithmException e) {
+                    throw new IllegalStateException("HMAC algorithm not available: " + macAlgorithm, e);
+                }
+            }
+        };
     }
 
     /**
@@ -105,12 +117,13 @@ public final class Prf {
     }
 
     private byte[] pHash(byte[] secret, byte[] seed, int length) {
-        Mac mac = newMac(secret);
+        Mac mac = macForKey(secret);
         byte[] output = new byte[length];
         int written = 0;
         byte[] a = seed;
         while (written < length) {
             a = mac.doFinal(a);
+            mac = macForKey(secret);
             mac.update(a);
             byte[] block = mac.doFinal(seed);
             int n = Math.min(block.length, length - written);
@@ -120,18 +133,14 @@ public final class Prf {
         return output;
     }
 
-    private Mac newMac(byte[] key) {
+    private Mac macForKey(byte[] key) {
+        Mac mac = macHolder.get();
         try {
-            Mac mac = Mac.getInstance(macAlgorithm);
             mac.init(new SecretKeySpec(key, macAlgorithm));
-            return mac;
-        } catch (NoSuchAlgorithmException e) {
-            // Programming error: every JCE provider bundled with the JDK
-            // supports HmacSHA256/HmacSHA384.
-            throw new IllegalStateException("HMAC algorithm not available: " + macAlgorithm, e);
         } catch (InvalidKeyException e) {
             throw new IllegalStateException("Invalid HMAC key", e);
         }
+        return mac;
     }
 
 }
