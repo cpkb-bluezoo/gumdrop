@@ -1,0 +1,524 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "xhtml11.dtd">
+<!--
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<link href="main.css" rel="stylesheet" type="text/css"/>
+<link rel="icon" href="favicon.ico"/>
+<link rel="SHORTCUT ICON" href="favicon.ico"/>
+<title>TLS &amp; DTLS - Gumdrop</title>
+</head>
+<body>
+
+<header>
+<img src="gumdrop.png" alt="Gumdrop" />
+<h1>Gumdrop TLS &amp; DTLS</h1>
+</header>
+
+<p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
+
+<p>
+Gumdrop ships a complete in-tree transport-security stack in
+<code>org.bluezoo.gumdrop.crypto</code> and <code>org.bluezoo.gumdrop.tls</code>.
+TCP listeners, UDP listeners, and QUIC all use this implementation &mdash; there
+is no dependency on JSSE <code>SSLEngine</code> or third-party TLS libraries on
+the data path. JCA is used only for primitive operations (signatures, key
+agreement, AEAD via <code>Cipher</code>, PKIX path validation).
+</p>
+
+<p>
+This page describes scope, deliberate design choices, security practices,
+configuration for protocol-handler authors, and pointers to RFC conformance
+matrices. For keystore setup, certificate pinning, IAM, and rate limiting, see
+<a href="security.html">Security</a>.
+</p>
+
+<h3>Contents</h3>
+<ul>
+<li><a href="#architecture">Architecture</a></li>
+<li><a href="#versions">Protocol versions and deployment model</a></li>
+<li><a href="#tls13">TLS 1.3 engine</a></li>
+<li><a href="#tls12">TLS 1.2 engine</a></li>
+<li><a href="#dtls">DTLS 1.2 and DTLS 1.3</a></li>
+<li><a href="#quic">QUIC integration</a></li>
+<li><a href="#security">Security practices</a></li>
+<li><a href="#configuration">Configuration for implementers</a>
+  <ul>
+  <li><a href="#alpn">ALPN</a></li>
+  <li><a href="#sni">SNI and server credentials</a></li>
+  <li><a href="#mtls">Client certificates (mTLS)</a></li>
+  <li><a href="#ciphers">Cipher suites</a></li>
+  <li><a href="#groups">Named groups (TLS 1.3 / DTLS 1.3)</a></li>
+  </ul>
+</li>
+<li><a href="#handlers">Protocol handlers and SecurityInfo</a></li>
+<li><a href="#optional-rfcs">Optional and profile RFCs</a></li>
+<li><a href="#conformance">RFC conformance</a></li>
+</ul>
+
+<h2 id="architecture">Architecture</h2>
+
+<p>
+The stack splits cleanly into cryptography and protocol state:
+</p>
+
+<ul>
+<li><b><code>org.bluezoo.gumdrop.crypto</code></b> &mdash; HKDF, TLS 1.2 PRF,
+    ECDHE key exchange, named groups (including RFC 10024 hybrid post-quantum
+    groups on Java&nbsp;25+), signature schemes, and PKIX certificate
+    verification helpers.</li>
+<li><b><code>org.bluezoo.gumdrop.tls</code></b> &mdash; handshake state machines
+    (<code>HandshakeEngine</code> for TLS&nbsp;1.3,
+    <code>Tls12HandshakeEngine</code> for TLS&nbsp;1.2), record layers for TCP
+    and DTLS, session tickets, ALPN, SNI credential dispatch, and alert
+    handling.</li>
+</ul>
+
+<p>
+Transport endpoints wire engines into the reactor model:
+</p>
+
+<ul>
+<li><b>TCP</b> &mdash; <code>TCPEndpoint</code> &rarr;
+    <code>TlsRecordState</code> / <code>Tls12RecordState</code> &rarr;
+    <code>TlsRecordEngine</code> / <code>Tls12RecordEngine</code></li>
+<li><b>UDP</b> &mdash; <code>UDPEndpoint</code> &rarr; one
+    <code>Dtls12Session</code> or <code>Dtls13Session</code> per remote peer
+    &rarr; <code>Dtls12RecordEngine</code> / <code>Dtls13RecordEngine</code></li>
+<li><b>QUIC</b> &mdash; <code>QuicTlsClientEngine</code> /
+    <code>QuicTlsServerEngine</code> share the same TLS&nbsp;1.3
+    <code>HandshakeEngine</code> core (RFC&nbsp;9001 profile)</li>
+</ul>
+
+<p>
+Handshake CPU work (key exchange, certificate verification, signatures) can be
+offloaded to <code>CryptoExecutor</code> while record AEAD stays on the
+connection&rsquo;s <code>SelectorLoop</code> thread. Event callbacks from the
+handshake always marshal back to the loop thread before touching connection
+state.
+</p>
+
+<h2 id="versions">Protocol versions and deployment model</h2>
+
+<table border="1" cellpadding="5">
+<tr>
+  <th>Transport</th>
+  <th>Supported</th>
+  <th>Default</th>
+  <th>Configuration</th>
+</tr>
+<tr>
+  <td>TCP (HTTPS, SMTP, IMAP, &hellip;)</td>
+  <td>TLS&nbsp;1.2, TLS&nbsp;1.3</td>
+  <td>TLS&nbsp;1.3</td>
+  <td><code>tls-version</code> on <code>TCPTransportFactory</code> /
+      <code>Listener</code> (<code>TLS_1_2</code> or <code>TLS_1_3</code>)</td>
+</tr>
+<tr>
+  <td>UDP (DNS, CoAP-style services, &hellip;)</td>
+  <td>DTLS&nbsp;1.2, DTLS&nbsp;1.3</td>
+  <td>DTLS&nbsp;1.2</td>
+  <td><code>dtls-version</code> on <code>UDPTransportFactory</code> /
+      <code>Listener</code> (<code>DTLS_1_2</code> or <code>DTLS_1_3</code>)</td>
+</tr>
+<tr>
+  <td>QUIC (HTTP/3, DoQ, &hellip;)</td>
+  <td>TLS&nbsp;1.3 only</td>
+  <td>TLS&nbsp;1.3</td>
+  <td>Not configurable (QUIC requirement)</td>
+</tr>
+</table>
+
+<p>
+<b>Version pinning, not negotiation:</b> each listener is configured for exactly
+one TLS or DTLS protocol version. The engine does not downgrade based on a peer
+<code>ClientHello</code>. To offer both TLS&nbsp;1.2 and TLS&nbsp;1.3 (or both
+DTLS versions), run <b>two listeners on two ports</b>. This removes cross-version
+downgrade ambiguity at the deployment boundary.
+</p>
+
+<p>
+<b>Not supported:</b> SSL&nbsp;3.0, TLS&nbsp;1.0, TLS&nbsp;1.1, and all
+non-AEAD cipher suites on every path.
+</p>
+
+<h2 id="tls13">TLS 1.3 engine</h2>
+
+<p>
+<code>HandshakeEngine</code> (RFC&nbsp;8446) implements a reactive handshake
+driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
+&ldquo;run handshake until done&rdquo; API on the hot path. Scope includes:
+</p>
+
+<ul>
+<li>Full and resumed handshakes, HelloRetryRequest, PSK binders, and
+    stateless session tickets</li>
+<li>0-RTT early data with anti-replay (when enabled in config)</li>
+<li>ALPN (RFC&nbsp;7301), SNI-based server credential dispatch, optional mTLS</li>
+<li>Post-handshake <code>NewSessionTicket</code></li>
+<li><code>KeyUpdate</code> on TCP record-layer mode only (RFC&nbsp;8446
+    &sect;4.6.3); forbidden over QUIC per RFC&nbsp;9001</li>
+<li>Named group selection including hybrid post-quantum groups (RFC&nbsp;10024)
+    when running on Java&nbsp;25+ with ML-KEM/ML-DSA available in the JCA
+    provider</li>
+</ul>
+
+<p>
+Default TLS&nbsp;1.3 cipher suites (preference order):
+<code>TLS_CHACHA20_POLY1305_SHA256</code>,
+<code>TLS_AES_128_GCM_SHA256</code>,
+<code>TLS_AES_256_GCM_SHA384</code>.
+ChaCha20-Poly1305 is listed first for constant-time AEAD on diverse clients;
+AES-128-GCM follows for AES-NI hardware; AES-256-GCM last for policy-driven
+preference only.
+</p>
+
+<p>
+Default named groups (preference order):
+<code>X25519_MLKEM768</code>, <code>X25519</code>,
+<code>SECP256R1</code>, <code>SECP384R1</code>.
+</p>
+
+<h2 id="tls12">TLS 1.2 engine</h2>
+
+<p>
+<code>Tls12HandshakeEngine</code> (RFC&nbsp;5246) is a separate state machine
+from TLS&nbsp;1.3, sharing only the crypto floor (<code>KeyExchange</code>,
+<code>CertificateVerifier</code>, <code>Prf</code>). It exists for legacy
+interoperability (IMAPS, older clients, some STARTTLS deployments) with a
+deliberately narrow profile.
+</p>
+
+<h3>What TLS&nbsp;1.2 supports</h3>
+
+<ul>
+<li><b>Key exchange:</b> ECDHE only, fixed to <b>secp256r1</b> (no static RSA,
+    no other curves, no X25519 on this path)</li>
+<li><b>Cipher suites:</b> ECDHE + AEAD only &mdash; AES-GCM (RFC&nbsp;5289) and
+    ChaCha20-Poly1305 (RFC&nbsp;7905). Suite choice must match server certificate
+    key type (EC vs RSA).</li>
+<li><b>Extended Master Secret</b> (RFC&nbsp;7627) &mdash; mandatory on every
+    handshake</li>
+<li><b>Secure renegotiation indication</b> (RFC&nbsp;5746) &mdash; sent; actual
+    renegotiation is never offered or accepted</li>
+<li><b>Session resumption:</b> RFC&nbsp;5077 stateless tickets only (not
+    RFC&nbsp;5246 session-ID caching)</li>
+<li><b>ALPN</b> (RFC&nbsp;7301), <b>SNI</b> credential dispatch, optional
+    <b>mTLS</b></li>
+<li><b>Server signatures:</b> ECDSA and RSA PKCS#1 v1.5 for
+    <code>CertificateVerify</code> (no Ed25519 codepoint on TLS&nbsp;1.2 wire;
+    no RSA-PSS for the engine&rsquo;s own signatures)</li>
+</ul>
+
+<h3>What TLS&nbsp;1.2 does not support</h3>
+
+<table border="1" cellpadding="5">
+<tr><th>Feature</th><th>Status</th></tr>
+<tr><td>CBC / MAC-then-encrypt suites</td><td>Permanently excluded (timing side-channel history)</td></tr>
+<tr><td>Static RSA key transport</td><td>Not implemented</td></tr>
+<tr><td>Configurable named groups / curves</td><td>Fixed secp256r1 ECDHE</td></tr>
+<tr><td>TLS&nbsp;1.2 session-ID resumption</td><td>Tickets only (RFC&nbsp;5077)</td></tr>
+<tr><td>Renegotiation</td><td>Never performed (indication only)</td></tr>
+<tr><td>0-RTT / early data</td><td>TLS&nbsp;1.3 only</td></tr>
+<tr><td><code>KeyUpdate</code></td><td>TLS&nbsp;1.3 TCP mode only</td></tr>
+<tr><td><code>ClientAuthPolicy.REQUEST</code> (&ldquo;want&rdquo; client cert)</td><td>Factories map <code>need-client-auth</code> to <code>REQUIRE</code> only</td></tr>
+</table>
+
+<p>
+Default TLS&nbsp;1.2 cipher suites (preference order):
+<code>TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256</code>,
+<code>TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256</code>,
+<code>TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256</code>,
+<code>TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256</code>,
+<code>TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384</code>,
+<code>TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</code>.
+Same ChaCha-first ordering as TLS&nbsp;1.3; suite choice must still match server
+certificate key type (EC vs RSA).
+</p>
+
+<p>
+Setting <code>named-groups</code> on a TLS&nbsp;1.2 listener has no effect; the
+property is ignored with a warning.
+</p>
+
+<h2 id="dtls">DTLS 1.2 and DTLS 1.3</h2>
+
+<p>
+UDP endpoints select a DTLS version the same way TCP selects TLS:
+<code>dtls-version</code> pins <code>DTLS_1_2</code> or <code>DTLS_1_3</code>.
+Each remote address gets its own session object on the shared datagram socket.
+</p>
+
+<h3>DTLS&nbsp;1.2 (RFC&nbsp;6347)</h3>
+
+<ul>
+<li>Wraps <code>Tls12HandshakeEngine</code> with datagram reassembly, flight
+    retransmission, replay windows, and epoch-aware keys</li>
+<li>Optional HelloVerifyRequest cookie exchange (<code>require-cookie</code>,
+    <code>cookie-secret</code>) for anti-amplification on servers</li>
+<li>Uses TLS&nbsp;1.2 cipher suite set and secp256r1 ECDHE constraints</li>
+<li><code>max-fragment-size</code> (default 1024) and
+    <code>max-dtls-peers</code> (default 4096; 0 = unlimited) bound memory</li>
+</ul>
+
+<h3>DTLS&nbsp;1.3 (RFC&nbsp;9147)</h3>
+
+<ul>
+<li>Wraps <code>HandshakeEngine</code> in DTLS mode with unified headers,
+    QUIC-style AEAD/header protection (<code>PacketProtection</code>), minimal
+    ACK (content type 26), and HelloRetryRequest cookie hook</li>
+<li>Uses TLS&nbsp;1.3 cipher suites and configurable named groups</li>
+<li>Continuous transcript across cookie retry (no engine rebuild)</li>
+</ul>
+
+<h2 id="quic">QUIC integration</h2>
+
+<p>
+QUIC always uses TLS&nbsp;1.3. <code>QuicTlsClientEngine</code> and
+<code>QuicTlsServerEngine</code> adapt <code>HandshakeEngine</code> to QUIC
+CRYPTO stream framing and RFC&nbsp;9001 key schedule labels. ALPN negotiates
+application protocols (<code>h3</code>, <code>doq</code>, etc.). PEM
+<code>cert-file</code> / <code>key-file</code> configuration is conventional for
+QUIC listeners but the underlying engine is identical to TCP/TLS.
+</p>
+
+<h2 id="security">Security practices</h2>
+
+<h3>Explicit choices</h3>
+
+<ul>
+<li><b>AEAD-only</b> record protection on all paths; no CBC</li>
+<li><b>Forward secrecy</b> via ECDHE (TLS&nbsp;1.2 fixed curve; TLS&nbsp;1.3
+    configurable groups)</li>
+<li><b>Extended Master Secret</b> mandatory on TLS&nbsp;1.2</li>
+<li><b>Version pinning</b> per listener (see above)</li>
+<li><b>Hostname verification</b> enabled by default on clients
+    (<code>verify-hostname</code> / <code>HandshakeConfig</code>)</li>
+<li><b>Certificate validation</b> via PKIX (<code>CertificateVerifier</code>)
+    or custom <code>X509TrustManager</code>; optional SPKI pinning
+    (<code>pinned-cert-fingerprint</code>)</li>
+<li><b>DTLS amplification control</b> &mdash; cookie exchange, peer admission
+    on listeners (CIDR/rate limits before new sessions), pending datagram caps</li>
+<li><b>Confidentiality limits</b> &mdash; AES-GCM record counts tracked; TLS&nbsp;1.3
+    supports <code>KeyUpdate</code> on TCP; TLS&nbsp;1.2 closes when limit reached
+    (no KeyUpdate in 1.2)</li>
+<li><b>Anti-replay</b> for 0-RTT and DTLS replay windows</li>
+</ul>
+
+<h3>Implicit / operational practices</h3>
+
+<ul>
+<li>Handshake callbacks run on the connection loop thread; cross-thread work
+    uses explicit offload with deferred callback replay</li>
+<li><code>SecurityInfo</code> after <code>securityEstablished()</code> exposes
+    negotiated cipher, ALPN, peer chain &mdash; handlers should not parse TLS
+    records themselves</li>
+<li>Trust material comes from configured truststores, JVM default trust, or
+    explicit trust managers &mdash; no implicit trust-all in production paths</li>
+<li>Java&nbsp;25+ recommended when hybrid PQC named groups are required</li>
+</ul>
+
+<h2 id="configuration">Configuration for implementers</h2>
+
+<p>
+Configuration flows: <b>gumdroprc / Listener</b> &rarr;
+<b>TransportFactory</b> &rarr; <b>HandshakeConfig</b> (built per connection).
+Protocol services rarely touch handshake configs directly; they set listener
+properties or configure a factory in client code.
+</p>
+
+<h3>Listener and gumdroprc (server)</h3>
+
+<pre>
+&lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;property name="port"&gt;443&lt;/property&gt;
+    &lt;property name="secure"&gt;true&lt;/property&gt;
+    &lt;property name="tls-version"&gt;TLS_1_3&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
+    &lt;property name="cipher-suites"&gt;
+        TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256
+    &lt;/property&gt;
+    &lt;property name="named-groups"&gt;X25519:SECP256R1&lt;/property&gt;
+    &lt;property name="need-client-auth"&gt;false&lt;/property&gt;
+    &lt;property name="truststore-file"&gt;truststore.p12&lt;/property&gt;
+    &lt;property name="truststore-pass"&gt;secret&lt;/property&gt;
+    &lt;property name="sni-hostnames"&gt;
+        &lt;map&gt;
+            &lt;entry key="example.com" value="example-cert"/&gt;
+        &lt;/map&gt;
+    &lt;/property&gt;
+    &lt;property name="sni-default-alias"&gt;default-cert&lt;/property&gt;
+&lt;/listener&gt;
+</pre>
+
+<p>
+UDP listeners use <code>dtls-version</code> instead of <code>tls-version</code>
+and may set DTLS-specific properties (<code>require-cookie</code>,
+<code>max-fragment-size</code>, <code>max-dtls-peers</code>). See
+<a href="dns.html">DNS</a> for DoT/DoQ examples.
+</p>
+
+<h3>Programmatic client (factory)</h3>
+
+<pre>
+TCPTransportFactory factory = new TCPTransportFactory();
+factory.setSecure(true);
+factory.setTlsVersion(TlsVersion.TLS_1_3);
+factory.setKeystoreFile("client.p12");
+factory.setKeystorePass("secret");
+factory.setTruststoreFile("trust.p12");
+factory.setTruststorePass("secret");
+factory.setApplicationProtocols("h2", "http/1.1");
+factory.setCipherSuites("TLS_AES_128_GCM_SHA256");
+factory.setNamedGroups("X25519");
+factory.start();
+
+ClientEndpoint endpoint = new ClientEndpoint(factory, "example.com", 443);
+endpoint.connect(new MyProtocolHandler());
+</pre>
+
+<p>
+UDP clients mirror this with <code>UDPTransportFactory</code>,
+<code>setDtlsVersion(DtlsVersion.DTLS_1_3)</code>, and protocol-specific ALPN
+(e.g. <code>dot</code>, <code>doq</code>).
+</p>
+
+<h3 id="alpn">ALPN</h3>
+
+<p>
+Application-Layer Protocol Negotiation selects the protocol above TLS (HTTP/2
+vs HTTP/1.1, <code>h3</code> on QUIC, <code>dot</code> for DoT, etc.).
+</p>
+
+<ul>
+<li><b>Server:</b> protocol listeners set defaults &mdash; e.g.
+    <code>HTTPListener</code> offers <code>h2</code> and <code>http/1.1</code>;
+    <code>HTTP3Listener</code> sets <code>h3</code></li>
+<li><b>Custom service:</b> <code>setApplicationProtocols(String...)</code> on
+    <code>TCPTransportFactory</code> / <code>UDPTransportFactory</code></li>
+<li><b>After handshake:</b> negotiated protocol is available from
+    <code>SecurityInfo.getApplicationProtocol()</code> and passed to
+    <code>ProtocolHandler.securityEstablished(SecurityInfo)</code></li>
+</ul>
+
+<h3 id="sni">SNI and server credentials</h3>
+
+<p>
+Server Name Indication lets one IP/port serve multiple certificates:
+</p>
+
+<ul>
+<li><code>sni-hostnames</code> map (exact or <code>*.example.com</code> wildcards)
+    &rarr; keystore alias</li>
+<li><code>sni-default-alias</code> when no hostname matches</li>
+<li>Programmatic: <code>setServerCredentialsResolver(ServerCredentialsResolver)</code>
+    takes precedence over fixed <code>ServerCredentials</code></li>
+<li><b>Clients</b> set SNI automatically from the connect hostname (except UNIX
+    domain sockets)</li>
+</ul>
+
+<h3 id="mtls">Client certificates (mTLS)</h3>
+
+<pre>
+&lt;property name="need-client-auth"&gt;true&lt;/property&gt;
+&lt;property name="truststore-file"&gt;client-ca.p12&lt;/property&gt;
+&lt;property name="truststore-pass"&gt;secret&lt;/property&gt;
+</pre>
+
+<p>
+Clients present an identity via <code>setClientCredentials(ServerCredentials)</code>
+or by loading a client keystore into the factory. Server-side
+<code>need-client-auth=true</code> maps to <code>ClientAuthPolicy.REQUIRE</code>.
+</p>
+
+<h3 id="ciphers">Cipher suites</h3>
+
+<p>
+Colon-separated IANA names on <code>cipher-suites</code>. Unrecognized names are
+logged and skipped. Use TLS&nbsp;1.3 names when <code>tls-version</code> is
+<code>TLS_1_3</code> (or DTLS&nbsp;1.3); use TLS&nbsp;1.2 names when pinned to
+TLS&nbsp;1.2 / DTLS&nbsp;1.2.
+</p>
+
+<h3 id="groups">Named groups (TLS 1.3 / DTLS 1.3)</h3>
+
+<p>
+Colon-separated group names: <code>X25519</code>, <code>SECP256R1</code>,
+<code>SECP384R1</code>, <code>X25519_MLKEM768</code>,
+<code>SECP256R1_MLKEM768</code>, <code>SECP384R1_MLKEM1024</code>. Hybrid groups
+require Java&nbsp;25+ JCA support for ML-KEM/ML-DSA.
+</p>
+
+<h2 id="handlers">Protocol handlers and SecurityInfo</h2>
+
+<p>
+<code>ProtocolHandler</code> implementations receive cleartext application
+data from the framework. For TLS endpoints:
+</p>
+
+<ul>
+<li>Call <code>endpoint.startTLS()</code> (or rely on implicit TLS / STARTTLS
+    advertisement) &mdash; the framework runs the handshake</li>
+<li>Implement <code>securityEstablished(SecurityInfo info)</code> to learn cipher
+    suite, peer certificates, ALPN, and session timing</li>
+<li>Use <code>HandshakeSecurityInfo</code> / <code>Tls12SecurityInfo</code> /
+    <code>Dtls12SecurityInfo</code> / <code>Dtls13SecurityInfo</code> for
+    type-specific details when needed</li>
+</ul>
+
+<p>
+Do not instantiate <code>HandshakeEngine</code> or record engines in normal
+protocol code; use transport factories unless you are extending the TLS stack
+itself.
+</p>
+
+<h2 id="optional-rfcs">Optional and profile RFCs</h2>
+
+<table border="1" cellpadding="5">
+<tr><th>RFC</th><th>Topic</th><th>Support</th></tr>
+<tr><td>RFC 7301</td><td>ALPN</td><td>Implemented (TCP, DTLS, QUIC)</td></tr>
+<tr><td>RFC 5077 / RFC 8446 &sect;4.6.1</td><td>Session tickets</td><td>Implemented (TLS 1.2 tickets; TLS 1.3 PSK/tickets)</td></tr>
+<tr><td>RFC 7627</td><td>Extended Master Secret</td><td>Mandatory on TLS 1.2</td></tr>
+<tr><td>RFC 5746</td><td>Secure Renegotiation</td><td>Indication only; no renegotiation</td></tr>
+<tr><td>RFC 8446 &sect;4.6.3</td><td>KeyUpdate</td><td>TCP TLS 1.3 only</td></tr>
+<tr><td>RFC 9001</td><td>QUIC-TLS</td><td>QUIC and DTLS 1.3 record crypto profile</td></tr>
+<tr><td>RFC 9147</td><td>DTLS 1.3</td><td>Implemented</td></tr>
+<tr><td>RFC 10024</td><td>Hybrid PQ key exchange</td><td>Named groups on Java 25+</td></tr>
+<tr><td>RFC 4217</td><td>STARTTLS (FTP, SMTP, IMAP, &hellip;)</td><td>Application-layer; TLS stack unchanged</td></tr>
+<tr><td>RFC 7858 / RFC 9250</td><td>DoT / DoQ</td><td>ALPN <code>dot</code> / <code>doq</code> over configured TLS/DTLS</td></tr>
+</table>
+
+<h2 id="conformance">RFC conformance</h2>
+
+<p>
+Detailed requirement-by-requirement matrices for the in-tree TLS/DTLS
+implementation are maintained in
+<a href="../RFC-COMPLIANCE.md#tls-and-dtls">RFC-COMPLIANCE.md &sect; TLS and DTLS</a>
+in the source repository (also summarized for HTTP/2 cipher requirements and
+QUIC-TLS integration in the HTTP and QUIC sections of that document).
+</p>
+
+<p>
+See also <a href="security.html#tls">Security &mdash; Transport Layer Security</a>
+for certificate generation, PEM vs keystore conventions, and pinning.
+</p>
+
+</body>
+</html>

@@ -497,7 +497,7 @@ There is extensive documentation for all Gumdrop features:
 
 ## Configuration
 
-See the [Configuration documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on configuration including `gumdroprc`, dependency injection, and component wiring. For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls).
+See the [Configuration documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on configuration including `gumdroprc`, dependency injection, and component wiring. For the in-tree TLS/DTLS stack (versions, cipher suites, ALPN, SNI, mTLS), see [TLS & DTLS](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html). For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls).
 
 ## Building and running
 

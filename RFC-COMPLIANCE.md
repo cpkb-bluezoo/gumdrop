@@ -256,6 +256,97 @@
 
 ---
 
+## TLS and DTLS
+
+Gumdrop implements TLS and DTLS in `org.bluezoo.gumdrop.tls` with JCA-backed
+primitives in `org.bluezoo.gumdrop.crypto`. TCP (`TlsRecordEngine` /
+`Tls12RecordEngine`), UDP (`Dtls12RecordEngine` / `Dtls13RecordEngine`), and QUIC
+(`QuicTlsClientEngine` / `QuicTlsServerEngine`) share credential, ALPN, and
+trust configuration via `TransportFactory` but use version-specific handshake
+engines. See [web/tls.html](web/tls.html) for scope, configuration, and security
+practices.
+
+### Applicable RFCs
+
+| RFC | Title | Status |
+|-----|-------|--------|
+| RFC 5246 | The Transport Layer Security (TLS) Protocol Version 1.2 | Implemented (narrow profile; see notes) |
+| RFC 8446 | The Transport Layer Security (TLS) Protocol Version 1.3 | Implemented |
+| RFC 6347 | Datagram Transport Layer Security Version 1.2 | Implemented |
+| RFC 9147 | The Datagram Transport Layer Security (DTLS) Protocol Version 1.3 | Implemented |
+| RFC 7301 | Transport Layer Security (TLS) Application-Layer Protocol Negotiation Extension | Implemented |
+| RFC 5077 | Transport Layer Security (TLS) Session Resumption without Server-Side State | Implemented (TLS 1.2 tickets) |
+| RFC 7627 | TLS Session Hash and Extended Master Secret Extension | Mandatory (TLS 1.2) |
+| RFC 5746 | Transport Layer Security (TLS) Renegotiation Indication Extension | Indication only; renegotiation not performed |
+| RFC 5289 / RFC 7905 | AES-GCM / ChaCha20-Poly1305 TLS 1.2 cipher suites | Implemented (ECDHE only) |
+| RFC 4492 / RFC 8422 | ECDHE key exchange | Implemented (TLS 1.2: secp256r1 only) |
+| RFC 9001 | Using TLS to Secure QUIC | Implemented (QUIC + DTLS 1.3 record crypto) |
+| RFC 10024 | Hybrid post-quantum key exchange | Implemented (TLS 1.3 / DTLS 1.3 named groups, Java 25+) |
+
+### TLS 1.3 — RFC 8446
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Full handshake (ClientHello → Finished) | 4 | Compliant | `HandshakeEngine` reactive state machine |
+| HelloRetryRequest | 4.1.4 | Compliant | Group retry; no early data after HRR |
+| AEAD record protection (AES-GCM, ChaCha20-Poly1305) | 5.2 | Compliant | `CipherSuite` enum; three suites |
+| Key schedule / HKDF-Expand-Label | 7.1 | Compliant | `KeySchedule`, `Hkdf` |
+| ALPN | 4.2.11 + RFC 7301 | Compliant | `HandshakeConfig` application protocol list |
+| SNI / server credential dispatch | 4.2.2 | Compliant | `ServerCredentialsResolver`, `SniCredentialsResolver` |
+| Client authentication (mTLS) | 4.3.2 | Compliant | `ClientAuthPolicy`; PKIX via `CertificateVerifier` |
+| Session tickets / PSK resumption | 4.6.1 | Compliant | `TicketPayload`, `Tls12TicketPayload` (1.2) |
+| 0-RTT early data | 4.2.10 | Compliant | When enabled; anti-replay in config |
+| Post-handshake NewSessionTicket | 4.6.1 | Compliant | Server emission after handshake |
+| KeyUpdate (TCP record layer) | 4.6.3 | Compliant | `TlsRecordEngine`; not over QUIC (RFC 9001 §4.6) |
+| Downgrade protection (SCSV / version checks) | 4.1.3 | Compliant | Legacy version fields handled in engine |
+| Named groups (X25519, P-256, P-384, hybrid PQ) | 4.2.7 | Compliant | `NamedGroup`; hybrid requires Java 25+ JCA |
+
+### TLS 1.2 — RFC 5246 (profile)
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| ECDHE key exchange | 7.4 / RFC 4492 | Compliant | **secp256r1 only** — not configurable |
+| AEAD cipher suites | Appendix A.5 | Compliant | Six ECDHE AEAD suites; **no CBC** |
+| Extended Master Secret | RFC 7627 | Compliant | Mandatory |
+| Secure renegotiation indication | RFC 5746 | Compliant | Sent; **renegotiation never performed** |
+| Session tickets (resumption) | RFC 5077 | Compliant | Stateless tickets; **no session-ID cache** |
+| ALPN | RFC 7301 | Compliant | Same as TLS 1.3 path |
+| SNI / mTLS | 3 / 7.4.4 | Compliant | Shared credential types with TLS 1.3 engine |
+| Static RSA key transport | 7.4.3 | **Not implemented** | By design |
+| CBC / non-AEAD suites | Appendix A.5 | **Not implemented** | By design |
+| Renegotiation | 7.4 | **Not implemented** | Indication only |
+| Configurable ECDHE curves | RFC 8422 | **Not implemented** | Fixed secp256r1 |
+
+### DTLS 1.2 — RFC 6347
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Datagram record framing | 4.1 | Compliant | `Dtls12RecordEngine` |
+| Handshake fragmentation / reassembly | 4.2.3 | Compliant | `DtlsReassembler` |
+| Epoch and replay detection | 4.1.2.6 | Compliant | `DtlsReplayWindow` |
+| HelloVerifyRequest cookie exchange | 4.2.1 | Compliant | Optional via `require-cookie` |
+| Flight retransmission | 4.2.4 | Compliant | `DtlsRetransmitState` in session |
+| Underlying TLS 1.2 handshake | 4 | Compliant | `Tls12HandshakeEngine` profile above |
+
+### DTLS 1.3 — RFC 9147
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Unified header record format | 5.1 | Compliant | `Dtls13RecordEngine` |
+| TLS 1.3 handshake in DTLS mode | 5 | Compliant | `HandshakeEngine` + `HandshakeMode.DTLS` |
+| ACK frames (minimal) | 7.3 | Compliant | Content type 26 |
+| HelloRetryRequest cookie | 5.2 | Compliant | `CookieValidator` hook |
+| AEAD + header protection | 5 | Compliant | Reuses QUIC `PacketProtection` with `dtls13` labels |
+
+### Deployment and version selection
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| TLS 1.2 and 1.3 on same port with negotiation | **Not supported** | `TlsVersion` / `DtlsVersion` pin one version per listener |
+| SSL 3.0 / TLS 1.0 / TLS 1.1 | **Not supported** | Removed with in-tree engine |
+
+---
+
 ## FTP
 
 ### Applicable RFCs
@@ -681,8 +772,8 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| TLS 1.2+ required for h2 | 9.2 | Compliant | `TCPTransportFactory.SECURE_PROTOCOLS = { "TLSv1.2", "TLSv1.3" }` |
-| TLS 1.3 RECOMMENDED | 9.2 | Compliant | Included in SECURE_PROTOCOLS |
+| TLS 1.2+ required for h2 | 9.2 | Compliant | Listeners pin `TlsVersion.TLS_1_2` or `TLS_1_3`; only AEAD suites offered |
+| TLS 1.3 RECOMMENDED | 9.2 | Compliant | Default TCP TLS version is TLS 1.3 |
 | TLS 1.2 cipher suite blocklist (server) | 9.2.2 | Compliant | `isBlockedH2CipherSuite()` in `securityEstablished()`; GOAWAY INADEQUATE_SECURITY |
 | ALPN configured in HTTPListener | 3.2 | Compliant | `setApplicationProtocols("h2", "http/1.1")` |
 | Idle connection timeout (server) | 9.1 | Compliant | Graceful GOAWAY for HTTP/2; configurable via `idleTimeoutMs` |

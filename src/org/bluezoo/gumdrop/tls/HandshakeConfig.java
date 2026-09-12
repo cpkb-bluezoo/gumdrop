@@ -536,9 +536,9 @@ public final class HandshakeConfig {
 
     private static List<CipherSuite> defaultCipherSuites() {
         List<CipherSuite> suites = new ArrayList<CipherSuite>();
+        suites.add(CipherSuite.TLS_CHACHA20_POLY1305_SHA256);
         suites.add(CipherSuite.TLS_AES_128_GCM_SHA256);
         suites.add(CipherSuite.TLS_AES_256_GCM_SHA384);
-        suites.add(CipherSuite.TLS_CHACHA20_POLY1305_SHA256);
         return suites;
     }
 

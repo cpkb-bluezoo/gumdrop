@@ -201,8 +201,8 @@ String&nbsp;servicePrincipal)</code>, which constructs a
 <p>
 TLS and transport settings (<code>secure</code>,
 <code>keystore-file</code>, <code>keystore-pass</code>,
-<code>need-client-auth</code>, <code>cipher-suites</code>,
-<code>named-groups</code>), timeouts (<code>idle-timeout</code>,
+<code>need-client-auth</code>, <code>tls-version</code>, <code>dtls-version</code>,
+<code>cipher-suites</code>, <code>named-groups</code>), timeouts (<code>idle-timeout</code>,
 <code>read-timeout</code>, <code>connection-timeout</code>), bind addresses
 (<code>addresses</code>), rate limiting (<code>rate-limit</code>,
 <code>max-connections-per-ip</code>, <code>max-auth-failures</code>,
@@ -210,8 +210,8 @@ TLS and transport settings (<code>secure</code>,
 (<code>allowed-networks</code>, <code>blocked-networks</code>), and
 <code>max-net-in-size</code> are inherited from <code>Listener</code> /
 <code>TCPListener</code> and behave like other TCP-based services. See
-<a href="security.html">Security</a> and <a href="index.html">main
-documentation</a> (UNIX domain sockets, TLS).
+<a href="tls.html">TLS &amp; DTLS</a>, <a href="security.html">Security</a>, and
+<a href="index.html">main documentation</a> (UNIX domain sockets).
 </p>
 
 <h3 id="custom-handlers">Custom authorization</h3>

@@ -76,6 +76,8 @@ for IMAP, POP3, and SMTP with mbox and Maildir implementations</li>
 distributed tracing and metrics with OTLP export</li>
 <li><a href="security.html"><strong>Security</strong></a> - IAM, rate limiting,
 TLS, and authentication across all protocols</li>
+<li><a href="tls.html"><strong>TLS &amp; DTLS</strong></a> - in-tree TLS stack,
+cipher profiles, configuration, and RFC conformance</li>
 <li><a href="ldap.html"><strong>LDAP Client &amp; Realm</strong></a> - asynchronous
 LDAPv3 client, SASL bind, and LDAP-backed authentication realm</li>
 <li><a href="amqp.html"><strong>AMQP Client</strong></a> - asynchronous AMQP 0-9-1
@@ -417,6 +419,12 @@ automatically.
 
 <p>
 All endpoints support transparent TLS encryption. The framework handles:
+</p>
+
+<p>
+Supported protocol versions, deliberate TLS&nbsp;1.2 limits, cipher suite lists,
+and listener configuration properties are documented on the
+<a href="tls.html">TLS &amp; DTLS</a> page. Summary:
 </p>
 
 <ul>

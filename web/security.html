@@ -36,6 +36,9 @@
 <p>
 This document covers security features available across all Gumdrop servers,
 including identity and access management, rate limiting, and transport security.
+For the in-tree TLS/DTLS stack (scope, cipher profiles, version pinning,
+configuration, and RFC conformance), see the dedicated
+<a href="tls.html">TLS &amp; DTLS</a> page.
 </p>
 
 <p>
@@ -47,7 +50,7 @@ them. See <a href="http.html#configuration">HTTP Configuration</a> for the
 
 <h3>Contents</h3>
 <ul>
-<li><a href="#tls">Transport Layer Security</a>
+<li><a href="tls.html">Transport Layer Security</a>
   <ul>
   <li><a href="#tls-certificates">TLS Certificates for Local Development</a></li>
   <li><a href="#quic-tls">QUIC / HTTP/3 Certificate Requirements</a></li>
@@ -75,13 +78,10 @@ them. See <a href="http.html#configuration">HTTP Configuration</a> for the
 <h2 id="tls">Transport Layer Security</h2>
 
 <p>
-All Gumdrop servers support TLS for encrypted connections. TCP-based
-protocols (HTTP/1.x, HTTP/2, SMTP, IMAP, POP3, FTP) and QUIC/HTTP/3 both
-use Gumdrop&rsquo;s in-tree TLS engine (<code>org.bluezoo.gumdrop.tls</code>).
-UDP listeners use the same engine for DTLS 1.2 and DTLS 1.3. Server
-credentials are usually configured via Java keystores (PKCS#12, JKS) or PEM
-files; QUIC listeners conventionally use PEM (<code>cert-file</code>,
-<code>key-file</code>), described <a href="#quic-tls">below</a>.
+See <a href="tls.html">TLS &amp; DTLS</a> for full documentation of supported
+protocol versions, TLS&nbsp;1.2 profile limits, cipher suites, named groups,
+ALPN/SNI/mTLS configuration, and RFC conformance matrices. The sections below
+cover certificate setup and cross-transport comparisons.
 </p>
 
 <h3 id="tls-certificates">TLS Certificates for Local Development</h3>
@@ -255,8 +255,8 @@ implementation used for TCP/TLS and DTLS.
 </tr>
 <tr>
   <td><b>TLS versions</b></td>
-  <td>TLS 1.0 &ndash; 1.3 (configurable)</td>
-  <td>TLS 1.3 only (QUIC requirement)</td>
+  <td>TLS&nbsp;1.2 or TLS&nbsp;1.3 per listener (<code>tls-version</code>); default TLS&nbsp;1.3</td>
+  <td>TLS&nbsp;1.3 only (QUIC requirement)</td>
 </tr>
 </table>
 
@@ -333,8 +333,10 @@ certificate matches.
 <h4>Cipher Suite and Named Group Configuration</h4>
 
 <p>
-QUIC listeners support cipher suite and named group configuration on the
-in-tree TLS engine:
+Cipher suite and named group configuration applies to all transports using the
+in-tree engine (TCP/TLS, DTLS, QUIC). On TLS&nbsp;1.2 / DTLS&nbsp;1.2 listeners,
+use TLS&nbsp;1.2 cipher suite names; <code>named-groups</code> is ignored.
+See <a href="tls.html#ciphers">TLS &amp; DTLS &mdash; cipher suites</a>.
 </p>
 
 <pre>
@@ -348,8 +350,8 @@ in-tree TLS engine:
 </pre>
 
 <p>
-The default cipher suites are AES-128-GCM and AES-256-GCM with
-SHA-256/384. The default named group is X25519; hybrid post-quantum groups
+The default cipher suites are ChaCha20-Poly1305, then AES-128-GCM, then
+AES-256-GCM (see <a href="tls.html#tls13">TLS &amp; DTLS</a>). The default named group is X25519; hybrid post-quantum groups
 (e.g. X25519MLKEM768) are available on Java 25+ when configured.
 </p>
 
