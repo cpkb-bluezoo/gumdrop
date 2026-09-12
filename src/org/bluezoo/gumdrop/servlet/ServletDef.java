@@ -34,22 +34,21 @@ import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.security.RunAs;
-import javax.servlet.HttpMethodConstraintElement;
-import javax.servlet.MultipartConfigElement;
-import javax.servlet.Servlet;
-import javax.servlet.ServletConfig;
-import javax.servlet.ServletContext;
-import javax.servlet.ServletException;
-import javax.servlet.ServletRegistration;
-import javax.servlet.ServletSecurityElement;
-import javax.servlet.SingleThreadModel;
-import javax.servlet.UnavailableException;
-import javax.servlet.annotation.HttpConstraint;
-import javax.servlet.annotation.HttpMethodConstraint;
-import javax.servlet.annotation.MultipartConfig;
-import javax.servlet.annotation.ServletSecurity;
-import javax.servlet.annotation.WebInitParam;
-import javax.servlet.annotation.WebServlet;
+import jakarta.servlet.HttpMethodConstraintElement;
+import jakarta.servlet.MultipartConfigElement;
+import jakarta.servlet.Servlet;
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRegistration;
+import jakarta.servlet.ServletSecurityElement;
+import jakarta.servlet.UnavailableException;
+import jakarta.servlet.annotation.HttpConstraint;
+import jakarta.servlet.annotation.HttpMethodConstraint;
+import jakarta.servlet.annotation.MultipartConfig;
+import jakarta.servlet.annotation.ServletSecurity;
+import jakarta.servlet.annotation.WebInitParam;
+import jakarta.servlet.annotation.WebServlet;
 
 import org.bluezoo.gumdrop.servlet.manager.ServletReg;
 

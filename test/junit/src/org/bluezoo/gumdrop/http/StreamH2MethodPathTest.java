@@ -39,7 +39,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import static org.junit.Assert.*;
 

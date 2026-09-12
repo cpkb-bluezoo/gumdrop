@@ -25,10 +25,10 @@ import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
-import javax.servlet.ServletInputStream;
-import javax.servlet.ServletOutputStream;
-import javax.servlet.http.HttpUpgradeHandler;
-import javax.servlet.http.WebConnection;
+import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.http.HttpUpgradeHandler;
+import jakarta.servlet.http.WebConnection;
 
 import java.io.IOException;
 import java.io.PipedInputStream;

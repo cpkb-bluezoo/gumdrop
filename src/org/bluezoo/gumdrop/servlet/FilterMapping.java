@@ -25,7 +25,7 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import javax.servlet.DispatcherType;
+import jakarta.servlet.DispatcherType;
 
 /**
  * A filter mapping entry.

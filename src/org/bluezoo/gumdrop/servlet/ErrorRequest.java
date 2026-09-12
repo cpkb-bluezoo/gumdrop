@@ -24,8 +24,8 @@ package org.bluezoo.gumdrop.servlet;
 import java.util.HashMap;
 import java.util.Map;
 
-import javax.servlet.DispatcherType;
-import javax.servlet.http.HttpServletRequestWrapper;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 
 /**
  * Request wrapper for servicing error pages.
@@ -51,7 +51,7 @@ class ErrorRequest extends HttpServletRequestWrapper {
 
         // Set error attributes
         attrs = new HashMap<>();
-        String prefix = "javax.servlet.error.";
+        String prefix = "jakarta.servlet.error.";
         attrs.put(prefix + "status_code", Integer.valueOf(sc));
         if (err != null) {
             attrs.put(prefix + "exception_type", err.getClass());

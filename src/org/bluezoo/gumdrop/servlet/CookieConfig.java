@@ -21,7 +21,11 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import javax.servlet.SessionCookieConfig;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+import jakarta.servlet.SessionCookieConfig;
 
 /**
  * Definition of a cookie-config.
@@ -44,6 +48,7 @@ final class CookieConfig implements SessionCookieConfig {
     boolean secure = false;
     int maxAge = -1;
     SameSite sameSite = SameSite.Lax;
+    final Map<String,String> attributes = new LinkedHashMap<>();
 
     // -- SessionCookieConfig --
 
@@ -101,6 +106,18 @@ final class CookieConfig implements SessionCookieConfig {
 
     @Override public int getMaxAge() {
         return maxAge;
+    }
+
+    @Override public void setAttribute(String name, String value) {
+        attributes.put(name, value);
+    }
+
+    @Override public String getAttribute(String name) {
+        return attributes.get(name);
+    }
+
+    @Override public Map<String, String> getAttributes() {
+        return Collections.unmodifiableMap(attributes);
     }
 
 }

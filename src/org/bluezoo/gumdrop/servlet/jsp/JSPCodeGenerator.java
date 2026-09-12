@@ -89,9 +89,9 @@ public class JSPCodeGenerator implements JSPElementVisitor {
         
         // Add default imports
         imports.add("java.io.*");
-        imports.add("javax.servlet.*");
-        imports.add("javax.servlet.http.*");
-        imports.add("javax.servlet.jsp.*");
+        imports.add("jakarta.servlet.*");
+        imports.add("jakarta.servlet.http.*");
+        imports.add("jakarta.servlet.jsp.*");
     }
 
     /**
@@ -112,9 +112,9 @@ public class JSPCodeGenerator implements JSPElementVisitor {
         
         // Add default imports
         imports.add("java.io.*");
-        imports.add("javax.servlet.*");
-        imports.add("javax.servlet.http.*");
-        imports.add("javax.servlet.jsp.*");
+        imports.add("jakarta.servlet.*");
+        imports.add("jakarta.servlet.http.*");
+        imports.add("jakarta.servlet.jsp.*");
         
         // Apply JSP properties to configuration
         applyJSPProperties();
@@ -332,7 +332,7 @@ public class JSPCodeGenerator implements JSPElementVisitor {
         serviceMethodBody.append("        PageContext pageContext = null;\n");
         serviceMethodBody.append("        try {\n");
         serviceMethodBody.append("            // Create page context for JSP tags\n");
-        serviceMethodBody.append("            javax.servlet.jsp.JspFactory jspFactory = javax.servlet.jsp.JspFactory.getDefaultFactory();\n");
+        serviceMethodBody.append("            jakarta.servlet.jsp.JspFactory jspFactory = jakarta.servlet.jsp.JspFactory.getDefaultFactory();\n");
         serviceMethodBody.append("            pageContext = jspFactory.getPageContext(this, request, response, null, ")
                        .append(session ? "true" : "false").append(", ").append(buffer).append(", ")
                        .append(autoFlush).append(");\n");
@@ -356,7 +356,7 @@ public class JSPCodeGenerator implements JSPElementVisitor {
         serviceMethodBody.append("            throw new ServletException(\"JSP processing error\", e);\n");
         serviceMethodBody.append("        } finally {\n");
         serviceMethodBody.append("            if (pageContext != null) {\n");
-        serviceMethodBody.append("                javax.servlet.jsp.JspFactory.getDefaultFactory().releasePageContext(pageContext);\n");
+        serviceMethodBody.append("                jakarta.servlet.jsp.JspFactory.getDefaultFactory().releasePageContext(pageContext);\n");
         serviceMethodBody.append("            }\n");
         serviceMethodBody.append("        }\n");
     }
@@ -591,7 +591,7 @@ public class JSPCodeGenerator implements JSPElementVisitor {
             serviceMethodBody.append("            try {\n");
             serviceMethodBody.append("                int result = ").append(tagVarName).append(".doStartTag();\n");
             serviceMethodBody.append("                ").append(tagVarName).append(".doEndTag();\n");
-            serviceMethodBody.append("            } catch (javax.servlet.jsp.JspException e) {\n");
+            serviceMethodBody.append("            } catch (jakarta.servlet.jsp.JspException e) {\n");
             serviceMethodBody.append("                throw new ServletException(\"JSP tag error\", e);\n");
             serviceMethodBody.append("            } finally {\n");
             serviceMethodBody.append("                ").append(tagVarName).append(".release();\n");
@@ -600,7 +600,7 @@ public class JSPCodeGenerator implements JSPElementVisitor {
             // Tag with body content (JSP, scriptless, tagdependent)
             serviceMethodBody.append("            try {\n");
             serviceMethodBody.append("                int _sr = ").append(tagVarName).append(".doStartTag();\n");
-            serviceMethodBody.append("                if (_sr != javax.servlet.jsp.tagext.Tag.SKIP_BODY) {\n");
+            serviceMethodBody.append("                if (_sr != jakarta.servlet.jsp.tagext.Tag.SKIP_BODY) {\n");
             // Generate body content from children
             List<JSPElement> children = element.getChildren();
             if (!children.isEmpty()) {
@@ -615,13 +615,13 @@ public class JSPCodeGenerator implements JSPElementVisitor {
                     }
                 }
                 serviceMethodBody.append("                    } while (").append(tagVarName)
-                        .append(" instanceof javax.servlet.jsp.tagext.IterationTag && ((javax.servlet.jsp.tagext.IterationTag) ")
-                        .append(tagVarName).append(").doAfterBody() == javax.servlet.jsp.tagext.IterationTag.EVAL_BODY_AGAIN);\n");
+                        .append(" instanceof jakarta.servlet.jsp.tagext.IterationTag && ((jakarta.servlet.jsp.tagext.IterationTag) ")
+                        .append(tagVarName).append(").doAfterBody() == jakarta.servlet.jsp.tagext.IterationTag.EVAL_BODY_AGAIN);\n");
             }
             serviceMethodBody.append("                }\n");
             serviceMethodBody.append("                if (").append(tagVarName)
-                    .append(".doEndTag() == javax.servlet.jsp.tagext.Tag.SKIP_PAGE) return;\n");
-            serviceMethodBody.append("            } catch (javax.servlet.jsp.JspException e) {\n");
+                    .append(".doEndTag() == jakarta.servlet.jsp.tagext.Tag.SKIP_PAGE) return;\n");
+            serviceMethodBody.append("            } catch (jakarta.servlet.jsp.JspException e) {\n");
             serviceMethodBody.append("                throw new ServletException(\"JSP tag error\", e);\n");
             serviceMethodBody.append("            } finally {\n");
             serviceMethodBody.append("                ").append(tagVarName).append(".release();\n");

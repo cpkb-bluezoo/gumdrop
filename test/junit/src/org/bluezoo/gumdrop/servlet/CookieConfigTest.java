@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import org.junit.Before;
 import org.junit.Test;
 
-import javax.servlet.SessionCookieConfig;
+import jakarta.servlet.SessionCookieConfig;
 
 import static org.junit.Assert.*;
 

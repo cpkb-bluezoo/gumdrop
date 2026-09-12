@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-import javax.servlet.descriptor.TaglibDescriptor;
+import jakarta.servlet.descriptor.TaglibDescriptor;
 
 /**
  * Unit tests for Taglib class.

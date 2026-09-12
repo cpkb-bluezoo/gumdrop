@@ -13,10 +13,10 @@ import java.io.PrintWriter;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * Example servlet demonstrating HTTP/2 stream priority benefits.

@@ -27,11 +27,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-import javax.servlet.annotation.ServletSecurity;
-import javax.servlet.annotation.HttpConstraint;
-import javax.servlet.annotation.HttpMethodConstraint;
-import javax.servlet.HttpConstraintElement;
-import javax.servlet.HttpMethodConstraintElement;
+import jakarta.servlet.annotation.ServletSecurity;
+import jakarta.servlet.annotation.HttpConstraint;
+import jakarta.servlet.annotation.HttpMethodConstraint;
+import jakarta.servlet.HttpConstraintElement;
+import jakarta.servlet.HttpMethodConstraintElement;
 
 /**
  * An authorization constraint.

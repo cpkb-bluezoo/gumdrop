@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import javax.servlet.http.HttpServletMapping;
-import javax.servlet.http.MappingMatch;
+import jakarta.servlet.http.HttpServletMapping;
+import jakarta.servlet.http.MappingMatch;
 
 /**
  * The servlet name, servlet path, and path info when matching a servlet

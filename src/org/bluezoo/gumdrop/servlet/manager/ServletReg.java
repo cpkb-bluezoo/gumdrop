@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.manager;
 
-import javax.servlet.ServletRegistration;
+import jakarta.servlet.ServletRegistration;
 import org.bluezoo.gumdrop.servlet.Description;
 
 /**

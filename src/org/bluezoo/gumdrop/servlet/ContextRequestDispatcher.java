@@ -30,20 +30,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.servlet.DispatcherType;
-import javax.servlet.Filter;
-import javax.servlet.FilterChain;
-import javax.servlet.RequestDispatcher;
-import javax.servlet.Servlet;
-import javax.servlet.ServletException;
-import javax.servlet.ServletRequest;
-import javax.servlet.ServletRequestWrapper;
-import javax.servlet.ServletResponse;
-import javax.servlet.UnavailableException;
-import javax.servlet.annotation.ServletSecurity;
-import javax.servlet.http.HttpServletMapping;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.Servlet;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletRequestWrapper;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.UnavailableException;
+import jakarta.servlet.annotation.ServletSecurity;
+import jakarta.servlet.http.HttpServletMapping;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -131,11 +131,11 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
                 uri.append(match.pathInfo);
             }
             Map<String,Object> attrs = new HashMap<String,Object>();
-            attrs.put("javax.servlet.forward.request_uri", hq.getRequestURI());
-            attrs.put("javax.servlet.forward.context_path", hq.getContextPath());
-            attrs.put("javax.servlet.forward.servlet_path", hq.getServletPath());
-            attrs.put("javax.servlet.forward.path_info", hq.getPathInfo());
-            attrs.put("javax.servlet.forward.query_string", hq.getQueryString());
+            attrs.put("jakarta.servlet.forward.request_uri", hq.getRequestURI());
+            attrs.put("jakarta.servlet.forward.context_path", hq.getContextPath());
+            attrs.put("jakarta.servlet.forward.servlet_path", hq.getServletPath());
+            attrs.put("jakarta.servlet.forward.path_info", hq.getPathInfo());
+            attrs.put("jakarta.servlet.forward.query_string", hq.getQueryString());
             request = new FilterRequest(hq, uri.toString(), contextPath, match, queryString, attrs, DispatcherType.FORWARD);
         }
         DispatcherType oldMode = mode;
@@ -169,11 +169,11 @@ class ContextRequestDispatcher implements RequestDispatcher, FilterChain {
                 uri.append(match.pathInfo);
             }
             Map<String,Object> attrs = new HashMap<String,Object>();
-            attrs.put("javax.servlet.include.request_uri", hq.getRequestURI());
-            attrs.put("javax.servlet.include.context_path", hq.getContextPath());
-            attrs.put("javax.servlet.include.servlet_path", hq.getServletPath());
-            attrs.put("javax.servlet.include.path_info", hq.getPathInfo());
-            attrs.put("javax.servlet.include.query_string", hq.getQueryString());
+            attrs.put("jakarta.servlet.include.request_uri", hq.getRequestURI());
+            attrs.put("jakarta.servlet.include.context_path", hq.getContextPath());
+            attrs.put("jakarta.servlet.include.servlet_path", hq.getServletPath());
+            attrs.put("jakarta.servlet.include.path_info", hq.getPathInfo());
+            attrs.put("jakarta.servlet.include.query_string", hq.getQueryString());
             request = new FilterRequest(hq, uri.toString(), contextPath, match, queryString, attrs, DispatcherType.INCLUDE);
         }
         if (response instanceof HttpServletResponse) {

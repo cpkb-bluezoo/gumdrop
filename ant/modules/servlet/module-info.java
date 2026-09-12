@@ -1,6 +1,6 @@
 module org.bluezoo.gumdrop.servlet {
     requires java.naming;
-    requires javax.servlet.api;
+    requires jakarta.servlet;
 
     requires org.bluezoo.gumdrop.core;
     requires org.bluezoo.gumdrop.mime;

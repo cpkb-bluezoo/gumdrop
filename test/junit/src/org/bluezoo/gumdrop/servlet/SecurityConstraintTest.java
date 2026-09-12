@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import org.junit.Before;
 import org.junit.Test;
 
-import javax.servlet.annotation.ServletSecurity;
+import jakarta.servlet.annotation.ServletSecurity;
 
 import static org.junit.Assert.*;
 

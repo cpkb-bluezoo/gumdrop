@@ -1,9 +1,9 @@
 import java.lang.*;
-import javax.servlet.http.*;
+import jakarta.servlet.http.*;
 import java.util.Date;
 import java.io.*;
-import javax.servlet.jsp.*;
-import javax.servlet.*;
+import jakarta.servlet.jsp.*;
+import jakarta.servlet.*;
 
 /**
  * Generated servlet from JSP: test-example.jsp
@@ -33,7 +33,7 @@ public class TestExample_jsp extends HttpServlet {
         PageContext pageContext = null;
         try {
             // Create page context for JSP tags
-            javax.servlet.jsp.JspFactory jspFactory = javax.servlet.jsp.JspFactory.getDefaultFactory();
+            jakarta.servlet.jsp.JspFactory jspFactory = jakarta.servlet.jsp.JspFactory.getDefaultFactory();
             pageContext = jspFactory.getPageContext(this, request, response, null, true, 8192, true);
             out = pageContext.getOut();
         
@@ -57,7 +57,7 @@ public class TestExample_jsp extends HttpServlet {
             throw new ServletException("JSP processing error", e);
         } finally {
             if (pageContext != null) {
-                javax.servlet.jsp.JspFactory.getDefaultFactory().releasePageContext(pageContext);
+                jakarta.servlet.jsp.JspFactory.getDefaultFactory().releasePageContext(pageContext);
             }
         }
     }

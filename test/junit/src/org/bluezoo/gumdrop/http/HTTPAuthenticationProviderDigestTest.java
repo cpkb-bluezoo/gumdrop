@@ -29,7 +29,7 @@ import org.junit.Test;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import static org.junit.Assert.*;
 

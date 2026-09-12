@@ -45,9 +45,9 @@ import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import javax.persistence.PersistenceContextType;
-import javax.servlet.DispatcherType;
-import javax.servlet.SessionTrackingMode;
-import javax.servlet.annotation.ServletSecurity;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.SessionTrackingMode;
+import jakarta.servlet.annotation.ServletSecurity;
 
 import org.bluezoo.gumdrop.servlet.jndi.AdministeredObject;
 import org.bluezoo.gumdrop.servlet.jndi.ConnectionFactory;

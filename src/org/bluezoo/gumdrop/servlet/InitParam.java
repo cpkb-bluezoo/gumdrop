@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import javax.servlet.annotation.WebInitParam;
+import jakarta.servlet.annotation.WebInitParam;
 
 /**
  * A context initialisation parameter in a web application deployment

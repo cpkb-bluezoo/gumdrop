@@ -28,7 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.servlet.ServletException;
+import jakarta.servlet.ServletException;
 
 /**
  * Index over one {@link Context}'s {@code securityConstraints}, built once

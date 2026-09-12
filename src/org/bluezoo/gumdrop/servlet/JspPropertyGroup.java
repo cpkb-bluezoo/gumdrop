@@ -26,7 +26,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-import javax.servlet.descriptor.JspPropertyGroupDescriptor;
+import jakarta.servlet.descriptor.JspPropertyGroupDescriptor;
 
 /**
  * A <code>jsp-property-group</code> deployment descriptor definition.
@@ -48,6 +48,7 @@ public class JspPropertyGroup implements JspPropertyGroupDescriptor {
     Boolean isXml;
     Boolean deferredSyntaxAllowedAsLiteral;
     Boolean errorOnUndeclaredNamespace;
+    Boolean errorOnELNotFound;
 
     // -- JspPropertyGroupDescriptor --
 
@@ -97,6 +98,10 @@ public class JspPropertyGroup implements JspPropertyGroupDescriptor {
 
     @Override public String getErrorOnUndeclaredNamespace() {
         return (errorOnUndeclaredNamespace == null) ? null : errorOnUndeclaredNamespace.toString();
+    }
+
+    @Override public String getErrorOnELNotFound() {
+        return (errorOnELNotFound == null) ? null : errorOnELNotFound.toString();
     }
 
 }

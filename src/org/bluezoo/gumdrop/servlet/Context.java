@@ -89,14 +89,14 @@ import javax.persistence.PersistenceContext;
 import javax.persistence.PersistenceContexts;
 import javax.persistence.PersistenceUnit;
 import javax.persistence.PersistenceUnits;
-import javax.servlet.*;
-import javax.servlet.annotation.HandlesTypes;
-import javax.servlet.annotation.MultipartConfig;
-import javax.servlet.annotation.ServletSecurity;
-import javax.servlet.annotation.WebFilter;
-import javax.servlet.annotation.WebListener;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.descriptor.JspConfigDescriptor;
+import jakarta.servlet.*;
+import jakarta.servlet.annotation.HandlesTypes;
+import jakarta.servlet.annotation.MultipartConfig;
+import jakarta.servlet.annotation.ServletSecurity;
+import jakarta.servlet.annotation.WebFilter;
+import jakarta.servlet.annotation.WebListener;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.descriptor.JspConfigDescriptor;
 import org.bluezoo.gumdrop.servlet.jsp.InMemoryJavaCompiler;
 import org.bluezoo.gumdrop.servlet.jsp.JSPCodeGenerator;
 import org.bluezoo.gumdrop.servlet.jsp.JSPDependencyTracker;
@@ -111,14 +111,14 @@ import javax.tools.JavaFileObject;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.ToolProvider;
 import java.net.URLClassLoader;
-import javax.servlet.descriptor.JspPropertyGroupDescriptor;
-import javax.servlet.http.HttpSession;
-import javax.servlet.http.HttpSessionActivationListener;
-import javax.servlet.http.HttpSessionAttributeListener;
-import javax.servlet.http.HttpSessionBindingListener;
-import javax.servlet.http.HttpSessionEvent;
-import javax.servlet.http.HttpSessionListener;
-import javax.servlet.http.MappingMatch;
+import jakarta.servlet.descriptor.JspPropertyGroupDescriptor;
+import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpSessionActivationListener;
+import jakarta.servlet.http.HttpSessionAttributeListener;
+import jakarta.servlet.http.HttpSessionBindingListener;
+import jakarta.servlet.http.HttpSessionEvent;
+import jakarta.servlet.http.HttpSessionListener;
+import jakarta.servlet.http.MappingMatch;
 import javax.xml.ws.WebServiceRef;
 import javax.xml.ws.WebServiceRefs;
 
@@ -135,7 +135,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet");
 
     private static final String SCI_SERVICE =
-            "META-INF/services/javax.servlet.ServletContainerInitializer";
+            "META-INF/services/jakarta.servlet.ServletContainerInitializer";
 
     /**
      * Filename filter for JAR files.
@@ -630,7 +630,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             tmpDir.delete(); // delete file
             tmpDir.mkdirs(); // replace by directory
             tmpDir.deleteOnExit();
-            attributes.put("javax.servlet.context.tempdir", tmpDir);
+            attributes.put("jakarta.servlet.context.tempdir", tmpDir);
         } catch (IOException e) {
             RuntimeException e2 = new RuntimeException();
             e2.initCause(e);
@@ -2409,27 +2409,27 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return null;
     }
 
-    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
-    @Override public Servlet getServlet(String name) throws ServletException {
-        return null; // deprecated
+    @SuppressWarnings("deprecation")
+    public Servlet getServlet(String name) throws ServletException {
+        return null; // deprecated, removed from Servlet API 6.0
     }
 
-    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
-    @Override public Enumeration<Servlet> getServlets() {
-        return new IteratorEnumeration<Servlet>(); // deprecated
+    @SuppressWarnings("deprecation")
+    public Enumeration<Servlet> getServlets() {
+        return new IteratorEnumeration<Servlet>(); // deprecated, removed from Servlet API 6.0
     }
 
-    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
-    @Override public Enumeration<String> getServletNames() {
-        return new IteratorEnumeration<String>(); // deprecated
+    @SuppressWarnings("deprecation")
+    public Enumeration<String> getServletNames() {
+        return new IteratorEnumeration<String>(); // deprecated, removed from Servlet API 6.0
     }
 
     @Override public void log(String msg) {
         log(msg, null);
     }
 
-    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
-    @Override public void log(Exception e, String msg) {
+    @SuppressWarnings("deprecation")
+    public void log(Exception e, String msg) {
         log(msg, e);
     }
 

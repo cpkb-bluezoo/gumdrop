@@ -29,7 +29,7 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpSession;
 
 import static org.junit.Assert.*;
 

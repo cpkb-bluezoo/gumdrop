@@ -27,7 +27,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.servlet.ServletException;
+import jakarta.servlet.ServletException;
 
 import org.xml.sax.Attributes;
 

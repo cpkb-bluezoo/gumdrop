@@ -81,7 +81,7 @@ The code generator handles all JSP elements:
 
 The generated servlet:
 
-- Extends `javax.servlet.http.HttpServlet`
+- Extends `jakarta.servlet.http.HttpServlet`
 - Implements the `_jspService(HttpServletRequest, HttpServletResponse)` method
 - Includes proper imports and class structure
 - Handles JSP page configuration (session, buffer, etc.)

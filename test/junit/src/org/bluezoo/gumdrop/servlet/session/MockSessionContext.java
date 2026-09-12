@@ -33,19 +33,19 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
-import javax.servlet.Filter;
-import javax.servlet.FilterRegistration;
-import javax.servlet.RequestDispatcher;
-import javax.servlet.Servlet;
-import javax.servlet.ServletContext;
-import javax.servlet.ServletException;
-import javax.servlet.ServletRegistration;
-import javax.servlet.SessionCookieConfig;
-import javax.servlet.SessionTrackingMode;
-import javax.servlet.descriptor.JspConfigDescriptor;
-import javax.servlet.http.HttpSessionActivationListener;
-import javax.servlet.http.HttpSessionAttributeListener;
-import javax.servlet.http.HttpSessionListener;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterRegistration;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.Servlet;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRegistration;
+import jakarta.servlet.SessionCookieConfig;
+import jakarta.servlet.SessionTrackingMode;
+import jakarta.servlet.descriptor.JspConfigDescriptor;
+import jakarta.servlet.http.HttpSessionActivationListener;
+import jakarta.servlet.http.HttpSessionAttributeListener;
+import jakarta.servlet.http.HttpSessionListener;
 
 /**
  * Mock SessionContext implementation for unit testing.
@@ -197,19 +197,16 @@ class MockSessionContext implements SessionContext {
         return null;
     }
 
-    @Override
     @SuppressWarnings("deprecation")
     public Servlet getServlet(String name) throws ServletException {
         return null;
     }
 
-    @Override
     @SuppressWarnings("deprecation")
     public Enumeration<Servlet> getServlets() {
         return Collections.emptyEnumeration();
     }
 
-    @Override
     @SuppressWarnings("deprecation")
     public Enumeration<String> getServletNames() {
         return Collections.emptyEnumeration();
@@ -219,7 +216,6 @@ class MockSessionContext implements SessionContext {
     public void log(String msg) {
     }
 
-    @Override
     @SuppressWarnings("deprecation")
     public void log(Exception exception, String msg) {
     }
@@ -414,7 +410,7 @@ class MockSessionContext implements SessionContext {
     }
 
     @Override
-    public javax.servlet.ServletRegistration.Dynamic addJspFile(String servletName, String jspFile) {
+    public jakarta.servlet.ServletRegistration.Dynamic addJspFile(String servletName, String jspFile) {
         return null;
     }
 

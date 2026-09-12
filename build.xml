@@ -27,7 +27,7 @@
   <property file='boms/versions.properties'/>
   <property name='gonzalez.jar' value='gonzalez-core-${gonzalez.version}.jar'/>
   <property name='jsonparser.jar' value='jsonparser-${jsonparser.version}.jar'/>
-  <property name='servlet.jar' value='javax.servlet-api-${javax.servlet.api.version}.jar'/>
+  <property name='servlet.jar' value='jakarta.servlet-api-${jakarta.servlet.api.version}.jar'/>
   <property name='javamail.jar' value='javax.mail-${javax.mail.version}.jar'/>
   <property name='annotation.jar' value='javax.annotation-api-${javax.annotation.api.version}.jar'/>
   <property name='ejb.jar' value='javax.ejb-api-${javax.ejb.api.version}.jar'/>
@@ -158,7 +158,7 @@
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/org/bluezoo/jsonparser/${jsonparser.version}/jsonparser-${jsonparser.version}.jar'
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
-    <get src='https://repo1.maven.org/maven2/javax/servlet/javax.servlet-api/${javax.servlet.api.version}/javax.servlet-api-${javax.servlet.api.version}.jar'
+    <get src='https://repo1.maven.org/maven2/jakarta/servlet/jakarta.servlet-api/${jakarta.servlet.api.version}/jakarta.servlet-api-${jakarta.servlet.api.version}.jar'
          dest='${lib}/${servlet.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/com/sun/mail/javax.mail/${javax.mail.version}/javax.mail-${javax.mail.version}.jar'
          dest='${lib}/${javamail.jar}' skipexisting='true'/>

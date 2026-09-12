@@ -46,7 +46,7 @@ import java.util.logging.Level;
 
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
-import javax.servlet.ServletException;
+import jakarta.servlet.ServletException;
 
 /**
  * Container for a number of web application contexts.

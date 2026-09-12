@@ -27,8 +27,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.servlet.ServletInputStream;
-import javax.servlet.ReadListener;
+import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.ReadListener;
 
 /**
  * ServletInputStream implementation for a request with async read support.

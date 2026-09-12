@@ -14,7 +14,7 @@
     <packaging>pom</packaging>
 
     <name>Gumdrop J2EE BOM</name>
-    <description>javax.* API version pins for Gumdrop servlet container builds</description>
+    <description>Jakarta EE / javax.* API version pins for Gumdrop servlet container builds</description>
     <url>https://github.com/cpkb-bluezoo/gumdrop</url>
 
     <licenses>
@@ -41,9 +41,9 @@
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>javax.servlet</groupId>
-                <artifactId>javax.servlet-api</artifactId>
-                <version>4.0.1</version>
+                <groupId>jakarta.servlet</groupId>
+                <artifactId>jakarta.servlet-api</artifactId>
+                <version>6.1.0</version>
             </dependency>
             <dependency>
                 <groupId>com.sun.mail</groupId>

@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.servlet.jsp;
 
-import javax.servlet.descriptor.JspConfigDescriptor;
-import javax.servlet.descriptor.JspPropertyGroupDescriptor;
+import jakarta.servlet.descriptor.JspConfigDescriptor;
+import jakarta.servlet.descriptor.JspPropertyGroupDescriptor;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;

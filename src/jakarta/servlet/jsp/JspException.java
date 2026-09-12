@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package javax.servlet.jsp;
+package jakarta.servlet.jsp;
 
 /**
  * Basic JSP Exception for Gumdrop JSP support.

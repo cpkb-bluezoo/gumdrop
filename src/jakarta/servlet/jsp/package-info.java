@@ -1,6 +1,6 @@
 /*
- * Taglib.java
- * Copyright (C) 2005 Chris Burdess
+ * package-info.java
+ * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -19,28 +19,10 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.servlet;
-
-import jakarta.servlet.descriptor.TaglibDescriptor;
-
 /**
- * A <code>taglib</code> deployment descriptor definition.
+ * The standard JSP API.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see org.bluezoo.gumdrop.servlet.jsp
  */
-public class Taglib implements TaglibDescriptor {
-
-    String taglibUri;
-    String taglibLocation;
-
-    // -- TaglibDescriptor --
-
-    @Override public String getTaglibURI() {
-        return taglibUri;
-    }
-
-    @Override public String getTaglibLocation() {
-        return taglibLocation;
-    }
-
-}
+package jakarta.servlet.jsp;

@@ -40,7 +40,7 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.servlet.ReadListener;
+import jakarta.servlet.ReadListener;
 
 /**
  * HTTP request handler for the servlet container.

@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import org.junit.Before;
 import org.junit.Test;
 
-import javax.servlet.DispatcherType;
+import jakarta.servlet.DispatcherType;
 
 import static org.junit.Assert.*;
 

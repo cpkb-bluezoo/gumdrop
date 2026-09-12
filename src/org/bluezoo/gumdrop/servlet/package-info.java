@@ -46,6 +46,6 @@
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.servlet.Container
  * @see org.bluezoo.gumdrop.servlet.Context
- * @see javax.servlet.http.HttpServlet
+ * @see jakarta.servlet.http.HttpServlet
  */
 package org.bluezoo.gumdrop.servlet;

@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.servlet.session;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -142,9 +143,14 @@ public class SessionTest {
         session.setAttribute("b", 2);
         session.setAttribute("c", 3);
 
-        String[] names = session.getValueNames();
+        Enumeration<String> names = session.getAttributeNames();
+        int count = 0;
+        while (names.hasMoreElements()) {
+            names.nextElement();
+            count++;
+        }
 
-        assertEquals(3, names.length);
+        assertEquals(3, count);
     }
 
     // ===== Dirty Tracking Tests =====

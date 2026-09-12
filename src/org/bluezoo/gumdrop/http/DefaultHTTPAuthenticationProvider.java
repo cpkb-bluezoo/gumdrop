@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;

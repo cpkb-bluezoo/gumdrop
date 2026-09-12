@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import javax.servlet.http.MappingMatch;
+import jakarta.servlet.http.MappingMatch;
 
 /**
  * A filter definition/mapping pair.

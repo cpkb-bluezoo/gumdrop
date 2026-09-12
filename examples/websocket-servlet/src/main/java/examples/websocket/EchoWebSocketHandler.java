@@ -8,8 +8,8 @@
 
 package examples.websocket;
 
-import javax.servlet.http.HttpUpgradeHandler;
-import javax.servlet.http.WebConnection;
+import jakarta.servlet.http.HttpUpgradeHandler;
+import jakarta.servlet.http.WebConnection;
 import java.io.*;
 import java.util.logging.Logger;
 

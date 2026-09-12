@@ -36,8 +36,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import javax.servlet.RequestDispatcher;
-import javax.servlet.http.MappingMatch;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.http.MappingMatch;
 
 import static org.junit.Assert.*;
 

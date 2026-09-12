@@ -43,11 +43,11 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.servlet.Servlet;
-import javax.servlet.ServletOutputStream;
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.Servlet;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 
 /**
  * An HTTP response.
@@ -424,13 +424,21 @@ class Response implements HttpServletResponse {
      * @param location the redirect URL (absolute or relative)
      */
     public void sendRedirect(String location) throws IOException {
+        sendRedirect(location, 302, true);
+    }
+
+    @Override
+    public void sendRedirect(String location, int sc, boolean clearBody) throws IOException {
         // Convert relative URIs to absolute
         URI uri = URI.create(location);
         if (!uri.isAbsolute()) {
             URI requestUri = request.getURI();
             uri = requestUri.resolve(uri);
         }
-        statusCode = 302;
+        if (clearBody && !committed) {
+            resetBuffer();
+        }
+        statusCode = sc;
         setHeader("Location", uri.toString());
         setContentLength(0);
         commit();
@@ -770,7 +778,7 @@ class Response implements HttpServletResponse {
      * @return a new PushBuilder instance, or null if server push is not supported
      * @since Servlet 4.0
      */
-    public javax.servlet.http.PushBuilder getPushBuilder() {
+    public jakarta.servlet.http.PushBuilder getPushBuilder() {
         return request.newPushBuilder();
     }
 

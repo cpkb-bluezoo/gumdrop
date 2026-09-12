@@ -23,10 +23,10 @@ package org.bluezoo.gumdrop.servlet.session;
 
 import java.util.Collection;
 
-import javax.servlet.ServletContext;
-import javax.servlet.http.HttpSessionActivationListener;
-import javax.servlet.http.HttpSessionAttributeListener;
-import javax.servlet.http.HttpSessionListener;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.http.HttpSessionActivationListener;
+import jakarta.servlet.http.HttpSessionAttributeListener;
+import jakarta.servlet.http.HttpSessionListener;
 
 /**
  * Interface providing session management services from a servlet context.

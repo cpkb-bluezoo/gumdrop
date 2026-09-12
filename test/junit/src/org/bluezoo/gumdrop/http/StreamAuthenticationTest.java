@@ -34,7 +34,7 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Base64;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import static org.junit.Assert.*;
 

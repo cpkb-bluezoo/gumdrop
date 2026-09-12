@@ -42,10 +42,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.servlet.http.Part;
+import jakarta.servlet.http.Part;
 
 /**
- * Implementation of {@link javax.servlet.http.Part} for multipart/form-data handling.
+ * Implementation of {@link jakarta.servlet.http.Part} for multipart/form-data handling.
  * Stores part headers and body content, using memory for small parts and
  * temporary files for parts exceeding the configured threshold.
  *

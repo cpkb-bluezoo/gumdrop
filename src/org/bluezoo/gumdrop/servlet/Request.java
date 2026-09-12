@@ -51,8 +51,8 @@ import org.bluezoo.gumdrop.auth.Realm;
 import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.*;
-import javax.servlet.*;
-import javax.servlet.http.*;
+import jakarta.servlet.*;
+import jakarta.servlet.http.*;
 
 /**
  * A single HTTP request, from the point of view of the servlet.
@@ -101,6 +101,9 @@ class Request implements HttpServletRequest {
     InputStreamState inputStreamState = InputStreamState.NONE;
     Collection<Part> parts;
 
+    private final String requestId = Integer.toHexString(System.identityHashCode(this));
+    private transient ServletConnection servletConnection;
+
     Request(ServletHandler handler, int bufferSize, String method, String requestTarget, Headers headers,
             RequestBodyStream bodyStream) throws IOException {
         this.handler = handler;
@@ -136,11 +139,11 @@ class Request implements HttpServletRequest {
                 }
             }
             X509Certificate[] array = x509.toArray(new X509Certificate[x509.size()]);
-            attributes.put("javax.servlet.request.X509Certificate", array);
+            attributes.put("jakarta.servlet.request.X509Certificate", array);
         }
-        attributes.put("javax.servlet.request.cipher_suite", cipherSuite);
+        attributes.put("jakarta.servlet.request.cipher_suite", cipherSuite);
         if (keySize > 0) {
-            attributes.put("javax.servlet.request.key_size", Integer.valueOf(keySize));
+            attributes.put("jakarta.servlet.request.key_size", Integer.valueOf(keySize));
         }
     }
 
@@ -458,7 +461,6 @@ class Request implements HttpServletRequest {
         return Boolean.FALSE == sessionType;
     }
 
-    @Override
     @SuppressWarnings("deprecation")
     public boolean isRequestedSessionIdFromUrl() {
         return isRequestedSessionIdFromURL();
@@ -1124,7 +1126,6 @@ class Request implements HttpServletRequest {
         return context.getRequestDispatcher(path);
     }
 
-    @Override
     @SuppressWarnings("deprecation")
     public String getRealPath(String path) {
         // Convert to absolute path
@@ -1284,6 +1285,25 @@ class Request implements HttpServletRequest {
             }
         }
         return text;
+    }
+
+    @Override
+    public String getRequestId() {
+        return requestId;
+    }
+
+    @Override
+    public String getProtocolRequestId() {
+        return "";
+    }
+
+    @Override
+    public ServletConnection getServletConnection() {
+        ServletConnection conn = servletConnection;
+        if (conn == null) {
+            servletConnection = conn = new RequestServletConnection(this);
+        }
+        return conn;
     }
 
     // -- Debugging --

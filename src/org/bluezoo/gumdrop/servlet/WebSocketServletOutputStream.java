@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import javax.servlet.WriteListener;
-import javax.servlet.ServletOutputStream;
+import jakarta.servlet.WriteListener;
+import jakarta.servlet.ServletOutputStream;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

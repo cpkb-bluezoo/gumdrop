@@ -356,8 +356,8 @@ public class DeploymentDescriptorParserTest {
         parse(xml);
         
         FilterMapping mapping = descriptor.filterMappings.get(0);
-        assertTrue(mapping.dispatchers.contains(javax.servlet.DispatcherType.REQUEST));
-        assertTrue(mapping.dispatchers.contains(javax.servlet.DispatcherType.FORWARD));
+        assertTrue(mapping.dispatchers.contains(jakarta.servlet.DispatcherType.REQUEST));
+        assertTrue(mapping.dispatchers.contains(jakarta.servlet.DispatcherType.FORWARD));
     }
 
     @Test

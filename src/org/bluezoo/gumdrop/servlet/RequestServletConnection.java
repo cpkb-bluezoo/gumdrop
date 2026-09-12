@@ -1,5 +1,5 @@
 /*
- * package-info.java
+ * RequestServletConnection.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,10 +19,40 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+package org.bluezoo.gumdrop.servlet;
+
+import jakarta.servlet.ServletConnection;
+
 /**
- * The standard JSP API.
+ * {@link ServletConnection} view of the HTTP connection for a servlet request.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.servlet.jsp
  */
-package javax.servlet.jsp;
+final class RequestServletConnection implements ServletConnection {
+
+    private final Request request;
+
+    RequestServletConnection(Request request) {
+        this.request = request;
+    }
+
+    @Override
+    public String getConnectionId() {
+        return Integer.toHexString(System.identityHashCode(request.handler));
+    }
+
+    @Override
+    public String getProtocol() {
+        return request.getProtocol();
+    }
+
+    @Override
+    public String getProtocolConnectionId() {
+        return request.getProtocolRequestId();
+    }
+
+    @Override
+    public boolean isSecure() {
+        return request.isSecure();
+    }
+}
