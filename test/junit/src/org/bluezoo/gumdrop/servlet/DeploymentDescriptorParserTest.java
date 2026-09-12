@@ -629,6 +629,24 @@ public class DeploymentDescriptorParserTest {
         assertEquals(1, descriptor.welcomeFiles.size());
     }
 
+    @Test
+    public void testParseJakartaWebApp61() throws Exception {
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                "<web-app xmlns=\"https://jakarta.ee/xml/ns/jakartaee\"\n" +
+                "         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n" +
+                "         xsi:schemaLocation=\"https://jakarta.ee/xml/ns/jakartaee\n" +
+                "                             https://jakarta.ee/xml/ns/jakartaee/web-app_6_1.xsd\"\n" +
+                "         version=\"6.1\">\n" +
+                "  <display-name>Jakarta 6.1 App</display-name>\n" +
+                "</web-app>";
+
+        parse(xml);
+
+        assertEquals(6, descriptor.majorVersion);
+        assertEquals(1, descriptor.minorVersion);
+        assertEquals("Jakarta 6.1 App", descriptor.displayName);
+    }
+
     // ===== Helper Methods =====
 
     private void parse(String xml) throws IOException, SAXException {

@@ -52,7 +52,7 @@ For a pure async microservice without servlets:
 - gumdrop.jar
 - gonzalez-core-1.2.0.jar
 - jsonparser-1.3.jar
-- jakarta.servlet-api-4.0.1.jar (95 KB)
+- jakarta.servlet-api-6.1.0.jar (95 KB)
 - javax.mail-1.6.2.jar (659 KB)
 - javax.annotation-api-1.3.2.jar (27 KB)
 - javax.ejb-api-3.2.2.jar (64 KB)

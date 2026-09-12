@@ -1,6 +1,6 @@
 # HTTP Trailer Fields Example
 
-This example demonstrates the **Servlet 4.0 HTTP trailer fields feature** implemented in Gumdrop server.
+This example demonstrates **HTTP trailer fields** (introduced in Servlet 4.0) on Gumdrop's Jakarta Servlet 6.1 container.
 
 ## What are HTTP Trailer Fields?
 
@@ -72,9 +72,9 @@ response.setTrailerFields(() -> {
 - Trailer fields work with both HTTP/2 and HTTP/1.1 chunked encoding
 - Empty or null trailer maps are handled gracefully
 
-## Servlet 4.0 Compliance
+## Trailer fields API
 
-This implementation provides full **Servlet 4.0 trailer fields support**:
+Gumdrop implements the full **trailer fields** API:
 
 - ✅ `HttpServletResponse.setTrailerFields(Supplier<Map<String,String>>)`
 - ✅ `HttpServletResponse.getTrailerFields()`  

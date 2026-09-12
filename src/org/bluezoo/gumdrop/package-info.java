@@ -26,7 +26,7 @@
  * implementing HTTP/1.1, HTTP/2, and HTTP/3 (with WebSocket over all
  * three), SMTP, POP3, IMAP, FTP, LDAP, DNS (including DNS-over-TLS,
  * DNS-over-QUIC, and multicast DNS/DNS-SD), MQTT, AMQP 0-9-1, Redis,
- * gRPC, SOCKS, and WebDAV, plus a Servlet 4.0 container. Most protocols
+ * gRPC, SOCKS, and WebDAV, plus a Jakarta Servlet 6.1 container. Most protocols
  * are implemented on both the server and client side.
  *
  * <h2>Architecture</h2>
@@ -68,7 +68,7 @@
  *   <li>{@link org.bluezoo.gumdrop.redis.client} - Redis client</li>
  *   <li>{@link org.bluezoo.gumdrop.grpc} - gRPC</li>
  *   <li>{@link org.bluezoo.gumdrop.socks} - SOCKS proxy</li>
- *   <li>{@link org.bluezoo.gumdrop.servlet} - Servlet 4.0 container</li>
+ *   <li>{@link org.bluezoo.gumdrop.servlet} - Jakarta Servlet 6.1 container</li>
  *   <li>{@link org.bluezoo.gumdrop.webdav} - static file serving and WebDAV</li>
  *   <li>{@link org.bluezoo.gumdrop.auth} - authentication realms and SASL</li>
  *   <li>{@link org.bluezoo.gumdrop.telemetry} - OpenTelemetry tracing and metrics</li>

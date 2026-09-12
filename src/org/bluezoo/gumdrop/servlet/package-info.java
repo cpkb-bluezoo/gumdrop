@@ -20,7 +20,7 @@
  */
 
 /**
- * Servlet 4.0 (JSR 369) container, deploying and running Java web
+ * Servlet 6.1 (Jakarta Servlet) container, deploying and running Java web
  * applications on top of a gumdrop HTTP service.
  *
  * <p>{@link org.bluezoo.gumdrop.servlet.Container} manages the deployed
@@ -29,10 +29,11 @@
  * org.bluezoo.gumdrop.servlet.Request}/{@link
  * org.bluezoo.gumdrop.servlet.Response} implement {@code
  * HttpServletRequest}/{@code HttpServletResponse} over gumdrop's HTTP
- * layer, so servlets get HTTP/2 server push and 1xx informational
- * responses without any servlet-side awareness of protocol version.
- * Applications deploy as exploded {@code WEB-INF} directories, WAR
- * files, or programmatic {@code ServletContainerInitializer} registration.
+ * layer, so servlets get HTTP/2 server push, 1xx informational
+ * responses, and Servlet 6.0/6.1 request metadata without servlet-side
+ * awareness of protocol version. Applications deploy as exploded {@code
+ * WEB-INF} directories, WAR files, or programmatic {@code
+ * ServletContainerInitializer} registration.
  *
  * <h2>Subpackages</h2>
  *

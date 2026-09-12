@@ -1768,11 +1768,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     @Override public int getMajorVersion() {
-        return 4;
+        return 6;
     }
 
     @Override public int getMinorVersion() {
-        return 0;
+        return 1;
     }
 
     @Override public String getMimeType(String file) {

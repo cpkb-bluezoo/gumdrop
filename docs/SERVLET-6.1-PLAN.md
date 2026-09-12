@@ -57,12 +57,12 @@ Tests: `Servlet61ApiTest`, `SessionTest.testGetAccessorAllowsAccessOutsideReques
 
 ---
 
-## Phase 3 — Deployment descriptors and docs
+## Phase 3 — Deployment descriptors and docs ✓
 
-- Validate `web-app` version 6.1 parsing (existing major/minor parser)
+- Validate `web-app` version 6.1 parsing (existing major/minor parser) — `DeploymentDescriptorParserTest.testParseJakartaWebApp61`
 - Update `web/servlet.html`, `package-info.java`, hero copy: Servlet **6.1** not 4.0
-- Update examples under `examples/servlet-*`
-- Optional: spec-section checklist / TCK-oriented tracking issue
+- Update examples under `examples/servlet-*` (READMEs for server push and trailer fields)
+- Optional: spec-section checklist / TCK-oriented tracking issue (deferred)
 
 ---
 

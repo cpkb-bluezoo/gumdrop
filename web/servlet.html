@@ -34,7 +34,7 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-Gumdrop provides a complete, conformant Java Servlet 4.0 container as part
+Gumdrop provides a complete Jakarta Servlet 6.1 container as part
 of its multiserver framework. This document describes the architecture,
 configuration, and features of the servlet container.
 </p>
@@ -43,7 +43,7 @@ configuration, and features of the servlet container.
 <ul>
 <li><a href="#architecture">Architecture</a></li>
 <li><a href="#async">Asynchronous Processing</a></li>
-<li><a href="#servlet4">Servlet 4.0 Features</a></li>
+<li><a href="#features">HTTP and Servlet Features</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#clustering">Cluster Session Replication</a></li>
 <li><a href="#hot-deploy">Hot Deployment</a></li>
@@ -274,20 +274,44 @@ Note that all filters in the filter chain must also have
 <code>async-supported=true</code> for the servlet to use async processing.
 </p>
 
-<h3 id="servlet4">Servlet 4.0 Features</h3>
+<h3 id="features">HTTP and Servlet Features</h3>
 
 <p>
-Gumdrop implements the Servlet 4.0 specification, providing modern HTTP features
-that leverage HTTP/3 and HTTP/2 capabilities. These features work transparently
+Gumdrop implements the Jakarta Servlet 6.1 specification on top of its
+HTTP/1.1, HTTP/2, and HTTP/3 stack. Modern HTTP features work transparently
 with Gumdrop&rsquo;s <a href="http.html#server-handler">HTTP Server Handler API</a>.
 </p>
 
-<h4>HTTP/2 Server Push (PushBuilder)</h4>
+<h4 id="servlet61">Servlet 6.0 and 6.1 APIs</h4>
+
+<p>
+Beyond the Servlet 4.0 baseline (server push, trailer fields, HTTP upgrade),
+the container exposes current-spec request and session APIs:
+</p>
+
+<ul>
+<li><code>getRequestId()</code>, <code>getProtocolRequestId()</code>, and
+<code>getServletConnection()</code> on every request</li>
+<li><code>sendRedirect(location, statusCode, clearBody)</code> for controlled
+redirect responses</li>
+<li>Error dispatch attributes <code>jakarta.servlet.error.method</code> and
+<code>jakarta.servlet.error.query_string</code></li>
+<li><code>jakarta.servlet.request.secure_protocol</code> on TLS/QUIC requests
+(from negotiated protocol, e.g. <code>TLSv1.3</code>)</li>
+<li><code>HttpSession.getAccessor()</code> for session access outside an active
+request (WebSocket handlers, async callbacks)</li>
+<li><code>read(ByteBuffer)</code> / <code>write(ByteBuffer)</code> on servlet
+streams</li>
+</ul>
+
+<h4>HTTP/2 Server Push (PushBuilder, deprecated)</h4>
 
 <p>
 Server push allows the server to proactively send resources to the client
 before they are explicitly requested. This is particularly effective for
 pushing CSS, JavaScript, or images that the server knows the client will need.
+<code>PushBuilder</code> remains supported but is deprecated since Servlet 6.0
+because HTTP/2 server push is rarely used in modern deployments.
 </p>
 
 <pre>
@@ -684,7 +708,9 @@ Session data is preserved across redeployments when possible.
 
 <p>
 Gumdrop supports the standard <code>web.xml</code> deployment descriptor
-format through Servlet 4.0, including:
+format through Jakarta Servlet 6.1 (<code>version="6.1"</code> with the
+<code>https://jakarta.ee/xml/ns/jakartaee</code> namespace, or earlier
+<code>javaee</code> schemas for backward compatibility), including:
 </p>
 
 <h4>Core Elements</h4>
