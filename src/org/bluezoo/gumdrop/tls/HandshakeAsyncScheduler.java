@@ -8,42 +8,44 @@ package org.bluezoo.gumdrop.tls;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executor;
 
 /**
- * Queues handshake starts and messages while a {@link TlsHandshakeAsyncOffload}
+ * Queues handshake starts and messages while a {@link HandshakeAsyncOffload}
  * batch is in flight, then drains the queue from the completion handler.
  */
-final class HandshakeAsyncScheduler {
+public final class HandshakeAsyncScheduler {
 
-    interface Runner {
+    /**
+     * Handshake steps invoked on a crypto thread by {@link HandshakeAsyncOffload}.
+     */
+    public interface Runner {
         void runStart();
 
         void runMessages(List<byte[]> messages);
     }
 
-    private final TlsHandshakeAsyncOffload offload;
+    private final HandshakeAsyncOffload offload;
     private final Runner runner;
-    private final TlsHandshakeAsyncOffload.FailureHandler onFailure;
+    private final HandshakeAsyncOffload.FailureHandler onFailure;
     private final ArrayDeque<byte[]> pendingMessages = new ArrayDeque<byte[]>();
     private final ArrayList<byte[]> singleMessageBatch = new ArrayList<byte[]>(1);
     private final ArrayList<byte[]> drainBatch = new ArrayList<byte[]>();
-    private final TlsHandshakeAsyncOffload.BatchProcessor startBatch =
-            new TlsHandshakeAsyncOffload.BatchProcessor() {
+    private final HandshakeAsyncOffload.BatchProcessor startBatch =
+            new HandshakeAsyncOffload.BatchProcessor() {
                 @Override
                 public void process() {
                     runner.runStart();
                 }
             };
-    private final TlsHandshakeAsyncOffload.BatchProcessor messageBatch =
-            new TlsHandshakeAsyncOffload.BatchProcessor() {
+    private final HandshakeAsyncOffload.BatchProcessor messageBatch =
+            new HandshakeAsyncOffload.BatchProcessor() {
                 @Override
                 public void process() {
                     runner.runMessages(activeBatch);
                 }
             };
-    private final TlsHandshakeAsyncOffload.CompletionHandler drainHandler =
-            new TlsHandshakeAsyncOffload.CompletionHandler() {
+    private final HandshakeAsyncOffload.CompletionHandler drainHandler =
+            new HandshakeAsyncOffload.CompletionHandler() {
                 @Override
                 public boolean onBatchDone() {
                     if (pendingStart) {
@@ -67,30 +69,30 @@ final class HandshakeAsyncScheduler {
     private boolean pendingStart;
     private List<byte[]> activeBatch;
 
-    HandshakeAsyncScheduler(Executor loopExecutor, Runner runner,
-            TlsHandshakeAsyncOffload.FailureHandler onFailure) {
+    public HandshakeAsyncScheduler(HandshakeAsyncOffload offload, Runner runner,
+            HandshakeAsyncOffload.FailureHandler onFailure) {
+        this.offload = offload;
         this.runner = runner;
         this.onFailure = onFailure;
-        this.offload = loopExecutor != null ? new TlsHandshakeAsyncOffload(loopExecutor) : null;
     }
 
-    boolean isEnabled() {
+    public boolean isEnabled() {
         return offload != null;
     }
 
-    boolean isDeferring() {
+    public boolean isDeferring() {
         return offload != null && offload.isDeferring();
     }
 
-    Object lock() {
+    public Object lock() {
         return offload != null ? offload.lock() : this;
     }
 
-    boolean isBusy() {
+    public boolean isBusy() {
         return offload != null && offload.isBusy();
     }
 
-    void dispatch(Runnable call) {
+    public void dispatch(Runnable call) {
         if (offload != null) {
             offload.dispatch(call);
         } else {
@@ -98,7 +100,7 @@ final class HandshakeAsyncScheduler {
         }
     }
 
-    void scheduleStart() {
+    public void scheduleStart() {
         if (offload == null) {
             runner.runStart();
             return;
@@ -112,13 +114,13 @@ final class HandshakeAsyncScheduler {
         }
     }
 
-    void scheduleMessage(byte[] message) {
+    public void scheduleMessage(byte[] message) {
         singleMessageBatch.clear();
         singleMessageBatch.add(message);
         scheduleMessages(singleMessageBatch);
     }
 
-    void scheduleMessages(List<byte[]> messages) {
+    public void scheduleMessages(List<byte[]> messages) {
         if (offload == null) {
             runner.runMessages(messages);
             return;

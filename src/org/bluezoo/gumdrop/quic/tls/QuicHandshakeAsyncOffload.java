@@ -25,7 +25,7 @@ import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.tls.TlsHandshakeAsyncOffload;
+import org.bluezoo.gumdrop.TlsHandshakeAsyncOffload;
 
 /**
  * QUIC-facing wrapper around {@link TlsHandshakeAsyncOffload}: same offload

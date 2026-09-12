@@ -32,6 +32,7 @@ import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.AlertDescription;
 import org.bluezoo.gumdrop.tls.Dtls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Dtls12HelloVerify;
@@ -239,7 +240,7 @@ final class Dtls12Session implements TlsRecordSink {
         if (cookie != null) {
             base.setDtlsCookie(cookie);
         }
-        engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize(), loopExecutor(endpoint));
+        engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize(), handshakeOffload(endpoint));
         if (config.getRole() == HandshakeRole.CLIENT) {
             engine.setHelloVerifyCallback(new Dtls12RecordEngine.HelloVerifyCallback() {
                 @Override
@@ -256,7 +257,7 @@ final class Dtls12Session implements TlsRecordSink {
         Tls12HandshakeConfig base = config.copyBaseForEngine();
         base.setDtlsClientRandom(preservedRandom);
         base.setDtlsCookie(cookieFromServer);
-        engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize(), loopExecutor(endpoint));
+        engine = new Dtls12RecordEngine(base, config.getMaxFragmentSize(), handshakeOffload(endpoint));
         engine.setHelloVerifyCallback(new Dtls12RecordEngine.HelloVerifyCallback() {
             @Override
             public void onHelloVerifyRequest(byte[] ignored) {
@@ -353,6 +354,10 @@ final class Dtls12Session implements TlsRecordSink {
         retransmit.onProgress();
         flightBuilder.clear();
         endpoint.onDtlsSessionFailed(remoteAddress, new IOException(reason));
+    }
+
+    private static HandshakeAsyncOffload handshakeOffload(final UDPEndpoint endpoint) {
+        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint));
     }
 
     private static Executor loopExecutor(final UDPEndpoint endpoint) {

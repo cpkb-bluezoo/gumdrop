@@ -67,11 +67,11 @@ public final class Dtls12HelloVerify {
 
     public static byte[] buildHelloVerifyRequestDatagram(byte[] cookie) {
         WireWriter body = new WireWriter();
-        body.u16((Dtls12RecordEngine.DTLS_VERSION_MAJOR << 8) | Dtls12RecordEngine.DTLS_VERSION_MINOR);
+        body.u16((Dtls12RecordFormat.DTLS_VERSION_MAJOR << 8) | Dtls12RecordFormat.DTLS_VERSION_MINOR);
         body.opaque8(cookie);
         byte[] messageBody = body.toByteArray();
-        byte[] fragment = new byte[Dtls12RecordEngine.FRAGMENT_HEADER_LEN + messageBody.length];
-        fragment[0] = (byte) Dtls12RecordEngine.HANDSHAKE_TYPE_HELLO_VERIFY_REQUEST;
+        byte[] fragment = new byte[Dtls12RecordFormat.FRAGMENT_HEADER_LEN + messageBody.length];
+        fragment[0] = (byte) Dtls12RecordFormat.HANDSHAKE_TYPE_HELLO_VERIFY_REQUEST;
         fragment[1] = (byte) ((messageBody.length >> 16) & 0xff);
         fragment[2] = (byte) ((messageBody.length >> 8) & 0xff);
         fragment[3] = (byte) (messageBody.length & 0xff);
@@ -79,15 +79,15 @@ public final class Dtls12HelloVerify {
         fragment[9] = (byte) ((messageBody.length >> 16) & 0xff);
         fragment[10] = (byte) ((messageBody.length >> 8) & 0xff);
         fragment[11] = (byte) (messageBody.length & 0xff);
-        System.arraycopy(messageBody, 0, fragment, Dtls12RecordEngine.FRAGMENT_HEADER_LEN, messageBody.length);
+        System.arraycopy(messageBody, 0, fragment, Dtls12RecordFormat.FRAGMENT_HEADER_LEN, messageBody.length);
 
-        byte[] record = new byte[Dtls12RecordEngine.RECORD_HEADER_LEN + fragment.length];
+        byte[] record = new byte[Dtls12RecordFormat.RECORD_HEADER_LEN + fragment.length];
         record[0] = 22;
-        record[1] = (byte) Dtls12RecordEngine.DTLS_VERSION_MAJOR;
-        record[2] = (byte) Dtls12RecordEngine.DTLS_VERSION_MINOR;
+        record[1] = (byte) Dtls12RecordFormat.DTLS_VERSION_MAJOR;
+        record[2] = (byte) Dtls12RecordFormat.DTLS_VERSION_MINOR;
         record[11] = (byte) ((fragment.length >> 8) & 0xff);
         record[12] = (byte) (fragment.length & 0xff);
-        System.arraycopy(fragment, 0, record, Dtls12RecordEngine.RECORD_HEADER_LEN, fragment.length);
+        System.arraycopy(fragment, 0, record, Dtls12RecordFormat.RECORD_HEADER_LEN, fragment.length);
         return record;
     }
 
@@ -97,18 +97,18 @@ public final class Dtls12HelloVerify {
      * @return parsed values, or null if not a single complete ClientHello
      */
     public static ClientHelloFields parseClientHelloFields(byte[] datagram) {
-        if (datagram.length < Dtls12RecordEngine.RECORD_HEADER_LEN + Dtls12RecordEngine.FRAGMENT_HEADER_LEN + 34) {
+        if (datagram.length < Dtls12RecordFormat.RECORD_HEADER_LEN + Dtls12RecordFormat.FRAGMENT_HEADER_LEN + 34) {
             return null;
         }
         if ((datagram[0] & 0xff) != 22) {
             return null;
         }
         int length = ((datagram[11] & 0xff) << 8) | (datagram[12] & 0xff);
-        if (Dtls12RecordEngine.RECORD_HEADER_LEN + length > datagram.length) {
+        if (Dtls12RecordFormat.RECORD_HEADER_LEN + length > datagram.length) {
             return null;
         }
-        byte[] fragment = Arrays.copyOfRange(datagram, Dtls12RecordEngine.RECORD_HEADER_LEN,
-                Dtls12RecordEngine.RECORD_HEADER_LEN + length);
+        byte[] fragment = Arrays.copyOfRange(datagram, Dtls12RecordFormat.RECORD_HEADER_LEN,
+                Dtls12RecordFormat.RECORD_HEADER_LEN + length);
         if ((fragment[0] & 0xff) != 1) {
             return null;
         }
@@ -119,8 +119,8 @@ public final class Dtls12HelloVerify {
             return null;
         }
         try {
-            WireReader body = new WireReader(Arrays.copyOfRange(fragment, Dtls12RecordEngine.FRAGMENT_HEADER_LEN,
-                    Dtls12RecordEngine.FRAGMENT_HEADER_LEN + fragmentLength));
+            WireReader body = new WireReader(Arrays.copyOfRange(fragment, Dtls12RecordFormat.FRAGMENT_HEADER_LEN,
+                    Dtls12RecordFormat.FRAGMENT_HEADER_LEN + fragmentLength));
             body.u16();
             byte[] random = body.bytes(32);
             body.opaque8();

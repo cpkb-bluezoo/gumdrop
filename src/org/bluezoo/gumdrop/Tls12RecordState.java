@@ -26,6 +26,7 @@ import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.Tls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Tls12RecordEngine;
 import org.bluezoo.gumdrop.tls.TlsProtocolError;
@@ -67,7 +68,7 @@ final class Tls12RecordState implements TlsRecordSink {
     private ByteBuffer pendingAppData;
 
     Tls12RecordState(Tls12HandshakeConfig config, TCPEndpoint tcpEndpoint, TlsRecordState.Callback callback) {
-        this.engine = new Tls12RecordEngine(config, loopExecutor(tcpEndpoint));
+        this.engine = new Tls12RecordEngine(config, handshakeOffload(tcpEndpoint));
         this.tcpEndpoint = tcpEndpoint;
         this.callback = callback;
     }
@@ -336,6 +337,10 @@ final class Tls12RecordState implements TlsRecordSink {
             LOGGER.fine("TLS closed during " + context);
         }
         callback.onClosed();
+    }
+
+    private static HandshakeAsyncOffload handshakeOffload(final TCPEndpoint endpoint) {
+        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint));
     }
 
     private static Executor loopExecutor(final TCPEndpoint endpoint) {

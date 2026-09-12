@@ -5,6 +5,8 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
+
 /**
  * Routes {@link TlsEventSink} callbacks either directly or through pre-allocated
  * deferral slots on a connection's {@link HandshakeAsyncScheduler}. A single

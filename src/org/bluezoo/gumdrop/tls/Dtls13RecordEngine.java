@@ -9,8 +9,9 @@ import java.io.ByteArrayOutputStream;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Executor;
 
+import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
+import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
 import org.bluezoo.gumdrop.quic.packet.PacketProtection;
 import org.bluezoo.gumdrop.quic.packet.PacketProtectionException;
 import org.bluezoo.gumdrop.quic.packet.QuicAeadAlgorithm;
@@ -75,13 +76,13 @@ public final class Dtls13RecordEngine {
         this(config, maxFragmentSize, null);
     }
 
-    public Dtls13RecordEngine(Dtls13HandshakeConfig config, int maxFragmentSize, Executor loopExecutor) {
+    public Dtls13RecordEngine(Dtls13HandshakeConfig config, int maxFragmentSize, HandshakeAsyncOffload offload) {
         this.role = config.getBase().getRole();
         HandshakeConfig base = config.getBase();
         base.setMode(HandshakeMode.DTLS);
         this.engine = new HandshakeEngine(base);
         this.maxFragmentSize = Math.max(1, Math.min(maxFragmentSize, MAX_FRAGMENT));
-        this.handshakeAsync = new HandshakeAsyncScheduler(loopExecutor, handshakeRunner, handshakeFailure);
+        this.handshakeAsync = new HandshakeAsyncScheduler(offload, handshakeRunner, handshakeFailure);
         this.deferredDispatch = new Tls13DeferredDispatch(handshakeAsync, innerSink);
     }
 
@@ -229,7 +230,7 @@ public final class Dtls13RecordEngine {
         }
     }
 
-    private final class HandshakeFailureHandler implements TlsHandshakeAsyncOffload.FailureHandler {
+    private final class HandshakeFailureHandler implements HandshakeAsyncOffload.FailureHandler {
         @Override
         public void failed(Throwable error) {
             fail(innerSink.outer, AlertDescription.INTERNAL_ERROR,

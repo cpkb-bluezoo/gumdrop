@@ -26,7 +26,9 @@ import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Executor;
+
+import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
+import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
 
 /**
  * DTLS 1.2 record layer (RFC 6347) wrapping {@link Tls12HandshakeEngine}.
@@ -37,11 +39,12 @@ import java.util.concurrent.Executor;
  */
 public final class Dtls12RecordEngine {
 
-    static final int DTLS_VERSION_MAJOR = 0xfe;
-    static final int DTLS_VERSION_MINOR = 0xfd;
-    static final int RECORD_HEADER_LEN = 13;
-    static final int FRAGMENT_HEADER_LEN = 12;
-    static final int HANDSHAKE_TYPE_HELLO_VERIFY_REQUEST = 3;
+    static final int DTLS_VERSION_MAJOR = Dtls12RecordFormat.DTLS_VERSION_MAJOR;
+    static final int DTLS_VERSION_MINOR = Dtls12RecordFormat.DTLS_VERSION_MINOR;
+    static final int RECORD_HEADER_LEN = Dtls12RecordFormat.RECORD_HEADER_LEN;
+    static final int FRAGMENT_HEADER_LEN = Dtls12RecordFormat.FRAGMENT_HEADER_LEN;
+    static final int HANDSHAKE_TYPE_HELLO_VERIFY_REQUEST =
+            Dtls12RecordFormat.HANDSHAKE_TYPE_HELLO_VERIFY_REQUEST;
 
     private static final int CONTENT_CHANGE_CIPHER_SPEC = 20;
     private static final int CONTENT_ALERT = 21;
@@ -103,11 +106,11 @@ public final class Dtls12RecordEngine {
         this(config, maxFragmentSize, null);
     }
 
-    public Dtls12RecordEngine(Tls12HandshakeConfig config, int maxFragmentSize, Executor loopExecutor) {
+    public Dtls12RecordEngine(Tls12HandshakeConfig config, int maxFragmentSize, HandshakeAsyncOffload offload) {
         this.role = config.getRole();
         this.engine = new Tls12HandshakeEngine(config);
         this.maxFragmentSize = Math.max(1, Math.min(maxFragmentSize, MAX_FRAGMENT));
-        this.handshakeAsync = new HandshakeAsyncScheduler(loopExecutor, handshakeRunner, handshakeFailure);
+        this.handshakeAsync = new HandshakeAsyncScheduler(offload, handshakeRunner, handshakeFailure);
         this.deferredDispatch = new Tls12DeferredDispatch(handshakeAsync, innerSink);
     }
 
@@ -275,7 +278,7 @@ public final class Dtls12RecordEngine {
         }
     }
 
-    private final class HandshakeFailureHandler implements TlsHandshakeAsyncOffload.FailureHandler {
+    private final class HandshakeFailureHandler implements HandshakeAsyncOffload.FailureHandler {
         @Override
         public void failed(Throwable error) {
             fail(innerSink.outer, AlertDescription.INTERNAL_ERROR,

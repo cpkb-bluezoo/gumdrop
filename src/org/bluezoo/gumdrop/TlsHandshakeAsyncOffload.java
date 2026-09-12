@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.tls;
+package org.bluezoo.gumdrop;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,14 +28,19 @@ import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.CryptoExecutor;
-import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
+import org.bluezoo.gumdrop.tls.HandshakeEngine;
+import org.bluezoo.gumdrop.tls.TlsEventSink;
 
 /**
  * Runs {@link HandshakeEngine}'s handshake start and message processing --
  * key exchange, certificate validation, signatures, HKDF -- off a connection's
  * {@code SelectorLoop} thread on {@link CryptoExecutor}. Record and packet AEAD
  * stay on the loop; only the handshake state machine moves.
+ *
+ * <p>Lives in the core I/O package (not {@code org.bluezoo.gumdrop.tls}) because
+ * it depends on {@link Gumdrop} and {@link CryptoExecutor}, which compile in the
+ * {@code build-core-main} pass after the early {@code tls} compile unit.
  *
  * <p>{@link HandshakeEngine} has no delegated-task API: a single call to
  * {@link HandshakeEngine#start} or {@link HandshakeEngine#processMessage}
@@ -47,30 +52,20 @@ import org.bluezoo.gumdrop.Gumdrop;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class TlsHandshakeAsyncOffload {
+public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
 
     private static final Logger LOGGER = Logger.getLogger(TlsHandshakeAsyncOffload.class.getName());
 
-    /**
-     * Handshake work to run on a crypto thread. Failures are reported through
-     * the supplied {@link TlsEventSink}, not by throwing.
-     */
-    public interface BatchProcessor {
-        void process();
+    /** @see HandshakeAsyncOffload.BatchProcessor */
+    public interface BatchProcessor extends HandshakeAsyncOffload.BatchProcessor {
     }
 
-    /**
-     * Invoked on the loop thread once a batch and its deferred callbacks have
-     * finished. Returning true means a follow-up batch was submitted
-     * synchronously and the busy state must be preserved.
-     */
-    public interface CompletionHandler {
-        boolean onBatchDone();
+    /** @see HandshakeAsyncOffload.CompletionHandler */
+    public interface CompletionHandler extends HandshakeAsyncOffload.CompletionHandler {
     }
 
-    /** Invoked on the loop thread when delegated processing fails unexpectedly. */
-    public interface FailureHandler {
-        void failed(Throwable error);
+    /** @see HandshakeAsyncOffload.FailureHandler */
+    public interface FailureHandler extends HandshakeAsyncOffload.FailureHandler {
     }
 
     private final Executor loopExecutor;
@@ -99,6 +94,7 @@ public final class TlsHandshakeAsyncOffload {
      *
      * @return the lock object
      */
+    @Override
     public Object lock() {
         return lock;
     }
@@ -106,6 +102,7 @@ public final class TlsHandshakeAsyncOffload {
     /**
      * @return true if a batch is currently running on a crypto thread
      */
+    @Override
     public boolean isBusy() {
         synchronized (lock) {
             return taskInFlight;
@@ -116,6 +113,7 @@ public final class TlsHandshakeAsyncOffload {
      * @return true while a submitted batch is running on a crypto thread and
      *         {@link #dispatch} is queueing rather than running immediately
      */
+    @Override
     public boolean isDeferring() {
         return deferring;
     }
@@ -126,6 +124,7 @@ public final class TlsHandshakeAsyncOffload {
      *
      * @param call the callback to run or defer
      */
+    @Override
     public void dispatch(Runnable call) {
         if (deferring) {
             deferredCallbacks.add(call);
@@ -144,8 +143,10 @@ public final class TlsHandshakeAsyncOffload {
      * @param onDone invoked on the loop thread once the batch finishes
      * @param onFailure invoked on the loop thread if processing fails unexpectedly
      */
-    public void submit(final BatchProcessor processor, final CompletionHandler onDone,
-            final FailureHandler onFailure) {
+    @Override
+    public void submit(final HandshakeAsyncOffload.BatchProcessor processor,
+            final HandshakeAsyncOffload.CompletionHandler onDone,
+            final HandshakeAsyncOffload.FailureHandler onFailure) {
         synchronized (lock) {
             taskInFlight = true;
         }

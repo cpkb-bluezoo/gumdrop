@@ -28,6 +28,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
 
+import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
+import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
+
 /**
  * The TLS 1.2 record layer (RFC 5246 section 6, RFC 5288 GCM, RFC 7905
  * ChaCha20-Poly1305) for TCP: wraps {@link Tls12HandshakeEngine} with
@@ -149,14 +152,12 @@ public final class Tls12RecordEngine {
      * Creates a TCP record-layer engine with optional handshake offload.
      *
      * @param config this side's configuration
-     * @param loopExecutor marshals deferred handshake callbacks onto the
-     *                     connection's {@code SelectorLoop}; {@code null}
-     *                     runs handshake work inline (unit tests)
+     * @param offload optional handshake offload; {@code null} runs inline (unit tests)
      */
-    public Tls12RecordEngine(Tls12HandshakeConfig config, Executor loopExecutor) {
+    public Tls12RecordEngine(Tls12HandshakeConfig config, HandshakeAsyncOffload offload) {
         this.role = config.getRole();
         this.engine = new Tls12HandshakeEngine(config);
-        this.handshakeAsync = new HandshakeAsyncScheduler(loopExecutor, handshakeRunner, handshakeFailure);
+        this.handshakeAsync = new HandshakeAsyncScheduler(offload, handshakeRunner, handshakeFailure);
         this.deferredDispatch = new Tls12DeferredDispatch(handshakeAsync, innerSink);
     }
 
@@ -327,7 +328,7 @@ public final class Tls12RecordEngine {
         }
     }
 
-    private final class HandshakeFailureHandler implements TlsHandshakeAsyncOffload.FailureHandler {
+    private final class HandshakeFailureHandler implements HandshakeAsyncOffload.FailureHandler {
         @Override
         public void failed(Throwable error) {
             fail(innerSink.outer, AlertDescription.INTERNAL_ERROR,

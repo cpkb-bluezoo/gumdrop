@@ -15,6 +15,7 @@ import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.tls.HandshakeAsyncOffload;
 import org.bluezoo.gumdrop.tls.AlertDescription;
 import org.bluezoo.gumdrop.tls.Dtls13HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Dtls13RecordEngine;
@@ -177,7 +178,7 @@ final class Dtls13Session implements TlsRecordSink {
             base.setCookieValidator(new Dtls13CookieValidator(secret, remoteAddress));
         }
         Dtls13HandshakeConfig engineConfig = wrapConfig(base);
-        engine = new Dtls13RecordEngine(engineConfig, config.getMaxFragmentSize(), loopExecutor(endpoint));
+        engine = new Dtls13RecordEngine(engineConfig, config.getMaxFragmentSize(), handshakeOffload(endpoint));
     }
 
     private Dtls13HandshakeConfig wrapConfig(HandshakeConfig base) {
@@ -273,6 +274,10 @@ final class Dtls13Session implements TlsRecordSink {
         retransmit.onProgress();
         flightBuilder.clear();
         endpoint.onDtls13SessionFailed(remoteAddress, new IOException(reason));
+    }
+
+    private static HandshakeAsyncOffload handshakeOffload(final UDPEndpoint endpoint) {
+        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint));
     }
 
     private static Executor loopExecutor(final UDPEndpoint endpoint) {

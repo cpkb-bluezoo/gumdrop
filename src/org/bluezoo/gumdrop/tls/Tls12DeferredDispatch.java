@@ -5,6 +5,8 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler;
+
 /**
  * Same role as {@link Tls13DeferredDispatch} for {@link Tls12EventSink} callbacks.
  */
