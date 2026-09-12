@@ -90,6 +90,7 @@ import javax.persistence.PersistenceContexts;
 import javax.persistence.PersistenceUnit;
 import javax.persistence.PersistenceUnits;
 import javax.servlet.*;
+import javax.servlet.annotation.HandlesTypes;
 import javax.servlet.annotation.MultipartConfig;
 import javax.servlet.annotation.ServletSecurity;
 import javax.servlet.annotation.WebFilter;
@@ -132,6 +133,9 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
     static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet");
+
+    private static final String SCI_SERVICE =
+            "META-INF/services/javax.servlet.ServletContainerInitializer";
 
     /**
      * Filename filter for JAR files.
@@ -345,6 +349,12 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     boolean distributable;
     boolean initialized;
+
+    /**
+     * Application classes discovered during {@link #scan}, used to satisfy
+     * {@code @HandlesTypes} for {@link ServletContainerInitializer} processing.
+     */
+    final Set<Class<?>> scannedApplicationClasses = new LinkedHashSet<>();
 
     // TODO: EAR deployment support -- moduleName and defaultContextPath should
     // be populated from application.xml when deployed inside an EAR
@@ -610,6 +620,8 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         servletRequestListeners.clear();
         servletRequestAttributeListeners.clear();
 
+        scannedApplicationClasses.clear();
+
         contextClassLoader.reset();
 
         // Temporary working directory (SRV.3.7.1)
@@ -655,6 +667,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         if (!metadataComplete) {
             scan(parser);
         }
+        processServletContainerInitializers();
         // digest
         this.digest = parser.getDigest();
         // Set context on filterdefs, servletdefs, listenerdefs
@@ -726,22 +739,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * Scan the web application and add any web fragments or annotations.
      */
     void scan(DeploymentDescriptorParser parser) throws IOException, SAXException {
-        // Process WEB-INF/classes
-        // classes in WEB-INF/classes must be processed before any
-        // jars. See rule 2b
-        Set<String> resourcePaths = getResourcePaths("/WEB-INF/classes/", false);
-        if (resourcePaths != null) {
-            for (String resourcePath : resourcePaths) {
-                if (resourcePath.toLowerCase().endsWith(".class")) {
-                    String className = resourcePath.substring(17, resourcePath.length() - 6).replace('/', '.');
-                    InputStream in = getResourceAsStream(resourcePath);
-                    scanClass(this, className, in);
-                }
-            }
-        }
+        // Process WEB-INF/classes (recursively; classes may live in packages)
+        scanClassesDirectory(parser, this, "/WEB-INF/classes/");
         // Process WEB-INF/lib
         List<WebFragment> webFragments = new ArrayList<>();
-        resourcePaths = getResourcePaths("/WEB-INF/lib/", false);
+        Set<String> resourcePaths = getResourcePaths("/WEB-INF/lib/", false);
         if (resourcePaths != null) {
             for (String resourcePath : resourcePaths) {
                 if (resourcePath.toLowerCase().endsWith(".jar")) {
@@ -754,6 +756,161 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         // Merge them into context
         for (WebFragment webFragment : webFragments) {
             merge(webFragment);
+        }
+    }
+
+    private static final String WEB_INF_CLASSES_PREFIX = "/WEB-INF/classes/";
+
+    private void scanClassesDirectory(DeploymentDescriptorParser parser,
+            DeploymentDescriptor descriptor, String basePath)
+            throws IOException, SAXException {
+        Set<String> resourcePaths = getResourcePaths(basePath, false);
+        if (resourcePaths == null) {
+            return;
+        }
+        for (String resourcePath : resourcePaths) {
+            if (resourcePath.toLowerCase().endsWith(".class")) {
+                String className = resourcePath.substring(
+                        WEB_INF_CLASSES_PREFIX.length(),
+                        resourcePath.length() - 6).replace('/', '.');
+                InputStream in = getResourceAsStream(resourcePath);
+                scanClass(descriptor, className, in);
+            } else if (isResourceDirectory(resourcePath)) {
+                String nested = resourcePath.endsWith("/")
+                        ? resourcePath
+                        : resourcePath + "/";
+                scanClassesDirectory(parser, descriptor, nested);
+            }
+        }
+    }
+
+    private boolean isResourceDirectory(String resourcePath) {
+        if (root.isDirectory()) {
+            String entry = resourcePath.charAt(0) == '/'
+                    ? resourcePath.substring(1)
+                    : resourcePath;
+            if (File.separatorChar != '/') {
+                entry = entry.replace('/', File.separatorChar);
+            }
+            File file = new File(root, entry);
+            return file.isDirectory();
+        }
+        String entryPath = resourcePath.charAt(0) == '/'
+                ? resourcePath.substring(1)
+                : resourcePath;
+        if (!entryPath.endsWith("/")) {
+            entryPath = entryPath + "/";
+        }
+        try {
+            WarIndex index = getWarIndex();
+            Set<String> children = index.childrenByDir.get(entryPath);
+            return children != null && !children.isEmpty();
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Discovers and invokes {@link ServletContainerInitializer} implementations
+     * (Servlet spec section 8.3.2). Runs after descriptor merge and annotation
+     * scanning, before listener and servlet initialisation in {@link #init()}.
+     */
+    void processServletContainerInitializers() {
+        for (ServletContainerInitializer sci : discoverServletContainerInitializers()) {
+            Set<Class<?>> types = new LinkedHashSet<>();
+            if (!metadataComplete) {
+                HandlesTypes handlesTypes =
+                        sci.getClass().getAnnotation(HandlesTypes.class);
+                if (handlesTypes != null) {
+                    for (Class<?> handleType : handlesTypes.value()) {
+                        for (Class<?> scanned : scannedApplicationClasses) {
+                            if (handleType.isAssignableFrom(scanned)) {
+                                types.add(scanned);
+                            }
+                        }
+                    }
+                }
+            }
+            try {
+                sci.onStartup(types, this);
+            } catch (ServletException e) {
+                String message = L10N.getString("err.sci_startup");
+                message = MessageFormat.format(message, sci.getClass().getName());
+                LOGGER.log(Level.SEVERE, message, e);
+            }
+        }
+    }
+
+    private List<ServletContainerInitializer> discoverServletContainerInitializers() {
+        Set<String> providerNames = new LinkedHashSet<>();
+        try {
+            collectServiceProviders("/WEB-INF/classes/" + SCI_SERVICE, providerNames);
+            Set<String> libs = getResourcePaths("/WEB-INF/lib/", false);
+            if (libs != null) {
+                List<String> sorted = new ArrayList<>(libs);
+                Collections.sort(sorted);
+                for (String libPath : sorted) {
+                    if (!libPath.toLowerCase().endsWith(".jar")) {
+                        continue;
+                    }
+                    File file = contextClassLoader.getFile(libPath);
+                    try (JarFile jarFile = new JarFile(file)) {
+                        JarEntry entry = jarFile.getJarEntry(SCI_SERVICE);
+                        if (entry != null) {
+                            readServiceProviders(jarFile.getInputStream(entry), providerNames);
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            String message = L10N.getString("err.load_resource");
+            message = MessageFormat.format(message, SCI_SERVICE);
+            LOGGER.log(Level.SEVERE, message, e);
+        }
+        List<ServletContainerInitializer> initializers = new ArrayList<>();
+        for (String providerName : providerNames) {
+            try {
+                Class<?> t = contextClassLoader.loadClass(providerName);
+                if (!ServletContainerInitializer.class.isAssignableFrom(t)) {
+                    String message = L10N.getString("err.sci_startup");
+                    message = MessageFormat.format(message, providerName);
+                    LOGGER.log(Level.SEVERE, message);
+                    continue;
+                }
+                initializers.add((ServletContainerInitializer)
+                        t.getDeclaredConstructor().newInstance());
+            } catch (ReflectiveOperationException e) {
+                String message = L10N.getString("err.sci_startup");
+                message = MessageFormat.format(message, providerName);
+                LOGGER.log(Level.SEVERE, message, e);
+            }
+        }
+        return initializers;
+    }
+
+    private void collectServiceProviders(String resourcePath, Set<String> providers)
+            throws IOException {
+        readServiceProviders(getResourceAsStream(resourcePath), providers);
+    }
+
+    private static void readServiceProviders(InputStream in, Set<String> providers)
+            throws IOException {
+        if (in == null) {
+            return;
+        }
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                int ci = line.indexOf('#');
+                if (ci >= 0) {
+                    line = line.substring(0, ci);
+                }
+                line = line.trim();
+                if (!line.isEmpty()) {
+                    providers.add(line);
+                }
+            }
         }
     }
 
@@ -849,6 +1006,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         contextClassLoader.assign(className, in);
         try {
             Class<?> t = contextClassLoader.loadClass(className);
+            scannedApplicationClasses.add(t);
             Object target = null;
             for (Annotation annotation : t.getAnnotations()) {
                 if (annotation instanceof WebFilter) {
@@ -1054,7 +1212,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     }
                 }
             }
-        } catch (ClassNotFoundException e) {
+        } catch (ClassNotFoundException | NoClassDefFoundError e) {
             String message = L10N.getString("err.load_resource");
             message = MessageFormat.format(message, className);
             LOGGER.log(Level.SEVERE, message, e);
@@ -2376,6 +2534,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             throw new IllegalStateException();
         }
         ServletDef servletDef = new ServletDef();
+        servletDef.context = this;
         servletDef.name = servletName;
         servletDef.className = className;
         addServletDef(servletDef);
@@ -2445,6 +2604,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             throw new IllegalStateException();
         }
         FilterDef filterDef = new FilterDef();
+        filterDef.context = this;
         filterDef.name = filterName;
         filterDef.className = className;
         addFilterDef(filterDef);
