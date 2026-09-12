@@ -715,24 +715,17 @@ class Request implements HttpServletRequest {
      * @param upgradeHandler the upgrade handler to use
      * @throws ServletException if the upgrade fails
      */
-    private void performWebSocketUpgrade(HttpUpgradeHandler upgradeHandler) throws ServletException {
-        try {
-            // Get negotiated subprotocol
-            String protocol = getHeader("Sec-WebSocket-Protocol");
-            
-            // Create the WebConnection that will bridge to the servlet
-            ServletWebConnection webConnection = new ServletWebConnection(upgradeHandler, 4096);
-            
-            // Get the HTTPResponseState and perform the upgrade
-            HTTPResponseState state = handler.getState();
-            state.upgradeToWebSocket(protocol, webConnection.getEventHandler());
-            
-            // Note: The WebConnectionEventHandler.opened() will call
-            // upgradeHandler.init(webConnection) when the connection is established
-            
-        } catch (IOException e) {
-            throw new ServletException("WebSocket upgrade failed: " + e.getMessage(), e);
-        }
+    private void performWebSocketUpgrade(HttpUpgradeHandler upgradeHandler) {
+        // Get negotiated subprotocol
+        String protocol = getHeader("Sec-WebSocket-Protocol");
+
+        // Create the WebConnection that will bridge to the servlet
+        ServletWebConnection webConnection =
+                new ServletWebConnection(upgradeHandler, handler.getState(), handler);
+
+        // Perform the upgrade; WebConnectionEventHandler.opened() calls
+        // upgradeHandler.init(webConnection) when the connection is established
+        handler.getState().upgradeToWebSocket(protocol, webConnection.getEventHandler());
     }
 
     @Override public Map<String,String> getTrailerFields() {

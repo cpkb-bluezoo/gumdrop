@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
@@ -31,8 +32,6 @@ import jakarta.servlet.http.HttpUpgradeHandler;
 import jakarta.servlet.http.WebConnection;
 
 import java.io.IOException;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.logging.Level;
@@ -42,9 +41,11 @@ import java.util.logging.Logger;
  * WebConnection implementation that bridges the servlet WebSocket API
  * with Gumdrop's WebSocket implementation.
  *
- * <p>This provides the decoded message payload model: incoming WebSocket
- * messages are delivered as complete messages to the servlet's InputStream,
- * and data written to the OutputStream is sent as WebSocket messages.
+ * <p>Incoming WebSocket messages are delivered through a non-blocking
+ * {@link RequestBodyStream} (replacing a pipe that could block the
+ * SelectorLoop thread when the servlet read side was slow). Backpressure
+ * is applied via {@link HTTPResponseState#pauseRequestBody()} when the
+ * buffer reaches its high-water mark.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -53,8 +54,9 @@ class ServletWebConnection implements WebConnection {
     private static final Logger LOGGER = Logger.getLogger(ServletWebConnection.class.getName());
 
     private final HttpUpgradeHandler upgradeHandler;
-    private final PipedInputStream pipeIn;
-    private final PipedOutputStream pipeOut;
+    private final HTTPResponseState state;
+    private final ServletHandler handler;
+    private final RequestBodyStream messageStream;
     private final WebSocketServletInputStream inputStream;
     private final WebSocketServletOutputStream outputStream;
     private final WebSocketEventHandler eventHandler;
@@ -66,21 +68,35 @@ class ServletWebConnection implements WebConnection {
      * Creates a new WebConnection for the given upgrade handler.
      *
      * @param upgradeHandler the servlet's upgrade handler
-     * @param bufferSize buffer size for the pipe
-     * @throws IOException if the pipe cannot be created
+     * @param state the HTTP response state for backpressure and callbacks
+     * @param handler the servlet handler for container callback dispatch
      */
-    ServletWebConnection(HttpUpgradeHandler upgradeHandler, int bufferSize) throws IOException {
+    ServletWebConnection(HttpUpgradeHandler upgradeHandler,
+            HTTPResponseState state, ServletHandler handler) {
         this.upgradeHandler = upgradeHandler;
+        this.state = state;
+        this.handler = handler;
 
-        // Create pipe for incoming WebSocket messages
-        this.pipeOut = new PipedOutputStream();
-        this.pipeIn = new PipedInputStream(pipeOut, bufferSize);
+        this.messageStream = new RequestBodyStream();
+        messageStream.setResumeCallback(new Runnable() {
+            @Override
+            public void run() {
+                // May be called from the worker thread (inside
+                // RequestBodyStream.read()); resumeRequestBody() must
+                // run on the SelectorLoop thread.
+                if (ServletWebConnection.this.state != null) {
+                    ServletWebConnection.this.state.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            ServletWebConnection.this.state.resumeRequestBody();
+                        }
+                    });
+                }
+            }
+        });
 
-        // Create servlet streams
-        this.inputStream = new WebSocketServletInputStream(pipeIn);
+        this.inputStream = new WebSocketServletInputStream(handler, messageStream);
         this.outputStream = new WebSocketServletOutputStream(this);
-
-        // Create event handler that delivers messages to the pipe
         this.eventHandler = new WebConnectionEventHandler();
     }
 
@@ -143,20 +159,10 @@ class ServletWebConnection implements WebConnection {
         }
         closed = true;
 
-        // Close the pipe
-        try {
-            pipeOut.close();
-        } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Error closing pipe output", e);
-        }
+        messageStream.finish();
+        inputStream.dispatchDataAvailable();
+        messageStream.close();
 
-        try {
-            pipeIn.close();
-        } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Error closing pipe input", e);
-        }
-
-        // Close the WebSocket session
         if (session != null && session.isOpen()) {
             try {
                 session.close();
@@ -185,49 +191,30 @@ class ServletWebConnection implements WebConnection {
         @Override
         public void opened(WebSocketSession session) {
             sessionOpened(session);
-            // Initialize the upgrade handler on a worker thread
             upgradeHandler.init(ServletWebConnection.this);
         }
 
         @Override
         public void textMessageReceived(WebSocketSession session,
                                         String message) {
-            try {
-                byte[] data = message.getBytes(StandardCharsets.UTF_8);
-                pipeOut.write(data);
-                pipeOut.flush();
-            } catch (IOException e) {
-                if (!closed) {
-                    LOGGER.log(Level.WARNING, "Error writing message to pipe", e);
-                }
-            }
+            deliverMessage(message.getBytes(StandardCharsets.UTF_8));
         }
 
         @Override
         public void binaryMessageReceived(WebSocketSession session,
                                           ByteBuffer data) {
-            try {
-                byte[] bytes = new byte[data.remaining()];
-                data.get(bytes);
-                pipeOut.write(bytes);
-                pipeOut.flush();
-            } catch (IOException e) {
-                if (!closed) {
-                    LOGGER.log(Level.WARNING, "Error writing binary message to pipe", e);
-                }
-            }
+            byte[] bytes = new byte[data.remaining()];
+            data.get(bytes);
+            deliverMessage(bytes);
         }
 
         @Override
         public void closed(int code, String reason) {
-            try {
-                // Close pipe to signal EOF
-                pipeOut.close();
-            } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Error closing pipe on WebSocket close", e);
+            if (!closed) {
+                messageStream.finish();
+                inputStream.dispatchDataAvailable();
             }
 
-            // Destroy the upgrade handler
             try {
                 upgradeHandler.destroy();
             } catch (Exception e) {
@@ -238,6 +225,10 @@ class ServletWebConnection implements WebConnection {
         @Override
         public void error(Throwable cause) {
             LOGGER.log(Level.WARNING, "WebSocket error", cause);
+            if (!closed) {
+                messageStream.fail(new IOException("WebSocket error", cause));
+                inputStream.dispatchDataAvailable();
+            }
             try {
                 close();
             } catch (IOException e) {
@@ -246,5 +237,14 @@ class ServletWebConnection implements WebConnection {
         }
     }
 
-}
+    private void deliverMessage(byte[] data) {
+        if (closed || data.length == 0) {
+            return;
+        }
+        if (messageStream.offer(data) && state != null) {
+            state.pauseRequestBody();
+        }
+        inputStream.dispatchDataAvailable();
+    }
 
+}
