@@ -197,6 +197,13 @@ final class RequestBodyStream extends InputStream {
         }
     }
 
+    /** True once the request body has been fully received from the network. */
+    boolean isEof() {
+        synchronized (lock) {
+            return eof;
+        }
+    }
+
     @Override
     public void close() {
         synchronized (lock) {

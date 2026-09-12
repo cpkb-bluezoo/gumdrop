@@ -398,8 +398,23 @@ class Response implements HttpServletResponse {
 
     // Helper methods for handler interaction
 
-    void writeBody(ByteBuffer buf) {
+    void writeBody(ByteBuffer buf) throws IOException {
         handler.writeBody(buf);
+    }
+
+    boolean isResponseWritable() {
+        return handler.isResponseWritable();
+    }
+
+    boolean isNonBlockingWrite() {
+        return outputStream instanceof ServletOutputStreamWrapper
+                && ((ServletOutputStreamWrapper) outputStream).hasWriteListener();
+    }
+
+    void notifyWritePossible() {
+        if (outputStream instanceof ServletOutputStreamWrapper) {
+            ((ServletOutputStreamWrapper) outputStream).notifyWritePossible();
+        }
     }
 
     private boolean isCloseConnection() {
@@ -612,7 +627,7 @@ class Response implements HttpServletResponse {
         }
         if (outputStream == null) {
             out = new ResponseOutputStream(this, bufferSize);
-            outputStream = new ServletOutputStreamWrapper(out);
+            outputStream = new ServletOutputStreamWrapper(this, out);
         }
         return outputStream;
     }

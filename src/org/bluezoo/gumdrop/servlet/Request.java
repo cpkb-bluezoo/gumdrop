@@ -112,7 +112,7 @@ class Request implements HttpServletRequest {
     Request(ServletHandler handler, int bufferSize, String method, String requestTarget, Headers headers,
             RequestBodyStream bodyStream) throws IOException {
         this.handler = handler;
-        in = new RequestInputStream(bodyStream);
+        in = new RequestInputStream(this, bodyStream);
         this.method = method;
         this.requestTarget = requestTarget;
         this.headers = headers;

@@ -40,8 +40,6 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import jakarta.servlet.ReadListener;
-
 /**
  * HTTP request handler for the servlet container.
  *
@@ -76,7 +74,6 @@ class ServletHandler extends DefaultHTTPRequestHandler {
 
     // Request state
     private AtomicBoolean requestFinished = new AtomicBoolean(false);
-    private ReadListener readListener;
     private Map<String, String> requestTrailerFields;
 
     // Response state
@@ -92,6 +89,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     // ensureBodyStarted()) rather than deferred to endResponse().
     private boolean headersSent;
     private boolean bodyStarted;
+    private volatile boolean writePossibleScheduled;
 
     ServletHandler(ServletService service, Container container, int bufferSize) {
         this.service = service;
@@ -193,14 +191,8 @@ class ServletHandler extends DefaultHTTPRequestHandler {
             state.pauseRequestBody();
         }
 
-        // Notify ReadListener if registered
-        if (readListener != null) {
-            try {
-                readListener.onDataAvailable();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error notifying ReadListener", e);
-                readListener.onError(e);
-            }
+        if (request != null) {
+            request.in.dispatchDataAvailable();
         }
     }
 
@@ -216,13 +208,8 @@ class ServletHandler extends DefaultHTTPRequestHandler {
             bodyStream.finish();
         }
 
-        // Notify ReadListener if registered
-        if (readListener != null) {
-            try {
-                readListener.onAllDataRead();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error notifying ReadListener", e);
-            }
+        if (request != null) {
+            request.in.dispatchDataAvailable();
         }
     }
 
@@ -264,8 +251,21 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         return requestFinished.get();
     }
 
-    void setReadListener(ReadListener listener) {
-        this.readListener = listener;
+    /**
+     * Runs a ReadListener/WriteListener callback on the connection's I/O
+     * thread when available.
+     */
+    void dispatchContainerCallback(Runnable task) {
+        if (state != null) {
+            state.execute(task);
+        } else {
+            task.run();
+        }
+    }
+
+    boolean isResponseWritable() {
+        return state == null
+                || state.pendingResponseBytes() <= PENDING_RESPONSE_HIGH_WATERMARK;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -310,7 +310,12 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         contentLength += (long) length;
 
         ensureBodyStarted();
-        if (state.pendingResponseBytes() > PENDING_RESPONSE_HIGH_WATERMARK) {
+        if (!isResponseWritable()) {
+            if (response != null && response.isNonBlockingWrite()) {
+                scheduleWritePossibleNotification();
+                throw new IllegalStateException(
+                        ServletService.L10N.getString("err.write_not_ready"));
+            }
             awaitWritable();
         }
         // Fire-and-forget: state.execute() preserves submission order (it
@@ -323,6 +328,31 @@ class ServletHandler extends DefaultHTTPRequestHandler {
             @Override
             public void run() {
                 state.responseBodyContent(copy);
+            }
+        });
+    }
+
+    private void scheduleWritePossibleNotification() {
+        if (writePossibleScheduled || state == null
+                || response == null || !response.isNonBlockingWrite()) {
+            return;
+        }
+        writePossibleScheduled = true;
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.onWritable(new Runnable() {
+                    @Override
+                    public void run() {
+                        writePossibleScheduled = false;
+                        if (response != null && response.isNonBlockingWrite()) {
+                            response.notifyWritePossible();
+                            if (!isResponseWritable()) {
+                                scheduleWritePossibleNotification();
+                            }
+                        }
+                    }
+                });
             }
         });
     }

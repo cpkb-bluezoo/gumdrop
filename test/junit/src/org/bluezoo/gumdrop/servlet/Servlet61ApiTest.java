@@ -95,7 +95,7 @@ public class Servlet61ApiTest {
         body.offer("hello".getBytes(StandardCharsets.UTF_8));
         body.finish();
 
-        RequestInputStream in = new RequestInputStream(body);
+        RequestInputStream in = new RequestInputStream(null, body);
         ByteBuffer buf = ByteBuffer.allocate(5);
         assertEquals(5, in.read(buf));
         buf.flip();
@@ -105,7 +105,7 @@ public class Servlet61ApiTest {
     @Test
     public void testServletOutputStreamWriteByteBuffer() throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        ServletOutputStreamWrapper out = new ServletOutputStreamWrapper(bytes);
+        ServletOutputStreamWrapper out = new ServletOutputStreamWrapper(null, bytes);
         out.write(ByteBuffer.wrap("data".getBytes(StandardCharsets.UTF_8)));
         out.flush();
         assertEquals("data", bytes.toString(StandardCharsets.UTF_8.name()));
