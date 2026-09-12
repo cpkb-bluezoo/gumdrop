@@ -118,7 +118,7 @@ This HTTP client uses the same architectural patterns as the Gumdrop server:
 
 - **SelectorLoop**: Same event loop handles both client and server connections
 - **Connection**: Same base class for both client and server connections  
-- **SSL/TLS**: Same SSLEngine integration for both directions
+- **SSL/TLS**: Same in-tree TLS engine (`org.bluezoo.gumdrop.tls`) for both directions
 - **Executor**: Same thread pool for both client and server processing
 
 This unified architecture allows applications to act as both HTTP clients and servers using consistent APIs and shared infrastructure.

@@ -131,12 +131,12 @@ client&rsquo;s IP address (e.g. switching from Wi-Fi to cellular)</li>
 <h4>Architecture</h4>
 
 <p>
-Gumdrop&rsquo;s HTTP/3 support is built on the
-<a href="https://github.com/cloudflare/quiche">quiche</a> library via JNI.
-The QUIC layer handles connection management, stream multiplexing, and
-congestion control natively, while the HTTP/3 framing (HEADERS, DATA,
-QPACK) is processed by Gumdrop&rsquo;s <code>HTTP3ServerHandler</code>
-and <code>H3Stream</code> classes.
+Gumdrop&rsquo;s HTTP/3 support is built on the pure-Java QUIC stack in
+<code>org.bluezoo.gumdrop.quic</code> with TLS 1.3 from the in-tree engine
+(<code>org.bluezoo.gumdrop.tls</code>). The QUIC layer handles connection
+management, stream multiplexing, and congestion control, while HTTP/3 framing
+(HEADERS, DATA, QPACK) is processed by Gumdrop&rsquo;s
+<code>HTTP3ServerHandler</code> and <code>H3Stream</code> classes.
 </p>
 
 <p>
@@ -181,9 +181,11 @@ conventional) because they use different transport protocols (TCP vs UDP).
 <h4>PEM vs Keystore</h4>
 
 <p>
-QUIC uses BoringSSL (via the quiche native library) rather than the JDK&rsquo;s
-JSSE, so HTTP/3 listeners require PEM-encoded certificates and keys rather
-than a Java keystore:
+HTTP/3 listeners are configured with PEM certificate files
+(<code>cert-file</code>, <code>key-file</code>) rather than a Java keystore.
+TCP listeners typically use PKCS#12 keystores
+(<code>keystore-file</code>, <code>keystore-pass</code>), though PEM files are
+also supported. Both transports use Gumdrop&rsquo;s in-tree TLS engine.
 </p>
 
 <ul>
@@ -801,9 +803,9 @@ RFC 9113 section 6.7)</li>
 <h4>HTTP3Listener Properties</h4>
 
 <p>
-<code>HTTP3Listener</code> is the QUIC listener for HTTP/3. Because QUIC
-uses BoringSSL rather than the JDK TLS stack, certificate configuration
-uses PEM files instead of a keystore:
+<code>HTTP3Listener</code> is the QUIC listener for HTTP/3. Certificate
+configuration uses PEM files (<code>cert-file</code>, <code>key-file</code>)
+rather than a keystore:
 </p>
 
 <ul>

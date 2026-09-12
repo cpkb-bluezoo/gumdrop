@@ -241,7 +241,7 @@ After test failure:
 
 ## Environment Requirements
 
-- Java 17 or higher
+- Java 25 or higher
 - Available ports in range 30000-40000 (for dynamic allocation)
 - Write access to `test/integration/` directory
 - Network loopback interface (127.0.0.1) available

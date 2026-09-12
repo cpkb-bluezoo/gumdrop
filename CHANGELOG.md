@@ -6,10 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-Planned as **2.3.0** (minor bump for new HTTP/QUIC functionality).
+Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 ### Added
 
+- **In-tree TLS 1.3 engine** (`org.bluezoo.gumdrop.tls`): pure-Java handshake,
+  record layer, and key schedule for TCP/TLS, DTLS, and QUIC, replacing JVM
+  JSSE (`SSLEngine`) and [Agent15](https://github.com/ptrd/agent15). Includes
+  hybrid post-quantum key exchange (RFC 10024) via JCA ML-KEM/ML-DSA on Java
+  25+.
+- **DTLS 1.3** on UDP listeners (`Dtls13Session`, unified record format,
+  cookie-based HelloRetryRequest) alongside existing DTLS 1.2 support.
 - **RFC 9218 extensible prioritisation**: `PRIORITY_UPDATE` and urgency-based
   scheduling on HTTP/2 and HTTP/3.
 - **RFC 9221 QUIC DATAGRAM**: unreliable datagram send/receive with
@@ -22,6 +29,12 @@ Planned as **2.3.0** (minor bump for new HTTP/QUIC functionality).
 
 ### Changed
 
+- **Minimum Java version raised to 25 (LTS)**: Gumdrop 3 requires Java 25 or
+  later (bumped from 17 so the in-tree TLS engine can use JCA's native
+  ML-KEM/ML-DSA support). The build uses `--release 25` exclusively.
+- **TCP/TLS and DTLS** now use the in-tree engine instead of JSSE
+  `SSLEngine`; **QUIC/HTTP/3 TLS** uses the same engine via
+  `QuicTlsClientEngine`/`QuicTlsServerEngine`, not Agent15.
 - **Modularised build**: Gumdrop is split into smaller interlinked internal
   jars (core, servlet stack, and per-protocol modules) with JPMS descriptors;
   `dist/gumdrop.jar` remains the all-in-one library artifact. Several types

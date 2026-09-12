@@ -26,7 +26,7 @@ non-blocking, event-driven I/O.
     - one of very few Java frameworks with HTTP/3 server support
       (only Netty offers comparable capability; JDK 26's JEP 517 is
       client-only)
-    - pure Java (17+) implementation, no native code unlike Netty
+    - pure Java (25+) implementation, no native code unlike Netty
     - servlet container runs transparently on top of HTTP/3
 - high performance
     - Java NIO non-blocking I/O throughout
@@ -117,9 +117,9 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - fully transparent SSL support for all protocols
         - keystore/truststore configuration
         - client certificates
-        - SSL protocols (TLS 1.2, 1.3)
+        - SSL protocols (TLS 1.2, 1.3; DTLS 1.2, 1.3)
         - cipher suite selection
-        - named group selection (PQC hybrid key exchange on TCP/TLS, JDK 24+)
+        - named group selection (PQC hybrid key exchange on TCP/TLS and QUIC, Java 25+)
         - SNI
     - configurable pool of worker threads shared across all servers,
       completely independent of the number of client connections

@@ -164,7 +164,7 @@
 | Message ID MUST be 0 | 4.2.1 | Compliant | `DoQClientTransport.send()` rewrites ID to 0 |
 | DoQ error codes | 4.3 | Compliant | `DoQStreamHandler` defines DOQ_NO_ERROR through DOQ_EXCESSIVE_LOAD; `resetWithError()` sends RESET_STREAM with appropriate code |
 | SHOULD negotiate idle timeout | 4.4 | Partial | Relies on QUIC engine defaults |
-| 0-RTT early data for QUERY/NOTIFY | 4.5 | Compliant | `QuicTransportFactory.setEarlyDataEnabled(true)` enables `quiche_config_enable_early_data`; `DoQClientTransport` caches session tickets per server |
+| 0-RTT early data for QUERY/NOTIFY | 4.5 | Compliant | `QuicTransportFactory.setEarlyDataEnabled(true)` with session tickets cached by `SessionTicketCache`; `DoQClientTransport` caches session tickets per server |
 | MUST use padding | 5.4 | Compliant | EDNS(0) padding (RFC 7830) with 128-byte block alignment |
 | Client SHOULD reuse connections | 5.5.1 | Compliant | `DoQConnectionPool` maintains per-server persistent QUIC connections; queries use new streams on shared connections |
 | SHOULD process queries in parallel | 5.6 | Compliant | Separate streams |
@@ -807,26 +807,30 @@
 
 ## HTTP/3 Server — RFC 9114
 
-The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 framing (RFC 9114 section 7), QPACK header compression (RFC 9204), and QUIC transport (RFC 9000). The Java code bridges between quiche's h3 event model and the gumdrop `HTTPRequestHandler` API. Requirements handled entirely by quiche are marked "Compliant (quiche)".
+The HTTP/3 implementation is pure Java: HTTP/3 framing (RFC 9114 section 7),
+QPACK header compression (RFC 9204), and QUIC transport (RFC 9000) are
+implemented in `org.bluezoo.gumdrop.http.h3` and `org.bluezoo.gumdrop.quic`,
+with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
+`QuicTlsClientEngine`/`QuicTlsServerEngine`.
 
 ### HTTP/3 Server Connection Setup — RFC 9114 section 3
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | ALPN "h3" negotiation | 3.1 | Compliant | `HTTP3Listener.createTransportFactory()` sets ALPN "h3" |
-| TLS 1.3 mandatory | 3 | Compliant (quiche) | QUIC mandates TLS 1.3 via BoringSSL |
+| TLS 1.3 mandatory | 3 | Compliant | QUIC mandates TLS 1.3 via the in-tree engine |
 | SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | SETTINGS_MAX_FIELD_SECTION_SIZE | 4.2.2 / 7.2.4.1 | Compliant | Advertised as 8192 (matching HTTP/2); inbound HEADERS over the ceiling abort the stream with `H3_EXCESSIVE_LOAD`; outbound HEADERS honour the peer's advertised value |
 | SETTINGS_H3_DATAGRAM | RFC 9297 2.1.1 | Compliant | Always advertised as 1; value > 1 is `H3_SETTINGS_ERROR`; `=1` without peer `max_datagram_frame_size > 0` is `H3_SETTINGS_ERROR` |
-| QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` configured via JNI |
-| Unidirectional control streams | 6.2 | Compliant (quiche) | quiche manages control, QPACK encoder/decoder streams |
+| QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` in `H3ControlStream` |
+| Unidirectional control streams | 6.2 | Compliant | `H3ControlStream` and QPACK encoder/decoder streams |
 
 ### HTTP/3 Server Request Handling — RFC 9114 section 4
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | HEADERS frame initiates request | 4.1 | Compliant | `HTTP3ServerHandler.onHeaders()` creates `H3Stream` |
-| DATA frame carries body | 4.1 | Compliant | `HTTP3ServerHandler.onData()` drains via `quiche_h3_recv_body` |
+| DATA frame carries body | 4.1 | Compliant | `HTTP3ServerHandler.onData()` dispatches to `H3Stream` |
 | FIN completes message | 4.1 | Compliant | `HTTP3ServerHandler.onFinished()` calls `handler.requestComplete()` |
 | Request pseudo-headers (:method, :scheme, :path) | 4.3.1 | Compliant | `H3Stream.onHeaders()` validates mandatory pseudo-headers; CONNECT exempted from :scheme/:path |
 | Malformed request detection | 4.1.2 | Compliant | Missing pseudo-headers return 400 and close the stream |
@@ -838,10 +842,10 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Response HEADERS with :status pseudo-header | 4.3.2 | Compliant | `H3Stream.flushHeaders()` sends via `quiche_h3_send_response` |
-| Response DATA frames | 4.1 | Compliant | `H3Stream.sendBody()` sends via `quiche_h3_send_body` |
+| Response HEADERS with :status pseudo-header | 4.3.2 | Compliant | `H3Stream.flushHeaders()` |
+| Response DATA frames | 4.1 | Compliant | `H3Stream.sendBody()` |
 | FIN to complete response | 4.1 | Compliant | `H3Stream.complete()` sends empty buffer with fin=true |
-| Flow control buffering | RFC 9000 4 | Compliant | `H3Stream.enqueue()` buffers on QUICHE_ERR_DONE; `resumeWrite()` drains on ACK |
+| Flow control buffering | RFC 9000 4 | Compliant | `H3Stream` buffers when QUIC send window is exhausted; `resumeWrite()` drains on ACK |
 
 ### HTTP/3 Server Push, GOAWAY, Error Handling
 
@@ -849,7 +853,7 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 |-------------|---------|--------|-------|
 | Server push (PUSH_PROMISE) | 4.6 | Not implemented | `H3Stream.pushPromise()` returns false |
 | GOAWAY reception (from client) | 5.2 | Compliant | Records the ID, rejects a later GOAWAY with a greater identifier (`H3_ID_ERROR`), rejects new streams beyond the announced ID, sends a server GOAWAY in response |
-| GOAWAY sending (graceful shutdown) | 5.2 | Compliant | `close()` sends GOAWAY with highest client-initiated stream ID via `quiche_h3_send_goaway` before resetting streams |
+| GOAWAY sending (graceful shutdown) | 5.2 | Compliant | `HTTP3ServerHandler.close()` sends GOAWAY with highest client-initiated stream ID before resetting streams |
 | Stream reset handling | 8 | Compliant | `onReset()` ends span and cleans up stream |
 | Request cancellation | 8 | Compliant | `H3Stream.cancel()` resets stream |
 | HTTP/3 error codes | 8.1 | Compliant | `H3ErrorCode` constants; unpermitted push frames and premature control/QPACK closure use the RFC 9114 codes |
@@ -859,8 +863,8 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| WebSocket over HTTP/3 | RFC 9220 | Implemented | Extended CONNECT with `:protocol = "websocket"`, `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1` via quiche, `H3Stream.upgradeToWebSocket()` bridges to `WebSocketConnection`, `HTTP3WebSocketListener` for service integration |
-| 103 Early Hints (RFC 8297) | RFC 9114 s4 | Implemented | `H3Stream.sendInformational()` sends 1xx via `quiche_h3_send_response` / `quiche_h3_send_additional_headers`; state tracked by `responseStarted`; `flushHeaders()` uses `send_additional_headers` for final response after 1xx |
+| WebSocket over HTTP/3 | RFC 9220 | Implemented | Extended CONNECT with `:protocol = "websocket"`, `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, `H3Stream.upgradeToWebSocket()` bridges to `WebSocketConnection`, `HTTP3WebSocketListener` for service integration |
+| 103 Early Hints (RFC 8297) | RFC 9114 s4 | Implemented | `H3Stream.sendInformational()` sends 1xx HEADERS; state tracked by `responseStarted`; `flushHeaders()` sends the final response after 1xx |
 | Extensible priorities (server) | RFC 9218 4 | Compliant | `Priority` header passed through to handler in request headers |
 | QUIC transport parameter tuning | RFC 9000 18 | Compliant | `HTTP3Listener` exposes `setQuicMax*()` setters that delegate to `QuicTransportFactory` |
 | Authentication | RFC 9110 11 | Compliant | `H3Stream.onHeaders()` checks Authorization header via `HTTPAuthenticationProvider` |
@@ -876,11 +880,11 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | ALPN "h3" negotiation | 3.1 | Compliant | `HTTPClient.connectH3()` sets ALPN "h3" on `QuicTransportFactory` |
-| TLS 1.3 mandatory | 3 | Compliant (quiche) | QUIC mandates TLS 1.3 via BoringSSL |
+| TLS 1.3 mandatory | 3 | Compliant | QUIC mandates TLS 1.3 via the in-tree engine |
 | SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | SETTINGS_MAX_FIELD_SECTION_SIZE | 4.2.2 / 7.2.4.1 | Compliant | Advertised as 8192; inbound response HEADERS over the ceiling abort the stream with `H3_EXCESSIVE_LOAD`; outbound request HEADERS honour the peer's advertised value |
 | SETTINGS_H3_DATAGRAM | RFC 9297 2.1.1 | Compliant | Always advertised as 1; same SETTINGS validation as the server |
-| QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` configured via JNI |
+| QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` in `H3ControlStream` |
 | Alt-Svc discovery | 3.1 | Compliant | `HTTPClient.altSvcReceived()` parses `h3="host:port"` and initiates QUIC connection |
 
 ### HTTP/3 Client Request Sending — RFC 9114 section 4
@@ -888,8 +892,8 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Request pseudo-headers (:method, :scheme, :authority, :path) | 4.3.1 | Compliant | `H3Request.buildHeaders()` emits all four pseudo-headers in order |
-| HEADERS frame sent on new stream | 4.1 | Compliant | `HTTP3ClientHandler.sendRequest()` calls `quiche_h3_send_request` |
-| DATA frames for request body | 4.1 | Compliant | `sendRequestBody()` sends via `quiche_h3_send_body`; buffers in `PendingWrite` on QUICHE_ERR_DONE and drains in `resumePendingWrites()` |
+| HEADERS frame sent on new stream | 4.1 | Compliant | `HTTP3ClientHandler.sendRequest()` |
+| DATA frames for request body | 4.1 | Compliant | `sendRequestBody()` via `H3Stream.sendBody()`; buffers in `PendingWrite` when send window is exhausted and drains in `resumePendingWrites()` |
 | FIN to complete request | 4.1 | Compliant | `H3Request.endRequestBody()` sends empty buffer with fin=true |
 | GOAWAY rejection of new requests | 5.2 | Compliant | `sendRequest()` returns -1 with IOException when goaway is set |
 | Priority (RFC 9218) | RFC 9218 4, 5, 7, 10 | Compliant | `Priority` header and `PRIORITY_UPDATE` frames; HTTP/2 advertises `SETTINGS_NO_RFC7540_PRIORITIES`; response DATA scheduled by urgency with non-incremental serialization |
@@ -912,38 +916,41 @@ The HTTP/3 implementation uses the **quiche** native library for all HTTP/3 fram
 |-------------|---------|--------|-------|
 | GOAWAY reception | 5.2 | Compliant | Validates client-initiated bidi stream ID and monotonicity (`H3_ID_ERROR`); fails unprocessed streams (ID > last) with retryable IOException |
 | Connection readiness callback | 3 | Compliant | `HTTP3ClientHandler.onConnectionReady()` fires readyCallback then polls |
-| Resource cleanup | — | Compliant | `close()` resets all streams, frees h3 config and connection handles |
+| Resource cleanup | — | Compliant | `close()` resets all streams and closes the QUIC connection |
 
 ---
 
 ## QUIC Transport — RFC 9000
 
-The QUIC transport layer uses the **quiche** native library for all protocol processing. The Java layer manages connection demultiplexing, UDP I/O, and exposes QUIC connections/streams to application protocol handlers.
+The QUIC transport layer is pure Java (`org.bluezoo.gumdrop.quic`): packet
+protection, loss detection, congestion control, and stream management are
+implemented in Java, with TLS 1.3 integrated via the in-tree engine
+(`QuicTlsClientEngine`/`QuicTlsServerEngine`).
 
 ### QUIC Connection Management — RFC 9000
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Connection ID generation (up to 20 bytes) | 5.1 | Compliant | `QuicEngine.generateConnectionId()` with SecureRandom |
-| Version negotiation | 6.1 | Compliant | `QuicEngine.sendVersionNegotiation()` for unsupported versions |
-| QUIC v1 support | 15 | Compliant | `QUICHE_PROTOCOL_VERSION_1 = 0x00000001` |
-| QUIC v2 support | RFC 9369 | Compliant | `QUICHE_PROTOCOL_VERSION_2 = 0x6b3343cf` |
-| Handshake (server accepts) | 7 | Compliant (quiche) | `QuicEngine.acceptConnection()` creates quiche connection |
-| Handshake (client initiates) | 7 | Compliant (quiche) | `QuicEngine.connectTo()` sends Initial packet |
+| Version negotiation | 6.1 | Not implemented | Unrecognised versions are silently dropped (`QuicEngine`) |
+| QUIC v1 support | 15 | Compliant | QUIC version 1 (RFC 9000) |
+| QUIC v2 support | RFC 9369 | Not implemented | Only QUIC version 1 is supported |
+| Handshake (server accepts) | 7 | Compliant | `QuicEngine` constructs `QuicTlsServerEngine` + `QuicConnection` per Initial |
+| Handshake (client initiates) | 7 | Compliant | `QuicEngine.connectTo()` sends Initial packet |
 | Retry-based address validation | 8.1.2 | Compliant | `QuicEngine.sendRetry`; `HTTP3Listener` / `DoQListener` enable Retry by default; `require-retry=false` opts into the permissive (no-Retry) mode for trusted networks |
-| HANDSHAKE_DONE confirmation | 7.3 | Compliant (quiche) | `QuicConnection.checkEstablished()` detects established state |
-| TLS 1.3 via BoringSSL | RFC 9001 | Compliant (quiche) | SSL context created per connection |
-| Idle timeout | 10.1 | Compliant (quiche) | `QuicConnection.scheduleTimeout()` uses quiche timeout |
-| Immediate close (CONNECTION_CLOSE) | 10.2 | Compliant | `QuicConnection.close()` calls `quiche_conn_close` with H3_NO_ERROR (0x100) or NO_ERROR (0x0) and flushes before freeing |
+| HANDSHAKE_DONE confirmation | 7.3 | Compliant | `QuicConnection.checkEstablished()` detects established state |
+| TLS 1.3 via in-tree engine | RFC 9001 | Compliant | `HandshakeEngine` integrated via `QuicTlsClientEngine`/`QuicTlsServerEngine` |
+| Idle timeout | 10.1 | Compliant | `QuicConnection` idle timeout handling |
+| Immediate close (CONNECTION_CLOSE) | 10.2 | Compliant | `QuicConnection.close()` sends CONNECTION_CLOSE with H3_NO_ERROR (0x100) or NO_ERROR (0x0) and flushes |
 
 ### QUIC Stream Management — RFC 9000 section 2
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Bidirectional streams | 2.1 | Compliant | Client-initiated bidi streams (IDs 0, 4, 8, ...) |
-| Unidirectional streams | 2.1 | Compliant (quiche) | Used by HTTP/3 for control and QPACK streams |
+| Unidirectional streams | 2.1 | Compliant | Used by HTTP/3 for control and QPACK streams |
 | Stream ID assignment | 2.1 | Compliant | `findNextStreamId()` uses even IDs for client-initiated |
-| Flow control | 4 | Compliant (quiche) | quiche manages connection and stream-level flow control |
+| Flow control | 4 | Compliant | `QuicConnection` connection and stream-level flow control |
 | Stream accept handler | — | Compliant | `QuicConnection.acceptStream()` for server-side new streams |
 
 ### QUIC Transport Parameters — RFC 9000 section 18

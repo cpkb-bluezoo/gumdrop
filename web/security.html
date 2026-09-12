@@ -75,11 +75,13 @@ them. See <a href="http.html#configuration">HTTP Configuration</a> for the
 <h2 id="tls">Transport Layer Security</h2>
 
 <p>
-All Gumdrop servers support TLS for encrypted connections. For TCP-based
-protocols (HTTP/1.x, HTTP/2, SMTP, IMAP, POP3, FTP), Gumdrop uses the JVM's
-built-in <code>SSLEngine</code> and standard Java keystores (PKCS#12, JKS).
-QUIC/HTTP/3 uses a separate TLS stack (BoringSSL via quiche) with different
-certificate requirements, described <a href="#quic-tls">below</a>.
+All Gumdrop servers support TLS for encrypted connections. TCP-based
+protocols (HTTP/1.x, HTTP/2, SMTP, IMAP, POP3, FTP) and QUIC/HTTP/3 both
+use Gumdrop&rsquo;s in-tree TLS engine (<code>org.bluezoo.gumdrop.tls</code>).
+UDP listeners use the same engine for DTLS 1.2 and DTLS 1.3. Server
+credentials are usually configured via Java keystores (PKCS#12, JKS) or PEM
+files; QUIC listeners conventionally use PEM (<code>cert-file</code>,
+<code>key-file</code>), described <a href="#quic-tls">below</a>.
 </p>
 
 <h3 id="tls-certificates">TLS Certificates for Local Development</h3>
@@ -218,9 +220,11 @@ so every QUIC connection is encrypted from the first packet.
 </p>
 
 <p>
-Because Gumdrop's QUIC implementation uses <b>BoringSSL</b> (via the quiche
-library) rather than the JVM's <code>SSLEngine</code>, its certificate
-configuration differs from TCP-based listeners:
+QUIC listeners are configured with PEM certificate files
+(<code>cert-file</code>, <code>key-file</code>) rather than a Java keystore.
+This is a configuration convention for <code>HTTP3Listener</code> and
+<code>DoQListener</code>; the underlying TLS engine is the same in-tree
+implementation used for TCP/TLS and DTLS.
 </p>
 
 <table border="1" cellpadding="5">
@@ -231,17 +235,17 @@ configuration differs from TCP-based listeners:
 </tr>
 <tr>
   <td><b>TLS implementation</b></td>
-  <td>JVM SSLEngine</td>
-  <td>BoringSSL (via quiche)</td>
+  <td>In-tree <code>org.bluezoo.gumdrop.tls</code></td>
+  <td>Same in-tree engine via <code>QuicTlsClientEngine</code>/<code>QuicTlsServerEngine</code></td>
 </tr>
 <tr>
   <td><b>Certificate format</b></td>
-  <td>Java keystore (PKCS#12, JKS)</td>
+  <td>Java keystore (PKCS#12, JKS) or PEM</td>
   <td>PEM files</td>
 </tr>
 <tr>
   <td><b>Certificate property</b></td>
-  <td><code>keystore-file</code></td>
+  <td><code>keystore-file</code> (or <code>cert-file</code> + <code>key-file</code>)</td>
   <td><code>cert-file</code>, <code>key-file</code></td>
 </tr>
 <tr>
@@ -293,15 +297,15 @@ openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
 
 <p>
 A typical deployment shares the same port (443 or 8443) between an HTTPS
-listener on TCP and an HTTP/3 listener on UDP. Because they use different TLS
-stacks, they require separate certificate configurations:
+listener on TCP and an HTTP/3 listener on UDP. Both use the in-tree TLS engine,
+but certificate configuration differs (keystore vs PEM files):
 </p>
 
 <pre>
 &lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
     &lt;property name="container" ref="#mainContainer"/&gt;
 
-    &lt;!-- HTTPS on TCP (Java SSLEngine, PKCS#12 keystore) --&gt;
+    &lt;!-- HTTPS on TCP (in-tree TLS, PKCS#12 keystore) --&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
         &lt;property name="port"&gt;8443&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
@@ -309,7 +313,7 @@ stacks, they require separate certificate configurations:
         &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
     &lt;/listener&gt;
 
-    &lt;!-- HTTP/3 on UDP (BoringSSL, PEM files) --&gt;
+    &lt;!-- HTTP/3 on UDP (in-tree TLS, PEM files) --&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
         &lt;property name="port"&gt;8443&lt;/property&gt;
         &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
@@ -329,7 +333,8 @@ certificate matches.
 <h4>Cipher Suite and Named Group Configuration</h4>
 
 <p>
-QUIC listeners support BoringSSL cipher suite and named group configuration:
+QUIC listeners support cipher suite and named group configuration on the
+in-tree TLS engine:
 </p>
 
 <pre>
@@ -343,8 +348,9 @@ QUIC listeners support BoringSSL cipher suite and named group configuration:
 </pre>
 
 <p>
-The default cipher suites are BoringSSL's defaults (AES-128-GCM and
-AES-256-GCM with SHA-256/384). The default named group is X25519.
+The default cipher suites are AES-128-GCM and AES-256-GCM with
+SHA-256/384. The default named group is X25519; hybrid post-quantum groups
+(e.g. X25519MLKEM768) are available on Java 25+ when configured.
 </p>
 
 <h3 id="cert-pinning">Certificate Pinning</h3>

@@ -57,7 +57,7 @@ This is enforced at compile time via the `--release` flag in `build.xml`.
 - Records
 - Pattern matching
 - Sealed classes
-- Virtual threads (Java 21+)
+- Virtual threads
 - Lambda expressions
 - Method references
 - Streams API (`java.util.stream`)
