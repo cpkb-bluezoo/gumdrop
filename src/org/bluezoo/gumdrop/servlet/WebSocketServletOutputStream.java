@@ -27,20 +27,31 @@ import jakarta.servlet.ServletOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ResourceBundle;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * ServletOutputStream that sends data as WebSocket messages.
  *
- * <p>Data is buffered until flush() is called, at which point the
- * buffered data is sent as a single WebSocket text message.
+ * <p>Data is buffered until {@link #flush()} is called, at which point the
+ * buffered data is sent as a single WebSocket message on the connection's
+ * I/O thread. {@link #isReady()} reflects transport backpressure from
+ * {@link ServletWebConnection#isResponseWritable()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class WebSocketServletOutputStream extends ServletOutputStream {
 
+    private static final ResourceBundle L10N =
+        ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
+    private static final Logger LOGGER =
+        Logger.getLogger(WebSocketServletOutputStream.class.getName());
+
     private final ServletWebConnection webConnection;
     private final ByteArrayOutputStream buffer;
     private WriteListener writeListener;
+    private volatile boolean listenerNotified = true;
     private volatile boolean closed = false;
 
     WebSocketServletOutputStream(ServletWebConnection webConnection) {
@@ -51,18 +62,23 @@ class WebSocketServletOutputStream extends ServletOutputStream {
     @Override
     public void write(int b) throws IOException {
         checkClosed();
+        checkWriteReady();
         buffer.write(b);
+        markNotReadyIfNeeded();
     }
 
     @Override
     public void write(byte[] b, int off, int len) throws IOException {
         checkClosed();
+        checkWriteReady();
         buffer.write(b, off, len);
+        markNotReadyIfNeeded();
     }
 
     @Override
     public void write(ByteBuffer src) throws IOException {
         checkClosed();
+        checkWriteReady();
         if (!src.hasRemaining()) {
             return;
         }
@@ -74,16 +90,20 @@ class WebSocketServletOutputStream extends ServletOutputStream {
             src.get(buf);
             buffer.write(buf, 0, buf.length);
         }
+        markNotReadyIfNeeded();
     }
 
     @Override
     public void flush() throws IOException {
         checkClosed();
+        checkWriteReady();
         if (buffer.size() > 0) {
             byte[] data = buffer.toByteArray();
             buffer.reset();
             webConnection.sendMessage(data);
         }
+        markNotReadyIfNeeded();
+        notifyWritePossibleIfReady();
     }
 
     @Override
@@ -96,31 +116,75 @@ class WebSocketServletOutputStream extends ServletOutputStream {
 
     @Override
     public boolean isReady() {
-        return !closed && !webConnection.isClosed();
+        if (closed || webConnection.isClosed()) {
+            return false;
+        }
+        return webConnection.isResponseWritable();
     }
 
     @Override
     public void setWriteListener(WriteListener listener) {
+        if (this.writeListener != null) {
+            throw new IllegalStateException(L10N.getString("err.write_listener_already_set"));
+        }
+        if (listener == null) {
+            throw new NullPointerException(L10N.getString("err.write_listener_null"));
+        }
+
         this.writeListener = listener;
-        // For full async support, we'd need to notify when ready to write.
-        // For now, blocking write is the primary use case.
-        if (listener != null && isReady()) {
-            try {
-                listener.onWritePossible();
-            } catch (IOException e) {
-                listener.onError(e);
+        this.listenerNotified = false;
+        Runnable initial = new Runnable() {
+            @Override
+            public void run() {
+                notifyWritePossibleIfReady();
             }
+        };
+        webConnection.dispatchContainerCallback(initial);
+    }
+
+    boolean hasWriteListener() {
+        return writeListener != null;
+    }
+
+    void notifyWritePossible() {
+        listenerNotified = false;
+        notifyWritePossibleIfReady();
+    }
+
+    private void notifyWritePossibleIfReady() {
+        if (writeListener != null && isReady() && !listenerNotified) {
+            listenerNotified = true;
+            try {
+                writeListener.onWritePossible();
+            } catch (IOException e) {
+                LOGGER.log(Level.WARNING, L10N.getString("async.write_listener_error"), e);
+                try {
+                    writeListener.onError(e);
+                } catch (Exception e2) {
+                    LOGGER.log(Level.SEVERE, L10N.getString("async.write_listener_on_error"), e2);
+                }
+            }
+        }
+    }
+
+    private void markNotReadyIfNeeded() {
+        if (writeListener != null && !isReady()) {
+            listenerNotified = false;
+        }
+    }
+
+    private void checkWriteReady() {
+        if (writeListener != null && !isReady()) {
+            throw new IllegalStateException(L10N.getString("err.write_not_ready"));
         }
     }
 
     private void checkClosed() throws IOException {
         if (closed) {
-            throw new IOException("Stream is closed");
+            throw new IOException(L10N.getString("err.websocket_stream_closed"));
         }
         if (webConnection.isClosed()) {
-            throw new IOException("WebSocket connection is closed");
+            throw new IOException(L10N.getString("err.websocket_connection_closed"));
         }
     }
-
 }
-

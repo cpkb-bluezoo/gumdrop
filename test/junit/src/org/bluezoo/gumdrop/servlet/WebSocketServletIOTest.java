@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import jakarta.servlet.ReadListener;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpUpgradeHandler;
 import jakarta.servlet.http.WebConnection;
 
@@ -159,6 +161,109 @@ public class WebSocketServletIOTest {
     }
 
     @Test
+    public void testFlushMarshalsSendThroughIoThread() throws Exception {
+        final AtomicBoolean executedOnIo = new AtomicBoolean();
+        final AtomicReference<String> sentText = new AtomicReference<String>();
+        TrackingState state = new TrackingState() {
+            @Override
+            public void execute(Runnable task) {
+                executedOnIo.set(true);
+                task.run();
+            }
+        };
+        ServletService service = new ServletService();
+        StubServletHandler handler = new StubServletHandler(service, state);
+        ServletWebConnection connection =
+                new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
+        connection.getEventHandler().opened(new RecordingSession(sentText, null));
+
+        ServletOutputStream out = connection.getOutputStream();
+        out.write("hi".getBytes(StandardCharsets.UTF_8));
+        out.flush();
+
+        assertTrue(executedOnIo.get());
+        assertEquals("hi", sentText.get());
+    }
+
+    @Test
+    public void testInvalidUtf8SentAsBinary() throws Exception {
+        final AtomicReference<ByteBuffer> sentBinary = new AtomicReference<ByteBuffer>();
+        TrackingState state = new TrackingState() {
+            @Override
+            public void execute(Runnable task) {
+                task.run();
+            }
+        };
+        ServletService service = new ServletService();
+        StubServletHandler handler = new StubServletHandler(service, state);
+        ServletWebConnection connection =
+                new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
+        connection.getEventHandler().opened(new RecordingSession(null, sentBinary));
+
+        byte[] invalidUtf8 = new byte[] {(byte) 0xC0, (byte) 0xC0};
+        connection.getOutputStream().write(invalidUtf8);
+        connection.getOutputStream().flush();
+
+        assertNotNull(sentBinary.get());
+        assertEquals(2, sentBinary.get().remaining());
+    }
+
+    @Test
+    public void testWriteListenerIsReadyReflectsTransportBackpressure() throws Exception {
+        BackpressureState state = new BackpressureState(5 * 1024 * 1024);
+        ServletService service = new ServletService();
+        StubServletHandler handler = new StubServletHandler(service, state);
+        ServletWebConnection connection =
+                new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
+        connection.getEventHandler().opened(new StubWebSocketSession());
+
+        WebSocketServletOutputStream out =
+                (WebSocketServletOutputStream) connection.getOutputStream();
+        assertFalse(out.isReady());
+
+        AtomicBoolean notified = new AtomicBoolean();
+        out.setWriteListener(new WriteListener() {
+            @Override public void onWritePossible() {
+                notified.set(true);
+            }
+            @Override public void onError(Throwable t) {
+                fail(t.toString());
+            }
+        });
+        assertFalse(notified.get());
+
+        state.pendingBytes = 0;
+        connection.notifyWritePossible();
+        assertTrue(out.isReady());
+        assertTrue(notified.get());
+    }
+
+    @Test
+    public void testWriteNonBlockingThrowsWhenNotReady() throws Exception {
+        BackpressureState state = new BackpressureState(5 * 1024 * 1024);
+        ServletService service = new ServletService();
+        StubServletHandler handler = new StubServletHandler(service, state);
+        ServletWebConnection connection =
+                new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
+        connection.getEventHandler().opened(new StubWebSocketSession());
+
+        WebSocketServletOutputStream out =
+                (WebSocketServletOutputStream) connection.getOutputStream();
+        out.setWriteListener(new WriteListener() {
+            @Override public void onWritePossible() { }
+            @Override public void onError(Throwable t) { fail(t.toString()); }
+        });
+
+        try {
+            out.write('x');
+            fail("expected IllegalStateException");
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("not ready")
+                    || expected.getMessage().contains("Write not ready"));
+        }
+    }
+
+    @Test
     public void testUpgradeHandlerInitMarshalledToWorkerThread() throws Exception {
         TrackingState state = new TrackingState();
         ServletService service = new ServletService();
@@ -202,6 +307,46 @@ public class WebSocketServletIOTest {
         assertEquals(1, state.resumeCount.get());
     }
 
+    private static final class RecordingSession implements WebSocketSession {
+        private final AtomicReference<String> sentText;
+        private final AtomicReference<ByteBuffer> sentBinary;
+
+        RecordingSession(AtomicReference<String> sentText,
+                AtomicReference<ByteBuffer> sentBinary) {
+            this.sentText = sentText;
+            this.sentBinary = sentBinary;
+        }
+
+        @Override public boolean isOpen() { return true; }
+        @Override public void sendText(String message) {
+            if (sentText != null) {
+                sentText.set(message);
+            }
+        }
+        @Override public void sendBinary(ByteBuffer data) {
+            if (sentBinary != null) {
+                sentBinary.set(data.duplicate());
+            }
+        }
+        @Override public void sendPing(ByteBuffer payload) { }
+        @Override public void close() { }
+        @Override public void close(int statusCode, String reason) { }
+        @Override public java.security.Principal getPrincipal() { return null; }
+    }
+
+    private static class BackpressureState extends StubHTTPResponseState {
+        volatile int pendingBytes;
+
+        BackpressureState(int pendingBytes) {
+            this.pendingBytes = pendingBytes;
+        }
+
+        @Override
+        public int pendingResponseBytes() {
+            return pendingBytes;
+        }
+    }
+
     private static final class NoOpUpgradeHandler implements HttpUpgradeHandler {
         @Override public void init(WebConnection wc) { }
         @Override public void destroy() { }
@@ -217,7 +362,7 @@ public class WebSocketServletIOTest {
         @Override public java.security.Principal getPrincipal() { return null; }
     }
 
-    private static final class TrackingState extends StubHTTPResponseState {
+    private static class TrackingState extends StubHTTPResponseState {
         final AtomicInteger pauseCount = new AtomicInteger();
         final AtomicInteger resumeCount = new AtomicInteger();
 

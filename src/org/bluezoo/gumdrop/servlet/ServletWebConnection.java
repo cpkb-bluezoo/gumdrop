@@ -33,7 +33,12 @@ import jakarta.servlet.http.WebConnection;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -47,7 +52,8 @@ import java.util.logging.Logger;
  * is applied via {@link HTTPResponseState#pauseRequestBody()} when the
  * buffer reaches its high-water mark. {@link HttpUpgradeHandler#init} is
  * dispatched to the servlet worker pool so handler setup never blocks the
- * SelectorLoop thread.
+ * SelectorLoop thread. Outbound messages are sent on the connection's I/O
+ * thread with transport backpressure matching the HTTP response path.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -65,6 +71,10 @@ class ServletWebConnection implements WebConnection {
 
     private volatile WebSocketSession session;
     private volatile boolean closed = false;
+    private volatile boolean writePossibleScheduled;
+
+    private static final int PENDING_RESPONSE_HIGH_WATERMARK = 4 * 1024 * 1024;
+    private static final long PENDING_RESPONSE_WAIT_TIMEOUT_MS = 30000L;
 
     /**
      * Creates a new WebConnection for the given upgrade handler.
@@ -117,7 +127,10 @@ class ServletWebConnection implements WebConnection {
     }
 
     /**
-     * Writes a message to the WebSocket session.
+     * Sends buffered servlet output as a WebSocket message.
+     *
+     * <p>Called from the servlet worker thread. The send is marshalled onto
+     * the connection's I/O thread and respects transport backpressure.
      */
     void sendMessage(byte[] data) throws IOException {
         if (session == null) {
@@ -126,22 +139,179 @@ class ServletWebConnection implements WebConnection {
         if (!session.isOpen()) {
             throw new IOException("WebSocket session is closed");
         }
-        // Send as text if it looks like UTF-8 text, otherwise binary
-        // For simplicity, we send as text (most WebSocket usage is text-based)
-        session.sendText(new String(data, StandardCharsets.UTF_8));
+        if (data.length == 0) {
+            return;
+        }
+
+        final byte[] copy = data.clone();
+        final boolean asText = isUtf8Text(copy);
+
+        if (!isResponseWritable()) {
+            if (outputStream.hasWriteListener()) {
+                scheduleWritePossibleNotification();
+                throw new IllegalStateException(
+                        ServletService.L10N.getString("err.write_not_ready"));
+            }
+            awaitResponseWritable();
+        }
+
+        if (state == null) {
+            sendMessageDirect(copy, asText);
+            return;
+        }
+
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    sendMessageDirect(copy, asText);
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error sending WebSocket message", e);
+                }
+                if (outputStream.hasWriteListener()) {
+                    dispatchContainerCallback(new Runnable() {
+                        @Override
+                        public void run() {
+                            outputStream.notifyWritePossible();
+                            if (!isResponseWritable()) {
+                                scheduleWritePossibleNotification();
+                            }
+                        }
+                    });
+                }
+            }
+        });
     }
 
-    /**
-     * Writes binary data to the WebSocket session.
-     */
-    void sendBinaryMessage(ByteBuffer data) throws IOException {
-        if (session == null) {
-            throw new IOException("WebSocket session not established");
+    boolean isResponseWritable() {
+        return state == null
+                || state.pendingResponseBytes() <= PENDING_RESPONSE_HIGH_WATERMARK;
+    }
+
+    void dispatchContainerCallback(Runnable task) {
+        if (handler != null) {
+            handler.dispatchContainerCallback(task);
+        } else if (state != null) {
+            state.execute(task);
+        } else {
+            task.run();
         }
-        if (!session.isOpen()) {
+    }
+
+    void notifyWritePossible() {
+        outputStream.notifyWritePossible();
+    }
+
+    private void sendMessageDirect(byte[] data, boolean asText) throws IOException {
+        if (session == null || !session.isOpen()) {
             throw new IOException("WebSocket session is closed");
         }
-        session.sendBinary(data);
+        if (asText) {
+            session.sendText(new String(data, StandardCharsets.UTF_8));
+        } else {
+            session.sendBinary(ByteBuffer.wrap(data));
+        }
+    }
+
+    private static boolean isUtf8Text(byte[] data) {
+        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT);
+        try {
+            decoder.decode(ByteBuffer.wrap(data));
+            return true;
+        } catch (CharacterCodingException e) {
+            return false;
+        }
+    }
+
+    private void awaitResponseWritable() throws IOException {
+        if (isResponseWritable() || state == null) {
+            return;
+        }
+        final CountDownLatch latch = new CountDownLatch(1);
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.onWritable(new Runnable() {
+                    @Override
+                    public void run() {
+                        latch.countDown();
+                    }
+                });
+            }
+        });
+        try {
+            if (!latch.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                state.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        state.onWritable(null);
+                        state.cancel();
+                    }
+                });
+                throw new IOException(
+                        "Timed out waiting for WebSocket write backpressure to clear");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(
+                    "Interrupted while waiting for WebSocket write backpressure", e);
+        }
+    }
+
+    private void scheduleWritePossibleNotification() {
+        if (writePossibleScheduled || state == null
+                || !outputStream.hasWriteListener()) {
+            return;
+        }
+        writePossibleScheduled = true;
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.onWritable(new Runnable() {
+                    @Override
+                    public void run() {
+                        writePossibleScheduled = false;
+                        if (outputStream.hasWriteListener()) {
+                            dispatchContainerCallback(new Runnable() {
+                                @Override
+                                public void run() {
+                                    outputStream.notifyWritePossible();
+                                    if (!isResponseWritable()) {
+                                        scheduleWritePossibleNotification();
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    private void closeSessionOnIoThread() {
+        if (session == null || !session.isOpen()) {
+            return;
+        }
+        if (state != null) {
+            state.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        session.close();
+                    } catch (IOException e) {
+                        LOGGER.log(Level.FINE, "Error closing WebSocket session", e);
+                    }
+                }
+            });
+        } else {
+            try {
+                session.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.FINE, "Error closing WebSocket session", e);
+            }
+        }
     }
 
     @Override
@@ -165,13 +335,7 @@ class ServletWebConnection implements WebConnection {
         inputStream.dispatchDataAvailable();
         messageStream.close();
 
-        if (session != null && session.isOpen()) {
-            try {
-                session.close();
-            } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Error closing WebSocket session", e);
-            }
-        }
+        closeSessionOnIoThread();
     }
 
     /**
