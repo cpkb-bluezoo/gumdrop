@@ -62,6 +62,7 @@ import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
 
 /**
  * One UDP socket multiplexing many {@link QuicConnection}s.
@@ -426,12 +427,17 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
             conn.markAddressValidated();
         }
         ServerCredentials serverCredentials = factory.getServerCredentials();
-        if (serverCredentials == null) {
+        ServerCredentialsResolver serverCredentialsResolver =
+                factory.getServerCredentialsResolver();
+        if (serverCredentials == null && serverCredentialsResolver == null) {
             LOGGER.warning(L10N.getString("warn.no_server_cert"));
             return null;
         }
-        QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(serverCredentials, localParams, conn,
-                factory.isEarlyDataEnabled(), factory.getApplicationProtocols(), factory.getCipherSuites());
+        QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(serverCredentials,
+                serverCredentialsResolver, localParams, conn,
+                factory.isEarlyDataEnabled(), factory.getApplicationProtocols(),
+                factory.getCipherSuites(), factory.isNeedClientAuth(),
+                factory.getTrustManager());
         conn.setTlsEngine(tlsEngine);
 
         if (connectionAcceptedHandler != null) {
@@ -644,9 +650,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         QuicTlsClientEngine tlsEngine = new QuicTlsClientEngine(localParams, conn,
                 factory.getApplicationProtocols(), factory.getNamedGroups(), factory.getCipherSuites());
         X509TrustManager trustManager = factory.getTrustManager();
-        if (trustManager != null) {
-            tlsEngine.setTrustManager(trustManager);
-        }
+        tlsEngine.setTrustManager(trustManager);
         if (!factory.isVerifyHostnameEnabled()) {
             tlsEngine.setVerifyHostname(false);
         }

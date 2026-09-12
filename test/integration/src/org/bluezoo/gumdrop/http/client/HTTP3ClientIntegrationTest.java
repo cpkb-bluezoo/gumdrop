@@ -86,8 +86,8 @@ public class HTTP3ClientIntegrationTest {
         if (!certsDir.exists()) {
             certsDir.mkdirs();
         }
-        // QUIC/BoringSSL loads PEM cert+key files, not a JSSE keystore, so
-        // generate a fresh CA-signed server certificate and export it as PEM.
+        // Export PEM cert+key for this test's HTTP/3 listener (keystore would
+        // work too; PEM keeps the fixture self-contained and easy to inspect).
         File caKeystore = new File(certsDir, "ca-keystore.p12");
         if (caKeystore.exists()) {
             caKeystore.delete();
@@ -291,7 +291,7 @@ public class HTTP3ClientIntegrationTest {
         HTTPClient client = new HTTPClient(TEST_HOST, H3_PORT);
         client.setH3Enabled(true);
         // The test server presents a certificate signed by our throwaway test
-        // CA; BoringSSL has no way to trust it, so disable peer verification.
+        // CA; the client is not configured to trust it, so disable verification.
         client.setVerifyPeer(false);
         client.setAltSvcEnabled(false);
 

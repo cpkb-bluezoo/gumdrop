@@ -164,11 +164,11 @@ of the TCP-based <code>HTTPListener</code> and can coexist with it:
     &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
     &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
   &lt;/listener&gt;
-  &lt;!-- HTTP/3 over QUIC --&gt;
+  &lt;!-- HTTP/3 over QUIC (same server identity as TCP) --&gt;
   &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="cert-file"&gt;/etc/gumdrop/cert.pem&lt;/property&gt;
-    &lt;property name="key-file"&gt;/etc/gumdrop/key.pem&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
   &lt;/listener&gt;
 &lt;/service&gt;
 </pre>
@@ -178,26 +178,21 @@ Note that the TCP and QUIC listeners can share the same port number (443 is
 conventional) because they use different transport protocols (TCP vs UDP).
 </p>
 
-<h4>PEM vs Keystore</h4>
+<h4>Server identity</h4>
 
 <p>
-HTTP/3 listeners are configured with PEM certificate files
-(<code>cert-file</code>, <code>key-file</code>) rather than a Java keystore.
-TCP listeners typically use PKCS#12 keystores
-(<code>keystore-file</code>, <code>keystore-pass</code>), though PEM files are
-also supported. Both transports use Gumdrop&rsquo;s in-tree TLS engine.
+All secure listeners use the same in-tree TLS stack and the same credential
+properties: a Java keystore (<code>keystore-file</code>,
+<code>keystore-pass</code>, optional <code>keystore-format</code>) or PEM files
+(<code>cert-file</code>, <code>key-file</code>). Use the <b>same identity</b> on
+co-located TCP and QUIC listeners so <code>Alt-Svc</code> upgrades do not trigger
+certificate warnings. See
+<a href="security.html#server-identity">Security &mdash; Server identity across transports</a>.
 </p>
 
-<ul>
-<li><code>cert-file</code> &ndash; path to the PEM certificate chain</li>
-<li><code>key-file</code> &ndash; path to the PEM private key</li>
-</ul>
-
 <p>
-The TCP-based <code>HTTPListener</code> continues to use the standard Java
-keystore properties (<code>keystore-file</code>, <code>keystore-pass</code>,
-<code>keystore-format</code>). If you have a PKCS#12 keystore, you can
-extract PEM files with OpenSSL:
+PEM is an alternative, not a QUIC requirement. To export PEM from a PKCS#12
+keystore:
 </p>
 
 <pre>
@@ -268,8 +263,7 @@ are failed with a retryable error so the caller can reconnect.</li>
 
 <ul>
 <li><code>port</code> &ndash; UDP listening port (default: 443)</li>
-<li><code>cert-file</code> &ndash; path to PEM certificate chain (required)</li>
-<li><code>key-file</code> &ndash; path to PEM private key (required)</li>
+<li><code>keystore-file</code> / <code>keystore-pass</code> &ndash; server identity (PKCS#12 or JKS), or use <code>cert-file</code> / <code>key-file</code> for PEM</li>
 <li><code>quic-max-idle-timeout</code> &ndash; QUIC max idle timeout in ms (RFC 9000 section 18)</li>
 <li><code>quic-max-data</code> &ndash; connection-level flow control limit in bytes</li>
 <li><code>quic-max-stream-data-bidi-local</code> &ndash; per-stream flow control for locally-initiated bidi streams (bytes)</li>
@@ -803,15 +797,13 @@ RFC 9113 section 6.7)</li>
 <h4>HTTP3Listener Properties</h4>
 
 <p>
-<code>HTTP3Listener</code> is the QUIC listener for HTTP/3. Certificate
-configuration uses PEM files (<code>cert-file</code>, <code>key-file</code>)
-rather than a keystore:
+<code>HTTP3Listener</code> is the QUIC listener for HTTP/3. It accepts the
+same server-identity properties as <code>HTTPListener</code> (keystore or PEM).
 </p>
 
 <ul>
 <li><code>port</code> &ndash; UDP listening port (default: 443)</li>
-<li><code>cert-file</code> &ndash; path to PEM certificate chain (required)</li>
-<li><code>key-file</code> &ndash; path to PEM private key (required)</li>
+<li><code>keystore-file</code> / <code>keystore-pass</code> &ndash; server identity (PKCS#12 or JKS), or use <code>cert-file</code> / <code>key-file</code> for PEM</li>
 <li><code>quic-max-idle-timeout</code> &ndash; QUIC idle timeout in ms (RFC 9000 section 18)</li>
 <li><code>quic-max-data</code> &ndash; connection-level flow control limit (bytes)</li>
 <li><code>quic-max-stream-data-bidi-local</code> &ndash; stream flow control, local bidi (bytes)</li>
@@ -842,8 +834,8 @@ so that clients can discover and migrate to HTTP/3:
   &lt;/listener&gt;
   &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
-    &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
   &lt;/listener&gt;
 &lt;/service&gt;
 </pre>

@@ -28,13 +28,17 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 
+import javax.net.ssl.X509TrustManager;
+
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.tls.AntiReplay;
 import org.bluezoo.gumdrop.tls.CipherSuite;
+import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.HandshakeEngine;
 import org.bluezoo.gumdrop.tls.HandshakeRole;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
 import org.bluezoo.gumdrop.tls.TicketKeys;
 import org.bluezoo.gumdrop.tls.TlsEventSink;
 import org.bluezoo.gumdrop.tls.TlsProtocolError;
@@ -43,10 +47,6 @@ import org.bluezoo.gumdrop.tls.TransportParameterConsistencyChecker;
 /**
  * Bridges gumdrop's in-tree {@link HandshakeEngine} to the QUIC
  * transport, the server-side counterpart of {@link QuicTlsClientEngine}.
- * Replaces the former Agent15-backed implementation; the {@link
- * QuicTlsEngine}/{@link QuicTlsEngineListener} seam this class sits
- * behind, and every other public method on this class, are unchanged --
- * only what drives the handshake underneath.
  *
  * <p>{@code earlyDataEnabled} governs whether 0-RTT is accepted at all;
  * ticket issuance (required for a peer to ever have something to resume)
@@ -177,11 +177,41 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
     public QuicTlsServerEngine(ServerCredentials serverCredentials,
             TransportParameters transportParameters, QuicTlsEngineListener listener,
             boolean earlyDataEnabled, String applicationProtocols, String cipherSuites) {
+        this(serverCredentials, null, transportParameters, listener, earlyDataEnabled,
+                applicationProtocols, cipherSuites, false, null);
+    }
+
+    /**
+     * Creates a server-side TLS engine with optional SNI credential
+     * selection and client certificate authentication.
+     *
+     * @param serverCredentials the default server credentials, or null if
+     *                            {@code serverCredentialsResolver} selects them
+     * @param serverCredentialsResolver resolves credentials from the client's
+     *                                    SNI hostname, or null
+     * @param transportParameters this endpoint's QUIC transport parameters
+     * @param listener notified of handshake progress
+     * @param earlyDataEnabled whether 0-RTT is accepted
+     * @param applicationProtocols ALPN application protocol(s), or null
+     * @param cipherSuites colon-separated preferred cipher suite(s), or null
+     * @param requireClientAuth whether client certificates are required
+     * @param clientTrustManager trust manager for validating client certs
+     */
+    public QuicTlsServerEngine(ServerCredentials serverCredentials,
+            ServerCredentialsResolver serverCredentialsResolver,
+            TransportParameters transportParameters, QuicTlsEngineListener listener,
+            boolean earlyDataEnabled, String applicationProtocols, String cipherSuites,
+            boolean requireClientAuth, X509TrustManager clientTrustManager) {
         this.listener = listener;
         this.asyncOffload = new QuicHandshakeAsyncOffload(listener);
         this.deferredDispatch = new QuicTlsDeferredDispatch(asyncOffload, sink);
         this.config = new HandshakeConfig(HandshakeRole.SERVER);
         config.setServerCredentials(serverCredentials);
+        config.setServerCredentialsResolver(serverCredentialsResolver);
+        if (requireClientAuth) {
+            config.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
+            config.setClientTrustManager(clientTrustManager);
+        }
         config.setLocalTransportParameters(transportParameters.encode());
         config.setCipherSuites(QuicCipherSuites.resolve(cipherSuites));
         config.setApplicationProtocols(applicationProtocols != null && !applicationProtocols.isEmpty()

@@ -36,9 +36,9 @@ public interface QuicTlsEngine {
     /**
      * Feeds received CRYPTO frame data at the given level into
      * handshake message reassembly. Complete messages are dispatched to
-     * Agent15 asynchronously, off the caller's thread, via {@link
-     * QuicHandshakeAsyncOffload} -- outcomes (including any processing
-     * failure) reach {@link QuicTlsEngineListener#cryptoProcessingFailed}
+     * {@link HandshakeEngine} asynchronously, off the caller's thread,
+     * via {@link QuicHandshakeAsyncOffload}; a processing failure
+     * reaches {@link QuicTlsEngineListener#cryptoProcessingFailed}
      * rather than being thrown back through this call.
      *
      * @param level the encryption level the data was received at

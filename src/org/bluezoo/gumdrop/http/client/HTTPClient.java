@@ -890,6 +890,21 @@ public class HTTPClient implements AltSvcListener {
 
         quicTransportFactory = new QuicTransportFactory();
         quicTransportFactory.setApplicationProtocols("h3");
+        if (trustManager != null) {
+            quicTransportFactory.setTrustManager(trustManager);
+        } else if (!verifyPeer) {
+            LOGGER.warning(L10N.getString("warn.tls_verification_disabled"));
+            quicTransportFactory.setVerifyPeer(false);
+        }
+        if (keystoreFile != null) {
+            quicTransportFactory.setKeystoreFile(keystoreFile);
+        }
+        if (keystorePass != null) {
+            quicTransportFactory.setKeystorePass(keystorePass);
+        }
+        if (keystoreFormat != null) {
+            quicTransportFactory.setKeystoreFormat(keystoreFormat);
+        }
         if (certFile != null) {
             quicTransportFactory.setCertFile(certFile);
         }

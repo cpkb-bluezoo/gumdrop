@@ -44,6 +44,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ratelimit.AuthenticationRateLimiter;
 import org.bluezoo.gumdrop.ratelimit.ConnectionRateLimiter;
+import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
@@ -700,6 +701,21 @@ public abstract class Listener {
             }
             if (sniDefaultAlias != null) {
                 udpFactory.setSniDefaultAlias(sniDefaultAlias);
+            }
+        }
+        if (factory instanceof QuicTransportFactory) {
+            QuicTransportFactory quicFactory = (QuicTransportFactory) factory;
+            if (serverCredentials != null) {
+                quicFactory.setServerCredentials(serverCredentials);
+            }
+            if (needClientAuth) {
+                quicFactory.setNeedClientAuth(true);
+            }
+            if (sniHostnameToAlias != null) {
+                quicFactory.setSniHostnames(sniHostnameToAlias);
+            }
+            if (sniDefaultAlias != null) {
+                quicFactory.setSniDefaultAlias(sniDefaultAlias);
             }
         }
     }

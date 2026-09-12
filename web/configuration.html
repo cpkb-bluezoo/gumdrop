@@ -306,15 +306,16 @@ the <code>path</code> attribute's relative resolution.
 <h4>HTTP/3 Listeners</h4>
 
 <p>
-HTTP/3 uses QUIC over UDP and requires PEM certificate and key files rather
-than a Java keystore:
+HTTP/3 uses QUIC over UDP. Server identity uses the same properties as other
+secure listeners &mdash; keystore or PEM (see
+<a href="security.html#server-identity">Security &mdash; Server identity across transports</a>):
 </p>
 
 <pre>
 &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
     &lt;property name="port" value="443"/&gt;
-    &lt;property name="cert-file" path="certs/cert.pem"/&gt;
-    &lt;property name="key-file" path="certs/key.pem"/&gt;
+    &lt;property name="keystore-file" path="certs/keystore.p12"/&gt;
+    &lt;property name="keystore-pass" value="secret"/&gt;
 &lt;/listener&gt;
 </pre>
 
@@ -342,11 +343,11 @@ connections on multiple ports and protocols simultaneously:
         &lt;property name="keystore-pass" value="changeit"/&gt;
     &lt;/listener&gt;
 
-    &lt;!-- HTTP/3 --&gt;
+    &lt;!-- HTTP/3 (same keystore as HTTPS) --&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
         &lt;property name="port" value="8443"/&gt;
-        &lt;property name="cert-file" path="localhost+2.pem"/&gt;
-        &lt;property name="key-file" path="localhost+2-key.pem"/&gt;
+        &lt;property name="keystore-file" path="localhost+2.p12"/&gt;
+        &lt;property name="keystore-pass" value="changeit"/&gt;
     &lt;/listener&gt;
 &lt;/service&gt;
 </pre>

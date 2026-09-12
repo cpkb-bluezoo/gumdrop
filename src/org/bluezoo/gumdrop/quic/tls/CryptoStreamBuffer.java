@@ -43,9 +43,8 @@ import java.util.List;
  * #receiveAndExtractMessages} to throw rather than buffer unboundedly.
  *
  * <p>This class is pure reassembly: it hands back complete message
- * bytes rather than dispatching them to Agent15 itself, so that the
- * concrete {@code QuicTlsEngine} can run that dispatch through {@link
- * QuicHandshakeAsyncOffload}, off the caller's thread.
+ * bytes so the concrete {@code QuicTlsEngine} can dispatch them through
+ * {@link QuicHandshakeAsyncOffload}, off the caller's thread.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

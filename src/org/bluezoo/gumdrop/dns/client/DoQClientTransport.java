@@ -173,19 +173,12 @@ public class DoQClientTransport implements DNSClientTransport {
                         markConnected(conn, false);
                     }
                 },
-                // Agent15's TlsClientEngineImpl.startHandshake requires a
-                // non-null server name unconditionally (throws
-                // IllegalStateException otherwise) -- DoQ has no real
-                // hostname to offer (it connects directly to a resolved
-                // IP), so the literal address is used instead. RFC 6066
-                // section 3 disallows IP literals in a real SNI extension,
-                // but this only matters for servers that select a
-                // certificate by SNI; gumdrop's own DoQListener serves one
-                // configured certificate regardless of the value received,
-                // and SessionTicketCache already keys on this same string
-                // (QuicEngine.connectTo falls back to it when serverName
-                // is null), so nothing else depends on it looking like a
-                // real hostname.
+                // DoQ connects directly to a resolved IP with no real hostname to
+                // offer (see the serverName comment on the connect() call below);
+                // trust is established via setPinnedCertFingerprint/setCaFile
+                // instead of hostname matching, matching RFC 8310 section 8.1's
+                // SPKI-pinning-as-alternative precedent for DNS-over-TLS clients
+                // in the same situation.
                 loop, server.getHostAddress());
     }
 

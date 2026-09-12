@@ -32,7 +32,7 @@
  * connection-level state machine -- handshake sequencing, stream
  * lifecycle, flow control -- over a {@code QuicTlsClientEngine}/{@code
  * QuicTlsServerEngine} (in {@link org.bluezoo.gumdrop.quic.tls}) built on
- * Agent15's TLS 1.3 handshake engine. {@link
+ * gumdrop's in-tree TLS 1.3 handshake engine. {@link
  * org.bluezoo.gumdrop.quic.QuicStreamEndpoint} exposes an individual
  * stream as a plain {@link org.bluezoo.gumdrop.Endpoint}, so protocol
  * handlers written against {@link org.bluezoo.gumdrop.ProtocolHandler}
@@ -44,7 +44,7 @@
  * <h2>Subpackages</h2>
  * <ul>
  * <li>{@link org.bluezoo.gumdrop.quic.tls} -- the TLS 1.3 key schedule
- *     and Agent15 bridge (RFC 9001)</li>
+ *     and handshake bridge (RFC 9001)</li>
  * <li>{@link org.bluezoo.gumdrop.quic.packet} -- packet protection: AEAD
  *     payload encryption and header protection (RFC 9001 sections 5.1-5.4)</li>
  * <li>{@link org.bluezoo.gumdrop.quic.frame} -- frame encoding/decoding

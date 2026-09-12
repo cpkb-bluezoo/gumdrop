@@ -293,9 +293,9 @@ Each remote address gets its own session object on the shared datagram socket.
 QUIC always uses TLS&nbsp;1.3. <code>QuicTlsClientEngine</code> and
 <code>QuicTlsServerEngine</code> adapt <code>HandshakeEngine</code> to QUIC
 CRYPTO stream framing and RFC&nbsp;9001 key schedule labels. ALPN negotiates
-application protocols (<code>h3</code>, <code>doq</code>, etc.). PEM
-<code>cert-file</code> / <code>key-file</code> configuration is conventional for
-QUIC listeners but the underlying engine is identical to TCP/TLS.
+application protocols (<code>h3</code>, <code>doq</code>, etc.). Server
+identity uses the same keystore or PEM properties as TCP/TLS and DTLS listeners
+(see <a href="security.html#server-identity">Security &mdash; Server identity across transports</a>).
 </p>
 
 <h2 id="security">Security practices</h2>
@@ -517,7 +517,7 @@ QUIC-TLS integration in the HTTP and QUIC sections of that document).
 
 <p>
 See also <a href="security.html#tls">Security &mdash; Transport Layer Security</a>
-for certificate generation, PEM vs keystore conventions, and pinning.
+for certificate generation, server identity configuration, and pinning.
 </p>
 
 </body>

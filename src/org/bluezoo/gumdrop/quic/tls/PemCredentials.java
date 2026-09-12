@@ -49,9 +49,8 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * Loads PEM-encoded certificate chain and private key files into gumdrop's
- * own {@link ServerCredentials}, the pure-Java replacement for the native
- * path's {@code ssl_ctx_load_cert_chain}/{@code ssl_ctx_load_priv_key}
- * (BoringSSL reads PEM files directly).
+ * own {@link ServerCredentials}. Used when listeners are configured with
+ * {@code cert-file} / {@code key-file} instead of a Java keystore.
  *
  * <p>The private key must be in PKCS8 form (a
  * {@code -----BEGIN PRIVATE KEY-----} block, RSA or EC) -- the older

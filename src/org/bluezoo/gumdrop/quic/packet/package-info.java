@@ -27,7 +27,7 @@
  * 1-RTT) produces a {@link org.bluezoo.gumdrop.quic.packet.PacketProtectionKeys}
  * from a traffic secret -- for Initial, from
  * {@link org.bluezoo.gumdrop.quic.tls.InitialSecrets}; for Handshake and
- * 1-RTT, from the corresponding secret Agent15 exposes once the handshake
+ * 1-RTT, from the corresponding traffic secret once the handshake
  * reaches that level. {@link org.bluezoo.gumdrop.quic.packet.PacketProtection}
  * then performs the actual AEAD seal/open and header-protection mask
  * computation and application (RFC 9001 sections 5.3-5.4) using those keys.

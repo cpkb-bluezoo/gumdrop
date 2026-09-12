@@ -50,11 +50,7 @@ import org.bluezoo.gumdrop.tls.TlsProtocolError;
  * Bridges gumdrop's in-tree {@link HandshakeEngine} to the QUIC
  * transport: routes handshake message bytes to and from per-level
  * {@link CryptoStreamBuffer}s, and forwards secret-availability and
- * completion events to a {@link QuicTlsEngineListener}. Replaces the
- * former Agent15-backed implementation; the {@link QuicTlsEngine}/
- * {@link QuicTlsEngineListener} seam this class sits behind, and every
- * other public method on this class, are unchanged -- only what drives
- * the handshake underneath.
+ * completion events to a {@link QuicTlsEngineListener}.
  *
  * <p>The QUIC transport-parameters extension (RFC 9000 section 7.4,
  * RFC 9001 section 8.2) is added to the handshake and its receipt is
@@ -273,12 +269,11 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
     /**
      * Disables hostname verification of the peer's certificate against
      * the server name presented in the handshake. See
-     * {@link HandshakeConfig#setVerifyHostname} for the full rationale
-     * (unchanged from the previous Agent15-backed implementation): a
-     * caller with no real hostname to offer (e.g. a DNS-over-QUIC client
-     * connecting directly to a resolved IP, RFC 9250) should disable this
-     * and establish trust another way instead (a pinned certificate
-     * fingerprint or a private CA via {@link #setTrustManager}).
+     * {@link HandshakeConfig#setVerifyHostname} for when callers should
+     * disable this (e.g. a DNS-over-QUIC client connecting directly to a
+     * resolved IP, RFC 9250) and establish trust another way instead (a
+     * pinned certificate fingerprint, a private CA, or a custom trust
+     * manager via {@link #setTrustManager}).
      *
      * <p>Not called at all (the default) leaves hostname verification on.
      *

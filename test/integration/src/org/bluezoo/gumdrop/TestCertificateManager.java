@@ -322,11 +322,9 @@ public class TestCertificateManager {
      * Exports the server certificate chain and private key as PEM files.
      *
      * <p>Unlike {@link #saveServerKeystore(File, String)}, which produces a
-     * PKCS#12 keystore for JSSE, this writes the plain PEM files that
-     * BoringSSL-backed transports require. The QUIC/HTTP3 stack
-     * ({@link org.bluezoo.gumdrop.http.h3.HTTP3Listener#setCertFile} /
-     * {@code setKeyFile}) loads its cert and key from PEM, not from a
-     * keystore, so h3 integration tests need this form.
+     * PKCS#12 keystore, this writes plain PEM files for listeners configured
+     * with {@code cert-file} / {@code key-file}. HTTP/3 integration tests use
+     * PEM so the fixture chain is visible on disk.
      *
      * <p>The certificate file contains the server certificate followed by
      * the CA certificate (leaf-first chain). The key file contains the

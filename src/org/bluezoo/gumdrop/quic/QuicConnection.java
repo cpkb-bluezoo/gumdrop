@@ -1251,7 +1251,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
     // Set for the duration of receive() so every side effect of
     // processing one incoming datagram (potentially several coalesced
     // packets, each with several frames, each of which can itself
-    // trigger further synchronous callbacks -- e.g. Agent15 delivering a
+    // trigger further synchronous callbacks -- e.g. the TLS engine delivering a
     // server's whole certificate flight as several back-to-back
     // cryptoDataReady calls, or an application handler responding to a
     // request synchronously from within a frame callback) accumulates

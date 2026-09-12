@@ -53,7 +53,7 @@ them. See <a href="http.html#configuration">HTTP Configuration</a> for the
 <li><a href="tls.html">Transport Layer Security</a>
   <ul>
   <li><a href="#tls-certificates">TLS Certificates for Local Development</a></li>
-  <li><a href="#quic-tls">QUIC / HTTP/3 Certificate Requirements</a></li>
+  <li><a href="#server-identity">Server identity across transports</a></li>
   <li><a href="#sni">SNI (Server Name Indication)</a></li>
   </ul>
 </li>
@@ -87,11 +87,13 @@ cover certificate setup and cross-transport comparisons.
 <h3 id="tls-certificates">TLS Certificates for Local Development</h3>
 
 <p>
-The HTTPS listener requires a PKCS#12 keystore and the HTTP/3 (QUIC)
-listener requires PEM certificate and key files (see
-<a href="#quic-tls">QUIC / HTTP/3 Certificate Requirements</a> for details on
-why these differ). These are not checked in to the repository; you must
-generate them before running the server.
+All secure listeners (TCP/TLS, DTLS, and QUIC) use the same in-tree TLS
+stack and accept the same server-identity configuration: a Java keystore
+(PKCS#12 or JKS) via <code>keystore-file</code> / <code>keystore-pass</code>,
+or PEM files via <code>cert-file</code> / <code>key-file</code>. See
+<a href="#server-identity">Server identity across transports</a>. Certificate
+material is not checked in to the repository; you must generate it before
+running the server.
 </p>
 
 <p>
@@ -110,9 +112,10 @@ mkcert -cert-file etc/localhost+2.pem -key-file etc/localhost+2-key.pem \
 </pre>
 
 <p>
-This produces <code>etc/localhost+2.pem</code> and <code>etc/localhost+2-key.pem</code>.
-Then generate a PKCS#12 keystore from the same certificate for the HTTPS
-listener:
+This produces <code>etc/localhost+2.pem</code> and
+<code>etc/localhost+2-key.pem</code>. For gumdroprc examples that use a
+keystore, export the same identity to PKCS#12 (one file can serve HTTPS,
+HTTP/3, DoQ, and other listeners):
 </p>
 
 <pre>
@@ -121,8 +124,10 @@ openssl pkcs12 -export -in etc/localhost+2.pem -inkey etc/localhost+2-key.pem \
 </pre>
 
 <p>
-The configuration files in <code>etc/</code> reference these by filename (e.g.
-<code>localhost+2.p12</code>); they are not checked in to the repository.
+Alternatively, point every listener at the PEM files directly with
+<code>cert-file</code> and <code>key-file</code>. Configuration files in
+<code>etc/</code> reference these paths by filename; they are not checked in
+to the repository.
 </p>
 
 <h3>TCP/TLS Configuration</h3>
@@ -211,85 +216,79 @@ Hostnames can be exact (<code>example.com</code>) or wildcard patterns
 specified aliases. If no match is found, <code>sniDefaultAlias</code> is used.
 </p>
 
-<h3 id="quic-tls">QUIC / HTTP/3 Certificate Requirements</h3>
+<h3 id="server-identity">Server identity across transports</h3>
 
 <p>
-QUIC mandates TLS 1.3 &mdash; there is no unencrypted mode and no STARTTLS
-upgrade. The TLS handshake is integrated into the QUIC connection establishment,
-so every QUIC connection is encrypted from the first packet.
+Gumdrop uses one in-tree TLS implementation
+(<code>org.bluezoo.gumdrop.tls</code>) for TCP/TLS, DTLS, and QUIC-TLS. Server
+certificate configuration is therefore the same regardless of transport:
+either a Java keystore or a PEM certificate chain plus private key. There is
+no separate &ldquo;QUIC TLS engine&rdquo; with different credential rules.
 </p>
 
 <p>
-QUIC listeners are configured with PEM certificate files
-(<code>cert-file</code>, <code>key-file</code>) rather than a Java keystore.
-This is a configuration convention for <code>HTTP3Listener</code> and
-<code>DoQListener</code>; the underlying TLS engine is the same in-tree
-implementation used for TCP/TLS and DTLS.
+QUIC mandates TLS&nbsp;1.3 &mdash; there is no unencrypted mode and no STARTTLS
+upgrade. The handshake is integrated into QUIC connection establishment, so
+every QUIC packet is encrypted. That is a protocol requirement, not a
+difference in how you load keys.
 </p>
 
 <table border="1" cellpadding="5">
 <tr>
   <th></th>
-  <th>TCP/TLS (HTTP/1.x, HTTP/2, SMTP, etc.)</th>
-  <th>QUIC (HTTP/3)</th>
+  <th>TCP/TLS (HTTP/1.x, HTTP/2, SMTP, &hellip;)</th>
+  <th>UDP (DTLS, DoQ) / QUIC (HTTP/3)</th>
 </tr>
 <tr>
-  <td><b>TLS implementation</b></td>
+  <td><b>TLS engine</b></td>
   <td>In-tree <code>org.bluezoo.gumdrop.tls</code></td>
-  <td>Same in-tree engine via <code>QuicTlsClientEngine</code>/<code>QuicTlsServerEngine</code></td>
+  <td>Same engine (<code>TlsRecordEngine</code>, <code>Dtls13RecordEngine</code>,
+      <code>QuicTlsServerEngine</code>, &hellip;)</td>
 </tr>
 <tr>
-  <td><b>Certificate format</b></td>
-  <td>Java keystore (PKCS#12, JKS) or PEM</td>
-  <td>PEM files</td>
+  <td><b>Keystore</b></td>
+  <td colspan="2"><code>keystore-file</code>, <code>keystore-pass</code>,
+      optional <code>keystore-format</code> (PKCS#12 or JKS)</td>
 </tr>
 <tr>
-  <td><b>Certificate property</b></td>
-  <td><code>keystore-file</code> (or <code>cert-file</code> + <code>key-file</code>)</td>
-  <td><code>cert-file</code>, <code>key-file</code></td>
+  <td><b>PEM files</b></td>
+  <td colspan="2"><code>cert-file</code> (full chain) and <code>key-file</code>
+      (unencrypted private key)</td>
 </tr>
 <tr>
-  <td><b>Password</b></td>
-  <td><code>keystore-pass</code> (keystore password)</td>
-  <td>N/A (key file is unencrypted)</td>
-</tr>
-<tr>
-  <td><b>TLS versions</b></td>
-  <td>TLS&nbsp;1.2 or TLS&nbsp;1.3 per listener (<code>tls-version</code>); default TLS&nbsp;1.3</td>
-  <td>TLS&nbsp;1.3 only (QUIC requirement)</td>
+  <td><b>Protocol version</b></td>
+  <td>TLS&nbsp;1.2 or TLS&nbsp;1.3 per listener (<code>tls-version</code>)</td>
+  <td>DTLS&nbsp;1.2/1.3 (<code>dtls-version</code>) or TLS&nbsp;1.3 only for QUIC</td>
 </tr>
 </table>
 
-<h4>PEM File Format</h4>
-
 <p>
-QUIC listeners require certificates and keys in PEM format &mdash; Java keystores
-(PKCS#12, JKS) are <b>not</b> supported. The certificate file must contain the
-full certificate chain (server certificate followed by any intermediate CA
-certificates). The private key file must be unencrypted PEM (PKCS#8 or
-traditional format).
+Use one identity for co-located listeners (e.g. HTTPS on TCP and HTTP/3 on UDP
+on port 443): the same <code>keystore-file</code> or the same
+<code>cert-file</code>/<code>key-file</code> pair on both listeners. Browsers
+require matching certificate identity when upgrading via <code>Alt-Svc</code>.
 </p>
 
-<h4>Generating PEM Certificates</h4>
+<h4>PEM file format</h4>
 
 <p>
-For development, <a href="https://github.com/FiloSottile/mkcert">mkcert</a>
-generates locally-trusted PEM certificates. See
-<a href="#tls-certificates">TLS Certificates for Local Development</a> above for
-the complete setup including the PKCS#12 keystore required for HTTPS.
+When using <code>cert-file</code> and <code>key-file</code>, the certificate
+file must contain the full chain (leaf followed by intermediates). The private
+key file must be unencrypted PEM (PKCS#8 or traditional format). This applies
+on every transport, not only QUIC.
 </p>
 
 <p>
-For production, most certificate authorities (Let's Encrypt, etc.) issue PEM
-files directly. If you already have a Java keystore, you can export to PEM:
+Most CAs (including Let&rsquo;s Encrypt) issue PEM directly. To extract PEM from
+an existing keystore:
 </p>
 
 <pre>
-# Extract certificate chain
+# Certificate chain
 keytool -exportcert -alias myalias -keystore keystore.p12 \
     -storepass secret -rfc -file cert.pem
 
-# Extract private key (via PKCS#12 + OpenSSL)
+# Private key (via PKCS#12 + OpenSSL)
 openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
 </pre>
 
@@ -297,15 +296,15 @@ openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
 
 <p>
 A typical deployment shares the same port (443 or 8443) between an HTTPS
-listener on TCP and an HTTP/3 listener on UDP. Both use the in-tree TLS engine,
-but certificate configuration differs (keystore vs PEM files):
+listener on TCP and an HTTP/3 listener on UDP, using the same server identity
+on both:
 </p>
 
 <pre>
 &lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
     &lt;property name="container" ref="#mainContainer"/&gt;
 
-    &lt;!-- HTTPS on TCP (in-tree TLS, PKCS#12 keystore) --&gt;
+    &lt;!-- HTTPS on TCP --&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
         &lt;property name="port"&gt;8443&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
@@ -313,11 +312,11 @@ but certificate configuration differs (keystore vs PEM files):
         &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
     &lt;/listener&gt;
 
-    &lt;!-- HTTP/3 on UDP (in-tree TLS, PEM files) --&gt;
+    &lt;!-- HTTP/3 on UDP (same keystore) --&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
         &lt;property name="port"&gt;8443&lt;/property&gt;
-        &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
-        &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
+        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
     &lt;/listener&gt;
 &lt;/service&gt;
 </pre>
@@ -342,8 +341,8 @@ See <a href="tls.html#ciphers">TLS &amp; DTLS &mdash; cipher suites</a>.
 <pre>
 &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
-    &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
+    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
+    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
     &lt;property name="cipher-suites"&gt;TLS_AES_256_GCM_SHA384&lt;/property&gt;
     &lt;property name="named-groups"&gt;X25519&lt;/property&gt;
 &lt;/listener&gt;

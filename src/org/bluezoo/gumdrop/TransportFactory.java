@@ -102,27 +102,21 @@ public abstract class TransportFactory {
     /**
      * TLS 1.3 cipher suites (colon-separated IANA names).
      * Example: "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256"
-     * Consulted by both the JSSE-backed (TCP/TLS) transport and the QUIC
-     * transport -- the latter filters this against what gumdrop's own
-     * AEAD layer actually implements (AES-128/256-GCM, ChaCha20-
-     * Poly1305; Agent15's CCM suites have no backing implementation
-     * here), falling back to its default list if nothing configured
-     * survives filtering. See {@code QuicTransportFactory}'s own class
-     * documentation for details.
+     * Consulted by all transports using the in-tree TLS stack. Unrecognised
+     * names are logged and skipped; QUIC additionally filters against what
+     * its AEAD layer implements (AES-128/256-GCM, ChaCha20-Poly1305).
      */
     protected String cipherSuites;
 
     /**
      * Allowed key exchange groups / named curves (colon-separated),
-     * e.g. "X25519:secp256r1". PQC groups such as "X25519MLKEM768" are
-     * only meaningful on the JSSE-backed (TCP/TLS) transport, and only
-     * when running on a JDK whose SunJSSE provider supports them (JEP
-     * 496, JDK 24+) -- {@code SSLParameters.setNamedGroups()} is queried
-     * reflectively and the setting is silently ignored if unavailable.
-     * The QUIC transport's Agent15 TLS engine has no PQC/hybrid group
-     * support at all as of this writing; see {@code
-     * QuicTransportFactory}'s own class documentation for exactly what
-     * it does and doesn't do with this setting.
+     * e.g. "X25519:secp256r1". Hybrid post-quantum groups (e.g.
+     * {@code X25519_MLKEM768}) are supported by the in-tree
+     * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on Java&nbsp;25+ when
+     * the JCA provider exposes ML-KEM/ML-DSA. On QUIC server listeners,
+     * {@code named-groups} has no effect (RFC&nbsp;8446 section&nbsp;4.2.7:
+     * only the client sends {@code supported_groups}); client-side QUIC
+     * engines honour this setting when opening outbound connections.
      */
     protected String namedGroups;
 
@@ -172,7 +166,8 @@ public abstract class TransportFactory {
 
     /**
      * Sets the Java keystore file path.
-     * Used by TCP (the in-tree TLS engine) and UDP (JSSE DTLS) transports.
+     * Used by all transports (TCP/TLS, DTLS, QUIC) via
+     * {@link org.bluezoo.gumdrop.util.TLSUtils}.
      *
      * @param file the keystore file path
      */
@@ -252,9 +247,9 @@ public abstract class TransportFactory {
     /**
      * Sets the PEM certificate chain file path.
      *
-     * <p>Required for QUIC (BoringSSL loads PEM directly).
-     * Also accepted for TCP/UDP as an alternative to keystore
-     * configuration.
+     * <p>Alternative to {@link #setKeystoreFile} on any transport. Loaded
+     * into {@link org.bluezoo.gumdrop.tls.ServerCredentials} via
+     * {@link org.bluezoo.gumdrop.quic.tls.PemCredentials}.
      *
      * @param path the certificate chain PEM file path
      */
@@ -274,9 +269,8 @@ public abstract class TransportFactory {
     /**
      * Sets the PEM private key file path.
      *
-     * <p>Required for QUIC (BoringSSL loads PEM directly).
-     * Also accepted for TCP/UDP as an alternative to keystore
-     * configuration.
+     * <p>Alternative to {@link #setKeystoreFile} on any transport. Must be
+     * unencrypted PEM (PKCS#8 or traditional format).
      *
      * @param path the private key PEM file path
      */
@@ -297,10 +291,9 @@ public abstract class TransportFactory {
      * Sets the allowed TLS 1.3 cipher suites.
      *
      * <p>Accepts a colon-separated list of cipher suite names in
-     * canonical (IANA) form. The JSSE-backed (TCP/TLS) transport maps
-     * these to {@code SSLParameters.setCipherSuites()}; the QUIC
-     * transport filters them against what its own AEAD layer implements
-     * (see {@code QuicTransportFactory}'s class documentation).
+     * canonical (IANA) form. Applied by the in-tree handshake engines on
+     * TCP, DTLS, and QUIC client connections; QUIC server listeners filter
+     * against the QUIC AEAD layer (see {@code QuicTransportFactory}).
      *
      * <p>Example: "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256"
      *
@@ -314,19 +307,11 @@ public abstract class TransportFactory {
      * Sets the allowed key exchange groups / named curves.
      *
      * <p>Accepts a colon-separated list of group names in canonical form,
-     * tried in order until one is supported. The JSSE-backed (TCP/TLS)
-     * transport maps this to {@code SSLParameters.setNamedGroups()},
-     * reflectively (not every JDK exposes it) and gracefully ignored if
-     * unavailable; the QUIC transport maps it, client-side only, to the
-     * single named group Agent15 offers a key_share for -- see {@code
-     * QuicTransportFactory}'s class documentation for exactly what that
-     * does and doesn't cover, including PQC.
-     *
-     * <p>For PQC enforcement on the TCP/TLS transport, set this to
-     * "X25519MLKEM768" to require hybrid post-quantum key exchange --
-     * only meaningful on a JDK whose SunJSSE provider supports it (JEP
-     * 496, JDK 24+). The QUIC transport's Agent15 TLS engine has no PQC
-     * support at all as of this writing, on any JDK.
+     * tried in order until one is supported. Honoured by the in-tree
+     * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on TCP, DTLS, and
+     * QUIC client connections. Hybrid post-quantum groups require Java&nbsp;25+
+     * JCA support. QUIC server listeners ignore this setting (see
+     * {@link #namedGroups} field comment).
      *
      * @param namedGroups the named group list
      */

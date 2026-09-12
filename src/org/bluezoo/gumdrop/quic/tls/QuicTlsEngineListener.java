@@ -107,10 +107,7 @@ public interface QuicTlsEngineListener {
      * PSK resumption and, if the ticket allows it, 0-RTT.
      *
      * <p>Session resumption is not implemented yet -- nothing calls this
-     * today. The method stays part of this interface (typed against
-     * gumdrop's own {@link SessionTicket} rather than Agent15's) so this
-     * package has no remaining dependency on Agent15 at all, even in an
-     * as-yet-unreachable code path.
+     * today.
      *
      * @param ticket the received session ticket
      */
@@ -141,7 +138,7 @@ public interface QuicTlsEngineListener {
     void execute(Runnable task);
 
     /**
-     * Called (on the loop thread) when Agent15 rejected a handshake
+     * Called (on the loop thread) when the TLS engine rejected a handshake
      * message, or otherwise failed while processing one, during batch
      * processing run off the loop thread by {@link
      * QuicHandshakeAsyncOffload}. The connection should be closed with

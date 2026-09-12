@@ -29,13 +29,18 @@ import java.net.StandardProtocolFamily;
 import java.nio.channels.DatagramChannel;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -45,14 +50,20 @@ import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
+import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
+import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
+import org.bluezoo.gumdrop.util.SniCredentialsResolver;
+import org.bluezoo.gumdrop.util.TLSUtils;
 
 /**
  * Configuration and bootstrap for QUIC transports.
  *
- * <p>Translates PEM cert/key/CA file configuration into
- * {@link ServerCredentials} (via {@link PemCredentials}) and an
- * {@link X509TrustManager}, and flow-control/idle-timeout limits into a
+ * <p>Translates listener credential configuration (Java keystore or PEM
+ * cert/key files, plus optional CA/trust material) into
+ * {@link ServerCredentials} and an {@link X509TrustManager}, and
+ * flow-control/idle-timeout limits into a
  * {@link TransportParameters} instance shared by every connection this
  * factory's engines create.
  *
@@ -111,6 +122,11 @@ public class QuicTransportFactory extends TransportFactory {
     private long maxDatagramFrameSize = DEFAULT_MAX_DATAGRAM_FRAME_SIZE;
 
     private ServerCredentials serverCredentials;
+    private ServerCredentialsResolver serverCredentialsResolver;
+    private Map<String, String> sniHostnameToAlias;
+    private String sniDefaultAlias;
+    private boolean needClientAuth;
+    private X509TrustManager explicitTrustManager;
     private X509TrustManager trustManager;
     private final byte[] connectionIdStaticKey = new byte[32];
     private final byte[] retryTokenKey = new byte[32];
@@ -181,6 +197,85 @@ public class QuicTransportFactory extends TransportFactory {
      */
     public void setCaFile(String path) {
         this.caFile = Path.of(path);
+    }
+
+    /**
+     * Sets a custom trust manager for peer certificate verification.
+     *
+     * <p>When set, this trust manager is used in preference to a
+     * configured truststore, {@link #setCaFile}, or the JVM default
+     * trust store.
+     *
+     * @param trustManager the trust manager, or null to use defaults
+     */
+    public void setTrustManager(X509TrustManager trustManager) {
+        this.explicitTrustManager = trustManager;
+    }
+
+    /**
+     * Sets whether client certificate authentication is required on
+     * server listeners.
+     *
+     * @param needClientAuth true to require client certificates
+     */
+    public void setNeedClientAuth(boolean needClientAuth) {
+        this.needClientAuth = needClientAuth;
+    }
+
+    /**
+     * Sets this server's identity directly, bypassing keystore loading.
+     *
+     * @param serverCredentials the server credentials
+     */
+    public void setServerCredentials(ServerCredentials serverCredentials) {
+        this.serverCredentials = serverCredentials;
+    }
+
+    /**
+     * Sets an SNI-based server credential resolver directly, bypassing
+     * {@link #setSniHostnames}'s keystore-alias-based dispatch.
+     *
+     * @param serverCredentialsResolver the resolver
+     */
+    public void setServerCredentialsResolver(ServerCredentialsResolver serverCredentialsResolver) {
+        this.serverCredentialsResolver = serverCredentialsResolver;
+    }
+
+    /**
+     * Sets the SNI hostname to certificate alias mapping.
+     *
+     * @param hostnames map of hostnames to certificate aliases
+     */
+    public void setSniHostnames(Map<String, String> hostnames) {
+        this.sniHostnameToAlias = hostnames != null
+                ? new LinkedHashMap<String, String>(hostnames) : null;
+    }
+
+    /**
+     * Sets the default certificate alias when SNI does not match.
+     *
+     * @param alias the default certificate alias
+     */
+    public void setSniDefaultAlias(String alias) {
+        this.sniDefaultAlias = alias;
+    }
+
+    /**
+     * Returns whether SNI hostname mappings have been configured.
+     *
+     * @return true if SNI is configured
+     */
+    public boolean isSNIEnabled() {
+        return sniHostnameToAlias != null && !sniHostnameToAlias.isEmpty();
+    }
+
+    /**
+     * Returns whether client certificate authentication is required.
+     *
+     * @return true if client certificates are required
+     */
+    public boolean isNeedClientAuth() {
+        return needClientAuth;
     }
 
     /**
@@ -337,6 +432,10 @@ public class QuicTransportFactory extends TransportFactory {
         return serverCredentials;
     }
 
+    ServerCredentialsResolver getServerCredentialsResolver() {
+        return serverCredentialsResolver;
+    }
+
     X509TrustManager getTrustManager() {
         return trustManager;
     }
@@ -347,10 +446,9 @@ public class QuicTransportFactory extends TransportFactory {
 
     /**
      * Returns the raw, unparsed {@link #setNamedGroups} value (colon-
-     * separated group names, or null) -- resolving these against what
-     * Agent15 actually supports is {@link
-     * org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine}'s job, not this
-     * class's, to keep Agent15 types out of this package.
+     * separated group names, or null) -- resolving these against
+     * {@link org.bluezoo.gumdrop.crypto.NamedGroup} is
+     * {@link org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine}'s job.
      */
     String getNamedGroups() {
         return namedGroups;
@@ -360,8 +458,7 @@ public class QuicTransportFactory extends TransportFactory {
      * Returns the raw, unparsed {@link #setCipherSuites} value (colon-
      * separated cipher suite names, or null) -- resolving these against
      * what gumdrop's own QUIC AEAD layer implements is {@code
-     * org.bluezoo.gumdrop.quic.tls.QuicCipherSuites}'s job, not this
-     * class's, to keep Agent15 types out of this package.
+     * org.bluezoo.gumdrop.quic.tls.QuicCipherSuites}'s job.
      */
     String getCipherSuites() {
         return cipherSuites;
@@ -423,29 +520,82 @@ public class QuicTransportFactory extends TransportFactory {
     @Override
     public void start() {
         super.start();
-        if (certFile != null && keyFile != null) {
-            try {
-                serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
-            } catch (IOException | GeneralSecurityException e) {
-                throw new IllegalStateException("Failed to load QUIC server certificate/key", e);
+        try {
+            if (serverCredentials == null && serverCredentialsResolver == null) {
+                if (certFile != null && keyFile != null) {
+                    serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
+                } else if (keystoreFile != null && keystorePass != null) {
+                    if (isSNIEnabled()) {
+                        KeyStore keyStore = TLSUtils.loadKeyStore(
+                                keystoreFile, keystorePass, keystoreFormat);
+                        serverCredentialsResolver = new SniCredentialsResolver(
+                                keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
+                        if (LOGGER.isLoggable(Level.INFO)) {
+                            LOGGER.info(MessageFormat.format(
+                                    ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N")
+                                            .getString("info.sni_enabled"),
+                                    sniHostnameToAlias.size()));
+                        }
+                    } else {
+                        serverCredentials = TLSUtils.loadServerCredentials(
+                                keystoreFile, keystorePass, keystoreFormat);
+                    }
+                }
             }
-        }
-        if (caFile != null) {
-            try {
-                trustManager = PemCredentials.loadTrustManager(caFile);
-            } catch (IOException | GeneralSecurityException e) {
-                throw new IllegalStateException("Failed to load QUIC CA certificate", e);
-            }
-        } else if (!verifyPeer) {
-            trustManager = PermissiveTrustManager.INSTANCE;
+            trustManager = resolveTrustManager();
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to load QUIC TLS configuration", e);
         }
         LOGGER.info(getDescription());
+    }
+
+    /**
+     * Resolves the effective trust manager, in priority order: an
+     * explicitly set trust manager; a configured truststore file;
+     * {@link #caFile}; otherwise the JVM default trust store when
+     * {@link #verifyPeer} is true, or a permissive manager when it is
+     * false. A configured {@link #pinnedCertFingerprint} wraps whichever
+     * of those was chosen.
+     */
+    private X509TrustManager resolveTrustManager() throws Exception {
+        X509TrustManager base;
+        if (explicitTrustManager != null) {
+            base = explicitTrustManager;
+        } else if (truststoreFile != null && truststorePass != null) {
+            base = firstX509TrustManager(TLSUtils.loadTrustManagers(
+                    truststoreFile, truststorePass, truststoreFormat));
+        } else if (caFile != null) {
+            base = PemCredentials.loadTrustManager(caFile);
+        } else if (!verifyPeer) {
+            return PermissiveTrustManager.INSTANCE;
+        } else {
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(
+                    TrustManagerFactory.getDefaultAlgorithm());
+            tmf.init((KeyStore) null);
+            base = firstX509TrustManager(tmf.getTrustManagers());
+        }
+        if (pinnedCertFingerprint != null) {
+            return new PinnedCertTrustManager(base, new String[] { pinnedCertFingerprint });
+        }
+        return base;
+    }
+
+    private static X509TrustManager firstX509TrustManager(TrustManager[] managers)
+            throws GeneralSecurityException {
+        for (int i = 0; i < managers.length; i++) {
+            if (managers[i] instanceof X509TrustManager) {
+                return (X509TrustManager) managers[i];
+            }
+        }
+        throw new GeneralSecurityException("No X509TrustManager available");
     }
 
     @Override
     protected void stop() {
         serverCredentials = null;
+        serverCredentialsResolver = null;
         trustManager = null;
+        explicitTrustManager = null;
         super.stop();
     }
 
@@ -500,14 +650,9 @@ public class QuicTransportFactory extends TransportFactory {
 
     private QuicEngine newBoundServerEngine(InetAddress bindAddress, int port, SelectorLoop loop) throws IOException {
         if (namedGroups != null && LOGGER.isLoggable(Level.WARNING)) {
-            // Unlike setCipherSuites, Agent15 exposes no server-side named-
-            // group restriction API at all (RFC 8446 section 4.2.7: only
-            // the client sends supported_groups; the server just picks
-            // from whatever key_share the client actually offered) --
-            // setNamedGroups has no effect here. Warn rather than silently
-            // ignoring it, since a caller configuring this for compliance/
-            // security reasons (e.g. requiring a specific curve) deserves
-            // to know it isn't enforced server-side.
+            // RFC 8446 section 4.2.7: only the client sends supported_groups;
+            // the server picks from the client's key_share. setNamedGroups
+            // therefore has no effect on a QUIC server listener.
             String message = MessageFormat.format(
                     L10N.getString("warn.set_named_groups_no_effect_server"), namedGroups);
             LOGGER.warning(message);
