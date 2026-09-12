@@ -88,8 +88,8 @@ above this number were impossible.
 Gumdrop was designed from the ground up to use non-blocking I/O via the
 then-new Java NIO Selector API. This architecture completely decouples
 the number of client connections from the number of servlet worker threads,
-which are drawn from a separate thread pool (ThreadPoolExecutorService) of
-configurable size.
+which are drawn from a separate bounded virtual-thread pool of configurable
+size.
 </p>
 
 <h4>Non-Blocking Request Body Bridge</h4>
@@ -108,11 +108,12 @@ all network I/O for all connections. When request body data arrives,
 <code>RequestBodyStream</code>. This never blocks the SelectorLoop; when
 the buffered byte count reaches a high-water mark (256&nbsp;KB), delivery
 is paused via <code>pauseRequestBody()</code>.</li>
-<li><b>Servlet worker pool</b> - A separate thread pool services servlet
-requests. Each servlet thread reads from <code>RequestInputStream</code>,
-which blocks only until data is available. When the servlet drains the
-buffer below a low-water mark (64&nbsp;KB), <code>resumeRequestBody()</code>
-is called on the SelectorLoop thread.</li>
+<li><b>Servlet worker pool</b> - A separate bounded pool of virtual threads
+services servlet requests. Blocking reads on <code>RequestInputStream</code>
+park the virtual thread cheaply until data arrives; when the servlet drains
+the buffer below the low-water mark (64&nbsp;KB),
+<code>resumeRequestBody()</code> runs on the SelectorLoop thread. Pool size
+and queue capacity still bound concurrency; overload is shed with 503.</li>
 <li><b>Asynchronous support</b> - For Servlet 3.1+ asynchronous processing,
 servlets can register a <code>ReadListener</code>. Once registered, reads
 never block: <code>onDataAvailable()</code> is dispatched when data arrives,
@@ -120,10 +121,10 @@ and <code>read()</code> throws if no data is ready.</li>
 </ol>
 
 <p>
-This design means that even with tens of thousands of concurrent connections,
-the server requires only a small number of threads: the I/O worker pool
-(defaulting to twice the number of processors) plus the servlet worker pool
-(configured separately). Both pools are independent of connection count.
+This design decouples connection count from carrier-thread use: a small I/O
+worker pool (defaulting to twice the number of processors) handles all
+network events, while servlet work runs on virtual threads whose pool size
+and queue are tuned separately.
 </p>
 
 <h4>Request Flow</h4>
@@ -508,9 +509,9 @@ blanket-allowed)</li>
 <li><code>accessLog</code> - path to access log file (W3C Extended Log Format)</li>
 <li><code>bufferSize</code> - I/O buffer size for request/response streams in bytes
 (default: 8192, minimum: 1024)</li>
-<li><code>workerCorePoolSize</code> - minimum servlet worker threads</li>
-<li><code>workerMaximumPoolSize</code> - maximum servlet worker threads</li>
-<li><code>workerKeepAlive</code> - idle timeout for excess workers</li>
+<li><code>workerCorePoolSize</code> - minimum servlet worker pool size (virtual threads)</li>
+<li><code>workerMaximumPoolSize</code> - maximum servlet worker pool size (virtual threads)</li>
+<li><code>workerKeepAlive</code> - idle timeout for excess pool workers</li>
 </ul>
 
 <p>

@@ -26,8 +26,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
-import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -47,8 +47,8 @@ import org.bluezoo.gumdrop.util.MessageFormatter;
 /**
  * Servlet application service.
  *
- * <p>This service manages a servlet {@link Container} and a pool of
- * worker threads. Incoming HTTP requests are dispatched through a
+ * <p>This service manages a servlet {@link Container} and a bounded pool of
+ * virtual-thread workers. Incoming HTTP requests are dispatched through a
  * {@link ServletHandlerFactory} which bridges the gumdrop HTTP handler
  * API to the Servlet API.
  *
@@ -81,19 +81,31 @@ public final class ServletService extends HTTPService {
 
     // Worker thread pool defaults.
     //
-    // The pool keeps a warm core of threads sized to the host, grows up to
-    // a bounded maximum under load, and buffers a bounded backlog. A bounded
-    // queue is essential: with an unbounded queue a ThreadPoolExecutor never
-    // grows past the core size (so maximumPoolSize would be ignored) and an
-    // overload would grow the backlog without limit until the JVM runs out of
-    // memory. When the pool and its queue are both saturated, submission is
-    // rejected and the request is shed with a 503 (see serviceRequest()).
+    // Workers are virtual threads (cheap to park on blocking servlet I/O such
+    // as RequestBodyStream reads or response backpressure waits). The pool
+    // still bounds concurrency and queued work: a bounded queue is essential
+    // so overload is shed with 503 rather than growing without limit. When the
+    // pool and its queue are both saturated, submission is rejected (see
+    // serviceRequest()).
     private static final int DEFAULT_WORKER_CORE_POOL_SIZE =
             Math.max(10, Runtime.getRuntime().availableProcessors() * 2);
     private static final int DEFAULT_WORKER_MAXIMUM_POOL_SIZE =
             Math.max(200, DEFAULT_WORKER_CORE_POOL_SIZE * 4);
     private static final int DEFAULT_WORKER_QUEUE_CAPACITY = 1000;
     private static final long DEFAULT_WORKER_KEEP_ALIVE_SECONDS = 60L;
+
+    private static final AtomicLong WORKER_THREAD_NUM = new AtomicLong();
+
+    private static final ThreadFactory WORKER_THREAD_FACTORY = new ThreadFactory() {
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread t = Thread.ofVirtual()
+                    .name("servlet-worker-", WORKER_THREAD_NUM.incrementAndGet())
+                    .unstarted(r);
+            t.setDaemon(true);
+            return t;
+        }
+    };
 
     private Container container;
     private ServletHandlerFactory handlerFactory;
@@ -111,7 +123,7 @@ public final class ServletService extends HTTPService {
                 DEFAULT_WORKER_MAXIMUM_POOL_SIZE,
                 DEFAULT_WORKER_KEEP_ALIVE_SECONDS, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<Runnable>(DEFAULT_WORKER_QUEUE_CAPACITY),
-                new WorkerThreadFactory());
+                WORKER_THREAD_FACTORY);
         asyncTimeoutScheduler = new AsyncTimeoutScheduler();
     }
 
@@ -401,25 +413,6 @@ public final class ServletService extends HTTPService {
                 onRejected.run();
             }
         }
-    }
-
-    /**
-     * ThreadFactory with worker naming strategy.
-     */
-    class WorkerThreadFactory implements ThreadFactory {
-
-        private final ThreadFactory defaultFactory =
-                Executors.defaultThreadFactory();
-        private long threadNum = 0L;
-
-        @Override
-        public Thread newThread(Runnable r) {
-            Thread t = defaultFactory.newThread(r);
-            t.setName("servlet-worker-" + (threadNum++));
-            t.setDaemon(true);
-            return t;
-        }
-
     }
 
 }

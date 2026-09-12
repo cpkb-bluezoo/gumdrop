@@ -83,7 +83,7 @@
 
   <rect x="125" y="710" width="350" height="55" rx="8" class="box-servlet" />
   <text x="300" y="733" text-anchor="middle" class="label" style="font-weight: bold;">Servlet Worker Pool</text>
-  <text x="300" y="753" text-anchor="middle" class="label-small">blocking read, or ReadListener when async</text>
+  <text x="300" y="753" text-anchor="middle" class="label-small">virtual threads; blocking read or ReadListener when async</text>
 
   <!-- Response path (return to I/O thread) -->
   <text x="30" y="795" class="section-label">RESPONSE PATH</text>
