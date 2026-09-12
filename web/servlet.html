@@ -416,7 +416,10 @@ Servlets can upgrade HTTP connections to WebSocket using the standard
 delivered through the same non-blocking <code>RequestBodyStream</code>
 bridge as HTTP request bodies, with the same pause/resume backpressure.
 <code>HttpUpgradeHandler.init()</code> is dispatched to the servlet worker
-pool so handler setup never blocks the SelectorLoop. Outbound data written
+pool so handler setup never blocks the SelectorLoop. The same pool runs
+<code>destroy()</code> when the WebSocket closes, after <code>init()</code>
+has started (so a handler may use <code>destroy()</code> to unblock an
+<code>init()</code> read loop). Outbound data written
 to the <code>WebConnection</code> output stream is marshalled onto the I/O
 thread via <code>state.execute()</code>, with write backpressure matching
 the HTTP response path.

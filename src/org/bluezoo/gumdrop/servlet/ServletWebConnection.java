@@ -39,6 +39,7 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -50,9 +51,9 @@ import java.util.logging.Logger;
  * {@link RequestBodyStream} (replacing a pipe that could block the
  * SelectorLoop thread when the servlet read side was slow). Backpressure
  * is applied via {@link HTTPResponseState#pauseRequestBody()} when the
- * buffer reaches its high-water mark. {@link HttpUpgradeHandler#init} is
- * dispatched to the servlet worker pool so handler setup never blocks the
- * SelectorLoop thread. Outbound messages are sent on the connection's I/O
+ * buffer reaches its high-water mark. {@link HttpUpgradeHandler#init} and
+ * {@link HttpUpgradeHandler#destroy} are dispatched to the servlet worker pool
+ * so handler lifecycle never blocks the SelectorLoop thread. Outbound messages are sent on the connection's I/O
  * thread with transport backpressure matching the HTTP response path.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -72,6 +73,8 @@ class ServletWebConnection implements WebConnection {
     private volatile WebSocketSession session;
     private volatile boolean closed = false;
     private volatile boolean writePossibleScheduled;
+    private final CountDownLatch upgradeInitStarted = new CountDownLatch(1);
+    private final AtomicBoolean upgradeDestroyDone = new AtomicBoolean();
 
     private static final int PENDING_RESPONSE_HIGH_WATERMARK = 4 * 1024 * 1024;
     private static final long PENDING_RESPONSE_WAIT_TIMEOUT_MS = 30000L;
@@ -381,11 +384,7 @@ class ServletWebConnection implements WebConnection {
                 inputStream.dispatchDataAvailable();
             }
 
-            try {
-                upgradeHandler.destroy();
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error destroying upgrade handler", e);
-            }
+            dispatchUpgradeDestroy();
         }
 
         @Override
@@ -417,6 +416,7 @@ class ServletWebConnection implements WebConnection {
         Runnable initTask = new Runnable() {
             @Override
             public void run() {
+                upgradeInitStarted.countDown();
                 try {
                     upgradeHandler.init(ServletWebConnection.this);
                 } catch (Exception e) {
@@ -427,6 +427,7 @@ class ServletWebConnection implements WebConnection {
         Runnable onRejected = new Runnable() {
             @Override
             public void run() {
+                upgradeInitStarted.countDown();
                 LOGGER.log(Level.WARNING,
                         "Worker pool saturated; closing WebSocket upgrade");
                 try {
@@ -440,6 +441,44 @@ class ServletWebConnection implements WebConnection {
             handler.dispatchWorkerTask(initTask, onRejected);
         } else {
             initTask.run();
+        }
+    }
+
+    private void dispatchUpgradeDestroy() {
+        Runnable destroyTask = new Runnable() {
+            @Override
+            public void run() {
+                runUpgradeDestroy();
+            }
+        };
+        if (handler != null) {
+            handler.dispatchWorkerTask(destroyTask, null);
+        } else {
+            destroyTask.run();
+        }
+    }
+
+    private void runUpgradeDestroy() {
+        if (!upgradeDestroyDone.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            if (!upgradeInitStarted.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS,
+                    TimeUnit.MILLISECONDS)) {
+                LOGGER.log(Level.WARNING,
+                        "Timed out waiting for upgrade handler init before destroy");
+                return;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.log(Level.FINE,
+                    "Interrupted waiting for upgrade handler init before destroy", e);
+            return;
+        }
+        try {
+            upgradeHandler.destroy();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Error destroying upgrade handler", e);
         }
     }
 

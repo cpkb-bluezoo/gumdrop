@@ -264,6 +264,38 @@ public class WebSocketServletIOTest {
     }
 
     @Test
+    public void testUpgradeHandlerDestroyMarshalledToWorkerThread() throws Exception {
+        TrackingState state = new TrackingState();
+        ServletService service = new ServletService();
+        StubServletHandler handler = new StubServletHandler(service, state);
+        final CountDownLatch initStarted = new CountDownLatch(1);
+        final CountDownLatch destroyDone = new CountDownLatch(1);
+        final AtomicReference<String> destroyThread = new AtomicReference<String>();
+        final String callingThread = Thread.currentThread().getName();
+        HttpUpgradeHandler upgradeHandler = new HttpUpgradeHandler() {
+            @Override
+            public void init(WebConnection wc) {
+                initStarted.countDown();
+            }
+            @Override
+            public void destroy() {
+                destroyThread.set(Thread.currentThread().getName());
+                destroyDone.countDown();
+            }
+        };
+        ServletWebConnection connection =
+                new ServletWebConnection(upgradeHandler, state, handler);
+
+        connection.getEventHandler().opened(new StubWebSocketSession());
+        assertTrue(initStarted.await(2, TimeUnit.SECONDS));
+        connection.getEventHandler().closed(1000, "bye");
+
+        assertTrue(destroyDone.await(2, TimeUnit.SECONDS));
+        assertNotEquals(callingThread, destroyThread.get());
+        assertTrue(destroyThread.get().startsWith("servlet-worker-"));
+    }
+
+    @Test
     public void testUpgradeHandlerInitMarshalledToWorkerThread() throws Exception {
         TrackingState state = new TrackingState();
         ServletService service = new ServletService();

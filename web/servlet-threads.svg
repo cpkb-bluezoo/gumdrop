@@ -98,6 +98,6 @@
   <text x="520" y="545" class="label-title" transform="rotate(90 520 545)">WriteListener / backpressure</text>
 
   <!-- WebSocket note -->
-  <text x="300" y="900" text-anchor="middle" class="label-small">WebSocket upgrade reuses RequestBodyStream; HttpUpgradeHandler.init() runs on the worker pool</text>
+  <text x="300" y="900" text-anchor="middle" class="label-small">WebSocket upgrade: init() and destroy() on servlet worker pool; RequestBodyStream on I/O thread</text>
 
 </svg>
