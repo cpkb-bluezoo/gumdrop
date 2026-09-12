@@ -445,13 +445,12 @@ public class MyWebSocketHandler implements HttpUpgradeHandler {
     @Override
     public void init(WebConnection wc) {
         this.connection = wc;
-        // Connection is now upgraded - start handling WebSocket frames
-        // via the WebConnection's input/output streams
+        // Runs on a servlet worker thread: read/write loop here until close
     }
     
     @Override
     public void destroy() {
-        // Clean up resources
+        // Close the WebConnection to unblock any read in init()
     }
 }
 </pre>

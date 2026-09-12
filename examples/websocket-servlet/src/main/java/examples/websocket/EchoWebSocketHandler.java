@@ -1,8 +1,8 @@
 /*
  * EchoWebSocketHandler.java
  * WebSocket Servlet Example for Gumdrop Server
- * 
- * This example demonstrates how to create a WebSocket handler using 
+ *
+ * This example demonstrates how to create a WebSocket handler using
  * the Servlet 4.0 HttpUpgradeHandler API with Gumdrop's WebSocket support.
  */
 
@@ -10,31 +10,41 @@ package examples.websocket;
 
 import jakarta.servlet.http.HttpUpgradeHandler;
 import jakarta.servlet.http.WebConnection;
-import java.io.*;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
  * Example WebSocket handler that echoes received messages back to the client.
  * Demonstrates the basic WebSocket upgrade pattern using Servlet 4.0 APIs.
- * 
+ *
+ * <p>Gumdrop dispatches {@link #init(WebConnection)} onto the servlet worker
+ * pool (virtual threads), so this handler runs its read/write loop directly
+ * without starting a separate thread.
+ *
  * <p>This handler:
  * <ul>
  * <li>Accepts WebSocket connections via servlet upgrade</li>
- * <li>Reads incoming WebSocket data through ServletInputStream</li>
- * <li>Echoes messages back through ServletOutputStream</li>
- * <li>Handles connection lifecycle (init, destroy)</li>
+ * <li>Reads incoming WebSocket data through {@code ServletInputStream}</li>
+ * <li>Echoes messages back through {@code ServletOutputStream}</li>
+ * <li>Handles connection lifecycle ({@code init}, {@code destroy})</li>
  * </ul>
  */
 public class EchoWebSocketHandler implements HttpUpgradeHandler {
-    
-    private static final Logger LOGGER = Logger.getLogger(EchoWebSocketHandler.class.getName());
-    
-    private WebConnection webConnection;
-    private volatile boolean active = false;
-    
+
+    private static final Logger LOGGER =
+            Logger.getLogger(EchoWebSocketHandler.class.getName());
+
+    private volatile WebConnection webConnection;
+    private volatile boolean active;
+
     /**
      * Called when the HTTP connection is upgraded to WebSocket.
-     * Starts a background thread to handle WebSocket communication.
+     * Runs the echo loop on the container's servlet worker thread.
      *
      * @param webConnection the upgraded web connection
      */
@@ -42,78 +52,73 @@ public class EchoWebSocketHandler implements HttpUpgradeHandler {
     public void init(WebConnection webConnection) {
         this.webConnection = webConnection;
         this.active = true;
-        
+
         LOGGER.info("WebSocket connection established, starting echo handler");
-        
-        // Start background thread to handle WebSocket I/O
-        Thread handlerThread = new Thread(this::handleWebSocketCommunication, "WebSocket-Echo-Handler");
-        handlerThread.setDaemon(true);
-        handlerThread.start();
+
+        try {
+            handleWebSocketCommunication();
+        } finally {
+            active = false;
+        }
     }
-    
+
     /**
      * Called when the WebSocket connection is being closed.
-     * Performs cleanup and resource release.
+     * Unblocks any read still running in {@link #init(WebConnection)}.
      */
     @Override
     public void destroy() {
         active = false;
-        
-        try {
-            if (webConnection != null) {
-                webConnection.close();
-            }
-        } catch (IOException e) {
-            LOGGER.warning("Error closing WebSocket connection: " + e.getMessage());
-        }
-        
+        closeConnection();
         LOGGER.info("WebSocket connection closed and resources cleaned up");
     }
-    
-    /**
-     * Main WebSocket communication loop.
-     * Reads data from the WebSocket and echoes it back to the client.
-     */
+
     private void handleWebSocketCommunication() {
-        try (InputStream input = webConnection.getInputStream();
-             OutputStream output = webConnection.getOutputStream()) {
-            
+        WebConnection connection = webConnection;
+        if (connection == null) {
+            return;
+        }
+
+        try (InputStream input = connection.getInputStream();
+             OutputStream output = connection.getOutputStream()) {
+
             byte[] buffer = new byte[4096];
-            
+
             while (active) {
-                try {
-                    // Read WebSocket data 
-                    int bytesRead = input.read(buffer);
-                    
-                    if (bytesRead == -1) {
-                        // End of stream - client closed connection
-                        LOGGER.info("Client closed WebSocket connection");
-                        break;
-                    }
-                    
-                    if (bytesRead > 0) {
-                        // Echo the data back to client
-                        String received = new String(buffer, 0, bytesRead, "UTF-8");
-                        String response = "Echo: " + received;
-                        
-                        LOGGER.fine("Received: " + received.trim() + ", echoing back");
-                        
-                        output.write(response.getBytes("UTF-8"));
-                        output.flush();
-                    }
-                    
-                } catch (IOException e) {
-                    if (active) {
-                        LOGGER.warning("WebSocket I/O error: " + e.getMessage());
-                    }
+                int bytesRead = input.read(buffer);
+                if (bytesRead == -1) {
+                    LOGGER.info("Client closed WebSocket connection");
                     break;
                 }
+                if (bytesRead <= 0) {
+                    continue;
+                }
+
+                String received = new String(buffer, 0, bytesRead, StandardCharsets.UTF_8);
+                String response = "Echo: " + received;
+
+                LOGGER.fine("Received: " + received.trim() + ", echoing back");
+
+                output.write(response.getBytes(StandardCharsets.UTF_8));
+                output.flush();
             }
-            
+
         } catch (IOException e) {
-            LOGGER.severe("Failed to establish WebSocket I/O streams: " + e.getMessage());
-        } finally {
-            active = false;
+            if (active) {
+                LOGGER.log(Level.WARNING, "WebSocket I/O error", e);
+            }
+        }
+    }
+
+    private void closeConnection() {
+        WebConnection connection = webConnection;
+        if (connection == null) {
+            return;
+        }
+        try {
+            connection.close();
+        } catch (IOException e) {
+            LOGGER.log(Level.FINE, "Error closing WebSocket connection", e);
         }
     }
 }
