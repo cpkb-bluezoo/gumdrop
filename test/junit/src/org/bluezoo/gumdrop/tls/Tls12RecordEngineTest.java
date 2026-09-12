@@ -199,8 +199,12 @@ public class Tls12RecordEngineTest {
     }
 
     private Loopback runLoopback() throws Exception {
-        Tls12RecordEngine client = new Tls12RecordEngine(clientConfig());
-        Tls12RecordEngine server = new Tls12RecordEngine(serverConfig());
+        return runLoopback(clientConfig(), serverConfig());
+    }
+
+    private Loopback runLoopback(Tls12HandshakeConfig clientCfg, Tls12HandshakeConfig serverCfg) throws Exception {
+        Tls12RecordEngine client = new Tls12RecordEngine(clientCfg);
+        Tls12RecordEngine server = new Tls12RecordEngine(serverCfg);
         Loopback lb = new Loopback(client, server);
 
         client.start(lb.clientSink);
@@ -212,6 +216,14 @@ public class Tls12RecordEngineTest {
         assertTrue("client: " + lb.clientSink.events, client.isComplete());
         assertTrue("server: " + lb.serverSink.events, server.isComplete());
         return lb;
+    }
+
+    private Loopback runAesGcmLoopback() throws Exception {
+        Tls12HandshakeConfig cc = clientConfig();
+        cc.setCipherSuites(Collections.singletonList(Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256));
+        Tls12HandshakeConfig sc = serverConfig();
+        sc.setCipherSuites(Collections.singletonList(Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256));
+        return runLoopback(cc, sc);
     }
 
     @Test
@@ -314,7 +326,8 @@ public class Tls12RecordEngineTest {
 
     @Test
     public void sendApplicationDataClosesConnectionAtAesGcmConfidentialityLimit() throws Exception {
-        Loopback lb = runLoopback();
+        Loopback lb = runAesGcmLoopback();
+        assertTrue(lb.client.write.hasExplicitNonce());
         lb.client.write.seq = 23_726_566L - 1;
 
         lb.client.sendApplicationData("the record that crosses the limit".getBytes("US-ASCII"), lb.clientSink);
@@ -324,7 +337,7 @@ public class Tls12RecordEngineTest {
 
     @Test
     public void feedCiphertextClosesConnectionAtReadConfidentialityLimit() throws Exception {
-        Loopback lb = runLoopback();
+        Loopback lb = runAesGcmLoopback();
         lb.client.write.seq = 23_726_566L - 1;
         lb.server.read.seq = 23_726_566L - 1;
 

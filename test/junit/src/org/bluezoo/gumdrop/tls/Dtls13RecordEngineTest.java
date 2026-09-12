@@ -178,6 +178,14 @@ public class Dtls13RecordEngineTest {
         return runLoopback(clientBaseHandshake(), serverBaseHandshake(), 1024);
     }
 
+    private Loopback runAesGcmLoopback() throws Exception {
+        HandshakeConfig cc = clientBaseHandshake();
+        cc.setCipherSuites(Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256));
+        HandshakeConfig sc = serverBaseHandshake();
+        sc.setCipherSuites(Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256));
+        return runLoopback(cc, sc, 1024);
+    }
+
     private Loopback runLoopback(HandshakeConfig clientCfg, HandshakeConfig serverCfg, int maxFragment)
             throws Exception {
         Loopback lb = newLoopback(clientCfg, serverCfg, maxFragment);
@@ -353,7 +361,7 @@ public class Dtls13RecordEngineTest {
 
     @Test
     public void sendApplicationDataClosesConnectionAtAesGcmConfidentialityLimit() throws Exception {
-        Loopback lb = runLoopback();
+        Loopback lb = runAesGcmLoopback();
         lb.client.write.seq = 23_726_566L - 1;
         lb.client.sendApplicationData("limit".getBytes("US-ASCII"), lb.clientSink);
         assertNotNull(lb.clientSink.error);

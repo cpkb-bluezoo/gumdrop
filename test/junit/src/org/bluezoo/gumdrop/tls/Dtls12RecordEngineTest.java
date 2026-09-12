@@ -251,6 +251,14 @@ public class Dtls12RecordEngineTest {
                 DatagramDelivery.IN_ORDER, DatagramDelivery.IN_ORDER);
     }
 
+    private Loopback runAesGcmLoopback() throws Exception {
+        Tls12HandshakeConfig cc = clientBase();
+        cc.setCipherSuites(Collections.singletonList(Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256));
+        Tls12HandshakeConfig sc = serverBase();
+        sc.setCipherSuites(Collections.singletonList(Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256));
+        return runLoopback(cc, sc, 1024, DatagramDelivery.IN_ORDER, DatagramDelivery.IN_ORDER);
+    }
+
     private Loopback runLoopback(Tls12HandshakeConfig clientCfg, Tls12HandshakeConfig serverCfg, int maxFragment,
             DatagramDelivery toServer, DatagramDelivery toClient) throws Exception {
         Loopback lb = newLoopback(clientCfg, serverCfg, maxFragment);
@@ -406,11 +414,26 @@ public class Dtls12RecordEngineTest {
 
     @Test
     public void sendApplicationDataClosesConnectionAtAesGcmConfidentialityLimit() throws Exception {
-        Loopback lb = runLoopback();
+        Loopback lb = runAesGcmLoopback();
+        assertTrue(lb.client.write.hasExplicitNonce());
         lb.client.write.seq = 23_726_566L - 1;
 
         lb.client.sendApplicationData("the record that crosses the limit".getBytes("US-ASCII"), lb.clientSink);
         assertNotNull(lb.clientSink.error);
+    }
+
+    @Test
+    public void chaCha20Poly1305HasNoAesGcmConfidentialityLimit() throws Exception {
+        Tls12HandshakeConfig cc = clientBase();
+        cc.setCipherSuites(Collections.singletonList(Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256));
+        Tls12HandshakeConfig sc = serverBase();
+        sc.setCipherSuites(Collections.singletonList(Tls12CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256));
+
+        Loopback lb = runLoopback(cc, sc, 1024, DatagramDelivery.IN_ORDER, DatagramDelivery.IN_ORDER);
+        assertFalse(lb.client.write.hasExplicitNonce());
+        lb.client.write.seq = 23_726_566L - 1;
+        lb.client.sendApplicationData("ok".getBytes("US-ASCII"), lb.clientSink);
+        assertNull(lb.clientSink.error);
     }
 
     @Test

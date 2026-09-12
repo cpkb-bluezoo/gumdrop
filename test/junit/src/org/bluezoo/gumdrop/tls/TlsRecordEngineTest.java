@@ -201,8 +201,12 @@ public class TlsRecordEngineTest {
     }
 
     private Loopback runLoopback() throws Exception {
-        TlsRecordEngine client = new TlsRecordEngine(clientConfig());
-        TlsRecordEngine server = new TlsRecordEngine(serverConfig());
+        return runLoopback(clientConfig(), serverConfig());
+    }
+
+    private Loopback runLoopback(HandshakeConfig clientCfg, HandshakeConfig serverCfg) throws Exception {
+        TlsRecordEngine client = new TlsRecordEngine(clientCfg);
+        TlsRecordEngine server = new TlsRecordEngine(serverCfg);
         Loopback lb = new Loopback(client, server);
 
         client.start(lb.clientSink);
@@ -214,6 +218,14 @@ public class TlsRecordEngineTest {
         assertTrue("client: " + lb.clientSink.events, client.isComplete());
         assertTrue("server: " + lb.serverSink.events, server.isComplete());
         return lb;
+    }
+
+    private Loopback runAesGcmLoopback() throws Exception {
+        HandshakeConfig cc = clientConfig();
+        cc.setCipherSuites(Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256));
+        HandshakeConfig sc = serverConfig();
+        sc.setCipherSuites(Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256));
+        return runLoopback(cc, sc);
     }
 
     @Test
@@ -356,7 +368,7 @@ public class TlsRecordEngineTest {
 
     @Test
     public void sendApplicationDataAutoRotatesWriteKeyAtConfidentialityLimit() throws Exception {
-        Loopback lb = runLoopback();
+        Loopback lb = runAesGcmLoopback();
         // TLS 1.3 has no explicit per-record nonce on the wire -- both
         // sides derive it from their own counted-in-lockstep sequence
         // number, so simulating "23 million records already exchanged"
@@ -377,7 +389,7 @@ public class TlsRecordEngineTest {
 
     @Test
     public void feedCiphertextRequestsPeerRotationAtReadConfidentialityLimit() throws Exception {
-        Loopback lb = runLoopback();
+        Loopback lb = runAesGcmLoopback();
         lb.client.write.seq = 23_726_566L - 1;
         lb.server.read.seq = 23_726_566L - 1;
 
