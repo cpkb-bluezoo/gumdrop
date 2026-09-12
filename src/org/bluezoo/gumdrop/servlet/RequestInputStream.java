@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
@@ -68,6 +69,27 @@ class RequestInputStream extends ServletInputStream {
     @Override 
     public int read(byte[] buf, int off, int len) throws IOException {
         return in.read(buf, off, len);
+    }
+
+    @Override
+    public int read(ByteBuffer dst) throws IOException {
+        if (!dst.hasRemaining()) {
+            return 0;
+        }
+        if (dst.hasArray()) {
+            int n = read(dst.array(), dst.arrayOffset() + dst.position(), dst.remaining());
+            if (n > 0) {
+                dst.position(dst.position() + n);
+            }
+            return n;
+        }
+        byte[] buf = new byte[Math.min(dst.remaining(), 8192)];
+        int n = read(buf, 0, buf.length);
+        if (n <= 0) {
+            return n;
+        }
+        dst.put(buf, 0, n);
+        return n;
     }
 
     @Override 

@@ -153,6 +153,19 @@ public class SessionTest {
         assertEquals(3, count);
     }
 
+    @Test
+    public void testGetAccessorAllowsAccessOutsideRequest() {
+        Session session = new Session(context, TEST_SESSION_ID);
+        session.setAttribute("key", "value");
+
+        session.getAccessor().access(s -> {
+            assertEquals("value", s.getAttribute("key"));
+            s.setAttribute("other", 1);
+        });
+
+        assertEquals(Integer.valueOf(1), session.getAttribute("other"));
+    }
+
     // ===== Dirty Tracking Tests =====
 
     @Test

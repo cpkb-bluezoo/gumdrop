@@ -51,6 +51,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 
@@ -60,6 +61,8 @@ import jakarta.servlet.http.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class Request implements HttpServletRequest {
+
+    private static final AtomicLong REQUEST_SEQ = new AtomicLong();
 
     enum InputStreamState {
         NONE,
@@ -101,7 +104,9 @@ class Request implements HttpServletRequest {
     InputStreamState inputStreamState = InputStreamState.NONE;
     Collection<Part> parts;
 
-    private final String requestId = Integer.toHexString(System.identityHashCode(this));
+    private final String requestId;
+    final String connectionId;
+    final String protocolRequestId;
     private transient ServletConnection servletConnection;
 
     Request(ServletHandler handler, int bufferSize, String method, String requestTarget, Headers headers,
@@ -118,6 +123,9 @@ class Request implements HttpServletRequest {
         
         HTTPResponseState state = handler.getState();
         this.secure = state.isSecure();
+        this.requestId = Long.toHexString(REQUEST_SEQ.incrementAndGet());
+        this.connectionId = state.getConnectionId();
+        this.protocolRequestId = state.getProtocolConnectionId();
 
         if (secure) {
             SecurityInfo secInfo = state.getSecurityInfo();
@@ -125,12 +133,13 @@ class Request implements HttpServletRequest {
                 Certificate[] certificates = secInfo.getPeerCertificates();
                 String cipherSuite = secInfo.getCipherSuite();
                 int keySize = secInfo.getKeySize();
-                populateTLSAttributes(certificates, cipherSuite, keySize);
+                populateTLSAttributes(certificates, cipherSuite, keySize, secInfo.getProtocol());
             }
         }
     }
 
-    private void populateTLSAttributes(Certificate[] certificates, String cipherSuite, int keySize) {
+    private void populateTLSAttributes(Certificate[] certificates, String cipherSuite,
+            int keySize, String secureProtocol) {
         if (certificates != null) {
             List<X509Certificate> x509 = new ArrayList<>();
             for (Certificate c : certificates) {
@@ -144,6 +153,9 @@ class Request implements HttpServletRequest {
         attributes.put("jakarta.servlet.request.cipher_suite", cipherSuite);
         if (keySize > 0) {
             attributes.put("jakarta.servlet.request.key_size", Integer.valueOf(keySize));
+        }
+        if (secureProtocol != null) {
+            attributes.put("jakarta.servlet.request.secure_protocol", secureProtocol);
         }
     }
 
@@ -1251,6 +1263,7 @@ class Request implements HttpServletRequest {
      * @return a new PushBuilder instance, or null if server push is not supported
      * @since Servlet 4.0
      */
+    @Deprecated
     @Override
     public PushBuilder newPushBuilder() {
         // Check if server push is supported
@@ -1294,7 +1307,7 @@ class Request implements HttpServletRequest {
 
     @Override
     public String getProtocolRequestId() {
-        return "";
+        return protocolRequestId;
     }
 
     @Override

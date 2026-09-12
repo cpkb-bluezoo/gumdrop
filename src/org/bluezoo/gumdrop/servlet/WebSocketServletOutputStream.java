@@ -26,6 +26,7 @@ import jakarta.servlet.ServletOutputStream;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 /**
  * ServletOutputStream that sends data as WebSocket messages.
@@ -57,6 +58,22 @@ class WebSocketServletOutputStream extends ServletOutputStream {
     public void write(byte[] b, int off, int len) throws IOException {
         checkClosed();
         buffer.write(b, off, len);
+    }
+
+    @Override
+    public void write(ByteBuffer src) throws IOException {
+        checkClosed();
+        if (!src.hasRemaining()) {
+            return;
+        }
+        if (src.hasArray()) {
+            write(src.array(), src.arrayOffset() + src.position(), src.remaining());
+            src.position(src.limit());
+        } else {
+            byte[] buf = new byte[src.remaining()];
+            src.get(buf);
+            buffer.write(buf, 0, buf.length);
+        }
     }
 
     @Override

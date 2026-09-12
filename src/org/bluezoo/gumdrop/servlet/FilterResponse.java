@@ -113,6 +113,13 @@ class FilterResponse extends HttpServletResponseWrapper {
         super.sendRedirect(location);
     }
 
+    public void sendRedirect(String location, int sc, boolean clearBody) throws IOException {
+        if (ignoreHeaderMutators) {
+            return;
+        }
+        super.sendRedirect(location, sc, clearBody);
+    }
+
     public void setDateHeader(String name, long date) {
         if (ignoreHeaderMutators) {
             return;

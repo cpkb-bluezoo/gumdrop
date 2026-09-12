@@ -38,7 +38,7 @@ final class RequestServletConnection implements ServletConnection {
 
     @Override
     public String getConnectionId() {
-        return Integer.toHexString(System.identityHashCode(request.handler));
+        return request.connectionId;
     }
 
     @Override

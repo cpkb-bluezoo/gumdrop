@@ -26,6 +26,7 @@ import jakarta.servlet.ServletInputStream;
 
 import java.io.IOException;
 import java.io.PipedInputStream;
+import java.nio.ByteBuffer;
 
 /**
  * ServletInputStream wrapper for WebSocket message delivery.
@@ -60,6 +61,27 @@ class WebSocketServletInputStream extends ServletInputStream {
         if (n == -1) {
             finished = true;
         }
+        return n;
+    }
+
+    @Override
+    public int read(ByteBuffer dst) throws IOException {
+        if (!dst.hasRemaining()) {
+            return 0;
+        }
+        if (dst.hasArray()) {
+            int n = read(dst.array(), dst.arrayOffset() + dst.position(), dst.remaining());
+            if (n > 0) {
+                dst.position(dst.position() + n);
+            }
+            return n;
+        }
+        byte[] buf = new byte[Math.min(dst.remaining(), 8192)];
+        int n = read(buf, 0, buf.length);
+        if (n <= 0) {
+            return n;
+        }
+        dst.put(buf, 0, n);
         return n;
     }
 

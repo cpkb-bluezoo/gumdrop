@@ -39,17 +39,21 @@ programmatic registration from `onStartup`, `@HandlesTypes` when
 
 ---
 
-## Phase 2 — Servlet 6.0 / 6.1 API gap-fill
+## Phase 2 — Servlet 6.0 / 6.1 API gap-fill ✓
 
 Implement on `Request`, `Response`, stream wrappers, `ErrorRequest`, etc.
 
-| Version | Item |
-| --- | --- |
-| 5.0 | `getRequestId()`, `getProtocolRequestId()`; `ServletConnection` on upgrade |
-| 6.0 | `read`/`write(ByteBuffer)` on servlet streams; `getReader(Charset)` / `setCharacterEncoding(Charset)`; `sendRedirect(location, sc, clearBody)`; error dispatch query string + `jakarta.servlet.error.method`; deprecate `PushBuilder` (keep working) |
-| 6.1 | `getSecureProtocol()` + `jakarta.servlet.request.secure_protocol`; `SC_TOO_EARLY`, `SC_INSUFFICIENT_STORAGE`, `SC_NOT_EXTENDED`; HttpSession usable outside active request (WebSocket/async) |
+| Version | Item | Status |
+| --- | --- | --- |
+| 5.0 | `getRequestId()`, `getProtocolRequestId()`; `ServletConnection` on upgrade | ✓ Wired from `HTTPResponseState` / `Stream` |
+| 6.0 | `read`/`write(ByteBuffer)` on servlet streams; `setCharacterEncoding(Charset)` on `Response`; `sendRedirect(location, sc, clearBody)`; error dispatch `jakarta.servlet.error.method` + `query_string`; deprecate `PushBuilder` (keep working) | ✓ |
+| 6.1 | `jakarta.servlet.request.secure_protocol` attribute; status 425/507/510 via `HTTPConstants` + `sendError`; `HttpSession.getAccessor()` for use outside active request | ✓ |
 
-Wire `getSecureProtocol()` from TLS/`SecurityInfo` on the connection.
+Notes:
+- `jakarta.servlet-api:6.1.0` has no `getSecureProtocol()` method or `SC_TOO_EARLY`/`SC_INSUFFICIENT_STORAGE`/`SC_NOT_EXTENDED` constants; secure protocol is exposed via the **`jakarta.servlet.request.secure_protocol`** request attribute per the 6.1 spec.
+- `getReader(Charset)` is not a separate method on the 6.1.0 API surface; charset selection uses `setCharacterEncoding(Charset)` (default on `ServletRequest`) plus `getReader()`.
+
+Tests: `Servlet61ApiTest`, `SessionTest.testGetAccessorAllowsAccessOutsideRequest`.
 
 ---
 

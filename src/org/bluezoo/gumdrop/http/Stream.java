@@ -203,6 +203,19 @@ class Stream implements HTTPResponseState {
     }
 
     @Override
+    public String getConnectionId() {
+        return Integer.toHexString(System.identityHashCode(connection));
+    }
+
+    @Override
+    public String getProtocolConnectionId() {
+        if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+            return Integer.toString(streamId);
+        }
+        return "";
+    }
+
+    @Override
     public SelectorLoop getSelectorLoop() {
         return connection.getSelectorLoop();
     }

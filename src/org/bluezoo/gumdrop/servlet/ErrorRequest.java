@@ -60,6 +60,8 @@ class ErrorRequest extends HttpServletRequestWrapper {
         }
         attrs.put(prefix + "request_uri", request.getRequestURI().toString());
         attrs.put(prefix + "servlet_name", servletName);
+        attrs.put(prefix + "query_string", request.getQueryString());
+        attrs.put(prefix + "method", request.getMethod());
     }
 
     @Override public String getServletPath() {

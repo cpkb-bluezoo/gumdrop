@@ -632,6 +632,15 @@ class Response implements HttpServletResponse {
         this.charset = charset;
     }
 
+    @Override
+    public void setCharacterEncoding(Charset charset) {
+        if (charset == null) {
+            this.charset = null;
+        } else {
+            this.charset = charset.name();
+        }
+    }
+
     public void setContentLength(int len) {
         setIntHeader("Content-Length", len);
     }

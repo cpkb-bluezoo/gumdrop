@@ -235,6 +235,11 @@ class Session implements HttpSession {
         return lastAccessedTime == creationTime;
     }
 
+    @Override
+    public HttpSession.Accessor getAccessor() {
+        return callback -> callback.accept(this);
+    }
+
     // -- Cluster replication support --
 
     /**

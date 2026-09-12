@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.servlet;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -84,6 +85,23 @@ class ServletOutputStreamWrapper extends ServletOutputStream {
     public void write(byte[] b, int off, int len) throws IOException {
         checkClosed();
         out.write(b, off, len);
+        checkNotifyListener();
+    }
+
+    @Override
+    public void write(ByteBuffer src) throws IOException {
+        checkClosed();
+        if (!src.hasRemaining()) {
+            return;
+        }
+        if (src.hasArray()) {
+            write(src.array(), src.arrayOffset() + src.position(), src.remaining());
+            src.position(src.limit());
+        } else {
+            byte[] buf = new byte[src.remaining()];
+            src.get(buf);
+            write(buf, 0, buf.length);
+        }
         checkNotifyListener();
     }
 
