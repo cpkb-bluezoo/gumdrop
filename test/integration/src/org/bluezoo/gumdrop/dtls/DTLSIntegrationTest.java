@@ -49,8 +49,8 @@ import static org.junit.Assert.*;
 /**
  * End-to-end test of DTLS support in {@link UDPEndpoint} (issue #190):
  * a real client and server, each with their own {@link UDPTransportFactory},
- * talking DTLSv1.2 over real loopback UDP sockets through a running
- * {@link Gumdrop} instance -- no mocking of the network or the SSLEngine.
+ * talking DTLS 1.2 over real loopback UDP sockets through a running
+ * {@link Gumdrop} instance -- no mocking of the network or the record engine.
  *
  * <p>Uses the same checked-in test PKI ({@code test/integration/certs/
  * test-keystore.p12} / {@code test-truststore.p12}, password {@code
@@ -208,7 +208,7 @@ public class DTLSIntegrationTest {
 
         ClientHandler clientHandler = new ClientHandler();
         clientEndpoint = clientFactory.connect(
-                InetAddress.getLoopbackAddress(), port, clientHandler);
+                InetAddress.getByName("::1"), port, clientHandler);
 
         assertTrue("DTLS handshake should complete and notify the client",
                 clientHandler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -261,9 +261,9 @@ public class DTLSIntegrationTest {
 
         ClientHandler client1Handler = new ClientHandler();
         ClientHandler client2Handler = new ClientHandler();
-        clientEndpoint = clientFactory1.connect(InetAddress.getLoopbackAddress(), port, client1Handler);
+        clientEndpoint = clientFactory1.connect(InetAddress.getByName("::1"), port, client1Handler);
         UDPEndpoint clientEndpoint2 = clientFactory2.connect(
-                InetAddress.getLoopbackAddress(), port, client2Handler);
+                InetAddress.getByName("::1"), port, client2Handler);
         try {
             assertTrue(client1Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
             assertTrue(client2Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));

@@ -96,7 +96,7 @@ public interface ClientAuthorizationState {
      * Sends a STLS command to upgrade the connection to TLS.
      *
      * <p>This should only be called if the server advertised STLS in its
-     * CAPA response and an SSLContext was configured on the client.
+     * CAPA response and TLS credentials/trust were configured on the client.
      * After successful TLS upgrade, the handler should re-issue CAPA
      * to learn the server's post-TLS capabilities.
      *

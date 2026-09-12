@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.quic.tls;
+package org.bluezoo.gumdrop.crypto;
 
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
@@ -30,11 +30,16 @@ import javax.crypto.spec.SecretKeySpec;
 
 /**
  * HKDF (RFC 5869) and the TLS 1.3 HKDF-Expand-Label construction
- * (RFC 8446 section 7.1) that QUIC's key schedule (RFC 9001 section 5.1)
- * is built from.
+ * (RFC 8446 section 7.1) that the TLS 1.3 handshake and record key
+ * schedules, and QUIC's key schedule (RFC 9001 section 5.1), are built
+ * from.
  *
- * <p>Every operation here is a pure function of its arguments: no state,
- * no I/O, safe to call directly on the {@code SelectorLoop} thread.
+ * <p>Each instance caches one {@link Mac} per thread ({@link ThreadLocal})
+ * and re-{@code init}s it per operation instead of calling
+ * {@code Mac.getInstance} on every extract/expand step. Instances may be
+ * shared across threads (e.g. {@link org.bluezoo.gumdrop.quic.tls.InitialSecrets})
+ * but must not be used reentrantly on one thread before a prior operation
+ * on the same instance returns.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5869">RFC 5869</a>
@@ -43,10 +48,18 @@ import javax.crypto.spec.SecretKeySpec;
 public final class Hkdf {
 
     /** The TLS 1.3 label prefix prepended to every HKDF-Expand-Label label (RFC 8446 section 7.1). */
-    private static final byte[] LABEL_PREFIX = "tls13 ".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] TLS13_LABEL_PREFIX = "tls13 ".getBytes(StandardCharsets.US_ASCII);
+
+    /** RFC 9147 section 5.9: DTLS 1.3 uses {@code "dtls13"} with no trailing space. */
+    private static final byte[] DTLS13_LABEL_PREFIX = "dtls13".getBytes(StandardCharsets.US_ASCII);
+
+    private static final byte[] ZERO_SALT_32 = new byte[32];
+    private static final byte[] ZERO_SALT_48 = new byte[48];
 
     private final String macAlgorithm;
     private final int hashLength;
+    private final SecretKeySpec zeroLengthKeySpec;
+    private final ThreadLocal<Mac> macHolder;
 
     /**
      * Creates an HKDF instance bound to a specific hash algorithm.
@@ -58,6 +71,17 @@ public final class Hkdf {
     public Hkdf(String macAlgorithm, int hashLength) {
         this.macAlgorithm = macAlgorithm;
         this.hashLength = hashLength;
+        this.zeroLengthKeySpec = new SecretKeySpec(new byte[hashLength], macAlgorithm);
+        this.macHolder = new ThreadLocal<Mac>() {
+            @Override
+            protected Mac initialValue() {
+                try {
+                    return Mac.getInstance(macAlgorithm);
+                } catch (NoSuchAlgorithmException e) {
+                    throw new IllegalStateException("HMAC algorithm not available: " + macAlgorithm, e);
+                }
+            }
+        };
     }
 
     /**
@@ -92,6 +116,17 @@ public final class Hkdf {
     }
 
     /**
+     * Returns the RFC 5869 / TLS 1.3 all-zero salt or zero PSK of
+     * {@link #getHashLength()} bytes. The returned array is shared and
+     * must not be modified.
+     *
+     * @return the zero salt bytes
+     */
+    public byte[] zeroSalt() {
+        return hashLength == 32 ? ZERO_SALT_32 : ZERO_SALT_48;
+    }
+
+    /**
      * HKDF-Extract (RFC 5869 section 2.2): {@code HMAC-Hash(salt, ikm)}.
      *
      * @param salt the salt value (a non-secret random value)
@@ -99,8 +134,24 @@ public final class Hkdf {
      * @return the pseudorandom key, {@code hashLength} bytes
      */
     public byte[] extract(byte[] salt, byte[] ikm) {
-        Mac mac = newMac(salt);
+        Mac mac = macForKey(salt);
         return mac.doFinal(ikm);
+    }
+
+    /**
+     * Plain HMAC under this instance's algorithm: {@code HMAC-Hash(key, data)}.
+     * Used for the TLS 1.3 {@code Finished} message's verify-data
+     * (RFC 8446 section 4.4.4), which is an HMAC keyed by a
+     * HKDF-Expand-Label-derived {@code finished_key}, not itself an
+     * HKDF-Extract/Expand step.
+     *
+     * @param key the HMAC key
+     * @param data the data to authenticate
+     * @return the HMAC, {@code hashLength} bytes
+     */
+    public byte[] hmac(byte[] key, byte[] data) {
+        Mac mac = macForKey(key);
+        return mac.doFinal(data);
     }
 
     /**
@@ -113,7 +164,7 @@ public final class Hkdf {
      * @return the output keying material, {@code length} bytes
      */
     public byte[] expand(byte[] prk, byte[] info, int length) {
-        Mac mac = newMac(prk);
+        Mac mac = macForKey(prk);
         int n = (length + hashLength - 1) / hashLength;
         byte[] output = new byte[length];
         byte[] previousBlock = new byte[0];
@@ -127,6 +178,9 @@ public final class Hkdf {
             System.arraycopy(block, 0, output, written, copyLength);
             written += copyLength;
             previousBlock = block;
+            if (i < n) {
+                mac = macForKey(prk);
+            }
         }
         return output;
     }
@@ -152,16 +206,32 @@ public final class Hkdf {
      * @return the output keying material, {@code length} bytes
      */
     public byte[] expandLabel(byte[] secret, String label, byte[] context, int length) {
+        return expandLabelWithPrefix(TLS13_LABEL_PREFIX, secret, label, context, length);
+    }
+
+    /**
+     * HKDF-Expand-Label with an explicit prefix (RFC 8446 section 7.1 /
+     * RFC 9147 section 5.9).
+     *
+     * @param labelPrefix the prefix bytes, e.g. {@code "tls13 "} or {@code "dtls13"}
+     * @param secret the secret to expand from
+     * @param label the label without the prefix
+     * @param context the context octets
+     * @param length the length in bytes of output keying material
+     * @return the output keying material
+     */
+    public byte[] expandLabelWithPrefix(byte[] labelPrefix, byte[] secret, String label, byte[] context,
+            int length) {
         byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
-        int fullLabelLength = LABEL_PREFIX.length + labelBytes.length;
+        int fullLabelLength = labelPrefix.length + labelBytes.length;
 
         byte[] hkdfLabel = new byte[2 + 1 + fullLabelLength + 1 + context.length];
         int pos = 0;
         hkdfLabel[pos++] = (byte) ((length >> 8) & 0xff);
         hkdfLabel[pos++] = (byte) (length & 0xff);
         hkdfLabel[pos++] = (byte) fullLabelLength;
-        System.arraycopy(LABEL_PREFIX, 0, hkdfLabel, pos, LABEL_PREFIX.length);
-        pos += LABEL_PREFIX.length;
+        System.arraycopy(labelPrefix, 0, hkdfLabel, pos, labelPrefix.length);
+        pos += labelPrefix.length;
         System.arraycopy(labelBytes, 0, hkdfLabel, pos, labelBytes.length);
         pos += labelBytes.length;
         hkdfLabel[pos++] = (byte) context.length;
@@ -170,22 +240,23 @@ public final class Hkdf {
         return expand(secret, hkdfLabel, length);
     }
 
-    private Mac newMac(byte[] key) {
-        // RFC 5869 section 2.2: an all-zero key of hashLength bytes is used
-        // when no salt is provided; QUIC always supplies an explicit salt
-        // or secret, so that case does not arise here.
-        SecretKeySpec keySpec = new SecretKeySpec(
-                key.length == 0 ? new byte[hashLength] : key, macAlgorithm);
+    /**
+     * Returns the RFC 9147 {@code "dtls13"} HKDF-Expand-Label prefix bytes.
+     *
+     * @return the prefix without a trailing space
+     */
+    public static byte[] dtls13LabelPrefix() {
+        return DTLS13_LABEL_PREFIX.clone();
+    }
+
+    private Mac macForKey(byte[] key) {
+        SecretKeySpec keySpec = key.length == 0 ? zeroLengthKeySpec : new SecretKeySpec(key, macAlgorithm);
+        Mac mac = macHolder.get();
         try {
-            Mac mac = Mac.getInstance(macAlgorithm);
             mac.init(keySpec);
-            return mac;
-        } catch (NoSuchAlgorithmException e) {
-            // Programming error: every JCE provider bundled with the JDK
-            // supports HmacSHA256/HmacSHA384.
-            throw new IllegalStateException("HMAC algorithm not available: " + macAlgorithm, e);
         } catch (InvalidKeyException e) {
             throw new IllegalStateException("Invalid HMAC key", e);
         }
+        return mac;
     }
 }

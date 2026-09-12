@@ -30,18 +30,15 @@ import org.bluezoo.gumdrop.http.client.HTTPClient;
 import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
 import org.bluezoo.gumdrop.http.client.HTTPRequest;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.cert.X509Certificate;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -85,29 +82,9 @@ public class DNSResolutionIntegrationTest {
      */
     @Test
     public void testHTTPSGetWithDNSResolution() throws Exception {
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, new TrustManager[] {
-            new X509TrustManager() {
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-
-                @Override
-                public void checkClientTrusted(
-                        X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public void checkServerTrusted(
-                        X509Certificate[] chain, String authType) {
-                }
-            }
-        }, null);
-
         HTTPClient client = new HTTPClient(TEST_HOST, TEST_PORT);
         client.setSecure(true);
-        client.setSSLContext(sslContext);
+        client.setTrustManager(new EmptyX509TrustManager());
 
         CountDownLatch readyLatch = new CountDownLatch(1);
         CountDownLatch responseLatch = new CountDownLatch(1);

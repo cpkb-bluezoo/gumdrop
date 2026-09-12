@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop;
 
 import org.junit.Test;
 
+import java.net.InetAddress;
+
 import static org.junit.Assert.*;
 
 /**
@@ -58,16 +60,20 @@ public class TCPTransportFactoryTest {
 
     /**
      * RFC 5077 / RFC 7858 section 3.4: TLS session cache is configured
-     * when an SSLContext is initialised (integration-level; here we
-     * verify the method exists and is callable).
+     * when a secure factory is started (integration-level; here we
+     * verify the factory is constructable).
      */
     @Test
     public void testSessionCacheConfigurationAccessible() throws Exception {
-        // Verify the configureTlsSessionCache private method exists via
-        // the observable effect: SSLContext session contexts are configured
-        // when start() creates a context. Since start() requires a
-        // keystore, we just verify the factory is constructable.
         TCPTransportFactory factory = new TCPTransportFactory();
         assertNotNull(factory);
+    }
+
+    @Test
+    public void tlsServerNameForIpv6LoopbackUsesLocalhost() throws Exception {
+        InetAddress loopback = InetAddress.getByName("::1");
+        assertEquals("localhost", TCPTransportFactory.tlsServerNameFor(loopback, null));
+        assertEquals("localhost", TCPTransportFactory.tlsServerNameFor(null, "::1"));
+        assertEquals("localhost", TCPTransportFactory.tlsServerNameFor(null, "127.0.0.1"));
     }
 }

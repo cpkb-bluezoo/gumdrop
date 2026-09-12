@@ -21,45 +21,43 @@
 
 package org.bluezoo.gumdrop;
 
+import org.bluezoo.gumdrop.crypto.NamedGroup;
+import org.bluezoo.gumdrop.quic.tls.PemCredentials;
+import org.bluezoo.gumdrop.tls.CipherSuite;
+import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
+import org.bluezoo.gumdrop.tls.HandshakeConfig;
+import org.bluezoo.gumdrop.tls.HandshakeRole;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
+import org.bluezoo.gumdrop.tls.Tls12CipherSuite;
+import org.bluezoo.gumdrop.tls.Tls12HandshakeConfig;
+import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
-import org.bluezoo.gumdrop.util.SNIKeyManager;
+import org.bluezoo.gumdrop.util.SniCredentialsResolver;
 import org.bluezoo.gumdrop.util.TLSUtils;
 
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketOption;
 import java.net.StandardProtocolFamily;
+import java.net.UnknownHostException;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.security.KeyStore;
-import java.security.MessageDigest;
-import java.security.SecureRandom;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.KeyManager;
-import javax.net.ssl.SNIServerName;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.SNIHostName;
-import javax.net.ssl.SNIMatcher;
-import javax.net.ssl.SSLSessionContext;
-import javax.net.ssl.StandardConstants;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509KeyManager;
 import javax.net.ssl.X509TrustManager;
 
 /**
@@ -68,10 +66,14 @@ import javax.net.ssl.X509TrustManager;
  * <p>Creates {@link TCPEndpoint} instances for both server-side (accepted)
  * and client-side (outgoing) connections.
  *
- * <p>For TLS, this factory creates JSSE {@link SSLContext} and
- * {@link SSLEngine} instances. The {@link TransportFactory#setCipherSuites}
- * and {@link TransportFactory#setNamedGroups} configuration is mapped to
- * JSSE {@link SSLParameters}.
+ * <p>For TLS, this factory builds an in-tree
+ * {@link org.bluezoo.gumdrop.tls.HandshakeConfig} (TLS 1.3) or
+ * {@link org.bluezoo.gumdrop.tls.Tls12HandshakeConfig} (TLS 1.2, selected
+ * via {@link #setTlsVersion}) -- the
+ * {@link TransportFactory#setCipherSuites}/{@link TransportFactory#setNamedGroups}
+ * configuration is mapped onto {@link CipherSuite}/{@link NamedGroup} (TLS
+ * 1.3) or {@link Tls12CipherSuite} (TLS 1.2) directly, not through any
+ * JSSE type.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see TCPEndpoint
@@ -82,8 +84,19 @@ public class TCPTransportFactory extends TransportFactory {
     private static final Logger LOGGER =
             Logger.getLogger(TCPTransportFactory.class.getName());
 
-    protected SSLContext sslContext;
+    // Server identity: either a fixed value, or (SNI) a per-hostname
+    // resolver -- at most one is ever set, the resolver taking priority
+    // if somehow both were (matches HandshakeConfig's own precedence).
+    private ServerCredentials serverCredentials;
+    private ServerCredentialsResolver serverCredentialsResolver;
+
+    // Client's own identity, presented only if a server requests client
+    // certificate authentication (mTLS) -- client role only, and entirely
+    // optional; most clients never set this.
+    private ServerCredentials clientCredentials;
+
     private X509TrustManager trustManager;
+    private X509TrustManager effectiveTrustManager;
 
     // SNI (Server Name Indication) configuration
     private Map<String, String> sniHostnameToAlias;
@@ -98,7 +111,38 @@ public class TCPTransportFactory extends TransportFactory {
     // RFC 7413: TCP Fast Open for reduced connection latency
     private boolean tcpFastOpen;
 
+    private List<CipherSuite> resolvedCipherSuites;
+    private List<NamedGroup> resolvedNamedGroups;
+    private List<Tls12CipherSuite> resolvedTls12CipherSuites;
+
+    // Deployment-time TLS version pin -- see TlsVersion's own doc for why
+    // this is never runtime-negotiated. Defaults to TLS_1_3, so every
+    // existing caller's behaviour is unchanged.
+    private TlsVersion tlsVersion = TlsVersion.TLS_1_3;
+
     public TCPTransportFactory() {
+    }
+
+    /**
+     * Returns the TLS protocol version this factory's secure endpoints speak.
+     *
+     * @return the TLS version, defaulting to {@link TlsVersion#TLS_1_3}
+     */
+    public TlsVersion getTlsVersion() {
+        return tlsVersion;
+    }
+
+    /**
+     * Sets the TLS protocol version this factory's secure endpoints speak
+     * -- a deployment-time choice, not negotiated per-connection. See
+     * {@link TlsVersion}'s own doc comment for why a deployment wanting to
+     * serve both TLS 1.3 and TLS 1.2 peers runs two listeners rather than
+     * one that detects the version at runtime.
+     *
+     * @param tlsVersion the TLS version
+     */
+    public void setTlsVersion(TlsVersion tlsVersion) {
+        this.tlsVersion = (tlsVersion != null) ? tlsVersion : TlsVersion.TLS_1_3;
     }
 
     // -- SNI configuration --
@@ -185,30 +229,71 @@ public class TCPTransportFactory extends TransportFactory {
     }
 
     /**
-     * Sets an externally-configured SSLContext.
+     * Sets this server's identity (certificate chain and private key)
+     * directly, bypassing keystore-file loading. Takes priority over
+     * {@link #setKeystoreFile}/{@link #setCertFile}+{@link #setKeyFile}
+     * when set.
      *
-     * @param context the SSL context
+     * @param serverCredentials the server credentials
      */
-    public void setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public void setServerCredentials(ServerCredentials serverCredentials) {
+        this.serverCredentials = serverCredentials;
     }
 
     /**
-     * Returns the current SSLContext.
+     * Returns this server's identity.
      *
-     * @return the SSL context, or null if not configured
+     * @return the server credentials, or null if not set
      */
-    public SSLContext getSSLContext() {
-        return sslContext;
+    public ServerCredentials getServerCredentials() {
+        return serverCredentials;
+    }
+
+    /**
+     * Sets an SNI-based server credential resolver directly, bypassing
+     * {@link #setSniHostnames}'s keystore-alias-based dispatch. Takes
+     * priority over {@link #getServerCredentials}'s fixed value.
+     *
+     * @param serverCredentialsResolver the resolver
+     */
+    public void setServerCredentialsResolver(ServerCredentialsResolver serverCredentialsResolver) {
+        this.serverCredentialsResolver = serverCredentialsResolver;
+    }
+
+    /**
+     * Returns the SNI-based server credential resolver.
+     *
+     * @return the resolver, or null if not set
+     */
+    public ServerCredentialsResolver getServerCredentialsResolver() {
+        return serverCredentialsResolver;
+    }
+
+    /**
+     * Sets the client's own identity (certificate chain and private key)
+     * to present if a server requests client certificate authentication
+     * (mTLS). Client role only; most clients never need this.
+     *
+     * @param clientCredentials the client's own credentials
+     */
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
+    }
+
+    /**
+     * Returns the client's own identity for mTLS.
+     *
+     * @return the client credentials, or null if not set
+     */
+    public ServerCredentials getClientCredentials() {
+        return clientCredentials;
     }
 
     /**
      * Sets a custom trust manager for TLS certificate verification.
      *
-     * <p>When set, this trust manager is used in preference to the
-     * default JVM trust store. The trust manager is injected as a
-     * single-element array when building the SSL context during
-     * {@link #start()}.
+     * <p>When set, this trust manager is used in preference to a
+     * configured truststore or the JVM default trust store.
      *
      * @param trustManager the trust manager, or null to use defaults
      */
@@ -230,95 +315,143 @@ public class TCPTransportFactory extends TransportFactory {
     @Override
     public void start() {
         super.start();
-
-        // A keystore is only required to present a certificate -- needed
-        // for a secure *server* endpoint (which has to identify itself to
-        // connecting clients), not for a secure *client* connection that
-        // only verifies the peer via a TrustManager and offers no
-        // certificate of its own (the common case: a TLS client talking
-        // to a broker/server, no mutual TLS involved). This factory can't
-        // know at start() time whether it will go on to be used for
-        // connect() (client) or createServerEndpoint() (server), so it
-        // must not refuse to start just because no keystore was given --
-        // createServerEndpoint() enforces the keystore requirement itself,
-        // at the point where it's actually load-bearing (issue: a secure
-        // AMQP client with only setTrustManager() and no keystore/keypass
-        // failed to start at all, even though it never needed to present
-        // a certificate). A STARTTLS-capable *server* also needs this
-        // built eagerly even though it starts out with secure=false (the
-        // initial connection is plaintext, upgraded later on demand), so
-        // this must still trigger whenever a keystore was configured, not
-        // just when secure is set.
-        if (sslContext == null && (secure || (keystoreFile != null && keystorePass != null))) {
-            try {
-                sslContext = SSLContext.getInstance("TLS");
-                KeyManager[] km = null;
-                if (keystoreFile != null && keystorePass != null) {
-                    km = TLSUtils.loadKeyManagers(
-                            keystoreFile, keystorePass, keystoreFormat);
-
+        try {
+            if (serverCredentials == null && serverCredentialsResolver == null) {
+                if (certFile != null && keyFile != null) {
+                    serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
+                } else if (keystoreFile != null && keystorePass != null) {
                     if (isSNIEnabled()) {
-                        km = wrapWithSNIKeyManager(km);
+                        KeyStore keyStore = TLSUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat);
+                        serverCredentialsResolver = new SniCredentialsResolver(
+                                keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
                         if (LOGGER.isLoggable(Level.INFO)) {
                             LOGGER.info(MessageFormat.format(
                                     Gumdrop.L10N.getString("info.sni_enabled"),
                                     sniHostnameToAlias.size()));
                         }
+                    } else {
+                        serverCredentials = TLSUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat);
                     }
                 }
-
-                TrustManager[] tm = loadTrustManagers();
-                SecureRandom random = new SecureRandom();
-                sslContext.init(km, tm, random);
-
-                // RFC 5077 / RFC 7858 section 3.4: enable TLS session
-                // resumption with explicit cache sizing and timeout.
-                configureTlsSessionCache(sslContext);
-            } catch (Exception e) {
-                RuntimeException e2 = new RuntimeException(
-                        "Failed to initialise SSL context");
-                e2.initCause(e);
-                throw e2;
             }
+            effectiveTrustManager = resolveTrustManager();
+        } catch (Exception e) {
+            RuntimeException e2 = new RuntimeException(
+                    "Failed to initialise TLS configuration");
+            e2.initCause(e);
+            throw e2;
+        }
+        if (tlsVersion == TlsVersion.TLS_1_2) {
+            resolvedTls12CipherSuites = resolveTls12CipherSuites(cipherSuites);
+            if (namedGroups != null && !namedGroups.isEmpty() && LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.warning("namedGroups is meaningless under TLS_1_2 (fixed to secp256r1 ECDHE); ignoring \""
+                        + namedGroups + "\"");
+            }
+        } else {
+            resolvedCipherSuites = resolveCipherSuites(cipherSuites);
+            resolvedNamedGroups = resolveNamedGroups(namedGroups);
         }
     }
 
     /**
-     * Loads TrustManagers from the configured truststore.
-     * If no truststore is configured, returns null (JVM default truststore).
-     * When a pinned certificate fingerprint is configured, wraps the
-     * trust managers to additionally verify the server's leaf certificate.
+     * Resolves the effective trust manager, in priority order: an
+     * explicitly set {@link #trustManager}; a configured truststore file;
+     * otherwise the JVM's own default trust store -- always non-null,
+     * since a null trust manager must not silently fall back to platform trust)
+     * {@link org.bluezoo.gumdrop.crypto.CertificateVerifier} always needs
+     * a real trust manager to call. A configured
+     * {@link #pinnedCertFingerprint} wraps whichever of those was chosen.
      */
-    private TrustManager[] loadTrustManagers() throws Exception {
+    private X509TrustManager resolveTrustManager() throws Exception {
+        X509TrustManager base;
         if (trustManager != null) {
-            return new TrustManager[] { trustManager };
+            base = trustManager;
+        } else if (truststoreFile != null && truststorePass != null) {
+            base = firstX509TrustManager(TLSUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat));
+        } else {
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            tmf.init((KeyStore) null);
+            base = firstX509TrustManager(tmf.getTrustManagers());
         }
-        TrustManager[] base = null;
-        if (truststoreFile != null && truststorePass != null) {
-            base = TLSUtils.loadTrustManagers(
-                    truststoreFile, truststorePass, truststoreFormat);
-        }
-
         if (pinnedCertFingerprint != null) {
-            if (base == null) {
-                TrustManagerFactory tmf = TrustManagerFactory.getInstance(
-                        TrustManagerFactory.getDefaultAlgorithm());
-                tmf.init((KeyStore) null);
-                base = tmf.getTrustManagers();
-            }
-            TrustManager[] pinned = new TrustManager[base.length];
-            for (int i = 0; i < base.length; i++) {
-                if (base[i] instanceof X509TrustManager) {
-                    pinned[i] = new PinnedCertTrustManager(
-                            (X509TrustManager) base[i],
-                            new String[] { pinnedCertFingerprint });
-                } else {
-                    pinned[i] = base[i];
-                }
-            }
-            return pinned;
+            return new PinnedCertTrustManager(base, new String[] { pinnedCertFingerprint });
         }
         return base;
+    }
+
+    private static X509TrustManager firstX509TrustManager(TrustManager[] managers) throws Exception {
+        for (int i = 0; i < managers.length; i++) {
+            if (managers[i] instanceof X509TrustManager) {
+                return (X509TrustManager) managers[i];
+            }
+        }
+        throw new java.security.GeneralSecurityException("No X509TrustManager available");
+    }
+
+    private static List<CipherSuite> resolveCipherSuites(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        List<CipherSuite> resolved = new ArrayList<CipherSuite>();
+        String[] names = raw.split(":");
+        for (int i = 0; i < names.length; i++) {
+            String name = names[i].trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            try {
+                resolved.add(CipherSuite.valueOf(name));
+            } catch (IllegalArgumentException e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.warning("Unrecognised cipher suite \"" + name + "\", ignoring");
+                }
+            }
+        }
+        return resolved.isEmpty() ? null : resolved;
+    }
+
+    private static List<Tls12CipherSuite> resolveTls12CipherSuites(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        List<Tls12CipherSuite> resolved = new ArrayList<Tls12CipherSuite>();
+        String[] names = raw.split(":");
+        for (int i = 0; i < names.length; i++) {
+            String name = names[i].trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            try {
+                resolved.add(Tls12CipherSuite.valueOf(name));
+            } catch (IllegalArgumentException e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.warning("Unrecognised TLS 1.2 cipher suite \"" + name + "\", ignoring");
+                }
+            }
+        }
+        return resolved.isEmpty() ? null : resolved;
+    }
+
+    private static List<NamedGroup> resolveNamedGroups(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        List<NamedGroup> resolved = new ArrayList<NamedGroup>();
+        String[] names = raw.split(":");
+        for (int i = 0; i < names.length; i++) {
+            String name = names[i].trim();
+            if (name.isEmpty()) {
+                continue;
+            }
+            try {
+                resolved.add(NamedGroup.valueOf(name.toUpperCase(Locale.ROOT)));
+            } catch (IllegalArgumentException e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.warning("Unrecognised named group \"" + name + "\", ignoring");
+                }
+            }
+        }
+        return resolved.isEmpty() ? null : resolved;
     }
 
     // -- Endpoint creation --
@@ -348,8 +481,8 @@ public class TCPTransportFactory extends TransportFactory {
      * connection this factory was configured for negotiates TLS in-band
      * (e.g. FTP's data connection under RFC 4217 §7 PROT P, opened via a
      * control connection whose own TLS was itself an explicit AUTH TLS
-     * upgrade rather than implicit). The SSL engine is still built from
-     * this factory's configured keystore/context.
+     * upgrade rather than implicit). The server identity is still built
+     * from this factory's configured keystore/credentials.
      *
      * @param channel the accepted socket channel
      * @param handler the protocol handler
@@ -362,21 +495,35 @@ public class TCPTransportFactory extends TransportFactory {
                                             ProtocolHandler handler,
                                             boolean secure)
             throws IOException {
-        // A server endpoint needs credentials to present: either a keystore
-        // on this factory or an SSLContext injected via setSSLContext()
-        // (e.g. Listener.setSSLContext / MockOTLPCollector).
-        if (secure && keystoreFile == null && sslContext == null) {
+        // A server endpoint needs credentials to present, either directly
+        // or via SNI dispatch.
+        if (secure && serverCredentials == null && serverCredentialsResolver == null) {
             String message = Gumdrop.L10N.getString("err.no_keystore");
             throw new IOException(
                     "Secure TCP server endpoint requires keystore: " + message);
         }
-        SSLEngine engine = createServerSSLEngine(channel);
-        if (secure && engine == null) {
-            throw new IOException(
-                    "No TLS context configured on this transport factory; "
-                            + "cannot create a secure endpoint");
+        // Built whenever TLS is *possible* on this endpoint, not just
+        // when secure -- a STARTTLS-capable server starts out plaintext
+        // but still needs credentials ready for the in-band upgrade.
+        boolean haveCredentials = serverCredentials != null || serverCredentialsResolver != null;
+        TCPEndpoint endpoint;
+        if (tlsVersion == TlsVersion.TLS_1_2) {
+            Tls12HandshakeConfig config12 = haveCredentials ? buildServerConfig12() : null;
+            if (secure && config12 == null) {
+                throw new IOException(
+                        "No TLS configuration configured on this transport factory; "
+                                + "cannot create a secure endpoint");
+            }
+            endpoint = new TCPEndpoint(handler, config12, secure);
+        } else {
+            HandshakeConfig config = haveCredentials ? buildServerConfig() : null;
+            if (secure && config == null) {
+                throw new IOException(
+                        "No TLS configuration configured on this transport factory; "
+                                + "cannot create a secure endpoint");
+            }
+            endpoint = new TCPEndpoint(handler, config, secure);
         }
-        TCPEndpoint endpoint = new TCPEndpoint(handler, engine, secure);
         endpoint.setFactory(this);
         endpoint.setChannel(channel);
         endpoint.setClientMode(false);
@@ -399,6 +546,19 @@ public class TCPTransportFactory extends TransportFactory {
      * @throws IOException if the connection cannot be initiated
      */
     public TCPEndpoint connect(InetAddress host, int port,
+                               ProtocolHandler handler,
+                               SelectorLoop loop) throws IOException {
+        return connect(host, port, null, handler, loop);
+    }
+
+    /**
+     * Creates a client-side TCPEndpoint and connects to a remote host.
+     *
+     * @param tlsServerNameHint optional TLS/SNI/hostname-verify name; when
+     *     {@code null}, derived from {@code host} (loopback literals map to
+     *     {@code localhost} to match typical test PKI)
+     */
+    public TCPEndpoint connect(InetAddress host, int port, String tlsServerNameHint,
                                ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
         SocketChannel channel = SocketChannel.open();
@@ -431,14 +591,15 @@ public class TCPTransportFactory extends TransportFactory {
             }
         }
 
-        SSLEngine engine = null;
-        if (sslContext != null) {
-            engine = sslContext.createSSLEngine(
-                    host.getHostAddress(), port);
-            configureClientSSLEngine(engine);
+        TCPEndpoint endpoint;
+        String tlsServerName = tlsServerNameFor(host, tlsServerNameHint);
+        if (tlsVersion == TlsVersion.TLS_1_2) {
+            Tls12HandshakeConfig config12 = secure ? buildClientConfig12(tlsServerName) : null;
+            endpoint = new TCPEndpoint(handler, config12, secure);
+        } else {
+            HandshakeConfig config = secure ? buildClientConfig(tlsServerName) : null;
+            endpoint = new TCPEndpoint(handler, config, secure);
         }
-
-        TCPEndpoint endpoint = new TCPEndpoint(handler, engine, secure);
         endpoint.setFactory(this);
         endpoint.setChannel(channel);
         endpoint.setClientMode(true);
@@ -497,8 +658,7 @@ public class TCPTransportFactory extends TransportFactory {
      * addressing mode -- if this factory is secure, the TLS handshake
      * proceeds the same way over the connected UNIX domain socket channel
      * as it would over TCP; since a filesystem path has no meaningful
-     * hostname/port for the JSSE session ID or SNI, the SSLEngine is
-     * created without either.
+     * hostname/port for SNI, the configuration is built without one.
      *
      * @param path the UNIX domain socket path
      * @param handler the protocol handler
@@ -511,13 +671,14 @@ public class TCPTransportFactory extends TransportFactory {
         SocketChannel channel = SocketChannel.open(StandardProtocolFamily.UNIX);
         channel.configureBlocking(false);
 
-        SSLEngine engine = null;
-        if (sslContext != null) {
-            engine = sslContext.createSSLEngine();
-            configureClientSSLEngine(engine);
+        TCPEndpoint endpoint;
+        if (tlsVersion == TlsVersion.TLS_1_2) {
+            Tls12HandshakeConfig config12 = secure ? buildClientConfig12(null) : null;
+            endpoint = new TCPEndpoint(handler, config12, secure);
+        } else {
+            HandshakeConfig config = secure ? buildClientConfig(null) : null;
+            endpoint = new TCPEndpoint(handler, config, secure);
         }
-
-        TCPEndpoint endpoint = new TCPEndpoint(handler, engine, secure);
         endpoint.setFactory(this);
         endpoint.setChannel(channel);
         endpoint.setClientMode(true);
@@ -550,198 +711,90 @@ public class TCPTransportFactory extends TransportFactory {
         return endpoint;
     }
 
-    // -- SSL engine creation --
+    // -- HandshakeConfig construction --
 
-    /**
-     * Creates and configures an SSLEngine for a server-side connection.
-     */
-    private SSLEngine createServerSSLEngine(SocketChannel channel)
-            throws IOException {
-        if (sslContext == null) {
-            return null;
-        }
-        InetSocketAddress peer =
-                (InetSocketAddress) channel.getRemoteAddress();
-        String peerHost = peer.getHostString();
-        int peerPort = peer.getPort();
-        SSLEngine engine = sslContext.createSSLEngine(peerHost, peerPort);
-        configureServerSSLEngine(engine);
-        return engine;
-    }
-
-    /**
-     * Configures an SSL engine for server mode.
-     * RFC 9113 section 9.2: HTTP/2 over TLS MUST use TLS 1.2 or later;
-     * TLS 1.3 is RECOMMENDED.
-     */
-    private static final String[] SECURE_PROTOCOLS =
-            { "TLSv1.2", "TLSv1.3" };
-
-    protected void configureServerSSLEngine(SSLEngine engine) {
-        engine.setUseClientMode(false);
+    private HandshakeConfig buildServerConfig() {
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        config.setServerCredentials(serverCredentials);
+        config.setServerCredentialsResolver(serverCredentialsResolver);
         if (needClientAuth) {
-            engine.setNeedClientAuth(true);
+            // JSSE's own setNeedClientAuth had no "want but don't require"
+            // mode either, so this maps onto exactly the same observable
+            // behavior as before.
+            config.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
+            config.setClientTrustManager(effectiveTrustManager);
         }
+        applyCommonConfig(config);
+        return config;
+    }
 
-        SSLParameters params = engine.getSSLParameters();
-        params.setProtocols(SECURE_PROTOCOLS);
-
-        if (isSNIEnabled()) {
-            params.setSNIMatchers(Collections.singleton(
-                    new SNIMatcher(StandardConstants.SNI_HOST_NAME) {
-                        @Override
-                        public boolean matches(
-                                SNIServerName serverName) {
-                            if (serverName instanceof SNIHostName) {
-                                String hostname =
-                                        ((SNIHostName) serverName)
-                                                .getAsciiName();
-                                if (LOGGER.isLoggable(Level.FINE)) {
-                                    LOGGER.fine("SNI hostname: " + hostname);
-                                }
-                            }
-                            return true;
-                        }
-                    }));
+    private HandshakeConfig buildClientConfig(String serverName) {
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
+        config.setServerName(serverName);
+        config.setTrustManager(effectiveTrustManager);
+        // A keystore/PEM identity configured via setKeystoreFile/setCertFile
+        // is loaded into serverCredentials regardless of which role this
+        // factory ends up used for (start() has no way to know in advance).
+        // When this factory is actually used as a client and no explicit
+        // clientCredentials was set, present that loaded identity as the
+        // client's own certificate -- matching the old JSSE behaviour,
+        // where a single KeyManager built from the same keystore served
+        // either role depending on which side the SSLEngine was created
+        // for.
+        ServerCredentials ownCredentials = (clientCredentials != null) ? clientCredentials : serverCredentials;
+        if (ownCredentials != null) {
+            config.setClientCredentials(ownCredentials);
         }
+        applyCommonConfig(config);
+        return config;
+    }
 
-        // Configure ALPN protocols for HTTP/2 support
+    private void applyCommonConfig(HandshakeConfig config) {
         if (applicationProtocols != null && applicationProtocols.length > 0) {
-            List<String> protocols =
-                    Arrays.asList(applicationProtocols);
-            params.setApplicationProtocols(protocols.toArray(new String[0]));
+            config.setApplicationProtocols(Arrays.asList(applicationProtocols));
         }
-
-        engine.setSSLParameters(params);
-        applyCipherConfig(engine);
+        if (resolvedCipherSuites != null) {
+            config.setCipherSuites(resolvedCipherSuites);
+        }
+        if (resolvedNamedGroups != null) {
+            config.setNamedGroups(resolvedNamedGroups);
+        }
     }
 
-    /**
-     * Configures an SSL engine for client mode.
-     */
-    protected void configureClientSSLEngine(SSLEngine engine) {
-        engine.setUseClientMode(true);
-        SSLParameters params = engine.getSSLParameters();
-        params.setProtocols(SECURE_PROTOCOLS);
-        params.setEndpointIdentificationAlgorithm("HTTPS");
+    // -- Tls12HandshakeConfig construction --
 
-        // RFC 7301 / RFC 9113 section 3.2: advertise ALPN protocols (e.g.
-        // "h2") in the ClientHello so an h2-capable server can negotiate
-        // HTTP/2. Mirrors configureServerSSLEngine(); without this the
-        // client offers no protocols and every TLS connection falls back
-        // to HTTP/1.1 regardless of setApplicationProtocols().
+    private Tls12HandshakeConfig buildServerConfig12() {
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.SERVER);
+        config.setServerCredentials(serverCredentials);
+        config.setServerCredentialsResolver(serverCredentialsResolver);
+        if (needClientAuth) {
+            config.setClientAuthPolicy(ClientAuthPolicy.REQUIRE);
+            config.setClientTrustManager(effectiveTrustManager);
+        }
+        applyCommonConfig12(config);
+        return config;
+    }
+
+    private Tls12HandshakeConfig buildClientConfig12(String serverName) {
+        Tls12HandshakeConfig config = new Tls12HandshakeConfig(HandshakeRole.CLIENT);
+        config.setServerName(serverName);
+        config.setTrustManager(effectiveTrustManager);
+        // See buildClientConfig's identical comment -- the same
+        // keystore/PEM-identity-serves-either-role fallback applies here.
+        ServerCredentials ownCredentials = (clientCredentials != null) ? clientCredentials : serverCredentials;
+        if (ownCredentials != null) {
+            config.setClientCredentials(ownCredentials);
+        }
+        applyCommonConfig12(config);
+        return config;
+    }
+
+    private void applyCommonConfig12(Tls12HandshakeConfig config) {
         if (applicationProtocols != null && applicationProtocols.length > 0) {
-            params.setApplicationProtocols(applicationProtocols.clone());
+            config.setApplicationProtocols(Arrays.asList(applicationProtocols));
         }
-
-        engine.setSSLParameters(params);
-        applyCipherConfig(engine);
-    }
-
-    /**
-     * Applies cipher suite and named group configuration to an SSL engine.
-     */
-    private void applyCipherConfig(SSLEngine engine) {
-        if (cipherSuites != null || namedGroups != null) {
-            SSLParameters params = engine.getSSLParameters();
-            if (cipherSuites != null) {
-                String[] suites = splitOnColon(cipherSuites);
-                params.setCipherSuites(suites);
-            }
-            if (namedGroups != null) {
-                String[] groups = splitOnColon(namedGroups);
-                applyNamedGroups(params, groups);
-            }
-            engine.setSSLParameters(params);
-        }
-    }
-
-    /**
-     * Applies named groups via reflection (available since Java 20).
-     * Silently ignored on older runtimes.
-     */
-    private static void applyNamedGroups(SSLParameters params,
-                                         String[] groups) {
-        try {
-            Method m = SSLParameters.class
-                    .getMethod("setNamedGroups", String[].class);
-            m.invoke(params, (Object) groups);
-        } catch (NoSuchMethodException e) {
-            LOGGER.fine("SSLParameters.setNamedGroups() not available"
-                    + " on this JDK; namedGroups setting ignored");
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING,
-                    "Failed to set named groups", e);
-        }
-    }
-
-    private KeyManager[] wrapWithSNIKeyManager(KeyManager[] keyManagers) {
-        KeyManager[] wrapped = new KeyManager[keyManagers.length];
-        for (int i = 0; i < keyManagers.length; i++) {
-            if (keyManagers[i] instanceof X509KeyManager) {
-                wrapped[i] = new SNIKeyManager(
-                        (X509KeyManager) keyManagers[i],
-                        sniHostnameToAlias,
-                        sniDefaultAlias);
-            } else {
-                wrapped[i] = keyManagers[i];
-            }
-        }
-        return wrapped;
-    }
-
-    /**
-     * Splits a colon-separated string into an array.
-     */
-    private static String[] splitOnColon(String s) {
-        int count = 1;
-        int len = s.length();
-        for (int i = 0; i < len; i++) {
-            if (s.charAt(i) == ':') {
-                count++;
-            }
-        }
-        String[] result = new String[count];
-        int idx = 0;
-        int start = 0;
-        for (int i = 0; i < len; i++) {
-            if (s.charAt(i) == ':') {
-                result[idx++] = s.substring(start, i);
-                start = i + 1;
-            }
-        }
-        result[idx] = s.substring(start);
-        return result;
-    }
-
-    // -- TLS session resumption --
-
-    // RFC 5077, RFC 7858 section 3.4: TLS session cache parameters
-    private static final int SESSION_CACHE_SIZE = 1024;
-    private static final int SESSION_TIMEOUT_SECONDS = 86400;
-
-    /**
-     * Configures TLS session caching for session resumption.
-     * RFC 5077: TLS session tickets allow servers to resume sessions
-     * without storing per-client state. RFC 7858 section 3.4 says DoT
-     * servers SHOULD enable fast TLS session resumption.
-     *
-     * <p>The Java TLS stack supports both session ID caching and session
-     * tickets natively. This method explicitly configures cache size and
-     * timeout to ensure resumption is active on all JVM implementations.
-     */
-    private static void configureTlsSessionCache(SSLContext ctx) {
-        SSLSessionContext serverCtx =
-                ctx.getServerSessionContext();
-        if (serverCtx != null) {
-            serverCtx.setSessionCacheSize(SESSION_CACHE_SIZE);
-            serverCtx.setSessionTimeout(SESSION_TIMEOUT_SECONDS);
-        }
-        SSLSessionContext clientCtx =
-                ctx.getClientSessionContext();
-        if (clientCtx != null) {
-            clientCtx.setSessionCacheSize(SESSION_CACHE_SIZE);
-            clientCtx.setSessionTimeout(SESSION_TIMEOUT_SECONDS);
+        if (resolvedTls12CipherSuites != null) {
+            config.setCipherSuites(resolvedTls12CipherSuites);
         }
     }
 
@@ -761,6 +814,44 @@ public class TCPTransportFactory extends TransportFactory {
     void registerForConnect(SocketChannel channel, TCPEndpoint endpoint,
                             SelectorLoop loop) {
         loop.registerForConnect(channel, endpoint);
+    }
+
+    /**
+     * Derives the TLS server name for hostname verification and SNI.
+     *
+     * <p>Loopback address literals ({@code ::1}, {@code 127.0.0.1}) and the
+     * same strings passed as a hostname hint map to {@code localhost}, matching
+     * the integration-test PKI and common RFC 6125 practice when dialing
+     * loopback by address.
+     */
+    static String tlsServerNameFor(InetAddress peer, String preferred) {
+        if (preferred != null && !preferred.isEmpty()) {
+            return normalizeLoopbackTlsName(preferred);
+        }
+        if (peer != null) {
+            if (peer.isLoopbackAddress()) {
+                return "localhost";
+            }
+            return peer.getHostAddress();
+        }
+        return null;
+    }
+
+    private static String normalizeLoopbackTlsName(String name) {
+        if ("localhost".equalsIgnoreCase(name)) {
+            return "localhost";
+        }
+        if ("::1".equals(name) || "127.0.0.1".equals(name) || "0:0:0:0:0:0:0:1".equals(name)) {
+            return "localhost";
+        }
+        try {
+            if (InetAddress.getByName(name).isLoopbackAddress()) {
+                return "localhost";
+            }
+        } catch (UnknownHostException e) {
+            // Not a resolvable literal -- use as-is for SNI / hostname verify.
+        }
+        return name;
     }
 
     @Override

@@ -85,6 +85,7 @@ public abstract class UDPListener extends Listener {
         try {
             endpoint = udpFactory.createServerEndpoint(
                     null, getPort(), handler);
+            endpoint.setListener(this);
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE,
                     "Failed to bind datagram endpoint on port "

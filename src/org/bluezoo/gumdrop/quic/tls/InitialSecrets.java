@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import org.bluezoo.gumdrop.crypto.Hkdf;
+
 /**
  * Derivation of QUIC Initial packet protection secrets (RFC 9001
  * section 5.2).

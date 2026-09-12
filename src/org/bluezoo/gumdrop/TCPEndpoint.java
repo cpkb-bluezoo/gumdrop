@@ -24,6 +24,9 @@ package org.bluezoo.gumdrop;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.tls.HandshakeConfig;
+import org.bluezoo.gumdrop.tls.Tls12HandshakeConfig;
+import org.bluezoo.gumdrop.tls.TlsProtocolError;
 import org.bluezoo.gumdrop.util.DirectByteBufferPool;
 
 import java.io.IOException;
@@ -36,31 +39,33 @@ import java.text.MessageFormat;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLEngine;
-
 /**
  * TCP transport implementation of {@link Endpoint}.
  *
- * <p>This class provides TCP connection management with optional TLS
- * (via JSSE SSLEngine). It delegates all application events to an
- * {@link ProtocolHandler} provided at construction time. Protocol
- * handlers never subclass this class.
+ * <p>This class provides TCP connection management with optional TLS,
+ * either TLS 1.3 (via the in-tree {@link org.bluezoo.gumdrop.tls.TlsRecordEngine})
+ * or TLS 1.2 (via {@link org.bluezoo.gumdrop.tls.Tls12RecordEngine}) --
+ * the version is a deployment-time choice
+ * ({@link org.bluezoo.gumdrop.tls.TlsVersion}), fixed for the life of a
+ * given listener/connection, not negotiated at runtime. It delegates all
+ * application events to an {@link ProtocolHandler} provided at
+ * construction time. Protocol handlers never subclass this class.
  *
  * <p>Transparent TLS support:
  * <ul>
- * <li>{@link SSLState} intercepts inbound/outbound data automatically</li>
+ * <li>{@link TlsRecordState}/{@link Tls12RecordState} intercepts inbound/outbound data automatically</li>
  * <li>The protocol handler's {@code receive()} always gets plaintext</li>
  * <li>The protocol handler's {@code send()} always accepts plaintext</li>
  * <li>STARTTLS is available via {@link #startTLS()}</li>
  * </ul>
  *
- * <p>All I/O and SSL processing occurs on the assigned SelectorLoop thread.
+ * <p>All I/O and TLS processing occurs on the assigned SelectorLoop thread.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Endpoint
  * @see ProtocolHandler
  */
-public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback {
+public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Callback {
 
     private static final Logger LOGGER =
             Logger.getLogger(TCPEndpoint.class.getName());
@@ -88,7 +93,21 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
     ByteBuffer netIn;
     ByteBuffer netOut;
+    /**
+     * Guards {@link #netOut} append, grow, socket write, and release.
+     * Intentionally separate from {@link #tlsEngineLock} so
+     * {@link SelectorLoop} can drain pending ciphertext to the socket
+     * while record-layer decrypt/encrypt runs.
+     */
     final Object netOutLock = new Object();
+
+    /**
+     * Guards TLS record-engine wrap/unwrap on this connection. The engine
+     * is not safe for concurrent access; handshake offload still mutates
+     * {@link org.bluezoo.gumdrop.tls.HandshakeEngine} on a crypto thread,
+     * coordinated by {@link org.bluezoo.gumdrop.tls.HandshakeAsyncScheduler}.
+     */
+    final Object tlsEngineLock = new Object();
     boolean closeRequested;
 
     // Write-completion callback for backpressure support.
@@ -99,11 +118,13 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
     private int bufferSize;
 
-    // -- SSL state --
+    // -- TLS state --
 
     private boolean secure;
-    private final SSLEngine engine;
-    private SSLState sslState;
+    private final HandshakeConfig config;
+    private final Tls12HandshakeConfig config12;
+    private TlsRecordState tlsState;
+    private Tls12RecordState tls12State;
     private long handshakeStartTime;
 
     // -- Transport-level establishment timeouts (server endpoints only) --
@@ -114,6 +135,18 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
     // protocol handler having to opt in.
     private TimerHandle handshakeTimeoutHandle;
     private TimerHandle firstByteTimeoutHandle;
+    private final Runnable handshakeTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            onHandshakeTimeout();
+        }
+    };
+    private final Runnable firstByteTimeoutRunnable = new Runnable() {
+        @Override
+        public void run() {
+            onFirstByteTimeout();
+        }
+    };
 
     // -- Lifecycle --
 
@@ -137,23 +170,45 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
      * @param handler the protocol handler
      */
     public TCPEndpoint(ProtocolHandler handler) {
-        this(handler, null, false);
+        this(handler, (HandshakeConfig) null, false);
     }
 
     /**
-     * Creates a TCPEndpoint with optional TLS.
+     * Creates a TCPEndpoint with optional TLS 1.3.
      *
      * @param handler the protocol handler
-     * @param engine the SSL engine, or null for plaintext only
+     * @param config this endpoint's TLS configuration, or null for
+     *               plaintext only
      * @param secure true if TLS should be active immediately
      */
-    public TCPEndpoint(ProtocolHandler handler, SSLEngine engine,
+    public TCPEndpoint(ProtocolHandler handler, HandshakeConfig config,
                        boolean secure) {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
         this.handler = handler;
-        this.engine = engine;
+        this.config = config;
+        this.config12 = null;
+        this.secure = secure;
+        this.timestampCreated = System.currentTimeMillis();
+        this.timestampLastActivity = this.timestampCreated;
+    }
+
+    /**
+     * Creates a TCPEndpoint with TLS 1.2.
+     *
+     * @param handler the protocol handler
+     * @param config12 this endpoint's TLS 1.2 configuration
+     * @param secure true if TLS should be active immediately
+     */
+    public TCPEndpoint(ProtocolHandler handler, Tls12HandshakeConfig config12,
+                       boolean secure) {
+        if (handler == null) {
+            throw new NullPointerException("handler");
+        }
+        this.handler = handler;
+        this.config = null;
+        this.config12 = config12;
         this.secure = secure;
         this.timestampCreated = System.currentTimeMillis();
         this.timestampLastActivity = this.timestampCreated;
@@ -230,17 +285,21 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
             socket = null;
         }
 
-        if (engine == null || !secure) {
+        if ((config == null && config12 == null) || !secure) {
             bufferSize = (socket != null)
                     ? Math.max(DEFAULT_BUFFER_SIZE, socket.getReceiveBufferSize())
                     : DEFAULT_BUFFER_SIZE;
             timestampConnected = System.currentTimeMillis();
         }
 
-        if (engine != null && secure) {
+        if (secure && config != null) {
             handshakeStartTime = System.currentTimeMillis();
-            sslState = new SSLState(engine, this);
-            bufferSize = sslState.getBufferSize();
+            tlsState = new TlsRecordState(config, this, this);
+            bufferSize = tlsState.getBufferSize();
+        } else if (secure && config12 != null) {
+            handshakeStartTime = System.currentTimeMillis();
+            tls12State = new Tls12RecordState(config12, this, this);
+            bufferSize = tls12State.getBufferSize();
         }
 
         netIn = DirectByteBufferPool.acquire(bufferSize);
@@ -267,8 +326,10 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
             return;
         }
         updateLastActivity();
-        if (sslState != null) {
-            sslState.wrap(data);
+        if (tlsState != null) {
+            tlsState.wrap(data);
+        } else if (tls12State != null) {
+            tls12State.wrap(data);
         } else {
             appendToNetOut(data);
         }
@@ -291,8 +352,10 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         }
         closing = true;
         closeRequested = true;
-        if (sslState != null) {
-            sslState.closeOutbound();
+        if (tlsState != null) {
+            tlsState.closeOutbound();
+        } else if (tls12State != null) {
+            tls12State.closeOutbound();
         }
         if (selectorLoop != null) {
             selectorLoop.requestWrite(this);
@@ -322,34 +385,49 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
     @Override
     public SecurityInfo getSecurityInfo() {
-        if (!secure || engine == null) {
+        if (!secure) {
             return NullSecurityInfo.INSTANCE;
         }
-        return new JSSESecurityInfo(engine, handshakeStartTime);
+        if (config != null) {
+            return new HandshakeSecurityInfo(tlsState.getEngine(), config, handshakeStartTime);
+        }
+        if (config12 != null) {
+            return new Tls12SecurityInfo(tls12State.getEngine(), config12, handshakeStartTime);
+        }
+        return NullSecurityInfo.INSTANCE;
     }
 
     @Override
     public void startTLS() throws IOException {
-        if (engine == null) {
-            throw new IOException("No SSL engine available for STARTTLS");
+        if (config == null && config12 == null) {
+            throw new IOException("No TLS configuration available for STARTTLS");
         }
-        if (sslState != null) {
-            throw new IOException("SSL state already initialised");
+        if (tlsState != null || tls12State != null) {
+            throw new IOException("TLS state already initialised");
         }
         if (secure) {
             throw new IOException("Endpoint is already secure");
         }
         secure = true;
         handshakeStartTime = System.currentTimeMillis();
-        sslState = new SSLState(engine, this);
-        bufferSize = sslState.getBufferSize();
+        if (config != null) {
+            tlsState = new TlsRecordState(config, this, this);
+            bufferSize = tlsState.getBufferSize();
+        } else {
+            tls12State = new Tls12RecordState(config12, this, this);
+            bufferSize = tls12State.getBufferSize();
+        }
         // For an in-band upgrade (STARTTLS/STLS) the client must drive the
-        // handshake by emitting the ClientHello. At OP_CONNECT time sslState
-        // did not yet exist, so SelectorLoop's initiateClientTLSHandshake()
-        // was a no-op; kick it off now. Servers wait for the ClientHello to
-        // arrive via the normal read path.
+        // handshake by emitting the ClientHello. At OP_CONNECT time
+        // tlsState/tls12State did not yet exist, so SelectorLoop's
+        // initiateClientTLSHandshake() was a no-op; kick it off now.
+        // Servers wait for the ClientHello to arrive via the normal read path.
         if (clientMode) {
-            sslState.startClientHandshake();
+            if (tlsState != null) {
+                tlsState.startClientHandshake();
+            } else {
+                tls12State.startClientHandshake();
+            }
         }
         // Bound the in-band upgrade handshake the same way as implicit TLS.
         armHandshakeTimeout();
@@ -490,8 +568,10 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
      */
     final void processInbound() {
         updateLastActivity();
-        if (sslState != null) {
-            sslState.unwrap();
+        if (tlsState != null) {
+            tlsState.unwrap();
+        } else if (tls12State != null) {
+            tls12State.unwrap();
         } else {
             // First plaintext bytes have arrived: the connection is no longer
             // silent, so release the first-byte establishment timeout.
@@ -591,8 +671,8 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
 
     /**
      * Returns the configured maximum outbound buffer size, or 0 if unlimited.
-     * Package-private so {@link SSLState} can enforce the same ceiling on the
-     * encrypted output path.
+     * Package-private so {@link TlsRecordState} can enforce the same
+     * ceiling on the encrypted output path.
      */
     int getMaxNetOutSize() {
         return factory != null ? factory.getMaxNetOutSize() : 0;
@@ -759,12 +839,7 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         }
         long t = listener.getConnectionTimeoutMs();
         if (t > 0 && handshakeTimeoutHandle == null) {
-            handshakeTimeoutHandle = scheduleTimer(t, new Runnable() {
-                @Override
-                public void run() {
-                    onHandshakeTimeout();
-                }
-            });
+            handshakeTimeoutHandle = scheduleTimer(t, handshakeTimeoutRunnable);
         }
     }
 
@@ -774,12 +849,7 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         }
         long t = listener.getReadTimeoutMs();
         if (t > 0 && firstByteTimeoutHandle == null) {
-            firstByteTimeoutHandle = scheduleTimer(t, new Runnable() {
-                @Override
-                public void run() {
-                    onFirstByteTimeout();
-                }
-            });
+            firstByteTimeoutHandle = scheduleTimer(t, firstByteTimeoutRunnable);
         }
     }
 
@@ -827,8 +897,13 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
      * Initiates the TLS handshake for client connections.
      */
     void initiateClientTLSHandshake() {
-        if (sslState != null && clientMode) {
-            sslState.startClientHandshake();
+        if (!clientMode) {
+            return;
+        }
+        if (tlsState != null) {
+            tlsState.startClientHandshake();
+        } else if (tls12State != null) {
+            tls12State.startClientHandshake();
         }
     }
 
@@ -881,7 +956,7 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
      * nulled so a second close (which can happen via multiple error paths)
      * does not release a buffer twice. netOut is released under netOutLock so
      * it cannot race with a concurrent {@link #appendToNetOut} or
-     * {@link SSLState#wrap} on another thread.
+     * {@link TlsRecordState#wrap} on another thread.
      */
     private void releaseBuffers() {
         ByteBuffer in = netIn;
@@ -908,7 +983,7 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         timestampLastActivity = System.currentTimeMillis();
     }
 
-    // -- SSLState.Callback implementation --
+    // -- TlsRecordState.Callback implementation --
 
     @Override
     public final void onApplicationData(ByteBuffer data) {
@@ -927,7 +1002,9 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
         // first application data over the established secure channel.
         cancelHandshakeTimeout();
         armFirstByteTimeout();
-        SecurityInfo info = new JSSESecurityInfo(engine, handshakeStartTime);
+        SecurityInfo info = (tlsState != null)
+                ? new HandshakeSecurityInfo(tlsState.getEngine(), config, handshakeStartTime)
+                : new Tls12SecurityInfo(tls12State.getEngine(), config12, handshakeStartTime);
         handler.securityEstablished(info);
     }
 
@@ -935,6 +1012,11 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, SSLState.Callback 
     public final void onClosed() {
         handler.disconnected();
         doClose();
+    }
+
+    @Override
+    public final void onProtocolError(TlsProtocolError error) {
+        handler.error(new javax.net.ssl.SSLException(error.toString()));
     }
 
     // -- Timestamps --

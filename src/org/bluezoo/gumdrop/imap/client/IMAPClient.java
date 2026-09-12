@@ -26,7 +26,6 @@ import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
@@ -34,6 +33,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.imap.client.handler.MailboxEventListener;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.imap.client.handler.ServerGreeting;
 
 /**
@@ -52,7 +52,7 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerGreeting;
  * <h4>Plaintext with STARTTLS</h4>
  * <pre>{@code
  * IMAPClient client = new IMAPClient(selectorLoop, "imap.example.com", 143);
- * client.setSSLContext(sslContext);
+ * client.setClientCredentials(clientCredentials);
  * client.connect(new ServerGreeting() {
  *     public void handleGreeting(ClientNotAuthenticatedState auth,
  *                                String greeting,
@@ -67,7 +67,7 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerGreeting;
  * <pre>{@code
  * IMAPClient client = new IMAPClient("imap.example.com", 993);
  * client.setSecure(true);
- * client.setSSLContext(sslContext);
+ * client.setClientCredentials(clientCredentials);
  * client.connect(greetingHandler);
  * }</pre>
  *
@@ -87,7 +87,7 @@ public class IMAPClient {
     private final SelectorLoop selectorLoop;
 
     private boolean secure;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
@@ -198,7 +198,7 @@ public class IMAPClient {
      *
      * <p>When true, the connection starts with TLS immediately (port 993).
      * When false, the connection starts plaintext and STARTTLS can be
-     * used to upgrade if an SSLContext is configured.
+     * used to upgrade if client credentials are configured.
      *
      * @param secure true for implicit TLS
      */
@@ -216,8 +216,8 @@ public class IMAPClient {
      *
      * @param context the SSL context
      */
-    public void setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
     }
 
     /**
@@ -298,8 +298,8 @@ public class IMAPClient {
     public void connect(ServerGreeting handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
-        if (sslContext != null) {
-            transportFactory.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            transportFactory.setClientCredentials(clientCredentials);
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);

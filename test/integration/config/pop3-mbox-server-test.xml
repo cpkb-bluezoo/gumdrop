@@ -3,7 +3,7 @@
     <!-- POP3 server with mbox mailbox store on port 11110 -->
     <component id="testPop3Mbox" class="org.bluezoo.gumdrop.pop3.POP3Listener">
         <property name="port">11110</property>
-        <property name="addresses">127.0.0.1</property>
+        <property name="addresses">::1</property>
         <property name="enable-apop">false</property>
         <!-- Realm and mailboxFactory configured programmatically -->
     </component>

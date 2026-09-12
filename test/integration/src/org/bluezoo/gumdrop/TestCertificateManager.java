@@ -45,9 +45,6 @@ import java.util.Base64;
 import java.util.Calendar;
 import java.util.Date;
 
-import javax.net.ssl.KeyManager;
-import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
@@ -62,7 +59,7 @@ import javax.net.ssl.X509TrustManager;
  *   <li>Client certificates for authentication testing</li>
  *   <li>PKCS12 keystore creation and management</li>
  *   <li>Trust store management</li>
- *   <li>SSLContext configuration for client/server usage</li>
+ *   <li>TrustManager helpers for client/server usage</li>
  * </ul>
  *
  * <p>This implementation uses the keytool command-line utility for certificate
@@ -79,7 +76,7 @@ import javax.net.ssl.X509TrustManager;
  * <p>Example usage for client certificate authentication:
  * <pre>
  * mgr.generateClientCertificate("testuser@example.com", "Test User", 365);
- * SSLContext ctx = mgr.createClientSSLContext("testuser@example.com", "password");
+ * X509TrustManager tm = mgr.createClientTrustManager();
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -235,11 +232,10 @@ public class TestCertificateManager {
             "-validity", String.valueOf(validDays),
             "-ext", "ku=digitalSignature,keyEncipherment",
             "-ext", "eku=serverAuth",
-            // Include both the DNS name and the loopback IP. Gumdrop's own TLS
-            // client enforces RFC 6125 endpoint identification against the
-            // address it dialed (tests connect to 127.0.0.1), so the cert must
-            // carry an iPAddress SAN in addition to the dNSName.
-            "-ext", "san=dns:" + hostname + ",ip:127.0.0.1"
+            // Include the DNS name and both loopback addresses. Gumdrop's TLS
+            // client maps loopback literals to the DNS name for hostname
+            // verification (RFC 6125); integration tests bind/connect on ::1.
+            "-ext", "san=dns:" + hostname + ",ip:127.0.0.1,ip:::1"
         );
         
         // Export CA cert for import
@@ -552,33 +548,23 @@ public class TestCertificateManager {
         }
 
         /**
-         * Creates an SSLContext configured to use this client certificate.
+         * Returns a {@link X509TrustManager} that trusts this certificate's CA.
          */
-        public SSLContext createSSLContext() throws GeneralSecurityException, IOException {
-            return createSSLContext("changeit");
+        public X509TrustManager createTrustManager() throws GeneralSecurityException, IOException {
+            return createTrustManager("changeit");
         }
 
         /**
-         * Creates an SSLContext configured to use this client certificate.
+         * Returns a {@link X509TrustManager} that trusts this certificate's CA.
          */
-        public SSLContext createSSLContext(String password) throws GeneralSecurityException, IOException {
-            KeyStore keyStore = toKeyStore(password);
-            
-            KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-            kmf.init(keyStore, password.toCharArray());
-            
-            // Create trust store with CA
+        public X509TrustManager createTrustManager(String password) throws GeneralSecurityException, IOException {
             KeyStore trustStore = KeyStore.getInstance("PKCS12");
             trustStore.load(null, null);
             trustStore.setCertificateEntry("ca", caCertificate);
-            
+
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             tmf.init(trustStore);
-            
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), new SecureRandom());
-            
-            return sslContext;
+            return firstX509TrustManager(tmf.getTrustManagers());
         }
     }
 
@@ -627,74 +613,68 @@ public class TestCertificateManager {
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // SSLContext Creation
+    // Trust manager helpers
     // ─────────────────────────────────────────────────────────────────────────────
 
     /**
-     * Creates an SSLContext for a server using the generated server certificate.
-     * Optionally enables client certificate authentication.
-     *
-     * @param keystorePassword the server keystore password
-     * @param requireClientCert if true, server will require client certificates
-     * @return configured SSLContext
+     * Returns the shared integration-test server keystore file
+     * ({@code test-keystore.p12}).
      */
-    public SSLContext createServerSSLContext(String keystorePassword, boolean requireClientCert) 
-            throws GeneralSecurityException, IOException {
-        if (serverCertificate == null || serverKeyPair == null) {
-            throw new IllegalStateException("Server certificate must be generated first");
-        }
-        
-        // Create server keystore
-        KeyStore keyStore = KeyStore.getInstance(KEYSTORE_TYPE);
-        keyStore.load(null, null);
-        Certificate[] chain = new Certificate[] { serverCertificate, caCertificate };
-        keyStore.setKeyEntry("server", serverKeyPair.getPrivate(), keystorePassword.toCharArray(), chain);
-        
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        kmf.init(keyStore, keystorePassword.toCharArray());
-        
-        TrustManager[] trustManagers;
-        if (requireClientCert) {
-            // Trust only our CA for client certificates
-            KeyStore trustStore = KeyStore.getInstance(KEYSTORE_TYPE);
-            trustStore.load(null, null);
-            trustStore.setCertificateEntry("ca", caCertificate);
-            
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-            tmf.init(trustStore);
-            trustManagers = tmf.getTrustManagers();
-        } else {
-            // No client cert validation
-            trustManagers = new TrustManager[] { new TrustAllTrustManager() };
-        }
-        
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(kmf.getKeyManagers(), trustManagers, random);
-        
-        return sslContext;
+    public File getSharedKeystoreFile() {
+        return new File(certsDirectory, "test-keystore.p12");
     }
 
     /**
-     * Creates an SSLContext for a client that trusts our CA.
-     *
-     * @return configured SSLContext that trusts our test CA
+     * Returns the shared integration-test truststore file
+     * ({@code test-truststore.p12}).
      */
-    public SSLContext createClientSSLContext() throws GeneralSecurityException, IOException {
+    public File getSharedTruststoreFile() {
+        return new File(certsDirectory, "test-truststore.p12");
+    }
+
+    /**
+     * Returns a client {@link X509TrustManager} that trusts this manager's CA.
+     */
+    public X509TrustManager createClientTrustManager() throws GeneralSecurityException, IOException {
         if (caCertificate == null) {
             throw new IllegalStateException("CA certificate must be generated first");
         }
-        
+
         KeyStore trustStore = KeyStore.getInstance(KEYSTORE_TYPE);
         trustStore.load(null, null);
         trustStore.setCertificateEntry("ca", caCertificate);
-        
+
         TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         tmf.init(trustStore);
-        
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, tmf.getTrustManagers(), random);
-        
-        return sslContext;
+        return firstX509TrustManager(tmf.getTrustManagers());
+    }
+
+    /**
+     * Returns a trust manager for a server that validates client certificates
+     * against this manager's CA.
+     */
+    public X509TrustManager createServerClientAuthTrustManager() throws GeneralSecurityException, IOException {
+        if (caCertificate == null) {
+            throw new IllegalStateException("CA certificate must be generated first");
+        }
+
+        KeyStore trustStore = KeyStore.getInstance(KEYSTORE_TYPE);
+        trustStore.load(null, null);
+        trustStore.setCertificateEntry("ca", caCertificate);
+
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(trustStore);
+        return firstX509TrustManager(tmf.getTrustManagers());
+    }
+
+    private static X509TrustManager firstX509TrustManager(TrustManager[] managers)
+            throws GeneralSecurityException {
+        for (int i = 0; i < managers.length; i++) {
+            if (managers[i] instanceof X509TrustManager) {
+                return (X509TrustManager) managers[i];
+            }
+        }
+        throw new GeneralSecurityException("No X509TrustManager available");
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -864,26 +844,5 @@ public class TestCertificateManager {
         }
         
         return keytool;
-    }
-
-    /**
-     * TrustManager that accepts all certificates.
-     * Only use for testing!
-     */
-    private static class TrustAllTrustManager implements X509TrustManager {
-        @Override
-        public void checkClientTrusted(X509Certificate[] chain, String authType) {
-            // Accept all
-        }
-        
-        @Override
-        public void checkServerTrusted(X509Certificate[] chain, String authType) {
-            // Accept all
-        }
-        
-        @Override
-        public X509Certificate[] getAcceptedIssuers() {
-            return new X509Certificate[0];
-        }
     }
 }

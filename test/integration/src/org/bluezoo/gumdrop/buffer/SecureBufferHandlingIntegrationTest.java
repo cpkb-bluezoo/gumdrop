@@ -22,21 +22,14 @@
 package org.bluezoo.gumdrop.buffer;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.IntegrationTlsClient;
 import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.junit.Test;
 
 import java.io.File;
-import java.io.OutputStream;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
-import java.security.cert.X509Certificate;
+import java.nio.ByteBuffer;
 import java.util.List;
-
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 import static org.junit.Assert.*;
 
@@ -76,39 +69,13 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
      * Creates an SSL socket factory that trusts all certificates.
      * For testing only.
      */
-    private SSLSocketFactory createTrustAllSocketFactory() 
-            throws NoSuchAlgorithmException, KeyManagementException {
-        TrustManager[] trustAllCerts = new TrustManager[] {
-            new X509TrustManager() {
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-                
-                @Override
-                public void checkClientTrusted(X509Certificate[] certs, String authType) {
-                    // Trust all
-                }
-                
-                @Override
-                public void checkServerTrusted(X509Certificate[] certs, String authType) {
-                    // Trust all
-                }
-            }
-        };
-        
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
-        return sslContext.getSocketFactory();
-    }
-    
-    // ============== Basic Functionality Tests ==============
-    
+    private static final EmptyX509TrustManager TRUST_ALL = new EmptyX509TrustManager();
+
     @Test
     public void testSecureServerStartsAndAcceptsConnections() throws Exception {
         assertNotNull("Gumdrop should be running", gumdrop);
         assertTrue("Port " + TEST_PORT + " should be listening", 
-                  isPortListening("127.0.0.1", TEST_PORT));
+                  isPortListening("::1", TEST_PORT));
         
         // Verify server is secure
         BufferTestServer server = getBufferTestServer();
@@ -162,31 +129,15 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         server.setMessagePattern(MESSAGE_PATTERN);
         server.clearConnections();
         
-        SSLSocketFactory factory = createTrustAllSocketFactory();
-        SSLSocket socket = (SSLSocket) factory.createSocket("127.0.0.1", TEST_PORT);
-        try {
-            socket.setSoTimeout(5000);
-            socket.startHandshake();
-            
-            OutputStream out = socket.getOutputStream();
-            
-            // First chunk: partial message
-            out.write("0123456".getBytes("US-ASCII"));
-            out.flush();
+        IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, TRUST_ALL, 10000, endpoint -> {
+            endpoint.send(ByteBuffer.wrap("0123456".getBytes("US-ASCII")));
             pause(100);
-            
-            // Second chunk: completes first message, starts second
-            out.write("7890123".getBytes("US-ASCII"));
-            out.flush();
+            endpoint.send(ByteBuffer.wrap("7890123".getBytes("US-ASCII")));
             pause(100);
-            
-            // Third chunk: completes second message
-            out.write("456789".getBytes("US-ASCII"));
-            out.flush();
+            endpoint.send(ByteBuffer.wrap("456789".getBytes("US-ASCII")));
             pause(100);
-        } finally {
-            socket.close();
-        }
+            endpoint.close();
+        });
         
         pause(400);
         
@@ -246,18 +197,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
      * Sends data to the test server over TLS and closes the connection.
      */
     private void sendSecureDataAndClose(byte[] data) throws Exception {
-        SSLSocketFactory factory = createTrustAllSocketFactory();
-        SSLSocket socket = (SSLSocket) factory.createSocket("127.0.0.1", TEST_PORT);
-        try {
-            socket.setSoTimeout(5000);
-            socket.startHandshake();
-            
-            OutputStream out = socket.getOutputStream();
-            out.write(data);
-            out.flush();
-            pause(100);
-        } finally {
-            socket.close();
-        }
+        IntegrationTlsClient.sendAndClose("::1", TEST_PORT, data, TRUST_ALL, 5000);
+        pause(100);
     }
 }

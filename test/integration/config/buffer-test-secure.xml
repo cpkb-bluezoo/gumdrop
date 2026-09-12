@@ -3,7 +3,7 @@
     <!-- Secure (TLS) buffer test server on port 19443 -->
     <component id="bufferTestSecure" class="org.bluezoo.gumdrop.buffer.BufferTestServer">
         <property name="port">19443</property>
-        <property name="addresses">127.0.0.1</property>
+        <property name="addresses">::1</property>
         <property name="secure">true</property>
         <property name="keystore-file">test/integration/certs/test-keystore.p12</property>
         <property name="keystore-pass">testpass</property>

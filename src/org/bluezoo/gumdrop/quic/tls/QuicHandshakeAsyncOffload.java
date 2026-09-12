@@ -21,40 +21,17 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import tech.kwik.agent15.TlsProtocolException;
-
-import org.bluezoo.gumdrop.CryptoExecutor;
-import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.TlsHandshakeAsyncOffload;
 
 /**
- * Runs Agent15's handshake message processing -- the actual ECDHE
- * key-exchange math and certificate-chain validation/signing that happen
- * inside {@code TlsMessageParser.parseAndProcessHandshakeMessage} -- off
- * the QUIC connection's {@code SelectorLoop} thread, on {@link
- * CryptoExecutor}, mirroring the equivalent offload already done for
- * TCP/TLS ({@code SSLState}) and DTLS ({@code DTLSSession}).
- *
- * <p>Unlike {@code SSLEngine}, Agent15 has no delegated-task API: a single
- * call to {@code parseAndProcessHandshakeMessage} synchronously performs
- * all of a handshake message's crypto work and, from inside that same
- * call, may invoke callbacks back out onto whichever {@link
- * QuicTlsEngineListener} was supplied at construction ({@code
- * cryptoDataReady}, {@code handshakeSecretsAvailable}, etc.) -- callbacks
- * that are only safe to run on the connection's loop thread. Since the
- * whole call is what needs to move off-loop, not a sub-task, those
- * callbacks-out cannot simply be forwarded to the listener as they occur
- * on the crypto thread. Instead, {@link #submit} runs the batch with
- * {@link #dispatch} routed to an in-memory queue rather than the listener
- * directly, and replays that queue, in order, back on the loop thread
- * once the batch completes.
+ * QUIC-facing wrapper around {@link TlsHandshakeAsyncOffload}: same offload
+ * model as TCP ({@link org.bluezoo.gumdrop.tls.TlsRecordEngine}) and DTLS
+ * ({@link org.bluezoo.gumdrop.tls.Dtls13RecordEngine}), with QUIC-specific
+ * failure reporting via {@link EncryptionLevel}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see QuicTlsServerEngine
@@ -64,220 +41,60 @@ final class QuicHandshakeAsyncOffload {
 
     private static final Logger LOGGER = Logger.getLogger(QuicHandshakeAsyncOffload.class.getName());
 
-    /**
-     * A batch of Agent15 handshake message processing to run on a crypto
-     * thread.
-     */
     interface BatchProcessor {
-        void process() throws TlsProtocolException, IOException;
+        void process();
     }
 
-    /**
-     * Invoked once a batch (and any deferred listener callbacks it
-     * triggered) has finished, on the loop thread -- the caller's chance
-     * to immediately start a follow-up batch (e.g. dispatching a CRYPTO
-     * frame that queued up while this one was running) before {@link
-     * #isBusy} can ever be observed reporting false. Returning true means
-     * a follow-up batch was submitted synchronously from within this
-     * call, so the busy state must be preserved; returning false means
-     * there is nothing further to do right now, so it may clear.
-     */
     interface CompletionHandler {
         boolean onBatchDone();
     }
 
     private final QuicTlsEngineListener listener;
-
-    // Read by the loop thread (isBusy(), from the concrete QuicTlsEngine
-    // and, in tests, QuicTestPeer's synchronization poll) and written from
-    // inside the completed()/failed() callback, which itself always runs
-    // via listener.execute(...) -- ordinarily the loop thread, but a test
-    // driving these engines directly without a live Gumdrop can have that
-    // callback delivered inline on whatever thread called submit(), so
-    // all access is guarded by `lock` (see lock()) rather than relying on
-    // same-thread confinement.
-    //
-    // Only ever cleared after onDone (the CompletionHandler) has had its
-    // chance to synchronously start a follow-up batch and said it did not
-    // (issue #351) -- never unconditionally before calling onDone. A
-    // window where this reads false while onDone is about to resubmit
-    // would let a concurrent poller (e.g. QuicTestPeer's
-    // awaitHandshakeProcessingIdle) observe "idle" and act on
-    // not-yet-installed handshake state (e.g. PacketProtectionKeys a
-    // follow-up batch was about to derive).
-    //
-    // Beyond plain visibility, running onDone.onBatchDone() itself while
-    // holding `lock` (issue #427) is what lets a caller's own
-    // isBusy()-then-enqueue-or-dispatch decision (receiveCryptoData, in
-    // the concrete engines) synchronize on the same lock and never race
-    // onBatchDone()'s drain of its pending-frame queue -- without that,
-    // a frame arriving in the narrow window between a batch finishing
-    // and its completion handler draining that queue could be enqueued
-    // a moment too late to ever be drained, silently losing it forever.
-    private boolean taskInFlight;
-    private boolean deferring;
-    private List<Runnable> deferredCallbacks;
-
-    private final Object lock = new Object();
+    private final TlsHandshakeAsyncOffload delegate;
 
     QuicHandshakeAsyncOffload(QuicTlsEngineListener listener) {
         this.listener = listener;
-    }
-
-    /**
-     * The lock a caller must hold around any decision that depends on
-     * {@link #isBusy} for as long as that decision has an effect a
-     * concurrently completing batch could race against -- e.g. {@code
-     * QuicTlsClientEngine}/{@code QuicTlsServerEngine}'s {@code
-     * receiveCryptoData} enqueueing a CRYPTO frame for later versus
-     * dispatching it now. {@link #submit} holds this same lock across
-     * running a batch's completion handler and deciding whether to
-     * clear the busy state, so the two operations can never interleave
-     * in a way that loses a frame (issue #427: previously, a frame
-     * arriving in the narrow window between a batch finishing and its
-     * completion handler draining the pending-frame queue could be
-     * enqueued a moment too late to ever be drained).
-     *
-     * @return the lock object
-     */
-    Object lock() {
-        return lock;
-    }
-
-    /**
-     * Whether a batch is currently running on a crypto thread. Callers
-     * (the concrete {@code QuicTlsEngine}) must queue further received
-     * CRYPTO data rather than starting a second concurrent batch while
-     * this is true -- Agent15's engines are not safe for concurrent use.
-     *
-     * @return true if a batch is in flight
-     */
-    boolean isBusy() {
-        synchronized (lock) {
-            return taskInFlight;
-        }
-    }
-
-    /**
-     * Routes a {@code QuicTlsEngineListener} callback: run immediately if
-     * called from outside an in-flight batch (the ordinary loop-thread
-     * case), or queued for replay-in-order on the loop thread once the
-     * current batch completes, if called from inside {@link
-     * BatchProcessor#process} (i.e. from the crypto thread).
-     *
-     * @param call the listener callback to run or defer
-     */
-    void dispatch(Runnable call) {
-        if (deferring) {
-            deferredCallbacks.add(call);
-        } else {
-            call.run();
-        }
-    }
-
-    /**
-     * Runs {@code processor} on {@link CryptoExecutor}, deferring any
-     * listener callbacks it triggers until it completes, then replays
-     * them in order and runs {@code onDone} -- all back on the loop
-     * thread. Falls back to running {@code processor} synchronously, on
-     * the calling thread, if no {@code CryptoExecutor} is available
-     * (e.g. {@code Gumdrop} has not been started, as in unit tests that
-     * drive these engines directly).
-     *
-     * @param level the encryption level this batch is processing, for
-     *              error reporting
-     * @param processor the Agent15 processing to run
-     * @param onDone invoked (on the loop thread) once the batch --
-     *               including replay of its deferred callbacks -- has
-     *               finished, successfully or not
-     */
-    void submit(final EncryptionLevel level, final BatchProcessor processor, final CompletionHandler onDone) {
-        synchronized (lock) {
-            taskInFlight = true;
-        }
-        final Callable<List<Runnable>> op = new Callable<List<Runnable>>() {
-            @Override
-            public List<Runnable> call() {
-                List<Runnable> callbacks = new ArrayList<Runnable>();
-                deferredCallbacks = callbacks;
-                deferring = true;
-                try {
-                    processor.process();
-                } catch (final TlsProtocolException | IOException e) {
-                    callbacks.add(new Runnable() {
-                        @Override
-                        public void run() {
-                            listener.cryptoProcessingFailed(level, e);
-                        }
-                    });
-                } finally {
-                    deferring = false;
-                    deferredCallbacks = null;
-                }
-                return callbacks;
-            }
-        };
-        CryptoExecutor.Callback<List<Runnable>> callback = new CryptoExecutor.Callback<List<Runnable>>() {
-            @Override
-            public void completed(List<Runnable> callbacks) {
-                // Deferred callbacks (cryptoDataReady, handshakeFinished,
-                // etc.) must have applied their effects before taskInFlight
-                // can be observed false, and -- issue #351 -- so must any
-                // follow-up batch onDone starts synchronously (e.g.
-                // QuicTlsClientEngine/ServerEngine's drainPendingFrames
-                // dispatching a queued CRYPTO frame): only clear the flag
-                // once onDone itself confirms nothing new started, rather
-                // than clearing it first and correcting afterward, or a
-                // concurrent poller (a test synchronizing on isBusy(), or
-                // any real caller) could observe "idle" in between and act
-                // on handshake state the follow-up batch was still about
-                // to produce.
-                for (Runnable r : callbacks) {
-                    r.run();
-                }
-                // Issue #427: onDone itself (drainPendingFrames, for the
-                // concrete engines) must run under `lock`, the same lock
-                // receiveCryptoData holds around its own isBusy()-then-
-                // enqueue-or-dispatch decision -- otherwise a frame that
-                // arrives exactly as this drain finds nothing can be
-                // enqueued a moment too late for anything to ever drain
-                // it again.
-                synchronized (lock) {
-                    if (!onDone.onBatchDone()) {
-                        taskInFlight = false;
-                    }
-                }
-            }
-
-            @Override
-            public void failed(Throwable error) {
-                LOGGER.log(Level.SEVERE, "QUIC handshake delegated processing failed", error);
-                listener.cryptoProcessingFailed(level, error);
-                synchronized (lock) {
-                    if (!onDone.onBatchDone()) {
-                        taskInFlight = false;
-                    }
-                }
-            }
-        };
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        CryptoExecutor exec = gumdrop.isStarted() ? gumdrop.getCryptoExecutor() : null;
-        if (exec == null) {
-            List<Runnable> callbacks;
-            try {
-                callbacks = op.call();
-            } catch (Exception e) {
-                callback.failed(e);
-                return;
-            }
-            callback.completed(callbacks);
-            return;
-        }
-        exec.submit(new Executor() {
+        this.delegate = new TlsHandshakeAsyncOffload(new Executor() {
             @Override
             public void execute(Runnable command) {
                 listener.execute(command);
             }
-        }, op, callback);
+        });
+    }
+
+    Object lock() {
+        return delegate.lock();
+    }
+
+    boolean isBusy() {
+        return delegate.isBusy();
+    }
+
+    boolean isDeferring() {
+        return delegate.isDeferring();
+    }
+
+    void dispatch(Runnable call) {
+        delegate.dispatch(call);
+    }
+
+    void submit(final EncryptionLevel level, final BatchProcessor processor, final CompletionHandler onDone) {
+        delegate.submit(new TlsHandshakeAsyncOffload.BatchProcessor() {
+            @Override
+            public void process() {
+                processor.process();
+            }
+        }, new TlsHandshakeAsyncOffload.CompletionHandler() {
+            @Override
+            public boolean onBatchDone() {
+                return onDone.onBatchDone();
+            }
+        }, new TlsHandshakeAsyncOffload.FailureHandler() {
+            @Override
+            public void failed(Throwable error) {
+                LOGGER.log(Level.SEVERE, "QUIC handshake delegated processing failed", error);
+                listener.cryptoProcessingFailed(level, error);
+            }
+        });
     }
 }

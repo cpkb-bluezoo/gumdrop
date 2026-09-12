@@ -76,6 +76,8 @@ for IMAP, POP3, and SMTP with mbox and Maildir implementations</li>
 distributed tracing and metrics with OTLP export</li>
 <li><a href="security.html"><strong>Security</strong></a> - IAM, rate limiting,
 TLS, and authentication across all protocols</li>
+<li><a href="tls.html"><strong>TLS &amp; DTLS</strong></a> - in-tree TLS stack,
+cipher profiles, configuration, and RFC conformance</li>
 <li><a href="ldap.html"><strong>LDAP Client &amp; Realm</strong></a> - asynchronous
 LDAPv3 client, SASL bind, and LDAP-backed authentication realm</li>
 <li><a href="amqp.html"><strong>AMQP Client</strong></a> - asynchronous AMQP 0-9-1
@@ -419,6 +421,12 @@ automatically.
 All endpoints support transparent TLS encryption. The framework handles:
 </p>
 
+<p>
+Supported protocol versions, deliberate TLS&nbsp;1.2 limits, cipher suite lists,
+and listener configuration properties are documented on the
+<a href="tls.html">TLS &amp; DTLS</a> page. Summary:
+</p>
+
 <ul>
 <li><b>Implicit TLS</b> - endpoint starts encrypted (HTTPS, IMAPS, POP3S)</li>
 <li><b>STARTTLS</b> - upgrade from cleartext to TLS mid-session</li>
@@ -426,7 +434,7 @@ All endpoints support transparent TLS encryption. The framework handles:
 <li><b>SNI</b> - Server Name Indication for virtual hosting</li>
 <li><b>ALPN</b> - Application Layer Protocol Negotiation (HTTP/3, HTTP/2)</li>
 <li><b>DTLS</b> - TLS for UDP protocols</li>
-<li><b>QUIC</b> - always TLS 1.3 via BoringSSL</li>
+<li><b>QUIC</b> - always TLS 1.3 via the in-tree engine</li>
 </ul>
 
 <p>
@@ -447,7 +455,7 @@ To enable TLS, configure the keystore on any listener:
 <p>
 Any TCP-based listener can also bind to a UNIX domain socket by specifying a
 <code>path</code> instead of a <code>port</code>. This uses the standard NIO
-UNIX domain socket support available since Java 16 (JEP 380). Once accepted,
+UNIX domain socket support (JEP 380, available on Java 25+). Once accepted,
 UNIX domain socket connections behave identically to TCP connections &mdash; the
 same <code>SocketChannel</code>, <code>TCPEndpoint</code>, and
 <code>ProtocolHandler</code> infrastructure is used unchanged.

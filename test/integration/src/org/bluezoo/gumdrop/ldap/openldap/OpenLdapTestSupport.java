@@ -54,7 +54,7 @@ import java.security.cert.X509Certificate;
  */
 final class OpenLdapTestSupport {
 
-    static final String HOST = System.getProperty("ldap.test.host", "127.0.0.1");
+    static final String HOST = System.getProperty("ldap.test.host", "::1");
     static final int PORT = Integer.getInteger("ldap.test.port", 13389);
 
     static final String BASE_DN = System.getProperty("ldap.test.basedn", "dc=test,dc=gumdrop,dc=local");

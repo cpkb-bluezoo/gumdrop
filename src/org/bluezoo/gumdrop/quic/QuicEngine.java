@@ -38,8 +38,6 @@ import java.util.logging.Logger;
 
 import javax.net.ssl.X509TrustManager;
 
-import tech.kwik.agent15.NewSessionTicket;
-import tech.kwik.agent15.engine.TlsServerEngineFactory;
 
 import org.bluezoo.gumdrop.ChannelHandler;
 import org.bluezoo.gumdrop.Endpoint;
@@ -63,6 +61,7 @@ import org.bluezoo.gumdrop.quic.packet.StatelessResetPacket;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine;
 import org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * One UDP socket multiplexing many {@link QuicConnection}s.
@@ -426,12 +425,12 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         if (addressValidated) {
             conn.markAddressValidated();
         }
-        TlsServerEngineFactory engineFactory = factory.getServerEngineFactory();
-        if (engineFactory == null) {
+        ServerCredentials serverCredentials = factory.getServerCredentials();
+        if (serverCredentials == null) {
             LOGGER.warning(L10N.getString("warn.no_server_cert"));
             return null;
         }
-        QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(engineFactory, localParams, conn,
+        QuicTlsServerEngine tlsEngine = new QuicTlsServerEngine(serverCredentials, localParams, conn,
                 factory.isEarlyDataEnabled(), factory.getApplicationProtocols(), factory.getCipherSuites());
         conn.setTlsEngine(tlsEngine);
 
@@ -658,16 +657,16 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
         if (handler != null) {
             conn.setClientHandler(handler);
         }
+        if (earlyDataHandler != null) {
+            conn.setEarlyDataHandler(earlyDataHandler);
+        }
         if (factory.isEarlyDataEnabled()) {
-            String host = serverName != null ? serverName : remote.getAddress().getHostAddress();
+            String host = (serverName != null) ? serverName : remote.getAddress().getHostAddress();
             SessionTicketCache.Entry cached = SessionTicketCache.get(host, remote.getPort());
             if (cached != null) {
                 tlsEngine.presentSessionTicket(cached.toTicket());
                 conn.seedRememberedTransportParameters(cached.toTransportParameters());
             }
-        }
-        if (earlyDataHandler != null) {
-            conn.setEarlyDataHandler(earlyDataHandler);
         }
         clientConnection = conn;
         registerConnectionId(clientScid, conn);

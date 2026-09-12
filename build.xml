@@ -27,8 +27,6 @@
   <property file='boms/versions.properties'/>
   <property name='gonzalez.jar' value='gonzalez-core-${gonzalez.version}.jar'/>
   <property name='jsonparser.jar' value='jsonparser-${jsonparser.version}.jar'/>
-  <property name='agent15.jar' value='agent15-${agent15.version}.jar'/>
-  <property name='hkdf.jar' value='hkdf-${hkdf.version}.jar'/>
   <property name='servlet.jar' value='javax.servlet-api-${javax.servlet.api.version}.jar'/>
   <property name='javamail.jar' value='javax.mail-${javax.mail.version}.jar'/>
   <property name='annotation.jar' value='javax.annotation-api-${javax.annotation.api.version}.jar'/>
@@ -93,13 +91,16 @@
   <property name='manager.war' location='${dist}/manager.war'/>
   <!--
     Java version compatibility settings.
-    Gumdrop v2 requires Java 17 (LTS) as the minimum baseline.
-    
+    Gumdrop 3 requires Java 25 (LTS) as the minimum baseline, bumped from
+    17 so the in-tree TLS engine (org.bluezoo.gumdrop.tls/crypto,
+    replacing agent15/JSSE) can use JCA's native ML-KEM/ML-DSA support for
+    RFC 10024 hybrid post-quantum key exchange, first available in JDK 24.
+
     Build strategy:
-    - Main code compiled with -release 17
-    - module-info.java compiled separately with -release 17 (JPMS)
+    - Main code compiled with -release 25
+    - module-info.java compiled separately with -release 25 (JPMS)
   -->
-  <property name='java.release.version' value='17'/>
+  <property name='java.release.version' value='25'/>
   
   <import file='ant/compile-modules.xml'/>
 
@@ -157,10 +158,6 @@
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/org/bluezoo/jsonparser/${jsonparser.version}/jsonparser-${jsonparser.version}.jar'
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
-    <get src='https://repo1.maven.org/maven2/tech/kwik/agent15/${agent15.version}/agent15-${agent15.version}.jar'
-         dest='${lib}/${agent15.jar}' skipexisting='true'/>
-    <get src='https://repo1.maven.org/maven2/at/favre/lib/hkdf/${hkdf.version}/hkdf-${hkdf.version}.jar'
-         dest='${lib}/${hkdf.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/javax/servlet/javax.servlet-api/${javax.servlet.api.version}/javax.servlet-api-${javax.servlet.api.version}.jar'
          dest='${lib}/${servlet.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/com/sun/mail/javax.mail/${javax.mail.version}/javax.mail-${javax.mail.version}.jar'
@@ -373,8 +370,6 @@
       <fileset dir='${lib}'>
         <include name='${gonzalez.jar}'/>
         <include name='${jsonparser.jar}'/>
-        <include name='${agent15.jar}'/>
-        <include name='${hkdf.jar}'/>
         <include name='${servlet.jar}'/>
         <include name='${javamail.jar}'/>
         <include name='${annotation.jar}'/>
@@ -392,7 +387,7 @@
       <manifest>
         <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
         <attribute name='Container-Jar' value='gumdrop.jar'/>
-        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar} ${agent15.jar} ${hkdf.jar}'/>
+        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar}'/>
       </manifest>
     </jar>
   </target>
@@ -436,8 +431,6 @@
       <fileset dir='${lib}'>
         <include name='${gonzalez.jar}'/>
         <include name='${jsonparser.jar}'/>
-        <include name='${agent15.jar}'/>
-        <include name='${hkdf.jar}'/>
         <include name='${servlet.jar}'/>
         <include name='${javamail.jar}'/>
         <include name='${annotation.jar}'/>
@@ -588,8 +581,6 @@
       <classpath>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${agent15.jar}'/>
-        <pathelement location='${lib}/${hkdf.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${annotation.jar}'/>
@@ -630,8 +621,6 @@
         <path refid='server.classes'/>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${agent15.jar}'/>
-        <pathelement location='${lib}/${hkdf.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${jsp.jar}'/>
@@ -654,8 +643,6 @@
         <path refid='server.classes'/>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${agent15.jar}'/>
-        <pathelement location='${lib}/${hkdf.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${jsp.jar}'/>
@@ -688,8 +675,6 @@
     <pathelement location='${dist}/gumdrop-servlet.jar'/>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
-    <pathelement location='${lib}/${agent15.jar}'/>
-    <pathelement location='${lib}/${hkdf.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>
 
@@ -729,8 +714,6 @@
     <path refid='server.classes'/>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
-    <pathelement location='${lib}/${agent15.jar}'/>
-    <pathelement location='${lib}/${hkdf.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>
@@ -751,7 +734,7 @@
     <sequential>
       <mkdir dir='${test}/integration/results/xml'/>
       <mkdir dir='${test}/integration/results/reports'/>
-      <junit printsummary='yes' haltonfailure='no' fork='yes'
+      <junit printsummary='yes' haltonfailure='yes' haltonerror='yes' fork='yes'
              showoutput='true' logfailedtests='true'>
         <classpath refid='integration.classpath'/>
         <batchtest fork='yes' todir='${test}/integration/results/xml'>

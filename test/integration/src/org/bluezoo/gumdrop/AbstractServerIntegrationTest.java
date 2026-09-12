@@ -213,7 +213,7 @@ public abstract class AbstractServerIntegrationTest {
 
         // Log server details
         for (TCPListener server : servers) {
-            String addr = "127.0.0.1:" + server.getPort();
+            String addr = IntegrationTestHosts.LOOPBACK + ":" + server.getPort();
             serverAddresses.add(addr);
             testContext.logEvent("SERVER_CONFIG", server.getClass().getSimpleName() + " on " + addr);
         }
@@ -290,7 +290,7 @@ public abstract class AbstractServerIntegrationTest {
             
             for (TCPListener server : servers) {
                 int port = server.getPort();
-                boolean listening = isPortListening("127.0.0.1", port);
+                boolean listening = isPortListening(IntegrationTestHosts.LOOPBACK, port);
                 status.append(server.getClass().getSimpleName())
                       .append(":").append(port)
                       .append("=").append(listening ? "UP" : "DOWN")
@@ -315,7 +315,7 @@ public abstract class AbstractServerIntegrationTest {
         StringBuilder msg = new StringBuilder("Server failed to start within timeout:\n");
         for (TCPListener server : servers) {
             int port = server.getPort();
-            boolean listening = isPortListening("127.0.0.1", port);
+            boolean listening = isPortListening(IntegrationTestHosts.LOOPBACK, port);
             msg.append("  ").append(server.getClass().getSimpleName())
                .append(" on port ").append(port)
                .append(": ").append(listening ? "listening" : "NOT listening")
@@ -384,7 +384,7 @@ public abstract class AbstractServerIntegrationTest {
             diag.append("Server status:\n");
             for (TCPListener server : servers) {
                 int port = server.getPort();
-                boolean listening = isPortListening("127.0.0.1", port);
+                boolean listening = isPortListening(IntegrationTestHosts.LOOPBACK, port);
                 diag.append("  ").append(server.getClass().getSimpleName())
                     .append(":").append(port)
                     .append(" = ").append(listening ? "UP" : "DOWN")

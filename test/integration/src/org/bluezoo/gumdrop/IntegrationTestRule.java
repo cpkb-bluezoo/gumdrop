@@ -162,13 +162,13 @@ public class IntegrationTestRule extends TestWatcher {
         int httpPort = context.getPort("http-server");
         if (httpPort > 0) {
             sb.append("HTTP Port: ").append(httpPort);
-            sb.append(" (listening: ").append(context.isPortListening("127.0.0.1", httpPort)).append(")\n");
+            sb.append(" (listening: ").append(context.isPortListening("::1", httpPort)).append(")\n");
         }
         
         int smtpPort = context.getPort("smtp-server");
         if (smtpPort > 0) {
             sb.append("SMTP Port: ").append(smtpPort);
-            sb.append(" (listening: ").append(context.isPortListening("127.0.0.1", smtpPort)).append(")\n");
+            sb.append(" (listening: ").append(context.isPortListening("::1", smtpPort)).append(")\n");
         }
         
         // Add system info

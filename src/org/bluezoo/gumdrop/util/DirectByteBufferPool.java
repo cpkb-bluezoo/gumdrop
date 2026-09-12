@@ -68,6 +68,20 @@ public final class DirectByteBufferPool {
     private static final ArrayBlockingQueue<ByteBuffer>[] BUCKETS =
             createBuckets();
 
+    /**
+     * One-slot per-size-class stash on the acquiring thread. Most
+     * {@code acquire}/{@code release} pairs on a connection happen on the
+     * same {@link SelectorLoop} thread, so keeping the last released buffer
+     * thread-local avoids contending on the global bucket queues.
+     */
+    private static final ThreadLocal<ByteBuffer[]> LOCAL_STASH =
+            new ThreadLocal<ByteBuffer[]>() {
+                @Override
+                protected ByteBuffer[] initialValue() {
+                    return new ByteBuffer[BUCKET_COUNT];
+                }
+            };
+
     private DirectByteBufferPool() { }
 
     // Unchecked: Java forbids creating a generic array directly
@@ -103,7 +117,14 @@ public final class DirectByteBufferPool {
     public static ByteBuffer acquire(int minCapacity) {
         int idx = bucketIndex(minCapacity);
         if (idx >= 0) {
-            ByteBuffer buf = BUCKETS[idx].poll();
+            ByteBuffer[] stash = LOCAL_STASH.get();
+            ByteBuffer buf = stash[idx];
+            if (buf != null) {
+                stash[idx] = null;
+                buf.clear();
+                return buf;
+            }
+            buf = BUCKETS[idx].poll();
             if (buf != null) {
                 buf.clear();
                 return buf;
@@ -135,9 +156,15 @@ public final class DirectByteBufferPool {
         if (shift < MIN_BUCKET_SHIFT || shift > MAX_BUCKET_SHIFT) {
             return;
         }
+        int idx = shift - MIN_BUCKET_SHIFT;
+        ByteBuffer[] stash = LOCAL_STASH.get();
+        if (stash[idx] == null) {
+            stash[idx] = buf;
+            return;
+        }
         // offer() drops the buffer (returning false) when the bucket is full;
         // the dropped buffer is then reclaimed by the cleaner.
-        BUCKETS[shift - MIN_BUCKET_SHIFT].offer(buf);
+        BUCKETS[idx].offer(buf);
     }
 
     private static int bucketIndex(int capacity) {

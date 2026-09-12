@@ -13,6 +13,6 @@
         <property name="root-directory">test/integration/ftp-data</property>
         <property name="read-only">false</property>
         <listener class="org.bluezoo.gumdrop.ftp.FTPListener"
-                  name="ftp" port="18021" addresses="127.0.0.1"/>
+                  name="ftp" port="18021" addresses="::1"/>
     </service>
 </gumdrop>

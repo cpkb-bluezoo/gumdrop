@@ -21,11 +21,15 @@
 
 package org.bluezoo.gumdrop.http;
 
-import javax.net.ssl.*;
-import java.io.*;
+import org.bluezoo.gumdrop.IntegrationTlsClient;
+import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.security.cert.X509Certificate;
 
 /**
  * Helper class for making raw HTTP/HTTPS requests in integration tests.
@@ -93,27 +97,21 @@ public class HTTPClientHelper {
         OutputStream out = null;
         try {
             if (secure) {
-                SSLContext sslContext = SSLContext.getInstance("TLS");
-                sslContext.init(null, new TrustManager[] { new TrustAllTrustManager() }, new java.security.SecureRandom());
-                SSLSocketFactory factory = sslContext.getSocketFactory();
-                SSLSocket sslSocket = (SSLSocket) factory.createSocket();
-                sslSocket.setEnabledProtocols(new String[] {"TLSv1.2", "TLSv1.3"});
-                sslSocket.setSoTimeout(timeout);
-                sslSocket.setTcpNoDelay(true);
-                sslSocket.setKeepAlive(false);
-                sslSocket.setReuseAddress(true);
-                sslSocket.connect(new java.net.InetSocketAddress(host, port), timeout);
-                sslSocket.startHandshake();
-                socket = sslSocket;
-            } else {
-                socket = new Socket();
-                socket.setSoTimeout(timeout);
-                socket.setTcpNoDelay(true);
-                socket.setKeepAlive(false);
-                socket.setReuseAddress(true);
-                socket.connect(new java.net.InetSocketAddress(host, port), timeout);
+                final boolean hasConnectionClose = request.toLowerCase().contains("connection: close");
+                byte[] wire = IntegrationTlsClient.exchangeWhenComplete(host, port,
+                        request.getBytes(StandardCharsets.UTF_8),
+                        new EmptyX509TrustManager(), timeout,
+                        inbound -> isResponseComplete(inbound, hasConnectionClose));
+                return parseResponse(new String(wire, StandardCharsets.UTF_8));
             }
-            
+
+            socket = new Socket();
+            socket.setSoTimeout(timeout);
+            socket.setTcpNoDelay(true);
+            socket.setKeepAlive(false);
+            socket.setReuseAddress(true);
+            socket.connect(new java.net.InetSocketAddress(host, port), timeout);
+
             out = socket.getOutputStream();
             out.write(request.getBytes(StandardCharsets.UTF_8));
             out.flush();
@@ -262,20 +260,5 @@ public class HTTPClientHelper {
         }
         
         return new HTTPResponse(statusLine, statusCode, headersBuilder.toString(), body, response);
-    }
-    
-    /**
-     * Trust manager that accepts all certificates (for testing only!).
-     */
-    private static class TrustAllTrustManager implements X509TrustManager {
-        public void checkClientTrusted(X509Certificate[] chain, String authType) {
-        }
-        
-        public void checkServerTrusted(X509Certificate[] chain, String authType) {
-        }
-        
-        public X509Certificate[] getAcceptedIssuers() {
-            return new X509Certificate[0];
-        }
     }
 }

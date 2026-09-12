@@ -433,7 +433,7 @@ public class ClientEndpoint {
             ((TCPTransportFactory) factory).connect(path, handler, selectorLoop);
         } else if (factory instanceof TCPTransportFactory) {
             ((TCPTransportFactory) factory).connect(
-                    host, port, handler, selectorLoop);
+                    host, port, hostname, handler, selectorLoop);
         } else if (factory instanceof org.bluezoo.gumdrop.quic.QuicTransportFactory) {
             ((org.bluezoo.gumdrop.quic.QuicTransportFactory) factory).connect(
                     host, port, handler, selectorLoop, null);

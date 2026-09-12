@@ -155,7 +155,7 @@ public class IntegrationTestContext {
     private boolean isPortAvailable(int port) {
         try (ServerSocket socket = new ServerSocket()) {
             socket.setReuseAddress(true);
-            socket.bind(new InetSocketAddress("127.0.0.1", port));
+            socket.bind(new InetSocketAddress(IntegrationTestHosts.LOOPBACK, port));
             return true;
         } catch (IOException e) {
             return false;

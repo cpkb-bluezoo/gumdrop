@@ -27,7 +27,7 @@ import java.util.Arrays;
 
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.quic.tls.Hkdf;
+import org.bluezoo.gumdrop.crypto.Hkdf;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;

@@ -27,13 +27,21 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
+
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * Centralised utilities for TLS keystore and truststore loading.
@@ -160,5 +168,92 @@ public final class TLSUtils {
         TrustManager[] managers = tmf.getTrustManagers();
         trustManagerCache.put(cacheKey, managers);
         return managers;
+    }
+
+    /**
+     * Extracts server credentials (certificate chain + private key) from a
+     * keystore's first private-key entry -- the {@link ServerCredentials}
+     * equivalent of {@link #loadKeyManagers}, for the in-tree TLS engine,
+     * which takes a chain and key directly rather than a JSSE
+     * {@link KeyManager}.
+     *
+     * @param path the keystore file
+     * @param password the keystore password (also the private key password)
+     * @param format the keystore format (e.g. "PKCS12")
+     * @return the server credentials
+     * @throws GeneralSecurityException if no private key entry is found,
+     *         or the entry cannot be read
+     * @throws IOException if the file cannot be read
+     */
+    public static ServerCredentials loadServerCredentials(Path path, String password, String format)
+            throws GeneralSecurityException, IOException {
+        return loadServerCredentials(path, password, format, null);
+    }
+
+    /**
+     * Extracts server credentials (certificate chain + private key) from a
+     * keystore, for a specific alias.
+     *
+     * @param path the keystore file
+     * @param password the keystore password (also the private key password)
+     * @param format the keystore format (e.g. "PKCS12")
+     * @param alias the alias to extract, or null to use the keystore's
+     *              first private-key entry
+     * @return the server credentials
+     * @throws GeneralSecurityException if the alias (or, when null, no
+     *         alias at all) does not name a private key entry
+     * @throws IOException if the file cannot be read
+     */
+    public static ServerCredentials loadServerCredentials(Path path, String password, String format, String alias)
+            throws GeneralSecurityException, IOException {
+        KeyStore ks = loadKeyStore(path, password, format);
+        return loadServerCredentials(ks, password, alias);
+    }
+
+    /**
+     * Extracts server credentials (certificate chain + private key) from
+     * an already-loaded keystore, for a specific alias -- the
+     * already-loaded-{@link KeyStore} counterpart of
+     * {@link #loadServerCredentials(Path, String, String, String)}, for a
+     * caller (such as SNI dispatch) that needs to extract credentials for
+     * several different aliases from the same keystore without reloading
+     * it from disk each time ({@link #loadKeyStore} already caches by
+     * path and mtime, but this skips even that lookup).
+     *
+     * @param keyStore the already-loaded keystore
+     * @param password the private key password
+     * @param alias the alias to extract, or null to use the keystore's
+     *              first private-key entry
+     * @return the server credentials
+     * @throws GeneralSecurityException if the alias (or, when null, no
+     *         alias at all) does not name a private key entry
+     */
+    public static ServerCredentials loadServerCredentials(KeyStore keyStore, String password, String alias)
+            throws GeneralSecurityException {
+        String useAlias = (alias != null) ? alias : firstPrivateKeyAlias(keyStore);
+        if (useAlias == null) {
+            throw new GeneralSecurityException("No private key entry found in keystore");
+        }
+        Certificate[] chain = keyStore.getCertificateChain(useAlias);
+        if (chain == null) {
+            throw new GeneralSecurityException("No certificate chain for alias \"" + useAlias + "\"");
+        }
+        List<X509Certificate> x509Chain = new ArrayList<X509Certificate>(chain.length);
+        for (int i = 0; i < chain.length; i++) {
+            x509Chain.add((X509Certificate) chain[i]);
+        }
+        PrivateKey key = (PrivateKey) keyStore.getKey(useAlias, password.toCharArray());
+        return new ServerCredentials(x509Chain, key);
+    }
+
+    private static String firstPrivateKeyAlias(KeyStore ks) throws GeneralSecurityException {
+        Enumeration<String> aliases = ks.aliases();
+        while (aliases.hasMoreElements()) {
+            String a = aliases.nextElement();
+            if (ks.isKeyEntry(a)) {
+                return a;
+            }
+        }
+        return null;
     }
 }

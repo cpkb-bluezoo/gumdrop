@@ -34,7 +34,7 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import tech.kwik.agent15.engine.TlsServerEngineFactory;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -125,9 +125,11 @@ public class PemCredentialsTest {
     }
 
     @Test
-    public void testLoadServerEngineFactory() throws Exception {
-        TlsServerEngineFactory factory = PemCredentials.loadServerEngineFactory(certFile, keyFile);
-        assertNotNull(factory);
+    public void testLoadServerCredentials() throws Exception {
+        ServerCredentials credentials = PemCredentials.loadServerCredentials(certFile, keyFile);
+        assertNotNull(credentials);
+        assertEquals(1, credentials.getCertificateChain().size());
+        assertNotNull(credentials.getPrivateKey());
     }
 
     @Test

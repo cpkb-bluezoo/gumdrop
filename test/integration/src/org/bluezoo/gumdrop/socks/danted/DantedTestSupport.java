@@ -75,7 +75,7 @@ import java.net.Socket;
  */
 final class DantedTestSupport {
 
-    static final String PROXY_HOST = System.getProperty("socks.test.host", "127.0.0.1");
+    static final String PROXY_HOST = System.getProperty("socks.test.host", "::1");
     static final int PROXY_PORT = Integer.getInteger("socks.test.port", 11080);
     static final int PROXY_AUTH_PORT = Integer.getInteger("socks.test.auth.port", 11081);
 

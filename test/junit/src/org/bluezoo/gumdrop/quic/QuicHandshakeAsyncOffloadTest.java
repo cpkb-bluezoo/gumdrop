@@ -35,32 +35,33 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
+import java.security.PrivateKey;
 import java.security.SecureRandom;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import tech.kwik.agent15.engine.TlsServerEngineFactory;
-
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 import static org.junit.Assert.*;
 
 /**
  * Regression coverage for issue #300: {@code QuicTlsServerEngine}/
- * {@code QuicTlsClientEngine} ran Agent15's handshake processing --
- * {@code TlsMessageParser.parseAndProcessHandshakeMessage}, which is where
- * the actual ECDHE key-exchange math and certificate-chain
- * validation/signing happen -- entirely inline on whatever thread called
- * {@code receiveCryptoData}, with no {@link CryptoExecutor} offload at
- * all, unlike the equivalent fixes already made for TCP/TLS ({@code
+ * {@code QuicTlsClientEngine} ran the TLS handshake engine's handshake
+ * processing entirely inline on whatever thread called {@code
+ * receiveCryptoData}, with no {@link CryptoExecutor} offload at all,
+ * unlike the equivalent fixes already made for TCP/TLS ({@code
  * SSLState}, issue #262) and DTLS ({@code DTLSSession}, issue #274).
  *
  * <p>Reuses {@link QuicTestPeer} and {@link QuicHandshakeEndToEndTest}'s
  * own certificate-generation and transport-parameters helpers, so a real
- * handshake between two real Agent15 engines is what's actually being
- * driven here, not a mock.
+ * handshake between two real {@code HandshakeEngine} instances is what's
+ * actually being driven here, not a mock.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -69,7 +70,7 @@ public class QuicHandshakeAsyncOffloadTest {
     private static final String SERVER_NAME = "test.gumdrop.local";
 
     private static Path certsDirectory;
-    private static TlsServerEngineFactory serverCertificateFactory;
+    private static ServerCredentials serverCredentials;
 
     private Gumdrop gumdrop;
 
@@ -100,7 +101,12 @@ public class QuicHandshakeAsyncOffloadTest {
         try (InputStream in = Files.newInputStream(keystorePath)) {
             keyStore.load(in, "changeit".toCharArray());
         }
-        serverCertificateFactory = new TlsServerEngineFactory(keyStore, "server", "changeit".toCharArray());
+        List<X509Certificate> chain = new ArrayList<X509Certificate>();
+        for (Certificate cert : keyStore.getCertificateChain("server")) {
+            chain.add((X509Certificate) cert);
+        }
+        PrivateKey key = (PrivateKey) keyStore.getKey("server", "changeit".toCharArray());
+        serverCredentials = new ServerCredentials(chain, key);
     }
 
     @AfterClass
@@ -187,7 +193,7 @@ public class QuicHandshakeAsyncOffloadTest {
 
         QuicTestPeer client = QuicTestPeer.newClient(clientInitialDcid, defaultTransportParameters(clientScid));
         QuicTestPeer server = QuicTestPeer.newServer(
-                clientInitialDcid, defaultTransportParameters(serverScid), serverCertificateFactory);
+                clientInitialDcid, defaultTransportParameters(serverScid), serverCredentials);
 
         QuicTestPeer.completeHandshake(client, server, clientInitialDcid, clientScid, serverScid, SERVER_NAME);
 

@@ -66,7 +66,7 @@ import static org.junit.Assert.*;
  */
 public class WebSocketServerIntegrationTest extends AbstractServerIntegrationTest {
 
-    private static final String HOST = "127.0.0.1";
+    private static final String HOST = "::1";
     private static final int PORT = 18110;
 
     @Rule

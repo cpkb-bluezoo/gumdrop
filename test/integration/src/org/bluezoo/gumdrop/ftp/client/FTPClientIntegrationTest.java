@@ -66,7 +66,7 @@ import static org.junit.Assert.*;
 public class FTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     private static final int FTP_PORT = 18021;
-    private static final String TEST_HOST = "127.0.0.1";
+    private static final String TEST_HOST = "::1";
     private static final int ASYNC_TIMEOUT_SECONDS = 5;
 
     @Rule

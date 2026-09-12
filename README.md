@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Java-17+-orange?style=flat-square" alt="Java 17+"/>
+  <img src="https://img.shields.io/badge/Java-25+-orange?style=flat-square" alt="Java 25+"/>
   <img src="https://img.shields.io/badge/100%25-Pure%20Java-brightgreen?style=flat-square" alt="100% Pure Java"/>
   <img src="https://img.shields.io/badge/License-LGPL%20v3-blue?style=flat-square" alt="LGPL v3"/>
   <img src="https://img.shields.io/badge/Dependencies-Low-brightgreen?style=flat-square" alt="Low Dependencies"/>
@@ -26,7 +26,7 @@ non-blocking, event-driven I/O.
     - one of very few Java frameworks with HTTP/3 server support
       (only Netty offers comparable capability; JDK 26's JEP 517 is
       client-only)
-    - pure Java (17+) implementation, no native code unlike Netty
+    - pure Java (25+) implementation, no native code unlike Netty
     - servlet container runs transparently on top of HTTP/3
 - high performance
     - Java NIO non-blocking I/O throughout
@@ -54,10 +54,10 @@ non-blocking, event-driven I/O.
     - pluggable authentication via Realm interface
     - pluggable storage via MailboxFactory interface
 - low external dependencies, all pure Java
-    - [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) (XML), [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) (JSON), [agent15](https://github.com/ptrd/agent15) (TLS 1.3, used for QUIC), and J2EE APIs
-    - self-contained implementations (QUIC/HTTP-3, protobuf, HPACK, ASN.1, OTel, etc.)
+    - [gonzalez](https://github.com/cpkb-bluezoo/gonzalez) (XML), [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) (JSON), and J2EE APIs
+    - self-contained implementations (QUIC/HTTP-3, TLS 1.3, protobuf, HPACK, ASN.1, OTel, etc.)
     - no dependency injection framework required
-- requires Java 17+ (LTS)
+- requires Java 25+ (LTS)
     - UNIX domain socket support available natively
     - no native library or build step required for any feature, including QUIC/HTTP-3
 - transparent security
@@ -117,9 +117,9 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - fully transparent SSL support for all protocols
         - keystore/truststore configuration
         - client certificates
-        - SSL protocols (TLS 1.2, 1.3)
+        - SSL protocols (TLS 1.2, 1.3; DTLS 1.2, 1.3)
         - cipher suite selection
-        - named group selection (PQC hybrid key exchange on TCP/TLS, JDK 24+)
+        - named group selection (PQC hybrid key exchange on TCP/TLS and QUIC, Java 25+)
         - SNI
     - configurable pool of worker threads shared across all servers,
       completely independent of the number of client connections
@@ -497,7 +497,7 @@ There is extensive documentation for all Gumdrop features:
 
 ## Configuration
 
-See the [Configuration documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on configuration including `gumdroprc`, dependency injection, and component wiring. For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls).
+See the [Configuration documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on configuration including `gumdroprc`, dependency injection, and component wiring. For the in-tree TLS/DTLS stack (versions, cipher suites, ALPN, SNI, mTLS), see [TLS & DTLS](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html). For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls).
 
 ## Building and running
 

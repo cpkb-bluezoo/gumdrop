@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.util;
 import org.junit.Test;
 
 import javax.net.ssl.KeyManagerFactory;
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import java.io.ByteArrayInputStream;
 import java.security.KeyPair;

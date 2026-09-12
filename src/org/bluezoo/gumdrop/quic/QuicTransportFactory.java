@@ -38,8 +38,6 @@ import java.util.logging.Logger;
 
 import javax.net.ssl.X509TrustManager;
 
-import tech.kwik.agent15.engine.TlsServerEngineFactory;
-
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
@@ -47,37 +45,33 @@ import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * Configuration and bootstrap for QUIC transports.
  *
- * <p>Translates PEM cert/key/CA file configuration into an Agent15
- * {@link TlsServerEngineFactory} (via {@link PemCredentials}) and an
+ * <p>Translates PEM cert/key/CA file configuration into
+ * {@link ServerCredentials} (via {@link PemCredentials}) and an
  * {@link X509TrustManager}, and flow-control/idle-timeout limits into a
  * {@link TransportParameters} instance shared by every connection this
  * factory's engines create.
  *
  * <p>{@link #setCipherSuites} and {@link #setNamedGroups} (both
  * inherited from {@link TransportFactory}) are both consulted, filtered
- * through what Agent15/gumdrop's own AEAD layer actually support (see
- * {@code org.bluezoo.gumdrop.quic.tls.QuicCipherSuites}/{@code
- * QuicTlsClientEngine#resolvePreferredNamedGroup}) rather than failing
- * outright on an unsupported request: an unrecognised or unimplemented
- * cipher suite is dropped from the configured list (falling back to
- * gumdrop's full default list, with a logged warning, only if nothing
- * configured survives filtering); an unsupported named group (e.g. a
- * hybrid PQC group such as {@code X25519MLKEM768} -- Agent15 has no
- * ML-KEM support at all, see its own {@code TlsConstants.NamedGroup}) is
- * similarly skipped in favour of the next configured name, with a
- * logged warning if none resolve. Named-group selection has no
- * server-side effect at all, unlike cipher suites: RFC 8446 section
- * 4.2.7 makes {@code supported_groups} a client-only extension, and
- * Agent15 exposes no server-side restriction API to narrow which of a
- * client's offered groups a server will accept; {@link
- * #createServerEngine} logs a warning if {@code namedGroups} is set on a
- * factory used for a server listener. {@link #setCongestionControl} is
- * similarly accepted but ignored -- {@code quic.recovery}'s {@code
- * CongestionController} is NewReno only.
+ * through what gumdrop's own TLS engine and AEAD layer actually support
+ * (see {@code org.bluezoo.gumdrop.quic.tls.QuicCipherSuites}) rather than
+ * failing outright on an unsupported request: an unrecognised or
+ * unimplemented cipher suite or named group is dropped from the
+ * configured list (falling back to gumdrop's full default list, with a
+ * logged warning, only if nothing configured survives filtering).
+ * Named-group selection has no server-side effect at all, unlike cipher
+ * suites: RFC 8446 section 4.2.7 makes {@code supported_groups} a
+ * client-only extension, and the server accepts whichever of the
+ * client's offered groups it prefers most, from its own configured list
+ * -- {@link #createServerEngine} logs a warning if {@code namedGroups} is
+ * set on a factory used for a server listener, since it has no effect
+ * there. {@link #setCongestionControl} is similarly accepted but ignored
+ * -- {@code quic.recovery}'s {@code CongestionController} is NewReno only.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -116,7 +110,7 @@ public class QuicTransportFactory extends TransportFactory {
     private long maxStreamsUni = DEFAULT_MAX_STREAMS_UNI;
     private long maxDatagramFrameSize = DEFAULT_MAX_DATAGRAM_FRAME_SIZE;
 
-    private TlsServerEngineFactory serverEngineFactory;
+    private ServerCredentials serverCredentials;
     private X509TrustManager trustManager;
     private final byte[] connectionIdStaticKey = new byte[32];
     private final byte[] retryTokenKey = new byte[32];
@@ -152,7 +146,7 @@ public class QuicTransportFactory extends TransportFactory {
      * Client-side, presents a cached {@link SessionTicketCache} entry (if
      * any) and fires {@link QuicEngine.EarlyDataHandler#earlyDataReady}
      * once send keys are available; server-side, gates whether {@link
-     * org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine#isEarlyDataAccepted}
+     * org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine#wasEarlyDataAccepted}
      * ever accepts it.
      *
      * @param enabled the new state
@@ -339,8 +333,8 @@ public class QuicTransportFactory extends TransportFactory {
 
     // ── Package-private accessors used by QuicEngine/QuicConnection ──
 
-    TlsServerEngineFactory getServerEngineFactory() {
-        return serverEngineFactory;
+    ServerCredentials getServerCredentials() {
+        return serverCredentials;
     }
 
     X509TrustManager getTrustManager() {
@@ -431,7 +425,7 @@ public class QuicTransportFactory extends TransportFactory {
         super.start();
         if (certFile != null && keyFile != null) {
             try {
-                serverEngineFactory = PemCredentials.loadServerEngineFactory(certFile, keyFile);
+                serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
             } catch (IOException | GeneralSecurityException e) {
                 throw new IllegalStateException("Failed to load QUIC server certificate/key", e);
             }
@@ -450,7 +444,7 @@ public class QuicTransportFactory extends TransportFactory {
 
     @Override
     protected void stop() {
-        serverEngineFactory = null;
+        serverCredentials = null;
         trustManager = null;
         super.stop();
     }

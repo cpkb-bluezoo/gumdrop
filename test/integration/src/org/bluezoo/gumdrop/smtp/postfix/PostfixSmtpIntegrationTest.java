@@ -50,7 +50,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
@@ -416,11 +415,8 @@ public class PostfixSmtpIntegrationTest {
     public void testStarttlsUpgradeThenDelivery() throws Exception {
         X509Certificate serverCert = PostfixTestSupport.loadServerCertificate();
         X509TrustManager trustManager = pinningTrustManager(serverCert);
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, new javax.net.ssl.TrustManager[] { trustManager }, null);
 
         SMTPClient client = new SMTPClient(PostfixTestSupport.HOST, PostfixTestSupport.PORT);
-        client.setSSLContext(sslContext);
         client.setTrustManager(trustManager);
 
         CountDownLatch doneLatch = new CountDownLatch(1);

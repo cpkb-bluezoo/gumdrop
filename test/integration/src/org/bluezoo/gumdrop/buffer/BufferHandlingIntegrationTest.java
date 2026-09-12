@@ -76,7 +76,7 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
     public void testServerStartsAndAcceptsConnections() throws Exception {
         assertNotNull("Gumdrop should be running", gumdrop);
         assertTrue("Port " + TEST_PORT + " should be listening", 
-                  isPortListening("127.0.0.1", TEST_PORT));
+                  isPortListening("::1", TEST_PORT));
     }
     
     @Test
@@ -134,7 +134,7 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
         server.setMessagePattern(MESSAGE_PATTERN);
         server.clearConnections();
         
-        try (Socket socket = new Socket("127.0.0.1", TEST_PORT)) {
+        try (Socket socket = new Socket("::1", TEST_PORT)) {
             socket.setSoTimeout(5000);
             OutputStream out = socket.getOutputStream();
             
@@ -243,7 +243,7 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
         server.setMessagePattern(MESSAGE_PATTERN);
         server.clearConnections();
         
-        try (Socket socket = new Socket("127.0.0.1", TEST_PORT)) {
+        try (Socket socket = new Socket("::1", TEST_PORT)) {
             socket.setSoTimeout(5000);
             OutputStream out = socket.getOutputStream();
             
@@ -297,7 +297,7 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
      * Sends data to the test server and closes the connection.
      */
     private void sendDataAndClose(byte[] data) throws IOException {
-        try (Socket socket = new Socket("127.0.0.1", TEST_PORT)) {
+        try (Socket socket = new Socket("::1", TEST_PORT)) {
             socket.setSoTimeout(5000);
             OutputStream out = socket.getOutputStream();
             out.write(data);

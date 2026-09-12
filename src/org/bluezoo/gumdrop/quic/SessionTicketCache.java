@@ -21,13 +21,11 @@
 
 package org.bluezoo.gumdrop.quic;
 
-import java.nio.ByteBuffer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import tech.kwik.agent15.NewSessionTicket;
-
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+import org.bluezoo.gumdrop.tls.SessionTicket;
 
 /**
  * Process-wide, host:port-keyed cache of TLS session tickets (RFC 8446
@@ -35,6 +33,13 @@ import org.bluezoo.gumdrop.quic.packet.TransportParameters;
  * attempt PSK resumption -- and, if the ticket allows it and the server
  * accepts, 0-RTT (RFC 9001 section 4.6.1) -- on a later, separate
  * connection to the same server.
+ *
+ * <p>Entries hold the real {@link SessionTicket} and
+ * {@link TransportParameters} objects directly rather than a serialized
+ * byte form -- unlike a ticket's own opaque wire identity (which really
+ * does need to round-trip through bytes, since it is presented back to a
+ * possibly-different-process server), this cache exists only within one
+ * gumdrop process's memory, so there is nothing to serialize for.
  *
  * <p>Structured the same way as {@link org.bluezoo.gumdrop.http.client.AltSvcCache}
  * solves the analogous problem for Alt-Svc discovery: the object that
@@ -45,21 +50,9 @@ import org.bluezoo.gumdrop.quic.packet.TransportParameters;
  * Placed in this package rather than {@code http.client} since it is
  * transport-generic -- both the HTTP/3 client and DoQ consult it.
  *
- * <p>Stores the ticket's and transport parameters' serialized bytes
- * ({@link NewSessionTicket#serialize()}, {@link TransportParameters#encode()})
- * rather than the live objects, exercising the same round-trip methods
- * those classes already expose for their own wire formats.
- *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class SessionTicketCache {
-
-    // RFC 8446 section 4.6.1: "Clients MUST NOT cache tickets for longer
-    // than 7 days, regardless of the ticket_lifetime". Agent15 itself
-    // already enforces this cap and falls back to a full handshake on an
-    // expired ticket, so this bound is cache hygiene (avoid presenting an
-    // obviously-stale ticket, bound memory), not a correctness requirement.
-    private static final long MAX_TICKET_LIFETIME_SECONDS = 7L * 24 * 60 * 60;
 
     private static final ConcurrentMap<String, Entry> cache = new ConcurrentHashMap<>();
 
@@ -72,24 +65,20 @@ public final class SessionTicketCache {
     }
 
     /**
-     * Records a session ticket received for {@code host:port}, along
-     * with the transport parameters this connection's peer advertised
-     * (RFC 9000 section 7.4.1: a 0-RTT attempt must not exceed the
-     * previous connection's remembered limits until new ones arrive).
+     * Stores a session ticket and the peer transport parameters
+     * remembered alongside it, replacing any existing entry for the same
+     * {@code host:port}.
      *
-     * @param host the server host (SNI name, or a literal address if
-     *             none was used, e.g. DoQ)
+     * @param host the server host (SNI name, or the peer address for a
+     *             connection with no SNI, e.g. DoQ)
      * @param port the server port
      * @param ticket the received session ticket
-     * @param rememberedTransportParameters the peer's transport
-     *             parameters on the connection the ticket was received on
+     * @param transportParameters the peer's transport parameters on the
+     *                            connection that issued this ticket
      */
-    public static void put(String host, int port, NewSessionTicket ticket,
-            TransportParameters rememberedTransportParameters) {
-        long lifetimeSeconds = Math.min(ticket.getTicketLifeTime(), MAX_TICKET_LIFETIME_SECONDS);
-        long expiry = System.currentTimeMillis() + Math.max(0, lifetimeSeconds) * 1000L;
-        cache.put(key(host, port), new Entry(ticket.serialize(),
-                rememberedTransportParameters.encode(), expiry));
+    public static void put(String host, int port, SessionTicket ticket, TransportParameters transportParameters) {
+        long expiryTime = System.currentTimeMillis() + ticket.getLifetimeSeconds() * 1000L;
+        cache.put(key(host, port), new Entry(ticket, transportParameters, expiryTime));
         Runnable observer = putObserver;
         if (observer != null) {
             observer.run();
@@ -133,32 +122,32 @@ public final class SessionTicketCache {
      * alongside it.
      */
     public static final class Entry {
-        private final byte[] serializedTicket;
-        private final byte[] encodedTransportParameters;
+        private final SessionTicket ticket;
+        private final TransportParameters transportParameters;
         private final long expiryTime;
 
-        Entry(byte[] serializedTicket, byte[] encodedTransportParameters, long expiryTime) {
-            this.serializedTicket = serializedTicket;
-            this.encodedTransportParameters = encodedTransportParameters;
+        Entry(SessionTicket ticket, TransportParameters transportParameters, long expiryTime) {
+            this.ticket = ticket;
+            this.transportParameters = transportParameters;
             this.expiryTime = expiryTime;
         }
 
         /**
-         * Deserializes the cached ticket.
+         * Returns the cached session ticket.
          *
          * @return the session ticket
          */
-        public NewSessionTicket toTicket() {
-            return NewSessionTicket.deserialize(serializedTicket);
+        public SessionTicket toTicket() {
+            return ticket;
         }
 
         /**
-         * Decodes the cached transport parameters.
+         * Returns the remembered transport parameters.
          *
          * @return the remembered transport parameters
          */
         public TransportParameters toTransportParameters() {
-            return TransportParameters.decode(ByteBuffer.wrap(encodedTransportParameters));
+            return transportParameters;
         }
 
         boolean isExpired() {

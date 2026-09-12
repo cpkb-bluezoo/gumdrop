@@ -13,6 +13,8 @@ more than one instance.
 
 ## Quick start
 
+Requires **Java 25+** at build time (see [BUILDING.md](../BUILDING.md)).
+
 ```bash
 # Build the image (lib/ distribution layout)
 docker build -t gumdrop:latest .

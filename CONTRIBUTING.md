@@ -46,18 +46,18 @@ This document defines the coding standards and conventions for the Gumdrop proje
 
 ## Java Version Compatibility
 
-**Gumdrop v2 requires Java 17 (LTS) as the minimum baseline.**
+**Gumdrop 3 requires Java 25 (LTS) as the minimum baseline** (bumped from 17 so the in-tree TLS engine can use JCA's native ML-KEM/ML-DSA support for post-quantum key exchange).
 
 This is enforced at compile time via the `--release` flag in `build.xml`.
 
-**The following language features are prohibited by project style policy,** even though they are available in Java 17. Gumdrop uses a traditional procedural style for clarity and maintainability:
+**The following language features are prohibited by project style policy,** even though they are available on this baseline. Gumdrop uses a traditional procedural style for clarity and maintainability:
 - `var` keyword
 - Switch expressions
 - Text blocks
 - Records
 - Pattern matching
 - Sealed classes
-- Virtual threads (Java 21+)
+- Virtual threads
 - Lambda expressions
 - Method references
 - Streams API (`java.util.stream`)
@@ -547,7 +547,7 @@ The goal of these standards is to produce code that is:
 - **Predictable**: Follows consistent patterns throughout
 - **Maintainable**: Easy to modify without introducing bugs
 - **Traditional**: Uses well-understood Java idioms
-- **Compatible**: Runs on Java 17 and later without modification
+- **Compatible**: Runs on Java 25 and later without modification
 
 When in doubt, prefer clarity over cleverness.
 

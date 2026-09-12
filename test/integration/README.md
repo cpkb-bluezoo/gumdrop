@@ -150,7 +150,7 @@ mgr.saveServerKeystore(new File(certsDir, "server.p12"), "password");
 // Client certificate for auth testing
 ClientCertificate client = mgr.generateClientCertificate(
     "user@example.com", "Test User", 365);
-SSLContext ctx = client.createSSLContext("password");
+X509TrustManager tm = client.createTrustManager("password");
 ```
 
 ## Test Output
@@ -241,7 +241,7 @@ After test failure:
 
 ## Environment Requirements
 
-- Java 17 or higher
+- Java 25 or higher
 - Available ports in range 30000-40000 (for dynamic allocation)
 - Write access to `test/integration/` directory
 - Network loopback interface (127.0.0.1) available

@@ -54,9 +54,8 @@ import javax.net.ssl.X509TrustManager;
  *         myDelegateTrustManager,
  *         "ab:cd:ef:01:23:...", "12:34:56:78:...");
  *
- * // Use with SSLContext
- * SSLContext ctx = SSLContext.getInstance("TLS");
- * ctx.init(null, new TrustManager[] { tm }, null);
+ * // Use with TCPTransportFactory.setTrustManager(tm)
+ * factory.setTrustManager(tm);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

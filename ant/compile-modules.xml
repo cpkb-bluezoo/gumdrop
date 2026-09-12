@@ -8,8 +8,6 @@
   <path id='lib.compile.classpath'>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
-    <pathelement location='${lib}/${agent15.jar}'/>
-    <pathelement location='${lib}/${hkdf.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${annotation.jar}'/>
@@ -69,7 +67,12 @@
   <import file='compile-protocols.xml'/>
   <import file='compile-jpms.xml'/>
 
-  <!-- util + javax stubs (mime and the rest of core depend on this) -->
+  <!-- util + javax stubs (mime and the rest of core depend on this).
+       crypto/tls compile here too: util (TLSUtils/SniCredentialsResolver)
+       depends on tls.ServerCredentials, and tls depends on crypto, a
+       one-way dependency (neither crypto nor tls depends back on util),
+       so they compile safely in the same pass ahead of build-core-main,
+       which excludes both to avoid recompiling them a second time. -->
   <target name='build-core' depends='resolve-deps'>
     <delete quiet='true'>
       <fileset dir='${build.dir}' includes='**/module-info.class'/>
@@ -80,6 +83,14 @@
            includeantruntime='false' createMissingPackageInfoClass='false'>
       <classpath refid='lib.compile.classpath'/>
       <include name='org/bluezoo/gumdrop/util/**'/>
+      <include name='org/bluezoo/gumdrop/crypto/**'/>
+      <include name='org/bluezoo/gumdrop/tls/**'/>
+      <!-- DTLS 1.3 record protection reuses QUIC packet crypto (RFC 9147). -->
+      <include name='org/bluezoo/gumdrop/quic/packet/PacketProtection.java'/>
+      <include name='org/bluezoo/gumdrop/quic/packet/PacketProtectionException.java'/>
+      <include name='org/bluezoo/gumdrop/quic/packet/PacketProtectionKeys.java'/>
+      <include name='org/bluezoo/gumdrop/quic/packet/QuicAeadAlgorithm.java'/>
+      <include name='org/bluezoo/gumdrop/quic/packet/package-info.java'/>
       <include name='org/bluezoo/util/**'/>
       <include name='javax/**'/>
       <exclude name='module-info.java'/>
@@ -120,6 +131,13 @@
       <include name='org/bluezoo/gumdrop/**'/>
       <include name='javax/**'/>
       <exclude name='org/bluezoo/gumdrop/util/**'/>
+      <exclude name='org/bluezoo/gumdrop/crypto/**'/>
+      <exclude name='org/bluezoo/gumdrop/tls/**'/>
+      <exclude name='org/bluezoo/gumdrop/quic/packet/PacketProtection.java'/>
+      <exclude name='org/bluezoo/gumdrop/quic/packet/PacketProtectionException.java'/>
+      <exclude name='org/bluezoo/gumdrop/quic/packet/PacketProtectionKeys.java'/>
+      <exclude name='org/bluezoo/gumdrop/quic/packet/QuicAeadAlgorithm.java'/>
+      <exclude name='org/bluezoo/gumdrop/quic/packet/package-info.java'/>
       <exclude name='org/bluezoo/gumdrop/http/**'/>
       <exclude name='org/bluezoo/gumdrop/websocket/**'/>
       <exclude name='org/bluezoo/gumdrop/health/**'/>

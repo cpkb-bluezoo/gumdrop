@@ -58,7 +58,7 @@ import java.net.Socket;
  */
 final class PyGrpcTestSupport {
 
-    static final String HOST = System.getProperty("grpc.test.host", "127.0.0.1");
+    static final String HOST = System.getProperty("grpc.test.host", "::1");
     static final int PORT = Integer.getInteger("grpc.test.port", 15051);
 
     private static final int PROBE_TIMEOUT_MS = 500;

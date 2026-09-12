@@ -10,7 +10,7 @@
 # Probe:   curl http://localhost:8081/readyz
 
 # ---- Build stage -----------------------------------------------------------
-FROM eclipse-temurin:17-jdk AS build
+FROM eclipse-temurin:25-jdk AS build
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ant \
@@ -23,7 +23,7 @@ COPY . .
 RUN ant container-zip
 
 # ---- Runtime stage ---------------------------------------------------------
-FROM eclipse-temurin:17-jre AS runtime
+FROM eclipse-temurin:25-jre AS runtime
 
 # Run as an unprivileged user on a (mostly) read-only-friendly layout.
 RUN groupadd --system gumdrop \

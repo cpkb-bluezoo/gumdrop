@@ -63,7 +63,7 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testConnectAndDisconnect() throws Exception {
-        try (Socket socket = new Socket("127.0.0.1", TEST_PORT)) {
+        try (Socket socket = new Socket("::1", TEST_PORT)) {
             OutputStream out = socket.getOutputStream();
             InputStream in = socket.getInputStream();
 
@@ -97,7 +97,7 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testPingPong() throws Exception {
-        try (Socket socket = new Socket("127.0.0.1", TEST_PORT)) {
+        try (Socket socket = new Socket("::1", TEST_PORT)) {
             OutputStream out = socket.getOutputStream();
             InputStream in = socket.getInputStream();
 
@@ -119,8 +119,8 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testSubscribeAndPublish() throws Exception {
-        try (Socket subscriber = new Socket("127.0.0.1", TEST_PORT);
-             Socket publisher = new Socket("127.0.0.1", TEST_PORT)) {
+        try (Socket subscriber = new Socket("::1", TEST_PORT);
+             Socket publisher = new Socket("::1", TEST_PORT)) {
 
             OutputStream subOut = subscriber.getOutputStream();
             InputStream subIn = subscriber.getInputStream();

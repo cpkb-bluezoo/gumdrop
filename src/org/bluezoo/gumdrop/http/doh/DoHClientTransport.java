@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.http.client.HTTPRequest;
 import org.bluezoo.gumdrop.http.client.HTTPResponse;
 import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
-import javax.net.ssl.SSLContext;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 import javax.net.ssl.X509TrustManager;
 
 /**
@@ -85,7 +85,7 @@ public class DoHClientTransport implements DNSClientTransport {
     private volatile boolean connected;
 
     private String path = DEFAULT_PATH;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
 
     private static ScheduledExecutorService createTimerExecutor() {
@@ -116,15 +116,15 @@ public class DoHClientTransport implements DNSClientTransport {
     }
 
     /**
-     * Sets an externally-configured SSL context for the underlying
-     * HTTPS connection, e.g. to trust a private or self-signed CA
-     * instead of the platform default trust store. Must be called
-     * before {@link #open}.
+     * Sets this client's own identity (certificate chain and private key)
+     * to present if the server requests client certificate authentication
+     * (mTLS) on the underlying HTTPS connection. Must be called before
+     * {@link #open}.
      *
-     * @param sslContext the SSL context
+     * @param clientCredentials the client's own credentials
      */
-    public void setSSLContext(SSLContext sslContext) {
-        this.sslContext = sslContext;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
     }
 
     /**
@@ -147,8 +147,8 @@ public class DoHClientTransport implements DNSClientTransport {
         }
         httpClient = new HTTPClient(server.getHostAddress(), port);
         httpClient.setSecure(true);
-        if (sslContext != null) {
-            httpClient.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            httpClient.setClientCredentials(clientCredentials);
         }
         if (trustManager != null) {
             httpClient.setTrustManager(trustManager);

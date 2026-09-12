@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.Test;
 
-import org.bluezoo.gumdrop.quic.tls.Hkdf;
+import org.bluezoo.gumdrop.crypto.Hkdf;
 
 import static org.junit.Assert.assertArrayEquals;
 

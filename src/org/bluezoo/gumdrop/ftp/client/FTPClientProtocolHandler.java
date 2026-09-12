@@ -35,8 +35,6 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLContext;
-
 import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -62,6 +60,7 @@ import org.bluezoo.gumdrop.ftp.client.handler.ServerRetrReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerSimpleReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerStorReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.ServerUserReplyHandler;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * FTP client protocol handler implementing RFC 959 (FTP) control-connection
@@ -125,11 +124,11 @@ public final class FTPClientProtocolHandler
     private final StringBuilder listingBuffer = new StringBuilder();
     private List<FTPFileEntry> pendingListEntries;
 
-    // RFC 4217 §9 (PROT). The SSL context is supplied by FTPClient (the
-    // same one used for AUTH TLS on the control connection) so data
-    // connections can be secured too; remembered here since PROT is sent
-    // well after connect().
-    private SSLContext dataSslContext;
+    // RFC 4217 §9 (PROT). The client credentials are supplied by FTPClient
+    // (the same ones used for AUTH TLS on the control connection) so data
+    // connections can present the same client certificate too; remembered
+    // here since PROT is sent well after connect().
+    private ServerCredentials dataClientCredentials;
     private String pendingProtLevel;
 
     // Streaming lexer (issue #85) and per-line parse state. No cap on
@@ -164,14 +163,14 @@ public final class FTPClientProtocolHandler
     }
 
     /**
-     * Sets the SSL context to use for TLS-protected data connections (RFC
-     * 4217 §9, PROT P). Typically the same context configured for the
-     * control connection's AUTH TLS.
+     * Sets the client credentials to present on TLS-protected data
+     * connections (RFC 4217 §9, PROT P). Typically the same credentials
+     * configured for the control connection's AUTH TLS.
      *
-     * @param context the SSL context, or null to use the platform default
+     * @param clientCredentials the client's own credentials, or null for none
      */
-    public void setSSLContext(SSLContext context) {
-        this.dataSslContext = context;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.dataClientCredentials = clientCredentials;
     }
 
     // ── ProtocolHandler (RFC 959 §4.1.1 — session initiation) ──
@@ -956,7 +955,7 @@ public final class FTPClientProtocolHandler
         pendingProtLevel = null;
 
         if (code >= 200 && code < 300) {
-            dataCoordinator.setDataProtection("P".equalsIgnoreCase(level), dataSslContext);
+            dataCoordinator.setDataProtection("P".equalsIgnoreCase(level), dataClientCredentials);
             callback.handleOk(this);
         } else {
             callback.handleError(this, code, message);

@@ -109,7 +109,7 @@ public class POP3ServerIntegrationTest {
         // Create mbox server
         mboxServer = new POP3Listener();
         mboxServer.setPort(MBOX_PORT);
-        mboxServer.setAddresses("127.0.0.1");
+        mboxServer.setAddresses("::1");
         mboxServer.setEnableAPOP(false);
         mboxServer.setRealm(realm);
         mboxServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
@@ -117,7 +117,7 @@ public class POP3ServerIntegrationTest {
         // Create Maildir server
         maildirServer = new POP3Listener();
         maildirServer.setPort(MAILDIR_PORT);
-        maildirServer.setAddresses("127.0.0.1");
+        maildirServer.setAddresses("::1");
         maildirServer.setEnableAPOP(false);
         maildirServer.setRealm(realm);
         maildirServer.setMailboxFactory(new MaildirMailboxFactory(maildirRoot));
@@ -155,7 +155,7 @@ public class POP3ServerIntegrationTest {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
             try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("127.0.0.1", port), 200);
+                socket.connect(new InetSocketAddress("::1", port), 200);
                 Thread.sleep(200);
                 return;
             } catch (Exception e) {
@@ -169,7 +169,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxServerGreeting() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.POP3Response greeting = session.getLastResponse();
             
             assertTrue("Greeting should be +OK", greeting.ok);
@@ -180,7 +180,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxAuthentication() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             boolean authenticated = POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             assertTrue("Authentication should succeed", authenticated);
         }
@@ -188,7 +188,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxAuthenticationFailure() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             boolean authenticated = POP3ClientHelper.authenticate(session, TEST_USER, "wrongpassword");
             assertFalse("Authentication should fail with wrong password", authenticated);
         }
@@ -196,7 +196,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxSTAT() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
@@ -213,7 +213,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxLIST() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response list = session.sendMultiLineCommand("LIST");
@@ -226,7 +226,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxUIDL() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response uidl = session.sendMultiLineCommand("UIDL");
@@ -239,7 +239,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxRETR() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response retr = session.sendMultiLineCommand("RETR 1");
@@ -255,7 +255,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxTOP() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             // Get headers + 0 body lines
@@ -272,7 +272,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxDELE() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response dele = session.sendCommand("DELE 1");
@@ -286,7 +286,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxNOOP() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response noop = session.sendCommand("NOOP");
@@ -296,7 +296,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMboxCAPA() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.POP3Response capa = session.sendMultiLineCommand("CAPA");
             
             assertTrue("CAPA should succeed", capa.ok);
@@ -311,7 +311,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMaildirServerGreeting() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MAILDIR_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             POP3ClientHelper.POP3Response greeting = session.getLastResponse();
             
             assertTrue("Greeting should be +OK", greeting.ok);
@@ -320,7 +320,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMaildirAuthentication() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MAILDIR_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             boolean authenticated = POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             assertTrue("Authentication should succeed", authenticated);
         }
@@ -328,7 +328,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMaildirSTAT() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MAILDIR_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
@@ -345,7 +345,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMaildirLIST() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MAILDIR_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response list = session.sendMultiLineCommand("LIST");
@@ -357,7 +357,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMaildirRETR() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MAILDIR_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response retr = session.sendMultiLineCommand("RETR 1");
@@ -373,7 +373,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testMaildirSecondMessage() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MAILDIR_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response retr = session.sendMultiLineCommand("RETR 2");
@@ -391,7 +391,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testCommandBeforeAuth() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             // Try to get stats without authenticating
             POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
             
@@ -401,7 +401,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testInvalidMessageNumber() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             POP3ClientHelper.POP3Response retr = session.sendCommand("RETR 999");
@@ -412,7 +412,7 @@ public class POP3ServerIntegrationTest {
     
     @Test
     public void testUnknownCommand() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.POP3Response response = session.sendCommand("INVALID");
             
             assertFalse("Unknown command should fail", response.ok);
@@ -423,7 +423,7 @@ public class POP3ServerIntegrationTest {
 
     @Test
     public void testAuthPlain() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             // RFC 4616: authzid \0 authcid \0 password (empty authzid).
             String creds = "\u0000" + TEST_USER + "\u0000" + TEST_PASS;
             String b64 = Base64.getEncoder().encodeToString(
@@ -441,7 +441,7 @@ public class POP3ServerIntegrationTest {
 
     @Test
     public void testAuthLogin() throws Exception {
-        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("127.0.0.1", MBOX_PORT)) {
+        try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.POP3Response start = session.sendCommand("AUTH LOGIN");
             assertTrue("AUTH LOGIN should prompt for username: " + start,
                     start.lines.get(0).startsWith("+ "));

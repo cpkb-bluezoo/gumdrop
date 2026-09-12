@@ -27,12 +27,12 @@ import java.nio.file.Path;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
 
@@ -52,7 +52,7 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
  * <h4>Plaintext with STLS</h4>
  * <pre>{@code
  * POP3Client client = new POP3Client(selectorLoop, "pop.example.com", 110);
- * client.setSSLContext(sslContext); // Makes SSLEngine available for STLS
+ * client.setClientCredentials(clientCredentials); // Makes TLS available for STLS
  * client.connect(new ServerGreeting() {
  *     public void handleGreeting(ClientAuthorizationState auth,
  *                                String message, String apopTimestamp) {
@@ -82,7 +82,7 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
  * <pre>{@code
  * POP3Client client = new POP3Client("pop.example.com", 995);
  * client.setSecure(true);
- * client.setSSLContext(sslContext);
+ * client.setClientCredentials(clientCredentials);
  * client.connect(greetingHandler);
  * }</pre>
  *
@@ -104,7 +104,7 @@ public class POP3Client {
     private final SelectorLoop selectorLoop;
 
     private boolean secure;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
@@ -213,7 +213,7 @@ public class POP3Client {
      *
      * <p>When true, the connection starts with TLS immediately (port 995).
      * When false, the connection starts plaintext and STLS can be used
-     * to upgrade if an SSLContext is configured.
+     * to upgrade if client credentials are configured.
      *
      * @param secure true for implicit TLS
      */
@@ -231,8 +231,8 @@ public class POP3Client {
      *
      * @param context the SSL context
      */
-    public void setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
     }
 
     /**
@@ -294,8 +294,8 @@ public class POP3Client {
     public void connect(ServerGreeting handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
-        if (sslContext != null) {
-            transportFactory.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            transportFactory.setClientCredentials(clientCredentials);
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);

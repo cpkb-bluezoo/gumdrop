@@ -388,7 +388,7 @@ client.connect("/ws", new DefaultWebSocketEventHandler() {
 
 <ul>
 <li><code>setSecure(boolean)</code> &ndash; use TLS (wss:// scheme)</li>
-<li><code>setSSLContext(SSLContext)</code> &ndash; provide a custom SSL context</li>
+<li><code>setTrustManager(X509TrustManager)</code> &ndash; custom certificate verification</li>
 <li><code>setSubprotocol(String)</code> &ndash; request a specific subprotocol
 during the handshake</li>
 </ul>

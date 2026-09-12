@@ -27,7 +27,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
@@ -42,6 +41,7 @@ import org.bluezoo.gumdrop.dns.DNSSECStatus;
 import org.bluezoo.gumdrop.dns.DNSType;
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * High-level SMTP client facade.
@@ -55,7 +55,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
  * <h4>Plaintext with STARTTLS (submission)</h4>
  * <pre>{@code
  * SMTPClient client = new SMTPClient(selectorLoop, "smtp.example.com", 587);
- * client.setSSLContext(sslContext);
+ * client.setClientCredentials(clientCredentials);
  * client.connect(new ServerGreeting() {
  *     public void handleGreeting(ClientHelloState hello,
  *                                String message, boolean esmtp) {
@@ -69,7 +69,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
  * <pre>{@code
  * SMTPClient client = new SMTPClient("smtp.example.com", 465);
  * client.setSecure(true);
- * client.setSSLContext(sslContext);
+ * client.setClientCredentials(clientCredentials);
  * client.connect(greetingHandler);
  * }</pre>
  *
@@ -98,7 +98,7 @@ public class SMTPClient {
     private final SelectorLoop selectorLoop;
 
     private boolean secure;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
@@ -209,7 +209,7 @@ public class SMTPClient {
      *
      * <p>When true, the connection starts with TLS immediately (port 465).
      * When false, the connection starts plaintext and STARTTLS can be
-     * used to upgrade if an SSLContext is configured.
+     * used to upgrade if client credentials are configured.
      *
      * @param secure true for implicit TLS
      * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> — implicit TLS (port 465)
@@ -228,8 +228,8 @@ public class SMTPClient {
      *
      * @param context the SSL context
      */
-    public void setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
     }
 
     /**
@@ -362,8 +362,8 @@ public class SMTPClient {
     private void doConnect(ServerGreeting handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
-        if (sslContext != null) {
-            transportFactory.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            transportFactory.setClientCredentials(clientCredentials);
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);

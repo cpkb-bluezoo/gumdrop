@@ -26,7 +26,6 @@ import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
@@ -38,6 +37,7 @@ import org.bluezoo.gumdrop.mqtt.codec.MQTTVersion;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
 import org.bluezoo.gumdrop.mqtt.store.MQTTMessageStore;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * High-level MQTT client facade.
@@ -78,7 +78,7 @@ public class MQTTClient {
     private final SelectorLoop selectorLoop;
 
     private boolean secure;
-    private SSLContext sslContext;
+    private ServerCredentials clientCredentials;
     private X509TrustManager trustManager;
     private Path keystoreFile;
     private String keystorePass;
@@ -159,8 +159,8 @@ public class MQTTClient {
         this.secure = secure;
     }
 
-    public void setSSLContext(SSLContext context) {
-        this.sslContext = context;
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        this.clientCredentials = clientCredentials;
     }
 
     public void setTrustManager(X509TrustManager trustManager) {
@@ -231,8 +231,8 @@ public class MQTTClient {
         if (secure) {
             transportFactory.setSecure(true);
         }
-        if (sslContext != null) {
-            transportFactory.setSSLContext(sslContext);
+        if (clientCredentials != null) {
+            transportFactory.setClientCredentials(clientCredentials);
         }
         if (trustManager != null) {
             transportFactory.setTrustManager(trustManager);

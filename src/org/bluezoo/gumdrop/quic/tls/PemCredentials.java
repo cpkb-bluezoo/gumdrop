@@ -45,14 +45,13 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
-import tech.kwik.agent15.engine.TlsServerEngineFactory;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
- * Loads PEM-encoded certificate chain and private key files into an
- * Agent15 {@link TlsServerEngineFactory}, the pure-Java replacement for
- * the native path's {@code ssl_ctx_load_cert_chain}/
- * {@code ssl_ctx_load_priv_key} (BoringSSL reads PEM files directly;
- * Agent15 wants a {@link KeyStore}).
+ * Loads PEM-encoded certificate chain and private key files into gumdrop's
+ * own {@link ServerCredentials}, the pure-Java replacement for the native
+ * path's {@code ssl_ctx_load_cert_chain}/{@code ssl_ctx_load_priv_key}
+ * (BoringSSL reads PEM files directly).
  *
  * <p>The private key must be in PKCS8 form (a
  * {@code -----BEGIN PRIVATE KEY-----} block, RSA or EC) -- the older
@@ -64,31 +63,24 @@ import tech.kwik.agent15.engine.TlsServerEngineFactory;
  */
 public final class PemCredentials {
 
-    private static final String KEY_ALIAS = "gumdrop";
-
     private PemCredentials() {
     }
 
     /**
      * Loads a certificate chain and private key from PEM files and
-     * builds a {@link TlsServerEngineFactory} from them.
+     * builds {@link ServerCredentials} from them.
      *
      * @param certFile the PEM certificate chain file
      * @param keyFile the PEM PKCS8 private key file
-     * @return the engine factory
+     * @return the server credentials
      * @throws IOException if either file cannot be read or parsed
-     * @throws GeneralSecurityException if the key store cannot be built
+     * @throws GeneralSecurityException if the key cannot be parsed
      */
-    public static TlsServerEngineFactory loadServerEngineFactory(Path certFile, Path keyFile)
+    public static ServerCredentials loadServerCredentials(Path certFile, Path keyFile)
             throws IOException, GeneralSecurityException {
         List<X509Certificate> chain = loadCertificateChain(certFile);
         PrivateKey key = loadPrivateKey(keyFile);
-        char[] password = KEY_ALIAS.toCharArray(); // in-memory KeyStore only, never persisted to disk
-
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        keyStore.load(null, null);
-        keyStore.setKeyEntry(KEY_ALIAS, key, password, chain.toArray(new Certificate[0]));
-        return new TlsServerEngineFactory(keyStore, KEY_ALIAS, password);
+        return new ServerCredentials(chain, key);
     }
 
     /**
