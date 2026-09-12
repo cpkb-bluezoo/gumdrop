@@ -197,9 +197,10 @@ callback fires when the request body is complete.</li>
 <li><b>WriteListener</b> - The <code>onWritePossible()</code> callback is
 triggered when the response is writable again. Readiness reflects both the
 local <code>ResponseOutputStream</code> buffer and transport backpressure
-(<code>pendingResponseBytes()</code> on the connection). Response body
-chunks and WebSocket outbound messages are sent via
-<code>state.execute()</code> on the SelectorLoop thread.</li>
+(<code>pendingResponseBytes()</code> on the connection). Flushed response
+buffers are transferred to the transport without an extra copy; chunks and
+WebSocket outbound messages are sent via <code>state.execute()</code> on
+the SelectorLoop thread.</li>
 </ul>
 
 <pre>

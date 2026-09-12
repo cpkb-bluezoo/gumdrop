@@ -310,11 +310,27 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     private static final int PENDING_RESPONSE_HIGH_WATERMARK = 4 * 1024 * 1024;
 
     void writeBody(ByteBuffer buf) {
-        // Must deep copy - duplicate() shares the backing array which gets reused
-        int length = buf.remaining();
-        final ByteBuffer copy = ByteBuffer.allocate(length);
-        copy.put(buf);
-        copy.flip();
+        writeBody(buf, false);
+    }
+
+    /**
+     * Queues a response body chunk for sending on the connection's I/O thread.
+     *
+     * @param buf body bytes to send
+     * @param transferOwnership if true, {@code buf} is handed off to the
+     *     transport and must not be reused by the caller; if false, a copy
+     *     is made because the caller may still mutate or reuse the buffer
+     */
+    void writeBody(ByteBuffer buf, boolean transferOwnership) {
+        final int length = buf.remaining();
+        final ByteBuffer payload;
+        if (transferOwnership) {
+            payload = buf;
+        } else {
+            payload = ByteBuffer.allocate(length);
+            payload.put(buf);
+            payload.flip();
+        }
         contentLength += (long) length;
 
         ensureBodyStarted();
@@ -332,10 +348,11 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         // or the final endResponse() completion, without the worker
         // thread needing to wait for each individual chunk in the normal
         // case.
+        final ByteBuffer chunk = payload;
         state.execute(new Runnable() {
             @Override
             public void run() {
-                state.responseBodyContent(copy);
+                state.responseBodyContent(chunk);
             }
         });
     }

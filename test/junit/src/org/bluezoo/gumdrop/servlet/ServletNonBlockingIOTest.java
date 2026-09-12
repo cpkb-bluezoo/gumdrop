@@ -14,9 +14,11 @@ import org.bluezoo.gumdrop.http.HTTPVersion;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -197,6 +199,37 @@ public class ServletNonBlockingIOTest {
 
         handler.requestBodyContent(state, ByteBuffer.wrap("x".getBytes(StandardCharsets.UTF_8)));
         assertTrue(dataAvailable.get() >= 1);
+    }
+
+    @Test
+    public void testResponseOutputStreamTransfersBufferOwnership() throws Exception {
+        final AtomicReference<ByteBuffer> received = new AtomicReference<ByteBuffer>();
+        StubHTTPResponseState state = new StubHTTPResponseState() {
+            @Override
+            public void responseBodyContent(ByteBuffer data) {
+                received.set(data);
+            }
+        };
+        ServletService service = new ServletService();
+        StubServletHandler handler = new StubServletHandler(service, state);
+        Request request = new Request(handler, 128, "GET", "/t", new Headers(),
+                new RequestBodyStream());
+        Response response = new Response(handler, request, 128);
+        bindHandlerState(handler, state, request, response);
+
+        ResponseOutputStream out = new ResponseOutputStream(response, 128);
+        Field bufField = ResponseOutputStream.class.getDeclaredField("buf");
+        bufField.setAccessible(true);
+        ByteBuffer flushedBuffer = (ByteBuffer) bufField.get(out);
+        byte[] payload = "payload-data".getBytes(StandardCharsets.UTF_8);
+        out.write(payload);
+        out.flush();
+
+        assertSame(flushedBuffer, received.get());
+        assertEquals(payload.length, received.get().remaining());
+        byte[] actual = new byte[payload.length];
+        received.get().duplicate().get(actual);
+        assertArrayEquals(payload, actual);
     }
 
     @Test

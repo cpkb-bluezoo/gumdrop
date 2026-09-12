@@ -399,7 +399,7 @@ class Response implements HttpServletResponse {
     // Helper methods for handler interaction
 
     void writeBody(ByteBuffer buf) throws IOException {
-        handler.writeBody(buf);
+        handler.writeBody(buf, true);
     }
 
     boolean isResponseWritable() {
