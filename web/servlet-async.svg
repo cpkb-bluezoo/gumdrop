@@ -44,7 +44,7 @@
   
   <!-- Arrow down -->
   <line x1="135" y1="130" x2="135" y2="150" stroke="#2d5a3d" stroke-width="2" marker-end="url(#arrowhead)"/>
-  <text x="145" y="145" font-family="Georgia, serif" font-size="10" fill="#5a5a5a">pipe</text>
+  <text x="145" y="145" font-family="Georgia, serif" font-size="10" fill="#5a5a5a">offer()</text>
   
   <!-- Worker Thread box -->
   <rect x="35" y="155" width="200" height="40" rx="4" fill="url(#boxGradient)" stroke="#5a8a6a" stroke-width="1"/>
@@ -121,7 +121,7 @@
   <!-- Pipe integration note -->
   <rect x="35" y="415" width="330" height="45" rx="4" fill="#fff8f8" stroke="#aa8a8a" stroke-width="1"/>
   <text x="200" y="435" font-family="Georgia, serif" font-size="10" fill="#6a4a4a" text-anchor="middle">Callbacks triggered by SelectorLoop events</text>
-  <text x="200" y="450" font-family="Georgia, serif" font-size="10" fill="#6a4a4a" text-anchor="middle">via pipe data arrival or buffer availability</text>
+  <text x="200" y="450" font-family="Georgia, serif" font-size="10" fill="#6a4a4a" text-anchor="middle">via RequestBodyStream data or transport buffer availability</text>
   
   <!-- Error handling section -->
   <rect x="420" y="320" width="360" height="150" rx="8" fill="#fff0f0" stroke="#8a3a3a" stroke-width="2"/>
