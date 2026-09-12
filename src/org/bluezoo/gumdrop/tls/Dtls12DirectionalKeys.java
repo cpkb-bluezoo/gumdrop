@@ -139,12 +139,17 @@ final class Dtls12DirectionalKeys {
 
     byte[] sealAppendTag(byte[] nonce, byte[] aad, byte[] plaintext, int offset, int length)
             throws GeneralSecurityException {
+        // Per-record AEAD nonce (RFC 6347 §4.1.2 / RFC 7905 §2): unique per
+        // sequence via explicit nonce or seq XOR; nonceScratch is a reusable
+        // buffer, not one IV reused across records.
+        // codeql[java/static-initialization-vector]
         encryptCipher.init(Cipher.ENCRYPT_MODE, keySpec, parameterSpec(nonce));
         encryptCipher.updateAAD(aad);
         return encryptCipher.doFinal(plaintext, offset, length);
     }
 
     byte[] openInPlace(byte[] nonce, byte[] aad, byte[] ciphertext) throws GeneralSecurityException {
+        // codeql[java/static-initialization-vector]
         decryptCipher.init(Cipher.DECRYPT_MODE, keySpec, parameterSpec(nonce));
         decryptCipher.updateAAD(aad);
         try {
