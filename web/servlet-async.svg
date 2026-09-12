@@ -72,10 +72,10 @@
   <text x="400" y="215" font-family="Georgia, serif" font-size="11" fill="#4a4a6a" text-anchor="middle">async work (DB, HTTP, etc.)</text>
   <text x="400" y="230" font-family="Consolas, monospace" font-size="10" fill="#6a6a8a" text-anchor="middle">ctx.start(runnable)</text>
   
-  <!-- ASYNC_EXECUTOR box -->
+  <!-- Servlet worker pool box -->
   <rect x="295" y="245" width="210" height="45" rx="4" fill="url(#boxGradient)" stroke="#5a8a6a" stroke-width="1"/>
-  <text x="400" y="265" font-family="Consolas, monospace" font-size="11" fill="#3a3a3a" text-anchor="middle">ASYNC_EXECUTOR</text>
-  <text x="400" y="280" font-family="Georgia, serif" font-size="10" fill="#5a5a5a" text-anchor="middle">(container thread pool)</text>
+  <text x="400" y="265" font-family="Georgia, serif" font-size="11" fill="#3a3a3a" text-anchor="middle">Servlet worker pool</text>
+  <text x="400" y="280" font-family="Georgia, serif" font-size="10" fill="#5a5a5a" text-anchor="middle">start() and dispatch()</text>
   
   <!-- Arrow from Phase 1 to Phase 2 -->
   <line x1="250" y1="125" x2="280" y2="107" stroke="#3d5a8a" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
@@ -154,7 +154,7 @@
   <text x="65" y="564" font-family="Georgia, serif" font-size="10" fill="#3a3a3a">Worker thread: Released during async, reusable for other requests</text>
   
   <circle cx="420" cy="540" r="6" fill="#8a5a5a"/>
-  <text x="435" y="544" font-family="Georgia, serif" font-size="10" fill="#3a3a3a">Thread pool: ASYNC_EXECUTOR for start() and dispatch()</text>
+  <text x="435" y="544" font-family="Georgia, serif" font-size="10" fill="#3a3a3a">Servlet worker pool: start() and dispatch()</text>
   
   <circle cx="420" cy="560" r="6" fill="#8a8a5a"/>
   <text x="435" y="564" font-family="Georgia, serif" font-size="10" fill="#3a3a3a">Timeout: Configurable with automatic error handling</text>

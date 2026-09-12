@@ -169,12 +169,12 @@ re-dispatching the request:
 </p>
 
 <ul>
-<li><code>start(Runnable)</code> - Executes the runnable on a container-managed
-thread pool (<code>ASYNC_EXECUTOR</code>), not on the calling thread.</li>
+<li><code>start(Runnable)</code> - Executes the runnable on the servlet worker
+pool, not on the calling thread.</li>
 <li><code>complete()</code> - Flushes the response, notifies listeners, and
 ends the request/response cycle.</li>
-<li><code>dispatch()</code> - Re-invokes the servlet on a container thread,
-useful for completing processing after an async operation.</li>
+<li><code>dispatch()</code> - Re-invokes the servlet on a servlet worker
+pool thread, useful for completing processing after an async operation.</li>
 <li><code>dispatch(path)</code> - Forwards to a different servlet path for
 completion.</li>
 <li><code>setTimeout(long)</code> - Sets the timeout in milliseconds.</li>
