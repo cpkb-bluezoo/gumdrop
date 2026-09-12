@@ -16,6 +16,8 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -99,6 +101,74 @@ public class ServletNonBlockingIOTest {
         request.in.dispatchDataAvailable();
         assertTrue(allRead.get());
         assertTrue(request.getInputStream().isFinished());
+    }
+
+    @Test
+    public void testReadNonBlockingThrowsWhenNotReady() throws Exception {
+        RequestBodyStream body = new RequestBodyStream();
+        Request request = newRequest(new StubHTTPResponseState(), body);
+        request.startAsync();
+        request.getInputStream().setReadListener(new ReadListener() {
+            @Override public void onDataAvailable() { }
+            @Override public void onAllDataRead() { }
+            @Override public void onError(Throwable t) { fail(t.toString()); }
+        });
+
+        try {
+            request.getInputStream().read();
+            fail("expected IllegalStateException");
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("not ready")
+                    || expected.getMessage().contains("Read not ready"));
+        }
+    }
+
+    @Test
+    public void testReadNonBlockingReturnsAvailableBytes() throws Exception {
+        RequestBodyStream body = new RequestBodyStream();
+        body.offer("xy".getBytes(StandardCharsets.UTF_8));
+        Request request = newRequest(new StubHTTPResponseState(), body);
+        request.startAsync();
+        request.getInputStream().setReadListener(new ReadListener() {
+            @Override public void onDataAvailable() { }
+            @Override public void onAllDataRead() { }
+            @Override public void onError(Throwable t) { fail(t.toString()); }
+        });
+
+        byte[] buf = new byte[8];
+        assertEquals(2, request.getInputStream().read(buf, 0, buf.length));
+        assertEquals('x', (char) buf[0]);
+        assertEquals('y', (char) buf[1]);
+    }
+
+    @Test
+    public void testBlockingReadWithoutListener() throws Exception {
+        RequestBodyStream body = new RequestBodyStream();
+        Request request = newRequest(new StubHTTPResponseState(), body);
+
+        final CountDownLatch blocked = new CountDownLatch(1);
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicInteger readByte = new AtomicInteger(-1);
+        Thread reader = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                blocked.countDown();
+                try {
+                    readByte.set(request.getInputStream().read());
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    done.countDown();
+                }
+            }
+        });
+        reader.start();
+        assertTrue("reader should reach blocking read",
+                blocked.await(2, TimeUnit.SECONDS));
+        body.offer("z".getBytes(StandardCharsets.UTF_8));
+        assertTrue("read should complete after data arrives",
+                done.await(2, TimeUnit.SECONDS));
+        assertEquals('z', readByte.get());
     }
 
     @Test

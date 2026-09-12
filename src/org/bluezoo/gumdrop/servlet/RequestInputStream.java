@@ -35,7 +35,9 @@ import jakarta.servlet.ReadListener;
  *
  * <p>This implementation wraps a {@link RequestBodyStream} that receives
  * data from the HTTP connection layer. It supports the Servlet 3.1
- * non-blocking read API through {@link ReadListener}.
+ * non-blocking read API through {@link ReadListener}. Once a listener is
+ * registered, {@link #read()} methods never block and throw {@link
+ * IllegalStateException} when {@link #isReady()} would return {@code false}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -59,6 +61,19 @@ class RequestInputStream extends ServletInputStream {
 
     @Override 
     public int read() throws IOException {
+        if (listenerRegistered) {
+            byte[] one = new byte[1];
+            int n = readNonBlocking(one, 0, 1);
+            if (n < 0) {
+                afterRead();
+                return -1;
+            }
+            if (n == 0) {
+                throw notReady();
+            }
+            afterRead();
+            return one[0] & 0xFF;
+        }
         int n = in.read();
         afterRead();
         return n;
@@ -66,13 +81,23 @@ class RequestInputStream extends ServletInputStream {
 
     @Override 
     public int read(byte[] buf) throws IOException {
-        int n = in.read(buf);
-        afterRead();
-        return n;
+        return read(buf, 0, buf.length);
     }
 
     @Override 
     public int read(byte[] buf, int off, int len) throws IOException {
+        if (listenerRegistered) {
+            int n = readNonBlocking(buf, off, len);
+            if (n < 0) {
+                afterRead();
+                return -1;
+            }
+            if (n == 0 && len > 0) {
+                throw notReady();
+            }
+            afterRead();
+            return n;
+        }
         int n = in.read(buf, off, len);
         afterRead();
         return n;
@@ -101,6 +126,32 @@ class RequestInputStream extends ServletInputStream {
 
     @Override 
     public long skip(long n) throws IOException {
+        if (listenerRegistered) {
+            if (n <= 0) {
+                return 0;
+            }
+            if (isFinished()) {
+                return 0;
+            }
+            if (!isReady()) {
+                throw notReady();
+            }
+            byte[] buf = new byte[(int) Math.min(n, 8192)];
+            long skipped = 0;
+            while (skipped < n) {
+                int toRead = (int) Math.min(n - skipped, buf.length);
+                int r = readNonBlocking(buf, 0, toRead);
+                if (r < 0) {
+                    break;
+                }
+                if (r == 0) {
+                    throw notReady();
+                }
+                skipped += r;
+            }
+            afterRead();
+            return skipped;
+        }
         return in.skip(n);
     }
 
@@ -197,6 +248,14 @@ class RequestInputStream extends ServletInputStream {
         if (isFinished()) {
             notifyAllDataRead();
         }
+    }
+
+    private int readNonBlocking(byte[] buf, int off, int len) throws IOException {
+        return in.readNonBlocking(buf, off, len);
+    }
+
+    private IllegalStateException notReady() {
+        return new IllegalStateException(L10N.getString("err.read_not_ready"));
     }
 
     private void afterRead() throws IOException {
