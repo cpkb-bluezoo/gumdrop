@@ -92,25 +92,31 @@ which are drawn from a separate thread pool (ThreadPoolExecutorService) of
 configurable size.
 </p>
 
-<h4>Loose Coupling via Pipes</h4>
+<h4>Non-Blocking Request Body Bridge</h4>
 
 <p>
 The servlet specification requires that servlets read request body data
 from an <code>InputStream</code>, a blocking API that doesn't naturally
-fit an event-driven architecture. Gumdrop solves this with a pipe-based
-multiplexing approach:
+fit an event-driven architecture. Gumdrop bridges the two with a
+<code>RequestBodyStream</code> per request:
 </p>
 
 <ol>
-<li><b>I/O Worker Loops</b> - A small pool of SelectorLoop threads handle
-all network I/O for all connections. When request body data arrives, it
-is written to a pipe associated with that request.</li>
-<li><b>Servlet Worker Pool</b> - A separate thread pool services servlet
-requests. Each servlet thread reads request body data from the pipe's
-input stream, which blocks only until data is available.</li>
-<li><b>Asynchronous Support</b> - For Servlet 3.1+ asynchronous processing,
-servlets can register a <code>ReadListener</code> to be notified when data
-becomes available, avoiding blocking entirely.</li>
+<li><b>I/O worker loops</b> - A small pool of SelectorLoop threads handle
+all network I/O for all connections. When request body data arrives,
+<code>ServletHandler</code> calls <code>offer()</code> on the
+<code>RequestBodyStream</code>. This never blocks the SelectorLoop; when
+the buffered byte count reaches a high-water mark (256&nbsp;KB), delivery
+is paused via <code>pauseRequestBody()</code>.</li>
+<li><b>Servlet worker pool</b> - A separate thread pool services servlet
+requests. Each servlet thread reads from <code>RequestInputStream</code>,
+which blocks only until data is available. When the servlet drains the
+buffer below a low-water mark (64&nbsp;KB), <code>resumeRequestBody()</code>
+is called on the SelectorLoop thread.</li>
+<li><b>Asynchronous support</b> - For Servlet 3.1+ asynchronous processing,
+servlets can register a <code>ReadListener</code>. Once registered, reads
+never block: <code>onDataAvailable()</code> is dispatched when data arrives,
+and <code>read()</code> throws if no data is ready.</li>
 </ol>
 
 <p>
@@ -183,12 +189,16 @@ integrating with the underlying SelectorLoop event system:
 
 <ul>
 <li><b>ReadListener</b> - The <code>onDataAvailable()</code> callback is
-triggered when data arrives on the pipe from the SelectorLoop. The
-<code>onAllDataRead()</code> callback fires when the request body is
-complete.</li>
+triggered when <code>RequestBodyStream</code> receives data on the
+SelectorLoop thread. Callbacks are marshalled onto the I/O thread via
+<code>dispatchContainerCallback()</code>. The <code>onAllDataRead()</code>
+callback fires when the request body is complete.</li>
 <li><b>WriteListener</b> - The <code>onWritePossible()</code> callback is
-triggered when the output buffer has capacity. The implementation checks
-the <code>ResponseOutputStream</code> buffer state to determine readiness.</li>
+triggered when the response is writable again. Readiness reflects both the
+local <code>ResponseOutputStream</code> buffer and transport backpressure
+(<code>pendingResponseBytes()</code> on the connection). Response body
+chunks and WebSocket outbound messages are sent via
+<code>state.execute()</code> on the SelectorLoop thread.</li>
 </ul>
 
 <pre>
@@ -401,8 +411,14 @@ if (req.isTrailerFieldsReady()) {
 
 <p>
 Servlets can upgrade HTTP connections to WebSocket using the standard
-<code>HttpUpgradeHandler</code> API. Gumdrop bridges the Servlet API's
-blocking I/O model to its event-driven WebSocket implementation.
+<code>HttpUpgradeHandler</code> API. Incoming WebSocket messages are
+delivered through the same non-blocking <code>RequestBodyStream</code>
+bridge as HTTP request bodies, with the same pause/resume backpressure.
+<code>HttpUpgradeHandler.init()</code> is dispatched to the servlet worker
+pool so handler setup never blocks the SelectorLoop. Outbound data written
+to the <code>WebConnection</code> output stream is marshalled onto the I/O
+thread via <code>state.execute()</code>, with write backpressure matching
+the HTTP response path.
 </p>
 
 <pre>
