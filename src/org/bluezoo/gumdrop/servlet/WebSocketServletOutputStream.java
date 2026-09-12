@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.servlet;
 import jakarta.servlet.WriteListener;
 import jakarta.servlet.ServletOutputStream;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
@@ -35,35 +34,37 @@ import java.util.logging.Logger;
  * ServletOutputStream that sends data as WebSocket messages.
  *
  * <p>Data is buffered until {@link #flush()} is called, at which point the
- * buffered data is sent as a single WebSocket message on the connection's
- * I/O thread. {@link #isReady()} reflects transport backpressure from
- * {@link ServletWebConnection#isResponseWritable()}.
+ * buffered {@link ByteBuffer} is transferred to {@link ServletWebConnection}
+ * without an extra copy. {@link #isReady()} reflects transport backpressure
+ * from {@link ServletWebConnection#isResponseWritable()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class WebSocketServletOutputStream extends ServletOutputStream {
 
+    private static final int INITIAL_BUFFER_SIZE = 8192;
     private static final ResourceBundle L10N =
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
     private static final Logger LOGGER =
         Logger.getLogger(WebSocketServletOutputStream.class.getName());
 
     private final ServletWebConnection webConnection;
-    private final ByteArrayOutputStream buffer;
+    private ByteBuffer buf;
     private WriteListener writeListener;
     private volatile boolean listenerNotified = true;
     private volatile boolean closed = false;
 
     WebSocketServletOutputStream(ServletWebConnection webConnection) {
         this.webConnection = webConnection;
-        this.buffer = new ByteArrayOutputStream();
+        this.buf = ByteBuffer.allocate(INITIAL_BUFFER_SIZE);
     }
 
     @Override
     public void write(int b) throws IOException {
         checkClosed();
         checkWriteReady();
-        buffer.write(b);
+        ensureRemaining(1);
+        buf.put((byte) (b & 0xff));
         markNotReadyIfNeeded();
     }
 
@@ -71,7 +72,8 @@ class WebSocketServletOutputStream extends ServletOutputStream {
     public void write(byte[] b, int off, int len) throws IOException {
         checkClosed();
         checkWriteReady();
-        buffer.write(b, off, len);
+        ensureRemaining(len);
+        buf.put(b, off, len);
         markNotReadyIfNeeded();
     }
 
@@ -82,14 +84,8 @@ class WebSocketServletOutputStream extends ServletOutputStream {
         if (!src.hasRemaining()) {
             return;
         }
-        if (src.hasArray()) {
-            write(src.array(), src.arrayOffset() + src.position(), src.remaining());
-            src.position(src.limit());
-        } else {
-            byte[] buf = new byte[src.remaining()];
-            src.get(buf);
-            buffer.write(buf, 0, buf.length);
-        }
+        ensureRemaining(src.remaining());
+        buf.put(src);
         markNotReadyIfNeeded();
     }
 
@@ -97,10 +93,11 @@ class WebSocketServletOutputStream extends ServletOutputStream {
     public void flush() throws IOException {
         checkClosed();
         checkWriteReady();
-        if (buffer.size() > 0) {
-            byte[] data = buffer.toByteArray();
-            buffer.reset();
-            webConnection.sendMessage(data);
+        if (buf.position() > 0) {
+            buf.flip();
+            ByteBuffer chunk = buf;
+            buf = ByteBuffer.allocate(Math.max(INITIAL_BUFFER_SIZE, chunk.capacity()));
+            webConnection.sendMessage(chunk, true);
         }
         markNotReadyIfNeeded();
         notifyWritePossibleIfReady();
@@ -177,6 +174,18 @@ class WebSocketServletOutputStream extends ServletOutputStream {
         if (writeListener != null && !isReady()) {
             throw new IllegalStateException(L10N.getString("err.write_not_ready"));
         }
+    }
+
+    private void ensureRemaining(int needed) {
+        if (buf.remaining() >= needed) {
+            return;
+        }
+        buf.flip();
+        int required = buf.remaining() + needed;
+        int capacity = Math.max(buf.capacity() * 2, required);
+        ByteBuffer grown = ByteBuffer.allocate(capacity);
+        grown.put(buf);
+        buf = grown;
     }
 
     private void checkClosed() throws IOException {

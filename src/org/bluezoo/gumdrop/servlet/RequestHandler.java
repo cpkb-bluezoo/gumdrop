@@ -96,7 +96,7 @@ class RequestHandler implements Runnable {
 
             // Only complete the response if async was NOT started
             // If async was started, the AsyncContext.complete() will handle it
-            if (!request.isAsyncStarted()) {
+            if (!request.isAsyncStarted() && !request.isUpgraded()) {
                 // endResponse() is fire-and-forget: it schedules the
                 // network send on the connection's SelectorLoop and
                 // returns immediately instead of blocking this worker

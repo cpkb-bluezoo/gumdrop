@@ -16,6 +16,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
@@ -183,6 +184,35 @@ public class WebSocketServletIOTest {
 
         assertTrue(executedOnIo.get());
         assertEquals("hi", sentText.get());
+    }
+
+    @Test
+    public void testFlushTransfersBufferOwnershipForBinary() throws Exception {
+        final AtomicReference<ByteBuffer> sentBinary = new AtomicReference<ByteBuffer>();
+        TrackingState state = new TrackingState() {
+            @Override
+            public void execute(Runnable task) {
+                task.run();
+            }
+        };
+        ServletService service = new ServletService();
+        StubServletHandler handler = new StubServletHandler(service, state);
+        ServletWebConnection connection =
+                new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
+        connection.getEventHandler().opened(new RecordingSession(null, sentBinary));
+
+        WebSocketServletOutputStream out =
+                (WebSocketServletOutputStream) connection.getOutputStream();
+        Field bufField = WebSocketServletOutputStream.class.getDeclaredField("buf");
+        bufField.setAccessible(true);
+        ByteBuffer flushedBuffer = (ByteBuffer) bufField.get(out);
+        byte[] invalidUtf8 = new byte[] {(byte) 0xC0, (byte) 0xC0};
+        out.write(invalidUtf8);
+        out.flush();
+
+        assertNotNull(sentBinary.get());
+        assertSame(flushedBuffer.array(), sentBinary.get().array());
+        assertEquals(2, sentBinary.get().remaining());
     }
 
     @Test

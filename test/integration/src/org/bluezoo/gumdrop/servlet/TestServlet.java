@@ -58,8 +58,9 @@ import java.util.logging.Logger;
  *   <li>/test/xml - XML content type response</li>
  *   <li>/test/filtered - Used for filter testing</li>
  *   <li>/test/params - Query and form parameters</li>
- *   <li>/test/info - Request information</li>
- * </ul>
+   *   <li>/test/info - Request information</li>
+   *   <li>/test/ws - WebSocket upgrade via {@link HttpUpgradeHandler}</li>
+   * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -136,9 +137,16 @@ public class TestServlet extends HttpServlet {
             handleParams(req, resp);
         } else if (pathInfo.equals("/info")) {
             handleInfo(req, resp);
+        } else if (pathInfo.equals("/ws")) {
+            handleWebSocketUpgrade(req, resp);
         } else {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND, "Unknown path: " + pathInfo);
         }
+    }
+
+    private void handleWebSocketUpgrade(HttpServletRequest request,
+            HttpServletResponse response) throws ServletException, IOException {
+        request.upgrade(EchoWebSocketHandler.class);
     }
 
     /**

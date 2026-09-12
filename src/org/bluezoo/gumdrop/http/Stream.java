@@ -863,22 +863,12 @@ class Stream implements HTTPResponseState {
      */
     void receiveRequestBody(ByteBuffer buf) {
         if (webSocketAdapter != null) {
-            // Unlike the general body path below, WebSocket frames are
-            // push-parsed the same way as H2Parser: processIncomingData()
-            // consumes as many complete frames as the buffer holds and
-            // leaves the position at the start of any incomplete trailing
-            // frame (WebSocketFrame.parse() rewinds on insufficient data).
-            // That leftover MUST NOT be force-consumed here — it needs to
-            // survive to the next receiveRequestBody() call the same way
-            // an incomplete H2 frame or line-lexer token does, relying on
-            // the transport to compact and preserve it across reads.
-            try {
-                webSocketAdapter.processIncomingData(buf);
-            } catch (IOException e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING, "Error processing WebSocket data", e);
-                }
-            }
+            processWebSocketInput(buf);
+            return;
+        }
+
+        if (hasWebSocketUpgrade()) {
+            bufferPendingWebSocketData(buf);
             return;
         }
 
@@ -1286,6 +1276,70 @@ class Stream implements HTTPResponseState {
     // -- WebSocket Support (Internal) --
     // RFC 9110 section 7.8: Upgrade; RFC 6455: WebSocket Protocol
     
+    /**
+     * Returns whether this stream's request advertised an RFC 6455 WebSocket
+     * upgrade (via {@code Connection: Upgrade} / {@code Upgrade: websocket}).
+     * Used to hold pipelined frame bytes while an async upgrade handler
+     * (e.g. servlet {@code HttpUpgradeHandler}) runs on a worker thread.
+     */
+    boolean hasWebSocketUpgrade() {
+        if (upgrade == null) {
+            return false;
+        }
+        for (String protocol : upgrade) {
+            if ("websocket".equalsIgnoreCase(protocol)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void bufferPendingWebSocketData(ByteBuffer buf) {
+        if (!buf.hasRemaining()) {
+            return;
+        }
+        int n = buf.remaining();
+        if (pendingWebSocketData == null) {
+            pendingWebSocketData = ByteBuffer.allocate(n);
+        } else if (pendingWebSocketData.remaining() < n) {
+            ByteBuffer expanded = ByteBuffer.allocate(
+                    pendingWebSocketData.position() + pendingWebSocketData.remaining() + n);
+            pendingWebSocketData.flip();
+            expanded.put(pendingWebSocketData);
+            pendingWebSocketData = expanded;
+        }
+        pendingWebSocketData.put(buf);
+        buf.position(buf.limit());
+    }
+
+    private void processWebSocketInput(ByteBuffer buf) {
+        // Unlike the general body path below, WebSocket frames are
+        // push-parsed the same way as H2Parser: processIncomingData()
+        // consumes as many complete frames as the buffer holds and
+        // leaves the position at the start of any incomplete trailing
+        // frame (WebSocketFrame.parse() rewinds on insufficient data).
+        // That leftover MUST NOT be force-consumed here — it needs to
+        // survive to the next receiveRequestBody() call the same way
+        // an incomplete H2 frame or line-lexer token does, relying on
+        // the transport to compact and preserve it across reads.
+        try {
+            webSocketAdapter.processIncomingData(buf);
+        } catch (IOException e) {
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "Error processing WebSocket data", e);
+            }
+        }
+    }
+
+    private void drainPendingWebSocketData() {
+        if (pendingWebSocketData == null || pendingWebSocketData.position() == 0) {
+            return;
+        }
+        pendingWebSocketData.flip();
+        processWebSocketInput(pendingWebSocketData);
+        pendingWebSocketData = null;
+    }
+
     private boolean isWebSocketUpgradeRequest() {
         if (headers == null) {
             return false;
@@ -1308,6 +1362,9 @@ class Stream implements HTTPResponseState {
     
     // The active WebSocket connection adapter (set after upgrade)
     private WebSocketConnectionAdapter webSocketAdapter;
+
+    /** Pipelined WebSocket frame bytes received before the adapter exists. */
+    private ByteBuffer pendingWebSocketData;
     
     /** RFC 6455 §9.1 — upgrade with negotiated extensions. */
     @Override
@@ -1393,6 +1450,11 @@ class Stream implements HTTPResponseState {
             
             // Notify handler that connection is open
             webSocketAdapter.notifyConnectionOpen();
+
+            // Deliver any frame bytes pipelined into the same read as the
+            // upgrade request before the adapter existed (async servlet
+            // upgrade on a worker thread).
+            drainPendingWebSocketData();
 
         } catch (ProtocolException e) {
             throw new IllegalStateException("Failed to send WebSocket upgrade response", e);

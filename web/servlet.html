@@ -198,7 +198,8 @@ callback fires when the request body is complete.</li>
 triggered when the response is writable again. Readiness reflects both the
 local <code>ResponseOutputStream</code> buffer and transport backpressure
 (<code>pendingResponseBytes()</code> on the connection). Flushed response
-buffers are transferred to the transport without an extra copy; chunks and
+buffers are transferred to the transport without an extra copy; WebSocket
+<code>flush()</code> hands off its buffer the same way. Chunks and
 WebSocket outbound messages are sent via <code>state.execute()</code> on
 the SelectorLoop thread.</li>
 </ul>

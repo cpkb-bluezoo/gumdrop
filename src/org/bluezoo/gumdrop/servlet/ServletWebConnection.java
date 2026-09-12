@@ -53,8 +53,10 @@ import java.util.logging.Logger;
  * is applied via {@link HTTPResponseState#pauseRequestBody()} when the
  * buffer reaches its high-water mark. {@link HttpUpgradeHandler#init} and
  * {@link HttpUpgradeHandler#destroy} are dispatched to the servlet worker pool
- * so handler lifecycle never blocks the SelectorLoop thread. Outbound messages are sent on the connection's I/O
- * thread with transport backpressure matching the HTTP response path.
+ * so handler lifecycle never blocks the SelectorLoop thread. Outbound messages
+ * are sent on the connection's I/O thread with transport backpressure matching
+ * the HTTP response path; flushed output buffers are transferred without an
+ * extra servlet-layer copy.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -136,18 +138,40 @@ class ServletWebConnection implements WebConnection {
      * the connection's I/O thread and respects transport backpressure.
      */
     void sendMessage(byte[] data) throws IOException {
+        if (data.length == 0) {
+            return;
+        }
+        sendMessage(ByteBuffer.wrap(data), false);
+    }
+
+    /**
+     * Sends buffered servlet output as a WebSocket message.
+     *
+     * @param buf message bytes to send
+     * @param transferOwnership if true, {@code buf} is handed off to the
+     *     I/O thread and must not be reused by the caller; if false, a copy
+     *     is made because the caller may still mutate or reuse the buffer
+     */
+    void sendMessage(ByteBuffer buf, boolean transferOwnership) throws IOException {
         if (session == null) {
             throw new IOException("WebSocket session not established");
         }
         if (!session.isOpen()) {
             throw new IOException("WebSocket session is closed");
         }
-        if (data.length == 0) {
+        if (!buf.hasRemaining()) {
             return;
         }
 
-        final byte[] copy = data.clone();
-        final boolean asText = isUtf8Text(copy);
+        final ByteBuffer payload;
+        if (transferOwnership) {
+            payload = buf;
+        } else {
+            payload = ByteBuffer.allocate(buf.remaining());
+            payload.put(buf.duplicate());
+            payload.flip();
+        }
+        final boolean asText = isUtf8Text(payload);
 
         if (!isResponseWritable()) {
             if (outputStream.hasWriteListener()) {
@@ -159,15 +183,16 @@ class ServletWebConnection implements WebConnection {
         }
 
         if (state == null) {
-            sendMessageDirect(copy, asText);
+            sendMessageDirect(payload, asText);
             return;
         }
 
+        final ByteBuffer message = payload;
         state.execute(new Runnable() {
             @Override
             public void run() {
                 try {
-                    sendMessageDirect(copy, asText);
+                    sendMessageDirect(message, asText);
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, "Error sending WebSocket message", e);
                 }
@@ -205,23 +230,23 @@ class ServletWebConnection implements WebConnection {
         outputStream.notifyWritePossible();
     }
 
-    private void sendMessageDirect(byte[] data, boolean asText) throws IOException {
+    private void sendMessageDirect(ByteBuffer data, boolean asText) throws IOException {
         if (session == null || !session.isOpen()) {
             throw new IOException("WebSocket session is closed");
         }
         if (asText) {
-            session.sendText(new String(data, StandardCharsets.UTF_8));
+            session.sendText(StandardCharsets.UTF_8.decode(data.duplicate()).toString());
         } else {
-            session.sendBinary(ByteBuffer.wrap(data));
+            session.sendBinary(data.duplicate());
         }
     }
 
-    private static boolean isUtf8Text(byte[] data) {
+    private static boolean isUtf8Text(ByteBuffer data) {
         CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT);
         try {
-            decoder.decode(ByteBuffer.wrap(data));
+            decoder.decode(data.duplicate());
             return true;
         } catch (CharacterCodingException e) {
             return false;

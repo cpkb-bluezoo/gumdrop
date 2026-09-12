@@ -2057,10 +2057,21 @@ public final class HTTPProtocolHandler
             stream.streamEndRequest();
             if (h2cUpgradePending) {
                 completeH2cUpgrade();
+            } else if (stream.hasWebSocketUpgrade()) {
+                // RFC 6455 section 4.1: a bodyless upgrade may carry
+                // pipelined WebSocket frames in the same TCP read. When
+                // upgrade is deferred (e.g. servlet HttpUpgradeHandler on
+                // a worker thread), hold raw bytes for receiveWebSocket()
+                // instead of parsing them as the next HTTP request.
+                webSocketStreamId = clientStreamId;
+                lexer.stopForHandoff();
+                state = State.WEBSOCKET;
             } else {
                 state = State.REQUEST_LINE;
             }
-            clientStreamId += 2;
+            if (state != State.WEBSOCKET) {
+                clientStreamId += 2;
+            }
         } else if (chunked) {
             state = State.BODY_CHUNKED_SIZE;
         } else if (contentLength > 0L) {

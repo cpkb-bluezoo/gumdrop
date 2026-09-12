@@ -51,7 +51,10 @@ import org.bluezoo.gumdrop.auth.Realm;
 import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 
@@ -101,6 +104,7 @@ class Request implements HttpServletRequest {
     ServletPrincipal userPrincipal;
 
     AsyncContextImpl asyncContext;
+    private boolean upgraded;
     InputStreamState inputStreamState = InputStreamState.NONE;
     Collection<Part> parts;
 
@@ -715,17 +719,58 @@ class Request implements HttpServletRequest {
      * @param upgradeHandler the upgrade handler to use
      * @throws ServletException if the upgrade fails
      */
-    private void performWebSocketUpgrade(HttpUpgradeHandler upgradeHandler) {
+    private void performWebSocketUpgrade(HttpUpgradeHandler upgradeHandler)
+            throws ServletException {
         // Get negotiated subprotocol
         String protocol = getHeader("Sec-WebSocket-Protocol");
 
         // Create the WebConnection that will bridge to the servlet
-        ServletWebConnection webConnection =
+        final ServletWebConnection webConnection =
                 new ServletWebConnection(upgradeHandler, handler.getState(), handler);
 
-        // Perform the upgrade; WebConnectionEventHandler.opened() calls
-        // upgradeHandler.init(webConnection) when the connection is established
-        handler.getState().upgradeToWebSocket(protocol, webConnection.getEventHandler());
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+        handler.getState().execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // Perform the upgrade; WebConnectionEventHandler.opened()
+                    // calls upgradeHandler.init(webConnection) when the
+                    // connection is established.
+                    handler.getState().upgradeToWebSocket(
+                            protocol, webConnection.getEventHandler());
+                } catch (Exception e) {
+                    failure.set(e);
+                } finally {
+                    latch.countDown();
+                }
+            }
+        });
+        try {
+            if (!latch.await(30L, TimeUnit.SECONDS)) {
+                throw new ServletException("Timed out waiting for WebSocket upgrade");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ServletException("Interrupted waiting for WebSocket upgrade", e);
+        }
+        Exception error = failure.get();
+        if (error != null) {
+            if (error instanceof ServletException) {
+                throw (ServletException) error;
+            }
+            throw new ServletException("WebSocket upgrade failed", error);
+        }
+
+        this.upgraded = true;
+        Response response = handler.getResponse();
+        if (response != null) {
+            response.markUpgraded();
+        }
+    }
+
+    boolean isUpgraded() {
+        return upgraded;
     }
 
     @Override public Map<String,String> getTrailerFields() {

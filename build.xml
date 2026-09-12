@@ -804,6 +804,7 @@
         <include name='**/servlet/TestServlet.class'/>
         <include name='**/servlet/TestServlet$*.class'/>
         <include name='**/servlet/TestFilter.class'/>
+        <include name='**/servlet/EchoWebSocketHandler.class'/>
       </fileset>
     </copy>
     <integration-junit includes='**/servlet/*IntegrationTest.java'/>

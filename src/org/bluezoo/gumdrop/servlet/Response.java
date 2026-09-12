@@ -732,6 +732,15 @@ class Response implements HttpServletResponse {
         return committed;
     }
 
+    /**
+     * Marks the response complete after a WebSocket upgrade so the normal
+     * servlet response path does not commit a second HTTP response.
+     */
+    void markUpgraded() {
+        committed = true;
+        statusCode = 101;
+    }
+
     public void reset() {
         committed = false;
         errorCondition = false;
