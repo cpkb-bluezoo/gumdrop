@@ -19,12 +19,12 @@
     <service id="acceptAllService" class="org.bluezoo.gumdrop.smtp.client.AcceptAllService">
         <!-- SMTP (plaintext with STARTTLS) listener on port 18025 -->
         <listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
-                  name="smtp" port="18025" addresses="127.0.0.1"
+                  name="smtp" port="18025" addresses="::1"
                   keystore-file="test/integration/certs/test-keystore.p12"
                   keystore-pass="testpass"/>
         <!-- SMTPS (implicit TLS) listener on port 18465 -->
         <listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
-                  name="smtps" port="18465" addresses="127.0.0.1"
+                  name="smtps" port="18465" addresses="::1"
                   secure="true"
                   keystore-file="test/integration/certs/test-keystore.p12"
                   keystore-pass="testpass"/>

@@ -73,7 +73,7 @@ import java.security.cert.X509Certificate;
  */
 final class AdGuardTestSupport {
 
-    static final String HOST = System.getProperty("dns.test.host", "127.0.0.1");
+    static final String HOST = System.getProperty("dns.test.host", "::1");
     static final int PLAIN_PORT = Integer.getInteger("dns.test.plain.port", 15353);
     static final int DOH_PORT = Integer.getInteger("dns.test.doh.port", 18443);
     static final int DOT_DOQ_PORT = Integer.getInteger("dns.test.dot.doq.port", 18853);

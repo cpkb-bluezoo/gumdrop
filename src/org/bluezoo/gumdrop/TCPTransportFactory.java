@@ -41,6 +41,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketOption;
 import java.net.StandardProtocolFamily;
+import java.net.UnknownHostException;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
@@ -547,6 +548,19 @@ public class TCPTransportFactory extends TransportFactory {
     public TCPEndpoint connect(InetAddress host, int port,
                                ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
+        return connect(host, port, null, handler, loop);
+    }
+
+    /**
+     * Creates a client-side TCPEndpoint and connects to a remote host.
+     *
+     * @param tlsServerNameHint optional TLS/SNI/hostname-verify name; when
+     *     {@code null}, derived from {@code host} (loopback literals map to
+     *     {@code localhost} to match typical test PKI)
+     */
+    public TCPEndpoint connect(InetAddress host, int port, String tlsServerNameHint,
+                               ProtocolHandler handler,
+                               SelectorLoop loop) throws IOException {
         SocketChannel channel = SocketChannel.open();
         channel.configureBlocking(false);
 
@@ -578,11 +592,12 @@ public class TCPTransportFactory extends TransportFactory {
         }
 
         TCPEndpoint endpoint;
+        String tlsServerName = tlsServerNameFor(host, tlsServerNameHint);
         if (tlsVersion == TlsVersion.TLS_1_2) {
-            Tls12HandshakeConfig config12 = secure ? buildClientConfig12(host.getHostAddress()) : null;
+            Tls12HandshakeConfig config12 = secure ? buildClientConfig12(tlsServerName) : null;
             endpoint = new TCPEndpoint(handler, config12, secure);
         } else {
-            HandshakeConfig config = secure ? buildClientConfig(host.getHostAddress()) : null;
+            HandshakeConfig config = secure ? buildClientConfig(tlsServerName) : null;
             endpoint = new TCPEndpoint(handler, config, secure);
         }
         endpoint.setFactory(this);
@@ -799,6 +814,44 @@ public class TCPTransportFactory extends TransportFactory {
     void registerForConnect(SocketChannel channel, TCPEndpoint endpoint,
                             SelectorLoop loop) {
         loop.registerForConnect(channel, endpoint);
+    }
+
+    /**
+     * Derives the TLS server name for hostname verification and SNI.
+     *
+     * <p>Loopback address literals ({@code ::1}, {@code 127.0.0.1}) and the
+     * same strings passed as a hostname hint map to {@code localhost}, matching
+     * the integration-test PKI and common RFC 6125 practice when dialing
+     * loopback by address.
+     */
+    static String tlsServerNameFor(InetAddress peer, String preferred) {
+        if (preferred != null && !preferred.isEmpty()) {
+            return normalizeLoopbackTlsName(preferred);
+        }
+        if (peer != null) {
+            if (peer.isLoopbackAddress()) {
+                return "localhost";
+            }
+            return peer.getHostAddress();
+        }
+        return null;
+    }
+
+    private static String normalizeLoopbackTlsName(String name) {
+        if ("localhost".equalsIgnoreCase(name)) {
+            return "localhost";
+        }
+        if ("::1".equals(name) || "127.0.0.1".equals(name) || "0:0:0:0:0:0:0:1".equals(name)) {
+            return "localhost";
+        }
+        try {
+            if (InetAddress.getByName(name).isLoopbackAddress()) {
+                return "localhost";
+            }
+        } catch (UnknownHostException e) {
+            // Not a resolvable literal -- use as-is for SNI / hostname verify.
+        }
+        return name;
     }
 
     @Override

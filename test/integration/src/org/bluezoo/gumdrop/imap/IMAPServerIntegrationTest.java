@@ -97,7 +97,7 @@ public class IMAPServerIntegrationTest {
         // Create IMAP server
         imapServer = new IMAPListener();
         imapServer.setPort(IMAP_PORT);
-        imapServer.setAddresses("127.0.0.1");
+        imapServer.setAddresses("::1");
         imapServer.setRealm(realm);
         imapServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
         imapServer.setAllowPlaintextLogin(true); // Allow plaintext login for testing
@@ -132,7 +132,7 @@ public class IMAPServerIntegrationTest {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
             try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("127.0.0.1", port), 200);
+                socket.connect(new InetSocketAddress("::1", port), 200);
                 Thread.sleep(200);
                 return;
             } catch (Exception e) {
@@ -146,7 +146,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testServerGreeting() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             String greeting = session.getGreeting();
             
             assertNotNull("Should receive greeting", greeting);
@@ -157,7 +157,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testCapability() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.IMAPResponse response = session.sendCommand("CAPABILITY");
             
             assertTrue("CAPABILITY should succeed", response.ok);
@@ -177,7 +177,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testNoop() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.IMAPResponse response = session.sendCommand("NOOP");
             
             assertTrue("NOOP should succeed", response.ok);
@@ -188,7 +188,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testLoginSuccess() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             boolean authenticated = IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             assertTrue("LOGIN should succeed", authenticated);
@@ -197,7 +197,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testLoginFailure() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             boolean authenticated = IMAPClientHelper.login(session, TEST_USER, "wrongpassword");
             
             assertFalse("LOGIN with wrong password should fail", authenticated);
@@ -206,7 +206,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testLoginInvalidUser() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             boolean authenticated = IMAPClientHelper.login(session, "nonexistent", "password");
             
             assertFalse("LOGIN with invalid user should fail", authenticated);
@@ -217,7 +217,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testListMailboxes() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             // List all mailboxes - use a non-empty reference to work around empty string parsing
@@ -238,7 +238,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testSelectInbox() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             IMAPClientHelper.IMAPResponse response = session.sendCommand("SELECT INBOX");
@@ -263,7 +263,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testExamineInbox() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             // EXAMINE is like SELECT but read-only
@@ -275,7 +275,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testStatusInbox() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             IMAPClientHelper.IMAPResponse response = 
@@ -297,7 +297,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testNamespace() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             IMAPClientHelper.IMAPResponse response = session.sendCommand("NAMESPACE");
@@ -310,7 +310,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testFetchMessageHeaders() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             IMAPClientHelper.IMAPResponse selectResp = session.sendCommand("SELECT INBOX");
             
@@ -355,7 +355,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testFetchEnvelope() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             IMAPClientHelper.IMAPResponse selectResp = session.sendCommand("SELECT INBOX");
             
@@ -391,7 +391,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testSearch() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             session.sendCommand("SELECT INBOX");
             
@@ -413,7 +413,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testClose() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             session.sendCommand("SELECT INBOX");
             
@@ -425,7 +425,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testUnselect() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             session.sendCommand("SELECT INBOX");
             
@@ -441,7 +441,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testCommandBeforeLogin() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             // Try to LIST without logging in
             IMAPClientHelper.IMAPResponse response = session.sendCommand("LIST \"\" \"*\"");
             
@@ -452,7 +452,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testSelectBeforeLogin() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             // Try to SELECT without logging in
             IMAPClientHelper.IMAPResponse response = session.sendCommand("SELECT INBOX");
             
@@ -463,7 +463,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testFetchBeforeSelect() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             // Try to FETCH without selecting a mailbox
@@ -476,7 +476,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testSelectNonexistentMailbox() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             IMAPClientHelper.IMAPResponse response = session.sendCommand("SELECT NonExistent");
@@ -488,7 +488,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testUnknownCommand() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.IMAPResponse response = session.sendCommand("INVALID");
             
             assertTrue("Unknown command should return BAD", response.bad);
@@ -497,7 +497,7 @@ public class IMAPServerIntegrationTest {
     
     @Test
     public void testLogout() throws Exception {
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.IMAPResponse response = session.sendCommand("LOGOUT");
             
             assertTrue("LOGOUT should succeed", response.ok);
@@ -520,7 +520,7 @@ public class IMAPServerIntegrationTest {
         // Append to a dedicated mailbox (auto-created by the store) so the
         // shared INBOX fixture is not mutated; the file is removed afterwards.
         String mailbox = "AppendSyncTest";
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             assertTrue("LOGIN should succeed",
                 IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
 
@@ -550,7 +550,7 @@ public class IMAPServerIntegrationTest {
     @Test
     public void testAppendNonSynchronizingLiteral() throws Exception {
         String mailbox = "AppendLiteralPlusTest";
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             assertTrue("LOGIN should succeed",
                 IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
 
@@ -589,7 +589,7 @@ public class IMAPServerIntegrationTest {
     public void testCopyUnsupportedReportsNo() throws Exception {
         String source = "CopySource";
         String target = "CopyTarget";
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             assertTrue("LOGIN should succeed",
                 IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
             assertTrue("CREATE source", session.sendCommand("CREATE " + source).ok);
@@ -614,7 +614,7 @@ public class IMAPServerIntegrationTest {
     public void testMoveUnsupportedReportsNo() throws Exception {
         String source = "MoveSource";
         String target = "MoveTarget";
-        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("127.0.0.1", IMAP_PORT)) {
+        try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             assertTrue("LOGIN should succeed",
                 IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
             assertTrue("CREATE source", session.sendCommand("CREATE " + source).ok);

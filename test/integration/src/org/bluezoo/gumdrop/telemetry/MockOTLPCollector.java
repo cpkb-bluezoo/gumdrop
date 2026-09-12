@@ -112,7 +112,7 @@ public class MockOTLPCollector {
         
         server = new OTLPCollectorServer(this);
         server.setPort(port);
-        server.setAddresses("127.0.0.1");
+        server.setAddresses("::1");
 
         if (secure) {
             // Set up TLS with test certificates
@@ -185,7 +185,7 @@ public class MockOTLPCollector {
      */
     public String getTracesEndpoint() {
         String scheme = secure ? "https" : "http";
-        return scheme + "://127.0.0.1:" + port + "/v1/traces";
+        return scheme + "://::1:" + port + "/v1/traces";
     }
 
     /**
@@ -193,7 +193,7 @@ public class MockOTLPCollector {
      */
     public String getLogsEndpoint() {
         String scheme = secure ? "https" : "http";
-        return scheme + "://127.0.0.1:" + port + "/v1/logs";
+        return scheme + "://::1:" + port + "/v1/logs";
     }
 
     /**
@@ -201,7 +201,7 @@ public class MockOTLPCollector {
      */
     public String getMetricsEndpoint() {
         String scheme = secure ? "https" : "http";
-        return scheme + "://127.0.0.1:" + port + "/v1/metrics";
+        return scheme + "://::1:" + port + "/v1/metrics";
     }
 
     /**
@@ -301,7 +301,7 @@ public class MockOTLPCollector {
     private void waitForReady() throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
-            if (isPortListening("127.0.0.1", port)) {
+            if (isPortListening("::1", port)) {
                 Thread.sleep(200); // Extra delay for server stabilization
                 return;
             }

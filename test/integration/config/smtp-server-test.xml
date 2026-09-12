@@ -3,6 +3,6 @@
     <!-- Raw SMTP server on port 12599 - no handler, accepts all and drops -->
     <component id="testSmtp" class="org.bluezoo.gumdrop.smtp.SMTPListener">
         <property name="port">12599</property>
-        <property name="addresses">127.0.0.1</property>
+        <property name="addresses">::1</property>
     </component>
 </gumdrop>

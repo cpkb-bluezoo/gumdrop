@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.AfterClass;
@@ -46,6 +47,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import org.bluezoo.gumdrop.TlsHandshakeAsyncOffload;
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
 
 /**
@@ -116,7 +118,7 @@ public class TlsRecordEngineTest {
     }
 
     /** Records every event a {@link TlsRecordEngine} pushes, for assertions. */
-    private static final class RecordingSink implements TlsRecordSink {
+    private static class RecordingSink implements TlsRecordSink {
         final List<byte[]> outbound = new ArrayList<byte[]>();
         final List<byte[]> appData = new ArrayList<byte[]>();
         final List<String> events = new ArrayList<String>();
@@ -298,6 +300,32 @@ public class TlsRecordEngineTest {
         assertTrue("handshake must complete before app data is delivered: " + serverSink.events, hsIndex < appIndex);
         assertEquals(1, serverSink.appData.size());
         assertArrayEquals("pipelined-hello".getBytes("US-ASCII"), serverSink.appData.get(0));
+    }
+
+    @Test
+    public void asyncOffloadServerFlightInOneReadCompletes() throws Exception {
+        Executor loopExecutor = new Executor() {
+            @Override
+            public void execute(Runnable task) {
+                task.run();
+            }
+        };
+        HandshakeAsyncOffload clientOffload = new TlsHandshakeAsyncOffload(loopExecutor);
+        HandshakeAsyncOffload serverOffload = new TlsHandshakeAsyncOffload(loopExecutor);
+        TlsRecordEngine client = new TlsRecordEngine(clientConfig(), clientOffload);
+        TlsRecordEngine server = new TlsRecordEngine(serverConfig(), serverOffload);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        client.start(clientSink);
+        relay(clientSink, server, serverSink);
+        relay(serverSink, client, clientSink);
+        relay(clientSink, server, serverSink);
+
+        assertNull("client: " + clientSink.events, clientSink.error);
+        assertNull("server: " + serverSink.events, serverSink.error);
+        assertTrue("client must complete: " + clientSink.events, client.isComplete());
+        assertTrue("server must complete: " + serverSink.events, server.isComplete());
     }
 
     @Test

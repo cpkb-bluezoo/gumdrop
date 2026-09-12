@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop;
 
 import org.junit.Test;
 
+import java.net.InetAddress;
+
 import static org.junit.Assert.*;
 
 /**
@@ -65,5 +67,13 @@ public class TCPTransportFactoryTest {
     public void testSessionCacheConfigurationAccessible() throws Exception {
         TCPTransportFactory factory = new TCPTransportFactory();
         assertNotNull(factory);
+    }
+
+    @Test
+    public void tlsServerNameForIpv6LoopbackUsesLocalhost() throws Exception {
+        InetAddress loopback = InetAddress.getByName("::1");
+        assertEquals("localhost", TCPTransportFactory.tlsServerNameFor(loopback, null));
+        assertEquals("localhost", TCPTransportFactory.tlsServerNameFor(null, "::1"));
+        assertEquals("localhost", TCPTransportFactory.tlsServerNameFor(null, "127.0.0.1"));
     }
 }

@@ -3,6 +3,6 @@
     <!-- Raw HTTP server on port 18080 - no content, just 404s -->
     <component id="testHttp" class="org.bluezoo.gumdrop.http.HTTPListener">
         <property name="port">18080</property>
-        <property name="addresses">127.0.0.1</property>
+        <property name="addresses">::1</property>
     </component>
 </gumdrop>

@@ -75,7 +75,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
     public void testSecureServerStartsAndAcceptsConnections() throws Exception {
         assertNotNull("Gumdrop should be running", gumdrop);
         assertTrue("Port " + TEST_PORT + " should be listening", 
-                  isPortListening("127.0.0.1", TEST_PORT));
+                  isPortListening("::1", TEST_PORT));
         
         // Verify server is secure
         BufferTestServer server = getBufferTestServer();
@@ -129,7 +129,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
         server.setMessagePattern(MESSAGE_PATTERN);
         server.clearConnections();
         
-        IntegrationTlsClient.withConnectedEndpoint("127.0.0.1", TEST_PORT, TRUST_ALL, 10000, endpoint -> {
+        IntegrationTlsClient.withConnectedEndpoint("::1", TEST_PORT, TRUST_ALL, 10000, endpoint -> {
             endpoint.send(ByteBuffer.wrap("0123456".getBytes("US-ASCII")));
             pause(100);
             endpoint.send(ByteBuffer.wrap("7890123".getBytes("US-ASCII")));
@@ -197,7 +197,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
      * Sends data to the test server over TLS and closes the connection.
      */
     private void sendSecureDataAndClose(byte[] data) throws Exception {
-        IntegrationTlsClient.sendAndClose("127.0.0.1", TEST_PORT, data, TRUST_ALL, 5000);
+        IntegrationTlsClient.sendAndClose("::1", TEST_PORT, data, TRUST_ALL, 5000);
         pause(100);
     }
 }

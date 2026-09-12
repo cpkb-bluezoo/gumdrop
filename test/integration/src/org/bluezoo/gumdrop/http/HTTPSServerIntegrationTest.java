@@ -52,7 +52,7 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
     public void testHTTPSServerStarts() throws Exception {
         System.out.println("[testHTTPSServerStarts] checking...");
         assertNotNull("Server should be running", gumdrop);
-        assertTrue("Port 18443 should be listening", isPortListening("127.0.0.1", 18443));
+        assertTrue("Port 18443 should be listening", isPortListening("::1", 18443));
         System.out.println("[testHTTPSServerStarts] OK");
     }
     
@@ -64,7 +64,7 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18443, request, true, 10000);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18443, request, true, 10000);
         System.out.println("[testHTTPSGETRequest] got " + response.statusCode);
         
         assertEquals("HTTPS GET should return 404", 404, response.statusCode);
@@ -83,7 +83,7 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
                         "\r\n" +
                         body;
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18443, request, true, 10000);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18443, request, true, 10000);
         System.out.println("[testHTTPSPOSTRequest] got " + response.statusCode);
         
         assertEquals("HTTPS POST should return 404", 404, response.statusCode);
@@ -99,7 +99,7 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
                             "Connection: close\r\n" +
                             "\r\n";
             
-            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18443, request, true, 10000);
+            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18443, request, true, 10000);
             System.out.println("[testMultipleHTTPSRequests] request " + i + " got " + response.statusCode);
             
             assertEquals("HTTPS request " + i + " should return 404", 404, response.statusCode);
@@ -119,7 +119,7 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
                             "\r\n";
             
             HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest(
-                "127.0.0.1", 18443, request, true, 10000);
+                "::1", 18443, request, true, 10000);
             System.out.println("[testConcurrentHTTPSRequests] request " + i + " got " + response.statusCode);
             assertEquals("HTTPS request " + i + " should return 404", 404, response.statusCode);
             Thread.sleep(500);

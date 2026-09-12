@@ -173,6 +173,20 @@ public final class TlsRecordEngine {
         this.engine = new HandshakeEngine(config);
         this.handshakeAsync = new HandshakeAsyncScheduler(offload, handshakeRunner, handshakeFailure);
         this.deferredDispatch = new Tls13DeferredDispatch(handshakeAsync, innerSink);
+        if (offload != null) {
+            handshakeAsync.setOnIdle(new Runnable() {
+                @Override
+                public void run() {
+                    resumeInboundProcessing();
+                }
+            });
+            offload.setIdleListener(new Runnable() {
+                @Override
+                public void run() {
+                    handshakeAsync.notifyIdle();
+                }
+            });
+        }
     }
 
     /**
@@ -248,7 +262,26 @@ public final class TlsRecordEngine {
             if (!dispatchRecord(record.contentType, record.payload, sink)) {
                 return;
             }
+            // Async handshake offload runs on another thread; do not parse
+            // further records from this read until keys/state catch up.
+            // Otherwise TLS 1.3's opaque application_data outer type is
+            // mistaken for real application data while still in the
+            // plaintext epoch (RFC 8446 section 5.2).
+            if (handshakeAsync.isBusy()) {
+                return;
+            }
         }
+    }
+
+    /**
+     * Continues parsing records already sitting in {@link #inbound} after
+     * an async handshake batch finishes on the loop thread.
+     */
+    private void resumeInboundProcessing() {
+        if (failed || inbound.length() == 0 || innerSink.outer == null) {
+            return;
+        }
+        feedCiphertext(new byte[0], 0, 0, innerSink.outer);
     }
 
     /**

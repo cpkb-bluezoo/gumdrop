@@ -74,7 +74,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     private static final int HTTP_PORT = 18090;
     private static final int HTTPS_PORT = 18444;
-    private static final String TEST_HOST = "127.0.0.1";
+    private static final String TEST_HOST = "::1";
     
     /** Timeout for async operations - if not done in 5s, something is wrong. */
     private static final int ASYNC_TIMEOUT_SECONDS = 5;
@@ -208,6 +208,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
     private HTTPClientProtocolHandler createSecureConnectedClient(String host, int port) throws Exception {
         TCPTransportFactory factory = new TCPTransportFactory();
         factory.setSecure(true);
+        factory.setApplicationProtocols("h2", "http/1.1");
         factory.setTrustManager(certManager.createClientTrustManager());
         factory.start();
 

@@ -77,6 +77,9 @@ final class TlsRecordState implements TlsRecordSink {
         /** Called when the TLS connection is closed (e.g., close_notify received). */
         void onClosed();
 
+        /** Called when the TLS stack detects a fatal protocol error. */
+        void onProtocolError(TlsProtocolError error);
+
         /** Returns the remote socket address for logging. */
         Object getRemoteAddress();
     }
@@ -302,6 +305,7 @@ final class TlsRecordState implements TlsRecordSink {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("TLS protocol error from " + callback.getRemoteAddress() + ": " + error);
         }
+        callback.onProtocolError(error);
         handleClosed("protocol-error");
     }
 

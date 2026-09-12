@@ -244,6 +244,8 @@ final class HandshakeMessages {
         List<SignatureScheme> signatureAlgorithms = new ArrayList<SignatureScheme>();
         Map<NamedGroup, byte[]> keyShares = new LinkedHashMap<NamedGroup, byte[]>();
         List<String> alpnProtocols = new ArrayList<String>();
+        /** True when the ClientHello carried an {@code application_layer_protocol_negotiation} extension. */
+        boolean alpnExtensionPresent;
         String serverName;
         byte[] quicTransportParameters;
         boolean supportsTls13;
@@ -333,6 +335,7 @@ final class HandshakeMessages {
                 break;
             }
             case EXT_ALPN: {
+                ch.alpnExtensionPresent = true;
                 WireReader ar = new WireReader(new WireReader(extBody).opaque16());
                 while (ar.hasRemaining()) {
                     ch.alpnProtocols.add(new String(ar.opaque8(), StandardCharsets.US_ASCII));

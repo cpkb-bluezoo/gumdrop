@@ -12,7 +12,7 @@
         <property name="root-directory">test/integration/ftp-server-data</property>
         <property name="read-only">false</property>
         <listener class="org.bluezoo.gumdrop.ftp.FTPListener"
-                  name="ftp" port="18022" addresses="127.0.0.1"
+                  name="ftp" port="18022" addresses="::1"
                   keystore-file="test/integration/certs/ftp-test-keystore.p12"
                   keystore-pass="testpass"/>
     </service>

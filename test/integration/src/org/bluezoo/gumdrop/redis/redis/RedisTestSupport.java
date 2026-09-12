@@ -54,7 +54,7 @@ import java.security.cert.X509Certificate;
  */
 final class RedisTestSupport {
 
-    static final String HOST = System.getProperty("redis.test.host", "127.0.0.1");
+    static final String HOST = System.getProperty("redis.test.host", "::1");
     static final int PORT = Integer.getInteger("redis.test.port", 16379);
     static final int TLS_PORT = Integer.getInteger("redis.test.tls.port", 16380);
     static final String PASSWORD = System.getProperty("redis.test.password", "testpass");

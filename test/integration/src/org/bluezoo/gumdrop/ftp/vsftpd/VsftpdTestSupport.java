@@ -63,7 +63,7 @@ import java.security.cert.X509Certificate;
  */
 final class VsftpdTestSupport {
 
-    static final String HOST = System.getProperty("vsftpd.test.host", "127.0.0.1");
+    static final String HOST = System.getProperty("vsftpd.test.host", "::1");
     static final int PORT = Integer.getInteger("vsftpd.test.port", 12121);
     static final String USERNAME = System.getProperty("vsftpd.test.user", "testuser");
     static final String PASSWORD = System.getProperty("vsftpd.test.password", "testpass");

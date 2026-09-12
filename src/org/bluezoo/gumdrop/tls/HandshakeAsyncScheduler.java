@@ -68,12 +68,28 @@ public final class HandshakeAsyncScheduler {
 
     private boolean pendingStart;
     private List<byte[]> activeBatch;
+    private Runnable onIdle;
 
     public HandshakeAsyncScheduler(HandshakeAsyncOffload offload, Runner runner,
             HandshakeAsyncOffload.FailureHandler onFailure) {
         this.offload = offload;
         this.runner = runner;
         this.onFailure = onFailure;
+    }
+
+    /**
+     * Invoked on the loop thread once all in-flight and queued handshake
+     * batches have finished. Used by record engines to resume parsing bytes
+     * left in their inbound buffer after pausing for async handshake work.
+     */
+    public void setOnIdle(Runnable onIdle) {
+        this.onIdle = onIdle;
+    }
+
+    void notifyIdle() {
+        if (onIdle != null && !isBusy()) {
+            onIdle.run();
+        }
     }
 
     public boolean isEnabled() {

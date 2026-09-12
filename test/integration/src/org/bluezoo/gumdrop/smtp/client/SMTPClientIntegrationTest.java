@@ -70,7 +70,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     private static final int SMTP_PORT = 18025;
     private static final int SMTPS_PORT = 18465;
-    private static final String TEST_HOST = "127.0.0.1";
+    private static final String TEST_HOST = "::1";
     
     /** Timeout for async operations. */
     private static final int ASYNC_TIMEOUT_SECONDS = 5;

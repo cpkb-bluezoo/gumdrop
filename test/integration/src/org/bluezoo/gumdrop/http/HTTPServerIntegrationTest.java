@@ -58,7 +58,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
     public void testServerStartsAndAcceptsConnections() throws Exception {
         // If we got here, the server started successfully
         assertNotNull("Server should be running", gumdrop);
-        assertTrue("Port 18080 should be listening", isPortListening("127.0.0.1", 18080));
+        assertTrue("Port 18080 should be listening", isPortListening("::1", 18080));
     }
     
     @Test
@@ -68,7 +68,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("Should return 404 Not Found", 404, response.statusCode);
         assertTrue("Status line should contain HTTP version", response.statusLine.startsWith("HTTP/1.1"));
@@ -87,7 +87,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "\r\n" +
                         body;
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("POST should also return 404", 404, response.statusCode);
     }
@@ -99,7 +99,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("HEAD should return 404", 404, response.statusCode);
         assertTrue("HEAD response should have no body", response.body.isEmpty() || response.body.trim().isEmpty());
@@ -112,7 +112,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         // OPTIONS * should be handled specially or return 404
         assertTrue("OPTIONS should return success or 404", 
@@ -131,7 +131,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         // OPTIONS for a specific resource that doesn't exist should return 404
         assertEquals("OPTIONS for nonexistent resource should return 404", 404, response.statusCode);
@@ -145,7 +145,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Host: localhost\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("HTTP/1.0 request should work", 404, response.statusCode);
         assertTrue("Should respond with HTTP/1.0", response.statusLine.contains("HTTP/1.0"));
@@ -158,7 +158,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("HTTP/1.1 request should work", 404, response.statusCode);
         assertTrue("Should respond with HTTP/1.1", response.statusLine.contains("HTTP/1.1"));
@@ -171,7 +171,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: keep-alive\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("Keep-alive request should work", 404, response.statusCode);
         // Connection should remain open (but we close it from client side in helper)
@@ -188,7 +188,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "HTTP2-Settings: AAMAAABkAARAAAAAAAIAAAAA\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         // Server should either:
         // 1. Accept upgrade with 101 Switching Protocols, OR
@@ -209,7 +209,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
         String request = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
         
         try {
-            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
             
             // If server supports HTTP/2, it will respond with HTTP/2 frames
             // If not, it should reject with 400 or close connection  
@@ -231,7 +231,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         // Should return 400 Bad Request or 501 Not Implemented
         assertTrue("Invalid method should return error",
@@ -245,7 +245,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "\r\n";
         
         try {
-            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
             
             assertEquals("Malformed request should return 400", 400, response.statusCode);
         } catch (Exception e) {
@@ -260,7 +260,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("Missing Host header should return 400", 400, response.statusCode);
     }
@@ -272,7 +272,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "\r\n";
         
         try {
-            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
             
             // Should return 505 HTTP Version Not Supported or 400
             assertTrue("Invalid HTTP version should return error",
@@ -290,7 +290,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "\r\n";
         
         try {
-            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
             
             assertEquals("Malformed header should return 400", 400, response.statusCode);
         } catch (Exception e) {
@@ -306,7 +306,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "\n";
         
         try {
-            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
             
             // Server should either accept LF or reject with 400
             // Status code 0 means timeout/no response, which is acceptable for malformed request
@@ -331,7 +331,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "\r\n";
         
         try {
-            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
             
             // Should return 414 URI Too Long or 400
             assertTrue("Oversized URI should return error",
@@ -351,7 +351,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                             "Connection: close\r\n" +
                             "\r\n";
             
-            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+            HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
             
             assertEquals("Request " + i + " should return 404", 404, response.statusCode);
         }
@@ -374,7 +374,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                                         "Connection: close\r\n" +
                                         "\r\n";
 
-                        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+                        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
                         results[index] = (response.statusCode == 404);
                     } catch (Exception e) {
                         results[index] = false;
@@ -405,7 +405,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("Should handle User-Agent header", 404, response.statusCode);
     }
@@ -418,7 +418,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("Should handle Accept header", 404, response.statusCode);
     }
@@ -432,7 +432,7 @@ public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
                         "Connection: close\r\n" +
                         "\r\n";
         
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("127.0.0.1", 18080, request);
+        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", 18080, request);
         
         assertEquals("Should handle custom headers", 404, response.statusCode);
     }

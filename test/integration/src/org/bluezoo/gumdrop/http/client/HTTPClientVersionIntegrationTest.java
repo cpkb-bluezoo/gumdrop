@@ -78,7 +78,7 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
 
     private static final int HTTP_PORT = 18090;
     private static final int HTTPS_PORT = 18444;
-    private static final String TEST_HOST = "127.0.0.1";
+    private static final String TEST_HOST = "::1";
 
     /** Timeout for a single async request; anything slower indicates a hang. */
     private static final int ASYNC_TIMEOUT_SECONDS = 5;

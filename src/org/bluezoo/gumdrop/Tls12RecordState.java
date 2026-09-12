@@ -269,6 +269,7 @@ final class Tls12RecordState implements TlsRecordSink {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("TLS protocol error from " + callback.getRemoteAddress() + ": " + error);
         }
+        callback.onProtocolError(error);
         handleClosed("protocol-error");
     }
 

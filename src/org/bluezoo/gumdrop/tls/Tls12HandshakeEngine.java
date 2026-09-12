@@ -685,7 +685,7 @@ final class Tls12HandshakeEngine {
         negotiatedSuite = suite;
 
         negotiatedAlpn = HandshakeEngine.selectFirst(config.getApplicationProtocols(), ch.alpnProtocols);
-        if (!config.getApplicationProtocols().isEmpty() && negotiatedAlpn == null) {
+        if (ch.alpnExtensionPresent && !config.getApplicationProtocols().isEmpty() && negotiatedAlpn == null) {
             fail(sink, AlertDescription.NO_APPLICATION_PROTOCOL, "No mutually acceptable application protocol");
             return;
         }

@@ -208,7 +208,7 @@ public class DTLSIntegrationTest {
 
         ClientHandler clientHandler = new ClientHandler();
         clientEndpoint = clientFactory.connect(
-                InetAddress.getLoopbackAddress(), port, clientHandler);
+                InetAddress.getByName("::1"), port, clientHandler);
 
         assertTrue("DTLS handshake should complete and notify the client",
                 clientHandler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -261,9 +261,9 @@ public class DTLSIntegrationTest {
 
         ClientHandler client1Handler = new ClientHandler();
         ClientHandler client2Handler = new ClientHandler();
-        clientEndpoint = clientFactory1.connect(InetAddress.getLoopbackAddress(), port, client1Handler);
+        clientEndpoint = clientFactory1.connect(InetAddress.getByName("::1"), port, client1Handler);
         UDPEndpoint clientEndpoint2 = clientFactory2.connect(
-                InetAddress.getLoopbackAddress(), port, client2Handler);
+                InetAddress.getByName("::1"), port, client2Handler);
         try {
             assertTrue(client1Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
             assertTrue(client2Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));

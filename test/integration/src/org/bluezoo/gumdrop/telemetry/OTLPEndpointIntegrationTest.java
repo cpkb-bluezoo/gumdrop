@@ -63,7 +63,7 @@ public class OTLPEndpointIntegrationTest {
         // Create test server
         server = new HTTPListener();
         server.setPort(TEST_PORT);
-        server.setAddresses("127.0.0.1");
+        server.setAddresses("::1");
         server.setHandlerFactory(new HTTPRequestHandlerFactory() {
             @Override
             public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
@@ -112,10 +112,10 @@ public class OTLPEndpointIntegrationTest {
                         LOGGER.info("Client disconnected");
                     }
                 },
-                "127.0.0.1", TEST_PORT, false);
+                "::1", TEST_PORT, false);
         endpointHandler.setH2Enabled(false);
 
-        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(endpointHandler);
 
         // Wait for connection to be ready
@@ -196,10 +196,10 @@ public class OTLPEndpointIntegrationTest {
                     @Override
                     public void onDisconnected() {}
                 },
-                "127.0.0.1", TEST_PORT, false);
+                "::1", TEST_PORT, false);
         endpointHandler.setH2Enabled(false);
 
-        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(endpointHandler);
 
         long deadline = System.currentTimeMillis() + 5000;
@@ -238,7 +238,7 @@ public class OTLPEndpointIntegrationTest {
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
             try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress("127.0.0.1", port), 200);
+                socket.connect(new InetSocketAddress("::1", port), 200);
                 Thread.sleep(200);
                 return;
             } catch (Exception e) {

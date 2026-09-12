@@ -159,6 +159,20 @@ public final class Tls12RecordEngine {
         this.engine = new Tls12HandshakeEngine(config);
         this.handshakeAsync = new HandshakeAsyncScheduler(offload, handshakeRunner, handshakeFailure);
         this.deferredDispatch = new Tls12DeferredDispatch(handshakeAsync, innerSink);
+        if (offload != null) {
+            handshakeAsync.setOnIdle(new Runnable() {
+                @Override
+                public void run() {
+                    resumeInboundProcessing();
+                }
+            });
+            offload.setIdleListener(new Runnable() {
+                @Override
+                public void run() {
+                    handshakeAsync.notifyIdle();
+                }
+            });
+        }
     }
 
     /**
@@ -223,7 +237,17 @@ public final class Tls12RecordEngine {
             if (!dispatchRecord(record.contentType, record.payload, sink)) {
                 return;
             }
+            if (handshakeAsync.isBusy()) {
+                return;
+            }
         }
+    }
+
+    private void resumeInboundProcessing() {
+        if (failed || inbound.length() == 0 || innerSink.outer == null) {
+            return;
+        }
+        feedCiphertext(new byte[0], 0, 0, innerSink.outer);
     }
 
     /**

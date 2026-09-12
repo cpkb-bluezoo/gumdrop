@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.Tls12HandshakeConfig;
+import org.bluezoo.gumdrop.tls.TlsProtocolError;
 import org.bluezoo.gumdrop.util.DirectByteBufferPool;
 
 import java.io.IOException;
@@ -1011,6 +1012,11 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     public final void onClosed() {
         handler.disconnected();
         doClose();
+    }
+
+    @Override
+    public final void onProtocolError(TlsProtocolError error) {
+        handler.error(new javax.net.ssl.SSLException(error.toString()));
     }
 
     // -- Timestamps --

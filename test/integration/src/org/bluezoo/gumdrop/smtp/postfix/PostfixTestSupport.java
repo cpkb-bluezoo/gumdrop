@@ -64,7 +64,7 @@ import java.security.cert.X509Certificate;
  */
 final class PostfixTestSupport {
 
-    static final String HOST = System.getProperty("postfix.test.host", "127.0.0.1");
+    static final String HOST = System.getProperty("postfix.test.host", "::1");
     static final int PORT = Integer.getInteger("postfix.test.port", 12525);
     static final String MAILBOX_USER = System.getProperty("postfix.test.user", "testuser");
     static final String MAIL_DOMAIN = System.getProperty("postfix.test.domain", "test.gumdrop.local");

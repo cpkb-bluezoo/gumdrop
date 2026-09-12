@@ -734,7 +734,7 @@
     <sequential>
       <mkdir dir='${test}/integration/results/xml'/>
       <mkdir dir='${test}/integration/results/reports'/>
-      <junit printsummary='yes' haltonfailure='no' fork='yes'
+      <junit printsummary='yes' haltonfailure='yes' haltonerror='yes' fork='yes'
              showoutput='true' logfailedtests='true'>
         <classpath refid='integration.classpath'/>
         <batchtest fork='yes' todir='${test}/integration/results/xml'>

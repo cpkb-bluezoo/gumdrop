@@ -142,7 +142,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         TCPTransportFactory factory = new TCPTransportFactory();
         factory.start();
-        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SMTPClientProtocolHandler(handler));
 
         // Wait for the transaction to complete
@@ -187,7 +187,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         TCPTransportFactory factory = new TCPTransportFactory();
         factory.start();
-        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SMTPClientProtocolHandler(handler));
 
         assertTrue("Transaction should complete within timeout",
@@ -205,7 +205,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         TCPTransportFactory factory = new TCPTransportFactory();
         factory.start();
-        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SMTPClientProtocolHandler(handler));
 
         assertTrue("Transaction should complete within timeout",
@@ -230,7 +230,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         TCPTransportFactory factory = new TCPTransportFactory();
         factory.start();
-        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SMTPClientProtocolHandler(handler));
 
         assertTrue("All transactions should complete within timeout",
@@ -262,7 +262,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
 
         TCPTransportFactory factory = new TCPTransportFactory();
         factory.start();
-        ClientEndpoint client = new ClientEndpoint(factory, "127.0.0.1", TEST_PORT);
+        ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SMTPClientProtocolHandler(handler));
 
         assertTrue("Test should complete within timeout",

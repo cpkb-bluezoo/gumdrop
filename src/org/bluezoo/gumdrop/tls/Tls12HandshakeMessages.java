@@ -177,6 +177,8 @@ final class Tls12HandshakeMessages {
          */
         List<SignatureScheme> signatureAlgorithms = new ArrayList<SignatureScheme>();
         List<String> alpnProtocols = new ArrayList<String>();
+        /** True when the ClientHello carried an {@code application_layer_protocol_negotiation} extension. */
+        boolean alpnExtensionPresent;
         String serverName;
         /** {@code null} if absent; empty if advertised with nothing offered; else an offered ticket. */
         byte[] sessionTicket;
@@ -265,6 +267,7 @@ final class Tls12HandshakeMessages {
                 break;
             }
             case EXT_ALPN: {
+                ch.alpnExtensionPresent = true;
                 WireReader ar = new WireReader(new WireReader(extBody).opaque16());
                 while (ar.hasRemaining()) {
                     ch.alpnProtocols.add(new String(ar.opaque8(), StandardCharsets.US_ASCII));

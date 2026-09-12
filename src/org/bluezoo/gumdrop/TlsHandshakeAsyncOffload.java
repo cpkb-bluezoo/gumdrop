@@ -77,6 +77,8 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
 
     private final Object lock = new Object();
 
+    private Runnable idleListener;
+
     /**
      * @param loopExecutor marshals deferred callbacks onto the owning loop thread
      */
@@ -85,6 +87,11 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
             throw new NullPointerException();
         }
         this.loopExecutor = loopExecutor;
+    }
+
+    @Override
+    public void setIdleListener(Runnable idleListener) {
+        this.idleListener = idleListener;
     }
 
     /**
@@ -171,10 +178,15 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
                 for (Runnable r : callbacks) {
                     r.run();
                 }
+                boolean idle = false;
                 synchronized (lock) {
                     if (!onDone.onBatchDone()) {
                         taskInFlight = false;
+                        idle = true;
                     }
+                }
+                if (idle) {
+                    notifyIdleListener();
                 }
             }
 
@@ -182,10 +194,15 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
             public void failed(Throwable error) {
                 LOGGER.log(Level.SEVERE, "TLS handshake delegated processing failed", error);
                 onFailure.failed(error);
+                boolean idle = false;
                 synchronized (lock) {
                     if (!onDone.onBatchDone()) {
                         taskInFlight = false;
+                        idle = true;
                     }
+                }
+                if (idle) {
+                    notifyIdleListener();
                 }
             }
         };
@@ -203,5 +220,12 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
             return;
         }
         exec.submit(loopExecutor, op, callback);
+    }
+
+    private void notifyIdleListener() {
+        Runnable listener = idleListener;
+        if (listener != null) {
+            listener.run();
+        }
     }
 }

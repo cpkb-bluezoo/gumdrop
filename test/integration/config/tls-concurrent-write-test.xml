@@ -3,7 +3,7 @@
     <!-- TLS Echo server for concurrent write testing -->
     <component id="tlsEchoServer" class="org.bluezoo.gumdrop.buffer.TLSEchoServer">
         <property name="port">19445</property>
-        <property name="addresses">127.0.0.1</property>
+        <property name="addresses">::1</property>
         <property name="secure">true</property>
         <property name="keystore-file">test/integration/certs/test-keystore.p12</property>
         <property name="keystore-pass">testpass</property>

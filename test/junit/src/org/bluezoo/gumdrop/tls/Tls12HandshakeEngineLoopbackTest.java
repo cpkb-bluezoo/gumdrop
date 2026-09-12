@@ -498,6 +498,27 @@ public class Tls12HandshakeEngineLoopbackTest {
         assertNull(client.getNegotiatedApplicationProtocol());
     }
 
+    @Test
+    public void clientWithoutAlpnExtensionCompletesWhenServerHasProtocolsConfigured() throws Exception {
+        Tls12HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setApplicationProtocols(Arrays.asList("h2", "http/1.1"));
+        Tls12HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+
+        Tls12HandshakeEngine client = new Tls12HandshakeEngine(cc);
+        Tls12HandshakeEngine server = new Tls12HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNull(serverSink.error);
+        assertNull(clientSink.error);
+        assertTrue(client.isComplete());
+        assertTrue(server.isComplete());
+        assertNull("RFC 7301: no ALPN when the client omits the extension",
+                server.getNegotiatedApplicationProtocol());
+        assertNull(client.getNegotiatedApplicationProtocol());
+    }
+
     // ---- RFC 5077 session ticket resumption ----
 
     private static byte[] testTicketKey() {

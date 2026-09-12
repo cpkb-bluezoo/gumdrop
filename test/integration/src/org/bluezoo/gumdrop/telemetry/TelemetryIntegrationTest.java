@@ -117,13 +117,13 @@ public class TelemetryIntegrationTest {
         // Create HTTP server with telemetry enabled
         httpServer = new HTTPListener();
         httpServer.setPort(HTTP_PORT);
-        httpServer.setAddresses("127.0.0.1");
+        httpServer.setAddresses("::1");
         httpServer.setTelemetryConfig(telemetryConfig);
 
         // Create SMTP server with telemetry enabled
         smtpServer = new SMTPListener();
         smtpServer.setPort(SMTP_PORT);
-        smtpServer.setAddresses("127.0.0.1");
+        smtpServer.setAddresses("::1");
         smtpServer.setTelemetryConfig(telemetryConfig);
 
         // Start both servers using singleton with lifecycle management
@@ -385,7 +385,7 @@ public class TelemetryIntegrationTest {
     private void waitForPort(int port) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {
-            if (isPortListening("127.0.0.1", port)) {
+            if (isPortListening("::1", port)) {
                 Thread.sleep(200);
                 return;
             }
@@ -448,7 +448,7 @@ public class TelemetryIntegrationTest {
         try {
             socket = new Socket();
             socket.setSoTimeout(5000);
-            socket.connect(new InetSocketAddress("127.0.0.1", HTTP_PORT), 5000);
+            socket.connect(new InetSocketAddress("::1", HTTP_PORT), 5000);
 
             OutputStream out = socket.getOutputStream();
             BufferedReader in = new BufferedReader(
@@ -500,7 +500,7 @@ public class TelemetryIntegrationTest {
         try {
             socket = new Socket();
             socket.setSoTimeout(5000);
-            socket.connect(new InetSocketAddress("127.0.0.1", SMTP_PORT), 5000);
+            socket.connect(new InetSocketAddress("::1", SMTP_PORT), 5000);
 
             BufferedReader in = new BufferedReader(
                     new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
@@ -538,7 +538,7 @@ public class TelemetryIntegrationTest {
         try {
             socket = new Socket();
             socket.setSoTimeout(5000);
-            socket.connect(new InetSocketAddress("127.0.0.1", SMTP_PORT), 5000);
+            socket.connect(new InetSocketAddress("::1", SMTP_PORT), 5000);
 
             BufferedReader in = new BufferedReader(
                     new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));

@@ -226,7 +226,8 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         UDPTransportFactory udpFactory = (UDPTransportFactory) factory;
         Dtls12HandshakeConfig config;
         if (clientMode) {
-            config = udpFactory.buildClientConfig12(peer.getHostString());
+            config = udpFactory.buildClientConfig12(
+                    TCPTransportFactory.tlsServerNameFor(peer.getAddress(), null));
         } else {
             config = udpFactory.getSharedServerConfig();
             if (config == null) {
@@ -252,7 +253,8 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         UDPTransportFactory udpFactory = (UDPTransportFactory) factory;
         Dtls13HandshakeConfig config;
         if (clientMode) {
-            config = udpFactory.buildClientConfig13(peer.getHostString());
+            config = udpFactory.buildClientConfig13(
+                    TCPTransportFactory.tlsServerNameFor(peer.getAddress(), null));
         } else {
             config = udpFactory.getSharedServerConfig13();
             if (config == null) {

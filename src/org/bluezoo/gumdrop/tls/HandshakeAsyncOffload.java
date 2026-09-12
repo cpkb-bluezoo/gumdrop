@@ -36,4 +36,11 @@ public interface HandshakeAsyncOffload {
     void dispatch(Runnable call);
 
     void submit(BatchProcessor processor, CompletionHandler onDone, FailureHandler onFailure);
+
+    /**
+     * Optional hook invoked on the loop thread once a submitted batch and
+     * any follow-up batches it queued are fully complete.
+     */
+    default void setIdleListener(Runnable listener) {
+    }
 }

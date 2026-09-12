@@ -300,6 +300,29 @@ public class HandshakeEngineLoopbackTest {
     }
 
     @Test
+    public void clientWithoutAlpnExtensionCompletesWhenServerHasProtocolsConfigured() throws Exception {
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        HandshakeConfig cc = new HandshakeConfig(HandshakeRole.CLIENT);
+        cc.setServerName(SERVER_NAME);
+        cc.setTrustManager(CertificateVerifier.trustManagerFromCertificates(ecChain));
+        cc.setLocalTransportParameters(new byte[] { 5, 6, 7, 8 });
+
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNull(serverSink.error);
+        assertNull(clientSink.error);
+        assertTrue(client.isComplete());
+        assertTrue(server.isComplete());
+        assertNull("RFC 7301: no ALPN when the client omits the extension",
+                server.getNegotiatedApplicationProtocol());
+        assertNull(client.getNegotiatedApplicationProtocol());
+    }
+
+    @Test
     public void handshakeCompletesWithRsaServerCredentials() throws Exception {
         HandshakeEngine client = new HandshakeEngine(clientConfig(rsaChain, SERVER_NAME));
         HandshakeEngine server = new HandshakeEngine(serverConfig(rsaChain, rsaKey));

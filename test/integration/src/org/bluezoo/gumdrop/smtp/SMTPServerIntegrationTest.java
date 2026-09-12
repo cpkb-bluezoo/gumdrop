@@ -74,12 +74,12 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     @Test
     public void testServerStartsAndAcceptsConnections() throws Exception {
         assertNotNull("Server should be running", gumdrop);
-        assertTrue("Port " + TEST_PORT + " should be listening", isPortListening("127.0.0.1", TEST_PORT));
+        assertTrue("Port " + TEST_PORT + " should be listening", isPortListening("::1", TEST_PORT));
     }
     
     @Test
     public void testSMTPGreeting() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse greeting = session.getLastResponse();
             
             assertEquals("Greeting should be 220", 220, greeting.code);
@@ -90,7 +90,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testHELOCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("HELO test.example.com");
             
             assertEquals("HELO should return 250", 250, response.code);
@@ -100,7 +100,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testEHLOCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("EHLO test.example.com");
             
             assertEquals("EHLO should return 250", 250, response.code);
@@ -115,7 +115,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testMAILFROMCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             
             SMTPClientHelper.SMTPResponse response = session.sendCommand("MAIL FROM:<sender@example.com>");
@@ -126,7 +126,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testRCPTTOCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             session.sendCommand("MAIL FROM:<sender@example.com>");
             
@@ -138,7 +138,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testMultipleRecipients() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             session.sendCommand("MAIL FROM:<sender@example.com>");
             
@@ -155,7 +155,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testDATACommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             session.sendCommand("MAIL FROM:<sender@example.com>");
             session.sendCommand("RCPT TO:<recipient@example.com>");
@@ -169,7 +169,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     @Test
     public void testCompleteEmailTransaction() throws Exception {
         SMTPClientHelper.SMTPResponse response = SMTPClientHelper.sendEmail(
-            "127.0.0.1", TEST_PORT,
+            "::1", TEST_PORT,
             "sender@example.com",
             "recipient@example.com",
             "Test Subject",
@@ -185,7 +185,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testDotStuffing() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             session.sendCommand("MAIL FROM:<sender@example.com>");
             session.sendCommand("RCPT TO:<recipient@example.com>");
@@ -209,7 +209,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testRSETCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             session.sendCommand("MAIL FROM:<sender@example.com>");
             session.sendCommand("RCPT TO:<recipient@example.com>");
@@ -226,7 +226,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testNOOPCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("NOOP");
             
             assertEquals("NOOP should return 250", 250, response.code);
@@ -235,7 +235,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testHELPCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("HELP");
             
             assertEquals("HELP should return 214", 214, response.code);
@@ -244,7 +244,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testVRFYCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("VRFY user@example.com");
             
             assertEquals("VRFY should return 252 (cannot verify)", 252, response.code);
@@ -253,7 +253,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testEXPNCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("EXPN list@example.com");
             
             assertEquals("EXPN should return 502 (not implemented)", 502, response.code);
@@ -264,7 +264,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testUnknownCommand() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("INVALID");
             
             assertEquals("Unknown command should return 500", 500, response.code);
@@ -273,7 +273,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testMAILWithoutHELO() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("MAIL FROM:<sender@example.com>");
             
             assertEquals("MAIL without HELO should return 503", 503, response.code);
@@ -282,7 +282,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testRCPTWithoutMAIL() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             
             SMTPClientHelper.SMTPResponse response = session.sendCommand("RCPT TO:<recipient@example.com>");
@@ -293,7 +293,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testDATAWithoutRCPT() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             session.sendCommand("MAIL FROM:<sender@example.com>");
             
@@ -305,7 +305,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testInvalidMAILSyntax() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             
             SMTPClientHelper.SMTPResponse response = session.sendCommand("MAIL sender@example.com");
@@ -316,7 +316,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testInvalidRCPTSyntax() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             session.sendCommand("MAIL FROM:<sender@example.com>");
             
@@ -328,7 +328,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testEmptyHELO() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("HELO");
             
             assertEquals("Empty HELO should return 501", 501, response.code);
@@ -337,7 +337,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testEmptyEHLO() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             SMTPClientHelper.SMTPResponse response = session.sendCommand("EHLO");
             
             assertEquals("Empty EHLO should return 501", 501, response.code);
@@ -348,7 +348,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testMultipleTransactions() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             
             // First transaction
@@ -373,7 +373,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testMailFromWithBrackets() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             
             SMTPClientHelper.SMTPResponse response = session.sendCommand("MAIL FROM:<sender@example.com>");
@@ -383,7 +383,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testRcptToWithBrackets() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             session.sendCommand("MAIL FROM:<sender@example.com>");
             
@@ -394,7 +394,7 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Test
     public void testNullSender() throws Exception {
-        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("127.0.0.1", TEST_PORT)) {
+        try (SMTPClientHelper.SMTPSession session = SMTPClientHelper.connect("::1", TEST_PORT)) {
             session.sendCommand("EHLO test.example.com");
             
             // Null sender (bounce address) is valid in SMTP

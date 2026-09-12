@@ -8,6 +8,7 @@ package org.bluezoo.gumdrop;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
 import java.io.ByteArrayOutputStream;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -139,14 +140,17 @@ public final class IntegrationTlsClient {
             throws Exception {
         TCPTransportFactory factory = new TCPTransportFactory();
         factory.setSecure(true);
+        factory.setApplicationProtocols("http/1.1");
         factory.setTrustManager(trustManager != null ? trustManager : new EmptyX509TrustManager());
         factory.start();
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<Exception>();
+        java.util.concurrent.atomic.AtomicBoolean tlsEstablished = new java.util.concurrent.atomic.AtomicBoolean();
         ByteArrayOutputStream inbound = new ByteArrayOutputStream();
 
-        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
+        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(),
+                InetAddress.getByName(host), port);
         client.connect(new ProtocolHandler() {
             private Endpoint endpoint;
 
@@ -157,6 +161,7 @@ public final class IntegrationTlsClient {
 
             @Override
             public void securityEstablished(SecurityInfo info) {
+                tlsEstablished.set(true);
                 try {
                     session.onReady(endpoint);
                     if (session.closeAfterReady()) {
@@ -180,6 +185,10 @@ public final class IntegrationTlsClient {
 
             @Override
             public void disconnected() {
+                if (!tlsEstablished.get() && error.get() == null) {
+                    error.set(new java.io.IOException(
+                            "Connection closed before TLS handshake completed"));
+                }
                 doneLatch.countDown();
             }
 

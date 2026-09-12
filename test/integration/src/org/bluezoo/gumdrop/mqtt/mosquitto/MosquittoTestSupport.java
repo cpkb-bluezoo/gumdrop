@@ -55,7 +55,7 @@ import java.security.cert.X509Certificate;
  */
 final class MosquittoTestSupport {
 
-    static final String HOST = System.getProperty("mqtt.test.host", "127.0.0.1");
+    static final String HOST = System.getProperty("mqtt.test.host", "::1");
     static final int PORT = Integer.getInteger("mqtt.test.port", 11883);
     static final int TLS_PORT = Integer.getInteger("mqtt.test.tls.port", 18883);
     static final String USERNAME = System.getProperty("mqtt.test.user", "mqttuser");
