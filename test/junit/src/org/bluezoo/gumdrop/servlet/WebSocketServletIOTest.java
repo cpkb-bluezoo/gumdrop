@@ -22,6 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.http.HttpUpgradeHandler;
@@ -155,6 +156,33 @@ public class WebSocketServletIOTest {
         assertTrue("read should complete after message arrives",
                 done.await(2, TimeUnit.SECONDS));
         assertEquals('z', readByte.get());
+    }
+
+    @Test
+    public void testUpgradeHandlerInitMarshalledToWorkerThread() throws Exception {
+        TrackingState state = new TrackingState();
+        ServletService service = new ServletService();
+        StubServletHandler handler = new StubServletHandler(service, state);
+        final CountDownLatch initDone = new CountDownLatch(1);
+        final AtomicReference<String> initThread = new AtomicReference<String>();
+        final String callingThread = Thread.currentThread().getName();
+        HttpUpgradeHandler upgradeHandler = new HttpUpgradeHandler() {
+            @Override
+            public void init(WebConnection wc) {
+                initThread.set(Thread.currentThread().getName());
+                initDone.countDown();
+            }
+            @Override
+            public void destroy() { }
+        };
+        ServletWebConnection connection =
+                new ServletWebConnection(upgradeHandler, state, handler);
+
+        connection.getEventHandler().opened(new StubWebSocketSession());
+
+        assertTrue(initDone.await(2, TimeUnit.SECONDS));
+        assertNotEquals(callingThread, initThread.get());
+        assertTrue(initThread.get().startsWith("servlet-worker-"));
     }
 
     @Test

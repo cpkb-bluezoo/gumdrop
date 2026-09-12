@@ -263,6 +263,14 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         }
     }
 
+    /**
+     * Dispatches a task to the servlet worker pool. Called from the
+     * connection's I/O thread.
+     */
+    void dispatchWorkerTask(Runnable task, Runnable onRejected) {
+        service.executeWorker(task, onRejected);
+    }
+
     boolean isResponseWritable() {
         return state == null
                 || state.pendingResponseBytes() <= PENDING_RESPONSE_HIGH_WATERMARK;

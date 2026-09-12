@@ -45,7 +45,9 @@ import java.util.logging.Logger;
  * {@link RequestBodyStream} (replacing a pipe that could block the
  * SelectorLoop thread when the servlet read side was slow). Backpressure
  * is applied via {@link HTTPResponseState#pauseRequestBody()} when the
- * buffer reaches its high-water mark.
+ * buffer reaches its high-water mark. {@link HttpUpgradeHandler#init} is
+ * dispatched to the servlet worker pool so handler setup never blocks the
+ * SelectorLoop thread.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -191,7 +193,7 @@ class ServletWebConnection implements WebConnection {
         @Override
         public void opened(WebSocketSession session) {
             sessionOpened(session);
-            upgradeHandler.init(ServletWebConnection.this);
+            dispatchUpgradeInit();
         }
 
         @Override
@@ -245,6 +247,55 @@ class ServletWebConnection implements WebConnection {
             state.pauseRequestBody();
         }
         inputStream.dispatchDataAvailable();
+    }
+
+    private void dispatchUpgradeInit() {
+        Runnable initTask = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    upgradeHandler.init(ServletWebConnection.this);
+                } catch (Exception e) {
+                    handleUpgradeInitFailure(e);
+                }
+            }
+        };
+        Runnable onRejected = new Runnable() {
+            @Override
+            public void run() {
+                LOGGER.log(Level.WARNING,
+                        "Worker pool saturated; closing WebSocket upgrade");
+                try {
+                    close();
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, "Error closing rejected upgrade", e);
+                }
+            }
+        };
+        if (handler != null) {
+            handler.dispatchWorkerTask(initTask, onRejected);
+        } else {
+            initTask.run();
+        }
+    }
+
+    private void handleUpgradeInitFailure(final Exception e) {
+        LOGGER.log(Level.WARNING, "Error initializing upgrade handler", e);
+        Runnable closeTask = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    close();
+                } catch (IOException ioe) {
+                    LOGGER.log(Level.FINE, "Error closing after upgrade init failure", ioe);
+                }
+            }
+        };
+        if (state != null) {
+            state.execute(closeTask);
+        } else {
+            closeTask.run();
+        }
     }
 
 }

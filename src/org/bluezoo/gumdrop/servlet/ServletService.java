@@ -372,17 +372,34 @@ public final class ServletService extends HTTPService {
     void serviceRequest(ServletHandler servletHandler) {
         RequestHandler handler =
                 new RequestHandler(servletHandler, this);
+        executeWorker(handler, new Runnable() {
+            @Override
+            public void run() {
+                servletHandler.serviceUnavailable();
+            }
+        });
+    }
+
+    /**
+     * Dispatches a task to the servlet worker pool.
+     *
+     * <p>Called from the connection's I/O thread. If the pool is saturated,
+     * {@code onRejected} runs synchronously on the calling thread.
+     */
+    void executeWorker(Runnable task, Runnable onRejected) {
         try {
-            workerThreadPool.execute(handler);
+            workerThreadPool.execute(task);
         } catch (RejectedExecutionException e) {
             if (Context.LOGGER.isLoggable(Level.WARNING)) {
                 Context.LOGGER.warning(
                         "Worker pool saturated (active="
                         + workerThreadPool.getActiveCount()
                         + ", queued=" + workerThreadPool.getQueue().size()
-                        + "); rejecting request with 503");
+                        + "); rejecting worker task");
             }
-            servletHandler.serviceUnavailable();
+            if (onRejected != null) {
+                onRejected.run();
+            }
         }
     }
 
