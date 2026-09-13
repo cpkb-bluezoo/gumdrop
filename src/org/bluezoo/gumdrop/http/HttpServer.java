@@ -206,15 +206,23 @@ public abstract class HttpServer implements Server {
     // ── Application logic hooks ──
 
     /**
-     * Returns the handler factory that creates
+     * Returns the request router that creates
      * {@link HttpRequestHandler} instances for each request stream.
      *
      * <p>Called during {@link #start()} to wire each listener.
-     * Subclasses must provide their own factory.
+     * Subclasses must provide their router.
      *
-     * @return the handler factory, never null after initialisation
+     * @return the request router, never null after initialisation
      */
-    protected abstract HttpRequestHandlerFactory getHandlerFactory();
+    protected abstract HttpRequestRouter getRequestRouter();
+
+    /**
+     * @deprecated use {@link #getRequestRouter()}.
+     */
+    @Deprecated
+    protected final HttpRequestHandlerFactory getHandlerFactory() {
+        return HttpRequestHandlers.toFactory(getRequestRouter());
+    }
 
     /**
      * Returns the authentication provider for this server, or null
@@ -267,7 +275,7 @@ public abstract class HttpServer implements Server {
     public void start() {
         initService();
 
-        HttpRequestHandlerFactory factory = getHandlerFactory();
+        HttpRequestRouter router = getRequestRouter();
         HttpAuthenticationProvider authProvider =
                 getAuthenticationProvider();
         if (authProvider == null && realm != null) {
@@ -277,7 +285,7 @@ public abstract class HttpServer implements Server {
 
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
-            wireListener(listener, factory, authProvider, altSvc);
+            wireListener(listener, router, authProvider, altSvc);
             startListener(listener);
         }
     }
@@ -301,12 +309,12 @@ public abstract class HttpServer implements Server {
      * authentication provider, and Alt-Svc header.
      */
     private void wireListener(Object listener,
-                              HttpRequestHandlerFactory factory,
+                              HttpRequestRouter router,
                               HttpAuthenticationProvider authProvider,
                               String altSvc) {
         if (listener instanceof HttpListener) {
             HttpListener tcp = (HttpListener) listener;
-            tcp.setHandlerFactory(factory);
+            tcp.setRequestRouter(router);
             tcp.setAuthenticationProvider(authProvider);
             tcp.setAddSecurityHeaders(addSecurityHeaders);
             if (altSvc != null) {
@@ -314,7 +322,7 @@ public abstract class HttpServer implements Server {
             }
         } else if (listener instanceof Http3Listener) {
             Http3Listener quic = (Http3Listener) listener;
-            quic.setHandlerFactory(factory);
+            quic.setRequestRouter(router);
             quic.setAuthenticationProvider(authProvider);
             quic.setAddSecurityHeaders(addSecurityHeaders);
         }

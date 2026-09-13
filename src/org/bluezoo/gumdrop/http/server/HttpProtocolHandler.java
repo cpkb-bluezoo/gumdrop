@@ -232,7 +232,7 @@ public  class HttpProtocolHandler
     private long rstStreamWindowStartMs;
 
     private HttpAuthenticationProvider authenticationProvider;
-    private HttpRequestHandlerFactory handlerFactory;
+    private HttpRequestRouter requestRouter;
 
     HttpVersion version = HttpVersion.HTTP_1_0;
 
@@ -410,7 +410,7 @@ public  class HttpProtocolHandler
         this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH);
         ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
         this.authenticationProvider = server.getAuthenticationProvider();
-        this.handlerFactory = server.getHandlerFactory();
+        this.requestRouter = server.getRequestRouter();
     }
 
     /**
@@ -420,11 +420,17 @@ public  class HttpProtocolHandler
         this.authenticationProvider = provider;
     }
 
+    public void setRequestRouter(HttpRequestRouter router) {
+        this.requestRouter = router;
+    }
+
     /**
-     * Sets the handler factory.
+     * @deprecated use {@link #setRequestRouter(HttpRequestRouter)}.
      */
+    @Deprecated
     public void setHandlerFactory(HttpRequestHandlerFactory factory) {
-        this.handlerFactory = factory;
+        this.requestRouter = factory != null
+                ? HttpRequestHandlers.fromFactory(factory) : null;
     }
 
     // ── ProtocolHandler implementation ──
@@ -777,8 +783,16 @@ public  class HttpProtocolHandler
     }
 
     @Override
+    public HttpRequestRouter getRequestRouter() {
+        return requestRouter;
+    }
+
+    /**
+     * @deprecated use {@link #getRequestRouter()}.
+     */
+    @Deprecated
     public HttpRequestHandlerFactory getHandlerFactory() {
-        return handlerFactory;
+        return HttpRequestHandlers.toFactory(requestRouter);
     }
 
     @Override
@@ -1676,8 +1690,8 @@ public  class HttpProtocolHandler
 
     private String getAllowedMethods() {
         Set<String> methods;
-        if (handlerFactory != null && handlerFactory.getSupportedMethods() != null) {
-            methods = handlerFactory.getSupportedMethods();
+        if (requestRouter != null && requestRouter.getSupportedMethods() != null) {
+            methods = requestRouter.getSupportedMethods();
         } else {
             methods = DEFAULT_METHODS;
         }
@@ -1696,8 +1710,8 @@ public  class HttpProtocolHandler
 
     // RFC 9110 section 15.6.2: 501 Not Implemented if method not recognised
     private boolean isMethodSupported(String method) {
-        if (handlerFactory != null) {
-            Set<String> customMethods = handlerFactory.getSupportedMethods();
+        if (requestRouter != null) {
+            Set<String> customMethods = requestRouter.getSupportedMethods();
             if (customMethods != null) {
                 return customMethods.contains(method);
             }

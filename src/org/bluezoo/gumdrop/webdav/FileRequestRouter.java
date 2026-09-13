@@ -1,45 +1,26 @@
 /*
- * FileHandlerFactory.java
+ * FileRequestRouter.java
  * Copyright (C) 2025, 2026 Chris Burdess
- *
- * This file is part of gumdrop, a multipurpose Java server.
- * For more information please visit https://www.nongnu.org/gumdrop/
- *
- * gumdrop is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * gumdrop is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.webdav;
 
-import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
 
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Factory for creating file request handlers.
- *
- * <p>When WebDAV is enabled, the factory provides RFC 4918 distributed authoring
- * support including PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, and UNLOCK methods.
+ * Routes static file and optional WebDAV requests to {@link FileHandler}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-public class FileHandlerFactory implements HttpRequestHandlerFactory {
+public final class FileRequestRouter implements HttpRequestRouter {
 
     private final Path rootPath;
     private final boolean allowWrite;
@@ -51,24 +32,23 @@ public class FileHandlerFactory implements HttpRequestHandlerFactory {
     private final WebdavLockManager lockManager;
     private final DeadPropertyStore deadPropertyStore;
 
-    FileHandlerFactory(Path rootPath, boolean allowWrite,
-                       String welcomeFile) {
+    public FileRequestRouter(Path rootPath, boolean allowWrite,
+                      String welcomeFile) {
         this(rootPath, allowWrite, welcomeFile, false, null);
     }
 
-    FileHandlerFactory(Path rootPath, boolean allowWrite,
-                       String welcomeFile, boolean webdavEnabled) {
+    public FileRequestRouter(Path rootPath, boolean allowWrite,
+                      String welcomeFile, boolean webdavEnabled) {
         this(rootPath, allowWrite, welcomeFile, webdavEnabled, null);
     }
 
-    public FileHandlerFactory(Path rootPath, boolean allowWrite,
-                       String welcomeFile, boolean webdavEnabled,
-                       DeadPropertyStore deadPropertyStore) {
+    public FileRequestRouter(Path rootPath, boolean allowWrite,
+                      String welcomeFile, boolean webdavEnabled,
+                      DeadPropertyStore deadPropertyStore) {
         this.rootPath = rootPath;
         this.allowWrite = allowWrite;
         this.webdavEnabled = webdavEnabled;
-        
-        // Build allowed options based on capabilities
+
         if (webdavEnabled && allowWrite) {
             this.allowedOptions = "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK";
         } else if (webdavEnabled) {
@@ -78,8 +58,7 @@ public class FileHandlerFactory implements HttpRequestHandlerFactory {
         } else {
             this.allowedOptions = "OPTIONS, GET, HEAD";
         }
-        
-        // Parse comma-separated welcome file list
+
         if (welcomeFile != null && !welcomeFile.trim().isEmpty()) {
             int fileCount = 1;
             for (int i = 0; i < welcomeFile.length(); i++) {
@@ -102,8 +81,7 @@ public class FileHandlerFactory implements HttpRequestHandlerFactory {
         } else {
             welcomeFiles = new String[]{"index.html"};
         }
-        
-        // Initialize content types for WebDAV
+
         this.contentTypes = new HashMap<String, String>();
         contentTypes.put("html", "text/html");
         contentTypes.put("htm", "text/html");
@@ -124,15 +102,14 @@ public class FileHandlerFactory implements HttpRequestHandlerFactory {
         contentTypes.put("mp3", "audio/mpeg");
         contentTypes.put("mp4", "video/mp4");
         contentTypes.put("webm", "video/webm");
-        
+
         this.lockManager = webdavEnabled
                 ? new WebdavLockManager() : null;
         this.deadPropertyStore = deadPropertyStore;
     }
 
     @Override
-    public HttpRequestHandler createHandler(
-            HttpResponseState state, Headers headers) {
+    public HttpRequestHandler route(HttpResponseState state, Headers headers) {
         return new FileHandler(rootPath, allowWrite, webdavEnabled,
                 allowedOptions, welcomeFiles, contentTypes,
                 lockManager, deadPropertyStore);

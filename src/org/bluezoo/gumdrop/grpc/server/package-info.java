@@ -27,7 +27,7 @@
  * org.bluezoo.gumdrop.grpc.server.GrpcHandler} (an {@link
  * org.bluezoo.gumdrop.http.DefaultHttpRequestHandler}, the same base
  * class an HTTP/1.1, HTTP/2, or HTTP/3 request handler would extend)
- * per call via a {@link org.bluezoo.gumdrop.grpc.server.GrpcHandlerFactory},
+ * per call via a {@link org.bluezoo.gumdrop.grpc.server.GrpcRequestHandler},
  * so gRPC's message framing and deframing ({@link
  * org.bluezoo.gumdrop.grpc}) sits directly on top of ordinary HTTP
  * request/response handling rather than a separate connection type.

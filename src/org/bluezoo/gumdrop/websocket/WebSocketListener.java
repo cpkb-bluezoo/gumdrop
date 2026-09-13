@@ -30,7 +30,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpListener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
@@ -128,7 +128,8 @@ public class WebSocketListener extends HttpListener {
         if (deflateEnabled) {
             supportedExtensions.add(new PerMessageDeflateExtension());
         }
-        setHandlerFactory(new UpgradeHandlerFactory());
+        setRequestRouter(HttpRequestHandlers.perRequest(
+                () -> new UpgradeHandler()));
         super.start();
         if (isMetricsEnabled()) {
             wsMetrics = new WebSocketServerMetrics(getTelemetryConfig());
@@ -136,21 +137,6 @@ public class WebSocketListener extends HttpListener {
     }
 
     // ── Internal HTTP upgrade machinery ──
-
-    /**
-     * Handler factory that creates upgrade handlers for each incoming
-     * HTTP request. All HTTP concepts are confined to this class and
-     * its inner handler.
-     */
-    private class UpgradeHandlerFactory
-            implements HttpRequestHandlerFactory {
-
-        @Override
-        public HttpRequestHandler createHandler(HttpResponseState state,
-                                                Headers headers) {
-            return new UpgradeHandler();
-        }
-    }
 
     /**
      * RFC 6455 §4.2 — HTTP request handler that validates the WebSocket

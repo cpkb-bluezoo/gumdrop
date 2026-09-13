@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
@@ -97,7 +97,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     private final QuicConnection quicConnection;
-    private final HttpRequestHandlerFactory handlerFactory;
+    private final HttpRequestRouter requestRouter;
     private final HttpAuthenticationProvider authenticationProvider;
     private final HttpServerMetrics metrics;
     private final TelemetryConfig telemetryConfig;
@@ -158,20 +158,20 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
      * QUIC connection.
      *
      * @param quicConnection the underlying QUIC connection
-     * @param handlerFactory factory for creating request handlers
+     * @param requestRouter router for creating request handlers
      * @param authProvider authentication provider (may be null)
      * @param metrics server metrics (may be null)
      * @param telemetryConfig telemetry configuration (may be null)
      * @param addSecurityHeaders whether to add default security headers
      */
     public Http3ServerHandler(QuicConnection quicConnection,
-                              HttpRequestHandlerFactory handlerFactory,
+                              HttpRequestRouter requestRouter,
                               HttpAuthenticationProvider authProvider,
                               HttpServerMetrics metrics,
                               TelemetryConfig telemetryConfig,
                               boolean addSecurityHeaders) {
         this.quicConnection = quicConnection;
-        this.handlerFactory = handlerFactory;
+        this.requestRouter = requestRouter;
         this.authenticationProvider = authProvider;
         this.metrics = metrics;
         this.telemetryConfig = telemetryConfig;
@@ -600,10 +600,10 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
      * @return the created handler, or null
      */
     HttpRequestHandler createHandler(H3Stream stream, Headers headers) {
-        if (handlerFactory == null) {
+        if (requestRouter == null) {
             return null;
         }
-        return handlerFactory.createHandler(stream, headers);
+        return requestRouter.route(stream, headers);
     }
 
     /**

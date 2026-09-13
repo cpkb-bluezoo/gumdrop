@@ -170,8 +170,9 @@ HttpServer routed = HttpServer.builder()
         .build();
 ```
 
-Legacy `HttpRequestHandlerFactory` code can bridge via
-`HttpRequestHandlers.fromFactory(factory)`.
+Legacy {@link HttpRequestHandlerFactory} implementations can migrate with
+{@link HttpRequestHandlers#fromFactory(HttpRequestHandlerFactory)}; new code
+should implement {@link HttpRequestRouter} directly.
 
 ---
 

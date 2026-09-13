@@ -28,7 +28,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
@@ -127,7 +127,8 @@ public class Http3WebSocketListener extends Http3Listener {
         if (deflateEnabled) {
             supportedExtensions.add(new PerMessageDeflateExtension());
         }
-        setHandlerFactory(new ExtendedConnectHandlerFactory());
+        setRequestRouter(HttpRequestHandlers.perRequest(
+                () -> new ExtendedConnectUpgradeHandler()));
         super.start();
         if (isMetricsEnabled()) {
             wsMetrics = new WebSocketServerMetrics(getTelemetryConfig());
@@ -137,27 +138,13 @@ public class Http3WebSocketListener extends Http3Listener {
     @Override
     public void connectionAccepted(QuicConnection connection) {
         Http3ServerHandler handler = new Http3ServerHandler(
-                connection, getHandlerFactory(),
+                connection, getRequestRouter(),
                 getAuthenticationProvider(), getMetrics(),
                 getTelemetryConfig(), getAddSecurityHeaders());
         handler.setWebSocketMetrics(wsMetrics);
     }
 
     // ── Internal Extended CONNECT upgrade machinery ──
-
-    /**
-     * Handler factory that creates upgrade handlers for each incoming
-     * HTTP/3 request.
-     */
-    private class ExtendedConnectHandlerFactory
-            implements HttpRequestHandlerFactory {
-
-        @Override
-        public HttpRequestHandler createHandler(HttpResponseState state,
-                                                Headers headers) {
-            return new ExtendedConnectUpgradeHandler();
-        }
-    }
 
     /**
      * RFC 9220 section 3 — HTTP/3 request handler that detects Extended

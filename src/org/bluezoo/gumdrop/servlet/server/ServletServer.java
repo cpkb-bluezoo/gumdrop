@@ -24,10 +24,7 @@ package org.bluezoo.gumdrop.servlet.server;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.servlet.Container;
 import org.bluezoo.gumdrop.servlet.Context;
 import org.bluezoo.gumdrop.servlet.jndi.Resource;
@@ -145,15 +142,8 @@ public class ServletServer extends HttpServer {
     }
 
     @Override
-    protected HttpRequestHandlerFactory getHandlerFactory() {
-        final ServletRequestHandler router = requestHandler;
-        return new HttpRequestHandlerFactory() {
-            @Override
-            public HttpRequestHandler createHandler(HttpResponseState state,
-                                                    Headers headers) {
-                return router.route(state, headers);
-            }
-        };
+    protected HttpRequestRouter getRequestRouter() {
+        return requestHandler;
     }
 
     @Override

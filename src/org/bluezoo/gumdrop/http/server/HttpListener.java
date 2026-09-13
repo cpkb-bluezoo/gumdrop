@@ -90,7 +90,7 @@ public class HttpListener extends TcpListener {
      * Handler factory for creating request handlers.
      * If null, the default 404 behaviour is used.
      */
-    private HttpRequestHandlerFactory handlerFactory;
+    private HttpRequestRouter requestRouter;
 
     /**
      * Alt-Svc header value to inject into responses, or null.
@@ -291,16 +291,31 @@ public class HttpListener extends TcpListener {
     }
 
     /**
-     * Sets the handler factory for this endpoint.
+     * Sets the request router for this endpoint.
      *
-     * <p>The factory is called once per HTTP stream when the initial
+     * <p>The router is called once per HTTP stream when the initial
      * request headers are received.
      *
-     * @param factory the handler factory, or null for default 404
-     * @see HttpRequestHandlerFactory
+     * @param router the request router, or null for default 404
      */
+    public void setRequestRouter(HttpRequestRouter router) {
+        this.requestRouter = router;
+    }
+
+    /**
+     * Returns the request router for this endpoint.
+     */
+    public HttpRequestRouter getRequestRouter() {
+        return requestRouter;
+    }
+
+    /**
+     * @deprecated use {@link #setRequestRouter(HttpRequestRouter)}.
+     */
+    @Deprecated
     public void setHandlerFactory(HttpRequestHandlerFactory factory) {
-        this.handlerFactory = factory;
+        this.requestRouter = factory != null
+                ? HttpRequestHandlers.fromFactory(factory) : null;
     }
 
     /**
@@ -319,12 +334,11 @@ public class HttpListener extends TcpListener {
     }
 
     /**
-     * Returns the handler factory for this endpoint.
-     *
-     * @return the handler factory, or null if not configured
+     * @deprecated use {@link #getRequestRouter()}.
      */
+    @Deprecated
     public HttpRequestHandlerFactory getHandlerFactory() {
-        return handlerFactory;
+        return HttpRequestHandlers.toFactory(requestRouter);
     }
 
     /**

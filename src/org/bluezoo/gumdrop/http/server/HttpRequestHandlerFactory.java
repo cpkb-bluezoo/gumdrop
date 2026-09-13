@@ -28,70 +28,15 @@ import java.util.Set;
 /**
  * Factory for creating {@link HttpRequestHandler} instances.
  *
- * <p>Provided by an {@link org.bluezoo.gumdrop.http.HttpServer} and wired to its listeners.
- * The factory is called once per stream (request) when the initial headers
- * are received.
- *
- * <h2>Routing</h2>
- *
- * <p>The factory receives the request headers, allowing routing decisions
- * based on {@code :method}, {@code :path}, {@code :authority}, etc.:
- *
- * <pre>{@code
- * public class MyFactory implements HttpRequestHandlerFactory {
- *     
- *     public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
- *         String path = headers.getValue(":path");
- *         
- *         if (path.startsWith("/api/")) {
- *             return new ApiHandler();
- *         } else if (path.startsWith("/static/")) {
- *             return new StaticFileHandler(documentRoot);
- *         } else {
- *             return new DefaultHandler();
- *         }
- *     }
- * }
- * }</pre>
- *
- * <h2>Authentication</h2>
- *
- * <p>If a {@link org.bluezoo.gumdrop.auth.Realm} is configured on the server,
- * authentication is performed automatically before the factory is called.
- * The authenticated principal is available via
- * {@link HttpResponseState#getPrincipal()}.
- *
- * <p>If no Realm is configured, the factory or handler is responsible for
- * authentication. The factory can reject unauthenticated requests:
- *
- * <pre>{@code
- * public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
- *     String auth = headers.getValue("authorization");
- *     if (!isValidAuth(auth)) {
- *         // Send 401 and return null
- *         Headers response = new Headers();
- *         response.add(":status", "401");
- *         response.add("www-authenticate", "Bearer");
- *         state.headers(response);
- *         state.complete();
- *         return null;
- *     }
- *     return new MyHandler();
- * }
- * }</pre>
- *
- * <h2>Returning null</h2>
- *
- * <p>If the factory returns null:
- * <ul>
- *   <li>If a response was sent via the state, that response is used</li>
- *   <li>If no response was sent, a 404 Not Found is sent automatically</li>
- * </ul>
+ * @deprecated Replaced by {@link HttpRequestRouter}. Use
+ *             {@link HttpRequestHandlers#fromFactory(HttpRequestHandlerFactory)}
+ *             only for legacy migration.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HttpRequestHandler
- * @see HttpListener#setHandlerFactory
+ * @see HttpListener#setRequestRouter
  */
+@Deprecated
 public interface HttpRequestHandlerFactory {
 
     /**

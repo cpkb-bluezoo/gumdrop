@@ -22,10 +22,7 @@
 package org.bluezoo.gumdrop.webdav.server;
 
 import org.bluezoo.gumdrop.http.HttpServer;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.server.HttpResponseState;
-import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -166,15 +163,8 @@ public class WebdavServer extends HttpServer {
     }
 
     @Override
-    protected HttpRequestHandlerFactory getHandlerFactory() {
-        final WebDAVRequestHandler router = requestHandler;
-        return new HttpRequestHandlerFactory() {
-            @Override
-            public HttpRequestHandler createHandler(HttpResponseState state,
-                                                    Headers headers) {
-                return router.route(state, headers);
-            }
-        };
+    protected HttpRequestRouter getRequestRouter() {
+        return requestHandler;
     }
 
 }

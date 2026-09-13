@@ -679,14 +679,14 @@ class Stream implements HttpResponseState {
             // No handler yet - try to create one via factory
             // Note: We create the handler even for h2c upgrade requests, because
             // the request body (if any) arrives before the protocol switch.
-            HttpRequestHandlerFactory factory = connection.getHandlerFactory();
-            if (factory != null) {
+            HttpRequestRouter router = connection.getRequestRouter();
+            if (router != null) {
                 String path = headers.getPath();
                 if (Boolean.getBoolean("gumdrop.http.debug")) {
                     LOGGER.info(MessageFormat.format(
                             L10N.getString("info.stream_create_handler_path"), path));
                 }
-                handler = factory.createHandler(this, headers);
+                handler = router.route(this, headers);
                 if (Boolean.getBoolean("gumdrop.http.debug")) {
                     LOGGER.info(MessageFormat.format(
                             L10N.getString("info.stream_create_handler_returned"),

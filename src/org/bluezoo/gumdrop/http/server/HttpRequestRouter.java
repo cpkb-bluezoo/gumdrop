@@ -33,9 +33,10 @@ import java.util.Set;
  * {@link org.bluezoo.gumdrop.http.HttpServer#builder()} accepts a router
  * (or a single handler wrapped by {@link HttpRequestHandlers}).
  *
- * <p>Routers replace {@link HttpRequestHandlerFactory} in new application
- * code. Factories remain as an internal adapter for listener wiring during
- * the migration period.
+ * <p>Routers replace {@link HttpRequestHandlerFactory} in application code.
+ * Listeners wire {@link HttpRequestRouter} directly; legacy factories bridge
+ * via {@link HttpRequestHandlers#fromFactory(HttpRequestHandlerFactory)} only
+ * during migration.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HttpRequestHandlers

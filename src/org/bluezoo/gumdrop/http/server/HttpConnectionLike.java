@@ -48,7 +48,16 @@ public interface HttpConnectionLike {
     SocketAddress getRemoteSocketAddress();
     SocketAddress getLocalSocketAddress();
     SecurityInfo getSecurityInfoForStream();
-    HttpRequestHandlerFactory getHandlerFactory();
+    HttpRequestRouter getRequestRouter();
+
+    /**
+     * @deprecated use {@link #getRequestRouter()}.
+     */
+    @Deprecated
+    default HttpRequestHandlerFactory getHandlerFactory() {
+        return HttpRequestHandlers.toFactory(getRequestRouter());
+    }
+
     void sendResponseHeaders(int streamId, int statusCode, Headers headers, boolean endStream);
     void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream);
     void send(ByteBuffer buf);

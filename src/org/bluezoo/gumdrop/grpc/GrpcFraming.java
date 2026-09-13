@@ -45,7 +45,7 @@ public final class GrpcFraming {
     /**
      * Default maximum gRPC message payload size: 4 MB (common gRPC default).
      * Deployments can raise this or set {@code 0} (unlimited) via
-     * {@link org.bluezoo.gumdrop.grpc.server.GrpcHandlerFactory#setMaxMessageSize(long)}.
+     * {@link org.bluezoo.gumdrop.grpc.server.GrpcRequestHandler#maxMessageSize(long)}.
      */
     public static final long DEFAULT_MAX_MESSAGE_SIZE = 4L * 1024 * 1024;
 

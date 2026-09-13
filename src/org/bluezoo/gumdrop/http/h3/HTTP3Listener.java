@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
@@ -77,7 +78,7 @@ public class Http3Listener extends TcpListener
 
     private int port = -1;
 
-    private HttpRequestHandlerFactory handlerFactory;
+    private HttpRequestRouter requestRouter;
     private HttpAuthenticationProvider authenticationProvider;
     private HttpServerMetrics metrics;
     private SelectorLoop selectorLoop;
@@ -154,17 +155,30 @@ public class Http3Listener extends TcpListener
      *
      * @param factory the handler factory, or null
      */
-    public void setHandlerFactory(HttpRequestHandlerFactory factory) {
-        this.handlerFactory = factory;
+    public void setRequestRouter(HttpRequestRouter router) {
+        this.requestRouter = router;
+    }
+
+    public HttpRequestRouter getRequestRouter() {
+        return requestRouter;
     }
 
     /**
-     * Returns the handler factory for this endpoint.
-     *
-     * @return the handler factory, or null if not configured
+     * @deprecated use {@link #setRequestRouter(HttpRequestRouter)}.
      */
+    @Deprecated
+    public void setHandlerFactory(HttpRequestHandlerFactory factory) {
+        this.requestRouter = factory != null
+                ? org.bluezoo.gumdrop.http.server.HttpRequestHandlers.fromFactory(factory)
+                : null;
+    }
+
+    /**
+     * @deprecated use {@link #getRequestRouter()}.
+     */
+    @Deprecated
     public HttpRequestHandlerFactory getHandlerFactory() {
-        return handlerFactory;
+        return org.bluezoo.gumdrop.http.server.HttpRequestHandlers.toFactory(requestRouter);
     }
 
     /**
@@ -371,7 +385,7 @@ public class Http3Listener extends TcpListener
 
     @Override
     public void connectionAccepted(QuicConnection connection) {
-        new Http3ServerHandler(connection, handlerFactory,
+        new Http3ServerHandler(connection, requestRouter,
                 authenticationProvider, metrics,
                 getTelemetryConfig(), addSecurityHeaders);
     }

@@ -84,7 +84,11 @@ public final class HttpRequestHandlers {
 
     /**
      * Adapts a legacy {@link HttpRequestHandlerFactory} to a router.
+     *
+     * @deprecated {@link HttpRequestHandlerFactory} is deprecated; implement
+     *             {@link HttpRequestRouter} directly.
      */
+    @Deprecated
     public static HttpRequestRouter fromFactory(final HttpRequestHandlerFactory factory) {
         if (factory == null) {
             throw new NullPointerException("factory");
@@ -103,9 +107,15 @@ public final class HttpRequestHandlers {
     }
 
     /**
-     * Adapts a router to the legacy factory SPI used by listeners.
+     * Adapts a router to the legacy factory SPI.
+     *
+     * @deprecated use {@link HttpRequestRouter} on listeners directly.
      */
-    static HttpRequestHandlerFactory toFactory(HttpRequestRouter router) {
+    @Deprecated
+    public static HttpRequestHandlerFactory toFactory(HttpRequestRouter router) {
+        if (router == null) {
+            return null;
+        }
         return new HttpRequestRouterFactoryAdapter(router);
     }
 

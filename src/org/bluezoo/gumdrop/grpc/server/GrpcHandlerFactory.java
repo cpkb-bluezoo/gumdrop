@@ -1,111 +1,46 @@
 /*
  * GrpcHandlerFactory.java
  * Copyright (C) 2026 Chris Burdess
- *
- * This file is part of gumdrop, a multipurpose Java server.
- * For more information please visit https://www.nongnu.org/gumdrop/
- *
- * gumdrop is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * gumdrop is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.grpc.server;
 
-import java.util.Set;
-
-import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
+import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
-import org.bluezoo.gumdrop.http.Headers;
+
+import java.util.Set;
 
 /**
- * HttpRequestHandlerFactory that routes gRPC requests to a GrpcHandler.
- *
- * <p>Checks that the path matches /package.Service/Method and content-type
- * is application/grpc, then returns a handler that parses gRPC framing
- * and dispatches to the GrpcServer.
- *
- * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @deprecated use {@link GrpcRequestHandler}.
  */
+@Deprecated
 public class GrpcHandlerFactory implements HttpRequestHandlerFactory {
 
-    private static final String CONTENT_TYPE_GRPC = "application/grpc";
+    private final GrpcRequestHandler router;
 
-    private final ProtoFile protoFile;
-    private final GrpcServer service;
-    private long maxMessageSize = GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE;
-
-    /**
-     * Creates a factory with the given Proto model and service.
-     *
-     * @param protoFile the Proto model
-     * @param service the gRPC service implementation
-     */
     public GrpcHandlerFactory(ProtoFile protoFile, GrpcServer service) {
-        this.protoFile = protoFile;
-        this.service = service;
+        this.router = new GrpcRequestHandler(protoFile, service);
     }
 
-    /**
-     * Returns the maximum gRPC request message size in bytes ({@code 0} = unlimited).
-     */
     public long getMaxMessageSize() {
-        return maxMessageSize;
+        return router.getMaxMessageSize();
     }
 
-    /**
-     * Sets the maximum gRPC request message size enforced by handlers created
-     * by this factory. XML property name: {@code max-message-size}
-     *
-     * @param maxMessageSize the limit in bytes, or {@code 0} for unlimited
-     */
     public void setMaxMessageSize(long maxMessageSize) {
-        if (maxMessageSize < 0) {
-            throw new IllegalArgumentException(
-                    "maxMessageSize must not be negative, got: " + maxMessageSize);
-        }
-        this.maxMessageSize = maxMessageSize;
+        router.maxMessageSize(maxMessageSize);
     }
 
     @Override
     public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
-        String path = headers.getValue(":path");
-        String contentType = headers.getValue("content-type");
-
-        if (path == null || !path.startsWith("/") || path.length() < 2) {
-            return null;
-        }
-        if (!CONTENT_TYPE_GRPC.equals(contentType)) {
-            return null;
-        }
-
-        int slash = path.indexOf('/', 1);
-        if (slash < 0) {
-            return null;
-        }
-        String method = path.substring(slash + 1);
-        if (method.isEmpty()) {
-            return null;
-        }
-
-        return new GrpcHandler(protoFile, service, path, maxMessageSize,
-                protoFile.getRpcByPath(path));
+        return router.route(state, headers);
     }
 
     @Override
     public Set<String> getSupportedMethods() {
-        return Set.of("POST");
+        return router.getSupportedMethods();
     }
+
 }

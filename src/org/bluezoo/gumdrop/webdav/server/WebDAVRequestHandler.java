@@ -26,7 +26,7 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.webdav.DeadPropertyStore;
-import org.bluezoo.gumdrop.webdav.FileHandlerFactory;
+import org.bluezoo.gumdrop.webdav.FileRequestRouter;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -63,15 +63,15 @@ public final class WebDAVRequestHandler implements HttpRequestRouter {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.webdav.L10N");
 
-    private final FileHandlerFactory factory;
+    private final FileRequestRouter fileRouter;
 
-    private WebDAVRequestHandler(FileHandlerFactory factory) {
-        this.factory = factory;
+    private WebDAVRequestHandler(FileRequestRouter fileRouter) {
+        this.fileRouter = fileRouter;
     }
 
     @Override
     public HttpRequestHandler route(HttpResponseState state, Headers headers) {
-        return factory.createHandler(state, headers);
+        return fileRouter.route(state, headers);
     }
 
     /**
@@ -197,9 +197,9 @@ public final class WebDAVRequestHandler implements HttpRequestRouter {
             if (webdavEnabled) {
                 store = createDeadPropertyStore(deadPropertyStorage);
             }
-            FileHandlerFactory factory = new FileHandlerFactory(
+            FileRequestRouter fileRouter = new FileRequestRouter(
                     rootPath, allowWrite, welcomeFile, webdavEnabled, store);
-            return new WebDAVRequestHandler(factory);
+            return new WebDAVRequestHandler(fileRouter);
         }
     }
 
