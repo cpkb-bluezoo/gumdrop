@@ -1,5 +1,5 @@
 /*
- * MQTTWebSocketHandler.java
+ * MqttWebSocketHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -38,38 +38,38 @@ import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.mqtt.broker.SubscriptionManager;
 import org.bluezoo.gumdrop.mqtt.broker.WillManager;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageStore;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
 
 /**
  * Bridges MQTT over WebSocket (RFC 6455 subprotocol "mqtt").
  *
  * <p>Implements {@link WebSocketEventHandler} to receive WebSocket
- * binary frames and feeds them into an {@link MQTTProtocolHandler}.
+ * binary frames and feeds them into an {@link MqttProtocolHandler}.
  * Outbound MQTT packets are sent as WebSocket binary messages via a
  * {@link WebSocketEndpointAdapter} that presents the {@link Endpoint}
  * interface to the protocol handler.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class MQTTWebSocketHandler implements WebSocketEventHandler {
+public class MqttWebSocketHandler implements WebSocketEventHandler {
 
     private static final Logger LOGGER =
-            Logger.getLogger(MQTTWebSocketHandler.class.getName());
+            Logger.getLogger(MqttWebSocketHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
 
-    private final MQTTListener listener;
+    private final MqttListener listener;
     private final SubscriptionManager subscriptionManager;
     private final WillManager willManager;
-    private final MQTTMessageStore messageStore;
+    private final MqttMessageStore messageStore;
 
-    private MQTTProtocolHandler protocolHandler;
+    private MqttProtocolHandler protocolHandler;
     private WebSocketEndpointAdapter endpointAdapter;
 
-    public MQTTWebSocketHandler(MQTTListener listener,
+    public MqttWebSocketHandler(MqttListener listener,
                                 SubscriptionManager subscriptionManager,
                                 WillManager willManager,
-                                MQTTMessageStore messageStore) {
+                                MqttMessageStore messageStore) {
         this.listener = listener;
         this.subscriptionManager = subscriptionManager;
         this.willManager = willManager;
@@ -83,7 +83,7 @@ public class MQTTWebSocketHandler implements WebSocketEventHandler {
         if (telemetryConfig != null) {
             endpointAdapter.setTelemetryConfig(telemetryConfig);
         }
-        protocolHandler = new MQTTProtocolHandler(
+        protocolHandler = new MqttProtocolHandler(
                 listener, subscriptionManager, willManager, messageStore);
         protocolHandler.connected(endpointAdapter);
     }
@@ -120,7 +120,7 @@ public class MQTTWebSocketHandler implements WebSocketEventHandler {
 
     /**
      * Adapts a {@link WebSocketSession} to the {@link Endpoint} interface
-     * so that {@link MQTTProtocolHandler} can send data without knowing
+     * so that {@link MqttProtocolHandler} can send data without knowing
      * the underlying transport.
      */
     static class WebSocketEndpointAdapter implements Endpoint {

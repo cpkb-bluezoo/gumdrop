@@ -1,5 +1,5 @@
 /*
- * FTPAuthenticationResult.java
+ * FtpAuthenticationResult.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,7 +31,7 @@ package org.bluezoo.gumdrop.ftp;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum FTPAuthenticationResult {
+public enum FtpAuthenticationResult {
 
     /** User logged in, proceed. RFC 959 reply 230. */
     SUCCESS,

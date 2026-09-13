@@ -75,7 +75,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   0-RTT, Retry packets, passive connection migration, WebSocket-over-HTTP/3
   (RFC 9220), and automatic h3/h2/h1.x transport negotiation.
 - **Multicast DNS (RFC 6762) and DNS-SD (RFC 6763)**: new
-  `org.bluezoo.gumdrop.mdns` package. `MDNSService`/`MDNSListener`
+  `org.bluezoo.gumdrop.mdns` package. `MdnsServer`/`MdnsListener`
   implement the full RFC 6762 peer lifecycle for a `.local` hostname —
   probing with conflict detection and automatic rename, announcing,
   answering queries (with known-answer suppression and QU-bit unicast
@@ -83,17 +83,17 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   querying other hosts' records, with RFC 6762 §5.2 active refresh and
   §10.2 cache-flush semantics. `DNSSDAdvertiser` auto-advertises
   gumdrop's own configured services (HTTP, IMAP, POP3, FTP, SMTP, DNS)
-  as browsable DNS-SD records. `DNSQuestion`/`DNSResourceRecord` in the
+  as browsable DNS-SD records. `DnsQuestion`/`DnsResourceRecord` in the
   `dns` package gained the QU and cache-flush wire-format bits mDNS
   needs, plus a multi-string TXT record factory for DNS-SD attribute
   pairs, and gained HTTPS/SVCB (RFC 9460) record factory methods.
-- **RFC 10029 batched DNS queries** (`DNSResolver.queryBatch()`/
+- **RFC 10029 batched DNS queries** (`DnsResolver.queryBatch()`/
   `BatchQueryCallback`): requests extra RRTYPEs for the same name via
   an MQTYPE-Query EDNS0 option, merging what a supporting server
   returns into one round trip instead of several — used internally to
   fetch A/AAAA and HTTPS records together for HTTP/3 connection setup.
   Falls back automatically per-server via a capability cache for
-  servers that don't support the option. `DNSService` gained matching
+  servers that don't support the option. `DnsServer` gained matching
   server-side support.
 - **ResolvConf** pure-Java parser for system DNS nameserver discovery
   (replacing native `getSystemNameservers()` on POSIX; Windows still
@@ -126,7 +126,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   after `max(3×PTO, 6×kInitialRtt)`, per the RFC's specified failure
   mode.
 - **DoQ query responses were silently dropped and always timed out**:
-  `DNSResolver`'s response correlation matched against the resolver's
+  `DnsResolver`'s response correlation matched against the resolver's
   original query ID, but RFC 9250 mandates ID 0 on the wire for DoQ.
   Fixed within `DoQClientTransport`, transparent to callers.
 
@@ -176,7 +176,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   `onWriteReady` callback was cleared after invocation rather than before,
   which could cause a stale callback to be replayed or a re-registering
   callback to be lost.
-- **SOCKS5 client partial-read handshake failures**: `SOCKSClientHandler`
+- **SOCKS5 client partial-read handshake failures**: `SocksClientHandler`
   did not handle a handshake reply split across multiple `receive()` calls,
   causing stalls or errors against servers (such as Dante) that write the
   method-selection, authentication, and CONNECT replies as separate TCP
@@ -202,7 +202,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   also supports RabbitMQ's `AMQPLAIN` mechanism, `EXTERNAL` (TLS client
   certificate), and `GSSAPI`/Kerberos (worker-thread offloaded for KDC
   contact), reusing gumdrop's shared `SASLUtils` infrastructure where
-  possible. `AMQPClientProtocolHandler` now also drives
+  possible. `AmqpClientProtocolHandler` now also drives
   `connection.secure`/`secure-ok` round trips so multi-step mechanisms work,
   not just single-shot ones.
 - **FTP client** (`org.bluezoo.gumdrop.ftp.client`, #113): async FTP client
@@ -223,7 +223,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 - Maven Central publishing workflow and `SECURITY.md` vulnerability
   disclosure policy added.
 - Dependabot configuration added for automated dependency update PRs.
-- **DTLS support for UDP listeners** (issue #190): `UDPEndpoint` now
+- **DTLS support for UDP listeners** (issue #190): `UdpEndpoint` now
   maintains one DTLS session per peer address, so a single bound socket
   serves many concurrent DTLS clients (DNS-over-DTLS, RFC 8094, in
   particular). Includes RFC 6347 §4.2.4 handshake flight retransmission
@@ -292,8 +292,8 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   moved off a single shared `synchronized` block onto a
   `ConcurrentHashMap`, so it no longer contends across every connection
   an auth provider instance serves.
-- **`UDPEndpoint`'s receive buffer is now a pooled direct buffer**
-  (issue #193), matching `TCPEndpoint`'s read/write path, instead of a
+- **`UdpEndpoint`'s receive buffer is now a pooled direct buffer**
+  (issue #193), matching `TcpEndpoint`'s read/write path, instead of a
   plain heap allocation that forced the JVM's internal direct-buffer
   bounce-copy on every datagram.
 - **`Container.getContextByPath` is now an indexed lookup** (issue #194)
@@ -457,12 +457,12 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   bodies.
 
 - **DNS listener ACLs and RFC 7873 cookies not enforced**:
-  `DNSListener`/`DNSService` now enforce access-control lists and DNS
+  `DnsListener`/`DnsServer` now enforce access-control lists and DNS
   cookie validation to mitigate spoofing/amplification abuse.
 
 - **Active-mode FTP data address not verified against the control client**: 
-  `FTPDataConnectionCoordinator`,
-  `FTPListener`, and `FTPProtocolHandler` now verify that an active-mode
+  `FtpDataConnectionCoordinator`,
+  `FtpListener`, and `FtpProtocolHandler` now verify that an active-mode
   data connection actually originates from the control connection's peer
   address.
 
@@ -501,7 +501,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   interfaces BIND may listen on.
 
 - **DNS response validation gaps: QR bit, source address, question section**: 
-  `DNSService` now validates the QR
+  `DnsServer` now validates the QR
   bit, response source address, and echoed question section on incoming
   DNS responses.
 
@@ -535,7 +535,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   from client-supplied multipart filenames and canonicalizes the result.
 
 - **Unbounded SOCKS5 GSSAPI token length**:
-  `SOCKSProtocolHandler`/`SOCKSConstants` now cap GSSAPI token length at
+  `SOCKSProtocolHandler`/`SocksConstants` now cap GSSAPI token length at
   16 KiB.
 
 - **`rsa-sha1` DKIM signatures accepted**: 
@@ -617,8 +617,8 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
     protocol versions (HTTP/1.1, HTTP/2, HTTP/3), similar to curl
 
 - **MQTT broker and client**: MQTT 3.1.1 and MQTT 5.0 over TCP and WebSocket,
-  including `MQTTListener` / `DefaultMQTTService` (broker), subscription and
-  retained-message handling, and the `MQTTClient` API.
+  including `MqttListener` / `DefaultMQTTServer` (broker), subscription and
+  retained-message handling, and the `MqttClient` API.
 
 - **SOCKS proxy**: SOCKS protocol server and client implementation.
 
@@ -686,7 +686,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **UNIX domain socket support**: Any TCP-based listener can now bind to a UNIX
   domain socket by specifying a `path` attribute instead of `port`. Once
-  accepted, connections use the same `SocketChannel`/`TCPEndpoint`/`ProtocolHandler`
+  accepted, connections use the same `SocketChannel`/`TcpEndpoint`/`ProtocolHandler`
   infrastructure as TCP. Stale socket files are cleaned up on bind and shutdown.
 
 - **Renamed `<listen>` to `<listener>` in gumdroprc**: The configuration element

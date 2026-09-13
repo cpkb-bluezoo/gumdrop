@@ -1,5 +1,5 @@
 /*
- * SOCKSClientConfig.java
+ * SocksClientConfig.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,11 +28,11 @@ package org.bluezoo.gumdrop.socks.client;
  * authentication credentials, and timeout settings.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SOCKSClientHandler
+ * @see SocksClientHandler
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928">RFC 1928</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1929">RFC 1929</a>
  */
-public final class SOCKSClientConfig {
+public final class SocksClientConfig {
 
     /**
      * SOCKS version preference for the client.
@@ -54,7 +54,7 @@ public final class SOCKSClientConfig {
     /**
      * Creates a config with default settings (SOCKS5, no auth).
      */
-    public SOCKSClientConfig() {
+    public SocksClientConfig() {
     }
 
     /**
@@ -63,7 +63,7 @@ public final class SOCKSClientConfig {
      * @param username the username
      * @param password the password
      */
-    public SOCKSClientConfig(String username, String password) {
+    public SocksClientConfig(String username, String password) {
         this.username = username;
         this.password = password;
     }
@@ -83,7 +83,7 @@ public final class SOCKSClientConfig {
      * @param version the version preference
      * @return this config for chaining
      */
-    public SOCKSClientConfig setVersion(Version version) {
+    public SocksClientConfig setVersion(Version version) {
         this.version = version;
         return this;
     }
@@ -105,7 +105,7 @@ public final class SOCKSClientConfig {
      * @param username the username
      * @return this config for chaining
      */
-    public SOCKSClientConfig setUsername(String username) {
+    public SocksClientConfig setUsername(String username) {
         this.username = username;
         return this;
     }
@@ -127,7 +127,7 @@ public final class SOCKSClientConfig {
      * @param password the password
      * @return this config for chaining
      */
-    public SOCKSClientConfig setPassword(String password) {
+    public SocksClientConfig setPassword(String password) {
         this.password = password;
         return this;
     }
@@ -147,7 +147,7 @@ public final class SOCKSClientConfig {
      * @param timeoutMs the timeout in milliseconds
      * @return this config for chaining
      */
-    public SOCKSClientConfig setHandshakeTimeoutMs(long timeoutMs) {
+    public SocksClientConfig setHandshakeTimeoutMs(long timeoutMs) {
         this.handshakeTimeoutMs = timeoutMs;
         return this;
     }

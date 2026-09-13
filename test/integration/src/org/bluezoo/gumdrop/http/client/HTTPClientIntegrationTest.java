@@ -27,7 +27,7 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
@@ -127,7 +127,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      * @throws Exception if connection fails
      */
     private HttpClientProtocolHandler createConnectedClient(String host, int port) throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
                 new HttpClientHandler() {
@@ -167,7 +167,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      * @throws Exception if connection fails
      */
     private HttpClientProtocolHandler createH2PriorKnowledgeClient(String host, int port) throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
                 new HttpClientHandler() {
@@ -206,7 +206,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      * @throws Exception if connection fails
      */
     private HttpClientProtocolHandler createSecureConnectedClient(String host, int port) throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.setSecure(true);
         factory.setApplicationProtocols("h2", "http/1.1");
         factory.setTrustManager(certManager.createClientTrustManager());

@@ -1,5 +1,5 @@
 /*
- * SOCKSUDPHeader.java
+ * SocksUDPHeader.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,7 +31,7 @@ import java.nio.charset.StandardCharsets;
 
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 
-import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
+import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
  * Codec for the SOCKS5 UDP request header defined in RFC 1928 §7.
@@ -48,9 +48,9 @@ import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928#section-7">
  *      RFC 1928 §7</a>
  */
-public final class SOCKSUDPHeader {
+public final class SocksUDPHeader {
 
-    private SOCKSUDPHeader() {
+    private SocksUDPHeader() {
     }
 
     /**

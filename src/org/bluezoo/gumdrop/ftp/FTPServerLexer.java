@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * structured/text token modes.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see FTPProtocolHandler
+ * @see FtpProtocolHandler
  */
 final class FTPServerLexer extends ByteStreamLexer<FTPServerLexer.Token> {
 

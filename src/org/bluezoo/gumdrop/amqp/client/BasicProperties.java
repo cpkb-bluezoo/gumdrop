@@ -129,7 +129,7 @@ public final class BasicProperties {
     /**
      * Encodes this as a complete content-header frame payload (class-id,
      * weight, body-size, property-flags, property-list) — everything that
-     * goes inside an {@link AMQPFrame#TYPE_HEADER} frame's payload.
+     * goes inside an {@link AmqpFrame#TYPE_HEADER} frame's payload.
      *
      * @param bodySize total size in bytes of the message body that will
      *      follow in one or more content-body frames
@@ -311,15 +311,15 @@ public final class BasicProperties {
 
     /**
      * Decodes a complete content-header frame payload (as delivered inside
-     * an {@link AMQPFrame#TYPE_HEADER} frame).
+     * an {@link AmqpFrame#TYPE_HEADER} frame).
      */
-    public static Header decode(ByteBuffer buf) throws AMQPProtocolException {
+    public static Header decode(ByteBuffer buf) throws AmqpProtocolException {
         if (buf.remaining() < 14) {
-            throw new AMQPProtocolException("Truncated content-header frame");
+            throw new AmqpProtocolException("Truncated content-header frame");
         }
         int classId = buf.getShort() & 0xFFFF;
         if (classId != CLASS_ID) {
-            throw new AMQPProtocolException(
+            throw new AmqpProtocolException(
                     "Unsupported content-header class-id " + classId + " (only 'basic' (60) is supported)");
         }
         buf.getShort(); // weight, ignored

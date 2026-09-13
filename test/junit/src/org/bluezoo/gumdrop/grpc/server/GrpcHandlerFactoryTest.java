@@ -20,7 +20,7 @@ import static org.junit.Assert.*;
 public class GrpcHandlerFactoryTest {
 
     private static final ProtoFile PROTO = ProtoFile.builder().build();
-    private static final GrpcService NOOP_SERVICE = new GrpcService() {
+    private static final GrpcServer NOOP_SERVICE = new GrpcServer() {
         @Override
         public ProtoMessageHandler startUnaryCall(String path, GrpcResponseSender response) {
             return null;

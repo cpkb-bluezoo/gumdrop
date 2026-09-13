@@ -1,5 +1,5 @@
 /*
- * DNSMultiQType.java
+ * DnsMultiQType.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -40,10 +40,10 @@ import java.util.List;
  * (option-code(2) + option-length(2) + data, RFC 6891 section 6.1.2)
  * already determines how many types are present.
  *
- * <p>This class is a pure codec, matching {@link DNSCookie}'s division
+ * <p>This class is a pure codec, matching {@link DnsCookie}'s division
  * of responsibility: it does not validate the semantic constraints RFC
  * 10029 places on the type list (no meta-types such as {@link
- * DNSType#ANY}, no duplicates, non-empty, within the configured cap) --
+ * DnsType#ANY}, no duplicates, non-empty, within the configured cap) --
  * callers building or accepting an option enforce those, since the
  * right response to a violation (silently not building the option vs.
  * FORMERR) differs between client and server.
@@ -51,7 +51,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc10029">RFC 10029</a>
  */
-public final class DNSMultiQType {
+public final class DnsMultiQType {
 
     /** RFC 10029: EDNS0 option code for the client's MQTYPE-Query. */
     public static final int EDNS_OPTION_MQTYPE_QUERY = 20;
@@ -65,7 +65,7 @@ public final class DNSMultiQType {
      */
     public static final int DEFAULT_MAX_MQTYPES = 4;
 
-    private DNSMultiQType() {
+    private DnsMultiQType() {
     }
 
     /**
@@ -75,7 +75,7 @@ public final class DNSMultiQType {
      * @param additionalTypes the additional RRTYPEs being requested
      * @return the encoded EDNS0 option bytes
      */
-    public static byte[] buildMQTypeQueryOption(List<DNSType> additionalTypes) {
+    public static byte[] buildMQTypeQueryOption(List<DnsType> additionalTypes) {
         return buildOption(EDNS_OPTION_MQTYPE_QUERY, additionalTypes);
     }
 
@@ -88,15 +88,15 @@ public final class DNSMultiQType {
      *                      into this response
      * @return the encoded EDNS0 option bytes
      */
-    public static byte[] buildMQTypeResponseOption(List<DNSType> includedTypes) {
+    public static byte[] buildMQTypeResponseOption(List<DnsType> includedTypes) {
         return buildOption(EDNS_OPTION_MQTYPE_RESPONSE, includedTypes);
     }
 
-    private static byte[] buildOption(int optionCode, List<DNSType> types) {
+    private static byte[] buildOption(int optionCode, List<DnsType> types) {
         ByteBuffer buf = ByteBuffer.allocate(4 + types.size() * 2);
         buf.putShort((short) optionCode);
         buf.putShort((short) (types.size() * 2));
-        for (DNSType type : types) {
+        for (DnsType type : types) {
             buf.putShort((short) type.getValue());
         }
         return buf.array();
@@ -104,51 +104,51 @@ public final class DNSMultiQType {
 
     /**
      * Parses an {@code MQTYPE-Query} option's data (as returned by
-     * {@link DNSCookie#findEdnsOption(byte[], int)} for {@link
+     * {@link DnsCookie#findEdnsOption(byte[], int)} for {@link
      * #EDNS_OPTION_MQTYPE_QUERY}) into the requested RRTYPEs.
      *
      * @param optionData the option data (excluding option-code/-length)
      * @return the requested types, in the order they appeared
-     * @throws DNSFormatException if the option data length isn't a
+     * @throws DnsFormatException if the option data length isn't a
      *                            multiple of 2 octets
      */
-    public static List<DNSType> parseMQTypeQueryOption(byte[] optionData)
-            throws DNSFormatException {
+    public static List<DnsType> parseMQTypeQueryOption(byte[] optionData)
+            throws DnsFormatException {
         return parseOption(optionData);
     }
 
     /**
      * Parses an {@code MQTYPE-Response} option's data (as returned by
-     * {@link DNSCookie#findEdnsOption(byte[], int)} for {@link
+     * {@link DnsCookie#findEdnsOption(byte[], int)} for {@link
      * #EDNS_OPTION_MQTYPE_RESPONSE}) into the RRTYPEs the server
      * included in the response.
      *
      * @param optionData the option data (excluding option-code/-length)
      * @return the included types, in the order they appeared
-     * @throws DNSFormatException if the option data length isn't a
+     * @throws DnsFormatException if the option data length isn't a
      *                            multiple of 2 octets
      */
-    public static List<DNSType> parseMQTypeResponseOption(byte[] optionData)
-            throws DNSFormatException {
+    public static List<DnsType> parseMQTypeResponseOption(byte[] optionData)
+            throws DnsFormatException {
         return parseOption(optionData);
     }
 
-    // RRTYPE values this implementation doesn't recognize (DNSType.fromValue
+    // RRTYPE values this implementation doesn't recognize (DnsType.fromValue
     // returns null) are silently skipped rather than rejected: a type this
-    // codebase has no DNSResourceRecord support for can't be fulfilled or
+    // codebase has no DnsResourceRecord support for can't be fulfilled or
     // matched against anyway, so it's equivalent to the server simply not
     // including it -- not a malformed request.
-    private static List<DNSType> parseOption(byte[] optionData) throws DNSFormatException {
+    private static List<DnsType> parseOption(byte[] optionData) throws DnsFormatException {
         if (optionData.length % 2 != 0) {
-            throw new DNSFormatException(
+            throw new DnsFormatException(
                     "MQTYPE option data length must be a multiple of 2 octets, was "
                             + optionData.length);
         }
-        List<DNSType> types = new ArrayList<>(optionData.length / 2);
+        List<DnsType> types = new ArrayList<>(optionData.length / 2);
         ByteBuffer buf = ByteBuffer.wrap(optionData);
         while (buf.remaining() >= 2) {
             int value = buf.getShort() & 0xFFFF;
-            DNSType type = DNSType.fromValue(value);
+            DnsType type = DnsType.fromValue(value);
             if (type != null) {
                 types.add(type);
             }

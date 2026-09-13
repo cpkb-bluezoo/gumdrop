@@ -29,8 +29,8 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.TCPListener;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.TcpListener;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 
 /**
@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  *
  * <p>This service creates {@link SimpleRelayHandler} instances that
  * accept mail for any domain and relay it via MX lookups. A shared
- * {@link DNSResolver} is initialised when the service starts and
+ * {@link DnsResolver} is initialised when the service starts and
  * closed when it stops.
  *
  * <h2>Configuration Example</h2>
@@ -63,7 +63,7 @@ public class SimpleRelayServer extends SmtpServer {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
-    private DNSResolver dnsResolver;
+    private DnsResolver dnsResolver;
     private String hostname;
     private String dnsServer;
     private long dnsTimeout = 5000;
@@ -133,7 +133,7 @@ public class SimpleRelayServer extends SmtpServer {
             }
         }
 
-        dnsResolver = new DNSResolver();
+        dnsResolver = new DnsResolver();
         dnsResolver.setTimeoutMs(dnsTimeout);
 
         if (dnsServer != null) {
@@ -171,7 +171,7 @@ public class SimpleRelayServer extends SmtpServer {
     }
 
     @Override
-    protected ClientConnected createHandler(TCPListener endpoint) {
+    protected ClientConnected createHandler(TcpListener endpoint) {
         return new SimpleRelayHandler(dnsResolver, hostname);
     }
 

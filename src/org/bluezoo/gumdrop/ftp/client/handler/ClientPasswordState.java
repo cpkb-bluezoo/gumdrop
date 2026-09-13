@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.ftp.client.handler;
  * password. RFC 959 §4.1.1 (331 user name okay, need password).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerUserReplyHandler#handlePasswordRequired
+ * @see UserReplyHandler#handlePasswordRequired
  */
 public interface ClientPasswordState {
 
@@ -36,7 +36,7 @@ public interface ClientPasswordState {
      * @param password the password
      * @param callback receives the server's response
      */
-    void pass(String password, ServerPassReplyHandler callback);
+    void pass(String password, PassReplyHandler callback);
 
     /**
      * Closes the connection without completing authentication.

@@ -39,11 +39,11 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.ftp.client.FTPClientProtocolHandler;
-import org.bluezoo.gumdrop.ftp.client.FTPException;
-import org.bluezoo.gumdrop.ftp.client.FTPFileEntry;
+import org.bluezoo.gumdrop.ftp.client.FtpClientProtocolHandler;
+import org.bluezoo.gumdrop.ftp.client.FtpException;
+import org.bluezoo.gumdrop.ftp.client.FtpFileEntry;
 import org.bluezoo.gumdrop.ftp.client.handler.*;
 
 import org.junit.BeforeClass;
@@ -54,12 +54,12 @@ import org.junit.rules.Timeout;
 import static org.junit.Assert.*;
 
 /**
- * Integration tests for Gumdrop's FTP server ({@code FTPProtocolHandler})
+ * Integration tests for Gumdrop's FTP server ({@code FtpProtocolHandler})
  * over a real socket (issue #105).
  *
  * <p>Every other protocol server (HTTP, SMTP, POP3, IMAP, servlet, TLS)
  * has a real integration suite; this closes that gap for FTP. Driven by
- * the FTP client added for issue #104 ({@code FTPClientProtocolHandler})
+ * the FTP client added for issue #104 ({@code FtpClientProtocolHandler})
  * rather than a hand-rolled raw-socket helper, the same way POP3's
  * integration tests use {@code POP3ClientHelper} — except here a full
  * async client implementation already exists, so there is no need for a
@@ -124,11 +124,11 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
     // ─────────────────────────────────────────────────────────────────────
 
     private static class FTPTestClient {
-        private final TCPTransportFactory factory;
+        private final TcpTransportFactory factory;
         private final ClientEndpoint client;
 
         FTPTestClient(int port) throws Exception {
-            this.factory = new TCPTransportFactory();
+            this.factory = new TcpTransportFactory();
             factory.start();
             Gumdrop gumdrop = Gumdrop.getInstance();
             SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
@@ -140,8 +140,8 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
             factory.setSecure(true);
         }
 
-        void connect(ServerGreeting handler) throws Exception {
-            client.connect(new FTPClientProtocolHandler(handler));
+        void connect(RemoteGreeting handler) throws Exception {
+            client.connect(new FtpClientProtocolHandler(handler));
         }
     }
 
@@ -430,7 +430,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
     public void testListShowsFilesOnDisk() throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
-        AtomicReference<List<FTPFileEntry>> entriesRef = new AtomicReference<>();
+        AtomicReference<List<FtpFileEntry>> entriesRef = new AtomicReference<>();
         String fileName = "listme-" + System.nanoTime() + ".txt";
         Files.write(new File(dataDir, fileName).toPath(),
                 "for listing".getBytes(StandardCharsets.UTF_8));
@@ -443,7 +443,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
                     public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a) {
                         a.list(null, addr, new TestListHandler(latch, error) {
                             @Override
-                            public void handleEntries(List<FTPFileEntry> entries,
+                            public void handleEntries(List<FtpFileEntry> entries,
                                     ClientAuthenticatedState a2) {
                                 entriesRef.set(entries);
                                 a2.quit();
@@ -460,10 +460,10 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         if (error.get() != null) {
             throw error.get();
         }
-        List<FTPFileEntry> entries = entriesRef.get();
+        List<FtpFileEntry> entries = entriesRef.get();
         assertNotNull(entries);
         boolean found = false;
-        for (FTPFileEntry entry : entries) {
+        for (FtpFileEntry entry : entries) {
             if (entry.getName().contains(fileName)) {
                 found = true;
                 break;
@@ -499,7 +499,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
-        AtomicReference<List<FTPFileEntry>> entriesRef = new AtomicReference<>();
+        AtomicReference<List<FtpFileEntry>> entriesRef = new AtomicReference<>();
 
         loginThen(createClient(FTP_PORT), "testuser", "testpass", latch, error, new AuthContinuation() {
             @Override
@@ -509,7 +509,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
                     public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a) {
                         a.list(subdirName, addr, new TestListHandler(latch, error) {
                             @Override
-                            public void handleEntries(List<FTPFileEntry> entries,
+                            public void handleEntries(List<FtpFileEntry> entries,
                                     ClientAuthenticatedState a2) {
                                 entriesRef.set(entries);
                                 a2.quit();
@@ -526,11 +526,11 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         if (error.get() != null) {
             throw error.get();
         }
-        List<FTPFileEntry> entries = entriesRef.get();
+        List<FtpFileEntry> entries = entriesRef.get();
         assertNotNull(entries);
 
         java.util.Set<String> seenNames = new java.util.HashSet<>();
-        for (FTPFileEntry entry : entries) {
+        for (FtpFileEntry entry : entries) {
             seenNames.add(entry.getName());
         }
         assertEquals("every listed file must appear exactly once, no "
@@ -598,9 +598,9 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
     /**
      * Regression test for the bug found while adding this suite: {@code
-     * FTPDataConnectionCoordinator} accepted PROT P (setting the {@code
+     * FtpDataConnectionCoordinator} accepted PROT P (setting the {@code
      * dataProtection} flag and replying 200) but never actually
-     * TLS-wrapped the data connection's {@code TCPEndpoint} — a silent
+     * TLS-wrapped the data connection's {@code TcpEndpoint} — a silent
      * downgrade where the client believes its transfer is encrypted but
      * it is not.
      *
@@ -720,7 +720,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
     // callback)
     // ─────────────────────────────────────────────────────────────────────
 
-    private abstract static class TestGreeting implements ServerGreeting {
+    private abstract static class TestGreeting implements RemoteGreeting {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -731,7 +731,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleServiceUnavailable(String message) {
-            error.set(new FTPException("Service unavailable: " + message));
+            error.set(new FtpException("Service unavailable: " + message));
             latch.countDown();
         }
 
@@ -751,7 +751,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         public void onSecurityEstablished(SecurityInfo info) { }
     }
 
-    private abstract static class TestUserHandler implements ServerUserReplyHandler {
+    private abstract static class TestUserHandler implements UserReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -762,36 +762,36 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleUserAccepted(ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected immediate login"));
+            error.set(new FtpException("Unexpected immediate login"));
             latch.countDown();
         }
 
         @Override
         public void handlePasswordRequired(ClientPasswordState pass) {
-            error.set(new FTPException("Unexpected password-required path"));
+            error.set(new FtpException("Unexpected password-required path"));
             latch.countDown();
         }
 
         @Override
         public void handleAccountRequired(ClientAccountState acct) {
-            error.set(new FTPException("Unexpected account-required path"));
+            error.set(new FtpException("Unexpected account-required path"));
             latch.countDown();
         }
 
         @Override
         public void handleRejected(ClientLoginState login, String message) {
-            error.set(new FTPException("USER rejected: " + message));
+            error.set(new FtpException("USER rejected: " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestPassHandler implements ServerPassReplyHandler {
+    private abstract static class TestPassHandler implements PassReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -802,30 +802,30 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleAuthenticated(ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected authenticated path"));
+            error.set(new FtpException("Unexpected authenticated path"));
             latch.countDown();
         }
 
         @Override
         public void handleAccountRequired(ClientAccountState acct) {
-            error.set(new FTPException("Unexpected account-required path"));
+            error.set(new FtpException("Unexpected account-required path"));
             latch.countDown();
         }
 
         @Override
         public void handleAuthFailed(ClientLoginState login, String message) {
-            error.set(new FTPException("PASS rejected: " + message));
+            error.set(new FtpException("PASS rejected: " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestPwdHandler implements ServerPwdReplyHandler {
+    private abstract static class TestPwdHandler implements PwdReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -836,24 +836,24 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handlePathname(String pathname, ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected pathname path"));
+            error.set(new FtpException("Unexpected pathname path"));
             latch.countDown();
         }
 
         @Override
         public void handleError(ClientAuthenticatedState authenticated, int code, String message) {
-            error.set(new FTPException("PWD error " + code + ": " + message));
+            error.set(new FtpException("PWD error " + code + ": " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestMkdHandler implements ServerMkdReplyHandler {
+    private abstract static class TestMkdHandler implements MkdReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -864,24 +864,24 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handlePathname(String pathname, ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected pathname path"));
+            error.set(new FtpException("Unexpected pathname path"));
             latch.countDown();
         }
 
         @Override
         public void handleError(ClientAuthenticatedState authenticated, int code, String message) {
-            error.set(new FTPException("MKD error " + code + ": " + message));
+            error.set(new FtpException("MKD error " + code + ": " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestCwdHandler implements ServerCwdReplyHandler {
+    private abstract static class TestCwdHandler implements CwdReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -892,24 +892,24 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleOk(ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected OK path"));
+            error.set(new FtpException("Unexpected OK path"));
             latch.countDown();
         }
 
         @Override
         public void handleError(ClientAuthenticatedState authenticated, int code, String message) {
-            error.set(new FTPException("CWD error " + code + ": " + message));
+            error.set(new FtpException("CWD error " + code + ": " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestSimpleHandler implements ServerSimpleReplyHandler {
+    private abstract static class TestSimpleHandler implements SimpleReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -920,24 +920,24 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleOk(ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected OK path"));
+            error.set(new FtpException("Unexpected OK path"));
             latch.countDown();
         }
 
         @Override
         public void handleError(ClientAuthenticatedState authenticated, int code, String message) {
-            error.set(new FTPException("Command error " + code + ": " + message));
+            error.set(new FtpException("Command error " + code + ": " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestPasvHandler implements ServerPasvReplyHandler {
+    private abstract static class TestPasvHandler implements PasvReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -948,24 +948,24 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handlePassive(InetSocketAddress dataAddress, ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected passive path"));
+            error.set(new FtpException("Unexpected passive path"));
             latch.countDown();
         }
 
         @Override
         public void handleError(ClientAuthenticatedState authenticated, int code, String message) {
-            error.set(new FTPException("PASV error " + code + ": " + message));
+            error.set(new FtpException("PASV error " + code + ": " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestStorHandler implements ServerStorReplyHandler {
+    private abstract static class TestStorHandler implements StorReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -976,30 +976,30 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleReadyToSend(ClientDataSink sink) {
-            error.set(new FTPException("Unexpected ready-to-send path"));
+            error.set(new FtpException("Unexpected ready-to-send path"));
             latch.countDown();
         }
 
         @Override
         public void handleTransferComplete(ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected transfer-complete path"));
+            error.set(new FtpException("Unexpected transfer-complete path"));
             latch.countDown();
         }
 
         @Override
         public void handleTransferFailed(ClientAuthenticatedState authenticated, int code, String message) {
-            error.set(new FTPException("STOR failed " + code + ": " + message));
+            error.set(new FtpException("STOR failed " + code + ": " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestRetrHandler implements ServerRetrReplyHandler {
+    private abstract static class TestRetrHandler implements RetrReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -1010,30 +1010,30 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleContent(ByteBuffer data) {
-            error.set(new FTPException("Unexpected content path"));
+            error.set(new FtpException("Unexpected content path"));
             latch.countDown();
         }
 
         @Override
         public void handleTransferComplete(ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected transfer-complete path"));
+            error.set(new FtpException("Unexpected transfer-complete path"));
             latch.countDown();
         }
 
         @Override
         public void handleTransferFailed(ClientAuthenticatedState authenticated, int code, String message) {
-            error.set(new FTPException("RETR failed " + code + ": " + message));
+            error.set(new FtpException("RETR failed " + code + ": " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestListHandler implements ServerListReplyHandler {
+    private abstract static class TestListHandler implements ListReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -1043,25 +1043,25 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         @Override
-        public void handleEntries(List<FTPFileEntry> entries, ClientAuthenticatedState authenticated) {
-            error.set(new FTPException("Unexpected entries path"));
+        public void handleEntries(List<FtpFileEntry> entries, ClientAuthenticatedState authenticated) {
+            error.set(new FtpException("Unexpected entries path"));
             latch.countDown();
         }
 
         @Override
         public void handleTransferFailed(ClientAuthenticatedState authenticated, int code, String message) {
-            error.set(new FTPException("Listing failed " + code + ": " + message));
+            error.set(new FtpException("Listing failed " + code + ": " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestAuthTlsHandler implements ServerAuthTlsReplyHandler {
+    private abstract static class TestAuthTlsHandler implements AuthTlsReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -1072,19 +1072,19 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleTlsEstablished(ClientLoginState login) {
-            error.set(new FTPException("Unexpected TLS-established path"));
+            error.set(new FtpException("Unexpected TLS-established path"));
             latch.countDown();
         }
 
         @Override
         public void handleTlsUnavailable(ClientLoginState login) {
-            error.set(new FTPException("AUTH TLS unavailable"));
+            error.set(new FtpException("AUTH TLS unavailable"));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new FTPException("Service closing: " + message));
+            error.set(new FtpException("Service closing: " + message));
             latch.countDown();
         }
     }

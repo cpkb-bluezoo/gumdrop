@@ -12,14 +12,14 @@ import static org.junit.Assert.*;
  */
 public class SOCKSRelayTest {
 
-    private DefaultSOCKSService service;
+    private DefaultSOCKSServer service;
     private StubEndpoint clientEndpoint;
     private StubEndpoint upstreamEndpoint;
     private SOCKSRelay relay;
 
     @Before
     public void setUp() {
-        service = new DefaultSOCKSService();
+        service = new DefaultSOCKSServer();
         clientEndpoint = new StubEndpoint();
         relay = new SOCKSRelay(clientEndpoint, service, null, 0);
         upstreamEndpoint = new StubEndpoint();

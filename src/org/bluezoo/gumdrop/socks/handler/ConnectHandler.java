@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.socks.handler;
 
 import org.bluezoo.gumdrop.Endpoint;
-import org.bluezoo.gumdrop.socks.SOCKSRequest;
+import org.bluezoo.gumdrop.socks.SocksRequest;
 
 /**
  * Handler for authorizing incoming SOCKS CONNECT requests.
@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.socks.SOCKSRequest;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ConnectState
- * @see org.bluezoo.gumdrop.socks.SOCKSService#createConnectHandler
+ * @see org.bluezoo.gumdrop.socks.SocksServer#createConnectHandler
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928">RFC 1928 §4</a>
  */
 public interface ConnectHandler {
@@ -60,7 +60,7 @@ public interface ConnectHandler {
      *                version, userid, authenticated user)
      * @param clientEndpoint the client's endpoint (for address info)
      */
-    void handleConnect(ConnectState state, SOCKSRequest request,
+    void handleConnect(ConnectState state, SocksRequest request,
                        Endpoint clientEndpoint);
 
 }

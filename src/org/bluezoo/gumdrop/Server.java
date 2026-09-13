@@ -63,8 +63,8 @@ public interface Server {
      * @return a list of listener endpoints, never null
      */
     // Raw type is intentional here: implementations return lists of
-    // different concrete Listener subtypes (e.g. List<MQTTListener>,
-    // List<SOCKSListener>), and parameterizing this method would ripple
+    // different concrete Listener subtypes (e.g. List<MqttListener>,
+    // List<SocksListener>), and parameterizing this method would ripple
     // unrelated [unchecked] warnings through many protocol classes.
     @SuppressWarnings("rawtypes")
     List getListeners();

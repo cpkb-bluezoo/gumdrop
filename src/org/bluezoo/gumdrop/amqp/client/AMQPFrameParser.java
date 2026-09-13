@@ -1,5 +1,5 @@
 /*
- * AMQPFrameParser.java
+ * AmqpFrameParser.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,31 +32,31 @@ import java.nio.ByteBuffer;
  * the network in whatever chunks the transport delivers, and a frame
  * (particularly a content-body frame carrying a large message) may span
  * many reads. The parser consumes as many complete frames as are present
- * in the buffer, dispatching each to a typed {@link AMQPFrameHandler}
+ * in the buffer, dispatching each to a typed {@link AmqpFrameHandler}
  * callback with a zero-copy slice of the payload, and leaves any trailing
  * partial frame's bytes untouched (buffer position left at its start) for
  * the next call once more data has arrived.
  *
  * <p>Usage:
  * <pre>{@code
- * AMQPFrameParser parser = new AMQPFrameParser(handler);
+ * AmqpFrameParser parser = new AmqpFrameParser(handler);
  * // ... as bytes arrive from the connection:
  * parser.receive(buf);
  * buf.compact(); // preserve any partial frame for the next receive()
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see AMQPFrameHandler
+ * @see AmqpFrameHandler
  */
-public final class AMQPFrameParser {
+public final class AmqpFrameParser {
 
     /** AMQP 0-9-1 §4.2.3: default max-frame-size before negotiation. */
     public static final int DEFAULT_MAX_FRAME_SIZE = 131072;
 
-    private final AMQPFrameHandler handler;
+    private final AmqpFrameHandler handler;
     private int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
 
-    public AMQPFrameParser(AMQPFrameHandler handler) {
+    public AmqpFrameParser(AmqpFrameHandler handler) {
         if (handler == null) {
             throw new IllegalArgumentException("handler must not be null");
         }
@@ -81,14 +81,14 @@ public final class AMQPFrameParser {
      *
      * <p>Stops (without consuming the offending frame) the first time a
      * malformed frame is encountered and reports it via
-     * {@link AMQPFrameHandler#frameError}, since a wire-format violation
+     * {@link AmqpFrameHandler#frameError}, since a wire-format violation
      * is always a connection-level error in AMQP — there is no
      * well-defined resynchronisation point to keep parsing from.
      *
      * @param buf the buffer containing frame data, in read mode
      */
     public void receive(ByteBuffer buf) {
-        while (buf.remaining() >= AMQPFrame.HEADER_SIZE) {
+        while (buf.remaining() >= AmqpFrame.HEADER_SIZE) {
             int start = buf.position();
 
             int type = buf.get(start) & 0xFF;
@@ -100,16 +100,16 @@ public final class AMQPFrameParser {
                 return;
             }
 
-            long total = AMQPFrame.HEADER_SIZE + size + 1;
+            long total = AmqpFrame.HEADER_SIZE + size + 1;
             if (buf.remaining() < total) {
                 return; // Underflow — wait for more data, buffer position untouched
             }
 
-            int payloadStart = start + AMQPFrame.HEADER_SIZE;
+            int payloadStart = start + AmqpFrame.HEADER_SIZE;
             int end = (int) (payloadStart + size);
 
             int frameEnd = buf.get(end) & 0xFF;
-            if (frameEnd != AMQPFrame.FRAME_END) {
+            if (frameEnd != AmqpFrame.FRAME_END) {
                 handler.frameError("Malformed frame: expected frame-end 0xCE, got 0x"
                         + Integer.toHexString(frameEnd));
                 return;
@@ -128,16 +128,16 @@ public final class AMQPFrameParser {
 
     private void dispatch(int type, int channel, ByteBuffer payload) {
         switch (type) {
-            case AMQPFrame.TYPE_METHOD:
+            case AmqpFrame.TYPE_METHOD:
                 handler.methodFrame(channel, payload);
                 break;
-            case AMQPFrame.TYPE_HEADER:
+            case AmqpFrame.TYPE_HEADER:
                 handler.headerFrame(channel, payload);
                 break;
-            case AMQPFrame.TYPE_BODY:
+            case AmqpFrame.TYPE_BODY:
                 handler.bodyFrame(channel, payload);
                 break;
-            case AMQPFrame.TYPE_HEARTBEAT:
+            case AmqpFrame.TYPE_HEARTBEAT:
                 handler.heartbeatFrame();
                 break;
             default:

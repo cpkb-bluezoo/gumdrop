@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.buffer;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.IntegrationTlsClient;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.junit.Test;
 
@@ -66,7 +66,7 @@ public class TLSConcurrentWriteTest extends AbstractServerIntegrationTest {
      * Returns the TLSEchoServer instance from the running servers.
      */
     private TLSEchoServer getEchoServer() {
-        for (TCPListener server : servers) {
+        for (TcpListener server : servers) {
             if (server instanceof TLSEchoServer) {
                 return (TLSEchoServer) server;
             }

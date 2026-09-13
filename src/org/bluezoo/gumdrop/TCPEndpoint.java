@@ -1,5 +1,5 @@
 /*
- * TCPEndpoint.java
+ * TcpEndpoint.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -65,10 +65,10 @@ import java.util.logging.Logger;
  * @see Endpoint
  * @see ProtocolHandler
  */
-public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Callback {
+public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Callback {
 
     private static final Logger LOGGER =
-            Logger.getLogger(TCPEndpoint.class.getName());
+            Logger.getLogger(TcpEndpoint.class.getName());
 
     private static final int DEFAULT_BUFFER_SIZE = 8192;
 
@@ -165,23 +165,23 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     private long timestampConnected;
 
     /**
-     * Creates a TCPEndpoint for a plaintext connection.
+     * Creates a TcpEndpoint for a plaintext connection.
      *
      * @param handler the protocol handler
      */
-    public TCPEndpoint(ProtocolHandler handler) {
+    public TcpEndpoint(ProtocolHandler handler) {
         this(handler, (HandshakeConfig) null, false);
     }
 
     /**
-     * Creates a TCPEndpoint with optional TLS 1.3.
+     * Creates a TcpEndpoint with optional TLS 1.3.
      *
      * @param handler the protocol handler
      * @param config this endpoint's TLS configuration, or null for
      *               plaintext only
      * @param secure true if TLS should be active immediately
      */
-    public TCPEndpoint(ProtocolHandler handler, HandshakeConfig config,
+    public TcpEndpoint(ProtocolHandler handler, HandshakeConfig config,
                        boolean secure) {
         if (handler == null) {
             throw new NullPointerException("handler");
@@ -195,13 +195,13 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
     }
 
     /**
-     * Creates a TCPEndpoint with TLS 1.2.
+     * Creates a TcpEndpoint with TLS 1.2.
      *
      * @param handler the protocol handler
      * @param config12 this endpoint's TLS 1.2 configuration
      * @param secure true if TLS should be active immediately
      */
-    public TCPEndpoint(ProtocolHandler handler, Tls12HandshakeConfig config12,
+    public TcpEndpoint(ProtocolHandler handler, Tls12HandshakeConfig config12,
                        boolean secure) {
         if (handler == null) {
             throw new NullPointerException("handler");
@@ -214,7 +214,7 @@ public class TCPEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         this.timestampLastActivity = this.timestampCreated;
     }
 
-    // -- Initialization (called by TCPTransportFactory) --
+    // -- Initialization (called by TcpTransportFactory) --
 
     /**
      * Sets the transport factory that created this endpoint.

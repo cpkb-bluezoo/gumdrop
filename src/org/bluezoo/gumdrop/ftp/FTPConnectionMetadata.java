@@ -1,5 +1,5 @@
 /*
- * FTPConnectionMetadata.java
+ * FtpConnectionMetadata.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -35,7 +35,7 @@ import java.security.cert.Certificate;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class FTPConnectionMetadata {
+public class FtpConnectionMetadata {
 
     private InetSocketAddress clientAddress;
     private InetSocketAddress serverAddress;
@@ -50,8 +50,8 @@ public class FTPConnectionMetadata {
     private boolean authenticated;
     private String authenticatedUser;
     private String currentDirectory;
-    private FTPTransferMode transferMode;
-    private FTPTransferType transferType;
+    private FtpTransferMode transferMode;
+    private FtpTransferType transferType;
 
     // RFC 959 section 3.1.1.4: byte size for TYPE L
     private int localByteSize = 8;
@@ -68,7 +68,7 @@ public class FTPConnectionMetadata {
      * Transfer modes for FTP data connections.
      * RFC 959 section 3.4.
      */
-    public enum FTPTransferMode {
+    public enum FtpTransferMode {
         /** Stream mode (default). RFC 959 section 3.4.1. */
         STREAM,
         /** Block mode. RFC 959 section 3.4.2. */
@@ -81,7 +81,7 @@ public class FTPConnectionMetadata {
      * Transfer types for FTP data representation.
      * RFC 959 section 3.1.1.
      */
-    public enum FTPTransferType {
+    public enum FtpTransferType {
         /** ASCII type (default, MUST be accepted). RFC 959 section 3.1.1.1. */
         ASCII,
         /** Image type (binary). RFC 959 section 3.1.1.3. */
@@ -93,7 +93,7 @@ public class FTPConnectionMetadata {
     }
 
     /**
-     * Constructs a new FTPConnectionMetadata instance.
+     * Constructs a new FtpConnectionMetadata instance.
      *
      * @param clientAddress the remote client's socket address
      * @param serverAddress the local server's socket address
@@ -104,7 +104,7 @@ public class FTPConnectionMetadata {
      * @param connectionStartTimeMillis the timestamp when the connection was established
      * @param connectorDescription a description of the connector (e.g., "ftp", "ftps")
      */
-    public FTPConnectionMetadata(
+    public FtpConnectionMetadata(
             InetSocketAddress clientAddress,
             InetSocketAddress serverAddress,
             boolean secureConnection,
@@ -126,8 +126,8 @@ public class FTPConnectionMetadata {
         this.authenticated = false;
         this.authenticatedUser = null;
         this.currentDirectory = "/";
-        this.transferMode = FTPTransferMode.STREAM;   // RFC 959 section 3.4.1
-        this.transferType = FTPTransferType.ASCII;     // RFC 959 section 3.1.1.1
+        this.transferMode = FtpTransferMode.STREAM;   // RFC 959 section 3.4.1
+        this.transferType = FtpTransferType.ASCII;     // RFC 959 section 3.1.1.1
         this.passiveMode = false;
     }
 
@@ -179,11 +179,11 @@ public class FTPConnectionMetadata {
         return currentDirectory;
     }
 
-    public FTPTransferMode getTransferMode() {
+    public FtpTransferMode getTransferMode() {
         return transferMode;
     }
 
-    public FTPTransferType getTransferType() {
+    public FtpTransferType getTransferType() {
         return transferType;
     }
 
@@ -215,11 +215,11 @@ public class FTPConnectionMetadata {
         this.currentDirectory = currentDirectory;
     }
 
-    void setTransferMode(FTPTransferMode transferMode) {
+    void setTransferMode(FtpTransferMode transferMode) {
         this.transferMode = transferMode;
     }
 
-    void setTransferType(FTPTransferType transferType) {
+    void setTransferType(FtpTransferType transferType) {
         this.transferType = transferType;
     }
 

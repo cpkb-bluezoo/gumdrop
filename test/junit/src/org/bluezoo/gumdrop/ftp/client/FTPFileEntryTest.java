@@ -26,7 +26,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link FTPFileEntry}'s NLST/MLSD/LIST line parsers.
+ * Unit tests for {@link FtpFileEntry}'s NLST/MLSD/LIST line parsers.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -34,7 +34,7 @@ public class FTPFileEntryTest {
 
     @Test
     public void testParseNlstLine() {
-        FTPFileEntry entry = FTPFileEntry.parseNlstLine("readme.txt");
+        FtpFileEntry entry = FtpFileEntry.parseNlstLine("readme.txt");
         assertEquals("readme.txt", entry.getName());
         assertEquals(-1, entry.getSize());
         assertFalse(entry.isDirectory());
@@ -42,7 +42,7 @@ public class FTPFileEntryTest {
 
     @Test
     public void testParseMlsdFile() {
-        FTPFileEntry entry = FTPFileEntry.parseMlsdLine(
+        FtpFileEntry entry = FtpFileEntry.parseMlsdLine(
                 "Type=file;Size=1234;Modify=20260101120000; readme.txt");
         assertEquals("readme.txt", entry.getName());
         assertEquals(1234, entry.getSize());
@@ -53,21 +53,21 @@ public class FTPFileEntryTest {
 
     @Test
     public void testParseMlsdDirectory() {
-        FTPFileEntry entry = FTPFileEntry.parseMlsdLine("Type=dir;Sizd=0; pub");
+        FtpFileEntry entry = FtpFileEntry.parseMlsdLine("Type=dir;Sizd=0; pub");
         assertEquals("pub", entry.getName());
         assertTrue(entry.isDirectory());
     }
 
     @Test
     public void testParseMlsdFilenameWithSpaces() {
-        FTPFileEntry entry = FTPFileEntry.parseMlsdLine(
+        FtpFileEntry entry = FtpFileEntry.parseMlsdLine(
                 "Type=file;Size=10; my file.txt");
         assertEquals("my file.txt", entry.getName());
     }
 
     @Test
     public void testParseListFile() {
-        FTPFileEntry entry = FTPFileEntry.parseListLine(
+        FtpFileEntry entry = FtpFileEntry.parseListLine(
                 "-rw-r--r-- 1 owner group 1234 Jan 01 00:00 readme.txt");
         assertEquals("readme.txt", entry.getName());
         assertEquals(1234, entry.getSize());
@@ -76,7 +76,7 @@ public class FTPFileEntryTest {
 
     @Test
     public void testParseListDirectory() {
-        FTPFileEntry entry = FTPFileEntry.parseListLine(
+        FtpFileEntry entry = FtpFileEntry.parseListLine(
                 "drwxr-xr-x 2 owner group 4096 Jan 01 00:00 pub");
         assertEquals("pub", entry.getName());
         assertTrue(entry.isDirectory());
@@ -84,7 +84,7 @@ public class FTPFileEntryTest {
 
     @Test
     public void testParseListUnrecognisedFormatFallsBackToWholeLine() {
-        FTPFileEntry entry = FTPFileEntry.parseListLine("not a normal listing line");
+        FtpFileEntry entry = FtpFileEntry.parseListLine("not a normal listing line");
         assertEquals("not a normal listing line", entry.getName());
         assertEquals(-1, entry.getSize());
     }
@@ -92,7 +92,7 @@ public class FTPFileEntryTest {
     @Test
     public void testToStringReturnsRawLine() {
         String raw = "-rw-r--r-- 1 owner group 1234 Jan 01 00:00 readme.txt";
-        FTPFileEntry entry = FTPFileEntry.parseListLine(raw);
+        FtpFileEntry entry = FtpFileEntry.parseListLine(raw);
         assertEquals(raw, entry.toString());
         assertEquals(raw, entry.getRawLine());
     }

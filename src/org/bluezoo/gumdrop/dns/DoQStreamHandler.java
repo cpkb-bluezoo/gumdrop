@@ -46,7 +46,7 @@ import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoQListener
- * @see DNSService
+ * @see DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9250">RFC 9250</a>
  */
 final class DoQStreamHandler implements ProtocolHandler {
@@ -68,12 +68,12 @@ final class DoQStreamHandler implements ProtocolHandler {
     /** Too many outstanding queries. RFC 9250 section 4.3.5 */
     static final long DOQ_EXCESSIVE_LOAD = 0x4;
 
-    private final DNSService service;
+    private final DnsServer service;
     private Endpoint endpoint;
     private final ByteArrayOutputStream accumulator =
             new ByteArrayOutputStream(512);
 
-    DoQStreamHandler(DNSService service) {
+    DoQStreamHandler(DnsServer service) {
         this.service = service;
     }
 
@@ -92,7 +92,7 @@ final class DoQStreamHandler implements ProtocolHandler {
         int len = data.remaining();
         if (accumulator.size() + len > MAX_DNS_MESSAGE_SIZE) {
             LOGGER.warning(MessageFormat.format(
-                    DNSService.L10N.getString("err.doq_message_too_large"),
+                    DnsServer.L10N.getString("err.doq_message_too_large"),
                     endpoint.getRemoteAddress()));
             // RFC 9250 section 4.3.3: protocol error for oversized message
             resetWithError(DOQ_PROTOCOL_ERROR);
@@ -128,7 +128,7 @@ final class DoQStreamHandler implements ProtocolHandler {
             // RFC 9250 section 4.2: strip 2-octet length prefix
             if (raw.length < 2) {
                 LOGGER.fine(MessageFormat.format(
-                        DNSService.L10N.getString("err.doq_malformed"),
+                        DnsServer.L10N.getString("err.doq_malformed"),
                         endpoint.getRemoteAddress()));
                 // RFC 9250 section 4.3.3: malformed framing is a protocol error
                 resetWithError(DOQ_PROTOCOL_ERROR);
@@ -137,52 +137,52 @@ final class DoQStreamHandler implements ProtocolHandler {
             int msgLen = ((raw[0] & 0xFF) << 8) | (raw[1] & 0xFF);
             if (msgLen > raw.length - 2) {
                 LOGGER.fine(MessageFormat.format(
-                        DNSService.L10N.getString("err.doq_malformed"),
+                        DnsServer.L10N.getString("err.doq_malformed"),
                         endpoint.getRemoteAddress()));
                 // RFC 9250 section 4.3.3: truncated message is a protocol error
                 resetWithError(DOQ_PROTOCOL_ERROR);
                 return;
             }
             ByteBuffer queryBuf = ByteBuffer.wrap(raw, 2, msgLen);
-            final DNSMessage query = DNSMessage.parse(queryBuf);
+            final DnsMessage query = DnsMessage.parse(queryBuf);
 
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
-                        DNSService.L10N.getString(
+                        DnsServer.L10N.getString(
                                 "debug.doq_received_query"),
                         query, endpoint.getRemoteAddress()));
             }
 
-            final DNSServerMetrics metrics = service.getMetrics();
+            final DnsServerMetrics metrics = service.getMetrics();
             if (metrics != null && !query.getQuestions().isEmpty()) {
-                DNSQuestion q =
+                DnsQuestion q =
                         query.getQuestions().get(0);
                 metrics.queryReceived(q.getType().name(), "doq");
             }
 
             if (!query.isQuery()
-                    || query.getOpcode() != DNSMessage.OPCODE_QUERY) {
+                    || query.getOpcode() != DnsMessage.OPCODE_QUERY) {
                 sendResponseAndClose(query.createErrorResponse(
-                        DNSMessage.RCODE_NOTIMP));
+                        DnsMessage.RCODE_NOTIMP));
                 return;
             }
 
             if (query.getQuestions().isEmpty()) {
                 sendResponseAndClose(query.createErrorResponse(
-                        DNSMessage.RCODE_FORMERR));
+                        DnsMessage.RCODE_FORMERR));
                 return;
             }
 
             final long startNanos = System.nanoTime();
             service.processQuery(query, endpoint.getSelectorLoop(),
-                    new DNSQueryCallback() {
+                    new DnsQueryCallback() {
                         @Override
-                        public void onResponse(DNSMessage response) {
+                        public void onResponse(DnsMessage response) {
                             if (metrics != null) {
                                 double durationMs = (System.nanoTime()
                                         - startNanos) / 1_000_000.0;
                                 metrics.responseSent(
-                                        DNSService.rcodeToString(
+                                        DnsServer.rcodeToString(
                                                 response.getRcode()),
                                         durationMs, "doq");
                             }
@@ -192,19 +192,19 @@ final class DoQStreamHandler implements ProtocolHandler {
                         @Override
                         public void onError(String error) {
                             sendResponseAndClose(query.createErrorResponse(
-                                    DNSMessage.RCODE_SERVFAIL));
+                                    DnsMessage.RCODE_SERVFAIL));
                         }
                     });
 
-        } catch (DNSFormatException e) {
+        } catch (DnsFormatException e) {
             LOGGER.log(Level.FINE, MessageFormat.format(
-                    DNSService.L10N.getString("err.doq_malformed"),
+                    DnsServer.L10N.getString("err.doq_malformed"),
                     endpoint.getRemoteAddress()), e);
             // RFC 9250 section 4.3.3: malformed query is a protocol error
             resetWithError(DOQ_PROTOCOL_ERROR);
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, MessageFormat.format(
-                    DNSService.L10N.getString("err.doq_query_error"),
+                    DnsServer.L10N.getString("err.doq_query_error"),
                     endpoint.getRemoteAddress()), e);
             // RFC 9250 section 4.3.2: unexpected exception is an internal error
             resetWithError(DOQ_INTERNAL_ERROR);
@@ -214,7 +214,7 @@ final class DoQStreamHandler implements ProtocolHandler {
     @Override
     public void error(Exception cause) {
         LOGGER.log(Level.WARNING, MessageFormat.format(
-                DNSService.L10N.getString("err.doq_error"),
+                DnsServer.L10N.getString("err.doq_error"),
                 endpoint != null ? endpoint.getRemoteAddress() : null),
                 cause);
     }
@@ -238,9 +238,9 @@ final class DoQStreamHandler implements ProtocolHandler {
     // and indicate STREAM FIN after the last response.
     // RFC 9250 section 4.2: 2-octet length prefix required.
     // RFC 9250 section 5.4: EDNS(0) padding applied.
-    private void sendResponseAndClose(DNSMessage response) {
+    private void sendResponseAndClose(DnsMessage response) {
         ByteBuffer payload = response.serialize();
-        payload = DNSMessage.padToBlockSize(payload, PADDING_BLOCK_SIZE);
+        payload = DnsMessage.padToBlockSize(payload, PADDING_BLOCK_SIZE);
         int len = payload.remaining();
         ByteBuffer framed = ByteBuffer.allocate(2 + len);
         framed.putShort((short) len);

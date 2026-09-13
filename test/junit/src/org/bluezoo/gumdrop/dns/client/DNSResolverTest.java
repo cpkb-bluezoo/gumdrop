@@ -22,18 +22,18 @@
 package org.bluezoo.gumdrop.dns.client;
 
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.dns.DNSCache;
-import org.bluezoo.gumdrop.dns.DNSClass;
-import org.bluezoo.gumdrop.dns.DNSCookie;
-import org.bluezoo.gumdrop.dns.DNSFormatException;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSMultiQType;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSQuestion;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSSECAwareQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSSECStatus;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsCache;
+import org.bluezoo.gumdrop.dns.DnsClass;
+import org.bluezoo.gumdrop.dns.DnsCookie;
+import org.bluezoo.gumdrop.dns.DnsFormatException;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsMultiQType;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsQuestion;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnssecAwareQueryCallback;
+import org.bluezoo.gumdrop.dns.DnssecStatus;
+import org.bluezoo.gumdrop.dns.DnsType;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -53,34 +53,34 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSResolver}.
+ * Unit tests for {@link DnsResolver}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DNSResolverTest {
 
-    private DNSCache originalCache;
+    private DnsCache originalCache;
 
     @Before
     public void setUp() {
-        originalCache = DNSResolver.getCache();
-        DNSResolver.setCache(new DNSCache());
+        originalCache = DnsResolver.getCache();
+        DnsResolver.setCache(new DnsCache());
         DNSMultiQTypeCache.clear();
     }
 
     @After
     public void tearDown() {
-        DNSResolver.setCache(originalCache);
+        DnsResolver.setCache(originalCache);
         DNSMultiQTypeCache.clear();
     }
 
     @Test
     public void testQueryErrorWhenNotOpened() {
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         final AtomicReference<String> error = new AtomicReference<>();
-        resolver.query("example.com", DNSType.A, new DNSQueryCallback() {
+        resolver.query("example.com", DnsType.A, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 fail("Should not get response");
             }
 
@@ -94,26 +94,26 @@ public class DNSResolverTest {
 
     @Test
     public void testCacheHitDeliveredWithoutQuery() throws Exception {
-        DNSCache cache = DNSResolver.getCache();
-        DNSQuestion question = new DNSQuestion("cached.example.com",
-                DNSType.A, DNSClass.IN);
+        DnsCache cache = DnsResolver.getCache();
+        DnsQuestion question = new DnsQuestion("cached.example.com",
+                DnsType.A, DnsClass.IN);
         InetAddress addr = InetAddress.getByAddress(
                 new byte[]{10, 0, 0, 1});
-        List<DNSResourceRecord> records = new ArrayList<>();
-        records.add(DNSResourceRecord.a("cached.example.com", 300, addr));
+        List<DnsResourceRecord> records = new ArrayList<>();
+        records.add(DnsResourceRecord.a("cached.example.com", 300, addr));
         cache.cache(question, records);
 
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
-        resolver.query("cached.example.com", DNSType.A,
-                new DNSQueryCallback() {
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
+        resolver.query("cached.example.com", DnsType.A,
+                new DnsQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response) {
+                    public void onResponse(DnsMessage response) {
                         result.set(response);
                     }
 
@@ -131,20 +131,20 @@ public class DNSResolverTest {
 
     @Test
     public void testNegativeCacheDeliversSyntheticNxdomain() throws Exception {
-        DNSCache cache = DNSResolver.getCache();
+        DnsCache cache = DnsResolver.getCache();
         cache.cacheNegative("nxdomain.example.com");
 
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
-        resolver.query("nxdomain.example.com", DNSType.A,
-                new DNSQueryCallback() {
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
+        resolver.query("nxdomain.example.com", DnsType.A,
+                new DnsQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response) {
+                    public void onResponse(DnsMessage response) {
                         result.set(response);
                     }
 
@@ -155,7 +155,7 @@ public class DNSResolverTest {
                 });
 
         assertNotNull("Should get NXDOMAIN response", result.get());
-        assertEquals(DNSMessage.RCODE_NXDOMAIN, result.get().getRcode());
+        assertEquals(DnsMessage.RCODE_NXDOMAIN, result.get().getRcode());
         assertEquals(0, mockTransport.sendCount);
         resolver.close();
     }
@@ -165,16 +165,16 @@ public class DNSResolverTest {
     @Test
     public void testResponseDeliveredViaTransport() throws Exception {
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
-        resolver.query("wire.example.com", DNSType.A,
-                new DNSQueryCallback() {
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
+        resolver.query("wire.example.com", DnsType.A,
+                new DnsQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response) {
+                    public void onResponse(DnsMessage response) {
                         result.set(response);
                     }
 
@@ -188,7 +188,7 @@ public class DNSResolverTest {
         assertNotNull(mockTransport.lastSentData);
 
         int queryId = extractId(mockTransport.lastSentData);
-        DNSMessage response = buildResponse(queryId, "wire.example.com",
+        DnsMessage response = buildResponse(queryId, "wire.example.com",
                 false, new byte[]{1, 2, 3, 4});
         mockTransport.handler.onReceive(response.serialize());
 
@@ -202,18 +202,18 @@ public class DNSResolverTest {
     @Test
     public void testDnssecAwareCallbackReceivesValidationStatus() throws Exception {
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.setDnssecEnabled(true);
         resolver.open();
 
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
-        final AtomicReference<DNSSECStatus> statusRef = new AtomicReference<>();
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
+        final AtomicReference<DnssecStatus> statusRef = new AtomicReference<>();
         resolver.queryTLSA("_25._tcp.mail.example.com",
-                new DNSSECAwareQueryCallback() {
+                new DnssecAwareQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response, DNSSECStatus status) {
+                    public void onResponse(DnsMessage response, DnssecStatus status) {
                         result.set(response);
                         statusRef.set(status);
                     }
@@ -226,38 +226,38 @@ public class DNSResolverTest {
 
         int queryId = extractId(mockTransport.lastSentData);
         // A NODATA response (no answers, no authority NSEC/NSEC3) is
-        // provably insecure per RFC 4035 section 5: DNSSECChainValidator
+        // provably insecure per RFC 4035 section 5: DnssecChainValidator
         // has nothing to walk a chain of trust from.
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        DNSMessage nodata = new DNSMessage(queryId, flags,
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        DnsMessage nodata = new DnsMessage(queryId, flags,
                 Collections.singletonList(
-                        new DNSQuestion("_25._tcp.mail.example.com", DNSType.TLSA)),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList());
+                        new DnsQuestion("_25._tcp.mail.example.com", DnsType.TLSA)),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
         mockTransport.handler.onReceive(nodata.serialize());
 
         assertNotNull("Callback should receive response", result.get());
         assertEquals("An unsigned NODATA response must be reported "
                         + "INSECURE, not silently treated as validated",
-                DNSSECStatus.INSECURE, statusRef.get());
+                DnssecStatus.INSECURE, statusRef.get());
         resolver.close();
     }
 
     @Test
     public void testPlainCallbackStillDeliveredWhenDnssecEnabled() throws Exception {
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.setDnssecEnabled(true);
         resolver.open();
 
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
         resolver.queryTLSA("_25._tcp.mail.example.com",
-                new DNSQueryCallback() {
+                new DnsQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response) {
+                    public void onResponse(DnsMessage response) {
                         result.set(response);
                     }
 
@@ -268,16 +268,16 @@ public class DNSResolverTest {
                 });
 
         int queryId = extractId(mockTransport.lastSentData);
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        DNSMessage nodata = new DNSMessage(queryId, flags,
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        DnsMessage nodata = new DnsMessage(queryId, flags,
                 Collections.singletonList(
-                        new DNSQuestion("_25._tcp.mail.example.com", DNSType.TLSA)),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList());
+                        new DnsQuestion("_25._tcp.mail.example.com", DnsType.TLSA)),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
         mockTransport.handler.onReceive(nodata.serialize());
 
-        assertNotNull("A plain DNSQueryCallback must still be delivered "
+        assertNotNull("A plain DnsQueryCallback must still be delivered "
                 + "the response even though it can't see the DNSSEC status",
                 result.get());
         resolver.close();
@@ -287,16 +287,16 @@ public class DNSResolverTest {
     public void testDnssecAwareCallbackGetsIndeterminateWhenDnssecDisabled()
             throws Exception {
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final AtomicReference<DNSSECStatus> statusRef = new AtomicReference<>();
-        resolver.query("wire.example.com", DNSType.A,
-                new DNSSECAwareQueryCallback() {
+        final AtomicReference<DnssecStatus> statusRef = new AtomicReference<>();
+        resolver.query("wire.example.com", DnsType.A,
+                new DnssecAwareQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response, DNSSECStatus status) {
+                    public void onResponse(DnsMessage response, DnssecStatus status) {
                         statusRef.set(status);
                     }
 
@@ -307,14 +307,14 @@ public class DNSResolverTest {
                 });
 
         int queryId = extractId(mockTransport.lastSentData);
-        DNSMessage response = buildResponse(queryId, "wire.example.com",
+        DnsMessage response = buildResponse(queryId, "wire.example.com",
                 false, new byte[]{1, 2, 3, 4});
         mockTransport.handler.onReceive(response.serialize());
 
         assertEquals("Without DNSSEC enabled there is nothing to "
                         + "validate, so status must be INDETERMINATE, "
                         + "never SECURE",
-                DNSSECStatus.INDETERMINATE, statusRef.get());
+                DnssecStatus.INDETERMINATE, statusRef.get());
         resolver.close();
     }
 
@@ -325,16 +325,16 @@ public class DNSResolverTest {
         MockTransport mockUdp = new MockTransport();
         MockTcpTransport mockTcp = new MockTcpTransport();
 
-        DNSResolver resolver = new TestableResolver(mockTcp);
+        DnsResolver resolver = new TestableResolver(mockTcp);
         resolver.setTransport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
-        resolver.query("big.example.com", DNSType.A,
-                new DNSQueryCallback() {
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
+        resolver.query("big.example.com", DnsType.A,
+                new DnsQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response) {
+                    public void onResponse(DnsMessage response) {
                         result.set(response);
                     }
 
@@ -347,7 +347,7 @@ public class DNSResolverTest {
         int queryId = extractId(mockUdp.lastSentData);
 
         // Deliver a truncated UDP response
-        DNSMessage truncated = buildResponse(queryId, "big.example.com",
+        DnsMessage truncated = buildResponse(queryId, "big.example.com",
                 true, new byte[]{1, 1, 1, 1});
         mockUdp.handler.onReceive(truncated.serialize());
 
@@ -361,17 +361,17 @@ public class DNSResolverTest {
                 new byte[]{10, 0, 0, 1});
         InetAddress addr2 = InetAddress.getByAddress(
                 new byte[]{10, 0, 0, 2});
-        List<DNSResourceRecord> fullAnswers = new ArrayList<>();
-        fullAnswers.add(DNSResourceRecord.a("big.example.com", 300, addr1));
-        fullAnswers.add(DNSResourceRecord.a("big.example.com", 300, addr2));
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD
-                | DNSMessage.FLAG_RA;
-        DNSMessage tcpResponse = new DNSMessage(queryId, flags,
+        List<DnsResourceRecord> fullAnswers = new ArrayList<>();
+        fullAnswers.add(DnsResourceRecord.a("big.example.com", 300, addr1));
+        fullAnswers.add(DnsResourceRecord.a("big.example.com", 300, addr2));
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD
+                | DnsMessage.FLAG_RA;
+        DnsMessage tcpResponse = new DnsMessage(queryId, flags,
                 Collections.singletonList(
-                        new DNSQuestion("big.example.com", DNSType.A)),
+                        new DnsQuestion("big.example.com", DnsType.A)),
                 fullAnswers,
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList());
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
 
         mockTcp.handler.onReceive(tcpResponse.serialize());
 
@@ -389,17 +389,17 @@ public class DNSResolverTest {
         MockTcpTransport mockTcp = new MockTcpTransport();
         mockTcp.failOnOpen = true;
 
-        DNSResolver resolver = new TestableResolver(mockTcp);
+        DnsResolver resolver = new TestableResolver(mockTcp);
         MockTransport mockUdp = new MockTransport();
         resolver.setTransport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
-        resolver.query("fail.example.com", DNSType.A,
-                new DNSQueryCallback() {
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
+        resolver.query("fail.example.com", DnsType.A,
+                new DnsQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response) {
+                    public void onResponse(DnsMessage response) {
                         result.set(response);
                     }
 
@@ -410,7 +410,7 @@ public class DNSResolverTest {
                 });
 
         int queryId = extractId(mockUdp.lastSentData);
-        DNSMessage truncated = buildResponse(queryId, "fail.example.com",
+        DnsMessage truncated = buildResponse(queryId, "fail.example.com",
                 true, new byte[]{5, 5, 5, 5});
         mockUdp.handler.onReceive(truncated.serialize());
 
@@ -426,17 +426,17 @@ public class DNSResolverTest {
     public void testTruncatedFallbackOnTcpError() throws Exception {
         MockTcpTransport mockTcp = new MockTcpTransport();
 
-        DNSResolver resolver = new TestableResolver(mockTcp);
+        DnsResolver resolver = new TestableResolver(mockTcp);
         MockTransport mockUdp = new MockTransport();
         resolver.setTransport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
-        resolver.query("err.example.com", DNSType.A,
-                new DNSQueryCallback() {
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
+        resolver.query("err.example.com", DnsType.A,
+                new DnsQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response) {
+                    public void onResponse(DnsMessage response) {
                         result.set(response);
                     }
 
@@ -447,7 +447,7 @@ public class DNSResolverTest {
                 });
 
         int queryId = extractId(mockUdp.lastSentData);
-        DNSMessage truncated = buildResponse(queryId, "err.example.com",
+        DnsMessage truncated = buildResponse(queryId, "err.example.com",
                 true, new byte[]{6, 6, 6, 6});
         mockUdp.handler.onReceive(truncated.serialize());
 
@@ -468,17 +468,17 @@ public class DNSResolverTest {
     public void testTruncatedFallbackOnTcpTimeout() throws Exception {
         MockTcpTransport mockTcp = new MockTcpTransport();
 
-        DNSResolver resolver = new TestableResolver(mockTcp);
+        DnsResolver resolver = new TestableResolver(mockTcp);
         MockTransport mockUdp = new MockTransport();
         resolver.setTransport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
-        resolver.query("slow.example.com", DNSType.A,
-                new DNSQueryCallback() {
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
+        resolver.query("slow.example.com", DnsType.A,
+                new DnsQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response) {
+                    public void onResponse(DnsMessage response) {
                         result.set(response);
                     }
 
@@ -489,7 +489,7 @@ public class DNSResolverTest {
                 });
 
         int queryId = extractId(mockUdp.lastSentData);
-        DNSMessage truncated = buildResponse(queryId, "slow.example.com",
+        DnsMessage truncated = buildResponse(queryId, "slow.example.com",
                 true, new byte[]{7, 7, 7, 7});
         mockUdp.handler.onReceive(truncated.serialize());
 
@@ -512,17 +512,17 @@ public class DNSResolverTest {
     public void testTcpRetryDeliversExactlyOnce() throws Exception {
         MockTcpTransport mockTcp = new MockTcpTransport();
 
-        DNSResolver resolver = new TestableResolver(mockTcp);
+        DnsResolver resolver = new TestableResolver(mockTcp);
         MockTransport mockUdp = new MockTransport();
         resolver.setTransport(mockUdp);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final List<DNSMessage> results = new ArrayList<>();
-        resolver.query("once.example.com", DNSType.A,
-                new DNSQueryCallback() {
+        final List<DnsMessage> results = new ArrayList<>();
+        resolver.query("once.example.com", DnsType.A,
+                new DnsQueryCallback() {
                     @Override
-                    public void onResponse(DNSMessage response) {
+                    public void onResponse(DnsMessage response) {
                         results.add(response);
                     }
 
@@ -533,12 +533,12 @@ public class DNSResolverTest {
                 });
 
         int queryId = extractId(mockUdp.lastSentData);
-        DNSMessage truncated = buildResponse(queryId, "once.example.com",
+        DnsMessage truncated = buildResponse(queryId, "once.example.com",
                 true, new byte[]{8, 8, 8, 8});
         mockUdp.handler.onReceive(truncated.serialize());
 
         // Deliver TCP response, then simulate error and timeout
-        DNSMessage tcpResp = buildResponse(queryId, "once.example.com",
+        DnsMessage tcpResp = buildResponse(queryId, "once.example.com",
                 false, new byte[]{9, 9, 9, 9});
         mockTcp.handler.onReceive(tcpResp.serialize());
         mockTcp.handler.onError(new IOException("late error"));
@@ -555,15 +555,15 @@ public class DNSResolverTest {
     @Test
     public void testQueryIdsAreNotSequential() throws Exception {
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        resolver.query("a.example.com", DNSType.A, noopCallback());
+        resolver.query("a.example.com", DnsType.A, noopCallback());
         int id1 = extractId(mockTransport.lastSentData);
 
-        resolver.query("b.example.com", DNSType.A, noopCallback());
+        resolver.query("b.example.com", DnsType.A, noopCallback());
         int id2 = extractId(mockTransport.lastSentData);
 
         assertNotEquals("Second query should not reuse first ID", id1, id2);
@@ -572,10 +572,10 @@ public class DNSResolverTest {
         resolver.close();
     }
 
-    private static DNSQueryCallback noopCallback() {
-        return new DNSQueryCallback() {
+    private static DnsQueryCallback noopCallback() {
+        return new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
             }
 
             @Override
@@ -589,24 +589,24 @@ public class DNSResolverTest {
     @Test
     public void testBatchMergedResponseSingleExchange() throws Exception {
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final List<DNSType> resultTypes = new ArrayList<>();
-        final List<List<DNSResourceRecord>> resultRecords = new ArrayList<>();
+        final List<DnsType> resultTypes = new ArrayList<>();
+        final List<List<DnsResourceRecord>> resultRecords = new ArrayList<>();
         final boolean[] completed = {false};
-        resolver.queryBatch("merged.example.com", Arrays.asList(DNSType.A, DNSType.AAAA),
+        resolver.queryBatch("merged.example.com", Arrays.asList(DnsType.A, DnsType.AAAA),
                 new BatchQueryCallback() {
                     @Override
-                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
+                    public void onResult(DnsType type, List<DnsResourceRecord> records) {
                         resultTypes.add(type);
                         resultRecords.add(records);
                     }
 
                     @Override
-                    public void onTypeError(DNSType type, String error) {
+                    public void onTypeError(DnsType type, String error) {
                         fail("Should not error for " + type + ": " + error);
                     }
 
@@ -623,15 +623,15 @@ public class DNSResolverTest {
         assertNotNull("Outgoing query should carry MQTYPE-Query for AAAA",
                 mqTypeQueryOption(mockTransport.lastSentData));
 
-        DNSMessage response = buildBatchResponse(queryId, "merged.example.com",
-                Arrays.asList(DNSType.A, DNSType.AAAA),
-                Collections.singletonList(DNSType.AAAA));
+        DnsMessage response = buildBatchResponse(queryId, "merged.example.com",
+                Arrays.asList(DnsType.A, DnsType.AAAA),
+                Collections.singletonList(DnsType.AAAA));
         mockTransport.handler.onReceive(response.serialize());
 
         assertEquals("Still exactly one exchange (no fallback needed)",
                 1, mockTransport.sendCount);
         assertTrue("Should have completed", completed[0]);
-        assertEquals(new HashSet<>(Arrays.asList(DNSType.A, DNSType.AAAA)),
+        assertEquals(new HashSet<>(Arrays.asList(DnsType.A, DnsType.AAAA)),
                 new HashSet<>(resultTypes));
         resolver.close();
     }
@@ -639,23 +639,23 @@ public class DNSResolverTest {
     @Test
     public void testBatchPartialMQTypeResponseFallsBackForMissingType() throws Exception {
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final Set<DNSType> delivered = Collections.synchronizedSet(new HashSet<DNSType>());
+        final Set<DnsType> delivered = Collections.synchronizedSet(new HashSet<DnsType>());
         final boolean[] completed = {false};
         resolver.queryBatch("partial.example.com",
-                Arrays.asList(DNSType.A, DNSType.AAAA, DNSType.HTTPS),
+                Arrays.asList(DnsType.A, DnsType.AAAA, DnsType.HTTPS),
                 new BatchQueryCallback() {
                     @Override
-                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
+                    public void onResult(DnsType type, List<DnsResourceRecord> records) {
                         delivered.add(type);
                     }
 
                     @Override
-                    public void onTypeError(DNSType type, String error) {
+                    public void onTypeError(DnsType type, String error) {
                         fail("Should not error for " + type + ": " + error);
                     }
 
@@ -669,9 +669,9 @@ public class DNSResolverTest {
         int primaryId = extractId(mockTransport.lastSentData);
 
         // Server only merges AAAA back -- HTTPS is left uncovered.
-        DNSMessage response = buildBatchResponse(primaryId, "partial.example.com",
-                Arrays.asList(DNSType.A, DNSType.AAAA),
-                Collections.singletonList(DNSType.AAAA));
+        DnsMessage response = buildBatchResponse(primaryId, "partial.example.com",
+                Arrays.asList(DnsType.A, DnsType.AAAA),
+                Collections.singletonList(DnsType.AAAA));
         mockTransport.handler.onReceive(response.serialize());
 
         assertFalse("Should not be complete yet (HTTPS still outstanding)", completed[0]);
@@ -680,13 +680,13 @@ public class DNSResolverTest {
         int fallbackId = extractId(mockTransport.lastSentData);
         assertNotEquals(primaryId, fallbackId);
 
-        DNSMessage httpsResponse = buildBatchResponse(fallbackId, "partial.example.com",
-                Collections.singletonList(DNSType.HTTPS),
-                Collections.<DNSType>emptyList());
+        DnsMessage httpsResponse = buildBatchResponse(fallbackId, "partial.example.com",
+                Collections.singletonList(DnsType.HTTPS),
+                Collections.<DnsType>emptyList());
         mockTransport.handler.onReceive(httpsResponse.serialize());
 
         assertTrue("Should be complete now", completed[0]);
-        assertEquals(new HashSet<>(Arrays.asList(DNSType.A, DNSType.AAAA, DNSType.HTTPS)),
+        assertEquals(new HashSet<>(Arrays.asList(DnsType.A, DnsType.AAAA, DnsType.HTTPS)),
                 delivered);
         resolver.close();
     }
@@ -694,22 +694,22 @@ public class DNSResolverTest {
     @Test
     public void testBatchUnsupportedServerFallsBackForAllAdditionalTypes() throws Exception {
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        final Set<DNSType> delivered = Collections.synchronizedSet(new HashSet<DNSType>());
+        final Set<DnsType> delivered = Collections.synchronizedSet(new HashSet<DnsType>());
         final boolean[] completed = {false};
-        resolver.queryBatch("unsupported.example.com", Arrays.asList(DNSType.A, DNSType.AAAA),
+        resolver.queryBatch("unsupported.example.com", Arrays.asList(DnsType.A, DnsType.AAAA),
                 new BatchQueryCallback() {
                     @Override
-                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
+                    public void onResult(DnsType type, List<DnsResourceRecord> records) {
                         delivered.add(type);
                     }
 
                     @Override
-                    public void onTypeError(DNSType type, String error) {
+                    public void onTypeError(DnsType type, String error) {
                         fail("Should not error for " + type + ": " + error);
                     }
 
@@ -724,7 +724,7 @@ public class DNSResolverTest {
 
         // Plain response, no MQTYPE-Response option at all -- server
         // doesn't support RFC 10029.
-        DNSMessage response = buildResponse(primaryId, "unsupported.example.com",
+        DnsMessage response = buildResponse(primaryId, "unsupported.example.com",
                 false, new byte[]{1, 2, 3, 4});
         mockTransport.handler.onReceive(response.serialize());
 
@@ -732,12 +732,12 @@ public class DNSResolverTest {
                 2, mockTransport.sendCount);
         int fallbackId = extractId(mockTransport.lastSentData);
 
-        DNSMessage aaaaResponse = buildBatchResponse(fallbackId, "unsupported.example.com",
-                Collections.singletonList(DNSType.AAAA), Collections.<DNSType>emptyList());
+        DnsMessage aaaaResponse = buildBatchResponse(fallbackId, "unsupported.example.com",
+                Collections.singletonList(DnsType.AAAA), Collections.<DnsType>emptyList());
         mockTransport.handler.onReceive(aaaaResponse.serialize());
 
         assertTrue(completed[0]);
-        assertEquals(new HashSet<>(Arrays.asList(DNSType.A, DNSType.AAAA)), delivered);
+        assertEquals(new HashSet<>(Arrays.asList(DnsType.A, DnsType.AAAA)), delivered);
         assertTrue("Server should now be cached as not supporting RFC 10029",
                 DNSMultiQTypeCache.isKnownUnsupported(
                         new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 53)));
@@ -750,19 +750,19 @@ public class DNSResolverTest {
                 new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 53));
 
         MockTransport mockTransport = new MockTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(mockTransport);
         resolver.addServer("127.0.0.1");
         resolver.open();
 
-        resolver.queryBatch("skip-option.example.com", Arrays.asList(DNSType.A, DNSType.AAAA),
+        resolver.queryBatch("skip-option.example.com", Arrays.asList(DnsType.A, DnsType.AAAA),
                 new BatchQueryCallback() {
                     @Override
-                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
+                    public void onResult(DnsType type, List<DnsResourceRecord> records) {
                     }
 
                     @Override
-                    public void onTypeError(DNSType type, String error) {
+                    public void onTypeError(DnsType type, String error) {
                     }
 
                     @Override
@@ -776,57 +776,57 @@ public class DNSResolverTest {
         resolver.close();
     }
 
-    private static byte[] mqTypeQueryOption(ByteBuffer data) throws DNSFormatException {
+    private static byte[] mqTypeQueryOption(ByteBuffer data) throws DnsFormatException {
         ByteBuffer copy = data.duplicate();
         copy.rewind();
-        DNSMessage message;
+        DnsMessage message;
         try {
-            message = DNSMessage.parse(copy);
-        } catch (DNSFormatException e) {
+            message = DnsMessage.parse(copy);
+        } catch (DnsFormatException e) {
             throw e;
         }
-        for (DNSResourceRecord rr : message.getAdditionals()) {
-            if (rr.getType() == DNSType.OPT) {
-                return DNSCookie.findEdnsOption(rr.getRData(),
-                        DNSMultiQType.EDNS_OPTION_MQTYPE_QUERY);
+        for (DnsResourceRecord rr : message.getAdditionals()) {
+            if (rr.getType() == DnsType.OPT) {
+                return DnsCookie.findEdnsOption(rr.getRData(),
+                        DnsMultiQType.EDNS_OPTION_MQTYPE_QUERY);
             }
         }
         return null;
     }
 
-    private static DNSMessage buildBatchResponse(int queryId, String name,
-                                                  List<DNSType> answerTypes,
-                                                  List<DNSType> mqTypeResponseCoverage)
+    private static DnsMessage buildBatchResponse(int queryId, String name,
+                                                  List<DnsType> answerTypes,
+                                                  List<DnsType> mqTypeResponseCoverage)
             throws Exception {
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        List<DNSResourceRecord> answers = new ArrayList<>();
-        DNSType primaryType = answerTypes.get(0);
-        for (DNSType type : answerTypes) {
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        List<DnsResourceRecord> answers = new ArrayList<>();
+        DnsType primaryType = answerTypes.get(0);
+        for (DnsType type : answerTypes) {
             answers.add(answerRecord(name, type));
         }
-        List<DNSResourceRecord> additionals = new ArrayList<>();
+        List<DnsResourceRecord> additionals = new ArrayList<>();
         if (!mqTypeResponseCoverage.isEmpty()) {
-            byte[] mqtypeOption = DNSMultiQType.buildMQTypeResponseOption(mqTypeResponseCoverage);
-            additionals.add(DNSResourceRecord.opt(4096, 0, mqtypeOption));
+            byte[] mqtypeOption = DnsMultiQType.buildMQTypeResponseOption(mqTypeResponseCoverage);
+            additionals.add(DnsResourceRecord.opt(4096, 0, mqtypeOption));
         }
-        return new DNSMessage(queryId, flags,
-                Collections.singletonList(new DNSQuestion(name, primaryType)),
+        return new DnsMessage(queryId, flags,
+                Collections.singletonList(new DnsQuestion(name, primaryType)),
                 answers,
-                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
                 additionals);
     }
 
-    private static DNSResourceRecord answerRecord(String name, DNSType type) throws Exception {
+    private static DnsResourceRecord answerRecord(String name, DnsType type) throws Exception {
         switch (type) {
             case A:
-                return DNSResourceRecord.a(name, 300,
+                return DnsResourceRecord.a(name, 300,
                         InetAddress.getByAddress(new byte[]{10, 0, 0, 1}));
             case AAAA:
-                return DNSResourceRecord.aaaa(name, 300,
+                return DnsResourceRecord.aaaa(name, 300,
                         InetAddress.getByAddress(new byte[]{
                                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}));
             case HTTPS:
-                return DNSResourceRecord.https(name, 300, 1, ".",
+                return DnsResourceRecord.https(name, 300, 1, ".",
                         Collections.<Integer, byte[]>emptyMap());
             default:
                 throw new IllegalArgumentException("Unsupported test type: " + type);
@@ -839,23 +839,23 @@ public class DNSResolverTest {
         return ((data.get(0) & 0xFF) << 8) | (data.get(1) & 0xFF);
     }
 
-    private static DNSMessage buildResponse(int queryId, String name,
+    private static DnsMessage buildResponse(int queryId, String name,
                                             boolean truncated,
                                             byte[] addr) throws Exception {
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD
-                | DNSMessage.FLAG_RA;
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD
+                | DnsMessage.FLAG_RA;
         if (truncated) {
-            flags |= DNSMessage.FLAG_TC;
+            flags |= DnsMessage.FLAG_TC;
         }
-        List<DNSResourceRecord> answers = new ArrayList<>();
-        answers.add(DNSResourceRecord.a(name, 300,
+        List<DnsResourceRecord> answers = new ArrayList<>();
+        answers.add(DnsResourceRecord.a(name, 300,
                 InetAddress.getByAddress(addr)));
-        return new DNSMessage(queryId, flags,
+        return new DnsMessage(queryId, flags,
                 Collections.singletonList(
-                        new DNSQuestion(name, DNSType.A)),
+                        new DnsQuestion(name, DnsType.A)),
                 answers,
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList());
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
     }
 
     // -- Mock classes --
@@ -864,16 +864,16 @@ public class DNSResolverTest {
      * Minimal mock transport that records sends without actually
      * performing I/O.
      */
-    private static class MockTransport implements DNSClientTransport {
+    private static class MockTransport implements DnsClientTransport {
 
         int sendCount;
         ByteBuffer lastSentData;
-        DNSClientTransportHandler handler;
+        DnsClientTransportHandler handler;
 
         @Override
         public void open(InetAddress server, int port,
                          org.bluezoo.gumdrop.SelectorLoop loop,
-                         DNSClientTransportHandler handler)
+                         DnsClientTransportHandler handler)
                 throws IOException {
             this.handler = handler;
         }
@@ -901,19 +901,19 @@ public class DNSResolverTest {
      * Mock TCP transport injected via {@link TestableResolver} to
      * test the async truncation retry path.
      */
-    private static class MockTcpTransport implements DNSClientTransport {
+    private static class MockTcpTransport implements DnsClientTransport {
 
         boolean failOnOpen;
         boolean opened;
         boolean closed;
         int sendCount;
-        DNSClientTransportHandler handler;
+        DnsClientTransportHandler handler;
         Runnable lastTimerCallback;
 
         @Override
         public void open(InetAddress server, int port,
                          org.bluezoo.gumdrop.SelectorLoop loop,
-                         DNSClientTransportHandler handler)
+                         DnsClientTransportHandler handler)
                 throws IOException {
             if (failOnOpen) {
                 throw new IOException("Mock TCP open failure");
@@ -958,15 +958,15 @@ public class DNSResolverTest {
      * Resolver subclass that returns an injected TCP transport for
      * truncation retries.
      */
-    private static class TestableResolver extends DNSResolver {
-        private final DNSClientTransport tcpTransport;
+    private static class TestableResolver extends DnsResolver {
+        private final DnsClientTransport tcpTransport;
 
-        TestableResolver(DNSClientTransport tcpTransport) {
+        TestableResolver(DnsClientTransport tcpTransport) {
             this.tcpTransport = tcpTransport;
         }
 
         @Override
-        DNSClientTransport createTcpRetryTransport() {
+        DnsClientTransport createTcpRetryTransport() {
             return tcpTransport;
         }
     }

@@ -24,7 +24,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.redis.client.ArrayResultHandler;
 import org.bluezoo.gumdrop.redis.client.BooleanResultHandler;
 import org.bluezoo.gumdrop.redis.client.BulkResultHandler;
@@ -111,7 +111,7 @@ public class RedisServerIntegrationExample {
     /**
      * Simple TCP server for the example.
      */
-    static class ExampleServer extends TCPListener {
+    static class ExampleServer extends TcpListener {
         private final int port;
 
         ExampleServer(int port) {

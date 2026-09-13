@@ -1,5 +1,5 @@
 /*
- * FTPFileOperationResult.java
+ * FtpFileOperationResult.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -24,11 +24,11 @@ package org.bluezoo.gumdrop.ftp;
 /**
  * Defines the possible outcomes for FTP file and directory operations.
  * Each result maps to the RFC 959 section 4.2 reply codes used by
- * {@link FTPProtocolHandler#handleFileOperationResult}.
+ * {@link FtpProtocolHandler#handleFileOperationResult}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum FTPFileOperationResult {
+public enum FtpFileOperationResult {
 	
     /**
      * Operation completed successfully (250, 226).

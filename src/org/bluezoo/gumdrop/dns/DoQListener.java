@@ -36,7 +36,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
@@ -53,7 +53,7 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  * the response.
  *
  * <p>This listener follows the same architectural pattern as the
- * HTTP/3 listener: it extends {@link TCPListener} but overrides
+ * HTTP/3 listener: it extends {@link TcpListener} but overrides
  * {@link #requiresTcpAccept()} to return {@code false}, creates a
  * {@link QuicTransportFactory}, and manages {@link QuicEngine}
  * instances directly.
@@ -64,10 +64,10 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoQStreamHandler
- * @see DNSService
+ * @see DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9250">RFC 9250 - DNS over QUIC</a>
  */
-public class DoQListener extends TCPListener
+public class DoQListener extends TcpListener
         implements StreamAcceptHandler {
 
     private static final Logger LOGGER =
@@ -76,7 +76,7 @@ public class DoQListener extends TCPListener
     private static final int DEFAULT_PORT = 853;
 
     private int port = DEFAULT_PORT;
-    private DNSService service;
+    private DnsServer service;
 
     private Path certFile;
     private Path keyFile;
@@ -113,7 +113,7 @@ public class DoQListener extends TCPListener
      *
      * @param service the owning service
      */
-    void setService(DNSService service) {
+    void setService(DnsServer service) {
         this.service = service;
     }
 
@@ -122,7 +122,7 @@ public class DoQListener extends TCPListener
      *
      * @return the owning service
      */
-    public DNSService getService() {
+    public DnsServer getService() {
         return service;
     }
 

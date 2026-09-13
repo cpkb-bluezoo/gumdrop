@@ -645,7 +645,7 @@ public abstract class WebSocketConnection {
             // without this every continuation frame would re-copy the
             // entire message assembled so far — O(n^2) total copying
             // across a fragmented message. Mirrors
-            // TCPEndpoint.appendToNetOut's growth strategy. Capped at
+            // TcpEndpoint.appendToNetOut's growth strategy. Capped at
             // maxMessageSize (when configured) since the check above
             // already guarantees the final size fits within it.
             int required = messageBuffer.position() + payloadLength;

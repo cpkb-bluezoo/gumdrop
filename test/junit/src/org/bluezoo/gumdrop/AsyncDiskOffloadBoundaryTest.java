@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop;
 
-import org.bluezoo.gumdrop.ftp.FTPListener;
-import org.bluezoo.gumdrop.ftp.FTPProtocolHandler;
+import org.bluezoo.gumdrop.ftp.FtpListener;
+import org.bluezoo.gumdrop.ftp.FtpProtocolHandler;
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
 import org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler;
 import org.bluezoo.gumdrop.http.HttpRequestHandler;
@@ -152,8 +152,8 @@ public class AsyncDiskOffloadBoundaryTest {
         Path sub = Files.createDirectory(tempRoot.resolve("subdir"));
         BasicFTPFileSystem fs = new BasicFTPFileSystem(tempRoot, false);
         SimpleFTPHandler connHandler = new SimpleFTPHandler(fs);
-        FTPProtocolHandler handler =
-                new FTPProtocolHandler(new FTPListener(), connHandler);
+        FtpProtocolHandler handler =
+                new FtpProtocolHandler(new FtpListener(), connHandler);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(21);
 
         handler.connected(endpoint);
@@ -494,7 +494,7 @@ public class AsyncDiskOffloadBoundaryTest {
         f.set(gumdrop, replacement);
     }
 
-    private static void sendFtp(FTPProtocolHandler handler, String command) {
+    private static void sendFtp(FtpProtocolHandler handler, String command) {
         byte[] data = (command + "\r\n").getBytes(StandardCharsets.US_ASCII);
         handler.receive(ByteBuffer.wrap(data));
     }

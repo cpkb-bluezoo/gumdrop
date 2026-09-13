@@ -262,7 +262,7 @@ String result = sb.toString();
 
 **Acceptable (builder pattern):**
 ```java
-DNSMessage response = new DNSMessage.Builder()
+DnsMessage response = new DnsMessage.Builder()
     .id(query.getId())
     .flags(FLAG_QR | FLAG_RA)
     .build();
@@ -549,7 +549,7 @@ acronyms** (hopf precedent). Full migration tables and slice order live in
 **New public types** in `src/org/bluezoo/gumdrop` must follow these rules:
 
 1. **Acronyms** — only the first letter capitalised per word:
-   `HttpServer`, `SmtpClient`, `DnsMessage`, `Pop3Server` (not `HTTPService`,
+   `HttpServer`, `SmtpClient`, `DnsMessage`, `Pop3Server` (not `HttpServer`,
    `SmtpClient`, …).
 2. **Application tier** — listener + handler wiring uses `*Server`, not
    `*Service` (`HttpServer`, `SmtpServer`). Do not add new `*Service` types.

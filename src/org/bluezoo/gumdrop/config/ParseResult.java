@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.config;
 
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.Service;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 
 import java.util.Collection;
 
@@ -81,10 +81,10 @@ public class ParseResult {
      * Returns all standalone endpoint server components (not owned by
      * a protocol server).
      *
-     * @return collection of all TCPListener instances
+     * @return collection of all TcpListener instances
      */
-    public Collection<TCPListener> getListeners() {
-        return registry.getComponentsOfType(TCPListener.class);
+    public Collection<TcpListener> getListeners() {
+        return registry.getComponentsOfType(TcpListener.class);
     }
     
     /**

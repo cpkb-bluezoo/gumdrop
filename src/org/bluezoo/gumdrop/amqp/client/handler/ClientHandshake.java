@@ -51,7 +51,7 @@ public interface ClientHandshake {
      * @param password the password
      * @param handler receives {@code tune} once the server responds
      */
-    void startOk(String username, String password, ServerTuneHandler handler);
+    void startOk(String username, String password, TuneHandler handler);
 
     /**
      * Authenticates with an arbitrary non-blocking SASL mechanism (e.g.
@@ -60,13 +60,13 @@ public interface ClientHandshake {
      *
      * <p>Not for {@code GSSAPI} — its first challenge evaluation may
      * block on KDC contact; use
-     * {@link #startOk(SASLClientMechanism, ServerTuneHandler, ExecutorService)}
+     * {@link #startOk(SASLClientMechanism, TuneHandler, ExecutorService)}
      * instead.
      *
      * @param saslClient the SASL mechanism driving the exchange
      * @param handler receives {@code tune} once the server responds
      */
-    void startOk(SASLClientMechanism saslClient, ServerTuneHandler handler);
+    void startOk(SASLClientMechanism saslClient, TuneHandler handler);
 
     /**
      * Authenticates with an arbitrary SASL mechanism, offloading each
@@ -82,6 +82,6 @@ public interface ClientHandshake {
      * @param handler receives {@code tune} once the server responds
      * @param executor worker executor for blocking challenge evaluation
      */
-    void startOk(SASLClientMechanism saslClient, ServerTuneHandler handler, ExecutorService executor);
+    void startOk(SASLClientMechanism saslClient, TuneHandler handler, ExecutorService executor);
 
 }

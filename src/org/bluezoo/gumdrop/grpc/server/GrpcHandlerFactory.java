@@ -35,7 +35,7 @@ import org.bluezoo.gumdrop.http.Headers;
  *
  * <p>Checks that the path matches /package.Service/Method and content-type
  * is application/grpc, then returns a handler that parses gRPC framing
- * and dispatches to the GrpcService.
+ * and dispatches to the GrpcServer.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -44,7 +44,7 @@ public class GrpcHandlerFactory implements HttpRequestHandlerFactory {
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
 
     private final ProtoFile protoFile;
-    private final GrpcService service;
+    private final GrpcServer service;
     private long maxMessageSize = GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE;
 
     /**
@@ -53,7 +53,7 @@ public class GrpcHandlerFactory implements HttpRequestHandlerFactory {
      * @param protoFile the Proto model
      * @param service the gRPC service implementation
      */
-    public GrpcHandlerFactory(ProtoFile protoFile, GrpcService service) {
+    public GrpcHandlerFactory(ProtoFile protoFile, GrpcServer service) {
         this.protoFile = protoFile;
         this.service = service;
     }

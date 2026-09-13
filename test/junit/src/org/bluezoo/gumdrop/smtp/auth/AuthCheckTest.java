@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp.auth;
 
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.junit.Before;
 import org.junit.Test;
@@ -264,7 +264,7 @@ public class AuthCheckTest {
     /**
      * Mock DNS resolver for testing.
      */
-    private static class MockDNSResolver extends DNSResolver {
+    private static class MockDNSResolver extends DnsResolver {
 
         MockDNSResolver() {
             super(); // No-arg constructor

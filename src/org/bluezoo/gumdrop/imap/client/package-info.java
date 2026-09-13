@@ -66,7 +66,7 @@
  *   <li>IDLE for server-push mailbox notifications</li>
  *   <li>Unsolicited mailbox event delivery via MailboxEventListener</li>
  *   <li>Type-safe stateful handler pattern enforcing correct command sequences</li>
- *   <li>Async DNS resolution via the gumdrop DNSResolver</li>
+ *   <li>Async DNS resolution via the gumdrop DnsResolver</li>
  * </ul>
  *
  * <p>Different state interfaces (package {@link

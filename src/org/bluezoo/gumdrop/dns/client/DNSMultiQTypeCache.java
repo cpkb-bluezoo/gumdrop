@@ -31,7 +31,7 @@ import java.util.concurrent.ConcurrentMap;
  *
  * <p>Modeled on {@link org.bluezoo.gumdrop.http.client.AltSvcCache}: a
  * server that has never been tried, or that supports the mechanism, has
- * no entry here at all -- {@link DNSResolver#queryBatch} always tries
+ * no entry here at all -- {@link DnsResolver#queryBatch} always tries
  * opportunistically by default, since attaching the option costs
  * nothing when it works. Only the negative case is cached, and only
  * temporarily, so a server whose support changes (or was probed while

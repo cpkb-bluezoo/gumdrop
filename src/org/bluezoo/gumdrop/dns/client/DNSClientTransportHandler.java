@@ -1,5 +1,5 @@
 /*
- * DNSClientTransportHandler.java
+ * DnsClientTransportHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,13 +26,13 @@ import java.nio.ByteBuffer;
 /**
  * Callback interface for DNS client transport events.
  *
- * <p>Implemented by {@link DNSResolver} to receive data and error
- * notifications from the underlying {@link DNSClientTransport}.
+ * <p>Implemented by {@link DnsResolver} to receive data and error
+ * notifications from the underlying {@link DnsClientTransport}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSClientTransport
+ * @see DnsClientTransport
  */
-public interface DNSClientTransportHandler {
+public interface DnsClientTransportHandler {
 
     /**
      * Called when DNS response data is received from the server.

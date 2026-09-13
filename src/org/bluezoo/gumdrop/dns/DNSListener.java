@@ -1,5 +1,5 @@
 /*
- * DNSListener.java
+ * DnsListener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,7 +27,7 @@ import java.nio.ByteBuffer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.UDPListener;
+import org.bluezoo.gumdrop.UdpListener;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -42,21 +42,21 @@ import org.bluezoo.gumdrop.SelectorLoop;
  *
  * <p>This endpoint binds a UDP socket on the configured port and
  * dispatches incoming DNS datagrams to its owning
- * {@link DNSService} for processing.
+ * {@link DnsServer} for processing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSService
- * @see UDPListener
+ * @see DnsServer
+ * @see UdpListener
  */
-public class DNSListener extends UDPListener {
+public class DnsListener extends UdpListener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(DNSListener.class.getName());
+            Logger.getLogger(DnsListener.class.getName());
 
     private static final int DEFAULT_PORT = 53;
 
     private int port = DEFAULT_PORT;
-    private DNSService service;
+    private DnsServer service;
 
     @Override
     public int getPort() {
@@ -78,12 +78,12 @@ public class DNSListener extends UDPListener {
     }
 
     /**
-     * Sets the owning DNS service. Called by {@link DNSService}
+     * Sets the owning DNS service. Called by {@link DnsServer}
      * during wiring.
      *
      * @param service the owning service
      */
-    void setService(DNSService service) {
+    void setService(DnsServer service) {
         this.service = service;
     }
 
@@ -92,7 +92,7 @@ public class DNSListener extends UDPListener {
      *
      * @return the owning service
      */
-    public DNSService getService() {
+    public DnsServer getService() {
         return service;
     }
 
@@ -125,19 +125,19 @@ public class DNSListener extends UDPListener {
 
     /**
      * Inner handler that dispatches received datagrams to the
-     * owning {@link DNSService}.
+     * owning {@link DnsServer}.
      */
     private class DNSDatagramHandler implements ProtocolHandler {
 
         @Override
         public void connected(Endpoint ep) {
-            // endpoint is already bound via UDPListener
+            // endpoint is already bound via UdpListener
         }
 
         @Override
         public void receive(ByteBuffer data) {
             if (service == null) {
-                LOGGER.warning(DNSMessage.L10N.getString("warn.dns_no_service_set"));
+                LOGGER.warning(DnsMessage.L10N.getString("warn.dns_no_service_set"));
                 return;
             }
             InetSocketAddress source =
@@ -147,7 +147,7 @@ public class DNSListener extends UDPListener {
                 return;
             }
             connectionOpened(source);
-            service.handleDatagram(DNSListener.this, data, source,
+            service.handleDatagram(DnsListener.this, data, source,
                     new Runnable() {
                         @Override
                         public void run() {

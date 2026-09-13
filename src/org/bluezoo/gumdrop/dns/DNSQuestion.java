@@ -1,5 +1,5 @@
 /*
- * DNSQuestion.java
+ * DnsQuestion.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,11 +31,11 @@ package org.bluezoo.gumdrop.dns;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class DNSQuestion {
+public final class DnsQuestion {
 
     private final String name;
-    private final DNSType type;
-    private final DNSClass dnsClass;
+    private final DnsType type;
+    private final DnsClass dnsClass;
     private final boolean unicastResponseRequested;
 
     /**
@@ -45,7 +45,7 @@ public final class DNSQuestion {
      * @param type the record type
      * @param dnsClass the record class
      */
-    public DNSQuestion(String name, DNSType type, DNSClass dnsClass) {
+    public DnsQuestion(String name, DnsType type, DnsClass dnsClass) {
         this(name, type, dnsClass, false);
     }
 
@@ -61,7 +61,7 @@ public final class DNSQuestion {
      * @param dnsClass the record class
      * @param unicastResponseRequested whether the QU bit is set
      */
-    public DNSQuestion(String name, DNSType type, DNSClass dnsClass,
+    public DnsQuestion(String name, DnsType type, DnsClass dnsClass,
                         boolean unicastResponseRequested) {
         this.name = name;
         this.type = type;
@@ -75,8 +75,8 @@ public final class DNSQuestion {
      * @param name the domain name to query
      * @param type the record type
      */
-    public DNSQuestion(String name, DNSType type) {
-        this(name, type, DNSClass.IN, false);
+    public DnsQuestion(String name, DnsType type) {
+        this(name, type, DnsClass.IN, false);
     }
 
     /**
@@ -103,7 +103,7 @@ public final class DNSQuestion {
      *
      * @return the record type
      */
-    public DNSType getType() {
+    public DnsType getType() {
         return type;
     }
 
@@ -112,7 +112,7 @@ public final class DNSQuestion {
      *
      * @return the record class
      */
-    public DNSClass getDNSClass() {
+    public DnsClass getDNSClass() {
         return dnsClass;
     }
 
@@ -125,10 +125,10 @@ public final class DNSQuestion {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof DNSQuestion)) {
+        if (!(o instanceof DnsQuestion)) {
             return false;
         }
-        DNSQuestion that = (DNSQuestion) o;
+        DnsQuestion that = (DnsQuestion) o;
         return name.equalsIgnoreCase(that.name) &&
                type == that.type &&
                dnsClass == that.dnsClass;

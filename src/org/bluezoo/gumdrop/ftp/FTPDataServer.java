@@ -41,11 +41,11 @@ class FTPDataServer implements AcceptSelectorLoop.RawAcceptHandler {
 
     final FTPControlConnection controlConnection;
     final int requestedPort;
-    final FTPDataConnectionCoordinator coordinator;
+    final FtpDataConnectionCoordinator coordinator;
     private int actualPort = -1;
     private ServerSocketChannel serverChannel;
 
-    FTPDataServer(FTPControlConnection controlConnection, int port, FTPDataConnectionCoordinator coordinator) {
+    FTPDataServer(FTPControlConnection controlConnection, int port, FtpDataConnectionCoordinator coordinator) {
         this.controlConnection = controlConnection;
         this.requestedPort = port;
         this.coordinator = coordinator;

@@ -41,7 +41,7 @@ import java.util.logging.Logger;
 
 /**
  * A minimal, in-process AMQP 0-9-1 broker for testing {@link
- * AMQPClientProtocolHandler} / {@link AMQPClientRecovery} end to end over
+ * AmqpClientProtocolHandler} / {@link AmqpClientRecovery} end to end over
  * a real socket — deliberately not a real broker (issue #154 explicitly
  * asks for no real broker dependency in the test environment), just
  * enough of the protocol to exercise connect, channel open, exchange/
@@ -52,7 +52,7 @@ import java.util.logging.Logger;
  * <p>Uses plain blocking {@code java.net} sockets and one thread per
  * connection — this is test support, not a production server, so it
  * doesn't need gumdrop's async I/O machinery. It reuses gumdrop's own
- * AMQP wire-format codec ({@link AMQPFrame}, {@link AMQPFrameParser},
+ * AMQP wire-format codec ({@link AmqpFrame}, {@link AmqpFrameParser},
  * {@link FieldTable}, {@link BasicProperties}, and the package-private
  * {@code *Methods} classes) rather than a second, parallel
  * implementation.
@@ -256,7 +256,7 @@ final class FakeAMQPBroker implements AutoCloseable {
 
     // ── Per-connection protocol driver ──
 
-    private final class BrokerConnection implements Runnable, AMQPFrameHandler {
+    private final class BrokerConnection implements Runnable, AmqpFrameHandler {
 
         private final Socket socket;
         private final Object writeLock = new Object();
@@ -300,7 +300,7 @@ final class FakeAMQPBroker implements AutoCloseable {
 
                 sendConnectionStart();
 
-                AMQPFrameParser parser = new AMQPFrameParser(this);
+                AmqpFrameParser parser = new AmqpFrameParser(this);
                 ByteBuffer buf = ByteBuffer.allocate(65536);
                 byte[] readBuf = new byte[8192];
                 while (true) {
@@ -350,7 +350,7 @@ final class FakeAMQPBroker implements AutoCloseable {
         }
 
         private void send(int type, int channel, ByteBuffer payload) {
-            ByteBuffer frame = AMQPFrame.encode(type, channel, payload);
+            ByteBuffer frame = AmqpFrame.encode(type, channel, payload);
             byte[] bytes = new byte[frame.remaining()];
             frame.get(bytes);
             synchronized (writeLock) {
@@ -365,7 +365,7 @@ final class FakeAMQPBroker implements AutoCloseable {
 
         private void sendConnectionStart() {
             FieldTable serverProps = new FieldTable().put("product", "gumdrop-fake-broker");
-            send(AMQPFrame.TYPE_METHOD, 0,
+            send(AmqpFrame.TYPE_METHOD, 0,
                     ConnectionMethods.encodeStart(0, 9, serverProps, "PLAIN AMQPLAIN EXTERNAL", "en_US"));
         }
 
@@ -375,7 +375,7 @@ final class FakeAMQPBroker implements AutoCloseable {
             int methodId = payload.getShort() & 0xFFFF;
             try {
                 dispatch(channel, classId, methodId, payload);
-            } catch (AMQPProtocolException e) {
+            } catch (AmqpProtocolException e) {
                 LOGGER.log(Level.WARNING, "Fake broker: malformed method", e);
                 forceClose();
             } catch (RuntimeException e) {
@@ -385,142 +385,142 @@ final class FakeAMQPBroker implements AutoCloseable {
         }
 
         private void dispatch(int channel, int classId, int methodId, ByteBuffer payload)
-                throws AMQPProtocolException {
-            if (classId == AMQPMethod.CLASS_CONNECTION) {
+                throws AmqpProtocolException {
+            if (classId == AmqpMethod.CLASS_CONNECTION) {
                 switch (methodId) {
-                    case AMQPMethod.CONNECTION_START_OK: {
+                    case AmqpMethod.CONNECTION_START_OK: {
                         ConnectionMethods.StartOk startOk = ConnectionMethods.decodeStartOk(payload);
                         if (requiredUsername != null
                                 && !credentialsMatch(startOk.mechanism, startOk.response)) {
-                            send(AMQPFrame.TYPE_METHOD, 0,
+                            send(AmqpFrame.TYPE_METHOD, 0,
                                     ConnectionMethods.encodeClose(530, "NOT_ALLOWED - invalid credentials"));
                             return;
                         }
-                        send(AMQPFrame.TYPE_METHOD, 0, ConnectionMethods.encodeTune(0, 131072, 0));
+                        send(AmqpFrame.TYPE_METHOD, 0, ConnectionMethods.encodeTune(0, 131072, 0));
                         return;
                     }
-                    case AMQPMethod.CONNECTION_TUNE_OK:
+                    case AmqpMethod.CONNECTION_TUNE_OK:
                         ConnectionMethods.decodeTuneOk(payload);
                         return;
-                    case AMQPMethod.CONNECTION_OPEN:
+                    case AmqpMethod.CONNECTION_OPEN:
                         ConnectionMethods.decodeOpen(payload);
-                        send(AMQPFrame.TYPE_METHOD, 0, ConnectionMethods.encodeOpenOk());
+                        send(AmqpFrame.TYPE_METHOD, 0, ConnectionMethods.encodeOpenOk());
                         return;
-                    case AMQPMethod.CONNECTION_CLOSE:
-                        send(AMQPFrame.TYPE_METHOD, 0, ConnectionMethods.encodeCloseOk());
+                    case AmqpMethod.CONNECTION_CLOSE:
+                        send(AmqpFrame.TYPE_METHOD, 0, ConnectionMethods.encodeCloseOk());
                         forceClose();
                         return;
-                    case AMQPMethod.CONNECTION_CLOSE_OK:
+                    case AmqpMethod.CONNECTION_CLOSE_OK:
                         return;
                     default:
-                        throw new AMQPProtocolException("Unexpected connection method " + methodId);
+                        throw new AmqpProtocolException("Unexpected connection method " + methodId);
                 }
             }
-            if (classId == AMQPMethod.CLASS_CHANNEL) {
+            if (classId == AmqpMethod.CLASS_CHANNEL) {
                 switch (methodId) {
-                    case AMQPMethod.CHANNEL_OPEN:
+                    case AmqpMethod.CHANNEL_OPEN:
                         ChannelMethods.decodeOpen(payload);
-                        send(AMQPFrame.TYPE_METHOD, channel, ChannelMethods.encodeOpenOk());
+                        send(AmqpFrame.TYPE_METHOD, channel, ChannelMethods.encodeOpenOk());
                         return;
-                    case AMQPMethod.CHANNEL_CLOSE:
-                        send(AMQPFrame.TYPE_METHOD, channel, ChannelMethods.encodeCloseOk());
+                    case AmqpMethod.CHANNEL_CLOSE:
+                        send(AmqpFrame.TYPE_METHOD, channel, ChannelMethods.encodeCloseOk());
                         return;
-                    case AMQPMethod.CHANNEL_CLOSE_OK:
+                    case AmqpMethod.CHANNEL_CLOSE_OK:
                         return;
                     default:
-                        throw new AMQPProtocolException("Unexpected channel method " + methodId);
+                        throw new AmqpProtocolException("Unexpected channel method " + methodId);
                 }
             }
-            if (classId == AMQPMethod.CLASS_EXCHANGE && methodId == AMQPMethod.EXCHANGE_DECLARE) {
+            if (classId == AmqpMethod.CLASS_EXCHANGE && methodId == AmqpMethod.EXCHANGE_DECLARE) {
                 ExchangeMethods.decodeDeclare(payload);
-                send(AMQPFrame.TYPE_METHOD, channel, ExchangeMethods.encodeDeclareOk());
+                send(AmqpFrame.TYPE_METHOD, channel, ExchangeMethods.encodeDeclareOk());
                 return;
             }
-            if (classId == AMQPMethod.CLASS_QUEUE && methodId == AMQPMethod.QUEUE_DECLARE) {
+            if (classId == AmqpMethod.CLASS_QUEUE && methodId == AmqpMethod.QUEUE_DECLARE) {
                 QueueMethods.Declare d = QueueMethods.decodeDeclare(payload);
                 BrokerQueue q = queue(d.queue);
-                send(AMQPFrame.TYPE_METHOD, channel,
+                send(AmqpFrame.TYPE_METHOD, channel,
                         QueueMethods.encodeDeclareOk(d.queue, q.backlogSize(), 0));
                 return;
             }
-            if (classId == AMQPMethod.CLASS_QUEUE && methodId == AMQPMethod.QUEUE_BIND) {
+            if (classId == AmqpMethod.CLASS_QUEUE && methodId == AmqpMethod.QUEUE_BIND) {
                 QueueMethods.Bind b = QueueMethods.decodeBind(payload);
                 bind(b.queue, b.exchange, b.routingKey);
-                send(AMQPFrame.TYPE_METHOD, channel, QueueMethods.encodeBindOk());
+                send(AmqpFrame.TYPE_METHOD, channel, QueueMethods.encodeBindOk());
                 return;
             }
-            if (classId == AMQPMethod.CLASS_BASIC) {
+            if (classId == AmqpMethod.CLASS_BASIC) {
                 dispatchBasic(channel, methodId, payload);
                 return;
             }
-            if (classId == AMQPMethod.CLASS_CONFIRM && methodId == AMQPMethod.CONFIRM_SELECT) {
+            if (classId == AmqpMethod.CLASS_CONFIRM && methodId == AmqpMethod.CONFIRM_SELECT) {
                 ConfirmMethods.decodeSelect(payload);
                 confirmsEnabled = true;
                 confirmSeq = 0;
-                send(AMQPFrame.TYPE_METHOD, channel, ConfirmMethods.encodeSelectOk());
+                send(AmqpFrame.TYPE_METHOD, channel, ConfirmMethods.encodeSelectOk());
                 return;
             }
-            if (classId == AMQPMethod.CLASS_TX) {
+            if (classId == AmqpMethod.CLASS_TX) {
                 switch (methodId) {
-                    case AMQPMethod.TX_SELECT:
-                        send(AMQPFrame.TYPE_METHOD, channel, TxMethods.encodeSelectOk());
+                    case AmqpMethod.TX_SELECT:
+                        send(AmqpFrame.TYPE_METHOD, channel, TxMethods.encodeSelectOk());
                         return;
-                    case AMQPMethod.TX_COMMIT:
-                        send(AMQPFrame.TYPE_METHOD, channel, TxMethods.encodeCommitOk());
+                    case AmqpMethod.TX_COMMIT:
+                        send(AmqpFrame.TYPE_METHOD, channel, TxMethods.encodeCommitOk());
                         return;
-                    case AMQPMethod.TX_ROLLBACK:
-                        send(AMQPFrame.TYPE_METHOD, channel, TxMethods.encodeRollbackOk());
+                    case AmqpMethod.TX_ROLLBACK:
+                        send(AmqpFrame.TYPE_METHOD, channel, TxMethods.encodeRollbackOk());
                         return;
                     default:
-                        throw new AMQPProtocolException("Unexpected tx method " + methodId);
+                        throw new AmqpProtocolException("Unexpected tx method " + methodId);
                 }
             }
-            throw new AMQPProtocolException("Unhandled class " + classId + " method " + methodId);
+            throw new AmqpProtocolException("Unhandled class " + classId + " method " + methodId);
         }
 
         private void dispatchBasic(int channel, int methodId, ByteBuffer payload)
-                throws AMQPProtocolException {
+                throws AmqpProtocolException {
             switch (methodId) {
-                case AMQPMethod.BASIC_QOS:
-                    send(AMQPFrame.TYPE_METHOD, channel, basicQosOk());
+                case AmqpMethod.BASIC_QOS:
+                    send(AmqpFrame.TYPE_METHOD, channel, basicQosOk());
                     return;
-                case AMQPMethod.BASIC_CONSUME: {
+                case AmqpMethod.BASIC_CONSUME: {
                     BasicMethods.Consume c = BasicMethods.decodeConsume(payload);
                     String tag = c.consumerTag.isEmpty()
                             ? "server-tag-" + consumersByTag.size() : c.consumerTag;
                     Consumer consumer = new Consumer(channel, tag, queue(c.queue));
                     consumersByTag.put(tag, consumer);
                     consumer.queue.addConsumer(consumer);
-                    send(AMQPFrame.TYPE_METHOD, channel, BasicMethods.encodeConsumeOk(tag));
+                    send(AmqpFrame.TYPE_METHOD, channel, BasicMethods.encodeConsumeOk(tag));
                     return;
                 }
-                case AMQPMethod.BASIC_CANCEL: {
+                case AmqpMethod.BASIC_CANCEL: {
                     String tag = BasicMethods.decodeCancel(payload);
                     Consumer consumer = consumersByTag.remove(tag);
                     if (consumer != null) {
                         consumer.queue.removeConsumer(consumer);
                     }
-                    send(AMQPFrame.TYPE_METHOD, channel, BasicMethods.encodeCancelOk(tag));
+                    send(AmqpFrame.TYPE_METHOD, channel, BasicMethods.encodeCancelOk(tag));
                     return;
                 }
-                case AMQPMethod.BASIC_PUBLISH:
+                case AmqpMethod.BASIC_PUBLISH:
                     pendingPublish = BasicMethods.decodePublish(payload);
                     return;
-                case AMQPMethod.BASIC_ACK:
-                case AMQPMethod.BASIC_NACK:
-                case AMQPMethod.BASIC_REJECT:
+                case AmqpMethod.BASIC_ACK:
+                case AmqpMethod.BASIC_NACK:
+                case AmqpMethod.BASIC_REJECT:
                     // Delivery acknowledgment from the client; a fake broker
                     // doesn't need to act on it beyond bookkeeping.
                     return;
                 default:
-                    throw new AMQPProtocolException("Unexpected basic method " + methodId);
+                    throw new AmqpProtocolException("Unexpected basic method " + methodId);
             }
         }
 
         private ByteBuffer basicQosOk() {
             ByteBuffer buf = ByteBuffer.allocate(4);
-            buf.putShort((short) AMQPMethod.CLASS_BASIC);
-            buf.putShort((short) AMQPMethod.BASIC_QOS_OK);
+            buf.putShort((short) AmqpMethod.CLASS_BASIC);
+            buf.putShort((short) AmqpMethod.BASIC_QOS_OK);
             buf.flip();
             return buf;
         }
@@ -532,7 +532,7 @@ final class FakeAMQPBroker implements AutoCloseable {
                     FieldTable table = FieldTable.decode(ByteBuffer.wrap(response), response.length);
                     return requiredUsername.equals(table.get("LOGIN"))
                             && requiredPassword.equals(table.get("PASSWORD"));
-                } catch (AMQPProtocolException e) {
+                } catch (AmqpProtocolException e) {
                     return false;
                 }
             }
@@ -548,7 +548,7 @@ final class FakeAMQPBroker implements AutoCloseable {
         public void headerFrame(int channel, ByteBuffer payload) {
             try {
                 pendingHeader = BasicProperties.decode(payload);
-            } catch (AMQPProtocolException e) {
+            } catch (AmqpProtocolException e) {
                 LOGGER.log(Level.WARNING, "Fake broker: malformed content-header", e);
                 forceClose();
                 return;
@@ -578,7 +578,7 @@ final class FakeAMQPBroker implements AutoCloseable {
             }
             if (confirmsEnabled) {
                 confirmSeq++;
-                send(AMQPFrame.TYPE_METHOD, channel, BasicMethods.encodeAck(confirmSeq, false));
+                send(AmqpFrame.TYPE_METHOD, channel, BasicMethods.encodeAck(confirmSeq, false));
             }
             pendingPublish = null;
             pendingHeader = null;
@@ -588,7 +588,7 @@ final class FakeAMQPBroker implements AutoCloseable {
 
         @Override
         public void heartbeatFrame() {
-            send(AMQPFrame.TYPE_HEARTBEAT, 0, ByteBuffer.allocate(0));
+            send(AmqpFrame.TYPE_HEARTBEAT, 0, ByteBuffer.allocate(0));
         }
 
         @Override
@@ -611,12 +611,12 @@ final class FakeAMQPBroker implements AutoCloseable {
             void deliver(StoredMessage msg) {
                 long deliveryTag = deliveryTagSeq.incrementAndGet();
                 unacked.put(deliveryTag, tag);
-                send(AMQPFrame.TYPE_METHOD, channel,
+                send(AmqpFrame.TYPE_METHOD, channel,
                         BasicMethods.encodeDeliver(tag, deliveryTag, false, msg.exchange, msg.routingKey));
                 BasicProperties props = (msg.properties != null) ? msg.properties : new BasicProperties();
-                send(AMQPFrame.TYPE_HEADER, channel, props.encode(msg.body.length));
+                send(AmqpFrame.TYPE_HEADER, channel, props.encode(msg.body.length));
                 if (msg.body.length > 0) {
-                    send(AMQPFrame.TYPE_BODY, channel, ByteBuffer.wrap(msg.body));
+                    send(AmqpFrame.TYPE_BODY, channel, ByteBuffer.wrap(msg.body));
                 }
             }
         }

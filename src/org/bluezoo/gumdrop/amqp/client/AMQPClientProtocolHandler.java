@@ -1,5 +1,5 @@
 /*
- * AMQPClientProtocolHandler.java
+ * AmqpClientProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -44,21 +44,21 @@ import org.bluezoo.gumdrop.amqp.client.handler.ConnectionReady;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.FlowListener;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerCancelHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelCloseHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerCloseHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConfirmSelectHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerExchangeDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerFlowHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueBindHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTuneHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxCommitHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxRollbackHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.CancelHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ChannelCloseHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.CloseHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.FlowHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.OpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.QueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.QueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TuneHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TxCommitHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TxRollbackHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TxSelectHandler;
 import org.bluezoo.gumdrop.auth.SASLClientMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
 
@@ -66,12 +66,12 @@ import org.bluezoo.gumdrop.auth.SASLUtils;
  * AMQP 0-9-1 client protocol handler (issue #154).
  *
  * <p>Implements a type-safe state machine ({@code ConnectionReady} →
- * {@code ClientHandshake} → {@code ServerTuneHandler} → {@code ClientTuned}
- * → {@code ServerOpenHandler} → {@code ClientConnection} →
- * {@code ServerChannelOpenHandler} → {@code ClientChannel}), mirroring
+ * {@code ClientHandshake} → {@code TuneHandler} → {@code ClientTuned}
+ * → {@code OpenHandler} → {@code ClientConnection} →
+ * {@code ChannelOpenHandler} → {@code ClientChannel}), mirroring
  * {@link org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler}.
  *
- * <p>Frame parsing uses the streaming, push-based {@link AMQPFrameParser}:
+ * <p>Frame parsing uses the streaming, push-based {@link AmqpFrameParser}:
  * no method here ever assumes a complete frame, let alone a complete
  * message, is available in one read. Message bodies — both outbound
  * ({@link PublishBody}) and inbound ({@link DeliveryHandler}) — are
@@ -81,10 +81,10 @@ import org.bluezoo.gumdrop.auth.SASLUtils;
  * @see ConnectionReady
  * @see <a href="https://www.rabbitmq.com/resources/specs/amqp0-9-1.pdf">AMQP 0-9-1 specification</a>
  */
-public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFrameHandler {
+public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFrameHandler {
 
     private static final Logger LOGGER =
-            Logger.getLogger(AMQPClientProtocolHandler.class.getName());
+            Logger.getLogger(AmqpClientProtocolHandler.class.getName());
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.amqp.client.L10N");
 
@@ -103,16 +103,16 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
     }
 
     private final ConnectionReady handler;
-    private final AMQPFrameParser parser;
+    private final AmqpFrameParser parser;
 
     private Endpoint endpoint;
     private State state = State.DISCONNECTED;
 
     private int negotiatedChannelMax;
-    private long negotiatedFrameMax = AMQPFrameParser.DEFAULT_MAX_FRAME_SIZE;
+    private long negotiatedFrameMax = AmqpFrameParser.DEFAULT_MAX_FRAME_SIZE;
     private int negotiatedHeartbeat;
 
-    /** Pending connection-level callback (ServerTuneHandler / ServerOpenHandler / ServerCloseHandler). */
+    /** Pending connection-level callback (TuneHandler / OpenHandler / CloseHandler). */
     private Object pendingConnectionCallback;
 
     /**
@@ -128,11 +128,11 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
 
     private final Map<Integer, ChannelImpl> channels = new HashMap<Integer, ChannelImpl>();
     /**
-     * Pending per-channel RPC callbacks: ServerChannelOpenHandler,
-     * ServerChannelCloseHandler, ServerExchangeDeclareHandler,
-     * ServerQueueDeclareHandler, ServerQueueBindHandler,
-     * ServerConsumeHandler, ServerCancelHandler, ServerConfirmSelectHandler,
-     * ServerTx*Handler, or ServerFlowHandler, depending on which request
+     * Pending per-channel RPC callbacks: ChannelOpenHandler,
+     * ChannelCloseHandler, ExchangeDeclareHandler,
+     * QueueDeclareHandler, QueueBindHandler,
+     * ConsumeHandler, CancelHandler, ConfirmSelectHandler,
+     * ServerTx*Handler, or FlowHandler, depending on which request
      * is outstanding.
      *
      * <p>A FIFO queue per channel, not a single slot: AMQP explicitly
@@ -174,12 +174,12 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         return queue != null && !queue.isEmpty();
     }
 
-    public AMQPClientProtocolHandler(ConnectionReady handler) {
+    public AmqpClientProtocolHandler(ConnectionReady handler) {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
         this.handler = handler;
-        this.parser = new AMQPFrameParser(this);
+        this.parser = new AmqpFrameParser(this);
     }
 
     // ── ProtocolHandler ──
@@ -213,7 +213,7 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         handler.onError(cause);
     }
 
-    // ── AMQPFrameHandler ──
+    // ── AmqpFrameHandler ──
 
     @Override
     public void methodFrame(int channel, ByteBuffer payload) {
@@ -225,14 +225,14 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
             } else {
                 dispatchChannelMethod(channel, classId, methodId, payload);
             }
-        } catch (AMQPProtocolException e) {
+        } catch (AmqpProtocolException e) {
             protocolError(e);
         } catch (RuntimeException e) {
             // Malformed argument encoding surfaces as an unchecked buffer
             // exception from the *Methods decoders; treat identically to a
             // declared protocol violation rather than propagating a raw
             // BufferUnderflowException to the caller.
-            protocolError(new AMQPProtocolException("Malformed method arguments", e));
+            protocolError(new AmqpProtocolException("Malformed method arguments", e));
         }
     }
 
@@ -245,7 +245,7 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         }
         try {
             ch.handleHeaderFrame(payload);
-        } catch (AMQPProtocolException e) {
+        } catch (AmqpProtocolException e) {
             protocolError(e);
         }
     }
@@ -259,7 +259,7 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         }
         try {
             ch.handleBodyFrame(payload);
-        } catch (AMQPProtocolException e) {
+        } catch (AmqpProtocolException e) {
             protocolError(e);
         }
     }
@@ -267,16 +267,16 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
     @Override
     public void heartbeatFrame() {
         if (endpoint != null) {
-            endpoint.send(AMQPFrame.encodeHeartbeat());
+            endpoint.send(AmqpFrame.encodeHeartbeat());
         }
     }
 
     @Override
     public void frameError(String message) {
-        protocolError(new AMQPProtocolException(message));
+        protocolError(new AmqpProtocolException(message));
     }
 
-    private void protocolError(AMQPProtocolException e) {
+    private void protocolError(AmqpProtocolException e) {
         LOGGER.log(Level.WARNING, L10N.getString("warn.protocol_error"), e);
         handler.onError(e);
         if (endpoint != null) {
@@ -298,64 +298,64 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
     // ── connection-level method dispatch ──
 
     private void dispatchConnectionMethod(int classId, int methodId, ByteBuffer payload)
-            throws AMQPProtocolException {
-        if (classId != AMQPMethod.CLASS_CONNECTION) {
-            throw new AMQPProtocolException(
+            throws AmqpProtocolException {
+        if (classId != AmqpMethod.CLASS_CONNECTION) {
+            throw new AmqpProtocolException(
                     "Unexpected class " + classId + " on channel 0");
         }
         switch (methodId) {
-            case AMQPMethod.CONNECTION_START:
+            case AmqpMethod.CONNECTION_START:
                 handleStart(payload);
                 break;
-            case AMQPMethod.CONNECTION_SECURE:
+            case AmqpMethod.CONNECTION_SECURE:
                 handleSecure(payload);
                 break;
-            case AMQPMethod.CONNECTION_TUNE:
+            case AmqpMethod.CONNECTION_TUNE:
                 handleTune(payload);
                 break;
-            case AMQPMethod.CONNECTION_OPEN_OK:
+            case AmqpMethod.CONNECTION_OPEN_OK:
                 handleOpenOk(payload);
                 break;
-            case AMQPMethod.CONNECTION_CLOSE:
+            case AmqpMethod.CONNECTION_CLOSE:
                 handleClose(payload);
                 break;
-            case AMQPMethod.CONNECTION_CLOSE_OK:
+            case AmqpMethod.CONNECTION_CLOSE_OK:
                 handleCloseOk();
                 break;
             default:
-                throw new AMQPProtocolException(
+                throw new AmqpProtocolException(
                         "Unexpected connection method " + methodId + " in state " + state);
         }
     }
 
-    private void handleStart(ByteBuffer payload) throws AMQPProtocolException {
+    private void handleStart(ByteBuffer payload) throws AmqpProtocolException {
         if (state != State.AWAITING_START) {
-            throw new AMQPProtocolException("connection.start in state " + state);
+            throw new AmqpProtocolException("connection.start in state " + state);
         }
         ConnectionMethods.Start start = ConnectionMethods.decodeStart(payload);
         handler.onConnected(endpoint);
         handler.handleStart(start.serverProperties, start.mechanisms, start.locales,
                 new ClientHandshake() {
                     @Override
-                    public void startOk(String username, String password, ServerTuneHandler tuneHandler) {
+                    public void startOk(String username, String password, TuneHandler tuneHandler) {
                         sendStartOk(SASLUtils.createClient("PLAIN", username, password, null),
                                 tuneHandler, null);
                     }
 
                     @Override
-                    public void startOk(SASLClientMechanism saslClient, ServerTuneHandler tuneHandler) {
+                    public void startOk(SASLClientMechanism saslClient, TuneHandler tuneHandler) {
                         sendStartOk(saslClient, tuneHandler, null);
                     }
 
                     @Override
-                    public void startOk(SASLClientMechanism saslClient, ServerTuneHandler tuneHandler,
+                    public void startOk(SASLClientMechanism saslClient, TuneHandler tuneHandler,
                             ExecutorService executor) {
                         sendStartOk(saslClient, tuneHandler, executor);
                     }
                 });
     }
 
-    private void sendStartOk(final SASLClientMechanism saslClient, final ServerTuneHandler tuneHandler,
+    private void sendStartOk(final SASLClientMechanism saslClient, final TuneHandler tuneHandler,
             final ExecutorService executor) {
         pendingSaslClient = saslClient;
         pendingSaslExecutor = executor;
@@ -383,7 +383,7 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
                 .put("platform", "Java");
         ByteBuffer args = ConnectionMethods.encodeStartOk(
                 clientProperties, pendingSaslClient.getMechanismName(), response, "en_US");
-        endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0, args));
+        endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 0, args));
         state = State.AWAITING_SECURE_OR_TUNE;
     }
 
@@ -392,16 +392,16 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
      * SASL exchange before it will send {@code tune} (issue #188; needed
      * by multi-step mechanisms such as GSSAPI).
      */
-    private void handleSecure(ByteBuffer payload) throws AMQPProtocolException {
+    private void handleSecure(ByteBuffer payload) throws AmqpProtocolException {
         if (state != State.AWAITING_SECURE_OR_TUNE || pendingSaslClient == null) {
-            throw new AMQPProtocolException("connection.secure in state " + state);
+            throw new AmqpProtocolException("connection.secure in state " + state);
         }
         byte[] challenge = ConnectionMethods.decodeSecure(payload);
         evaluateChallenge(challenge, new ChallengeCallback() {
             @Override
             public void onResponse(byte[] response) {
                 ByteBuffer args = ConnectionMethods.encodeSecureOk(response);
-                endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0, args));
+                endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 0, args));
             }
 
             @Override
@@ -451,18 +451,18 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         }
     }
 
-    private void handleTune(ByteBuffer payload) throws AMQPProtocolException {
-        if (state != State.AWAITING_SECURE_OR_TUNE || !(pendingConnectionCallback instanceof ServerTuneHandler)) {
-            throw new AMQPProtocolException("connection.tune in state " + state);
+    private void handleTune(ByteBuffer payload) throws AmqpProtocolException {
+        if (state != State.AWAITING_SECURE_OR_TUNE || !(pendingConnectionCallback instanceof TuneHandler)) {
+            throw new AmqpProtocolException("connection.tune in state " + state);
         }
-        ServerTuneHandler tuneHandler = (ServerTuneHandler) pendingConnectionCallback;
+        TuneHandler tuneHandler = (TuneHandler) pendingConnectionCallback;
         pendingConnectionCallback = null;
         pendingSaslClient = null;
         pendingSaslExecutor = null;
 
         ConnectionMethods.Tune tune = ConnectionMethods.decodeTune(payload);
         negotiatedChannelMax = tune.channelMax;
-        negotiatedFrameMax = (tune.frameMax > 0) ? tune.frameMax : AMQPFrameParser.DEFAULT_MAX_FRAME_SIZE;
+        negotiatedFrameMax = (tune.frameMax > 0) ? tune.frameMax : AmqpFrameParser.DEFAULT_MAX_FRAME_SIZE;
         negotiatedHeartbeat = tune.heartbeat;
         parser.setMaxFrameSize((int) Math.min(negotiatedFrameMax, Integer.MAX_VALUE));
 
@@ -471,46 +471,46 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         // waiting for a callback the application controls.
         ByteBuffer tuneOk = ConnectionMethods.encodeTuneOk(
                 negotiatedChannelMax, negotiatedFrameMax, negotiatedHeartbeat);
-        endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0, tuneOk));
+        endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 0, tuneOk));
 
         tuneHandler.handleTune(negotiatedChannelMax, negotiatedFrameMax, negotiatedHeartbeat,
                 new ClientTuned() {
                     @Override
-                    public void open(String virtualHost, ServerOpenHandler openHandler) {
+                    public void open(String virtualHost, OpenHandler openHandler) {
                         sendOpen(virtualHost, openHandler);
                     }
                 });
     }
 
-    private void sendOpen(String virtualHost, ServerOpenHandler openHandler) {
-        endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0, ConnectionMethods.encodeOpen(virtualHost)));
+    private void sendOpen(String virtualHost, OpenHandler openHandler) {
+        endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 0, ConnectionMethods.encodeOpen(virtualHost)));
         state = State.AWAITING_OPEN_OK;
         pendingConnectionCallback = openHandler;
     }
 
-    private void handleOpenOk(ByteBuffer payload) throws AMQPProtocolException {
-        if (state != State.AWAITING_OPEN_OK || !(pendingConnectionCallback instanceof ServerOpenHandler)) {
-            throw new AMQPProtocolException("connection.open-ok in state " + state);
+    private void handleOpenOk(ByteBuffer payload) throws AmqpProtocolException {
+        if (state != State.AWAITING_OPEN_OK || !(pendingConnectionCallback instanceof OpenHandler)) {
+            throw new AmqpProtocolException("connection.open-ok in state " + state);
         }
-        ServerOpenHandler openHandler = (ServerOpenHandler) pendingConnectionCallback;
+        OpenHandler openHandler = (OpenHandler) pendingConnectionCallback;
         pendingConnectionCallback = null;
         ConnectionMethods.decodeOpenOk(payload);
         state = State.OPEN;
         openHandler.handleOpenOk(connectionView);
     }
 
-    private void handleClose(ByteBuffer payload) throws AMQPProtocolException {
+    private void handleClose(ByteBuffer payload) throws AmqpProtocolException {
         ConnectionMethods.CloseReason reason = ConnectionMethods.decodeClose(payload);
-        endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0, ConnectionMethods.encodeCloseOk()));
+        endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 0, ConnectionMethods.encodeCloseOk()));
         state = State.CLOSED;
         handler.onConnectionClosed(reason.replyCode, reason.replyText);
     }
 
-    private void handleCloseOk() throws AMQPProtocolException {
-        if (!(pendingConnectionCallback instanceof ServerCloseHandler)) {
-            throw new AMQPProtocolException("Unsolicited connection.close-ok");
+    private void handleCloseOk() throws AmqpProtocolException {
+        if (!(pendingConnectionCallback instanceof CloseHandler)) {
+            throw new AmqpProtocolException("Unsolicited connection.close-ok");
         }
-        ServerCloseHandler closeHandler = (ServerCloseHandler) pendingConnectionCallback;
+        CloseHandler closeHandler = (CloseHandler) pendingConnectionCallback;
         pendingConnectionCallback = null;
         state = State.CLOSED;
         closeHandler.handleCloseOk();
@@ -519,88 +519,88 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
     // ── channel-level method dispatch ──
 
     private void dispatchChannelMethod(int channel, int classId, int methodId, ByteBuffer payload)
-            throws AMQPProtocolException {
-        if (classId == AMQPMethod.CLASS_CHANNEL) {
+            throws AmqpProtocolException {
+        if (classId == AmqpMethod.CLASS_CHANNEL) {
             switch (methodId) {
-                case AMQPMethod.CHANNEL_OPEN_OK:
+                case AmqpMethod.CHANNEL_OPEN_OK:
                     handleChannelOpenOk(channel, payload);
                     return;
-                case AMQPMethod.CHANNEL_CLOSE:
+                case AmqpMethod.CHANNEL_CLOSE:
                     handleChannelClose(channel, payload);
                     return;
-                case AMQPMethod.CHANNEL_CLOSE_OK:
+                case AmqpMethod.CHANNEL_CLOSE_OK:
                     handleChannelCloseOk(channel);
                     return;
-                case AMQPMethod.CHANNEL_FLOW:
+                case AmqpMethod.CHANNEL_FLOW:
                     requireChannel(channel).handleFlow(payload);
                     return;
-                case AMQPMethod.CHANNEL_FLOW_OK:
+                case AmqpMethod.CHANNEL_FLOW_OK:
                     requireChannel(channel).handleFlowOk(payload);
                     return;
                 default:
-                    throw new AMQPProtocolException(
+                    throw new AmqpProtocolException(
                             "Unexpected channel method " + methodId + " on channel " + channel);
             }
         }
 
         ChannelImpl ch = requireChannel(channel);
 
-        if (classId == AMQPMethod.CLASS_EXCHANGE && methodId == AMQPMethod.EXCHANGE_DECLARE_OK) {
+        if (classId == AmqpMethod.CLASS_EXCHANGE && methodId == AmqpMethod.EXCHANGE_DECLARE_OK) {
             ch.handleExchangeDeclareOk(payload);
-        } else if (classId == AMQPMethod.CLASS_QUEUE && methodId == AMQPMethod.QUEUE_DECLARE_OK) {
+        } else if (classId == AmqpMethod.CLASS_QUEUE && methodId == AmqpMethod.QUEUE_DECLARE_OK) {
             ch.handleQueueDeclareOk(payload);
-        } else if (classId == AMQPMethod.CLASS_QUEUE && methodId == AMQPMethod.QUEUE_BIND_OK) {
+        } else if (classId == AmqpMethod.CLASS_QUEUE && methodId == AmqpMethod.QUEUE_BIND_OK) {
             ch.handleQueueBindOk(payload);
-        } else if (classId == AMQPMethod.CLASS_BASIC && methodId == AMQPMethod.BASIC_CONSUME_OK) {
+        } else if (classId == AmqpMethod.CLASS_BASIC && methodId == AmqpMethod.BASIC_CONSUME_OK) {
             ch.handleConsumeOk(payload);
-        } else if (classId == AMQPMethod.CLASS_BASIC && methodId == AMQPMethod.BASIC_CANCEL_OK) {
+        } else if (classId == AmqpMethod.CLASS_BASIC && methodId == AmqpMethod.BASIC_CANCEL_OK) {
             ch.handleCancelOk(payload);
-        } else if (classId == AMQPMethod.CLASS_BASIC && methodId == AMQPMethod.BASIC_DELIVER) {
+        } else if (classId == AmqpMethod.CLASS_BASIC && methodId == AmqpMethod.BASIC_DELIVER) {
             ch.handleDeliver(payload);
-        } else if (classId == AMQPMethod.CLASS_TX && methodId == AMQPMethod.TX_SELECT_OK) {
+        } else if (classId == AmqpMethod.CLASS_TX && methodId == AmqpMethod.TX_SELECT_OK) {
             ch.handleTxSelectOk();
-        } else if (classId == AMQPMethod.CLASS_TX && methodId == AMQPMethod.TX_COMMIT_OK) {
+        } else if (classId == AmqpMethod.CLASS_TX && methodId == AmqpMethod.TX_COMMIT_OK) {
             ch.handleTxCommitOk();
-        } else if (classId == AMQPMethod.CLASS_TX && methodId == AMQPMethod.TX_ROLLBACK_OK) {
+        } else if (classId == AmqpMethod.CLASS_TX && methodId == AmqpMethod.TX_ROLLBACK_OK) {
             ch.handleTxRollbackOk();
-        } else if (classId == AMQPMethod.CLASS_CONFIRM && methodId == AMQPMethod.CONFIRM_SELECT_OK) {
+        } else if (classId == AmqpMethod.CLASS_CONFIRM && methodId == AmqpMethod.CONFIRM_SELECT_OK) {
             ch.handleConfirmSelectOk();
-        } else if (classId == AMQPMethod.CLASS_BASIC && methodId == AMQPMethod.BASIC_ACK) {
+        } else if (classId == AmqpMethod.CLASS_BASIC && methodId == AmqpMethod.BASIC_ACK) {
             // A client never receives basic.ack for anything other than a
             // publisher confirm — basic.ack sent *by* the client acks a
             // consumed delivery, but that's outbound, not something this
             // dispatch (incoming frames only) ever sees.
             ch.handleConfirmAck(payload);
-        } else if (classId == AMQPMethod.CLASS_BASIC && methodId == AMQPMethod.BASIC_NACK) {
+        } else if (classId == AmqpMethod.CLASS_BASIC && methodId == AmqpMethod.BASIC_NACK) {
             ch.handleConfirmNack(payload);
         } else {
-            throw new AMQPProtocolException(
+            throw new AmqpProtocolException(
                     "Unhandled class " + classId + " method " + methodId + " on channel " + channel);
         }
     }
 
-    private ChannelImpl requireChannel(int channel) throws AMQPProtocolException {
+    private ChannelImpl requireChannel(int channel) throws AmqpProtocolException {
         ChannelImpl ch = channels.get(channel);
         if (ch == null) {
-            throw new AMQPProtocolException("Method on unknown/unopened channel " + channel);
+            throw new AmqpProtocolException("Method on unknown/unopened channel " + channel);
         }
         return ch;
     }
 
-    private void handleChannelOpenOk(int channel, ByteBuffer payload) throws AMQPProtocolException {
+    private void handleChannelOpenOk(int channel, ByteBuffer payload) throws AmqpProtocolException {
         Object pending = popPendingChannelCallback(channel);
-        if (!(pending instanceof ServerChannelOpenHandler)) {
-            throw new AMQPProtocolException("Unsolicited channel.open-ok on channel " + channel);
+        if (!(pending instanceof ChannelOpenHandler)) {
+            throw new AmqpProtocolException("Unsolicited channel.open-ok on channel " + channel);
         }
         ChannelMethods.decodeOpenOk(payload);
         ChannelImpl ch = new ChannelImpl(channel);
         channels.put(channel, ch);
-        ((ServerChannelOpenHandler) pending).handleChannelOpenOk(ch);
+        ((ChannelOpenHandler) pending).handleChannelOpenOk(ch);
     }
 
-    private void handleChannelClose(int channel, ByteBuffer payload) throws AMQPProtocolException {
+    private void handleChannelClose(int channel, ByteBuffer payload) throws AmqpProtocolException {
         ConnectionMethods.CloseReason reason = ChannelMethods.decodeClose(payload);
-        endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channel, ChannelMethods.encodeCloseOk()));
+        endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channel, ChannelMethods.encodeCloseOk()));
         ChannelImpl ch = channels.remove(channel);
         // The channel is gone; anything else still queued for it (e.g. a
         // declare pipelined just before the broker closed the channel)
@@ -611,35 +611,35 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         }
     }
 
-    private void handleChannelCloseOk(int channel) throws AMQPProtocolException {
+    private void handleChannelCloseOk(int channel) throws AmqpProtocolException {
         Object pending = popPendingChannelCallback(channel);
-        if (!(pending instanceof ServerChannelCloseHandler)) {
-            throw new AMQPProtocolException("Unsolicited channel.close-ok on channel " + channel);
+        if (!(pending instanceof ChannelCloseHandler)) {
+            throw new AmqpProtocolException("Unsolicited channel.close-ok on channel " + channel);
         }
         channels.remove(channel);
         // channel.close-ok is the last reply this channel will ever get;
         // drop anything else still queued rather than leaving it to throw
         // "unsolicited" later against a channel that no longer exists.
         pendingChannelCallbacks.remove(channel);
-        ((ServerChannelCloseHandler) pending).handleChannelCloseOk();
+        ((ChannelCloseHandler) pending).handleChannelCloseOk();
     }
 
     // ── ClientConnection implementation ──
 
     private final ClientConnection connectionView = new ClientConnection() {
         @Override
-        public void channelOpen(int channelId, ServerChannelOpenHandler openHandler) {
+        public void channelOpen(int channelId, ChannelOpenHandler openHandler) {
             if (channels.containsKey(channelId) || hasPendingChannelCallback(channelId)) {
                 throw new IllegalStateException("Channel " + channelId + " is already in use");
             }
             pushPendingChannelCallback(channelId, openHandler);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, ChannelMethods.encodeOpen()));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, ChannelMethods.encodeOpen()));
         }
 
         @Override
-        public void close(int replyCode, String replyText, ServerCloseHandler closeHandler) {
+        public void close(int replyCode, String replyText, CloseHandler closeHandler) {
             pendingConnectionCallback = closeHandler;
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0,
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 0,
                     ConnectionMethods.encodeClose(replyCode, replyText)));
         }
     };
@@ -691,9 +691,9 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         }
 
         @Override
-        public void close(int replyCode, String replyText, ServerChannelCloseHandler closeHandler) {
+        public void close(int replyCode, String replyText, ChannelCloseHandler closeHandler) {
             pushPendingChannelCallback(channelId, closeHandler);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId,
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId,
                     ChannelMethods.encodeClose(replyCode, replyText)));
         }
 
@@ -705,66 +705,66 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
 
         @Override
         public void exchangeDeclare(String exchange, String type, boolean durable, boolean autoDelete,
-                FieldTable arguments, ServerExchangeDeclareHandler declareHandler) {
+                FieldTable arguments, ExchangeDeclareHandler declareHandler) {
             pushPendingChannelCallback(channelId, declareHandler);
             ByteBuffer args = ExchangeMethods.encodeDeclare(
                     exchange, type, false, durable, autoDelete, false, false, arguments);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, args));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, args));
         }
 
-        void handleExchangeDeclareOk(ByteBuffer payload) throws AMQPProtocolException {
+        void handleExchangeDeclareOk(ByteBuffer payload) throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
-            if (!(pending instanceof ServerExchangeDeclareHandler)) {
-                throw new AMQPProtocolException("Unsolicited exchange.declare-ok on channel " + channelId);
+            if (!(pending instanceof ExchangeDeclareHandler)) {
+                throw new AmqpProtocolException("Unsolicited exchange.declare-ok on channel " + channelId);
             }
             ExchangeMethods.decodeDeclareOk(payload);
-            ((ServerExchangeDeclareHandler) pending).handleExchangeDeclareOk();
+            ((ExchangeDeclareHandler) pending).handleExchangeDeclareOk();
         }
 
         @Override
         public void queueDeclare(String queue, boolean durable, boolean exclusive, boolean autoDelete,
-                FieldTable arguments, ServerQueueDeclareHandler declareHandler) {
+                FieldTable arguments, QueueDeclareHandler declareHandler) {
             pushPendingChannelCallback(channelId, declareHandler);
             ByteBuffer args = QueueMethods.encodeDeclare(
                     queue, false, durable, exclusive, autoDelete, false, arguments);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, args));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, args));
         }
 
-        void handleQueueDeclareOk(ByteBuffer payload) throws AMQPProtocolException {
+        void handleQueueDeclareOk(ByteBuffer payload) throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
-            if (!(pending instanceof ServerQueueDeclareHandler)) {
-                throw new AMQPProtocolException("Unsolicited queue.declare-ok on channel " + channelId);
+            if (!(pending instanceof QueueDeclareHandler)) {
+                throw new AmqpProtocolException("Unsolicited queue.declare-ok on channel " + channelId);
             }
             QueueMethods.DeclareOk result = QueueMethods.decodeDeclareOk(payload);
-            ((ServerQueueDeclareHandler) pending)
+            ((QueueDeclareHandler) pending)
                     .handleQueueDeclareOk(result.queue, result.messageCount, result.consumerCount);
         }
 
         @Override
         public void queueBind(String queue, String exchange, String routingKey, FieldTable arguments,
-                ServerQueueBindHandler bindHandler) {
+                QueueBindHandler bindHandler) {
             pushPendingChannelCallback(channelId, bindHandler);
             ByteBuffer args = QueueMethods.encodeBind(queue, exchange, routingKey, false, arguments);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, args));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, args));
         }
 
-        void handleQueueBindOk(ByteBuffer payload) throws AMQPProtocolException {
+        void handleQueueBindOk(ByteBuffer payload) throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
-            if (!(pending instanceof ServerQueueBindHandler)) {
-                throw new AMQPProtocolException("Unsolicited queue.bind-ok on channel " + channelId);
+            if (!(pending instanceof QueueBindHandler)) {
+                throw new AmqpProtocolException("Unsolicited queue.bind-ok on channel " + channelId);
             }
             QueueMethods.decodeBindOk(payload);
-            ((ServerQueueBindHandler) pending).handleQueueBindOk();
+            ((QueueBindHandler) pending).handleQueueBindOk();
         }
 
         @Override
         public PublishBody basicPublish(String exchange, String routingKey, boolean mandatory,
                 BasicProperties properties, long bodySize) {
             ByteBuffer methodArgs = BasicMethods.encodePublish(exchange, routingKey, mandatory, false);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, methodArgs));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, methodArgs));
 
             BasicProperties props = (properties != null) ? properties : new BasicProperties();
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_HEADER, channelId, props.encode(bodySize)));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_HEADER, channelId, props.encode(bodySize)));
 
             long seqNo = confirmsEnabled ? ++publishSeqNo : 0;
             return new PublishBodyImpl(channelId, bodySize, seqNo);
@@ -773,22 +773,22 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         // ── publisher confirms ──
 
         @Override
-        public void confirmSelect(ServerConfirmSelectHandler confirmHandler) {
+        public void confirmSelect(ConfirmSelectHandler confirmHandler) {
             pushPendingChannelCallback(channelId, confirmHandler);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, ConfirmMethods.encodeSelect(false)));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, ConfirmMethods.encodeSelect(false)));
         }
 
-        void handleConfirmSelectOk() throws AMQPProtocolException {
+        void handleConfirmSelectOk() throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
-            if (!(pending instanceof ServerConfirmSelectHandler)) {
-                throw new AMQPProtocolException("Unsolicited confirm.select-ok on channel " + channelId);
+            if (!(pending instanceof ConfirmSelectHandler)) {
+                throw new AmqpProtocolException("Unsolicited confirm.select-ok on channel " + channelId);
             }
             // AMQP 0-9-1 (RabbitMQ extension): sequence numbering starts
             // fresh at 1 from this point, regardless of any publishes
             // already made on this channel before confirms were enabled.
             confirmsEnabled = true;
             publishSeqNo = 0;
-            ((ServerConfirmSelectHandler) pending).handleConfirmSelectOk();
+            ((ConfirmSelectHandler) pending).handleConfirmSelectOk();
         }
 
         @Override
@@ -812,17 +812,17 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
 
         @Override
         public void basicConsume(String queue, String consumerTag, boolean noAck, boolean exclusive,
-                FieldTable arguments, DeliveryHandler deliveryHandler, ServerConsumeHandler consumeHandler) {
+                FieldTable arguments, DeliveryHandler deliveryHandler, ConsumeHandler consumeHandler) {
             pushPendingChannelCallback(channelId, new PendingConsume(consumerTag, deliveryHandler, consumeHandler));
             ByteBuffer args = BasicMethods.encodeConsume(
                     queue, consumerTag, false, noAck, exclusive, false, arguments);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, args));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, args));
         }
 
-        void handleConsumeOk(ByteBuffer payload) throws AMQPProtocolException {
+        void handleConsumeOk(ByteBuffer payload) throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
             if (!(pending instanceof PendingConsume)) {
-                throw new AMQPProtocolException("Unsolicited basic.consume-ok on channel " + channelId);
+                throw new AmqpProtocolException("Unsolicited basic.consume-ok on channel " + channelId);
             }
             PendingConsume p = (PendingConsume) pending;
             String consumerTag = BasicMethods.decodeConsumeOk(payload);
@@ -831,82 +831,82 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         }
 
         @Override
-        public void basicCancel(String consumerTag, ServerCancelHandler cancelHandler) {
+        public void basicCancel(String consumerTag, CancelHandler cancelHandler) {
             pushPendingChannelCallback(channelId, cancelHandler);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId,
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId,
                     BasicMethods.encodeCancel(consumerTag, false)));
         }
 
-        void handleCancelOk(ByteBuffer payload) throws AMQPProtocolException {
+        void handleCancelOk(ByteBuffer payload) throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
-            if (!(pending instanceof ServerCancelHandler)) {
-                throw new AMQPProtocolException("Unsolicited basic.cancel-ok on channel " + channelId);
+            if (!(pending instanceof CancelHandler)) {
+                throw new AmqpProtocolException("Unsolicited basic.cancel-ok on channel " + channelId);
             }
             String consumerTag = BasicMethods.decodeCancelOk(payload);
             consumers.remove(consumerTag);
-            ((ServerCancelHandler) pending).handleCancelOk(consumerTag);
+            ((CancelHandler) pending).handleCancelOk(consumerTag);
         }
 
         @Override
         public void basicAck(long deliveryTag, boolean multiple) {
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId,
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId,
                     BasicMethods.encodeAck(deliveryTag, multiple)));
         }
 
         @Override
         public void basicNack(long deliveryTag, boolean multiple, boolean requeue) {
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId,
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId,
                     BasicMethods.encodeNack(deliveryTag, multiple, requeue)));
         }
 
         @Override
         public void basicReject(long deliveryTag, boolean requeue) {
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId,
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId,
                     BasicMethods.encodeReject(deliveryTag, requeue)));
         }
 
         // ── transactions ──
 
         @Override
-        public void txSelect(ServerTxSelectHandler txHandler) {
+        public void txSelect(TxSelectHandler txHandler) {
             pushPendingChannelCallback(channelId, txHandler);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, TxMethods.encodeSelect()));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, TxMethods.encodeSelect()));
         }
 
-        void handleTxSelectOk() throws AMQPProtocolException {
+        void handleTxSelectOk() throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
-            if (!(pending instanceof ServerTxSelectHandler)) {
-                throw new AMQPProtocolException("Unsolicited tx.select-ok on channel " + channelId);
+            if (!(pending instanceof TxSelectHandler)) {
+                throw new AmqpProtocolException("Unsolicited tx.select-ok on channel " + channelId);
             }
-            ((ServerTxSelectHandler) pending).handleTxSelectOk();
+            ((TxSelectHandler) pending).handleTxSelectOk();
         }
 
         @Override
-        public void txCommit(ServerTxCommitHandler txHandler) {
+        public void txCommit(TxCommitHandler txHandler) {
             pushPendingChannelCallback(channelId, txHandler);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, TxMethods.encodeCommit()));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, TxMethods.encodeCommit()));
         }
 
-        void handleTxCommitOk() throws AMQPProtocolException {
+        void handleTxCommitOk() throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
-            if (!(pending instanceof ServerTxCommitHandler)) {
-                throw new AMQPProtocolException("Unsolicited tx.commit-ok on channel " + channelId);
+            if (!(pending instanceof TxCommitHandler)) {
+                throw new AmqpProtocolException("Unsolicited tx.commit-ok on channel " + channelId);
             }
-            ((ServerTxCommitHandler) pending).handleTxCommitOk();
+            ((TxCommitHandler) pending).handleTxCommitOk();
         }
 
         @Override
-        public void txRollback(ServerTxRollbackHandler txHandler) {
+        public void txRollback(TxRollbackHandler txHandler) {
             pushPendingChannelCallback(channelId, txHandler);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, TxMethods.encodeRollback()));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, TxMethods.encodeRollback()));
         }
 
-        void handleTxRollbackOk() throws AMQPProtocolException {
+        void handleTxRollbackOk() throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
-            if (!(pending instanceof ServerTxRollbackHandler)) {
-                throw new AMQPProtocolException("Unsolicited tx.rollback-ok on channel " + channelId);
+            if (!(pending instanceof TxRollbackHandler)) {
+                throw new AmqpProtocolException("Unsolicited tx.rollback-ok on channel " + channelId);
             }
-            ((ServerTxRollbackHandler) pending).handleTxRollbackOk();
+            ((TxRollbackHandler) pending).handleTxRollbackOk();
         }
 
         // ── flow control ──
@@ -917,40 +917,40 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
         }
 
         @Override
-        public void flow(boolean active, ServerFlowHandler flowHandler) {
+        public void flow(boolean active, FlowHandler flowHandler) {
             pushPendingChannelCallback(channelId, flowHandler);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, ChannelMethods.encodeFlow(active)));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, ChannelMethods.encodeFlow(active)));
         }
 
         /** Broker-initiated channel.flow: always ack, then notify the listener. */
         void handleFlow(ByteBuffer payload) {
             boolean active = ChannelMethods.decodeFlow(payload);
-            endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, channelId, ChannelMethods.encodeFlowOk(active)));
+            endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channelId, ChannelMethods.encodeFlowOk(active)));
             if (flowListener != null) {
                 flowListener.onFlow(active);
             }
         }
 
         /** Reply to our own client-initiated channel.flow. */
-        void handleFlowOk(ByteBuffer payload) throws AMQPProtocolException {
+        void handleFlowOk(ByteBuffer payload) throws AmqpProtocolException {
             Object pending = popPendingChannelCallback(channelId);
-            if (!(pending instanceof ServerFlowHandler)) {
-                throw new AMQPProtocolException("Unsolicited channel.flow-ok on channel " + channelId);
+            if (!(pending instanceof FlowHandler)) {
+                throw new AmqpProtocolException("Unsolicited channel.flow-ok on channel " + channelId);
             }
             boolean active = ChannelMethods.decodeFlowOk(payload);
-            ((ServerFlowHandler) pending).handleFlowOk(active);
+            ((FlowHandler) pending).handleFlowOk(active);
         }
 
-        void handleDeliver(ByteBuffer payload) throws AMQPProtocolException {
+        void handleDeliver(ByteBuffer payload) throws AmqpProtocolException {
             if (currentDelivery != null) {
-                throw new AMQPProtocolException(
+                throw new AmqpProtocolException(
                         "basic.deliver received while a previous delivery is still in progress"
                                 + " on channel " + channelId);
             }
             BasicMethods.Deliver deliver = BasicMethods.decodeDeliver(payload);
             DeliveryHandler target = consumers.get(deliver.consumerTag);
             if (target == null) {
-                throw new AMQPProtocolException(
+                throw new AmqpProtocolException(
                         "basic.deliver for unknown consumer tag " + deliver.consumerTag);
             }
             currentDelivery = new DeliveryContext(deliver.consumerTag, deliver.deliveryTag, target);
@@ -958,9 +958,9 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
                     deliver.exchange, deliver.routingKey);
         }
 
-        void handleHeaderFrame(ByteBuffer payload) throws AMQPProtocolException {
+        void handleHeaderFrame(ByteBuffer payload) throws AmqpProtocolException {
             if (currentDelivery == null) {
-                throw new AMQPProtocolException(
+                throw new AmqpProtocolException(
                         "content-header frame with no preceding basic.deliver on channel " + channelId);
             }
             BasicProperties.Header header = BasicProperties.decode(payload);
@@ -971,14 +971,14 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
             }
         }
 
-        void handleBodyFrame(ByteBuffer payload) throws AMQPProtocolException {
+        void handleBodyFrame(ByteBuffer payload) throws AmqpProtocolException {
             if (currentDelivery == null || currentDelivery.remaining < 0) {
-                throw new AMQPProtocolException(
+                throw new AmqpProtocolException(
                         "content-body frame with no preceding content-header on channel " + channelId);
             }
             int chunkSize = payload.remaining();
             if (chunkSize > currentDelivery.remaining) {
-                throw new AMQPProtocolException(
+                throw new AmqpProtocolException(
                         "content-body frame overruns declared body size on channel " + channelId);
             }
             currentDelivery.target.onDeliveryBodyChunk(payload);
@@ -998,9 +998,9 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
     private static final class PendingConsume {
         final String requestedTag;
         final DeliveryHandler deliveryHandler;
-        final ServerConsumeHandler consumeHandler;
+        final ConsumeHandler consumeHandler;
 
-        PendingConsume(String requestedTag, DeliveryHandler deliveryHandler, ServerConsumeHandler consumeHandler) {
+        PendingConsume(String requestedTag, DeliveryHandler deliveryHandler, ConsumeHandler consumeHandler) {
             this.requestedTag = requestedTag;
             this.deliveryHandler = deliveryHandler;
             this.consumeHandler = consumeHandler;
@@ -1037,7 +1037,7 @@ public final class AMQPClientProtocolHandler implements ProtocolHandler, AMQPFra
             }
             written += size;
             if (size > 0) {
-                endpoint.send(AMQPFrame.encode(AMQPFrame.TYPE_BODY, channelId, chunk));
+                endpoint.send(AmqpFrame.encode(AmqpFrame.TYPE_BODY, channelId, chunk));
             }
         }
 

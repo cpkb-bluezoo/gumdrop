@@ -40,7 +40,7 @@ import static org.junit.Assert.assertTrue;
  * on that loop.
  *
  * <p>Completion is synchronized via {@link ProtocolHandler#disconnected()}
- * and a receive latch, not timed polling of endpoint state: {@link UDPEndpoint#close()}
+ * and a receive latch, not timed polling of endpoint state: {@link UdpEndpoint#close()}
  * runs synchronously on the selector thread and signals {@code disconnected()}
  * before dispatch returns.
  *
@@ -63,7 +63,7 @@ public class SelectorLoopCrashIsolationTest {
         SelectorLoop loop = new SelectorLoop(99);
         loop.start();
 
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
 
         final CountDownLatch faultyClosed = new CountDownLatch(1);
@@ -116,9 +116,9 @@ public class SelectorLoopCrashIsolationTest {
             }
         };
 
-        UDPEndpoint faultyEndpoint = factory.createServerEndpoint(
+        UdpEndpoint faultyEndpoint = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0, faulty, loop);
-        UDPEndpoint healthyEndpoint = factory.createServerEndpoint(
+        UdpEndpoint healthyEndpoint = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0, healthy, loop);
 
         try {

@@ -1,5 +1,5 @@
 /*
- * DNSSECAwareQueryCallback.java
+ * DnssecAwareQueryCallback.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -22,44 +22,44 @@
 package org.bluezoo.gumdrop.dns;
 
 /**
- * A {@link DNSQueryCallback} that also receives the DNSSEC validation
+ * A {@link DnsQueryCallback} that also receives the DNSSEC validation
  * status of the response, for callers that need to know whether an
  * answer was cryptographically authenticated rather than just
  * delivered.
  *
  * <p>RFC 7672 section 3.1.3 (DANE): a TLSA lookup must not be trusted
- * unless it came back {@link DNSSECStatus#SECURE} -- an insecure or
+ * unless it came back {@link DnssecStatus#SECURE} -- an insecure or
  * indeterminate answer must be treated as if no TLSA records existed.
  * This callback is what lets a caller enforce that rule, since a plain
- * {@link DNSQueryCallback} only ever sees the response message, not
- * whether {@link org.bluezoo.gumdrop.dns.client.DNSResolver} was able
+ * {@link DnsQueryCallback} only ever sees the response message, not
+ * whether {@link org.bluezoo.gumdrop.dns.client.DnsResolver} was able
  * to validate it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.dns.client.DNSResolver
+ * @see org.bluezoo.gumdrop.dns.client.DnsResolver
  */
-public interface DNSSECAwareQueryCallback extends DNSQueryCallback {
+public interface DnssecAwareQueryCallback extends DnsQueryCallback {
 
     /**
      * Called when a DNS query completes successfully.
      *
      * @param response the DNS response message
      * @param status the DNSSEC validation status of the response, or
-     *               {@link DNSSECStatus#INDETERMINATE} if DNSSEC
+     *               {@link DnssecStatus#INDETERMINATE} if DNSSEC
      *               validation was not performed for this query
      */
-    void onResponse(DNSMessage response, DNSSECStatus status);
+    void onResponse(DnsMessage response, DnssecStatus status);
 
     /**
      * {@inheritDoc}
      *
-     * <p>Delegates to {@link #onResponse(DNSMessage, DNSSECStatus)}
-     * with {@link DNSSECStatus#INDETERMINATE}, for code paths that
-     * only have a plain {@link DNSQueryCallback} reference.
+     * <p>Delegates to {@link #onResponse(DnsMessage, DnssecStatus)}
+     * with {@link DnssecStatus#INDETERMINATE}, for code paths that
+     * only have a plain {@link DnsQueryCallback} reference.
      */
     @Override
-    default void onResponse(DNSMessage response) {
-        onResponse(response, DNSSECStatus.INDETERMINATE);
+    default void onResponse(DnsMessage response) {
+        onResponse(response, DnssecStatus.INDETERMINATE);
     }
 
 }

@@ -1,5 +1,5 @@
 /*
- * FTPException.java
+ * FtpException.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,7 +39,7 @@ package org.bluezoo.gumdrop.ftp.client;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a>
  */
-public class FTPException extends Exception {
+public class FtpException extends Exception {
 
     private static final long serialVersionUID = 1L;
 
@@ -48,7 +48,7 @@ public class FTPException extends Exception {
      *
      * @param message error description
      */
-    public FTPException(String message) {
+    public FtpException(String message) {
         super(message);
     }
 
@@ -58,7 +58,7 @@ public class FTPException extends Exception {
      * @param message error description
      * @param cause underlying cause
      */
-    public FTPException(String message, Throwable cause) {
+    public FtpException(String message, Throwable cause) {
         super(message, cause);
     }
 }

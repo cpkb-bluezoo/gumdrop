@@ -1,5 +1,5 @@
 /*
- * DNSType.java
+ * DnsType.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -66,7 +66,7 @@ package org.bluezoo.gumdrop.dns;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum DNSType {
+public enum DnsType {
 
     /** IPv4 address record. RFC 1035 section 3.4.1. */
     A(1),
@@ -130,7 +130,7 @@ public enum DNSType {
 
     private final int value;
 
-    DNSType(int value) {
+    DnsType(int value) {
         this.value = value;
     }
 
@@ -144,13 +144,13 @@ public enum DNSType {
     }
 
     /**
-     * Returns the DNSType for the given numeric value.
+     * Returns the DnsType for the given numeric value.
      *
      * @param value the type value
-     * @return the DNSType, or null if unknown
+     * @return the DnsType, or null if unknown
      */
-    public static DNSType fromValue(int value) {
-        for (DNSType type : values()) {
+    public static DnsType fromValue(int value) {
+        for (DnsType type : values()) {
             if (type.value == value) {
                 return type;
             }

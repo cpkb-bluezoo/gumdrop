@@ -35,12 +35,12 @@
  * <h2>Architecture</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mdns.MDNSService} &ndash; owns
+ *   <li>{@link org.bluezoo.gumdrop.mdns.MdnsServer} &ndash; owns
  *       configuration, the probing/announcing state machine for this
  *       instance's own hostname, and the public
- *       {@link org.bluezoo.gumdrop.mdns.MDNSService#query query}/{@link
- *       org.bluezoo.gumdrop.mdns.MDNSService#lookup lookup} API</li>
- *   <li>{@link org.bluezoo.gumdrop.mdns.MDNSListener} &ndash; the UDP
+ *       {@link org.bluezoo.gumdrop.mdns.MdnsServer#query query}/{@link
+ *       org.bluezoo.gumdrop.mdns.MdnsServer#lookup lookup} API</li>
+ *   <li>{@link org.bluezoo.gumdrop.mdns.MdnsListener} &ndash; the UDP
  *       multicast transport: binds port 5353 and joins the mDNS group
  *       on every eligible network interface</li>
  *   <li>{@link org.bluezoo.gumdrop.mdns.MDNSCache} &ndash; the
@@ -54,17 +54,17 @@
  * <p>Wire-format support for mDNS's two repurposed bits (the QCLASS
  * "QU" bit and the RR CLASS "cache-flush" bit) lives in the sibling
  * {@link org.bluezoo.gumdrop.dns} package, on
- * {@link org.bluezoo.gumdrop.dns.DNSQuestion} and
- * {@link org.bluezoo.gumdrop.dns.DNSResourceRecord} respectively, since
+ * {@link org.bluezoo.gumdrop.dns.DnsQuestion} and
+ * {@link org.bluezoo.gumdrop.dns.DnsResourceRecord} respectively, since
  * mDNS otherwise reuses the standard DNS message format as-is.
  *
  * <h2>Usage</h2>
  *
  * <p>The simplest configuration just claims a hostname:
  * <pre>{@code
- * <service class="org.bluezoo.gumdrop.mdns.MDNSService">
+ * <service class="org.bluezoo.gumdrop.mdns.MdnsServer">
  *   <property name="hostname" value="gumdrop"/>
- *   <listener class="org.bluezoo.gumdrop.mdns.MDNSListener"/>
+ *   <listener class="org.bluezoo.gumdrop.mdns.MdnsListener"/>
  * </service>
  * }</pre>
  *
@@ -73,16 +73,16 @@
  * another host already holds the name, or wins a simultaneous-probe
  * tie-break, this instance renames itself (e.g. {@code gumdrop-2}) and
  * re-probes automatically &mdash; check
- * {@link org.bluezoo.gumdrop.mdns.MDNSService#getCurrentName} after
- * {@link org.bluezoo.gumdrop.mdns.MDNSService#isAnnounced} to find out
+ * {@link org.bluezoo.gumdrop.mdns.MdnsServer#getCurrentName} after
+ * {@link org.bluezoo.gumdrop.mdns.MdnsServer#isAnnounced} to find out
  * what name was actually claimed.
  *
  * <h2>Querying other hosts</h2>
  *
  * <pre>{@code
- * mdnsService.query("printer.local", DNSType.A);
+ * mdnsService.query("printer.local", DnsType.A);
  * // ... answers arrive asynchronously as other hosts respond ...
- * List<DNSResourceRecord> answers = mdnsService.lookup("printer.local", DNSType.A);
+ * List<DnsResourceRecord> answers = mdnsService.lookup("printer.local", DnsType.A);
  * }</pre>
  *
  * <h2>DNS-SD auto-advertisement</h2>
@@ -118,10 +118,10 @@
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.mdns.MDNSService
- * @see org.bluezoo.gumdrop.mdns.MDNSListener
+ * @see org.bluezoo.gumdrop.mdns.MdnsServer
+ * @see org.bluezoo.gumdrop.mdns.MdnsListener
  * @see org.bluezoo.gumdrop.mdns.MDNSCache
  * @see org.bluezoo.gumdrop.mdns.DNSSDAdvertiser
- * @see org.bluezoo.gumdrop.dns.DNSService
+ * @see org.bluezoo.gumdrop.dns.DnsServer
  */
 package org.bluezoo.gumdrop.mdns;

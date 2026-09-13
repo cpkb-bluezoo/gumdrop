@@ -25,8 +25,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.UDPEndpoint;
-import org.bluezoo.gumdrop.UDPTransportFactory;
+import org.bluezoo.gumdrop.UdpEndpoint;
+import org.bluezoo.gumdrop.UdpTransportFactory;
 
 import org.junit.After;
 import org.junit.Before;
@@ -47,8 +47,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * End-to-end test of DTLS support in {@link UDPEndpoint} (issue #190):
- * a real client and server, each with their own {@link UDPTransportFactory},
+ * End-to-end test of DTLS support in {@link UdpEndpoint} (issue #190):
+ * a real client and server, each with their own {@link UdpTransportFactory},
  * talking DTLS 1.2 over real loopback UDP sockets through a running
  * {@link Gumdrop} instance -- no mocking of the network or the record engine.
  *
@@ -67,8 +67,8 @@ public class DTLSIntegrationTest {
     private static final long TIMEOUT_SECONDS = 10;
 
     private Gumdrop gumdrop;
-    private UDPEndpoint serverEndpoint;
-    private UDPEndpoint clientEndpoint;
+    private UdpEndpoint serverEndpoint;
+    private UdpEndpoint clientEndpoint;
 
     @Before
     public void setUp() {
@@ -181,7 +181,7 @@ public class DTLSIntegrationTest {
         File truststore = new File(CERTS_DIR, "test-truststore.p12");
         int port = freePort();
 
-        UDPTransportFactory serverFactory = new UDPTransportFactory();
+        UdpTransportFactory serverFactory = new UdpTransportFactory();
         serverFactory.setSecure(true);
         serverFactory.setKeystoreFile(Paths.get(keystore.getPath()));
         serverFactory.setKeystorePass(KEYSTORE_PASSWORD);
@@ -192,11 +192,11 @@ public class DTLSIntegrationTest {
         EchoHandler echoHandler = new EchoHandler();
         serverEndpoint = serverFactory.createServerEndpoint(null, port, echoHandler);
 
-        UDPTransportFactory clientFactory = new UDPTransportFactory();
+        UdpTransportFactory clientFactory = new UdpTransportFactory();
         clientFactory.setSecure(true);
         // Every secure TransportFactory (TCP and UDP alike) requires its
         // own keystore even when acting purely as a client -- see
-        // UDPTransportFactory.start()/TCPTransportFactory.start(). The
+        // UdpTransportFactory.start()/TcpTransportFactory.start(). The
         // client engine only presents this identity if the server
         // actually requests client-cert auth, which this test's server
         // does not, so reusing the same test identity here is harmless.
@@ -230,7 +230,7 @@ public class DTLSIntegrationTest {
         File truststore = new File(CERTS_DIR, "test-truststore.p12");
         int port = freePort();
 
-        UDPTransportFactory serverFactory = new UDPTransportFactory();
+        UdpTransportFactory serverFactory = new UdpTransportFactory();
         serverFactory.setSecure(true);
         serverFactory.setKeystoreFile(Paths.get(keystore.getPath()));
         serverFactory.setKeystorePass(KEYSTORE_PASSWORD);
@@ -243,7 +243,7 @@ public class DTLSIntegrationTest {
 
         // See the comment in testHandshakeAndEchoRoundTrip: every secure
         // TransportFactory needs its own keystore even as a client-only user.
-        UDPTransportFactory clientFactory1 = new UDPTransportFactory();
+        UdpTransportFactory clientFactory1 = new UdpTransportFactory();
         clientFactory1.setSecure(true);
         clientFactory1.setKeystoreFile(Paths.get(keystore.getPath()));
         clientFactory1.setKeystorePass(KEYSTORE_PASSWORD);
@@ -251,7 +251,7 @@ public class DTLSIntegrationTest {
         clientFactory1.setTruststorePass(KEYSTORE_PASSWORD);
         clientFactory1.start();
 
-        UDPTransportFactory clientFactory2 = new UDPTransportFactory();
+        UdpTransportFactory clientFactory2 = new UdpTransportFactory();
         clientFactory2.setSecure(true);
         clientFactory2.setKeystoreFile(Paths.get(keystore.getPath()));
         clientFactory2.setKeystorePass(KEYSTORE_PASSWORD);
@@ -262,7 +262,7 @@ public class DTLSIntegrationTest {
         ClientHandler client1Handler = new ClientHandler();
         ClientHandler client2Handler = new ClientHandler();
         clientEndpoint = clientFactory1.connect(InetAddress.getByName("::1"), port, client1Handler);
-        UDPEndpoint clientEndpoint2 = clientFactory2.connect(
+        UdpEndpoint clientEndpoint2 = clientFactory2.connect(
                 InetAddress.getByName("::1"), port, client2Handler);
         try {
             assertTrue(client1Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));

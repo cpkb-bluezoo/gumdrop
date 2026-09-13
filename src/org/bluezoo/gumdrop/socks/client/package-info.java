@@ -24,7 +24,7 @@
  * SOCKS proxy (RFC 1928 SOCKS5, or SOCKS4/4a), plus RFC 1928 BIND and
  * UDP ASSOCIATE support.
  *
- * <p>{@link org.bluezoo.gumdrop.socks.client.SOCKSClientHandler} wraps
+ * <p>{@link org.bluezoo.gumdrop.socks.client.SocksClientHandler} wraps
  * an inner {@link org.bluezoo.gumdrop.ProtocolHandler}: on {@code
  * connected()}, it runs the SOCKS handshake (version negotiation,
  * optional authentication, then CONNECT or BIND) itself, and only once
@@ -32,15 +32,15 @@
  * {@code connected()} and forward data transparently -- so any
  * existing gumdrop client protocol handler can be proxied without
  * modification. For BIND, a {@link
- * org.bluezoo.gumdrop.socks.client.SOCKSClientHandler.BindListener}
+ * org.bluezoo.gumdrop.socks.client.SocksClientHandler.BindListener}
  * is notified of the proxy's listening address once its first reply
  * arrives, before the second reply (and the wrapped handler's {@code
  * connected()}) follows a peer's connection. UDP ASSOCIATE (SOCKS5
  * only) instead notifies a {@link
- * org.bluezoo.gumdrop.socks.client.SOCKSClientHandler.UDPAssociateListener}
+ * org.bluezoo.gumdrop.socks.client.SocksClientHandler.UdpAssociateListener}
  * once the relay is established, after which datagrams can be sent to
  * arbitrary destinations through it.
- * {@link org.bluezoo.gumdrop.socks.client.SOCKSClientConfig} configures
+ * {@link org.bluezoo.gumdrop.socks.client.SocksClientConfig} configures
  * the SOCKS version preference, credentials, and handshake timeout.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -1,5 +1,5 @@
 /*
- * FTPConnectionHandlerFactory.java
+ * FtpConnectionHandlerFactory.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -22,36 +22,36 @@
 package org.bluezoo.gumdrop.ftp;
 
 /**
- * A factory interface for creating {@link FTPConnectionHandler} instances.
+ * A factory interface for creating {@link FtpConnectionHandler} instances.
  *
- * <p>This functional interface is used by {@link FTPListener} to create a new,
- * dedicated {@link FTPConnectionHandler} instance for each incoming FTP connection.
+ * <p>This functional interface is used by {@link FtpListener} to create a new,
+ * dedicated {@link FtpConnectionHandler} instance for each incoming FTP connection.
  * This ensures proper thread safety and state isolation, as handler implementations
  * are typically stateful and not designed to be shared across multiple concurrent connections.
  *
  * <p>Example implementation:
  * <pre><code>
  * // Example: A factory that creates a new MyFTPHandler for each connection
- * ftpConnector.setHandlerFactory(new FTPConnectionHandlerFactory() {
- *     public FTPConnectionHandler createHandler() {
+ * ftpConnector.setHandlerFactory(new FtpConnectionHandlerFactory() {
+ *     public FtpConnectionHandler createHandler() {
  *         return new MyFTPHandler(fileSystem, userDatabase);
  *     }
  * });
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see FTPConnectionHandler
- * @see FTPListener
+ * @see FtpConnectionHandler
+ * @see FtpListener
  */
-public interface FTPConnectionHandlerFactory {
+public interface FtpConnectionHandlerFactory {
 
     /**
-     * Creates a new instance of {@link FTPConnectionHandler}.
+     * Creates a new instance of {@link FtpConnectionHandler}.
      * This method is called for every new FTP connection.
      *
-     * @return a new, uninitialized {@link FTPConnectionHandler} instance
+     * @return a new, uninitialized {@link FtpConnectionHandler} instance
      * @throws Exception if an error occurs during handler creation
      */
-    FTPConnectionHandler createHandler() throws Exception;
+    FtpConnectionHandler createHandler() throws Exception;
 
 }

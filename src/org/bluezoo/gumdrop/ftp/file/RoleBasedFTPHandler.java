@@ -28,13 +28,13 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.ftp.FTPAuthenticationResult;
-import org.bluezoo.gumdrop.ftp.FTPConnectionHandler;
-import org.bluezoo.gumdrop.ftp.FTPConnectionMetadata;
-import org.bluezoo.gumdrop.ftp.FTPFileOperationResult;
-import org.bluezoo.gumdrop.ftp.FTPFileSystem;
-import org.bluezoo.gumdrop.ftp.FTPOperation;
-import org.bluezoo.gumdrop.ftp.FTPRoles;
+import org.bluezoo.gumdrop.ftp.FtpAuthenticationResult;
+import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
+import org.bluezoo.gumdrop.ftp.FtpConnectionMetadata;
+import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
+import org.bluezoo.gumdrop.ftp.FtpFileSystem;
+import org.bluezoo.gumdrop.ftp.FtpOperation;
+import org.bluezoo.gumdrop.ftp.FtpRoles;
 import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
@@ -61,24 +61,24 @@ import org.bluezoo.gumdrop.quota.QuotaSource;
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  * 
- * <service class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService">
+ * <service class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer">
  *   <property name="realm" ref="#ftpRealm"/>
  *   <property name="root-directory">/var/ftp</property>
- *   <listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/>
+ *   <listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/>
  * </service>
  * }</pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see FTPRoles
- * @see FTPOperation
+ * @see FtpRoles
+ * @see FtpOperation
  */
-public class RoleBasedFTPHandler implements FTPConnectionHandler {
+public class RoleBasedFTPHandler implements FtpConnectionHandler {
     
     private static final Logger LOGGER = Logger.getLogger(RoleBasedFTPHandler.class.getName());
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
     
     private final Realm realm;
-    private final FTPFileSystem fileSystem;
+    private final FtpFileSystem fileSystem;
     private QuotaManager quotaManager;
     private String welcomeMessage;
     
@@ -88,7 +88,7 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
      * @param realm the realm for authentication and role checking
      * @param fileSystem the file system to use for file operations
      */
-    public RoleBasedFTPHandler(Realm realm, FTPFileSystem fileSystem) {
+    public RoleBasedFTPHandler(Realm realm, FtpFileSystem fileSystem) {
         if (realm == null) {
             throw new IllegalArgumentException("Realm cannot be null");
         }
@@ -123,7 +123,7 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
     }
     
     @Override
-    public String connected(FTPConnectionMetadata metadata) {
+    public String connected(FtpConnectionMetadata metadata) {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("FTP connection from " + metadata.getClientAddress());
         }
@@ -131,14 +131,14 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
     }
     
     @Override
-    public FTPAuthenticationResult authenticate(String username, String password,
-                                                 String account, FTPConnectionMetadata metadata) {
+    public FtpAuthenticationResult authenticate(String username, String password,
+                                                 String account, FtpConnectionMetadata metadata) {
         if (username == null || username.trim().isEmpty()) {
-            return FTPAuthenticationResult.INVALID_USER;
+            return FtpAuthenticationResult.INVALID_USER;
         }
         
         if (password == null) {
-            return FTPAuthenticationResult.NEED_PASSWORD;
+            return FtpAuthenticationResult.NEED_PASSWORD;
         }
         
         String trimmedUsername = username.trim();
@@ -146,50 +146,50 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         // Check if user exists
         if (!realm.userExists(trimmedUsername)) {
             logAuthFailure(trimmedUsername, metadata, "user not found");
-            return FTPAuthenticationResult.INVALID_USER;
+            return FtpAuthenticationResult.INVALID_USER;
         }
         
         // Verify password
         if (!realm.passwordMatch(trimmedUsername, password)) {
             logAuthFailure(trimmedUsername, metadata, "invalid password");
-            return FTPAuthenticationResult.INVALID_PASSWORD;
+            return FtpAuthenticationResult.INVALID_PASSWORD;
         }
         
         // Check that user has at least read access
         if (!hasAnyFTPRole(trimmedUsername)) {
             logAuthFailure(trimmedUsername, metadata, "no FTP roles assigned");
-            return FTPAuthenticationResult.INVALID_USER;
+            return FtpAuthenticationResult.INVALID_USER;
         }
         
         logAuthSuccess(trimmedUsername, metadata);
-        return FTPAuthenticationResult.SUCCESS;
+        return FtpAuthenticationResult.SUCCESS;
     }
     
     /**
      * Checks if a user has any FTP role assigned.
      */
     private boolean hasAnyFTPRole(String username) {
-        return realm.isUserInRole(username, FTPRoles.ADMIN) ||
-               realm.isUserInRole(username, FTPRoles.DELETE) ||
-               realm.isUserInRole(username, FTPRoles.WRITE) ||
-               realm.isUserInRole(username, FTPRoles.READ);
+        return realm.isUserInRole(username, FtpRoles.ADMIN) ||
+               realm.isUserInRole(username, FtpRoles.DELETE) ||
+               realm.isUserInRole(username, FtpRoles.WRITE) ||
+               realm.isUserInRole(username, FtpRoles.READ);
     }
     
     @Override
-    public FTPFileSystem getFileSystem(FTPConnectionMetadata metadata) {
+    public FtpFileSystem getFileSystem(FtpConnectionMetadata metadata) {
         return fileSystem;
     }
     
     @Override
-    public boolean isAuthorized(FTPOperation operation, String path,
-                                FTPConnectionMetadata metadata) {
+    public boolean isAuthorized(FtpOperation operation, String path,
+                                FtpConnectionMetadata metadata) {
         String username = metadata.getAuthenticatedUser();
         if (username == null) {
             return false;
         }
         
         // Admins can do anything
-        if (realm.isUserInRole(username, FTPRoles.ADMIN)) {
+        if (realm.isUserInRole(username, FtpRoles.ADMIN)) {
             return true;
         }
         
@@ -198,23 +198,23 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
             case READ:
             case NAVIGATE:
                 // READ or higher required
-                authorized = realm.isUserInRole(username, FTPRoles.READ) ||
-                             realm.isUserInRole(username, FTPRoles.WRITE) ||
-                             realm.isUserInRole(username, FTPRoles.DELETE);
+                authorized = realm.isUserInRole(username, FtpRoles.READ) ||
+                             realm.isUserInRole(username, FtpRoles.WRITE) ||
+                             realm.isUserInRole(username, FtpRoles.DELETE);
                 break;
                 
             case WRITE:
             case CREATE_DIR:
                 // WRITE or higher required
-                authorized = realm.isUserInRole(username, FTPRoles.WRITE) ||
-                             realm.isUserInRole(username, FTPRoles.DELETE);
+                authorized = realm.isUserInRole(username, FtpRoles.WRITE) ||
+                             realm.isUserInRole(username, FtpRoles.DELETE);
                 break;
                 
             case DELETE:
             case DELETE_DIR:
             case RENAME:
                 // DELETE required
-                authorized = realm.isUserInRole(username, FTPRoles.DELETE);
+                authorized = realm.isUserInRole(username, FtpRoles.DELETE);
                 break;
                 
             case SITE_COMMAND:
@@ -237,7 +237,7 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
     
     @Override
     public void transferStarting(String path, boolean upload, long size,
-                                 FTPConnectionMetadata metadata) {
+                                 FtpConnectionMetadata metadata) {
         if (LOGGER.isLoggable(Level.FINE)) {
             String direction = upload ? "upload" : "download";
             LOGGER.fine("Transfer starting: " + direction + " " + path + 
@@ -247,13 +247,13 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
     
     @Override
     public void transferProgress(String path, boolean upload, ByteBuffer data,
-                                 long totalBytesTransferred, FTPConnectionMetadata metadata) {
+                                 long totalBytesTransferred, FtpConnectionMetadata metadata) {
         // Default: no progress tracking
     }
     
     @Override
     public void transferCompleted(String path, boolean upload, long totalBytesTransferred,
-                                  boolean success, FTPConnectionMetadata metadata) {
+                                  boolean success, FtpConnectionMetadata metadata) {
         if (LOGGER.isLoggable(Level.INFO)) {
             String direction = upload ? "uploaded" : "downloaded";
             String status = success ? "completed" : "failed";
@@ -264,7 +264,7 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
     }
     
     @Override
-    public FTPFileOperationResult handleSiteCommand(String command, FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult handleSiteCommand(String command, FtpConnectionMetadata metadata) {
         String upperCommand = command.toUpperCase().trim();
         
         // SITE QUOTA - any authenticated user can check their own quota
@@ -274,40 +274,40 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         
         // SITE SETQUOTA - only admins can set quotas
         if (upperCommand.startsWith("SETQUOTA ")) {
-            if (!realm.isUserInRole(metadata.getAuthenticatedUser(), FTPRoles.ADMIN)) {
-                return FTPFileOperationResult.ACCESS_DENIED;
+            if (!realm.isUserInRole(metadata.getAuthenticatedUser(), FtpRoles.ADMIN)) {
+                return FtpFileOperationResult.ACCESS_DENIED;
             }
             return handleSiteSetQuota(command, metadata);
         }
         
         // Other SITE commands require ADMIN role
-        if (!realm.isUserInRole(metadata.getAuthenticatedUser(), FTPRoles.ADMIN)) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+        if (!realm.isUserInRole(metadata.getAuthenticatedUser(), FtpRoles.ADMIN)) {
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
-        return FTPFileOperationResult.NOT_SUPPORTED;
+        return FtpFileOperationResult.NOT_SUPPORTED;
     }
     
     /**
      * Handles SITE QUOTA command.
      */
-    private FTPFileOperationResult handleSiteQuota(String command, FTPConnectionMetadata metadata) {
+    private FtpFileOperationResult handleSiteQuota(String command, FtpConnectionMetadata metadata) {
         if (quotaManager == null) {
             // Quota not configured
-            return FTPFileOperationResult.NOT_SUPPORTED;
+            return FtpFileOperationResult.NOT_SUPPORTED;
         }
         
         String targetUser = metadata.getAuthenticatedUser();
         
         // Admin can check other users' quotas: SITE QUOTA username
         String args = command.substring(5).trim(); // Remove "QUOTA"
-        if (!args.isEmpty() && realm.isUserInRole(metadata.getAuthenticatedUser(), FTPRoles.ADMIN)) {
+        if (!args.isEmpty() && realm.isUserInRole(metadata.getAuthenticatedUser(), FtpRoles.ADMIN)) {
             targetUser = args;
         }
         
         Quota quota = quotaManager.getQuota(targetUser);
         metadata.setSiteCommandResponse(formatQuotaStatus(targetUser, quota));
         
-        return FTPFileOperationResult.SUCCESS;
+        return FtpFileOperationResult.SUCCESS;
     }
     
     /**
@@ -352,9 +352,9 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
      * Handles SITE SETQUOTA command.
      * Syntax: SITE SETQUOTA username storageLimit [messageLimit]
      */
-    private FTPFileOperationResult handleSiteSetQuota(String command, FTPConnectionMetadata metadata) {
+    private FtpFileOperationResult handleSiteSetQuota(String command, FtpConnectionMetadata metadata) {
         if (quotaManager == null) {
-            return FTPFileOperationResult.NOT_SUPPORTED;
+            return FtpFileOperationResult.NOT_SUPPORTED;
         }
         
         String args = command.substring(8).trim(); // Remove "SETQUOTA"
@@ -392,7 +392,7 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         }
         
         if (targetUser == null || storageStr == null) {
-            return FTPFileOperationResult.NOT_SUPPORTED;
+            return FtpFileOperationResult.NOT_SUPPORTED;
         }
         
         try {
@@ -405,14 +405,14 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
                 MessageFormat.format(L10N.getString("ftp.quota.set_success"), 
                     targetUser, QuotaPolicy.formatSize(storageLimit)));
             
-            return FTPFileOperationResult.SUCCESS;
+            return FtpFileOperationResult.SUCCESS;
         } catch (IllegalArgumentException e) {
-            return FTPFileOperationResult.NOT_SUPPORTED;
+            return FtpFileOperationResult.NOT_SUPPORTED;
         }
     }
     
     @Override
-    public void disconnected(FTPConnectionMetadata metadata) {
+    public void disconnected(FtpConnectionMetadata metadata) {
         if (LOGGER.isLoggable(Level.FINE)) {
             long duration = metadata.getConnectionDurationMillis();
             LOGGER.fine("FTP disconnected: user=" + metadata.getAuthenticatedUser() +
@@ -420,7 +420,7 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         }
     }
     
-    private void logAuthSuccess(String username, FTPConnectionMetadata metadata) {
+    private void logAuthSuccess(String username, FtpConnectionMetadata metadata) {
         if (LOGGER.isLoggable(Level.INFO)) {
             String clientHost = metadata.getClientAddress() != null ?
                                metadata.getClientAddress().getHostString() : "unknown";
@@ -429,7 +429,7 @@ public class RoleBasedFTPHandler implements FTPConnectionHandler {
         }
     }
     
-    private void logAuthFailure(String username, FTPConnectionMetadata metadata, String reason) {
+    private void logAuthFailure(String username, FtpConnectionMetadata metadata, String reason) {
         if (LOGGER.isLoggable(Level.WARNING)) {
             String clientHost = metadata.getClientAddress() != null ?
                                metadata.getClientAddress().getHostString() : "unknown";

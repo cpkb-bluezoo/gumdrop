@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.buffer;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.IntegrationTlsClient;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.junit.Test;
 
@@ -57,7 +57,7 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
      * Returns the BufferTestServer instance from the running servers.
      */
     private BufferTestServer getBufferTestServer() {
-        for (TCPListener server : servers) {
+        for (TcpListener server : servers) {
             if (server instanceof BufferTestServer) {
                 return (BufferTestServer) server;
             }

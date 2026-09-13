@@ -200,18 +200,18 @@ identity providers.
 <h3 id="filesystem">File System Handler</h3>
 
 <p>
-File operations are delegated to an <code>FTPConnectionHandler</code>, which
+File operations are delegated to an <code>FtpConnectionHandler</code>, which
 provides access to the underlying storage:
 </p>
 
-<h4>FTPConnectionHandler Interface</h4>
+<h4>FtpConnectionHandler Interface</h4>
 
 <p>
 The handler interface defines methods for all file operations:
 </p>
 
 <ul>
-<li><code>getFileSystem()</code> - returns the FTPFileSystem for the session</li>
+<li><code>getFileSystem()</code> - returns the FtpFileSystem for the session</li>
 <li><code>isAuthorized(operation, path, metadata)</code> - checks access rights</li>
 <li><code>handleSiteCommand(command, metadata)</code> - processes SITE commands</li>
 </ul>
@@ -257,10 +257,10 @@ based on user roles defined in the realm.
     &lt;property name="href"&gt;ftp-users.xml&lt;/property&gt;
 &lt;/realm&gt;
 
-&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
+&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer"&gt;
     &lt;property name="realm" ref="#ftpRealm"/&gt;
     &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FtpListener"&gt;
         &lt;property name="port"&gt;21&lt;/property&gt;
         &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
         &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
@@ -272,7 +272,7 @@ based on user roles defined in the realm.
 
 <p>
 When <code>filesystem-enforcement</code> is <code>true</code> on
-<code>RoleBasedFTPService</code>, each handler's file system is wrapped in
+<code>RoleBasedFTPServer</code>, each handler's file system is wrapped in
 <code>RoleAwareFTPFileSystem</code>. This enforces read/write/delete roles at
 the filesystem operation level as a defence-in-depth layer, complementing the
 command-level checks in <code>RoleBasedFTPHandler</code>.
@@ -280,10 +280,10 @@ command-level checks in <code>RoleBasedFTPHandler</code>.
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>FTPListener Properties</h4>
+<h4>FtpListener Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.ftp.FTPListener</code> (transport configuration):
+<code>org.bluezoo.gumdrop.ftp.FtpListener</code> (transport configuration):
 </p>
 
 <ul>
@@ -297,10 +297,10 @@ command-level checks in <code>RoleBasedFTPHandler</code>.
     when true)</li>
 </ul>
 
-<h4>RoleBasedFTPService Properties</h4>
+<h4>RoleBasedFTPServer Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService</code> (service logic):
+<code>org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer</code> (service logic):
 </p>
 
 <ul>
@@ -331,10 +331,10 @@ command-level checks in <code>RoleBasedFTPHandler</code>.
 
 <pre>
 &lt;!-- FTP with explicit TLS (port 21 + AUTH TLS) --&gt;
-&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
+&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer"&gt;
     &lt;property name="realm" ref="#ftpRealm"/&gt;
     &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FtpListener"&gt;
         &lt;property name="port"&gt;21&lt;/property&gt;
         &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
         &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
@@ -345,10 +345,10 @@ command-level checks in <code>RoleBasedFTPHandler</code>.
 &lt;/service&gt;
 
 &lt;!-- FTPS with implicit TLS (port defaults to 990 when secure) --&gt;
-&lt;service id="ftps" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
+&lt;service id="ftps" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer"&gt;
     &lt;property name="realm" ref="#ftpRealm"/&gt;
     &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FtpListener"&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
         &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
         &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
@@ -434,11 +434,11 @@ handler factory:
     &lt;property name="role-quota.enterprise"&gt;unlimited&lt;/property&gt;
 &lt;/component&gt;
 
-&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
+&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer"&gt;
     &lt;property name="realm" ref="#ftpRealm"/&gt;
     &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
     &lt;property name="quota-manager" ref="#ftpQuota"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/&gt;
 &lt;/service&gt;
 </pre>
 

@@ -34,13 +34,13 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPEndpoint;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpEndpoint;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * Opens the FTP client's data connection (RFC 959 §3.2), the client-side
- * counterpart of the server's {@code FTPDataConnectionCoordinator}.
+ * counterpart of the server's {@code FtpDataConnectionCoordinator}.
  *
  * <p><strong>Passive mode</strong> (PASV/EPSV): a single outbound TCP
  * connection to the address the server returned — a thin wrapper around
@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <p><strong>Active mode</strong> (PORT/EPRT): the client instead listens
  * and the server connects in. This mirrors the server-side coordinator's
- * own passive-mode acceptor ({@code FTPDataConnectionCoordinator}'s
+ * own passive-mode acceptor ({@code FtpDataConnectionCoordinator}'s
  * {@code incomingDataConnections} queue / {@code waitingContinuation}
  * pattern, just with the roles reversed): the accept happens on {@link
  * Gumdrop#getAcceptLoop()}'s thread, so a connection that arrives before
@@ -58,7 +58,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * happens second completes the hand-off, on the control connection's own
  * loop thread via {@link Endpoint#execute(Runnable)}.
  *
- * <p>Either way, {@link FTPClientProtocolHandler} owns the actual transfer
+ * <p>Either way, {@link FtpClientProtocolHandler} owns the actual transfer
  * coordination (correlating the data connection's EOF with the control
  * connection's final reply code) — see its {@code *DataHandler} inner
  * classes.
@@ -70,7 +70,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 final class FTPClientDataConnectionCoordinator {
 
     private final Endpoint controlEndpoint;
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
 
     // Active-mode (PORT/EPRT) listener state, guarded by 'this'.
     private ServerSocketChannel activeListenerChannel;
@@ -84,7 +84,7 @@ final class FTPClientDataConnectionCoordinator {
     // (PORT/EPRT) TLS protection is not yet supported — see acceptNext().
     private boolean dataProtectionEnabled;
     private ServerCredentials dataClientCredentials;
-    private TCPTransportFactory secureTransportFactory;
+    private TcpTransportFactory secureTransportFactory;
 
     FTPClientDataConnectionCoordinator(Endpoint controlEndpoint) {
         this.controlEndpoint = controlEndpoint;
@@ -113,7 +113,7 @@ final class FTPClientDataConnectionCoordinator {
      * @param dataHandler the handler for the data connection's lifecycle
      */
     void connect(InetSocketAddress dataAddress, ProtocolHandler dataHandler) {
-        TCPTransportFactory factory = dataProtectionEnabled
+        TcpTransportFactory factory = dataProtectionEnabled
                 ? secureTransportFactory() : plainTransportFactory();
         ClientEndpoint dataEndpoint = new ClientEndpoint(factory,
                 controlEndpoint.getSelectorLoop(),
@@ -125,17 +125,17 @@ final class FTPClientDataConnectionCoordinator {
         }
     }
 
-    private TCPTransportFactory plainTransportFactory() {
+    private TcpTransportFactory plainTransportFactory() {
         if (transportFactory == null) {
-            transportFactory = new TCPTransportFactory();
+            transportFactory = new TcpTransportFactory();
             transportFactory.start();
         }
         return transportFactory;
     }
 
-    private TCPTransportFactory secureTransportFactory() {
+    private TcpTransportFactory secureTransportFactory() {
         if (secureTransportFactory == null) {
-            secureTransportFactory = new TCPTransportFactory();
+            secureTransportFactory = new TcpTransportFactory();
             secureTransportFactory.setSecure(true);
             if (dataClientCredentials != null) {
                 secureTransportFactory.setClientCredentials(dataClientCredentials);
@@ -240,7 +240,7 @@ final class FTPClientDataConnectionCoordinator {
             public void run() {
                 try {
                     sc.configureBlocking(false);
-                    TCPEndpoint dataEndpoint = new TCPEndpoint(dataHandler);
+                    TcpEndpoint dataEndpoint = new TcpEndpoint(dataHandler);
                     dataEndpoint.setChannel(sc);
                     dataEndpoint.init();
                     controlEndpoint.getSelectorLoop().registerTCP(sc, dataEndpoint);

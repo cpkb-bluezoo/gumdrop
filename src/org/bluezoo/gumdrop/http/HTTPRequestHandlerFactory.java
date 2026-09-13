@@ -26,7 +26,7 @@ import java.util.Set;
 /**
  * Factory for creating {@link HttpRequestHandler} instances.
  *
- * <p>Provided by an {@link HTTPService} and wired to its listeners.
+ * <p>Provided by an {@link HttpServer} and wired to its listeners.
  * The factory is called once per stream (request) when the initial headers
  * are received.
  *

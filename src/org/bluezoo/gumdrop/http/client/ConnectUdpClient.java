@@ -33,12 +33,12 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
@@ -111,7 +111,7 @@ public class ConnectUdpClient implements AltSvcListener {
     private boolean dnsHttpsRecordEnabled = true;
 
     // Internal transport components (created at connect time) -- TCP/H1.1/H2 path
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private ConnectUdpClientProtocolHandler protocolHandler;
     private ConnectUdpSession h2Session;
@@ -180,7 +180,7 @@ public class ConnectUdpClient implements AltSvcListener {
 
     /**
      * Creates a CONNECT-UDP client for a proxy reached over a UNIX domain
-     * socket, mirroring {@link org.bluezoo.gumdrop.TCPListener#setPath}
+     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#setPath}
      * on the server side. Only the proxy connection itself may be a UNIX
      * domain socket -- the UDP target requested through the tunnel (see
      * {@link #connect}) is always a network host/port, per RFC 9298.
@@ -362,7 +362,7 @@ public class ConnectUdpClient implements AltSvcListener {
      * support, checked before connecting.
      *
      * <p>When enabled (the default), {@link #connect} queries an HTTPS
-     * record for the proxy host via gumdrop's async {@link DNSResolver}
+     * record for the proxy host via gumdrop's async {@link DnsResolver}
      * before choosing a transport; if it advertises "h3" ALPN support, the
      * connection uses Extended CONNECT over QUIC directly. This is the
      * first tier of automatic negotiation, checked ahead of the {@link
@@ -415,7 +415,7 @@ public class ConnectUdpClient implements AltSvcListener {
      * <p>Skipped entirely -- straight to {@link #connectTcp} -- when
      * there is no proxy hostname to query: a literal {@link InetAddress}
      * was given at construction, {@link #host} is itself a literal IP, or
-     * it's {@code localhost} (matching {@link DNSResolver#resolve}'s own
+     * it's {@code localhost} (matching {@link DnsResolver#resolve}'s own
      * loopback fast-path).
      */
     private void discoverAndConnect(final String targetHost, final int targetPort,
@@ -440,12 +440,12 @@ public class ConnectUdpClient implements AltSvcListener {
             return;
         }
 
-        DNSResolver resolver = DNSResolver.forLoop(loop);
-        resolver.queryHTTPS(host, new DNSQueryCallback() {
+        DnsResolver resolver = DnsResolver.forLoop(loop);
+        resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
-                for (DNSResourceRecord rr : response.getAnswers()) {
-                    if (rr.getType() != DNSType.HTTPS || rr.isSVCBAliasForm()) {
+            public void onResponse(DnsMessage response) {
+                for (DnsResourceRecord rr : response.getAnswers()) {
+                    if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
                     }
                     if (rr.getSVCBAlpnProtocols().contains("h3")) {
@@ -499,7 +499,7 @@ public class ConnectUdpClient implements AltSvcListener {
     private void connectTcp(final String targetHost, final int targetPort, final ConnectUdpEventHandler handler) {
         final String path = ConnectUdpTarget.encode(targetHost, targetPort);
 
-        transportFactory = new TCPTransportFactory();
+        transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);

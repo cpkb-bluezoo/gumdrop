@@ -1,5 +1,5 @@
 /*
- * DNSSECTrustAnchor.java
+ * DnssecTrustAnchor.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -38,16 +38,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * added for private/split-horizon zones.
  *
  * <p>A trust anchor can also be a DNSKEY trusted directly rather than
- * through a DS digest, which is how {@link DNSSECTrustAnchorUpdater}
+ * through a DS digest, which is how {@link DnssecTrustAnchorUpdater}
  * (RFC 5011 automated rollover) promotes a newly-observed key to
  * trusted -- RFC 5011 tracks and trusts DNSKEYs directly, since the
  * whole point is to keep trusting a zone whose parent-published DS
  * record a resolver may never re-fetch.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSSECTrustAnchorUpdater
+ * @see DnssecTrustAnchorUpdater
  */
-public final class DNSSECTrustAnchor {
+public final class DnssecTrustAnchor {
 
     private final Map<String, List<AnchorDS>> anchors;
     private final Map<String, List<AnchorKey>> dnskeyAnchors;
@@ -56,7 +56,7 @@ public final class DNSSECTrustAnchor {
      * Creates a trust anchor store with the IANA root zone
      * trust anchors pre-loaded.
      */
-    public DNSSECTrustAnchor() {
+    public DnssecTrustAnchor() {
         this.anchors = new ConcurrentHashMap<>();
         this.dnskeyAnchors = new ConcurrentHashMap<>();
         loadRootAnchors();
@@ -114,7 +114,7 @@ public final class DNSSECTrustAnchor {
      * Checks whether a DNSKEY is trusted -- either by matching it
      * against the configured DS trust anchors for its zone, or by
      * matching a DNSKEY trusted directly via {@link
-     * #addDNSKEYAnchor(String, DNSResourceRecord)} (as RFC 5011
+     * #addDNSKEYAnchor(String, DnsResourceRecord)} (as RFC 5011
      * automated rollover does once it promotes a key).
      *
      * @param zone the zone the DNSKEY belongs to
@@ -122,7 +122,7 @@ public final class DNSSECTrustAnchor {
      * @return true if the DNSKEY matches a trust anchor
      */
     public boolean isDNSKEYTrusted(String zone,
-                                   DNSResourceRecord dnskey) {
+                                   DnsResourceRecord dnskey) {
         int keyTag = dnskey.computeKeyTag();
         int algorithm = dnskey.getDNSKEYAlgorithm();
 
@@ -134,9 +134,9 @@ public final class DNSSECTrustAnchor {
                 continue;
             }
 
-            DNSResourceRecord syntheticDS = buildSyntheticDS(
+            DnsResourceRecord syntheticDS = buildSyntheticDS(
                     zone, anchor);
-            if (DNSSECValidator.verifyDS(dnskey, syntheticDS)) {
+            if (DnssecValidator.verifyDS(dnskey, syntheticDS)) {
                 return true;
             }
         }
@@ -156,14 +156,14 @@ public final class DNSSECTrustAnchor {
     /**
      * Adds a DNSKEY trusted directly, rather than through a DS digest.
      * Matched by algorithm and public key material only -- not the key
-     * tag or flags -- since {@link DNSSECTrustAnchorUpdater} may need
+     * tag or flags -- since {@link DnssecTrustAnchorUpdater} may need
      * to keep trusting a key across a REVOKE-bit flip, which changes
      * the key tag (RFC 5011 section 5.1) but not the key itself.
      *
      * @param zone the zone this key belongs to
      * @param dnskey the DNSKEY record to trust directly
      */
-    public void addDNSKEYAnchor(String zone, DNSResourceRecord dnskey) {
+    public void addDNSKEYAnchor(String zone, DnsResourceRecord dnskey) {
         String key = normalizeZone(zone);
         AnchorKey anchor = new AnchorKey(
                 dnskey.getDNSKEYAlgorithm(), dnskey.getDNSKEYPublicKey());
@@ -179,13 +179,13 @@ public final class DNSSECTrustAnchor {
 
     /**
      * Removes a directly-trusted DNSKEY previously added via {@link
-     * #addDNSKEYAnchor(String, DNSResourceRecord)}, matched the same
+     * #addDNSKEYAnchor(String, DnsResourceRecord)}, matched the same
      * way: by algorithm and public key material.
      *
      * @param zone the zone this key belongs to
      * @param dnskey the DNSKEY record to stop trusting
      */
-    public void removeDNSKEYAnchor(String zone, DNSResourceRecord dnskey) {
+    public void removeDNSKEYAnchor(String zone, DnsResourceRecord dnskey) {
         List<AnchorKey> list = dnskeyAnchors.get(normalizeZone(zone));
         if (list == null) {
             return;
@@ -279,9 +279,9 @@ public final class DNSSECTrustAnchor {
 
     /**
      * Builds a synthetic DS record from an anchor entry for use
-     * with {@link DNSSECValidator#verifyDS}.
+     * with {@link DnssecValidator#verifyDS}.
      */
-    private static DNSResourceRecord buildSyntheticDS(
+    private static DnsResourceRecord buildSyntheticDS(
             String zone, AnchorDS anchor) {
         byte[] rdata = new byte[4 + anchor.digest.length];
         rdata[0] = (byte) ((anchor.keyTag >> 8) & 0xFF);
@@ -290,7 +290,7 @@ public final class DNSSECTrustAnchor {
         rdata[3] = (byte) anchor.digestType;
         System.arraycopy(anchor.digest, 0, rdata, 4,
                 anchor.digest.length);
-        return new DNSResourceRecord(zone, DNSType.DS, DNSClass.IN,
+        return new DnsResourceRecord(zone, DnsType.DS, DnsClass.IN,
                 0, rdata);
     }
 
@@ -352,7 +352,7 @@ public final class DNSSECTrustAnchor {
     /**
      * A directly-trusted DNSKEY anchor entry, identified by algorithm
      * and public key material (not key tag or flags -- see {@link
-     * #addDNSKEYAnchor(String, DNSResourceRecord)}).
+     * #addDNSKEYAnchor(String, DnsResourceRecord)}).
      */
     public static final class AnchorKey {
 

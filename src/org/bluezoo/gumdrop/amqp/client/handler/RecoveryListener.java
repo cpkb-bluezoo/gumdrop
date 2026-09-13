@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.amqp.client.handler;
 
 /**
- * Notified of {@link org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery}'s
+ * Notified of {@link org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery}'s
  * reconnect state transitions — for logging/metrics, not for re-running
  * setup: topology (exchanges, queues, bindings, consumers) declared via
  * {@link RecoveryHandler#onFirstConnect} is replayed automatically and

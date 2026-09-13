@@ -174,15 +174,15 @@ public class AcceptSelectorLoop implements Runnable {
     }
 
     /**
-     * Pending registration containing either a TCPListener (needs binding),
+     * Pending registration containing either a TcpListener (needs binding),
      * or a raw accept handler with a pre-bound ServerSocketChannel.
      */
     private static class PendingRegistration {
-        final TCPListener listener;
+        final TcpListener listener;
         final RawAcceptHandler rawHandler;
         final ServerSocketChannel channel; // null if listener needs binding
 
-        PendingRegistration(TCPListener listener) {
+        PendingRegistration(TcpListener listener) {
             this.listener = listener;
             this.rawHandler = null;
             this.channel = null;
@@ -213,7 +213,7 @@ public class AcceptSelectorLoop implements Runnable {
      *
      * @param server the endpoint server to register
      */
-    public void registerListener(TCPListener server) {
+    public void registerListener(TcpListener server) {
         pendingRegistrations.add(new PendingRegistration(server));
         if (selector != null) {
             selector.wakeup();
@@ -274,7 +274,7 @@ public class AcceptSelectorLoop implements Runnable {
         }
     }
 
-    private void doRegisterListener(TCPListener server)
+    private void doRegisterListener(TcpListener server)
             throws IOException {
         String socketPath = server.getPath();
         if (socketPath != null) {
@@ -284,7 +284,7 @@ public class AcceptSelectorLoop implements Runnable {
         }
     }
 
-    private void doRegisterUnixListener(TCPListener server, String socketPath)
+    private void doRegisterUnixListener(TcpListener server, String socketPath)
             throws IOException {
         Path path = Path.of(socketPath);
         Files.deleteIfExists(path);
@@ -315,7 +315,7 @@ public class AcceptSelectorLoop implements Runnable {
         server.addServerChannel(ssc);
     }
 
-    private void doRegisterTcpListener(TCPListener server)
+    private void doRegisterTcpListener(TcpListener server)
             throws IOException {
         Set<InetAddress> addrs = server.getAddresses();
         int port = server.getPort();
@@ -366,9 +366,9 @@ public class AcceptSelectorLoop implements Runnable {
                 try {
                     SocketAddress remoteAddress = sc.getRemoteAddress();
 
-                    if (attachment instanceof TCPListener) {
+                    if (attachment instanceof TcpListener) {
                         acceptListener(
-                                (TCPListener) attachment, sc, remoteAddress);
+                                (TcpListener) attachment, sc, remoteAddress);
                     } else if (attachment instanceof RawAcceptHandler) {
                         // ServerSocketChannel.accept() always returns a
                         // channel in blocking mode, regardless of the
@@ -426,7 +426,7 @@ public class AcceptSelectorLoop implements Runnable {
         }
     }
 
-    private void acceptListener(TCPListener server, final SocketChannel sc,
+    private void acceptListener(TcpListener server, final SocketChannel sc,
             final SocketAddress remoteAddress) throws IOException {
         if (!server.acceptConnection(remoteAddress)) {
             logRejection(remoteAddress);
@@ -443,7 +443,7 @@ public class AcceptSelectorLoop implements Runnable {
         server.connectionOpened(remoteAddress);
 
         // Everything else - protocol handler construction, SSLEngine
-        // creation, buffer pool acquisition in TCPEndpoint.init(), and the
+        // creation, buffer pool acquisition in TcpEndpoint.init(), and the
         // handler's connected() callback (which for text protocols writes
         // the greeting banner and for HTTP arms the idle timer) - is real
         // per-connection work that must not run serially on the single
@@ -454,11 +454,11 @@ public class AcceptSelectorLoop implements Runnable {
         // per-loop timer rather than falling back to the shared
         // process-wide one (which only register() would otherwise assign,
         // one selector iteration later).
-        final TCPListener listener = server;
+        final TcpListener listener = server;
         workerLoop.invokeLater(new Runnable() {
             @Override
             public void run() {
-                TCPEndpoint endpoint;
+                TcpEndpoint endpoint;
                 try {
                     endpoint = listener.newEndpoint(sc, workerLoop);
                 } catch (IOException e) {

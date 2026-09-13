@@ -34,17 +34,17 @@ import org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.FlowListener;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerCancelHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelCloseHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConfirmSelectHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerExchangeDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerFlowHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueBindHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxCommitHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxRollbackHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.CancelHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ChannelCloseHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.FlowHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.QueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.QueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TxCommitHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TxRollbackHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TxSelectHandler;
 
 /**
  * A {@link ClientChannel} whose identity survives reconnects.
@@ -55,7 +55,7 @@ import org.bluezoo.gumdrop.amqp.client.handler.ServerTxSelectHandler;
  * to the live underlying channel, so that after a reconnect {@link
  * #rebind} can replay the current topology against the new one before
  * the application resumes using it — see {@link
- * org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery}.
+ * org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery}.
  *
  * <p>Keying by resource identity (not a plain append-only list) keeps
  * memory bounded by the number of <em>distinct</em> exchanges/queues/
@@ -239,7 +239,7 @@ final class RecoverableChannelImpl implements ClientChannel {
     }
 
     @Override
-    public void close(int replyCode, String replyText, ServerChannelCloseHandler handler) {
+    public void close(int replyCode, String replyText, ChannelCloseHandler handler) {
         // An application-initiated close is intentional: stop tracking
         // this channel for recovery even if a reconnect happens to be
         // racing with it. internalCloseListener does the same cleanup
@@ -257,7 +257,7 @@ final class RecoverableChannelImpl implements ClientChannel {
 
     @Override
     public void exchangeDeclare(String exchange, String type, boolean durable, boolean autoDelete,
-            FieldTable arguments, ServerExchangeDeclareHandler handler) {
+            FieldTable arguments, ExchangeDeclareHandler handler) {
         exchangeDeclares.put(exchange, new ReplayOp() {
             @Override
             public void replay(ClientChannel liveChannel) {
@@ -269,7 +269,7 @@ final class RecoverableChannelImpl implements ClientChannel {
 
     @Override
     public void queueDeclare(String queue, boolean durable, boolean exclusive, boolean autoDelete,
-            FieldTable arguments, ServerQueueDeclareHandler handler) {
+            FieldTable arguments, QueueDeclareHandler handler) {
         String key = queue.isEmpty() ? anonymousKey() : queue;
         queueDeclares.put(key, new ReplayOp() {
             @Override
@@ -283,7 +283,7 @@ final class RecoverableChannelImpl implements ClientChannel {
 
     @Override
     public void queueBind(String queue, String exchange, String routingKey, FieldTable arguments,
-            ServerQueueBindHandler handler) {
+            QueueBindHandler handler) {
         String key = queue + ' ' + exchange + ' ' + routingKey;
         queueBinds.put(key, new ReplayOp() {
             @Override
@@ -302,7 +302,7 @@ final class RecoverableChannelImpl implements ClientChannel {
 
     @Override
     public void basicConsume(String queue, String consumerTag, boolean noAck, boolean exclusive,
-            FieldTable arguments, DeliveryHandler deliveryHandler, ServerConsumeHandler handler) {
+            FieldTable arguments, DeliveryHandler deliveryHandler, ConsumeHandler handler) {
         String key = consumerTag.isEmpty() ? anonymousKey() : consumerTag;
         consumers.put(key, new ReplayOp() {
             @Override
@@ -310,7 +310,7 @@ final class RecoverableChannelImpl implements ClientChannel {
                 // Replay with the originally-requested tag (possibly "" for
                 // server-assigned); if the server assigns a different tag
                 // than last time, deliveries still route correctly since
-                // AMQPClientProtocolHandler keys consumers by whatever tag
+                // AmqpClientProtocolHandler keys consumers by whatever tag
                 // basic.consume-ok actually returns, not the requested one.
                 liveChannel.basicConsume(queue, consumerTag, noAck, exclusive, arguments,
                         deliveryHandler, tag -> recordActiveConsumerTag(key, tag));
@@ -324,7 +324,7 @@ final class RecoverableChannelImpl implements ClientChannel {
     }
 
     @Override
-    public void basicCancel(String consumerTag, ServerCancelHandler handler) {
+    public void basicCancel(String consumerTag, CancelHandler handler) {
         String key = activeConsumerKeys.remove(consumerTag);
         if (key != null) {
             consumers.remove(key);
@@ -349,17 +349,17 @@ final class RecoverableChannelImpl implements ClientChannel {
     }
 
     @Override
-    public void txSelect(ServerTxSelectHandler handler) {
+    public void txSelect(TxSelectHandler handler) {
         requireLive().txSelect(handler);
     }
 
     @Override
-    public void txCommit(ServerTxCommitHandler handler) {
+    public void txCommit(TxCommitHandler handler) {
         requireLive().txCommit(handler);
     }
 
     @Override
-    public void txRollback(ServerTxRollbackHandler handler) {
+    public void txRollback(TxRollbackHandler handler) {
         requireLive().txRollback(handler);
     }
 
@@ -373,12 +373,12 @@ final class RecoverableChannelImpl implements ClientChannel {
     }
 
     @Override
-    public void flow(boolean active, ServerFlowHandler handler) {
+    public void flow(boolean active, FlowHandler handler) {
         requireLive().flow(active, handler);
     }
 
     @Override
-    public void confirmSelect(ServerConfirmSelectHandler handler) {
+    public void confirmSelect(ConfirmSelectHandler handler) {
         // A single flag, not a per-call recording: a freshly reopened
         // channel after a reconnect starts with confirms disabled again,
         // so this must be reissued to keep behaving as confirm-mode after

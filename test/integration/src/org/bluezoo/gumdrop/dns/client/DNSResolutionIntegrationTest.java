@@ -49,7 +49,7 @@ import static org.junit.Assert.*;
  * Integration test that performs an HTTPS GET against a public test
  * server, exercising the full asynchronous DNS resolution path.
  *
- * <p>The hostname is resolved using Gumdrop's {@link DNSResolver}
+ * <p>The hostname is resolved using Gumdrop's {@link DnsResolver}
  * (not {@code InetAddress.getByName}), validating end-to-end that
  * the async resolver, transport, cache, and client wiring all work.
  *

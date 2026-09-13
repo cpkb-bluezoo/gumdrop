@@ -279,18 +279,18 @@ password should be specified as <code>&lt;property&gt;</code> child elements:
 </p>
 
 <pre>
-&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
+&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer"&gt;
     &lt;property name="realm" ref="#ftpRealm"/&gt;
     &lt;property name="root-directory" path="data"/&gt;
 
     &lt;!-- Plaintext listener with STARTTLS --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"&gt;
         &lt;property name="keystore-file" path="certs/keystore.p12"/&gt;
         &lt;property name="keystore-pass" value="secret"/&gt;
     &lt;/listener&gt;
 
     &lt;!-- Implicit TLS listener --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="990" secure="true"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="990" secure="true"&gt;
         &lt;property name="keystore-file" path="certs/keystore.p12"/&gt;
         &lt;property name="keystore-pass" value="secret"/&gt;
     &lt;/listener&gt;

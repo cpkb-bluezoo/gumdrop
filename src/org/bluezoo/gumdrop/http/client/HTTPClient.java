@@ -48,12 +48,12 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
@@ -71,7 +71,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
  * High-level HTTP client facade.
  *
  * <p>This class provides a simple, concrete API for making HTTP requests.
- * It internally creates either a {@link TCPTransportFactory} (for
+ * It internally creates either a {@link TcpTransportFactory} (for
  * HTTP/1.1 and HTTP/2) or a {@link QuicTransportFactory} (for HTTP/3),
  * wiring the appropriate protocol handler and forwarding lifecycle
  * events to the caller's {@link HttpClientHandler}.
@@ -149,7 +149,7 @@ public class HttpClient implements AltSvcListener {
     private ClientEndpointPool.PoolEntry poolEntry;
 
     // Internal transport components (created at connect time)
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private HttpClientProtocolHandler endpointHandler;
 
@@ -222,7 +222,7 @@ public class HttpClient implements AltSvcListener {
 
     /**
      * Creates an HTTP client for a UNIX domain socket, mirroring {@link
-     * org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     * org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance. Incompatible with {@link #setH3Enabled(boolean)}
@@ -436,7 +436,7 @@ public class HttpClient implements AltSvcListener {
      *
      * <p>When enabled (the default), {@link #connect(HttpClientHandler)}
      * queries an HTTPS record for the target host via gumdrop's async
-     * {@link DNSResolver} before choosing a transport; if it advertises
+     * {@link DnsResolver} before choosing a transport; if it advertises
      * "h3" ALPN support, the connection uses QUIC directly. This is the
      * first tier of automatic negotiation, checked ahead of the
      * {@link AltSvcCache}.
@@ -621,7 +621,7 @@ public class HttpClient implements AltSvcListener {
      * <p>Skipped entirely -- straight to {@link #connectTcp} -- when there
      * is no hostname to query: a literal {@link InetAddress} was given at
      * construction, {@link #host} is itself a literal IP, or it's
-     * {@code localhost} (matching {@link DNSResolver#resolve}'s own
+     * {@code localhost} (matching {@link DnsResolver#resolve}'s own
      * loopback fast-path; a real DNS round trip for loopback targets would
      * otherwise slow down/break every test and tool connecting locally).
      */
@@ -649,12 +649,12 @@ public class HttpClient implements AltSvcListener {
             return;
         }
 
-        DNSResolver resolver = DNSResolver.forLoop(loop);
-        resolver.queryHTTPS(host, new DNSQueryCallback() {
+        DnsResolver resolver = DnsResolver.forLoop(loop);
+        resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
-                for (DNSResourceRecord rr : response.getAnswers()) {
-                    if (rr.getType() != DNSType.HTTPS || rr.isSVCBAliasForm()) {
+            public void onResponse(DnsMessage response) {
+                for (DnsResourceRecord rr : response.getAnswers()) {
+                    if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
                     }
                     if (rr.getSVCBAlpnProtocols().contains("h3")) {
@@ -709,7 +709,7 @@ public class HttpClient implements AltSvcListener {
      * existing reactive Alt-Svc upgrade once connected.
      */
     private void connectTcp(final HttpClientHandler handler) {
-        transportFactory = new TCPTransportFactory();
+        transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);
@@ -981,7 +981,7 @@ public class HttpClient implements AltSvcListener {
                     "No SelectorLoop available for DNS resolution"));
             return;
         }
-        DNSResolver resolver = DNSResolver.forLoop(loop);
+        DnsResolver resolver = DnsResolver.forLoop(loop);
         resolver.resolve(targetHost, new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {

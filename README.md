@@ -365,7 +365,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - QoS 0, 1, 2 publish and subscribe
         - Last Will and Testament
         - MQTT 5.0 version negotiation
-        - MQTTMessageContent delivery for streaming large received payloads
+        - MqttMessageContent delivery for streaming large received payloads
     - OpenTelemetry instrumentation (connections, publishes, subscribes,
       authentication, session duration, payload size)
     - localized log and error messages (English, French, Spanish, German)
@@ -418,8 +418,8 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - configurable max concurrent relays and idle relay timeout
     - fully async, non-blocking — DNS resolution, upstream connect, and
       TLS handshake all handled asynchronously
-    - abstract SOCKSService for custom implementations
-    - DefaultSOCKSService for zero-config operation
+    - abstract SocksServer for custom implementations
+    - DefaultSOCKSServer for zero-config operation
     - composable SOCKS client handler for tunneling any protocol through
       a SOCKS proxy (HTTP, SMTP, IMAP, MQTT, Redis, LDAP, etc.)
 - OpenTelemetry

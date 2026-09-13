@@ -1,5 +1,5 @@
 /*
- * UDPEndpoint.java
+ * UdpEndpoint.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -52,7 +52,7 @@ import java.util.logging.Logger;
  * single class, delegating all application events to an
  * {@link ProtocolHandler}.
  *
- * <p>A UDPEndpoint can operate in two modes:
+ * <p>A UdpEndpoint can operate in two modes:
  * <ul>
  * <li><strong>Server mode</strong> -- bound to a local port, receives
  *     datagrams from any source. Each datagram is delivered to the
@@ -64,16 +64,16 @@ import java.util.logging.Logger;
  *
  * <p>For DTLS, encryption and decryption use the in-tree DTLS engine
  * ({@link Dtls12Session} or {@link Dtls13Session}, selected by
- * {@link UDPTransportFactory#getDtlsVersion()}).
+ * {@link UdpTransportFactory#getDtlsVersion()}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Endpoint
- * @see UDPTransportFactory
+ * @see UdpTransportFactory
  */
-public class UDPEndpoint implements Endpoint, ChannelHandler {
+public class UdpEndpoint implements Endpoint, ChannelHandler {
 
     private static final Logger LOGGER =
-            Logger.getLogger(UDPEndpoint.class.getName());
+            Logger.getLogger(UdpEndpoint.class.getName());
 
     private static final int DEFAULT_BUFFER_SIZE = 65535;
 
@@ -142,23 +142,23 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
     }
 
     /**
-     * Creates a UDPEndpoint.
+     * Creates a UdpEndpoint.
      *
      * @param handler the protocol handler
      */
-    public UDPEndpoint(ProtocolHandler handler) {
+    public UdpEndpoint(ProtocolHandler handler) {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
         this.handler = handler;
     }
 
-    // -- Setup (called by UDPTransportFactory) --
+    // -- Setup (called by UdpTransportFactory) --
 
     void setFactory(TransportFactory factory) {
         this.factory = factory;
-        if (factory instanceof UDPTransportFactory) {
-            usesDtls13 = ((UDPTransportFactory) factory).getDtlsVersion()
+        if (factory instanceof UdpTransportFactory) {
+            usesDtls13 = ((UdpTransportFactory) factory).getDtlsVersion()
                     == DtlsVersion.DTLS_1_3;
         }
     }
@@ -196,7 +196,7 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
      * Initiates the DTLS handshake for a secure client-mode endpoint
      * (issue #190). Unlike a server, which waits passively for a
      * {@code ClientHello}, a DTLS client must send one proactively, so
-     * this is called explicitly by {@link UDPTransportFactory#connect}
+     * this is called explicitly by {@link UdpTransportFactory#connect}
      * right after the endpoint is set up -- lazily creating the session
      * on first receive (as server mode does in {@link #netReceive}) would
      * never actually send anything.
@@ -223,11 +223,11 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         if (!admitNewDtlsPeer(peer)) {
             return null;
         }
-        UDPTransportFactory udpFactory = (UDPTransportFactory) factory;
+        UdpTransportFactory udpFactory = (UdpTransportFactory) factory;
         Dtls12HandshakeConfig config;
         if (clientMode) {
             config = udpFactory.buildClientConfig12(
-                    TCPTransportFactory.tlsServerNameFor(peer.getAddress(), null));
+                    TcpTransportFactory.tlsServerNameFor(peer.getAddress(), null));
         } else {
             config = udpFactory.getSharedServerConfig();
             if (config == null) {
@@ -250,11 +250,11 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         if (!admitNewDtlsPeer(peer)) {
             return null;
         }
-        UDPTransportFactory udpFactory = (UDPTransportFactory) factory;
+        UdpTransportFactory udpFactory = (UdpTransportFactory) factory;
         Dtls13HandshakeConfig config;
         if (clientMode) {
             config = udpFactory.buildClientConfig13(
-                    TCPTransportFactory.tlsServerNameFor(peer.getAddress(), null));
+                    TcpTransportFactory.tlsServerNameFor(peer.getAddress(), null));
         } else {
             config = udpFactory.getSharedServerConfig13();
             if (config == null) {
@@ -506,10 +506,10 @@ public class UDPEndpoint implements Endpoint, ChannelHandler {
         if (clientMode) {
             return true;
         }
-        if (!(factory instanceof UDPTransportFactory)) {
+        if (!(factory instanceof UdpTransportFactory)) {
             return true;
         }
-        int cap = ((UDPTransportFactory) factory).getMaxDtlsPeers();
+        int cap = ((UdpTransportFactory) factory).getMaxDtlsPeers();
         if (cap <= 0) {
             return true;
         }

@@ -28,11 +28,11 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.util.CIDRNetwork;
 
@@ -56,7 +56,7 @@ import org.bluezoo.gumdrop.util.CIDRNetwork;
  *
  * <p>Example usage:
  * <pre><code>
- * DNSResolver resolver = new DNSResolver();
+ * DnsResolver resolver = new DnsResolver();
  * resolver.useSystemResolvers();
  * resolver.open();
  *
@@ -88,14 +88,14 @@ public class SPFValidator {
     /** Maximum number of void lookups (NXDOMAIN/empty) allowed */
     private static final int MAX_VOID_LOOKUPS = 2;
 
-    private final DNSResolver resolver;
+    private final DnsResolver resolver;
 
     /**
      * Creates a new SPF validator using the specified DNS resolver.
      *
      * @param resolver the DNS resolver to use for lookups
      */
-    public SPFValidator(DNSResolver resolver) {
+    public SPFValidator(DnsResolver resolver) {
         this.resolver = resolver;
     }
 
@@ -140,9 +140,9 @@ public class SPFValidator {
 
         ctx.dnsLookups++;
 
-        resolver.queryTXT(domain, new DNSQueryCallback() {
+        resolver.queryTXT(domain, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 handleSPFResponse(ctx, domain, response);
             }
 
@@ -156,25 +156,25 @@ public class SPFValidator {
     /**
      * Handles the DNS response for an SPF lookup.
      */
-    private void handleSPFResponse(CheckContext ctx, String domain, DNSMessage response) {
+    private void handleSPFResponse(CheckContext ctx, String domain, DnsMessage response) {
         // Check for NXDOMAIN
         int rcode = response.getRcode();
-        if (rcode == DNSMessage.RCODE_NXDOMAIN) {
+        if (rcode == DnsMessage.RCODE_NXDOMAIN) {
             ctx.callback.spfResult(SPFResult.NONE, null);
             return;
         }
 
-        if (rcode != DNSMessage.RCODE_NOERROR) {
+        if (rcode != DnsMessage.RCODE_NOERROR) {
             ctx.callback.spfResult(SPFResult.TEMPERROR, "DNS error: " + rcode);
             return;
         }
 
         // Find SPF record in TXT answers
         String spfRecord = null;
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.TXT) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.TXT) {
                 String txt = rr.getText();
                 if (txt != null && txt.startsWith("v=spf1 ")) {
                     if (spfRecord != null) {
@@ -347,14 +347,14 @@ public class SPFValidator {
     private void fetchExplanation(final CheckContext ctx, String expDomain,
                                    final SPFResult result) {
         // Don't count this as a mechanism lookup (it's optional)
-        resolver.queryTXT(expDomain, new DNSQueryCallback() {
+        resolver.queryTXT(expDomain, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 String explanation = null;
-                List<DNSResourceRecord> answers = response.getAnswers();
+                List<DnsResourceRecord> answers = response.getAnswers();
                 for (int i = 0; i < answers.size(); i++) {
-                    DNSResourceRecord rr = answers.get(i);
-                    if (rr.getType() == DNSType.TXT) {
+                    DnsResourceRecord rr = answers.get(i);
+                    if (rr.getType() == DnsType.TXT) {
                         explanation = rr.getText();
                         break;
                     }
@@ -439,9 +439,9 @@ public class SPFValidator {
 
         ctx.dnsLookups++;
 
-        resolver.queryTXT(includeDomain, new DNSQueryCallback() {
+        resolver.queryTXT(includeDomain, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 handleIncludeResponse(ctx, originalDomain, parts, currentIndex,
                                       includeDomain, response, qualifier);
             }
@@ -458,11 +458,11 @@ public class SPFValidator {
      */
     private void handleIncludeResponse(final CheckContext ctx, final String originalDomain,
                                         final String[] parts, final int currentIndex,
-                                        String includeDomain, DNSMessage response,
+                                        String includeDomain, DnsMessage response,
                                         char qualifier) {
         // Check for NXDOMAIN - include with no domain is PermError
         int rcode = response.getRcode();
-        if (rcode == DNSMessage.RCODE_NXDOMAIN) {
+        if (rcode == DnsMessage.RCODE_NXDOMAIN) {
             ctx.voidLookups++;
             if (ctx.voidLookups > MAX_VOID_LOOKUPS) {
                 ctx.callback.spfResult(SPFResult.PERMERROR, "Too many void lookups");
@@ -474,10 +474,10 @@ public class SPFValidator {
 
         // Find SPF record
         String spfRecord = null;
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.TXT) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.TXT) {
                 String txt = rr.getText();
                 if (txt != null && txt.startsWith("v=spf1 ")) {
                     if (spfRecord != null) {
@@ -593,11 +593,11 @@ public class SPFValidator {
         final int ip6Prefix = prefixes[1];
 
         // Query for A record (or AAAA for IPv6)
-        DNSType type = isIPv6(ctx.clientIP) ? DNSType.AAAA : DNSType.A;
+        DnsType type = isIPv6(ctx.clientIP) ? DnsType.AAAA : DnsType.A;
 
-        resolver.query(targetDomain, type, new DNSQueryCallback() {
+        resolver.query(targetDomain, type, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 int prefix = isIPv6(ctx.clientIP) ? ip6Prefix : ip4Prefix;
                 handleAResponse(ctx, originalDomain, parts, currentIndex, 
                                 response, prefix, qualifier);
@@ -615,10 +615,10 @@ public class SPFValidator {
      */
     private void handleAResponse(CheckContext ctx, String originalDomain,
                                   String[] parts, int currentIndex,
-                                  DNSMessage response, int prefixLen, char qualifier) {
+                                  DnsMessage response, int prefixLen, char qualifier) {
         // Check for void lookup
         int rcode = response.getRcode();
-        if (rcode == DNSMessage.RCODE_NXDOMAIN) {
+        if (rcode == DnsMessage.RCODE_NXDOMAIN) {
             ctx.voidLookups++;
             if (ctx.voidLookups > MAX_VOID_LOOKUPS) {
                 ctx.callback.spfResult(SPFResult.PERMERROR, "Too many void lookups");
@@ -626,10 +626,10 @@ public class SPFValidator {
             }
         }
 
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.A || rr.getType() == DNSType.AAAA) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.A || rr.getType() == DnsType.AAAA) {
                 InetAddress addr = rr.getAddress();
                 if (addr != null) {
                     boolean match;
@@ -682,9 +682,9 @@ public class SPFValidator {
         // First, do reverse DNS lookup on client IP
         String reverseName = getReverseDNSName(ctx.clientIP);
 
-        resolver.queryPTR(reverseName, new DNSQueryCallback() {
+        resolver.queryPTR(reverseName, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 handlePTRResponse(ctx, originalDomain, parts, currentIndex,
                                   ptrDomain, response, qualifier);
             }
@@ -702,14 +702,14 @@ public class SPFValidator {
      */
     private void handlePTRResponse(final CheckContext ctx, final String originalDomain,
                                     final String[] parts, final int currentIndex,
-                                    final String targetDomain, DNSMessage response,
+                                    final String targetDomain, DnsMessage response,
                                     final char qualifier) {
         // Get PTR hostnames
         final List<String> ptrNames = new ArrayList<String>();
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.PTR) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.PTR) {
                 String name = rr.getTargetName();
                 if (name != null) {
                     ptrNames.add(name);
@@ -761,16 +761,16 @@ public class SPFValidator {
         }
 
         // Forward lookup to validate
-        DNSType type = isIPv6(ctx.clientIP) ? DNSType.AAAA : DNSType.A;
+        DnsType type = isIPv6(ctx.clientIP) ? DnsType.AAAA : DnsType.A;
 
-        resolver.query(ptrName, type, new DNSQueryCallback() {
+        resolver.query(ptrName, type, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 // Check if any returned IP matches client IP
-                List<DNSResourceRecord> answers = response.getAnswers();
+                List<DnsResourceRecord> answers = response.getAnswers();
                 for (int i = 0; i < answers.size(); i++) {
-                    DNSResourceRecord rr = answers.get(i);
-                    if (rr.getType() == DNSType.A || rr.getType() == DNSType.AAAA) {
+                    DnsResourceRecord rr = answers.get(i);
+                    if (rr.getType() == DnsType.A || rr.getType() == DnsType.AAAA) {
                         InetAddress addr = rr.getAddress();
                         if (addr != null && addr.equals(ctx.clientIP)) {
                             // Valid forward-confirmed reverse DNS
@@ -863,9 +863,9 @@ public class SPFValidator {
         final int ip4Prefix = prefixes[0];
         final int ip6Prefix = prefixes[1];
 
-        resolver.queryMX(targetDomain, new DNSQueryCallback() {
+        resolver.queryMX(targetDomain, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 int prefix = isIPv6(ctx.clientIP) ? ip6Prefix : ip4Prefix;
                 handleMXResponse(ctx, originalDomain, parts, currentIndex,
                                  response, prefix, qualifier);
@@ -883,11 +883,11 @@ public class SPFValidator {
      */
     private void handleMXResponse(final CheckContext ctx, final String originalDomain,
                                    final String[] parts, final int currentIndex,
-                                   DNSMessage response, final int prefixLen, 
+                                   DnsMessage response, final int prefixLen, 
                                    final char qualifier) {
         // Check for void lookup
         int rcode = response.getRcode();
-        if (rcode == DNSMessage.RCODE_NXDOMAIN) {
+        if (rcode == DnsMessage.RCODE_NXDOMAIN) {
             ctx.voidLookups++;
             if (ctx.voidLookups > MAX_VOID_LOOKUPS) {
                 ctx.callback.spfResult(SPFResult.PERMERROR, "Too many void lookups");
@@ -897,10 +897,10 @@ public class SPFValidator {
 
         // Get MX hostnames, then look up their A/AAAA records
         final List<String> mxHosts = new ArrayList<String>();
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.MX) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.MX) {
                 String mxHost = rr.getMXExchange();
                 if (mxHost != null) {
                     mxHosts.add(mxHost);
@@ -939,11 +939,11 @@ public class SPFValidator {
 
         ctx.dnsLookups++;
         String mxHost = mxHosts.get(mxIndex);
-        DNSType type = isIPv6(ctx.clientIP) ? DNSType.AAAA : DNSType.A;
+        DnsType type = isIPv6(ctx.clientIP) ? DnsType.AAAA : DnsType.A;
 
-        resolver.query(mxHost, type, new DNSQueryCallback() {
+        resolver.query(mxHost, type, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 handleMXHostResponse(ctx, originalDomain, parts, currentIndex,
                                      mxHosts, mxIndex, response, prefixLen, qualifier);
             }
@@ -963,12 +963,12 @@ public class SPFValidator {
     private void handleMXHostResponse(CheckContext ctx, String originalDomain,
                                        String[] parts, int currentIndex,
                                        List<String> mxHosts, int mxIndex,
-                                       DNSMessage response, int prefixLen, 
+                                       DnsMessage response, int prefixLen, 
                                        char qualifier) {
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.A || rr.getType() == DNSType.AAAA) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.A || rr.getType() == DnsType.AAAA) {
                 InetAddress addr = rr.getAddress();
                 if (addr != null) {
                     boolean match;
@@ -1008,14 +1008,14 @@ public class SPFValidator {
 
         ctx.dnsLookups++;
 
-        resolver.queryA(existsDomain, new DNSQueryCallback() {
+        resolver.queryA(existsDomain, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 // exists matches if ANY A record exists
-                List<DNSResourceRecord> answers = response.getAnswers();
+                List<DnsResourceRecord> answers = response.getAnswers();
                 for (int i = 0; i < answers.size(); i++) {
-                    DNSResourceRecord rr = answers.get(i);
-                    if (rr.getType() == DNSType.A) {
+                    DnsResourceRecord rr = answers.get(i);
+                    if (rr.getType() == DnsType.A) {
                         // Match - apply qualifier
                         SPFResult result = qualifierToResult(qualifier);
                         deliverResult(ctx, originalDomain, result);

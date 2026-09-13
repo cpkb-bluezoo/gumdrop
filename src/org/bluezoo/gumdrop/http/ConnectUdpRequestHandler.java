@@ -30,7 +30,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 
 /**
@@ -110,7 +110,7 @@ public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
             return;
         }
 
-        DNSResolver resolver = DNSResolver.forLoop(state.getSelectorLoop());
+        DnsResolver resolver = DnsResolver.forLoop(state.getSelectorLoop());
         resolver.resolve(target.getHost(), new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {

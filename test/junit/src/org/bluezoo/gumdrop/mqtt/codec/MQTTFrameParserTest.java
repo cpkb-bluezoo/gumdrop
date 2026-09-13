@@ -34,19 +34,19 @@ import java.util.List;
 public class MQTTFrameParserTest {
 
     private RecordingHandler handler;
-    private MQTTFrameParser parser;
+    private MqttFrameParser parser;
 
     @Before
     public void setUp() {
         handler = new RecordingHandler();
-        parser = new MQTTFrameParser(handler);
+        parser = new MqttFrameParser(handler);
     }
 
     // -- CONNECT --
 
     @Test
     public void testDefaultMaxPacketSize() {
-        assertEquals(MQTTFrameParser.DEFAULT_MAX_PACKET_SIZE, parser.getMaxPacketSize());
+        assertEquals(MqttFrameParser.DEFAULT_MAX_PACKET_SIZE, parser.getMaxPacketSize());
     }
 
     @Test
@@ -63,16 +63,16 @@ public class MQTTFrameParserTest {
     @Test
     public void testParseConnect311() {
         ConnectPacket src = new ConnectPacket();
-        src.setVersion(MQTTVersion.V3_1_1);
+        src.setVersion(MqttVersion.V3_1_1);
         src.setCleanSession(true);
         src.setKeepAlive(60);
         src.setClientId("testClient");
 
-        ByteBuffer wire = MQTTPacketEncoder.encodeConnect(src);
+        ByteBuffer wire = MqttPacketEncoder.encodeConnect(src);
         parser.receive(wire);
 
         assertNotNull(handler.lastConnect);
-        assertEquals(MQTTVersion.V3_1_1, handler.lastConnect.getVersion());
+        assertEquals(MqttVersion.V3_1_1, handler.lastConnect.getVersion());
         assertTrue(handler.lastConnect.isCleanSession());
         assertEquals(60, handler.lastConnect.getKeepAlive());
         assertEquals("testClient", handler.lastConnect.getClientId());
@@ -84,14 +84,14 @@ public class MQTTFrameParserTest {
     @Test
     public void testParseConnectWithCredentials() {
         ConnectPacket src = new ConnectPacket();
-        src.setVersion(MQTTVersion.V3_1_1);
+        src.setVersion(MqttVersion.V3_1_1);
         src.setCleanSession(false);
         src.setKeepAlive(120);
         src.setClientId("client1");
         src.setUsername("alice");
         src.setPassword("secret".getBytes(StandardCharsets.UTF_8));
 
-        ByteBuffer wire = MQTTPacketEncoder.encodeConnect(src);
+        ByteBuffer wire = MqttPacketEncoder.encodeConnect(src);
         parser.receive(wire);
 
         assertNotNull(handler.lastConnect);
@@ -103,7 +103,7 @@ public class MQTTFrameParserTest {
     @Test
     public void testParseConnectWithWill() {
         ConnectPacket src = new ConnectPacket();
-        src.setVersion(MQTTVersion.V3_1_1);
+        src.setVersion(MqttVersion.V3_1_1);
         src.setCleanSession(true);
         src.setKeepAlive(30);
         src.setClientId("willClient");
@@ -113,7 +113,7 @@ public class MQTTFrameParserTest {
         src.setWillQoS(QoS.AT_LEAST_ONCE);
         src.setWillRetain(true);
 
-        ByteBuffer wire = MQTTPacketEncoder.encodeConnect(src);
+        ByteBuffer wire = MqttPacketEncoder.encodeConnect(src);
         parser.receive(wire);
 
         assertNotNull(handler.lastConnect);
@@ -129,9 +129,9 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParseConnAck() {
-        ByteBuffer wire = MQTTPacketEncoder.encodeConnAck(
-                true, MQTTEventHandler.CONNACK_ACCEPTED,
-                MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+        ByteBuffer wire = MqttPacketEncoder.encodeConnAck(
+                true, MqttEventHandler.CONNACK_ACCEPTED,
+                MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
 
         assertTrue(handler.connAckReceived);
@@ -143,10 +143,10 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParsePublishQoS0() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePublish(
+        ByteBuffer wire = MqttPacketEncoder.encodePublish(
                 "sensors/temp", 0, false, false, 0,
                 "22.5".getBytes(StandardCharsets.UTF_8),
-                MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
 
         assertTrue(handler.publishStarted);
@@ -159,10 +159,10 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParsePublishQoS1() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePublish(
+        ByteBuffer wire = MqttPacketEncoder.encodePublish(
                 "data/x", 1, false, true, 42,
                 "hello".getBytes(StandardCharsets.UTF_8),
-                MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
 
         assertTrue(handler.publishStarted);
@@ -174,10 +174,10 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParsePublishQoS2WithDup() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePublish(
+        ByteBuffer wire = MqttPacketEncoder.encodePublish(
                 "events/a", 2, true, false, 1001,
                 new byte[0],
-                MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
 
         assertTrue(handler.publishStarted);
@@ -193,9 +193,9 @@ public class MQTTFrameParserTest {
         for (int i = 0; i < payload.length; i++) {
             payload[i] = (byte) (i & 0xFF);
         }
-        ByteBuffer wire = MQTTPacketEncoder.encodePublish(
+        ByteBuffer wire = MqttPacketEncoder.encodePublish(
                 "big/topic", 0, false, false, 0,
-                payload, MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                payload, MqttProperties.EMPTY, MqttVersion.V3_1_1);
 
         byte[] wireBytes = new byte[wire.remaining()];
         wire.get(wireBytes);
@@ -218,32 +218,32 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParsePubAck() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePubAck(
-                7, 0, MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+        ByteBuffer wire = MqttPacketEncoder.encodePubAck(
+                7, 0, MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
         assertEquals(7, handler.lastPubAckPacketId);
     }
 
     @Test
     public void testParsePubRec() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePubRec(
-                99, 0, MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+        ByteBuffer wire = MqttPacketEncoder.encodePubRec(
+                99, 0, MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
         assertEquals(99, handler.lastPubRecPacketId);
     }
 
     @Test
     public void testParsePubRel() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePubRel(
-                100, 0, MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+        ByteBuffer wire = MqttPacketEncoder.encodePubRel(
+                100, 0, MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
         assertEquals(100, handler.lastPubRelPacketId);
     }
 
     @Test
     public void testParsePubComp() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePubComp(
-                101, 0, MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+        ByteBuffer wire = MqttPacketEncoder.encodePubComp(
+                101, 0, MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
         assertEquals(101, handler.lastPubCompPacketId);
     }
@@ -252,11 +252,11 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParseSubscribe() {
-        ByteBuffer wire = MQTTPacketEncoder.encodeSubscribe(
+        ByteBuffer wire = MqttPacketEncoder.encodeSubscribe(
                 10,
                 new String[]{"sensors/#", "alerts/+/critical"},
                 new int[]{1, 2},
-                MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
 
         assertTrue(handler.subscribeStarted);
@@ -271,9 +271,9 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParseSubAck() {
-        ByteBuffer wire = MQTTPacketEncoder.encodeSubAck(
+        ByteBuffer wire = MqttPacketEncoder.encodeSubAck(
                 10, new int[]{1, 2},
-                MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
 
         assertEquals(10, handler.subAckPacketId);
@@ -287,10 +287,10 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParseUnsubscribe() {
-        ByteBuffer wire = MQTTPacketEncoder.encodeUnsubscribe(
+        ByteBuffer wire = MqttPacketEncoder.encodeUnsubscribe(
                 20,
                 new String[]{"sensors/#", "alerts/+/critical"},
-                MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
 
         assertTrue(handler.unsubscribeStarted);
@@ -301,9 +301,9 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParseUnsubAck() {
-        ByteBuffer wire = MQTTPacketEncoder.encodeUnsubAck(
+        ByteBuffer wire = MqttPacketEncoder.encodeUnsubAck(
                 20, new int[0],
-                MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
 
         assertEquals(20, handler.unsubAckPacketId);
@@ -313,14 +313,14 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParsePingReq() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePingReq();
+        ByteBuffer wire = MqttPacketEncoder.encodePingReq();
         parser.receive(wire);
         assertTrue(handler.pingReqReceived);
     }
 
     @Test
     public void testParsePingResp() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePingResp();
+        ByteBuffer wire = MqttPacketEncoder.encodePingResp();
         parser.receive(wire);
         assertTrue(handler.pingRespReceived);
     }
@@ -329,8 +329,8 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testParseDisconnect311() {
-        ByteBuffer wire = MQTTPacketEncoder.encodeDisconnect(
-                0, MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+        ByteBuffer wire = MqttPacketEncoder.encodeDisconnect(
+                0, MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
         assertTrue(handler.disconnectReceived);
     }
@@ -339,10 +339,10 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testPartialFramePreserved() {
-        ByteBuffer wire = MQTTPacketEncoder.encodePublish(
+        ByteBuffer wire = MqttPacketEncoder.encodePublish(
                 "test/partial", 0, false, false, 0,
                 "data".getBytes(StandardCharsets.UTF_8),
-                MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                MqttProperties.EMPTY, MqttVersion.V3_1_1);
 
         ByteBuffer partial = ByteBuffer.allocate(3);
         wire.limit(3);
@@ -356,8 +356,8 @@ public class MQTTFrameParserTest {
 
     @Test
     public void testMultiplePacketsInOneBuffer() {
-        ByteBuffer ping1 = MQTTPacketEncoder.encodePingReq();
-        ByteBuffer ping2 = MQTTPacketEncoder.encodePingResp();
+        ByteBuffer ping1 = MqttPacketEncoder.encodePingReq();
+        ByteBuffer ping2 = MqttPacketEncoder.encodePingResp();
 
         ByteBuffer combined = ByteBuffer.allocate(
                 ping1.remaining() + ping2.remaining());
@@ -376,9 +376,9 @@ public class MQTTFrameParserTest {
     public void testOversizedPacketReportsError() {
         parser.setMaxPacketSize(10);
 
-        ByteBuffer wire = MQTTPacketEncoder.encodePublish(
+        ByteBuffer wire = MqttPacketEncoder.encodePublish(
                 "test/big", 0, false, false, 0,
-                new byte[100], MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                new byte[100], MqttProperties.EMPTY, MqttVersion.V3_1_1);
         parser.receive(wire);
 
         assertNotNull(handler.lastError);
@@ -437,7 +437,7 @@ public class MQTTFrameParserTest {
      * mode found that a PUBLISH property whose own declared length
      * (e.g. a UTF-8 string's 2-byte length prefix) exceeds what's
      * actually available throws an uncaught BufferUnderflowException
-     * out of MQTTProperties.decode, all the way past receive(). The
+     * out of MqttProperties.decode, all the way past receive(). The
      * overall "buf.remaining() < propLen" guard in tryParsePublishHeader
      * only checks the properties block's declared total length, not
      * that each individual property's own length is internally
@@ -445,7 +445,7 @@ public class MQTTFrameParserTest {
      */
     @Test(timeout = 5000)
     public void testMalformedV5PublishPropertyReportsErrorInsteadOfThrowing() {
-        parser.setVersion(MQTTVersion.V5_0);
+        parser.setVersion(MqttVersion.V5_0);
 
         byte[] data = {
             0x30, 0x08,             // fixed header: PUBLISH, remaining length 8
@@ -462,7 +462,7 @@ public class MQTTFrameParserTest {
 
     // -- Recording handler --
 
-    private static class RecordingHandler implements MQTTEventHandler {
+    private static class RecordingHandler implements MqttEventHandler {
 
         ConnectPacket lastConnect;
         boolean connAckReceived;
@@ -514,7 +514,7 @@ public class MQTTFrameParserTest {
 
         @Override
         public void connAck(boolean sessionPresent, int returnCode,
-                            MQTTProperties properties) {
+                            MqttProperties properties) {
             connAckReceived = true;
             connAckSessionPresent = sessionPresent;
             connAckReturnCode = returnCode;
@@ -523,7 +523,7 @@ public class MQTTFrameParserTest {
         @Override
         public void startPublish(boolean dup, int qos, boolean retain,
                                  String topicName, int packetId,
-                                 MQTTProperties properties,
+                                 MqttProperties properties,
                                  int payloadLength) {
             publishStarted = true;
             publishDup = dup;
@@ -548,31 +548,31 @@ public class MQTTFrameParserTest {
 
         @Override
         public void pubAck(int packetId, int reasonCode,
-                           MQTTProperties properties) {
+                           MqttProperties properties) {
             lastPubAckPacketId = packetId;
         }
 
         @Override
         public void pubRec(int packetId, int reasonCode,
-                           MQTTProperties properties) {
+                           MqttProperties properties) {
             lastPubRecPacketId = packetId;
         }
 
         @Override
         public void pubRel(int packetId, int reasonCode,
-                           MQTTProperties properties) {
+                           MqttProperties properties) {
             lastPubRelPacketId = packetId;
         }
 
         @Override
         public void pubComp(int packetId, int reasonCode,
-                            MQTTProperties properties) {
+                            MqttProperties properties) {
             lastPubCompPacketId = packetId;
         }
 
         @Override
         public void startSubscribe(int packetId,
-                                   MQTTProperties properties) {
+                                   MqttProperties properties) {
             subscribeStarted = true;
             subscribePacketId = packetId;
         }
@@ -589,7 +589,7 @@ public class MQTTFrameParserTest {
         }
 
         @Override
-        public void subAck(int packetId, MQTTProperties properties,
+        public void subAck(int packetId, MqttProperties properties,
                            int[] returnCodes) {
             subAckPacketId = packetId;
             subAckReturnCodes = returnCodes;
@@ -597,7 +597,7 @@ public class MQTTFrameParserTest {
 
         @Override
         public void startUnsubscribe(int packetId,
-                                     MQTTProperties properties) {
+                                     MqttProperties properties) {
             unsubscribeStarted = true;
             unsubscribePacketId = packetId;
         }
@@ -613,7 +613,7 @@ public class MQTTFrameParserTest {
         }
 
         @Override
-        public void unsubAck(int packetId, MQTTProperties properties,
+        public void unsubAck(int packetId, MqttProperties properties,
                              int[] reasonCodes) {
             unsubAckPacketId = packetId;
         }
@@ -629,13 +629,13 @@ public class MQTTFrameParserTest {
         }
 
         @Override
-        public void disconnect(int reasonCode, MQTTProperties properties) {
+        public void disconnect(int reasonCode, MqttProperties properties) {
             disconnectReceived = true;
             disconnectReasonCode = reasonCode;
         }
 
         @Override
-        public void auth(int reasonCode, MQTTProperties properties) {
+        public void auth(int reasonCode, MqttProperties properties) {
             authReceived = true;
         }
 

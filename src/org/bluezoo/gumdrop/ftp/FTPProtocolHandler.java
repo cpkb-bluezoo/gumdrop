@@ -1,5 +1,5 @@
 /*
- * FTPProtocolHandler.java
+ * FtpProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -78,15 +78,15 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see FTPServerLexer
- * @see FTPListener
+ * @see FtpListener
  * @see https://www.rfc-editor.org/rfc/rfc959
  */
-public final class FTPProtocolHandler
+public final class FtpProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<FTPServerLexer.Token>,
                    FTPControlConnection {
 
     private static final Logger LOGGER =
-            Logger.getLogger(FTPProtocolHandler.class.getName());
+            Logger.getLogger(FtpProtocolHandler.class.getName());
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
@@ -109,10 +109,10 @@ public final class FTPProtocolHandler
 
     private Endpoint endpoint;
 
-    private final FTPListener server;
-    private final FTPConnectionHandler handler;
-    private final FTPConnectionMetadata metadata;
-    private final FTPDataConnectionCoordinator dataCoordinator;
+    private final FtpListener server;
+    private final FtpConnectionHandler handler;
+    private final FtpConnectionMetadata metadata;
+    private final FtpDataConnectionCoordinator dataCoordinator;
 
     private String user;
     private String password;
@@ -147,11 +147,11 @@ public final class FTPProtocolHandler
      * @param server the FTP server configuration
      * @param handler the connection handler for authentication and file operations
      */
-    public FTPProtocolHandler(FTPListener server, FTPConnectionHandler handler) {
+    public FtpProtocolHandler(FtpListener server, FtpConnectionHandler handler) {
         this.server = server;
         this.handler = handler;
 
-        FTPConnectionMetadata tempMetadata;
+        FtpConnectionMetadata tempMetadata;
         try {
             InetSocketAddress clientAddr = null;
             InetSocketAddress serverAddr = null;
@@ -160,7 +160,7 @@ public final class FTPProtocolHandler
             String cipherSuite = null;
             String protocol = null;
 
-            tempMetadata = new FTPConnectionMetadata(
+            tempMetadata = new FtpConnectionMetadata(
                 clientAddr,
                 serverAddr,
                 false,
@@ -171,13 +171,13 @@ public final class FTPProtocolHandler
                 "ftp"
             );
         } catch (Exception e) {
-            tempMetadata = new FTPConnectionMetadata(
+            tempMetadata = new FtpConnectionMetadata(
                 null, null, false, null, null, null,
                 System.currentTimeMillis(), "ftp"
             );
         }
         this.metadata = tempMetadata;
-        this.dataCoordinator = new FTPDataConnectionCoordinator(this);
+        this.dataCoordinator = new FtpDataConnectionCoordinator(this);
         ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
         this.lexer = new FTPServerLexer(this, MAX_LINE_LENGTH);
     }
@@ -566,7 +566,7 @@ public final class FTPProtocolHandler
     // ── FTPControlConnection implementation ──
 
     @Override
-    public FTPListener getServer() {
+    public FtpListener getServer() {
         return server;
     }
 
@@ -593,7 +593,7 @@ public final class FTPProtocolHandler
 
     // ── Protocol helpers ──
 
-    private FTPFileSystem getFileSystem() {
+    private FtpFileSystem getFileSystem() {
         if (handler != null && authenticated) {
             return handler.getFileSystem(metadata);
         }
@@ -662,7 +662,7 @@ public final class FTPProtocolHandler
      * As {@link #handleFileOperationResult} but swallows I/O errors for use
      * from storage-offload callbacks.
      */
-    private void handleFileOperationResultQuietly(FTPFileOperationResult result,
+    private void handleFileOperationResultQuietly(FtpFileOperationResult result,
             String path) {
         try {
             handleFileOperationResult(result, path);
@@ -680,7 +680,7 @@ public final class FTPProtocolHandler
         }
     }
 
-    private boolean checkAuthorization(FTPOperation operation, String path) throws IOException {
+    private boolean checkAuthorization(FtpOperation operation, String path) throws IOException {
         if (handler != null && !handler.isAuthorized(operation, path, metadata)) {
             reply(550, L10N.getString("ftp.err.permission_denied"));
             return false;
@@ -688,7 +688,7 @@ public final class FTPProtocolHandler
         return true;
     }
 
-    private void handleAuthenticationResult(FTPAuthenticationResult result) throws IOException {
+    private void handleAuthenticationResult(FtpAuthenticationResult result) throws IOException {
         switch (result) {
             case SUCCESS:
                 authenticated = true;
@@ -738,7 +738,7 @@ public final class FTPProtocolHandler
      * As {@link #handleAuthenticationResult} but swallows I/O errors for use
      * from storage-offload callbacks.
      */
-    private void handleAuthenticationResultQuietly(FTPAuthenticationResult result) {
+    private void handleAuthenticationResultQuietly(FtpAuthenticationResult result) {
         try {
             handleAuthenticationResult(result);
         } catch (IOException e) {
@@ -751,13 +751,13 @@ public final class FTPProtocolHandler
      * Runs blocking FTP authentication off the SelectorLoop and delivers
      * the outcome on this connection's loop thread.
      *
-     * <p>{@link FTPConnectionHandler#authenticate} may call
+     * <p>{@link FtpConnectionHandler#authenticate} may call
      * {@link org.bluezoo.gumdrop.auth.Realm#passwordMatch}, which for a
      * PBKDF2-backed realm runs a 210,000-iteration derivation -- genuinely
      * CPU-bound work that must not block the loop (issue #344).
      */
     private void authenticateAsync(
-            final StorageExecutor.Callback<FTPAuthenticationResult> callback) {
+            final StorageExecutor.Callback<FtpAuthenticationResult> callback) {
         if (handler == null) {
             callback.completed(null);
             return;
@@ -765,16 +765,16 @@ public final class FTPProtocolHandler
         final String authUser = user;
         final String authPassword = password;
         final String authAccount = account;
-        submitStorage(new Callable<FTPAuthenticationResult>() {
+        submitStorage(new Callable<FtpAuthenticationResult>() {
             @Override
-            public FTPAuthenticationResult call() {
+            public FtpAuthenticationResult call() {
                 return handler.authenticate(
                         authUser, authPassword, authAccount, metadata);
             }
         }, callback);
     }
 
-    private void handleFileOperationResult(FTPFileOperationResult result, String path) throws IOException {
+    private void handleFileOperationResult(FtpFileOperationResult result, String path) throws IOException {
         switch (result) {
             case SUCCESS:
                 reply(250, L10N.getString("ftp.file_action_complete"));
@@ -1018,7 +1018,7 @@ public final class FTPProtocolHandler
         authenticated = false;
 
         if (handler != null) {
-            FTPAuthenticationResult result = handler.authenticate(user, null, null, metadata);
+            FtpAuthenticationResult result = handler.authenticate(user, null, null, metadata);
             handleAuthenticationResult(result);
         } else {
             reply(331, L10N.getString("ftp.user_ok_need_password"));
@@ -1035,9 +1035,9 @@ public final class FTPProtocolHandler
         password = args;
 
         if (handler != null) {
-            authenticateAsync(new StorageExecutor.Callback<FTPAuthenticationResult>() {
+            authenticateAsync(new StorageExecutor.Callback<FtpAuthenticationResult>() {
                 @Override
-                public void completed(FTPAuthenticationResult result) {
+                public void completed(FtpAuthenticationResult result) {
                     handleAuthenticationResultQuietly(result);
                 }
 
@@ -1046,7 +1046,7 @@ public final class FTPProtocolHandler
                     LOGGER.log(Level.WARNING,
                             "FTP PASS authentication check failed", error);
                     handleAuthenticationResultQuietly(
-                            FTPAuthenticationResult.INVALID_PASSWORD);
+                            FtpAuthenticationResult.INVALID_PASSWORD);
                 }
             });
         } else {
@@ -1064,9 +1064,9 @@ public final class FTPProtocolHandler
         account = args;
 
         if (handler != null) {
-            authenticateAsync(new StorageExecutor.Callback<FTPAuthenticationResult>() {
+            authenticateAsync(new StorageExecutor.Callback<FtpAuthenticationResult>() {
                 @Override
-                public void completed(FTPAuthenticationResult result) {
+                public void completed(FtpAuthenticationResult result) {
                     handleAuthenticationResultQuietly(result);
                 }
 
@@ -1075,7 +1075,7 @@ public final class FTPProtocolHandler
                     LOGGER.log(Level.WARNING,
                             "FTP ACCT authentication check failed", error);
                     handleAuthenticationResultQuietly(
-                            FTPAuthenticationResult.INVALID_PASSWORD);
+                            FtpAuthenticationResult.INVALID_PASSWORD);
                 }
             });
         } else {
@@ -1097,25 +1097,25 @@ public final class FTPProtocolHandler
 
         final String targetPath = args.trim();
 
-        if (!checkAuthorization(FTPOperation.NAVIGATE, targetPath)) {
+        if (!checkAuthorization(FtpOperation.NAVIGATE, targetPath)) {
             return;
         }
 
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
         final String cwd = currentDirectory;
-        submitStorage(new Callable<FTPFileSystem.DirectoryChangeResult>() {
+        submitStorage(new Callable<FtpFileSystem.DirectoryChangeResult>() {
             @Override
-            public FTPFileSystem.DirectoryChangeResult call() {
+            public FtpFileSystem.DirectoryChangeResult call() {
                 return fs.changeDirectory(targetPath, cwd, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileSystem.DirectoryChangeResult>() {
+        }, new StorageExecutor.Callback<FtpFileSystem.DirectoryChangeResult>() {
             @Override
-            public void completed(FTPFileSystem.DirectoryChangeResult result) {
-                if (result.getResult() == FTPFileOperationResult.SUCCESS) {
+            public void completed(FtpFileSystem.DirectoryChangeResult result) {
+                if (result.getResult() == FtpFileOperationResult.SUCCESS) {
                     currentDirectory = result.getNewDirectory();
                     metadata.setCurrentDirectory(currentDirectory);
                     replyQuietly(250, L10N.getString("ftp.directory_changed"));
@@ -1140,26 +1140,26 @@ public final class FTPProtocolHandler
             return;
         }
 
-        if (!checkAuthorization(FTPOperation.NAVIGATE, "..")) {
+        if (!checkAuthorization(FtpOperation.NAVIGATE, "..")) {
             return;
         }
 
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
 
         final String cwd = currentDirectory;
-        submitStorage(new Callable<FTPFileSystem.DirectoryChangeResult>() {
+        submitStorage(new Callable<FtpFileSystem.DirectoryChangeResult>() {
             @Override
-            public FTPFileSystem.DirectoryChangeResult call() {
+            public FtpFileSystem.DirectoryChangeResult call() {
                 return fs.changeDirectory("..", cwd, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileSystem.DirectoryChangeResult>() {
+        }, new StorageExecutor.Callback<FtpFileSystem.DirectoryChangeResult>() {
             @Override
-            public void completed(FTPFileSystem.DirectoryChangeResult result) {
-                if (result.getResult() == FTPFileOperationResult.SUCCESS) {
+            public void completed(FtpFileSystem.DirectoryChangeResult result) {
+                if (result.getResult() == FtpFileOperationResult.SUCCESS) {
                     currentDirectory = result.getNewDirectory();
                     metadata.setCurrentDirectory(currentDirectory);
                     replyQuietly(250, L10N.getString("ftp.directory_changed"));
@@ -1194,8 +1194,8 @@ public final class FTPProtocolHandler
         authenticated = false;
         metadata.setAuthenticated(false);
         metadata.setAuthenticatedUser(null);
-        metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.ASCII);
-        metadata.setTransferMode(FTPConnectionMetadata.FTPTransferMode.STREAM);
+        metadata.setTransferType(FtpConnectionMetadata.FtpTransferType.ASCII);
+        metadata.setTransferMode(FtpConnectionMetadata.FtpTransferMode.STREAM);
         currentDirectory = "/";
         metadata.setCurrentDirectory("/");
         restartOffset = 0;
@@ -1449,15 +1449,15 @@ public final class FTPProtocolHandler
         String typeCode = args.trim().toUpperCase();
         switch (typeCode.charAt(0)) {
             case 'A': // RFC 959 section 3.1.1.1
-                metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.ASCII);
+                metadata.setTransferType(FtpConnectionMetadata.FtpTransferType.ASCII);
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
             case 'I': // RFC 959 section 3.1.1.3
-                metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.BINARY);
+                metadata.setTransferType(FtpConnectionMetadata.FtpTransferType.BINARY);
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
             case 'E': // RFC 959 section 3.1.1.2
-                metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.EBCDIC);
+                metadata.setTransferType(FtpConnectionMetadata.FtpTransferType.EBCDIC);
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
             case 'L': { // RFC 959 section 3.1.1.4 — mandatory byte-size parameter
@@ -1472,7 +1472,7 @@ public final class FTPProtocolHandler
                         reply(501, L10N.getString("ftp.err.syntax_error_parameters"));
                         return;
                     }
-                    metadata.setTransferType(FTPConnectionMetadata.FTPTransferType.LOCAL);
+                    metadata.setTransferType(FtpConnectionMetadata.FtpTransferType.LOCAL);
                     metadata.setLocalByteSize(byteSize);
                     reply(200, L10N.getString("ftp.command_ok"));
                 } catch (NumberFormatException e) {
@@ -1502,10 +1502,10 @@ public final class FTPProtocolHandler
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
             case 'R': // RFC 959 section 3.1.2.2
-                FTPConnectionMetadata.FTPTransferType currentType =
+                FtpConnectionMetadata.FtpTransferType currentType =
                         metadata.getTransferType();
-                if (currentType == FTPConnectionMetadata.FTPTransferType.ASCII
-                        || currentType == FTPConnectionMetadata.FTPTransferType.EBCDIC) {
+                if (currentType == FtpConnectionMetadata.FtpTransferType.ASCII
+                        || currentType == FtpConnectionMetadata.FtpTransferType.EBCDIC) {
                     reply(200, L10N.getString("ftp.command_ok"));
                 } else {
                     reply(504, L10N.getString("ftp.err.parameter_not_implemented"));
@@ -1532,7 +1532,7 @@ public final class FTPProtocolHandler
         String modeCode = args.trim().toUpperCase();
         switch (modeCode.charAt(0)) {
             case 'S': // RFC 959 section 3.4.1
-                metadata.setTransferMode(FTPConnectionMetadata.FTPTransferMode.STREAM);
+                metadata.setTransferMode(FtpConnectionMetadata.FtpTransferMode.STREAM);
                 reply(200, L10N.getString("ftp.command_ok"));
                 break;
             case 'B': // RFC 959 section 3.4.2
@@ -1561,16 +1561,16 @@ public final class FTPProtocolHandler
 
         String filePath = args.trim();
 
-        if (!checkAuthorization(FTPOperation.READ, filePath)) {
+        if (!checkAuthorization(FtpOperation.READ, filePath)) {
             return;
         }
 
         try {
             reply(150, L10N.getString("ftp.transfer_starting"));
 
-            FTPDataConnectionCoordinator.PendingTransfer transfer =
-                new FTPDataConnectionCoordinator.PendingTransfer(
-                    FTPDataConnectionCoordinator.TransferType.DOWNLOAD,
+            FtpDataConnectionCoordinator.PendingTransfer transfer =
+                new FtpDataConnectionCoordinator.PendingTransfer(
+                    FtpDataConnectionCoordinator.TransferType.DOWNLOAD,
                     filePath,
                     false,
                     restartOffset,
@@ -1596,7 +1596,7 @@ public final class FTPProtocolHandler
      * Completion callback for RETR async download.
      */
     private class RetrTransferCallback
-            implements FTPDataConnectionCoordinator.TransferCallback {
+            implements FtpDataConnectionCoordinator.TransferCallback {
         private final String filePath;
 
         RetrTransferCallback(String filePath) {
@@ -1630,7 +1630,7 @@ public final class FTPProtocolHandler
      * Completion callback for LIST/NLST async listing.
      */
     private class ListTransferCallback
-            implements FTPDataConnectionCoordinator.TransferCallback {
+            implements FtpDataConnectionCoordinator.TransferCallback {
         private final String listPath;
 
         ListTransferCallback(String listPath) {
@@ -1672,7 +1672,7 @@ public final class FTPProtocolHandler
 
         String filePath = args.trim();
 
-        if (!checkAuthorization(FTPOperation.WRITE, filePath)) {
+        if (!checkAuthorization(FtpOperation.WRITE, filePath)) {
             return;
         }
 
@@ -1683,9 +1683,9 @@ public final class FTPProtocolHandler
         try {
             reply(150, L10N.getString("ftp.transfer_starting"));
 
-            FTPDataConnectionCoordinator.PendingTransfer transfer =
-                new FTPDataConnectionCoordinator.PendingTransfer(
-                    FTPDataConnectionCoordinator.TransferType.UPLOAD,
+            FtpDataConnectionCoordinator.PendingTransfer transfer =
+                new FtpDataConnectionCoordinator.PendingTransfer(
+                    FtpDataConnectionCoordinator.TransferType.UPLOAD,
                     filePath,
                     false,
                     0,
@@ -1709,7 +1709,7 @@ public final class FTPProtocolHandler
      * Completion callback for STOR async upload.
      */
     private class StorTransferCallback
-            implements FTPDataConnectionCoordinator.TransferCallback {
+            implements FtpDataConnectionCoordinator.TransferCallback {
         private final String filePath;
 
         StorTransferCallback(String filePath) {
@@ -1745,7 +1745,7 @@ public final class FTPProtocolHandler
             return;
         }
 
-        if (!checkAuthorization(FTPOperation.WRITE, null)) {
+        if (!checkAuthorization(FtpOperation.WRITE, null)) {
             return;
         }
 
@@ -1756,9 +1756,9 @@ public final class FTPProtocolHandler
         try {
             reply(150, L10N.getString("ftp.transfer_starting"));
 
-            FTPDataConnectionCoordinator.PendingTransfer transfer =
-                new FTPDataConnectionCoordinator.PendingTransfer(
-                    FTPDataConnectionCoordinator.TransferType.UPLOAD,
+            FtpDataConnectionCoordinator.PendingTransfer transfer =
+                new FtpDataConnectionCoordinator.PendingTransfer(
+                    FtpDataConnectionCoordinator.TransferType.UPLOAD,
                     "",
                     false,
                     0,
@@ -1779,7 +1779,7 @@ public final class FTPProtocolHandler
      * Completion callback for STOU async upload.
      */
     private class StouTransferCallback
-            implements FTPDataConnectionCoordinator.TransferCallback {
+            implements FtpDataConnectionCoordinator.TransferCallback {
         @Override
         public void transferComplete(long bytesTransferred) {
             recordFileTransfer("STOU", "");
@@ -1815,7 +1815,7 @@ public final class FTPProtocolHandler
 
         String filePath = args.trim();
 
-        if (!checkAuthorization(FTPOperation.WRITE, filePath)) {
+        if (!checkAuthorization(FtpOperation.WRITE, filePath)) {
             return;
         }
 
@@ -1826,9 +1826,9 @@ public final class FTPProtocolHandler
         try {
             reply(150, L10N.getString("ftp.transfer_starting"));
 
-            FTPDataConnectionCoordinator.PendingTransfer transfer =
-                new FTPDataConnectionCoordinator.PendingTransfer(
-                    FTPDataConnectionCoordinator.TransferType.UPLOAD,
+            FtpDataConnectionCoordinator.PendingTransfer transfer =
+                new FtpDataConnectionCoordinator.PendingTransfer(
+                    FtpDataConnectionCoordinator.TransferType.UPLOAD,
                     filePath,
                     true,
                     0,
@@ -1850,7 +1850,7 @@ public final class FTPProtocolHandler
      * Completion callback for APPE async upload.
      */
     private class AppeTransferCallback
-            implements FTPDataConnectionCoordinator.TransferCallback {
+            implements FtpDataConnectionCoordinator.TransferCallback {
         private final String filePath;
 
         AppeTransferCallback(String filePath) {
@@ -1892,9 +1892,9 @@ public final class FTPProtocolHandler
 
         try {
             long size = Long.parseLong(args.trim());
-            FTPFileSystem fs = getFileSystem();
+            FtpFileSystem fs = getFileSystem();
             if (fs != null) {
-                FTPFileOperationResult result = fs.allocateSpace("", size, metadata);
+                FtpFileOperationResult result = fs.allocateSpace("", size, metadata);
                 handleFileOperationResult(result, "allocation of " + size + " bytes");
             } else {
                 reply(200, L10N.getString("ftp.command_ok"));
@@ -1940,23 +1940,23 @@ public final class FTPProtocolHandler
 
         final String sourcePath = args.trim();
 
-        if (!checkAuthorization(FTPOperation.RENAME, sourcePath)) {
+        if (!checkAuthorization(FtpOperation.RENAME, sourcePath)) {
             return;
         }
 
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
-        submitStorage(new Callable<FTPFileInfo>() {
+        submitStorage(new Callable<FtpFileInfo>() {
             @Override
-            public FTPFileInfo call() {
+            public FtpFileInfo call() {
                 return fs.getFileInfo(sourcePath, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileInfo>() {
+        }, new StorageExecutor.Callback<FtpFileInfo>() {
             @Override
-            public void completed(FTPFileInfo info) {
+            public void completed(FtpFileInfo info) {
                 if (info != null) {
                     renameFrom = sourcePath;
                     replyQuietly(350, L10N.getString("ftp.rename_pending"));
@@ -1992,7 +1992,7 @@ public final class FTPProtocolHandler
             return;
         }
 
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
@@ -2002,14 +2002,14 @@ public final class FTPProtocolHandler
         final String fromPath = renameFrom;
         // Clear pending rename before offload so a second RNTO cannot race.
         renameFrom = null;
-        submitStorage(new Callable<FTPFileOperationResult>() {
+        submitStorage(new Callable<FtpFileOperationResult>() {
             @Override
-            public FTPFileOperationResult call() {
+            public FtpFileOperationResult call() {
                 return fs.rename(fromPath, targetPath, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileOperationResult>() {
+        }, new StorageExecutor.Callback<FtpFileOperationResult>() {
             @Override
-            public void completed(FTPFileOperationResult result) {
+            public void completed(FtpFileOperationResult result) {
                 handleFileOperationResultQuietly(
                         result, fromPath + " -> " + targetPath);
             }
@@ -2049,25 +2049,25 @@ public final class FTPProtocolHandler
 
         final String filePath = args.trim();
 
-        if (!checkAuthorization(FTPOperation.DELETE, filePath)) {
+        if (!checkAuthorization(FtpOperation.DELETE, filePath)) {
             return;
         }
 
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
 
-        submitStorage(new Callable<FTPFileOperationResult>() {
+        submitStorage(new Callable<FtpFileOperationResult>() {
             @Override
-            public FTPFileOperationResult call() {
+            public FtpFileOperationResult call() {
                 return fs.deleteFile(filePath, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileOperationResult>() {
+        }, new StorageExecutor.Callback<FtpFileOperationResult>() {
             @Override
-            public void completed(FTPFileOperationResult result) {
-                if (result == FTPFileOperationResult.SUCCESS) {
+            public void completed(FtpFileOperationResult result) {
+                if (result == FtpFileOperationResult.SUCCESS) {
                     recordFileOperation("DELE", filePath);
                 }
                 handleFileOperationResultQuietly(result, filePath);
@@ -2095,24 +2095,24 @@ public final class FTPProtocolHandler
 
         final String dirPath = args.trim();
 
-        if (!checkAuthorization(FTPOperation.DELETE_DIR, dirPath)) {
+        if (!checkAuthorization(FtpOperation.DELETE_DIR, dirPath)) {
             return;
         }
 
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
 
-        submitStorage(new Callable<FTPFileOperationResult>() {
+        submitStorage(new Callable<FtpFileOperationResult>() {
             @Override
-            public FTPFileOperationResult call() {
+            public FtpFileOperationResult call() {
                 return fs.removeDirectory(dirPath, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileOperationResult>() {
+        }, new StorageExecutor.Callback<FtpFileOperationResult>() {
             @Override
-            public void completed(FTPFileOperationResult result) {
+            public void completed(FtpFileOperationResult result) {
                 handleFileOperationResultQuietly(result, dirPath);
             }
 
@@ -2138,25 +2138,25 @@ public final class FTPProtocolHandler
 
         final String dirPath = args.trim();
 
-        if (!checkAuthorization(FTPOperation.CREATE_DIR, dirPath)) {
+        if (!checkAuthorization(FtpOperation.CREATE_DIR, dirPath)) {
             return;
         }
 
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
 
-        submitStorage(new Callable<FTPFileOperationResult>() {
+        submitStorage(new Callable<FtpFileOperationResult>() {
             @Override
-            public FTPFileOperationResult call() {
+            public FtpFileOperationResult call() {
                 return fs.createDirectory(dirPath, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileOperationResult>() {
+        }, new StorageExecutor.Callback<FtpFileOperationResult>() {
             @Override
-            public void completed(FTPFileOperationResult result) {
-                if (result == FTPFileOperationResult.SUCCESS) {
+            public void completed(FtpFileOperationResult result) {
+                if (result == FtpFileOperationResult.SUCCESS) {
                     String successMsg = L10N.getString("ftp.directory_created");
                     replyQuietly(257,
                             MessageFormat.format(successMsg, dirPath));
@@ -2192,16 +2192,16 @@ public final class FTPProtocolHandler
 
         String listPath = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
 
-        if (!checkAuthorization(FTPOperation.READ, listPath)) {
+        if (!checkAuthorization(FtpOperation.READ, listPath)) {
             return;
         }
 
         try {
             reply(150, L10N.getString("ftp.directory_listing"));
 
-            FTPDataConnectionCoordinator.PendingTransfer transfer =
-                new FTPDataConnectionCoordinator.PendingTransfer(
-                    FTPDataConnectionCoordinator.TransferType.LISTING,
+            FtpDataConnectionCoordinator.PendingTransfer transfer =
+                new FtpDataConnectionCoordinator.PendingTransfer(
+                    FtpDataConnectionCoordinator.TransferType.LISTING,
                     listPath,
                     false,
                     0,
@@ -2228,16 +2228,16 @@ public final class FTPProtocolHandler
 
         String listPath = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
 
-        if (!checkAuthorization(FTPOperation.READ, listPath)) {
+        if (!checkAuthorization(FtpOperation.READ, listPath)) {
             return;
         }
 
         try {
             reply(150, L10N.getString("ftp.directory_listing"));
 
-            FTPDataConnectionCoordinator.PendingTransfer transfer =
-                new FTPDataConnectionCoordinator.PendingTransfer(
-                    FTPDataConnectionCoordinator.TransferType.NAME_LIST,
+            FtpDataConnectionCoordinator.PendingTransfer transfer =
+                new FtpDataConnectionCoordinator.PendingTransfer(
+                    FtpDataConnectionCoordinator.TransferType.NAME_LIST,
                     listPath,
                     false,
                     0,
@@ -2276,10 +2276,10 @@ public final class FTPProtocolHandler
 
         if (handler != null) {
             metadata.clearSiteCommandResponse();
-            FTPFileOperationResult result = handler.handleSiteCommand(siteCommand, metadata);
+            FtpFileOperationResult result = handler.handleSiteCommand(siteCommand, metadata);
 
             String customResponse = metadata.getSiteCommandResponse();
-            if (customResponse != null && result == FTPFileOperationResult.SUCCESS) {
+            if (customResponse != null && result == FtpFileOperationResult.SUCCESS) {
                 replyMultiLine(211, customResponse);
             } else {
                 handleFileOperationResult(result, siteCommand);
@@ -2301,7 +2301,7 @@ public final class FTPProtocolHandler
         String targetUser = user;
         String argPart = args.length() > 5 ? args.substring(5).trim() : "";
         if (!argPart.isEmpty() && handler != null) {
-            if (handler.isAuthorized(FTPOperation.ADMIN, null, metadata)) {
+            if (handler.isAuthorized(FtpOperation.ADMIN, null, metadata)) {
                 targetUser = argPart;
             }
         }
@@ -2354,7 +2354,7 @@ public final class FTPProtocolHandler
             return;
         }
 
-        if (handler == null || !handler.isAuthorized(FTPOperation.ADMIN, null, metadata)) {
+        if (handler == null || !handler.isAuthorized(FtpOperation.ADMIN, null, metadata)) {
             reply(550, L10N.getString("ftp.err.permission_denied"));
             addSessionEvent("QUOTA_SET_DENIED");
             addSessionAttribute("ftp.quota.error", "permission_denied");
@@ -2518,7 +2518,7 @@ public final class FTPProtocolHandler
         }
 
         final String path = args.trim();
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
@@ -2526,12 +2526,12 @@ public final class FTPProtocolHandler
         submitStorage(new Callable<StatOutcome>() {
             @Override
             public StatOutcome call() {
-                FTPFileInfo info = fs.getFileInfo(path, metadata);
+                FtpFileInfo info = fs.getFileInfo(path, metadata);
                 if (info == null) {
                     return StatOutcome.notFound();
                 }
                 if (info.isDirectory()) {
-                    List<FTPFileInfo> files = fs.listDirectory(path, metadata);
+                    List<FtpFileInfo> files = fs.listDirectory(path, metadata);
                     return StatOutcome.directory(files);
                 }
                 return StatOutcome.file(info);
@@ -2549,7 +2549,7 @@ public final class FTPProtocolHandler
                         return;
                     }
                     sendLineQuietly("213-Status of " + path + ":");
-                    for (FTPFileInfo file : outcome.listing) {
+                    for (FtpFileInfo file : outcome.listing) {
                         sendLineQuietly(" " + file.formatAsListingLine());
                     }
                     sendLineQuietly("213 End of status");
@@ -2571,11 +2571,11 @@ public final class FTPProtocolHandler
         enum Kind { NOT_FOUND, FILE, DIRECTORY }
 
         final Kind kind;
-        final FTPFileInfo info;
-        final List<FTPFileInfo> listing;
+        final FtpFileInfo info;
+        final List<FtpFileInfo> listing;
 
-        private StatOutcome(Kind kind, FTPFileInfo info,
-                List<FTPFileInfo> listing) {
+        private StatOutcome(Kind kind, FtpFileInfo info,
+                List<FtpFileInfo> listing) {
             this.kind = kind;
             this.info = info;
             this.listing = listing;
@@ -2585,11 +2585,11 @@ public final class FTPProtocolHandler
             return new StatOutcome(Kind.NOT_FOUND, null, null);
         }
 
-        static StatOutcome file(FTPFileInfo info) {
+        static StatOutcome file(FtpFileInfo info) {
             return new StatOutcome(Kind.FILE, info, null);
         }
 
-        static StatOutcome directory(List<FTPFileInfo> listing) {
+        static StatOutcome directory(List<FtpFileInfo> listing) {
             return new StatOutcome(Kind.DIRECTORY, null, listing);
         }
     }
@@ -2751,22 +2751,22 @@ public final class FTPProtocolHandler
             return;
         }
         final String path = args.trim();
-        if (!checkAuthorization(FTPOperation.READ, path)) {
+        if (!checkAuthorization(FtpOperation.READ, path)) {
             return;
         }
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
-        submitStorage(new Callable<FTPFileInfo>() {
+        submitStorage(new Callable<FtpFileInfo>() {
             @Override
-            public FTPFileInfo call() {
+            public FtpFileInfo call() {
                 return fs.getFileInfo(path, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileInfo>() {
+        }, new StorageExecutor.Callback<FtpFileInfo>() {
             @Override
-            public void completed(FTPFileInfo info) {
+            public void completed(FtpFileInfo info) {
                 if (info == null) {
                     replyQuietly(550, MessageFormat.format(
                             L10N.getString("ftp.err.file_not_found"), path));
@@ -2801,22 +2801,22 @@ public final class FTPProtocolHandler
             return;
         }
         final String path = args.trim();
-        if (!checkAuthorization(FTPOperation.READ, path)) {
+        if (!checkAuthorization(FtpOperation.READ, path)) {
             return;
         }
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
-        submitStorage(new Callable<FTPFileInfo>() {
+        submitStorage(new Callable<FtpFileInfo>() {
             @Override
-            public FTPFileInfo call() {
+            public FtpFileInfo call() {
                 return fs.getFileInfo(path, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileInfo>() {
+        }, new StorageExecutor.Callback<FtpFileInfo>() {
             @Override
-            public void completed(FTPFileInfo info) {
+            public void completed(FtpFileInfo info) {
                 if (info == null) {
                     replyQuietly(550, MessageFormat.format(
                             L10N.getString("ftp.err.file_not_found"), path));
@@ -2858,22 +2858,22 @@ public final class FTPProtocolHandler
         }
         final String path = (args != null && !args.trim().isEmpty())
                 ? args.trim() : currentDirectory;
-        if (!checkAuthorization(FTPOperation.READ, path)) {
+        if (!checkAuthorization(FtpOperation.READ, path)) {
             return;
         }
-        final FTPFileSystem fs = getFileSystem();
+        final FtpFileSystem fs = getFileSystem();
         if (fs == null) {
             reply(550, L10N.getString("ftp.err.file_system_error"));
             return;
         }
-        submitStorage(new Callable<FTPFileInfo>() {
+        submitStorage(new Callable<FtpFileInfo>() {
             @Override
-            public FTPFileInfo call() {
+            public FtpFileInfo call() {
                 return fs.getFileInfo(path, metadata);
             }
-        }, new StorageExecutor.Callback<FTPFileInfo>() {
+        }, new StorageExecutor.Callback<FtpFileInfo>() {
             @Override
-            public void completed(FTPFileInfo info) {
+            public void completed(FtpFileInfo info) {
                 if (info == null) {
                     replyQuietly(550, MessageFormat.format(
                             L10N.getString("ftp.err.file_not_found"), path));
@@ -2901,14 +2901,14 @@ public final class FTPProtocolHandler
             return;
         }
         String listPath = (args != null && !args.trim().isEmpty()) ? args.trim() : currentDirectory;
-        if (!checkAuthorization(FTPOperation.READ, listPath)) {
+        if (!checkAuthorization(FtpOperation.READ, listPath)) {
             return;
         }
         try {
             reply(150, L10N.getString("ftp.directory_listing"));
-            FTPDataConnectionCoordinator.PendingTransfer transfer =
-                new FTPDataConnectionCoordinator.PendingTransfer(
-                    FTPDataConnectionCoordinator.TransferType.MACHINE_LISTING,
+            FtpDataConnectionCoordinator.PendingTransfer transfer =
+                new FtpDataConnectionCoordinator.PendingTransfer(
+                    FtpDataConnectionCoordinator.TransferType.MACHINE_LISTING,
                     listPath,
                     false,
                     0,

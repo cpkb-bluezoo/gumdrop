@@ -32,8 +32,8 @@ import java.util.Set;
 
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
 
 import static org.junit.Assert.*;
 
@@ -49,13 +49,13 @@ public class DNSSDAdvertiserTest {
 
     private static final Set<String> NO_EXCLUSIONS = Collections.<String>emptySet();
 
-    private static List<DNSResourceRecord> build(List<Server> servers) {
+    private static List<DnsResourceRecord> build(List<Server> servers) {
         return DNSSDAdvertiser.buildRecords(servers, "gumdrop", 4500, NO_EXCLUSIONS);
     }
 
-    private static List<DNSResourceRecord> ofType(List<DNSResourceRecord> records, DNSType type) {
-        List<DNSResourceRecord> result = new ArrayList<DNSResourceRecord>();
-        for (DNSResourceRecord rr : records) {
+    private static List<DnsResourceRecord> ofType(List<DnsResourceRecord> records, DnsType type) {
+        List<DnsResourceRecord> result = new ArrayList<DnsResourceRecord>();
+        for (DnsResourceRecord rr : records) {
             if (rr.getType() == type) {
                 result.add(rr);
             }
@@ -67,11 +67,11 @@ public class DNSSDAdvertiserTest {
     public void testAdvertisesKnownServiceType() {
         Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(server));
+        List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
-        List<DNSResourceRecord> ptrs = ofType(records, DNSType.PTR);
-        List<DNSResourceRecord> srvs = ofType(records, DNSType.SRV);
-        List<DNSResourceRecord> txts = ofType(records, DNSType.TXT);
+        List<DnsResourceRecord> ptrs = ofType(records, DnsType.PTR);
+        List<DnsResourceRecord> srvs = ofType(records, DnsType.SRV);
+        List<DnsResourceRecord> txts = ofType(records, DnsType.TXT);
 
         // One PTR enumerating the service type, one SRV, one TXT, plus
         // the section 9 meta-query PTR -- two PTRs total.
@@ -79,15 +79,15 @@ public class DNSSDAdvertiserTest {
         assertEquals(1, srvs.size());
         assertEquals(1, txts.size());
 
-        DNSResourceRecord serviceTypePtr = findByName(ptrs, "_http._tcp.local");
+        DnsResourceRecord serviceTypePtr = findByName(ptrs, "_http._tcp.local");
         assertNotNull(serviceTypePtr);
         assertEquals("gumdrop._http._tcp.local", serviceTypePtr.getTargetName());
 
-        DNSResourceRecord metaPtr = findByName(ptrs, DNSSDAdvertiser.DNS_SD_META_QUERY_NAME);
+        DnsResourceRecord metaPtr = findByName(ptrs, DNSSDAdvertiser.DNS_SD_META_QUERY_NAME);
         assertNotNull(metaPtr);
         assertEquals("_http._tcp.local", metaPtr.getTargetName());
 
-        DNSResourceRecord srv = srvs.get(0);
+        DnsResourceRecord srv = srvs.get(0);
         assertEquals("gumdrop._http._tcp.local", srv.getName());
         assertEquals(8080, srv.getSRVPort());
         assertEquals("gumdrop.local", srv.getSRVTarget());
@@ -97,7 +97,7 @@ public class DNSSDAdvertiserTest {
     public void testUnknownDescriptionIsSkippedNotErrored() {
         Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("health", 9090)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(server));
+        List<DnsResourceRecord> records = build(Collections.singletonList(server));
         assertTrue(records.isEmpty());
     }
 
@@ -107,7 +107,7 @@ public class DNSSDAdvertiserTest {
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
         Set<String> excluded = new HashSet<String>(Arrays.asList("http"));
 
-        List<DNSResourceRecord> records = DNSSDAdvertiser.buildRecords(
+        List<DnsResourceRecord> records = DNSSDAdvertiser.buildRecords(
                 Collections.singletonList(server), "gumdrop", 4500, excluded);
 
         assertTrue(records.isEmpty());
@@ -117,7 +117,7 @@ public class DNSSDAdvertiserTest {
     public void testNonPositivePortIsSkipped() {
         Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", -1)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(server));
+        List<DnsResourceRecord> records = build(Collections.singletonList(server));
         assertTrue(records.isEmpty());
     }
 
@@ -125,9 +125,9 @@ public class DNSSDAdvertiserTest {
     public void testPtrRecordsAreSharedNotCacheFlushed() {
         Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(server));
+        List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
-        for (DNSResourceRecord rr : ofType(records, DNSType.PTR)) {
+        for (DnsResourceRecord rr : ofType(records, DnsType.PTR)) {
             assertFalse("PTR records must never carry cache-flush", rr.isCacheFlush());
         }
     }
@@ -136,12 +136,12 @@ public class DNSSDAdvertiserTest {
     public void testSrvAndTxtRecordsAreCacheFlushed() {
         Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(server));
+        List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
-        for (DNSResourceRecord rr : ofType(records, DNSType.SRV)) {
+        for (DnsResourceRecord rr : ofType(records, DnsType.SRV)) {
             assertTrue(rr.isCacheFlush());
         }
-        for (DNSResourceRecord rr : ofType(records, DNSType.TXT)) {
+        for (DnsResourceRecord rr : ofType(records, DnsType.TXT)) {
             assertTrue(rr.isCacheFlush());
         }
     }
@@ -151,10 +151,10 @@ public class DNSSDAdvertiserTest {
         Server server = new FakeServer(Arrays.<Listener>asList(
                 new FakeListener("http", 8080),
                 new FakeListener("imap", 143)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(server));
+        List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
-        List<DNSResourceRecord> metaPtrs = new ArrayList<DNSResourceRecord>();
-        for (DNSResourceRecord rr : ofType(records, DNSType.PTR)) {
+        List<DnsResourceRecord> metaPtrs = new ArrayList<DnsResourceRecord>();
+        for (DnsResourceRecord rr : ofType(records, DnsType.PTR)) {
             if (rr.getName().equals(DNSSDAdvertiser.DNS_SD_META_QUERY_NAME)) {
                 metaPtrs.add(rr);
             }
@@ -166,15 +166,15 @@ public class DNSSDAdvertiserTest {
     public void testTxtRecordHasSingleEmptyStringNotZeroLength() {
         Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(server));
+        List<DnsResourceRecord> records = build(Collections.singletonList(server));
 
-        DNSResourceRecord txt = ofType(records, DNSType.TXT).get(0);
+        DnsResourceRecord txt = ofType(records, DnsType.TXT).get(0);
         // RFC 6763 section 6.1: RDATA must not be zero-length.
         assertTrue(txt.getRData().length > 0);
     }
 
-    private static DNSResourceRecord findByName(List<DNSResourceRecord> records, String name) {
-        for (DNSResourceRecord rr : records) {
+    private static DnsResourceRecord findByName(List<DnsResourceRecord> records, String name) {
+        for (DnsResourceRecord rr : records) {
             if (rr.getName().equals(name)) {
                 return rr;
             }

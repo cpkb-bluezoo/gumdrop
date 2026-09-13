@@ -87,7 +87,7 @@ public final class DANEVerifier {
      *                                selector or matching type
      */
     public static boolean matches(X509Certificate cert,
-                                  DNSResourceRecord tlsa)
+                                  DnsResourceRecord tlsa)
             throws CertificateEncodingException {
         byte[] selected = select(cert, tlsa.getTLSASelector());
         byte[] candidate = applyMatchingType(selected,
@@ -111,13 +111,13 @@ public final class DANEVerifier {
      * @throws CertificateEncodingException if a certificate cannot be
      *                                      re-encoded
      */
-    public static DNSResourceRecord findMatch(X509Certificate[] chain,
-            List<DNSResourceRecord> tlsaRecords)
+    public static DnsResourceRecord findMatch(X509Certificate[] chain,
+            List<DnsResourceRecord> tlsaRecords)
             throws CertificateEncodingException {
         if (chain == null || chain.length == 0) {
             return null;
         }
-        for (DNSResourceRecord tlsa : tlsaRecords) {
+        for (DnsResourceRecord tlsa : tlsaRecords) {
             int usage = tlsa.getTLSACertUsage();
             if (usage == USAGE_PKIX_EE || usage == USAGE_DANE_EE) {
                 if (matches(chain[0], tlsa)) {

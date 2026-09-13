@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
-import org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery;
+import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.BasicProperties;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
@@ -29,15 +29,15 @@ import org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConfirmSelectHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerExchangeDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueBindHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxCommitHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxRollbackHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.QueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.QueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TxCommitHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TxRollbackHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TxSelectHandler;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -71,7 +71,7 @@ public class RabbitMQPlaintextIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private AMQPClientRecovery client;
+    private AmqpClientRecovery client;
 
     @Before
     public void checkBrokerReachable() {
@@ -86,8 +86,8 @@ public class RabbitMQPlaintextIntegrationTest {
         }
     }
 
-    private AMQPClientRecovery newClient() {
-        return new AMQPClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+    private AmqpClientRecovery newClient() {
+        return new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST);
     }
@@ -110,7 +110,7 @@ public class RabbitMQPlaintextIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(ClientChannel channel) {
                         channelRef.set(channel);
@@ -137,10 +137,10 @@ public class RabbitMQPlaintextIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
-                        channel.exchangeDeclare(exchange, "direct", false, true, null, new ServerExchangeDeclareHandler() {
+                        channel.exchangeDeclare(exchange, "direct", false, true, null, new ExchangeDeclareHandler() {
                             // durable=true (not false): RabbitMQ 4.x rejects non-durable,
                             // non-exclusive ("transient_nonexcl") queues by default as a
                             // deprecated feature -- every queueDeclare in this file uses
@@ -149,15 +149,15 @@ public class RabbitMQPlaintextIntegrationTest {
                             // itself is otherwise irrelevant.
                             @Override
                             public void handleExchangeDeclareOk() {
-                                channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                                channel.queueDeclare(queue, true, false, true, null, new QueueDeclareHandler() {
                                     @Override
                                     public void handleQueueDeclareOk(String q, long mc, long cc) {
-                                        channel.queueBind(queue, exchange, "test-key", null, new ServerQueueBindHandler() {
+                                        channel.queueBind(queue, exchange, "test-key", null, new QueueBindHandler() {
                                             @Override
                                             public void handleQueueBindOk() {
                                                 channel.basicConsume(queue, "", false, false, null,
                                                         new CollectingDeliveryHandler(deliveredBody, deliveredContentType, deliveredLatch),
-                                                        new ServerConsumeHandler() {
+                                                        new ConsumeHandler() {
                                                             @Override
                                                             public void handleConsumeOk(String consumerTag) {
                                                                 BasicProperties props = new BasicProperties().withContentType("text/plain");
@@ -193,15 +193,15 @@ public class RabbitMQPlaintextIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
-                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                        channel.queueDeclare(queue, true, false, true, null, new QueueDeclareHandler() {
                             @Override
                             public void handleQueueDeclareOk(String q, long mc, long cc) {
                                 channel.basicConsume(queue, "", false, false, null,
                                         new CollectingDeliveryHandler(deliveredBody, new AtomicReference<String>(), deliveredLatch),
-                                        new ServerConsumeHandler() {
+                                        new ConsumeHandler() {
                                             @Override
                                             public void handleConsumeOk(String consumerTag) {
                                                 PublishBody body = channel.basicPublish("", queue, false, null, 3);
@@ -230,10 +230,10 @@ public class RabbitMQPlaintextIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
-                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                        channel.queueDeclare(queue, true, false, true, null, new QueueDeclareHandler() {
                             @Override
                             public void handleQueueDeclareOk(String q, long mc, long cc) {
                                 channel.basicConsume(queue, "", false, false, null,
@@ -267,7 +267,7 @@ public class RabbitMQPlaintextIntegrationTest {
                                             public void onDeliveryComplete() {
                                             }
                                         },
-                                        new ServerConsumeHandler() {
+                                        new ConsumeHandler() {
                                             @Override
                                             public void handleConsumeOk(String consumerTag) {
                                                 PublishBody body = channel.basicPublish("", queue, false, null, 3);
@@ -298,13 +298,13 @@ public class RabbitMQPlaintextIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
-                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                        channel.queueDeclare(queue, true, false, true, null, new QueueDeclareHandler() {
                             @Override
                             public void handleQueueDeclareOk(String q, long mc, long cc) {
-                                channel.confirmSelect(new ServerConfirmSelectHandler() {
+                                channel.confirmSelect(new ConfirmSelectHandler() {
                                     @Override
                                     public void handleConfirmSelectOk() {
                                         channel.setConfirmListener(new ConfirmListener() {
@@ -344,24 +344,24 @@ public class RabbitMQPlaintextIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
-                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                        channel.queueDeclare(queue, true, false, true, null, new QueueDeclareHandler() {
                             @Override
                             public void handleQueueDeclareOk(String q, long mc, long cc) {
                                 channel.basicConsume(queue, "", false, false, null,
                                         new CollectingDeliveryHandler(deliveredBody, new AtomicReference<String>(), deliveredLatch),
-                                        new ServerConsumeHandler() {
+                                        new ConsumeHandler() {
                                             @Override
                                             public void handleConsumeOk(String consumerTag) {
-                                                channel.txSelect(new ServerTxSelectHandler() {
+                                                channel.txSelect(new TxSelectHandler() {
                                                     @Override
                                                     public void handleTxSelectOk() {
                                                         PublishBody body = channel.basicPublish("", queue, false, null, 9);
                                                         body.writeBody(ByteBuffer.wrap("committed".getBytes(StandardCharsets.US_ASCII)));
                                                         body.complete();
-                                                        channel.txCommit(new ServerTxCommitHandler() {
+                                                        channel.txCommit(new TxCommitHandler() {
                                                             @Override public void handleTxCommitOk() { }
                                                         });
                                                     }
@@ -392,24 +392,24 @@ public class RabbitMQPlaintextIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
-                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                        channel.queueDeclare(queue, true, false, true, null, new QueueDeclareHandler() {
                             @Override
                             public void handleQueueDeclareOk(String q, long mc, long cc) {
                                 channel.basicConsume(queue, "", false, false, null,
                                         new CollectingDeliveryHandler(deliveredBody, new AtomicReference<String>(), deliveredLatch),
-                                        new ServerConsumeHandler() {
+                                        new ConsumeHandler() {
                                             @Override
                                             public void handleConsumeOk(String consumerTag) {
-                                                channel.txSelect(new ServerTxSelectHandler() {
+                                                channel.txSelect(new TxSelectHandler() {
                                                     @Override
                                                     public void handleTxSelectOk() {
                                                         PublishBody rolledBack = channel.basicPublish("", queue, false, null, 11);
                                                         rolledBack.writeBody(ByteBuffer.wrap("rolled-back".getBytes(StandardCharsets.US_ASCII)));
                                                         rolledBack.complete();
-                                                        channel.txRollback(new ServerTxRollbackHandler() {
+                                                        channel.txRollback(new TxRollbackHandler() {
                                                             @Override
                                                             public void handleTxRollbackOk() {
                                                                 // tx.rollback discards the pending publish but does not
@@ -419,7 +419,7 @@ public class RabbitMQPlaintextIntegrationTest {
                                                                 PublishBody sentinel = channel.basicPublish("", queue, false, null, 9);
                                                                 sentinel.writeBody(ByteBuffer.wrap("sentinel-".getBytes(StandardCharsets.US_ASCII)));
                                                                 sentinel.complete();
-                                                                channel.txCommit(new ServerTxCommitHandler() {
+                                                                channel.txCommit(new TxCommitHandler() {
                                                                     @Override public void handleTxCommitOk() { }
                                                                 });
                                                             }

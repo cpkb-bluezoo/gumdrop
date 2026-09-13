@@ -38,10 +38,10 @@ class FTPDataConnection {
     private static final Logger LOGGER = Logger.getLogger(FTPDataConnection.class.getName());
 
     private final SocketChannel channel;
-    private final FTPDataConnectionCoordinator coordinator;
+    private final FtpDataConnectionCoordinator coordinator;
     private boolean transferActive = false;
 
-    FTPDataConnection(SocketChannel channel, FTPDataConnectionCoordinator coordinator) {
+    FTPDataConnection(SocketChannel channel, FtpDataConnectionCoordinator coordinator) {
         this.channel = channel;
         this.coordinator = coordinator;
     }

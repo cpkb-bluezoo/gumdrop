@@ -1,5 +1,5 @@
 /*
- * DNSMessage.java
+ * DnsMessage.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -43,7 +43,7 @@ import java.util.ResourceBundle;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class DNSMessage {
+public final class DnsMessage {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
@@ -125,10 +125,10 @@ public final class DNSMessage {
 
     private final int id;
     private final int flags;
-    private final List<DNSQuestion> questions;
-    private final List<DNSResourceRecord> answers;
-    private final List<DNSResourceRecord> authorities;
-    private final List<DNSResourceRecord> additionals;
+    private final List<DnsQuestion> questions;
+    private final List<DnsResourceRecord> answers;
+    private final List<DnsResourceRecord> authorities;
+    private final List<DnsResourceRecord> additionals;
 
     /**
      * Creates a new DNS message.
@@ -140,11 +140,11 @@ public final class DNSMessage {
      * @param authorities the authority section
      * @param additionals the additional section
      */
-    public DNSMessage(int id, int flags,
-                      List<DNSQuestion> questions,
-                      List<DNSResourceRecord> answers,
-                      List<DNSResourceRecord> authorities,
-                      List<DNSResourceRecord> additionals) {
+    public DnsMessage(int id, int flags,
+                      List<DnsQuestion> questions,
+                      List<DnsResourceRecord> answers,
+                      List<DnsResourceRecord> authorities,
+                      List<DnsResourceRecord> additionals) {
         this.id = id & 0xFFFF;
         this.flags = flags & 0xFFFF;
         this.questions = Collections.unmodifiableList(new ArrayList<>(questions));
@@ -270,7 +270,7 @@ public final class DNSMessage {
      *
      * @return unmodifiable list of questions
      */
-    public List<DNSQuestion> getQuestions() {
+    public List<DnsQuestion> getQuestions() {
         return questions;
     }
 
@@ -279,7 +279,7 @@ public final class DNSMessage {
      *
      * @return unmodifiable list of answers
      */
-    public List<DNSResourceRecord> getAnswers() {
+    public List<DnsResourceRecord> getAnswers() {
         return answers;
     }
 
@@ -288,7 +288,7 @@ public final class DNSMessage {
      *
      * @return unmodifiable list of authority records
      */
-    public List<DNSResourceRecord> getAuthorities() {
+    public List<DnsResourceRecord> getAuthorities() {
         return authorities;
     }
 
@@ -297,7 +297,7 @@ public final class DNSMessage {
      *
      * @return unmodifiable list of additional records
      */
-    public List<DNSResourceRecord> getAdditionals() {
+    public List<DnsResourceRecord> getAdditionals() {
         return additionals;
     }
 
@@ -311,9 +311,9 @@ public final class DNSMessage {
      */
     public boolean hasDO() {
         for (int i = 0; i < additionals.size(); i++) {
-            DNSResourceRecord rr = additionals.get(i);
-            if (rr.getType() == DNSType.OPT) {
-                return (rr.getEDNSFlags() & DNSResourceRecord.EDNS_FLAG_DO) != 0;
+            DnsResourceRecord rr = additionals.get(i);
+            if (rr.getType() == DnsType.OPT) {
+                return (rr.getEDNSFlags() & DnsResourceRecord.EDNS_FLAG_DO) != 0;
             }
         }
         return false;
@@ -326,11 +326,11 @@ public final class DNSMessage {
      *
      * @param data the buffer containing the DNS message
      * @return the parsed message
-     * @throws DNSFormatException if the message is malformed
+     * @throws DnsFormatException if the message is malformed
      */
-    public static DNSMessage parse(ByteBuffer data) throws DNSFormatException {
+    public static DnsMessage parse(ByteBuffer data) throws DnsFormatException {
         if (data.remaining() < HEADER_SIZE) {
-            throw new DNSFormatException(L10N.getString("err.message_too_short"));
+            throw new DnsFormatException(L10N.getString("err.message_too_short"));
         }
         try {
             return parseUnchecked(data);
@@ -339,11 +339,11 @@ public final class DNSMessage {
             // compression pointer, name too long) via IllegalStateException;
             // convert it to this method's declared exception type here
             // rather than at each of decodeName's several call sites.
-            throw new DNSFormatException(e.getMessage(), e);
+            throw new DnsFormatException(e.getMessage(), e);
         }
     }
 
-    private static DNSMessage parseUnchecked(ByteBuffer data) throws DNSFormatException {
+    private static DnsMessage parseUnchecked(ByteBuffer data) throws DnsFormatException {
         ByteBuffer original = data.duplicate();
 
         // RFC 1035 section 4.1.1: parse 12-octet header
@@ -357,68 +357,68 @@ public final class DNSMessage {
         int arCount = data.getShort() & 0xFFFF;
 
         // Parse questions
-        List<DNSQuestion> questions = new ArrayList<>(qdCount);
+        List<DnsQuestion> questions = new ArrayList<>(qdCount);
         for (int i = 0; i < qdCount; i++) {
-            DNSQuestion question = parseQuestion(data, original);
+            DnsQuestion question = parseQuestion(data, original);
             questions.add(question);
         }
 
         // Parse answers
-        List<DNSResourceRecord> answers = new ArrayList<>(anCount);
+        List<DnsResourceRecord> answers = new ArrayList<>(anCount);
         for (int i = 0; i < anCount; i++) {
-            DNSResourceRecord record = parseResourceRecord(data, original);
+            DnsResourceRecord record = parseResourceRecord(data, original);
             answers.add(record);
         }
 
         // Parse authority
-        List<DNSResourceRecord> authorities = new ArrayList<>(nsCount);
+        List<DnsResourceRecord> authorities = new ArrayList<>(nsCount);
         for (int i = 0; i < nsCount; i++) {
-            DNSResourceRecord record = parseResourceRecord(data, original);
+            DnsResourceRecord record = parseResourceRecord(data, original);
             authorities.add(record);
         }
 
         // Parse additional
-        List<DNSResourceRecord> additionals = new ArrayList<>(arCount);
+        List<DnsResourceRecord> additionals = new ArrayList<>(arCount);
         for (int i = 0; i < arCount; i++) {
-            DNSResourceRecord record = parseResourceRecord(data, original);
+            DnsResourceRecord record = parseResourceRecord(data, original);
             additionals.add(record);
         }
 
-        return new DNSMessage(id, flags, questions, answers, authorities, additionals);
+        return new DnsMessage(id, flags, questions, answers, authorities, additionals);
     }
 
-    private static DNSQuestion parseQuestion(ByteBuffer data, ByteBuffer original) throws DNSFormatException {
+    private static DnsQuestion parseQuestion(ByteBuffer data, ByteBuffer original) throws DnsFormatException {
         String name = decodeName(data, original);
         if (data.remaining() < 4) {
-            throw new DNSFormatException(L10N.getString("err.truncated_question"));
+            throw new DnsFormatException(L10N.getString("err.truncated_question"));
         }
         int typeValue = data.getShort() & 0xFFFF;
         int classValue = data.getShort() & 0xFFFF;
 
-        DNSType type = DNSType.fromValue(typeValue);
+        DnsType type = DnsType.fromValue(typeValue);
         if (type == null) {
             String msg = MessageFormat.format(L10N.getString("err.unknown_type"), typeValue);
-            throw new DNSFormatException(msg);
+            throw new DnsFormatException(msg);
         }
 
         // RFC 6762 section 5.4: in mDNS, the top bit of QCLASS is the
         // "QU" unicast-response-requested bit, not part of the class
         // value itself.
         boolean unicastResponseRequested = (classValue & QU_OR_CACHE_FLUSH_BIT) != 0;
-        DNSClass dnsClass = DNSClass.fromValue(classValue & ~QU_OR_CACHE_FLUSH_BIT);
+        DnsClass dnsClass = DnsClass.fromValue(classValue & ~QU_OR_CACHE_FLUSH_BIT);
         if (dnsClass == null) {
             String msg = MessageFormat.format(L10N.getString("err.unknown_class"), classValue);
-            throw new DNSFormatException(msg);
+            throw new DnsFormatException(msg);
         }
 
-        return new DNSQuestion(name, type, dnsClass, unicastResponseRequested);
+        return new DnsQuestion(name, type, dnsClass, unicastResponseRequested);
     }
 
-    private static DNSResourceRecord parseResourceRecord(ByteBuffer data, ByteBuffer original)
-            throws DNSFormatException {
+    private static DnsResourceRecord parseResourceRecord(ByteBuffer data, ByteBuffer original)
+            throws DnsFormatException {
         String name = decodeName(data, original);
         if (data.remaining() < 10) {
-            throw new DNSFormatException(L10N.getString("err.truncated_resource_record"));
+            throw new DnsFormatException(L10N.getString("err.truncated_resource_record"));
         }
         int typeValue = data.getShort() & 0xFFFF;
         int classValue = data.getShort() & 0xFFFF;
@@ -426,7 +426,7 @@ public final class DNSMessage {
         int rdLength = data.getShort() & 0xFFFF;
 
         if (data.remaining() < rdLength) {
-            throw new DNSFormatException(L10N.getString("err.truncated_rdata"));
+            throw new DnsFormatException(L10N.getString("err.truncated_rdata"));
         }
 
         byte[] rdata = new byte[rdLength];
@@ -436,12 +436,12 @@ public final class DNSMessage {
         // RFC 6762 section 10.2: in mDNS, the top bit of the RR CLASS
         // field is the "cache-flush" bit, not part of the class value
         // itself; classValue (with the bit intact) is still passed
-        // through as rawClass below so DNSResourceRecord.isCacheFlush()
+        // through as rawClass below so DnsResourceRecord.isCacheFlush()
         // can recover it and re-encoding round-trips it unchanged.
-        DNSType type = DNSType.fromValue(typeValue);
-        DNSClass dnsClass = DNSClass.fromValue(classValue & ~QU_OR_CACHE_FLUSH_BIT);
+        DnsType type = DnsType.fromValue(typeValue);
+        DnsClass dnsClass = DnsClass.fromValue(classValue & ~QU_OR_CACHE_FLUSH_BIT);
 
-        return new DNSResourceRecord(name, type, typeValue,
+        return new DnsResourceRecord(name, type, typeValue,
                 dnsClass, classValue, ttl, rdata);
     }
 
@@ -623,16 +623,16 @@ public final class DNSMessage {
         writeShort(out, authorities.size());
         writeShort(out, additionals.size());
 
-        for (DNSQuestion q : questions) {
+        for (DnsQuestion q : questions) {
             writeQuestion(out, q, compressionTable);
         }
-        for (DNSResourceRecord rr : answers) {
+        for (DnsResourceRecord rr : answers) {
             writeResourceRecord(out, rr, compressionTable);
         }
-        for (DNSResourceRecord rr : authorities) {
+        for (DnsResourceRecord rr : authorities) {
             writeResourceRecord(out, rr, compressionTable);
         }
-        for (DNSResourceRecord rr : additionals) {
+        for (DnsResourceRecord rr : additionals) {
             writeResourceRecord(out, rr, compressionTable);
         }
         return out.size();
@@ -698,21 +698,21 @@ public final class DNSMessage {
         out.write(value & 0xFF);
     }
 
-    private static void writeQuestion(WireSink out, DNSQuestion q) {
+    private static void writeQuestion(WireSink out, DnsQuestion q) {
         byte[] name = encodeName(q.getName());
         out.write(name, 0, name.length);
         writeShort(out, q.getType().getValue());
         writeShort(out, questionClassValue(q));
     }
 
-    private static void writeQuestion(WireSink out, DNSQuestion q,
+    private static void writeQuestion(WireSink out, DnsQuestion q,
                                        Map<String, Integer> compressionTable) {
         writeNameCompressed(out, q.getName(), compressionTable);
         writeShort(out, q.getType().getValue());
         writeShort(out, questionClassValue(q));
     }
 
-    private static int questionClassValue(DNSQuestion q) {
+    private static int questionClassValue(DnsQuestion q) {
         int value = q.getDNSClass().getValue();
         if (q.isUnicastResponseRequested()) {
             value |= QU_OR_CACHE_FLUSH_BIT;
@@ -720,7 +720,7 @@ public final class DNSMessage {
         return value;
     }
 
-    private static void writeResourceRecord(WireSink out, DNSResourceRecord rr) {
+    private static void writeResourceRecord(WireSink out, DnsResourceRecord rr) {
         byte[] name = encodeName(rr.getName());
         out.write(name, 0, name.length);
         writeShort(out, rr.getRawType());
@@ -731,7 +731,7 @@ public final class DNSMessage {
         out.write(rdata, 0, rdata.length);
     }
 
-    private static void writeResourceRecord(WireSink out, DNSResourceRecord rr,
+    private static void writeResourceRecord(WireSink out, DnsResourceRecord rr,
                                               Map<String, Integer> compressionTable) {
         writeNameCompressed(out, rr.getName(), compressionTable);
         writeShort(out, rr.getRawType());
@@ -863,8 +863,8 @@ public final class DNSMessage {
      * @param answers the answer records
      * @return the response message
      */
-    public DNSMessage createResponse(List<DNSResourceRecord> answers) {
-        List<DNSResourceRecord> emptyList = Collections.emptyList();
+    public DnsMessage createResponse(List<DnsResourceRecord> answers) {
+        List<DnsResourceRecord> emptyList = Collections.emptyList();
         return createResponse(answers, emptyList, emptyList);
     }
 
@@ -879,11 +879,11 @@ public final class DNSMessage {
      * @param additionals the additional records
      * @return the response message
      */
-    public DNSMessage createResponse(List<DNSResourceRecord> answers,
-                                      List<DNSResourceRecord> authorities,
-                                      List<DNSResourceRecord> additionals) {
+    public DnsMessage createResponse(List<DnsResourceRecord> answers,
+                                      List<DnsResourceRecord> authorities,
+                                      List<DnsResourceRecord> additionals) {
         int responseFlags = FLAG_QR | FLAG_RA | (flags & FLAG_RD);
-        return new DNSMessage(id, responseFlags, questions, answers, authorities, additionals);
+        return new DnsMessage(id, responseFlags, questions, answers, authorities, additionals);
     }
 
     /**
@@ -892,10 +892,10 @@ public final class DNSMessage {
      * @param rcode the response code (e.g., RCODE_NXDOMAIN)
      * @return the error response message
      */
-    public DNSMessage createErrorResponse(int rcode) {
+    public DnsMessage createErrorResponse(int rcode) {
         int responseFlags = FLAG_QR | FLAG_RA | (flags & FLAG_RD) | (rcode & 0x0F);
-        List<DNSResourceRecord> emptyList = Collections.emptyList();
-        return new DNSMessage(id, responseFlags, questions, emptyList, emptyList, emptyList);
+        List<DnsResourceRecord> emptyList = Collections.emptyList();
+        return new DnsMessage(id, responseFlags, questions, emptyList, emptyList, emptyList);
     }
 
     /**
@@ -915,11 +915,11 @@ public final class DNSMessage {
      * @param type the record type
      * @return the query message
      */
-    public static DNSMessage createQuery(int id, String name, DNSType type) {
-        DNSQuestion question = new DNSQuestion(name, type, DNSClass.IN);
-        List<DNSQuestion> questions = Collections.singletonList(question);
-        List<DNSResourceRecord> emptyList = Collections.emptyList();
-        return new DNSMessage(id, FLAG_RD, questions, emptyList, emptyList, emptyList);
+    public static DnsMessage createQuery(int id, String name, DnsType type) {
+        DnsQuestion question = new DnsQuestion(name, type, DnsClass.IN);
+        List<DnsQuestion> questions = Collections.singletonList(question);
+        List<DnsResourceRecord> emptyList = Collections.emptyList();
+        return new DnsMessage(id, FLAG_RD, questions, emptyList, emptyList, emptyList);
     }
 
     /**
@@ -933,18 +933,18 @@ public final class DNSMessage {
      * @param additionals the additional section (typically containing an OPT record)
      * @return the query message
      */
-    public static DNSMessage createQuery(int id, String name, DNSType type,
-                                          List<DNSResourceRecord> additionals) {
-        DNSQuestion question = new DNSQuestion(name, type, DNSClass.IN);
-        List<DNSQuestion> questions = Collections.singletonList(question);
-        List<DNSResourceRecord> emptyList = Collections.emptyList();
-        return new DNSMessage(id, FLAG_RD, questions, emptyList, emptyList, additionals);
+    public static DnsMessage createQuery(int id, String name, DnsType type,
+                                          List<DnsResourceRecord> additionals) {
+        DnsQuestion question = new DnsQuestion(name, type, DnsClass.IN);
+        List<DnsQuestion> questions = Collections.singletonList(question);
+        List<DnsResourceRecord> emptyList = Collections.emptyList();
+        return new DnsMessage(id, FLAG_RD, questions, emptyList, emptyList, additionals);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DNSMessage{id=");
+        sb.append("DnsMessage{id=");
         sb.append(id);
         sb.append(", ");
         sb.append(isQuery() ? "QUERY" : "RESPONSE");

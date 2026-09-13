@@ -1,5 +1,5 @@
 /*
- * FTPFileSystem.java
+ * FtpFileSystem.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,7 +39,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.ftp.file.RoleAwareFTPFileSystem
  */
-public interface FTPFileSystem {
+public interface FtpFileSystem {
 
     /**
      * Lists the contents of a directory.
@@ -49,7 +49,7 @@ public interface FTPFileSystem {
      * @param metadata connection metadata for authorization context
      * @return list of file information, or null if the operation failed
      */
-    List<FTPFileInfo> listDirectory(String path, FTPConnectionMetadata metadata);
+    List<FtpFileInfo> listDirectory(String path, FtpConnectionMetadata metadata);
 
     /**
      * Changes the current working directory.
@@ -61,7 +61,7 @@ public interface FTPFileSystem {
      * @return operation result and the new absolute directory path
      */
     DirectoryChangeResult changeDirectory(String path, String currentDirectory, 
-                                        FTPConnectionMetadata metadata);
+                                        FtpConnectionMetadata metadata);
 
     /**
      * Gets information about a specific file or directory.
@@ -71,7 +71,7 @@ public interface FTPFileSystem {
      * @param metadata connection metadata for authorization context
      * @return file information, or null if the file/directory does not exist
      */
-    FTPFileInfo getFileInfo(String path, FTPConnectionMetadata metadata);
+    FtpFileInfo getFileInfo(String path, FtpConnectionMetadata metadata);
 
     /**
      * Creates a new directory.
@@ -81,7 +81,7 @@ public interface FTPFileSystem {
      * @param metadata connection metadata for authorization context
      * @return operation result
      */
-    FTPFileOperationResult createDirectory(String path, FTPConnectionMetadata metadata);
+    FtpFileOperationResult createDirectory(String path, FtpConnectionMetadata metadata);
 
     /**
      * Removes an empty directory.
@@ -91,7 +91,7 @@ public interface FTPFileSystem {
      * @param metadata connection metadata for authorization context
      * @return operation result
      */
-    FTPFileOperationResult removeDirectory(String path, FTPConnectionMetadata metadata);
+    FtpFileOperationResult removeDirectory(String path, FtpConnectionMetadata metadata);
 
     /**
      * Deletes a file.
@@ -101,7 +101,7 @@ public interface FTPFileSystem {
      * @param metadata connection metadata for authorization context
      * @return operation result
      */
-    FTPFileOperationResult deleteFile(String path, FTPConnectionMetadata metadata);
+    FtpFileOperationResult deleteFile(String path, FtpConnectionMetadata metadata);
 
     /**
      * Renames or moves a file or directory.
@@ -112,8 +112,8 @@ public interface FTPFileSystem {
      * @param metadata connection metadata for authorization context
      * @return operation result
      */
-    FTPFileOperationResult rename(String fromPath, String toPath, 
-                                FTPConnectionMetadata metadata);
+    FtpFileOperationResult rename(String fromPath, String toPath, 
+                                FtpConnectionMetadata metadata);
 
     /**
      * Opens a file for reading (download) using NIO channels.
@@ -133,7 +133,7 @@ public interface FTPFileSystem {
      * @return readable channel for the file data, or null if the operation failed
      */
     ReadableByteChannel openForReading(String path, long restartOffset, 
-                                     FTPConnectionMetadata metadata);
+                                     FtpConnectionMetadata metadata);
 
     /**
      * Opens a file for writing (upload) using NIO channels.
@@ -153,7 +153,7 @@ public interface FTPFileSystem {
      * @return writable channel for writing file data, or null if the operation failed
      */
     WritableByteChannel openForWriting(String path, boolean append, 
-                                     FTPConnectionMetadata metadata);
+                                     FtpConnectionMetadata metadata);
 
     /**
      * Resolves a path for asynchronous file read operations.
@@ -167,7 +167,7 @@ public interface FTPFileSystem {
      * @return resolved Path for AsynchronousFileChannel, or null
      */
     default Path resolvePathForAsyncRead(String path, long restartOffset,
-            FTPConnectionMetadata metadata) {
+            FtpConnectionMetadata metadata) {
         return null;
     }
 
@@ -183,7 +183,7 @@ public interface FTPFileSystem {
      * @return resolved Path for AsynchronousFileChannel, or null
      */
     default Path resolvePathForAsyncWrite(String path, boolean append,
-            FTPConnectionMetadata metadata) {
+            FtpConnectionMetadata metadata) {
         return null;
     }
 
@@ -197,7 +197,7 @@ public interface FTPFileSystem {
      * @return unique file name result
      */
     UniqueNameResult generateUniqueName(String basePath, String suggestedName, 
-                                      FTPConnectionMetadata metadata);
+                                      FtpConnectionMetadata metadata);
 
     /**
      * Allocates space for a file (optional operation).
@@ -208,25 +208,25 @@ public interface FTPFileSystem {
      * @param metadata connection metadata for authorization context
      * @return operation result
      */
-    default FTPFileOperationResult allocateSpace(String path, long size, 
-                                               FTPConnectionMetadata metadata) {
+    default FtpFileOperationResult allocateSpace(String path, long size, 
+                                               FtpConnectionMetadata metadata) {
         // Default implementation treats ALLO as successful no-op
-        return FTPFileOperationResult.SUCCESS;
+        return FtpFileOperationResult.SUCCESS;
     }
 
     /**
      * Result of a directory change operation.
      */
     class DirectoryChangeResult {
-        private final FTPFileOperationResult result;
+        private final FtpFileOperationResult result;
         private final String newDirectory;
 
-        public DirectoryChangeResult(FTPFileOperationResult result, String newDirectory) {
+        public DirectoryChangeResult(FtpFileOperationResult result, String newDirectory) {
             this.result = result;
             this.newDirectory = newDirectory;
         }
 
-        public FTPFileOperationResult getResult() {
+        public FtpFileOperationResult getResult() {
             return result;
         }
 
@@ -239,15 +239,15 @@ public interface FTPFileSystem {
      * Result of a unique name generation operation.
      */
     class UniqueNameResult {
-        private final FTPFileOperationResult result;
+        private final FtpFileOperationResult result;
         private final String uniquePath;
 
-        public UniqueNameResult(FTPFileOperationResult result, String uniquePath) {
+        public UniqueNameResult(FtpFileOperationResult result, String uniquePath) {
             this.result = result;
             this.uniquePath = uniquePath;
         }
 
-        public FTPFileOperationResult getResult() {
+        public FtpFileOperationResult getResult() {
             return result;
         }
 

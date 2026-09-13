@@ -82,7 +82,7 @@ public final class SniCredentialsResolver implements ServerCredentialsResolver {
             return cached;
         }
         try {
-            ServerCredentials creds = TLSUtils.loadServerCredentials(keyStore, password, alias);
+            ServerCredentials creds = TlsUtils.loadServerCredentials(keyStore, password, alias);
             cache.put(alias, creds);
             return creds;
         } catch (GeneralSecurityException e) {

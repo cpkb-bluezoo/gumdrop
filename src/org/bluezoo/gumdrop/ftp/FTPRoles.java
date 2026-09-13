@@ -1,5 +1,5 @@
 /*
- * FTPRoles.java
+ * FtpRoles.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -54,10 +54,10 @@ package org.bluezoo.gumdrop.ftp;
  * }</pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see FTPOperation
- * @see FTPConnectionHandler#isAuthorized(FTPOperation, String, FTPConnectionMetadata)
+ * @see FtpOperation
+ * @see FtpConnectionHandler#isAuthorized(FtpOperation, String, FtpConnectionMetadata)
  */
-public final class FTPRoles {
+public final class FtpRoles {
     
     /**
      * Read-only access role.
@@ -87,7 +87,7 @@ public final class FTPRoles {
     public static final String ADMIN = "ftp-admin";
     
     // Prevent instantiation
-    private FTPRoles() {
+    private FtpRoles() {
     }
 }
 

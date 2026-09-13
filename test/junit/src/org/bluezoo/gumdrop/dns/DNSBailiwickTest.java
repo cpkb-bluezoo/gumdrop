@@ -17,20 +17,20 @@ public class DNSBailiwickTest {
 
     @Test
     public void testIsWithinBailiwick() {
-        assertTrue(DNSBailiwick.isWithinBailiwick("www.example.com", "example.com"));
-        assertTrue(DNSBailiwick.isWithinBailiwick("example.com.", "example.com"));
-        assertFalse(DNSBailiwick.isWithinBailiwick("example.com", "co.uk"));
-        assertFalse(DNSBailiwick.isWithinBailiwick("evil.co.uk", "example.co.uk"));
+        assertTrue(DnsBailiwick.isWithinBailiwick("www.example.com", "example.com"));
+        assertTrue(DnsBailiwick.isWithinBailiwick("example.com.", "example.com"));
+        assertFalse(DnsBailiwick.isWithinBailiwick("example.com", "co.uk"));
+        assertFalse(DnsBailiwick.isWithinBailiwick("evil.co.uk", "example.co.uk"));
     }
 
     @Test
     public void testFilterAnswersRejectsOutOfBailiwick() throws Exception {
-        DNSResourceRecord in = DNSResourceRecord.a("host.example.com", 300,
+        DnsResourceRecord in = DnsResourceRecord.a("host.example.com", 300,
                 java.net.InetAddress.getByAddress(new byte[]{1, 2, 3, 4}));
-        DNSResourceRecord out = DNSResourceRecord.a("host.evil.com", 300,
+        DnsResourceRecord out = DnsResourceRecord.a("host.evil.com", 300,
                 java.net.InetAddress.getByAddress(new byte[]{5, 6, 7, 8}));
-        List<DNSResourceRecord> answers = Arrays.asList(in, out);
-        List<DNSResourceRecord> filtered = DNSBailiwick.filterAnswersInBailiwick(
+        List<DnsResourceRecord> answers = Arrays.asList(in, out);
+        List<DnsResourceRecord> filtered = DnsBailiwick.filterAnswersInBailiwick(
                 "example.com", answers);
         assertEquals(1, filtered.size());
         assertEquals("host.example.com", filtered.get(0).getName());
@@ -38,6 +38,6 @@ public class DNSBailiwickTest {
 
     @Test
     public void testNamesEqualIgnoresCaseAndTrailingDot() {
-        assertTrue(DNSBailiwick.namesEqual("Example.COM.", "example.com"));
+        assertTrue(DnsBailiwick.namesEqual("Example.COM.", "example.com"));
     }
 }

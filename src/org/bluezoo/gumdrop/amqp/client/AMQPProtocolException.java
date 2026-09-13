@@ -1,5 +1,5 @@
 /*
- * AMQPProtocolException.java
+ * AmqpProtocolException.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -30,15 +30,15 @@ import java.io.IOException;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class AMQPProtocolException extends IOException {
+public class AmqpProtocolException extends IOException {
 
     private static final long serialVersionUID = 1L;
 
-    public AMQPProtocolException(String message) {
+    public AmqpProtocolException(String message) {
         super(message);
     }
 
-    public AMQPProtocolException(String message, Throwable cause) {
+    public AmqpProtocolException(String message, Throwable cause) {
         super(message, cause);
     }
 }

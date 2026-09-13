@@ -34,7 +34,7 @@ import java.nio.ByteBuffer;
  *
  * <p>Every {@code encode*} method returns a complete method-frame payload
  * (class ID + method ID + arguments), ready to hand to
- * {@link AMQPFrame#encode}. Every {@code decode*} method reads from a
+ * {@link AmqpFrame#encode}. Every {@code decode*} method reads from a
  * payload positioned just after the class ID and method ID (which the
  * caller has already dispatched on).
  *
@@ -63,7 +63,7 @@ final class ConnectionMethods {
         }
     }
 
-    static Start decodeStart(ByteBuffer payload) throws AMQPProtocolException {
+    static Start decodeStart(ByteBuffer payload) throws AmqpProtocolException {
         int major = payload.get() & 0xFF;
         int minor = payload.get() & 0xFF;
         int tableLen = payload.getInt();
@@ -80,8 +80,8 @@ final class ConnectionMethods {
                 + FieldTable.longStringEncodedSize(mechanisms)
                 + FieldTable.longStringEncodedSize(locales);
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
-        buf.putShort((short) AMQPMethod.CONNECTION_START);
+        buf.putShort((short) AmqpMethod.CLASS_CONNECTION);
+        buf.putShort((short) AmqpMethod.CONNECTION_START);
         buf.put((byte) versionMajor);
         buf.put((byte) versionMinor);
         ByteBuffer props = serverProperties.encode();
@@ -108,7 +108,7 @@ final class ConnectionMethods {
         }
     }
 
-    static StartOk decodeStartOk(ByteBuffer payload) throws AMQPProtocolException {
+    static StartOk decodeStartOk(ByteBuffer payload) throws AmqpProtocolException {
         int tableLen = payload.getInt();
         FieldTable clientProperties = FieldTable.decode(payload, tableLen);
         String mechanism = FieldTable.getShortString(payload);
@@ -128,8 +128,8 @@ final class ConnectionMethods {
                 + 4 + response.length
                 + FieldTable.shortStringEncodedSize(locale);
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
-        buf.putShort((short) AMQPMethod.CONNECTION_START_OK);
+        buf.putShort((short) AmqpMethod.CLASS_CONNECTION);
+        buf.putShort((short) AmqpMethod.CONNECTION_START_OK);
         ByteBuffer props = clientProperties.encode();
         buf.putInt(props.remaining());
         buf.put(props);
@@ -156,8 +156,8 @@ final class ConnectionMethods {
     /** {@code connection.secure-ok} (10,21) — sent by the client. */
     static ByteBuffer encodeSecureOk(byte[] response) {
         ByteBuffer buf = ByteBuffer.allocate(4 + 4 + response.length);
-        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
-        buf.putShort((short) AMQPMethod.CONNECTION_SECURE_OK);
+        buf.putShort((short) AmqpMethod.CLASS_CONNECTION);
+        buf.putShort((short) AmqpMethod.CONNECTION_SECURE_OK);
         buf.putInt(response.length);
         buf.put(response);
         buf.flip();
@@ -186,8 +186,8 @@ final class ConnectionMethods {
 
     static ByteBuffer encodeTune(int channelMax, long frameMax, int heartbeat) {
         ByteBuffer buf = ByteBuffer.allocate(4 + 2 + 4 + 2);
-        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
-        buf.putShort((short) AMQPMethod.CONNECTION_TUNE);
+        buf.putShort((short) AmqpMethod.CLASS_CONNECTION);
+        buf.putShort((short) AmqpMethod.CONNECTION_TUNE);
         buf.putShort((short) channelMax);
         buf.putInt((int) frameMax);
         buf.putShort((short) heartbeat);
@@ -198,8 +198,8 @@ final class ConnectionMethods {
     /** {@code connection.tune-ok} (10,31) — sent by the client. */
     static ByteBuffer encodeTuneOk(int channelMax, long frameMax, int heartbeat) {
         ByteBuffer buf = ByteBuffer.allocate(4 + 2 + 4 + 2);
-        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
-        buf.putShort((short) AMQPMethod.CONNECTION_TUNE_OK);
+        buf.putShort((short) AmqpMethod.CLASS_CONNECTION);
+        buf.putShort((short) AmqpMethod.CONNECTION_TUNE_OK);
         buf.putShort((short) channelMax);
         buf.putInt((int) frameMax);
         buf.putShort((short) heartbeat);
@@ -217,8 +217,8 @@ final class ConnectionMethods {
                 + FieldTable.shortStringEncodedSize("") // reserved-1 (capabilities)
                 + 1; // reserved-2 (insist bit)
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
-        buf.putShort((short) AMQPMethod.CONNECTION_OPEN);
+        buf.putShort((short) AmqpMethod.CLASS_CONNECTION);
+        buf.putShort((short) AmqpMethod.CONNECTION_OPEN);
         FieldTable.putShortString(buf, virtualHost);
         FieldTable.putShortString(buf, "");
         buf.put(AMQPBits.pack(false));
@@ -226,19 +226,19 @@ final class ConnectionMethods {
         return buf;
     }
 
-    static String decodeOpen(ByteBuffer payload) throws AMQPProtocolException {
+    static String decodeOpen(ByteBuffer payload) throws AmqpProtocolException {
         return FieldTable.getShortString(payload); // virtual-host
     }
 
     /** {@code connection.open-ok} (10,41) — sent by the server; no fields we care about. */
-    static void decodeOpenOk(ByteBuffer payload) throws AMQPProtocolException {
+    static void decodeOpenOk(ByteBuffer payload) throws AmqpProtocolException {
         FieldTable.getShortString(payload); // reserved-1 (known-hosts), discarded
     }
 
     static ByteBuffer encodeOpenOk() {
         ByteBuffer buf = ByteBuffer.allocate(4 + FieldTable.shortStringEncodedSize(""));
-        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
-        buf.putShort((short) AMQPMethod.CONNECTION_OPEN_OK);
+        buf.putShort((short) AmqpMethod.CLASS_CONNECTION);
+        buf.putShort((short) AmqpMethod.CONNECTION_OPEN_OK);
         FieldTable.putShortString(buf, "");
         buf.flip();
         return buf;
@@ -263,8 +263,8 @@ final class ConnectionMethods {
     static ByteBuffer encodeClose(int replyCode, String replyText) {
         int size = 4 + 2 + FieldTable.shortStringEncodedSize(replyText) + 2 + 2;
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
-        buf.putShort((short) AMQPMethod.CONNECTION_CLOSE);
+        buf.putShort((short) AmqpMethod.CLASS_CONNECTION);
+        buf.putShort((short) AmqpMethod.CONNECTION_CLOSE);
         buf.putShort((short) replyCode);
         FieldTable.putShortString(buf, replyText);
         buf.putShort((short) 0);
@@ -273,7 +273,7 @@ final class ConnectionMethods {
         return buf;
     }
 
-    static CloseReason decodeClose(ByteBuffer payload) throws AMQPProtocolException {
+    static CloseReason decodeClose(ByteBuffer payload) throws AmqpProtocolException {
         int replyCode = payload.getShort() & 0xFFFF;
         String replyText = FieldTable.getShortString(payload);
         int classId = payload.getShort() & 0xFFFF;
@@ -284,8 +284,8 @@ final class ConnectionMethods {
     /** {@code connection.close-ok} (10,51) — sent by either peer; no arguments. */
     static ByteBuffer encodeCloseOk() {
         ByteBuffer buf = ByteBuffer.allocate(4);
-        buf.putShort((short) AMQPMethod.CLASS_CONNECTION);
-        buf.putShort((short) AMQPMethod.CONNECTION_CLOSE_OK);
+        buf.putShort((short) AmqpMethod.CLASS_CONNECTION);
+        buf.putShort((short) AmqpMethod.CONNECTION_CLOSE_OK);
         buf.flip();
         return buf;
     }

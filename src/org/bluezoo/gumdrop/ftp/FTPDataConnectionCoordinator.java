@@ -1,5 +1,5 @@
 /*
- * FTPDataConnectionCoordinator.java
+ * FtpDataConnectionCoordinator.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -51,8 +51,8 @@ import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPEndpoint;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpEndpoint;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.TransportFactory;
 
@@ -75,9 +75,9 @@ import org.bluezoo.gumdrop.TransportFactory;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class FTPDataConnectionCoordinator {
+public class FtpDataConnectionCoordinator {
     
-    private static final Logger LOGGER = Logger.getLogger(FTPDataConnectionCoordinator.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(FtpDataConnectionCoordinator.class.getName());
     
     /** Buffer size for file transfers (32KB for optimal performance) */
     private static final int TRANSFER_BUFFER_SIZE = 32 * 1024;
@@ -116,12 +116,12 @@ public class FTPDataConnectionCoordinator {
         private final String path;
         private final boolean append; // For STOR vs APPE
         private final long restartOffset; // For REST command
-        private final FTPConnectionHandler handler;
-        private final FTPConnectionMetadata metadata;
+        private final FtpConnectionHandler handler;
+        private final FtpConnectionMetadata metadata;
         
         public PendingTransfer(TransferType type, String path, boolean append, 
-                             long restartOffset, FTPConnectionHandler handler, 
-                             FTPConnectionMetadata metadata) {
+                             long restartOffset, FtpConnectionHandler handler, 
+                             FtpConnectionMetadata metadata) {
             this.type = type;
             this.path = path;
             this.append = append;
@@ -134,8 +134,8 @@ public class FTPDataConnectionCoordinator {
         public String getPath() { return path; }
         public boolean isAppend() { return append; }
         public long getRestartOffset() { return restartOffset; }
-        public FTPConnectionHandler getHandler() { return handler; }
-        public FTPConnectionMetadata getMetadata() { return metadata; }
+        public FtpConnectionHandler getHandler() { return handler; }
+        public FtpConnectionMetadata getMetadata() { return metadata; }
     }
     
     private final FTPControlConnection controlConnection;
@@ -179,7 +179,7 @@ public class FTPDataConnectionCoordinator {
     // RFC 4217 section 10: control connection client address for verification
     private InetAddress controlClientAddress;
     
-    public FTPDataConnectionCoordinator(FTPControlConnection controlConnection) {
+    public FtpDataConnectionCoordinator(FTPControlConnection controlConnection) {
         this.controlConnection = controlConnection;
         this.incomingDataConnections = new LinkedBlockingQueue<>();
     }
@@ -226,7 +226,7 @@ public class FTPDataConnectionCoordinator {
             // System-assigned, unless the listener restricts passive mode
             // to a configured port range (issue #145) - e.g. deployments
             // behind a firewall that only forwards a fixed range.
-            FTPListener server = controlConnection.getServer();
+            FtpListener server = controlConnection.getServer();
             int minPort = (server != null) ? server.getPasvMinPort() : 0;
             int maxPort = (server != null) ? server.getPasvMaxPort() : 0;
             if (minPort > 0 && maxPort >= minPort) {
@@ -280,7 +280,7 @@ public class FTPDataConnectionCoordinator {
      * Configures active mode data connection (RFC 959 section 4.1.2 PORT).
      * Stores the client's address for a later outbound connection.
      *
-     * <p>RFC 4217 section 10: unless {@link FTPListener#isAllowActiveModeBounce()}
+     * <p>RFC 4217 section 10: unless {@link FtpListener#isAllowActiveModeBounce()}
      * is enabled, the data address must match the control connection client IP.
      *
      * @param host client's host address
@@ -293,7 +293,7 @@ public class FTPDataConnectionCoordinator {
             if (!isActiveDataAddressAllowed(dataAddress)) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.warning(MessageFormat.format(
-                            FTPProtocolHandler.L10N.getString("warn.active_mode_address_mismatch"),
+                            FtpProtocolHandler.L10N.getString("warn.active_mode_address_mismatch"),
                             dataAddress, controlClientAddress));
                 }
                 return false;
@@ -322,7 +322,7 @@ public class FTPDataConnectionCoordinator {
      * client's IP unless the listener explicitly allows FTP bounce.
      */
     private boolean isActiveDataAddressAllowed(InetAddress dataAddress) {
-        FTPListener server = controlConnection.getServer();
+        FtpListener server = controlConnection.getServer();
         if (server != null && server.isAllowActiveModeBounce()) {
             return true;
         }
@@ -357,7 +357,7 @@ public class FTPDataConnectionCoordinator {
                 InetAddress dataAddr = ((InetSocketAddress) sc.getRemoteAddress()).getAddress();
                 if (!controlClientAddress.equals(dataAddr)) {
                     LOGGER.warning(MessageFormat.format(
-                            FTPProtocolHandler.L10N.getString("warn.data_connection_address_mismatch"),
+                            FtpProtocolHandler.L10N.getString("warn.data_connection_address_mismatch"),
                             dataAddr, controlClientAddress));
                     dataConnection.close();
                     return;
@@ -649,7 +649,7 @@ public class FTPDataConnectionCoordinator {
                 channel.socket().connect(new InetSocketAddress(host, port),
                         (int) DATA_CONNECTION_TIMEOUT_MS);
                 return new FTPDataConnection(channel,
-                        FTPDataConnectionCoordinator.this);
+                        FtpDataConnectionCoordinator.this);
             }
         }, new StorageExecutor.Callback<FTPDataConnection>() {
             @Override
@@ -703,7 +703,7 @@ public class FTPDataConnectionCoordinator {
             waitingContinuation = null;
             connectionTimeout = null;
         }
-        LOGGER.warning(FTPProtocolHandler.L10N.getString("warn.data_connection_timeout"));
+        LOGGER.warning(FtpProtocolHandler.L10N.getString("warn.data_connection_timeout"));
         cleanup();
         callback.transferFailed(
                 new IOException("Timeout waiting for client data connection"));
@@ -755,7 +755,7 @@ public class FTPDataConnectionCoordinator {
 
     private void beginDownload(final Endpoint controlEndpoint,
             final PendingTransfer transfer, final TransferCallback callback) {
-        final FTPFileSystem fs = transfer.getHandler().getFileSystem(
+        final FtpFileSystem fs = transfer.getHandler().getFileSystem(
                 transfer.getMetadata());
         if (fs == null) {
             cleanup();
@@ -835,28 +835,28 @@ public class FTPDataConnectionCoordinator {
      * immediately-secure endpoint when protection is on, regardless of
      * whether the control connection itself used implicit or explicit
      * TLS. The SSL engine is built from the same {@link
-     * TCPTransportFactory} (and therefore the same keystore/context) that
+     * TcpTransportFactory} (and therefore the same keystore/context) that
      * secured the control connection, via {@link
-     * FTPListener#getTransportFactory()}.
+     * FtpListener#getTransportFactory()}.
      */
-    private TCPEndpoint registerDataEndpoint(SocketChannel dataSc,
+    private TcpEndpoint registerDataEndpoint(SocketChannel dataSc,
             ProtocolHandler dataHandler, SelectorLoop loop) throws IOException {
         dataSc.configureBlocking(false);
 
-        TCPEndpoint dataEndpoint;
+        TcpEndpoint dataEndpoint;
         if (dataProtection) {
-            FTPListener server = controlConnection.getServer();
+            FtpListener server = controlConnection.getServer();
             TransportFactory factory =
                     server != null ? server.getTransportFactory() : null;
-            if (!(factory instanceof TCPTransportFactory)) {
+            if (!(factory instanceof TcpTransportFactory)) {
                 throw new IOException(
                         "PROT P is active but no TLS-capable transport "
                                 + "factory is available for the data connection");
             }
-            dataEndpoint = ((TCPTransportFactory) factory)
+            dataEndpoint = ((TcpTransportFactory) factory)
                     .createServerEndpoint(dataSc, dataHandler, true);
         } else {
-            dataEndpoint = new TCPEndpoint(dataHandler);
+            dataEndpoint = new TcpEndpoint(dataHandler);
             dataEndpoint.setChannel(dataSc);
             dataEndpoint.init();
         }
@@ -874,7 +874,7 @@ public class FTPDataConnectionCoordinator {
 
         DownloadTransferHandler downloadHandler =
                 new DownloadTransferHandler(asyncChannel, transfer, callback);
-        TCPEndpoint dataEndpoint = registerDataEndpoint(dataSc, downloadHandler, loop);
+        TcpEndpoint dataEndpoint = registerDataEndpoint(dataSc, downloadHandler, loop);
         downloadHandler.setEndpoint(dataEndpoint);
         if (!dataEndpoint.isSecure()) {
             downloadHandler.writeNextChunk();
@@ -917,7 +917,7 @@ public class FTPDataConnectionCoordinator {
 
     private void beginListing(final Endpoint controlEndpoint,
             final PendingTransfer transfer, final TransferCallback callback) {
-        final FTPFileSystem fs = transfer.getHandler().getFileSystem(
+        final FtpFileSystem fs = transfer.getHandler().getFileSystem(
                 transfer.getMetadata());
         if (fs == null) {
             cleanup();
@@ -936,10 +936,10 @@ public class FTPDataConnectionCoordinator {
             return;
         }
 
-        exec.submit(controlEndpoint, new Callable<List<FTPFileInfo>>() {
+        exec.submit(controlEndpoint, new Callable<List<FtpFileInfo>>() {
             @Override
-            public List<FTPFileInfo> call() throws IOException {
-                List<FTPFileInfo> files = fs.listDirectory(
+            public List<FtpFileInfo> call() throws IOException {
+                List<FtpFileInfo> files = fs.listDirectory(
                         transfer.getPath(), transfer.getMetadata());
                 if (files == null) {
                     throw new IOException("Failed to list directory: "
@@ -947,9 +947,9 @@ public class FTPDataConnectionCoordinator {
                 }
                 return files;
             }
-        }, new StorageExecutor.Callback<List<FTPFileInfo>>() {
+        }, new StorageExecutor.Callback<List<FtpFileInfo>>() {
             @Override
-            public void completed(List<FTPFileInfo> files) {
+            public void completed(List<FtpFileInfo> files) {
                 try {
                     registerListingHandler(controlEndpoint, files,
                             transfer, callback);
@@ -975,14 +975,14 @@ public class FTPDataConnectionCoordinator {
     }
 
     private void registerListingHandler(Endpoint controlEndpoint,
-            List<FTPFileInfo> files, PendingTransfer transfer,
+            List<FtpFileInfo> files, PendingTransfer transfer,
             TransferCallback callback) throws IOException {
         SelectorLoop loop = controlEndpoint.getSelectorLoop();
         SocketChannel dataSc = activeDataConnection.getChannel();
 
         ListingTransferHandler listingHandler =
                 new ListingTransferHandler(files, transfer, callback);
-        TCPEndpoint dataEndpoint = registerDataEndpoint(dataSc, listingHandler, loop);
+        TcpEndpoint dataEndpoint = registerDataEndpoint(dataSc, listingHandler, loop);
         listingHandler.setEndpoint(dataEndpoint);
         if (!dataEndpoint.isSecure()) {
             listingHandler.sendNextChunk();
@@ -1041,7 +1041,7 @@ public class FTPDataConnectionCoordinator {
 
     private void beginUpload(final Endpoint controlEndpoint,
             final PendingTransfer transfer, final TransferCallback callback) {
-        final FTPFileSystem fs = transfer.getHandler().getFileSystem(
+        final FtpFileSystem fs = transfer.getHandler().getFileSystem(
                 transfer.getMetadata());
         if (fs == null) {
             cleanup();
@@ -1066,11 +1066,11 @@ public class FTPDataConnectionCoordinator {
                 String targetPath = transfer.getPath();
                 if (transfer.getType() == TransferType.UPLOAD
                         && targetPath.isEmpty()) {
-                    FTPFileSystem.UniqueNameResult uniqueResult =
+                    FtpFileSystem.UniqueNameResult uniqueResult =
                             fs.generateUniqueName(
                                     "/", null, transfer.getMetadata());
                     if (uniqueResult.getResult()
-                            != FTPFileOperationResult.SUCCESS) {
+                            != FtpFileOperationResult.SUCCESS) {
                         throw new IOException(
                                 "Failed to generate unique filename");
                     }
@@ -1147,7 +1147,7 @@ public class FTPDataConnectionCoordinator {
                 new UploadTransferHandler(
                         openResult.channel, transfer, callback,
                         openResult.initialPosition);
-        TCPEndpoint dataEndpoint = registerDataEndpoint(dataSc, uploadHandler, loop);
+        TcpEndpoint dataEndpoint = registerDataEndpoint(dataSc, uploadHandler, loop);
         uploadHandler.setEndpoint(dataEndpoint);
     }
 
@@ -1158,7 +1158,7 @@ public class FTPDataConnectionCoordinator {
     private class ListingTransferHandler
             implements ProtocolHandler, Runnable {
 
-        private final Iterator<FTPFileInfo> files;
+        private final Iterator<FtpFileInfo> files;
         private final TransferType transferType;
         private final PendingTransfer transfer;
         private final TransferCallback callback;
@@ -1174,7 +1174,7 @@ public class FTPDataConnectionCoordinator {
         private byte[] carry;
         private int carryOffset;
 
-        ListingTransferHandler(List<FTPFileInfo> files,
+        ListingTransferHandler(List<FtpFileInfo> files,
                 PendingTransfer transfer,
                 TransferCallback callback) {
             this.files = files.iterator();
@@ -1240,7 +1240,7 @@ public class FTPDataConnectionCoordinator {
             }
         }
 
-        private String formatLine(FTPFileInfo file) {
+        private String formatLine(FtpFileInfo file) {
             String body;
             if (transferType == TransferType.NAME_LIST) {
                 body = file.getName();
@@ -1645,6 +1645,6 @@ public class FTPDataConnectionCoordinator {
      */
     private static boolean isAsciiType(PendingTransfer transfer) {
         return transfer.getMetadata().getTransferType()
-                == FTPConnectionMetadata.FTPTransferType.ASCII;
+                == FtpConnectionMetadata.FtpTransferType.ASCII;
     }
 }

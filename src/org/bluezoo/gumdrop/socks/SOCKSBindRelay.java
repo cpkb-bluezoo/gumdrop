@@ -77,7 +77,7 @@ class SOCKSBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
     }
 
     private final Endpoint controlEndpoint;
-    private final SOCKSService service;
+    private final SocksServer service;
     private final long idleTimeoutMs;
     private final InetAddress expectedPeerAddress;
     private final Callback callback;
@@ -97,7 +97,7 @@ class SOCKSBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
      *        request's DST.ADDR, or null if any peer is accepted
      * @param callback the protocol handler callback
      */
-    SOCKSBindRelay(Endpoint controlEndpoint, SOCKSService service,
+    SOCKSBindRelay(Endpoint controlEndpoint, SocksServer service,
                    long idleTimeoutMs,
                    InetAddress expectedPeerAddress,
                    Callback callback) {
@@ -190,7 +190,7 @@ class SOCKSBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
                         // ignore
                     }
                     callback.bindFailed(
-                            SOCKSConstants.SOCKS5_REPLY_NOT_ALLOWED);
+                            SocksConstants.SOCKS5_REPLY_NOT_ALLOWED);
                     return;
                 }
 
@@ -209,7 +209,7 @@ class SOCKSBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
                         // ignore
                     }
                     callback.bindFailed(
-                            SOCKSConstants.SOCKS5_REPLY_NOT_ALLOWED);
+                            SocksConstants.SOCKS5_REPLY_NOT_ALLOWED);
                     return;
                 }
 
@@ -270,7 +270,7 @@ class SOCKSBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
                             }
                             closeServerChannel();
                             callback.bindFailed(
-                                    SOCKSConstants
+                                    SocksConstants
                                             .SOCKS5_REPLY_TTL_EXPIRED);
                         }
                     }

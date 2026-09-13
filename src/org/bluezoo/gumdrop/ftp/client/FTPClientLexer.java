@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * this lexer never enters a raw escape.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see FTPClientProtocolHandler
+ * @see FtpClientProtocolHandler
  */
 final class FTPClientLexer extends ByteStreamLexer<FTPClientLexer.Token> {
 

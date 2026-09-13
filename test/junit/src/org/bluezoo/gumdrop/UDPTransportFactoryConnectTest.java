@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Regression test for {@link UDPTransportFactory#connect}: a datagram
+ * Regression test for {@link UdpTransportFactory#connect}: a datagram
  * sent synchronously from within the client {@link ProtocolHandler}'s
  * {@code connected()} callback must actually reach the peer.
  *
@@ -50,7 +50,7 @@ import static org.junit.Assert.*;
  * no-ops when the endpoint's {@code SelectionKey} isn't set yet
  * ({@code handler.getSelectionKey()} returns null), so the datagram
  * was queued but never actually flushed -- lost with no error.
- * {@link TCPTransportFactory#connect} already avoids the equivalent
+ * {@link TcpTransportFactory#connect} already avoids the equivalent
  * race by dispatching through {@code SelectorLoop.invokeLater}; this
  * verifies the UDP factory does the same.
  *
@@ -66,7 +66,7 @@ public class UDPTransportFactoryConnectTest {
 
     /**
      * Mirrors the exact call shape that exposed this race in {@code
-     * DNSService.proxyToUpstream}: {@code Gumdrop.start()} (a
+     * DnsServer.proxyToUpstream}: {@code Gumdrop.start()} (a
      * brand-new worker thread that has not yet reached its first
      * {@code select()}) immediately followed, on the very same call
      * stack with no intervening yield point, by {@code connect()} and
@@ -82,13 +82,13 @@ public class UDPTransportFactoryConnectTest {
         Gumdrop gumdrop = Gumdrop.getInstance();
         gumdrop.start();
 
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
 
         final CountDownLatch received = new CountDownLatch(1);
         final AtomicReference<byte[]> receivedData = new AtomicReference<>();
 
-        UDPEndpoint server = factory.createServerEndpoint(
+        UdpEndpoint server = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0,
                 new ProtocolHandler() {
                     @Override
@@ -119,7 +119,7 @@ public class UDPTransportFactoryConnectTest {
             int port = ((InetSocketAddress) server.getLocalAddress()).getPort();
             final byte[] payload = "hello".getBytes(StandardCharsets.US_ASCII);
 
-            UDPEndpoint client = factory.connect(
+            UdpEndpoint client = factory.connect(
                     InetAddress.getLoopbackAddress(), port,
                     new ProtocolHandler() {
                         @Override

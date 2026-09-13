@@ -53,7 +53,7 @@ public interface ClientChannel {
      * @param replyText a human-readable reason
      * @param handler receives {@code channel.close-ok}
      */
-    void close(int replyCode, String replyText, ServerChannelCloseHandler handler);
+    void close(int replyCode, String replyText, ChannelCloseHandler handler);
 
     /**
      * Declares an exchange.
@@ -67,7 +67,7 @@ public interface ClientChannel {
      * @param handler receives {@code exchange.declare-ok}
      */
     void exchangeDeclare(String exchange, String type, boolean durable, boolean autoDelete,
-            FieldTable arguments, ServerExchangeDeclareHandler handler);
+            FieldTable arguments, ExchangeDeclareHandler handler);
 
     /**
      * Declares a queue.
@@ -81,7 +81,7 @@ public interface ClientChannel {
      * @param handler receives {@code queue.declare-ok}
      */
     void queueDeclare(String queue, boolean durable, boolean exclusive, boolean autoDelete,
-            FieldTable arguments, ServerQueueDeclareHandler handler);
+            FieldTable arguments, QueueDeclareHandler handler);
 
     /**
      * Binds a queue to an exchange.
@@ -90,7 +90,7 @@ public interface ClientChannel {
      * @param handler receives {@code queue.bind-ok}
      */
     void queueBind(String queue, String exchange, String routingKey, FieldTable arguments,
-            ServerQueueBindHandler handler);
+            QueueBindHandler handler);
 
     /**
      * Publishes a message. AMQP has no delivery acknowledgement for a
@@ -130,13 +130,13 @@ public interface ClientChannel {
      * @param handler receives {@code basic.consume-ok}
      */
     void basicConsume(String queue, String consumerTag, boolean noAck, boolean exclusive,
-            FieldTable arguments, DeliveryHandler deliveryHandler, ServerConsumeHandler handler);
+            FieldTable arguments, DeliveryHandler deliveryHandler, ConsumeHandler handler);
 
     /**
      * Cancels a consumer. No more deliveries will arrive for it after
      * {@code handler} is invoked.
      */
-    void basicCancel(String consumerTag, ServerCancelHandler handler);
+    void basicCancel(String consumerTag, CancelHandler handler);
 
     /** Acknowledges one or more deliveries (see {@link DeliveryHandler}). */
     void basicAck(long deliveryTag, boolean multiple);
@@ -154,13 +154,13 @@ public interface ClientChannel {
      * sent afterwards are held by the broker until {@link #txCommit} or
      * {@link #txRollback}.
      */
-    void txSelect(ServerTxSelectHandler handler);
+    void txSelect(TxSelectHandler handler);
 
     /** Commits the current transaction. Requires a prior {@link #txSelect}. */
-    void txCommit(ServerTxCommitHandler handler);
+    void txCommit(TxCommitHandler handler);
 
     /** Rolls back the current transaction. Requires a prior {@link #txSelect}. */
-    void txRollback(ServerTxRollbackHandler handler);
+    void txRollback(TxRollbackHandler handler);
 
     // ── flow control ──
 
@@ -179,7 +179,7 @@ public interface ClientChannel {
      * sending content on this channel (e.g. slowing deliveries to a
      * consumer that can't keep up).
      */
-    void flow(boolean active, ServerFlowHandler handler);
+    void flow(boolean active, FlowHandler handler);
 
     // ── publisher confirms ──
 
@@ -189,7 +189,7 @@ public interface ClientChannel {
      * number (see {@link PublishBody#getSequenceNumber}) and the broker
      * acknowledges or rejects it via {@link ConfirmListener}.
      */
-    void confirmSelect(ServerConfirmSelectHandler handler);
+    void confirmSelect(ConfirmSelectHandler handler);
 
     /**
      * Registers the listener for publisher confirms after {@link

@@ -33,7 +33,7 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.pop3.client.handler.RemoteGreeting;
 
 /**
@@ -44,7 +44,7 @@ import org.bluezoo.gumdrop.pop3.client.handler.RemoteGreeting;
  * RFC 8314 section 3.3).
  *
  * <p>This class provides a simple, concrete API for connecting to POP3
- * servers. It internally creates a {@link TCPTransportFactory},
+ * servers. It internally creates a {@link TcpTransportFactory},
  * {@link ClientEndpoint}, and {@link Pop3ClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
  * {@link RemoteGreeting} handler.
@@ -110,7 +110,7 @@ public class Pop3Client {
     private String keystorePass;
     private String keystoreFormat;
 
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private Pop3ClientProtocolHandler endpointHandler;
 
@@ -175,7 +175,7 @@ public class Pop3Client {
 
     /**
      * Creates a POP3 client for a UNIX domain socket, mirroring {@link
-     * org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     * org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance.
@@ -292,7 +292,7 @@ public class Pop3Client {
      *                lifecycle events
      */
     public void connect(RemoteGreeting handler) {
-        transportFactory = new TCPTransportFactory();
+        transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);

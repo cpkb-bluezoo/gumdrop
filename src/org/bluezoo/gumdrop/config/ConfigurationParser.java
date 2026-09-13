@@ -80,7 +80,7 @@ public class ConfigurationParser extends DefaultHandler {
         map.put("connection-factory", "org.bluezoo.gumdrop.servlet.jndi.ConnectionFactory");
         map.put("administered-object", "org.bluezoo.gumdrop.servlet.jndi.AdministeredObject");
         map.put("mailbox-factory", "org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory");
-        map.put("ftp-handler-factory", "org.bluezoo.gumdrop.ftp.FTPConnectionHandlerFactory");
+        map.put("ftp-handler-factory", "org.bluezoo.gumdrop.ftp.FtpConnectionHandlerFactory");
         map.put("component", "java.lang.Object");
         DEFAULT_CLASS_NAMES = map;
     }
@@ -99,34 +99,68 @@ public class ConfigurationParser extends DefaultHandler {
                 "org.bluezoo.gumdrop.http.h3.Http3Listener");
         map.put("org.bluezoo.gumdrop.http.client.HTTPClient",
                 "org.bluezoo.gumdrop.http.client.HttpClient");
-        map.put("org.bluezoo.gumdrop.http.HTTPService",
+        map.put("org.bluezoo.gumdrop.http.HttpServer",
                 "org.bluezoo.gumdrop.http.HttpServer");
-        map.put("org.bluezoo.gumdrop.servlet.ServletService",
+        map.put("org.bluezoo.gumdrop.servlet.ServletServer",
                 "org.bluezoo.gumdrop.servlet.ServletServer");
-        map.put("org.bluezoo.gumdrop.webdav.WebDAVService",
+        map.put("org.bluezoo.gumdrop.webdav.WebdavServer",
                 "org.bluezoo.gumdrop.webdav.WebdavServer");
-        map.put("org.bluezoo.gumdrop.websocket.WebSocketService",
+        map.put("org.bluezoo.gumdrop.websocket.WebSocketServer",
                 "org.bluezoo.gumdrop.websocket.WebSocketServer");
-        map.put("org.bluezoo.gumdrop.smtp.SMTPService",
+        map.put("org.bluezoo.gumdrop.smtp.SmtpServer",
                 "org.bluezoo.gumdrop.smtp.SmtpServer");
         map.put("org.bluezoo.gumdrop.smtp.SMTPListener",
                 "org.bluezoo.gumdrop.smtp.SmtpListener");
-        map.put("org.bluezoo.gumdrop.smtp.LocalDeliveryService",
+        map.put("org.bluezoo.gumdrop.smtp.LocalDeliveryServer",
                 "org.bluezoo.gumdrop.smtp.LocalDeliveryServer");
-        map.put("org.bluezoo.gumdrop.smtp.SimpleRelayService",
+        map.put("org.bluezoo.gumdrop.smtp.SimpleRelayServer",
                 "org.bluezoo.gumdrop.smtp.SimpleRelayServer");
-        map.put("org.bluezoo.gumdrop.imap.IMAPService",
+        map.put("org.bluezoo.gumdrop.imap.ImapServer",
                 "org.bluezoo.gumdrop.imap.ImapServer");
         map.put("org.bluezoo.gumdrop.imap.IMAPListener",
                 "org.bluezoo.gumdrop.imap.ImapListener");
-        map.put("org.bluezoo.gumdrop.imap.DefaultIMAPService",
+        map.put("org.bluezoo.gumdrop.imap.DefaultIMAPServer",
                 "org.bluezoo.gumdrop.imap.DefaultIMAPServer");
-        map.put("org.bluezoo.gumdrop.pop3.POP3Service",
+        map.put("org.bluezoo.gumdrop.pop3.Pop3Server",
                 "org.bluezoo.gumdrop.pop3.Pop3Server");
         map.put("org.bluezoo.gumdrop.pop3.POP3Listener",
                 "org.bluezoo.gumdrop.pop3.Pop3Listener");
-        map.put("org.bluezoo.gumdrop.pop3.DefaultPOP3Service",
+        map.put("org.bluezoo.gumdrop.pop3.DefaultPOP3Server",
                 "org.bluezoo.gumdrop.pop3.DefaultPOP3Server");
+        map.put("org.bluezoo.gumdrop.ftp.FtpServer",
+                "org.bluezoo.gumdrop.ftp.FtpServer");
+        map.put("org.bluezoo.gumdrop.ftp.FTPListener",
+                "org.bluezoo.gumdrop.ftp.FtpListener");
+        map.put("org.bluezoo.gumdrop.ftp.file.AnonymousFTPServer",
+                "org.bluezoo.gumdrop.ftp.file.AnonymousFTPServer");
+        map.put("org.bluezoo.gumdrop.ftp.file.SimpleFTPServer",
+                "org.bluezoo.gumdrop.ftp.file.SimpleFTPServer");
+        map.put("org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer",
+                "org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer");
+        map.put("org.bluezoo.gumdrop.dns.DnsServer",
+                "org.bluezoo.gumdrop.dns.DnsServer");
+        map.put("org.bluezoo.gumdrop.dns.DNSListener",
+                "org.bluezoo.gumdrop.dns.DnsListener");
+        map.put("org.bluezoo.gumdrop.mqtt.MqttServer",
+                "org.bluezoo.gumdrop.mqtt.MqttServer");
+        map.put("org.bluezoo.gumdrop.mqtt.MQTTListener",
+                "org.bluezoo.gumdrop.mqtt.MqttListener");
+        map.put("org.bluezoo.gumdrop.mqtt.DefaultMQTTServer",
+                "org.bluezoo.gumdrop.mqtt.DefaultMQTTServer");
+        map.put("org.bluezoo.gumdrop.socks.SocksServer",
+                "org.bluezoo.gumdrop.socks.SocksServer");
+        map.put("org.bluezoo.gumdrop.socks.SOCKSListener",
+                "org.bluezoo.gumdrop.socks.SocksListener");
+        map.put("org.bluezoo.gumdrop.socks.DefaultSOCKSServer",
+                "org.bluezoo.gumdrop.socks.DefaultSOCKSServer");
+        map.put("org.bluezoo.gumdrop.mdns.MdnsServer",
+                "org.bluezoo.gumdrop.mdns.MdnsServer");
+        map.put("org.bluezoo.gumdrop.mdns.MDNSListener",
+                "org.bluezoo.gumdrop.mdns.MdnsListener");
+        map.put("org.bluezoo.gumdrop.health.HealthServer",
+                "org.bluezoo.gumdrop.health.HealthServer");
+        map.put("org.bluezoo.gumdrop.grpc.server.GrpcServer",
+                "org.bluezoo.gumdrop.grpc.server.GrpcServer");
         LEGACY_CLASS_ALIASES = map;
     }
 

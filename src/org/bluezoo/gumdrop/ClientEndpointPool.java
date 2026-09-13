@@ -46,7 +46,7 @@ import java.util.logging.Logger;
  * SelectorLoop) and supports automatic idle-timeout cleanup.
  *
  * <p>Because {@link Endpoint} is transport-agnostic, this pool works
- * equally well with {@link TCPEndpoint}s and
+ * equally well with {@link TcpEndpoint}s and
  * {@link org.bluezoo.gumdrop.quic.QuicStreamEndpoint}s.
  *
  * <h4>SelectorLoop Affinity</h4>

@@ -1,5 +1,5 @@
 /*
- * DNSClass.java
+ * DnsClass.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,7 +31,7 @@ package org.bluezoo.gumdrop.dns;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum DNSClass {
+public enum DnsClass {
 
     /** Internet class. RFC 1035 section 3.2.4. */
     IN(1),
@@ -47,7 +47,7 @@ public enum DNSClass {
 
     private final int value;
 
-    DNSClass(int value) {
+    DnsClass(int value) {
         this.value = value;
     }
 
@@ -61,13 +61,13 @@ public enum DNSClass {
     }
 
     /**
-     * Returns the DNSClass for the given numeric value.
+     * Returns the DnsClass for the given numeric value.
      *
      * @param value the class value
-     * @return the DNSClass, or null if unknown
+     * @return the DnsClass, or null if unknown
      */
-    public static DNSClass fromValue(int value) {
-        for (DNSClass cls : values()) {
+    public static DnsClass fromValue(int value) {
+        for (DnsClass cls : values()) {
             if (cls.value == value) {
                 return cls;
             }

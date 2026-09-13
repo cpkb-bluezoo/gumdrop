@@ -28,7 +28,7 @@
  * org.bluezoo.gumdrop.http.HttpRequestHandler} are shared by all three
  * versions, so request handlers are written once.
  *
- * <p>{@link org.bluezoo.gumdrop.http.HTTPService} is the abstract base
+ * <p>{@link org.bluezoo.gumdrop.http.HttpServer} is the abstract base
  * for HTTP application services, owning listeners and the request
  * handler factory; {@link org.bluezoo.gumdrop.http.HttpListener} is the
  * TCP transport listener for HTTP/1.1 and HTTP/2; {@link

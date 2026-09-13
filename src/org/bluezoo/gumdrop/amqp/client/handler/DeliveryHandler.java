@@ -48,7 +48,7 @@ public interface DeliveryHandler {
 
     /**
      * @param consumerTag this consumer's tag (matches what {@link
-     *      ServerConsumeHandler#handleConsumeOk} reported)
+     *      ConsumeHandler#handleConsumeOk} reported)
      * @param deliveryTag identifies this delivery for ack/nack/reject
      * @param redelivered true if this message was previously delivered
      *      and requeued (e.g. after a nack)

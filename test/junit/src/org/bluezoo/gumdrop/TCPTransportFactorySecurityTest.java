@@ -16,10 +16,10 @@ import static org.junit.Assert.*;
  * Guards against accidentally disabling server hostname verification for
  * client-role TLS connections -- formerly checked via JSSE's {@code
  * SSLParameters.getEndpointIdentificationAlgorithm()} on an {@code
- * SSLEngine} built by {@code TCPTransportFactory.configureClientSSLEngine}
+ * SSLEngine} built by {@code TcpTransportFactory.configureClientSSLEngine}
  * (removed with JSSE); the in-tree {@link HandshakeEngine} performs the
  * equivalent check itself, driven by {@link HandshakeConfig#isVerifyHostname()},
- * which {@link org.bluezoo.gumdrop.TCPTransportFactory} never overrides
+ * which {@link org.bluezoo.gumdrop.TcpTransportFactory} never overrides
  * when building a client config, so its default here is the property that
  * actually matters.
  */

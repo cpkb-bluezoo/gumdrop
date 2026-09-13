@@ -1,5 +1,5 @@
 /*
- * DNSCookie.java
+ * DnsCookie.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -42,7 +42,7 @@ import javax.crypto.spec.SecretKeySpec;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7873">RFC 7873</a>
  */
-public final class DNSCookie {
+public final class DnsCookie {
 
     /** RFC 7873 section 4: EDNS0 option code for DNS cookies. */
     public static final int EDNS_OPTION_COOKIE = 10;
@@ -74,7 +74,7 @@ public final class DNSCookie {
      * RFC 7873 section 5.2: the server secret is used to generate
      * server cookies via HMAC.
      */
-    public DNSCookie() {
+    public DnsCookie() {
         this.serverSecret = new byte[16];
         random.nextBytes(serverSecret);
         regenerateClientCookie();
@@ -85,7 +85,7 @@ public final class DNSCookie {
      *
      * @param serverSecret the secret key for server cookie generation
      */
-    public DNSCookie(byte[] serverSecret) {
+    public DnsCookie(byte[] serverSecret) {
         this.serverSecret = serverSecret.clone();
         regenerateClientCookie();
     }

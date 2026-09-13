@@ -31,8 +31,8 @@ import java.net.InetSocketAddress;
  * <p>PORT/EPRT (active mode) are added separately in a follow-up.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerPassReplyHandler#handleAuthenticated
- * @see ServerAcctReplyHandler#handleAuthenticated
+ * @see PassReplyHandler#handleAuthenticated
+ * @see AcctReplyHandler#handleAuthenticated
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a>
  */
 public interface ClientAuthenticatedState {
@@ -44,7 +44,7 @@ public interface ClientAuthenticatedState {
      * @param pathname the directory to change into
      * @param callback receives the server's response
      */
-    void cwd(String pathname, ServerCwdReplyHandler callback);
+    void cwd(String pathname, CwdReplyHandler callback);
 
     /**
      * Sends a CDUP command to change to the parent directory.
@@ -52,7 +52,7 @@ public interface ClientAuthenticatedState {
      *
      * @param callback receives the server's response
      */
-    void cdup(ServerSimpleReplyHandler callback);
+    void cdup(SimpleReplyHandler callback);
 
     /**
      * Sends a PWD command to query the current working directory.
@@ -60,7 +60,7 @@ public interface ClientAuthenticatedState {
      *
      * @param callback receives the server's response
      */
-    void pwd(ServerPwdReplyHandler callback);
+    void pwd(PwdReplyHandler callback);
 
     /**
      * Sends a TYPE command to set the representation type.
@@ -70,7 +70,7 @@ public interface ClientAuthenticatedState {
      *      {@code "I"}
      * @param callback receives the server's response
      */
-    void type(String type, ServerSimpleReplyHandler callback);
+    void type(String type, SimpleReplyHandler callback);
 
     /**
      * Sends a STRU command to set the file structure.
@@ -79,7 +79,7 @@ public interface ClientAuthenticatedState {
      * @param structure the file structure code
      * @param callback receives the server's response
      */
-    void stru(String structure, ServerSimpleReplyHandler callback);
+    void stru(String structure, SimpleReplyHandler callback);
 
     /**
      * Sends a MODE command to set the transfer mode.
@@ -89,7 +89,7 @@ public interface ClientAuthenticatedState {
      * @param mode the transfer mode code
      * @param callback receives the server's response
      */
-    void mode(String mode, ServerSimpleReplyHandler callback);
+    void mode(String mode, SimpleReplyHandler callback);
 
     /**
      * Sends a DELE command to delete a remote file.
@@ -98,7 +98,7 @@ public interface ClientAuthenticatedState {
      * @param pathname the file to delete
      * @param callback receives the server's response
      */
-    void dele(String pathname, ServerSimpleReplyHandler callback);
+    void dele(String pathname, SimpleReplyHandler callback);
 
     /**
      * Sends an RMD command to remove a remote directory.
@@ -107,7 +107,7 @@ public interface ClientAuthenticatedState {
      * @param pathname the directory to remove
      * @param callback receives the server's response
      */
-    void rmd(String pathname, ServerSimpleReplyHandler callback);
+    void rmd(String pathname, SimpleReplyHandler callback);
 
     /**
      * Sends an MKD command to create a remote directory.
@@ -116,21 +116,21 @@ public interface ClientAuthenticatedState {
      * @param pathname the directory to create
      * @param callback receives the server's response
      */
-    void mkd(String pathname, ServerMkdReplyHandler callback);
+    void mkd(String pathname, MkdReplyHandler callback);
 
     /**
      * Sends a PASV command to enter passive mode. RFC 959 §4.1.2.
      *
      * @param callback receives the data connection address
      */
-    void pasv(ServerPasvReplyHandler callback);
+    void pasv(PasvReplyHandler callback);
 
     /**
      * Sends an EPSV command to enter extended passive mode. RFC 2428 §3.
      *
      * @param callback receives the data connection address
      */
-    void epsv(ServerEpsvReplyHandler callback);
+    void epsv(EpsvReplyHandler callback);
 
     /**
      * Sends a PORT command to switch to active mode. RFC 959 §4.1.2.
@@ -143,7 +143,7 @@ public interface ClientAuthenticatedState {
      *
      * @param callback receives the server's response
      */
-    void port(ServerPortReplyHandler callback);
+    void port(PortReplyHandler callback);
 
     /**
      * Sends an EPRT command to switch to active mode. RFC 2428 §2. See
@@ -151,7 +151,7 @@ public interface ClientAuthenticatedState {
      *
      * @param callback receives the server's response
      */
-    void eprt(ServerPortReplyHandler callback);
+    void eprt(PortReplyHandler callback);
 
     /**
      * Sends a PBSZ command to set the protection buffer size, required
@@ -162,7 +162,7 @@ public interface ClientAuthenticatedState {
      * @param size the protection buffer size (conventionally 0 for TLS)
      * @param callback receives the server's response
      */
-    void pbsz(int size, ServerSimpleReplyHandler callback);
+    void pbsz(int size, SimpleReplyHandler callback);
 
     /**
      * Sends a PROT command to set data connection protection. RFC 4217
@@ -175,7 +175,7 @@ public interface ClientAuthenticatedState {
      *      {@code "C"} (clear)
      * @param callback receives the server's response
      */
-    void prot(String level, ServerSimpleReplyHandler callback);
+    void prot(String level, SimpleReplyHandler callback);
 
     /**
      * Sends a RETR command to download a file. RFC 959 §4.1.3.
@@ -192,7 +192,7 @@ public interface ClientAuthenticatedState {
      *      pending PORT/EPRT listener
      * @param callback receives the file content and completion/failure
      */
-    void retr(String pathname, InetSocketAddress dataAddress, ServerRetrReplyHandler callback);
+    void retr(String pathname, InetSocketAddress dataAddress, RetrReplyHandler callback);
 
     /**
      * Sends a STOR command to upload a file, replacing it if it exists.
@@ -203,7 +203,7 @@ public interface ClientAuthenticatedState {
      *      pending PORT/EPRT listener
      * @param callback receives the data sink and completion/failure
      */
-    void stor(String pathname, InetSocketAddress dataAddress, ServerStorReplyHandler callback);
+    void stor(String pathname, InetSocketAddress dataAddress, StorReplyHandler callback);
 
     /**
      * Sends an APPE command to upload a file, appending to it if it
@@ -214,7 +214,7 @@ public interface ClientAuthenticatedState {
      *      pending PORT/EPRT listener
      * @param callback receives the data sink and completion/failure
      */
-    void appe(String pathname, InetSocketAddress dataAddress, ServerStorReplyHandler callback);
+    void appe(String pathname, InetSocketAddress dataAddress, StorReplyHandler callback);
 
     /**
      * Sends a LIST command for a full (e.g. {@code ls -l}-style) directory
@@ -226,7 +226,7 @@ public interface ClientAuthenticatedState {
      *      pending PORT/EPRT listener
      * @param callback receives the parsed entries
      */
-    void list(String pathname, InetSocketAddress dataAddress, ServerListReplyHandler callback);
+    void list(String pathname, InetSocketAddress dataAddress, ListReplyHandler callback);
 
     /**
      * Sends an NLST command for a bare-filename directory listing.
@@ -238,7 +238,7 @@ public interface ClientAuthenticatedState {
      *      pending PORT/EPRT listener
      * @param callback receives the parsed entries
      */
-    void nlst(String pathname, InetSocketAddress dataAddress, ServerListReplyHandler callback);
+    void nlst(String pathname, InetSocketAddress dataAddress, ListReplyHandler callback);
 
     /**
      * Sends an MLSD command for a machine-readable directory listing.
@@ -250,7 +250,7 @@ public interface ClientAuthenticatedState {
      *      pending PORT/EPRT listener
      * @param callback receives the parsed entries
      */
-    void mlsd(String pathname, InetSocketAddress dataAddress, ServerListReplyHandler callback);
+    void mlsd(String pathname, InetSocketAddress dataAddress, ListReplyHandler callback);
 
     /**
      * Closes the connection gracefully.

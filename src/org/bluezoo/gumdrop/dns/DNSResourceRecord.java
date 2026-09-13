@@ -1,5 +1,5 @@
 /*
- * DNSResourceRecord.java
+ * DnsResourceRecord.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -46,14 +46,14 @@ import java.util.TreeMap;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class DNSResourceRecord {
+public final class DnsResourceRecord {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
     private final String name;
-    private final DNSType type;
+    private final DnsType type;
     private final int rawType;
-    private final DNSClass dnsClass;
+    private final DnsClass dnsClass;
     private final int rawClass;
     private final int ttl;
     private final byte[] rdata;
@@ -67,7 +67,7 @@ public final class DNSResourceRecord {
      * @param ttl time to live in seconds
      * @param rdata the record data
      */
-    public DNSResourceRecord(String name, DNSType type, DNSClass dnsClass, int ttl, byte[] rdata) {
+    public DnsResourceRecord(String name, DnsType type, DnsClass dnsClass, int ttl, byte[] rdata) {
         this.name = name;
         this.type = type;
         this.rawType = type != null ? type.getValue() : 0;
@@ -89,8 +89,8 @@ public final class DNSResourceRecord {
      * @param ttl time to live in seconds
      * @param rdata the record data
      */
-    public DNSResourceRecord(String name, DNSType type, int rawType,
-                             DNSClass dnsClass, int rawClass,
+    public DnsResourceRecord(String name, DnsType type, int rawType,
+                             DnsClass dnsClass, int rawClass,
                              int ttl, byte[] rdata) {
         this.name = name;
         this.type = type;
@@ -115,7 +115,7 @@ public final class DNSResourceRecord {
      *
      * @return the record type
      */
-    public DNSType getType() {
+    public DnsType getType() {
         return type;
     }
 
@@ -134,7 +134,7 @@ public final class DNSResourceRecord {
      *
      * @return the record class, or null if the class is unknown
      */
-    public DNSClass getDNSClass() {
+    public DnsClass getDNSClass() {
         return dnsClass;
     }
 
@@ -179,7 +179,7 @@ public final class DNSResourceRecord {
      * to tell mDNS receivers this is the complete, authoritative RRset
      * for the name/type, replacing (rather than accumulating with) any
      * previously cached records. Combine with a class value's raw form
-     * (e.g. {@code DNSClass.IN.getValue() | CACHE_FLUSH_BIT}) and pass
+     * (e.g. {@code DnsClass.IN.getValue() | CACHE_FLUSH_BIT}) and pass
      * as {@code rawClass} to the RFC 3597 constructor. Meaningless
      * outside mDNS.
      */
@@ -199,15 +199,15 @@ public final class DNSResourceRecord {
      * Returns a copy of this record with the mDNS cache-flush bit
      * (RFC 6762 section 10.2) set on its class field, leaving
      * everything else unchanged. Convenience for callers building a
-     * record via one of the plain-{@code DNSClass.IN} factory methods
+     * record via one of the plain-{@code DnsClass.IN} factory methods
      * (e.g. {@link #srv}, {@link #txt}) that then need cache-flush
      * semantics -- e.g. DNS-SD's unique per-instance SRV/TXT records,
      * as opposed to its shared, never-flushed PTR records.
      *
      * @return a copy with the cache-flush bit set
      */
-    public DNSResourceRecord withCacheFlush() {
-        return new DNSResourceRecord(name, type, rawType, dnsClass,
+    public DnsResourceRecord withCacheFlush() {
+        return new DnsResourceRecord(name, type, rawType, dnsClass,
                 rawClass | CACHE_FLUSH_BIT, ttl, rdata);
     }
 
@@ -222,8 +222,8 @@ public final class DNSResourceRecord {
      * @param address the IPv4 address
      * @return the resource record
      */
-    public static DNSResourceRecord a(String name, int ttl, InetAddress address) {
-        return new DNSResourceRecord(name, DNSType.A, DNSClass.IN, ttl, address.getAddress());
+    public static DnsResourceRecord a(String name, int ttl, InetAddress address) {
+        return new DnsResourceRecord(name, DnsType.A, DnsClass.IN, ttl, address.getAddress());
     }
 
     /**
@@ -235,8 +235,8 @@ public final class DNSResourceRecord {
      * @param address the IPv6 address
      * @return the resource record
      */
-    public static DNSResourceRecord aaaa(String name, int ttl, InetAddress address) {
-        return new DNSResourceRecord(name, DNSType.AAAA, DNSClass.IN, ttl, address.getAddress());
+    public static DnsResourceRecord aaaa(String name, int ttl, InetAddress address) {
+        return new DnsResourceRecord(name, DnsType.AAAA, DnsClass.IN, ttl, address.getAddress());
     }
 
     /**
@@ -248,9 +248,9 @@ public final class DNSResourceRecord {
      * @param canonicalName the canonical name
      * @return the resource record
      */
-    public static DNSResourceRecord cname(String name, int ttl, String canonicalName) {
-        byte[] encoded = DNSMessage.encodeName(canonicalName);
-        return new DNSResourceRecord(name, DNSType.CNAME, DNSClass.IN, ttl, encoded);
+    public static DnsResourceRecord cname(String name, int ttl, String canonicalName) {
+        byte[] encoded = DnsMessage.encodeName(canonicalName);
+        return new DnsResourceRecord(name, DnsType.CNAME, DnsClass.IN, ttl, encoded);
     }
 
     /**
@@ -262,9 +262,9 @@ public final class DNSResourceRecord {
      * @param ptrName the target domain name
      * @return the resource record
      */
-    public static DNSResourceRecord ptr(String name, int ttl, String ptrName) {
-        byte[] encoded = DNSMessage.encodeName(ptrName);
-        return new DNSResourceRecord(name, DNSType.PTR, DNSClass.IN, ttl, encoded);
+    public static DnsResourceRecord ptr(String name, int ttl, String ptrName) {
+        byte[] encoded = DnsMessage.encodeName(ptrName);
+        return new DnsResourceRecord(name, DnsType.PTR, DnsClass.IN, ttl, encoded);
     }
 
     /**
@@ -276,9 +276,9 @@ public final class DNSResourceRecord {
      * @param nsName the name server hostname
      * @return the resource record
      */
-    public static DNSResourceRecord ns(String name, int ttl, String nsName) {
-        byte[] encoded = DNSMessage.encodeName(nsName);
-        return new DNSResourceRecord(name, DNSType.NS, DNSClass.IN, ttl, encoded);
+    public static DnsResourceRecord ns(String name, int ttl, String nsName) {
+        byte[] encoded = DnsMessage.encodeName(nsName);
+        return new DnsResourceRecord(name, DnsType.NS, DnsClass.IN, ttl, encoded);
     }
 
     /**
@@ -292,12 +292,12 @@ public final class DNSResourceRecord {
      * @param exchange the mail server hostname
      * @return the resource record
      */
-    public static DNSResourceRecord mx(String name, int ttl, int preference, String exchange) {
-        byte[] exchangeBytes = DNSMessage.encodeName(exchange);
+    public static DnsResourceRecord mx(String name, int ttl, int preference, String exchange) {
+        byte[] exchangeBytes = DnsMessage.encodeName(exchange);
         ByteBuffer buf = ByteBuffer.allocate(2 + exchangeBytes.length);
         buf.putShort((short) preference);
         buf.put(exchangeBytes);
-        return new DNSResourceRecord(name, DNSType.MX, DNSClass.IN, ttl, buf.array());
+        return new DnsResourceRecord(name, DnsType.MX, DnsClass.IN, ttl, buf.array());
     }
 
     /**
@@ -313,16 +313,16 @@ public final class DNSResourceRecord {
      * @param target the domain name of the target host
      * @return the resource record
      */
-    public static DNSResourceRecord srv(String name, int ttl,
+    public static DnsResourceRecord srv(String name, int ttl,
                                          int priority, int weight,
                                          int port, String target) {
-        byte[] targetBytes = DNSMessage.encodeName(target);
+        byte[] targetBytes = DnsMessage.encodeName(target);
         ByteBuffer buf = ByteBuffer.allocate(6 + targetBytes.length);
         buf.putShort((short) priority);
         buf.putShort((short) weight);
         buf.putShort((short) port);
         buf.put(targetBytes);
-        return new DNSResourceRecord(name, DNSType.SRV, DNSClass.IN,
+        return new DnsResourceRecord(name, DnsType.SRV, DnsClass.IN,
                 ttl, buf.array());
     }
 
@@ -349,10 +349,10 @@ public final class DNSResourceRecord {
      * @param params the SvcParams, keyed by SvcParamKey (may be null/empty)
      * @return the resource record
      */
-    public static DNSResourceRecord https(String name, int ttl, int priority,
+    public static DnsResourceRecord https(String name, int ttl, int priority,
                                            String target,
                                            Map<Integer, byte[]> params) {
-        return svcb(name, DNSType.HTTPS, ttl, priority, target, params);
+        return svcb(name, DnsType.HTTPS, ttl, priority, target, params);
     }
 
     /**
@@ -365,16 +365,16 @@ public final class DNSResourceRecord {
      * @param params the SvcParams, keyed by SvcParamKey (may be null/empty)
      * @return the resource record
      */
-    public static DNSResourceRecord svcb(String name, int ttl, int priority,
+    public static DnsResourceRecord svcb(String name, int ttl, int priority,
                                           String target,
                                           Map<Integer, byte[]> params) {
-        return svcb(name, DNSType.SVCB, ttl, priority, target, params);
+        return svcb(name, DnsType.SVCB, ttl, priority, target, params);
     }
 
-    private static DNSResourceRecord svcb(String name, DNSType type, int ttl,
+    private static DnsResourceRecord svcb(String name, DnsType type, int ttl,
                                            int priority, String target,
                                            Map<Integer, byte[]> params) {
-        byte[] targetBytes = DNSMessage.encodeName(target);
+        byte[] targetBytes = DnsMessage.encodeName(target);
         Map<Integer, byte[]> sorted = new TreeMap<>();
         if (params != null) {
             sorted.putAll(params);
@@ -392,7 +392,7 @@ public final class DNSResourceRecord {
             buf.putShort((short) value.length);
             buf.put(value);
         }
-        return new DNSResourceRecord(name, type, DNSClass.IN, ttl, buf.array());
+        return new DnsResourceRecord(name, type, DnsClass.IN, ttl, buf.array());
     }
 
     /**
@@ -454,14 +454,14 @@ public final class DNSResourceRecord {
      * @param publicKey the algorithm-specific public key wire format
      * @return the resource record
      */
-    public static DNSResourceRecord dnskey(String name, int ttl, int flags,
+    public static DnsResourceRecord dnskey(String name, int ttl, int flags,
                                             int algorithm, byte[] publicKey) {
         ByteBuffer buf = ByteBuffer.allocate(4 + publicKey.length);
         buf.putShort((short) flags);
         buf.put((byte) 3); // RFC 4034 section 2.1.2: protocol, MUST be 3
         buf.put((byte) algorithm);
         buf.put(publicKey);
-        return new DNSResourceRecord(name, DNSType.DNSKEY, DNSClass.IN, ttl, buf.array());
+        return new DnsResourceRecord(name, DnsType.DNSKEY, DnsClass.IN, ttl, buf.array());
     }
 
     /**
@@ -483,11 +483,11 @@ public final class DNSResourceRecord {
      * @param signature the signature bytes
      * @return the resource record
      */
-    public static DNSResourceRecord rrsig(String name, int ttl, DNSType typeCovered,
+    public static DnsResourceRecord rrsig(String name, int ttl, DnsType typeCovered,
                                            int algorithm, int labels, int originalTTL,
                                            long expiration, long inception, int keyTag,
                                            String signerName, byte[] signature) {
-        byte[] signerBytes = DNSMessage.encodeName(signerName);
+        byte[] signerBytes = DnsMessage.encodeName(signerName);
         ByteBuffer buf = ByteBuffer.allocate(18 + signerBytes.length + signature.length);
         buf.putShort((short) typeCovered.getValue());
         buf.put((byte) algorithm);
@@ -498,7 +498,7 @@ public final class DNSResourceRecord {
         buf.putShort((short) keyTag);
         buf.put(signerBytes);
         buf.put(signature);
-        return new DNSResourceRecord(name, DNSType.RRSIG, DNSClass.IN, ttl, buf.array());
+        return new DnsResourceRecord(name, DnsType.RRSIG, DnsClass.IN, ttl, buf.array());
     }
 
     /**
@@ -512,7 +512,7 @@ public final class DNSResourceRecord {
      * @param text the text content
      * @return the resource record
      */
-    public static DNSResourceRecord txt(String name, int ttl, String text) {
+    public static DnsResourceRecord txt(String name, int ttl, String text) {
         byte[] textBytes = text.getBytes(StandardCharsets.UTF_8);
         // TXT records use character-strings: length byte + data, max 255 bytes each
         ByteBuffer buf = ByteBuffer.allocate(textBytes.length + (textBytes.length / 255) + 1);
@@ -526,7 +526,7 @@ public final class DNSResourceRecord {
         byte[] rdataBytes = new byte[buf.position()];
         buf.flip();
         buf.get(rdataBytes);
-        return new DNSResourceRecord(name, DNSType.TXT, DNSClass.IN, ttl, rdataBytes);
+        return new DnsResourceRecord(name, DnsType.TXT, DnsClass.IN, ttl, rdataBytes);
     }
 
     /**
@@ -542,7 +542,7 @@ public final class DNSResourceRecord {
      * @return the resource record
      * @throws IllegalArgumentException if any string exceeds 255 UTF-8 bytes
      */
-    public static DNSResourceRecord txt(String name, int ttl, List<String> strings) {
+    public static DnsResourceRecord txt(String name, int ttl, List<String> strings) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         for (String s : strings) {
             byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
@@ -554,7 +554,7 @@ public final class DNSResourceRecord {
             out.write(bytes.length);
             out.write(bytes, 0, bytes.length);
         }
-        return new DNSResourceRecord(name, DNSType.TXT, DNSClass.IN, ttl, out.toByteArray());
+        return new DnsResourceRecord(name, DnsType.TXT, DnsClass.IN, ttl, out.toByteArray());
     }
 
     /**
@@ -573,10 +573,10 @@ public final class DNSResourceRecord {
      * @param minimum the minimum TTL
      * @return the resource record
      */
-    public static DNSResourceRecord soa(String name, int ttl, String mname, String rname,
+    public static DnsResourceRecord soa(String name, int ttl, String mname, String rname,
                                          int serial, int refresh, int retry, int expire, int minimum) {
-        byte[] mnameBytes = DNSMessage.encodeName(mname);
-        byte[] rnameBytes = DNSMessage.encodeName(rname);
+        byte[] mnameBytes = DnsMessage.encodeName(mname);
+        byte[] rnameBytes = DnsMessage.encodeName(rname);
         ByteBuffer buf = ByteBuffer.allocate(mnameBytes.length + rnameBytes.length + 20);
         buf.put(mnameBytes);
         buf.put(rnameBytes);
@@ -585,7 +585,7 @@ public final class DNSResourceRecord {
         buf.putInt(retry);
         buf.putInt(expire);
         buf.putInt(minimum);
-        return new DNSResourceRecord(name, DNSType.SOA, DNSClass.IN, ttl, buf.array());
+        return new DnsResourceRecord(name, DnsType.SOA, DnsClass.IN, ttl, buf.array());
     }
 
     /**
@@ -601,7 +601,7 @@ public final class DNSResourceRecord {
      * @param certificateAssociationData the certificate association data
      * @return the resource record
      */
-    public static DNSResourceRecord tlsa(String name, int ttl,
+    public static DnsResourceRecord tlsa(String name, int ttl,
                                           int certUsage, int selector,
                                           int matchingType,
                                           byte[] certificateAssociationData) {
@@ -610,14 +610,14 @@ public final class DNSResourceRecord {
         buf.put((byte) selector);
         buf.put((byte) matchingType);
         buf.put(certificateAssociationData);
-        return new DNSResourceRecord(name, DNSType.TLSA, DNSClass.IN,
+        return new DnsResourceRecord(name, DnsType.TLSA, DnsClass.IN,
                 ttl, buf.array());
     }
 
     // -- TLSA RDATA accessors (RFC 6698 section 2.1) --
 
     private void checkTLSA() {
-        if (type != DNSType.TLSA) {
+        if (type != DnsType.TLSA) {
             throw new IllegalStateException("Not a TLSA record: " + type);
         }
     }
@@ -688,7 +688,7 @@ public final class DNSResourceRecord {
      *                       can reassemble (e.g. 4096)
      * @return the OPT pseudo-record
      */
-    public static DNSResourceRecord opt(int udpPayloadSize) {
+    public static DnsResourceRecord opt(int udpPayloadSize) {
         return opt(udpPayloadSize, new byte[0]);
     }
 
@@ -701,7 +701,7 @@ public final class DNSResourceRecord {
      * @param optionData the EDNS0 option data (may be empty)
      * @return the OPT pseudo-record
      */
-    public static DNSResourceRecord opt(int udpPayloadSize,
+    public static DnsResourceRecord opt(int udpPayloadSize,
                                          byte[] optionData) {
         return opt(udpPayloadSize, 0, optionData);
     }
@@ -717,13 +717,13 @@ public final class DNSResourceRecord {
      * @param optionData the EDNS0 option data (may be empty)
      * @return the OPT pseudo-record
      */
-    public static DNSResourceRecord opt(int udpPayloadSize,
+    public static DnsResourceRecord opt(int udpPayloadSize,
                                          int ednsFlags,
                                          byte[] optionData) {
         // RFC 6891 section 6.1.3: TTL = extRCODE(8) | version(8) | flags(16)
         int ttl = (ednsFlags & 0xFFFF);
-        return new DNSResourceRecord("", DNSType.OPT,
-                DNSType.OPT.getValue(),
+        return new DnsResourceRecord("", DnsType.OPT,
+                DnsType.OPT.getValue(),
                 null, udpPayloadSize & 0xFFFF,
                 ttl, optionData);
     }
@@ -737,7 +737,7 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if not an OPT record
      */
     public int getUdpPayloadSize() {
-        if (type != DNSType.OPT) {
+        if (type != DnsType.OPT) {
             throw new IllegalStateException("Not an OPT record: " + type);
         }
         return rawClass;
@@ -752,7 +752,7 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if not an OPT record
      */
     public int getEDNSFlags() {
-        if (type != DNSType.OPT) {
+        if (type != DnsType.OPT) {
             throw new IllegalStateException("Not an OPT record: " + type);
         }
         return ttl & 0xFFFF;
@@ -767,7 +767,7 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not an A or AAAA record
      */
     public InetAddress getAddress() {
-        if (type != DNSType.A && type != DNSType.AAAA) {
+        if (type != DnsType.A && type != DnsType.AAAA) {
             throw new IllegalStateException("Not an address record: " + type);
         }
         try {
@@ -784,11 +784,11 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not a name-type record
      */
     public String getTargetName() {
-        if (type != DNSType.CNAME && type != DNSType.PTR && type != DNSType.NS) {
+        if (type != DnsType.CNAME && type != DnsType.PTR && type != DnsType.NS) {
             throw new IllegalStateException("Not a name record: " + type);
         }
         ByteBuffer buf = ByteBuffer.wrap(rdata);
-        return DNSMessage.decodeName(buf, buf);
+        return DnsMessage.decodeName(buf, buf);
     }
 
     /**
@@ -798,7 +798,7 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not a TXT record
      */
     public String getText() {
-        if (type != DNSType.TXT) {
+        if (type != DnsType.TXT) {
             throw new IllegalStateException("Not a TXT record: " + type);
         }
         StringBuilder sb = new StringBuilder();
@@ -819,7 +819,7 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not an MX record
      */
     public int getMXPreference() {
-        if (type != DNSType.MX) {
+        if (type != DnsType.MX) {
             throw new IllegalStateException("Not an MX record: " + type);
         }
         return ((rdata[0] & 0xFF) << 8) | (rdata[1] & 0xFF);
@@ -832,12 +832,12 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not an MX record
      */
     public String getMXExchange() {
-        if (type != DNSType.MX) {
+        if (type != DnsType.MX) {
             throw new IllegalStateException("Not an MX record: " + type);
         }
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.getShort(); // skip preference
-        return DNSMessage.decodeName(buf, ByteBuffer.wrap(rdata));
+        return DnsMessage.decodeName(buf, ByteBuffer.wrap(rdata));
     }
 
     /**
@@ -847,7 +847,7 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not an SRV record
      */
     public int getSRVPriority() {
-        if (type != DNSType.SRV) {
+        if (type != DnsType.SRV) {
             throw new IllegalStateException("Not an SRV record: " + type);
         }
         return ((rdata[0] & 0xFF) << 8) | (rdata[1] & 0xFF);
@@ -862,7 +862,7 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not an SRV record
      */
     public int getSRVWeight() {
-        if (type != DNSType.SRV) {
+        if (type != DnsType.SRV) {
             throw new IllegalStateException("Not an SRV record: " + type);
         }
         return ((rdata[2] & 0xFF) << 8) | (rdata[3] & 0xFF);
@@ -875,7 +875,7 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not an SRV record
      */
     public int getSRVPort() {
-        if (type != DNSType.SRV) {
+        if (type != DnsType.SRV) {
             throw new IllegalStateException("Not an SRV record: " + type);
         }
         return ((rdata[4] & 0xFF) << 8) | (rdata[5] & 0xFF);
@@ -889,18 +889,18 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not an SRV record
      */
     public String getSRVTarget() {
-        if (type != DNSType.SRV) {
+        if (type != DnsType.SRV) {
             throw new IllegalStateException("Not an SRV record: " + type);
         }
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.position(6); // skip priority + weight + port
-        return DNSMessage.decodeName(buf, ByteBuffer.wrap(rdata));
+        return DnsMessage.decodeName(buf, ByteBuffer.wrap(rdata));
     }
 
     // -- SVCB/HTTPS RDATA accessors (RFC 9460 section 2.2) --
 
     private void checkSVCB() {
-        if (type != DNSType.SVCB && type != DNSType.HTTPS) {
+        if (type != DnsType.SVCB && type != DnsType.HTTPS) {
             throw new IllegalStateException("Not an SVCB/HTTPS record: " + type);
         }
     }
@@ -939,7 +939,7 @@ public final class DNSResourceRecord {
         checkSVCB();
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.position(2);
-        return DNSMessage.decodeName(buf, buf);
+        return DnsMessage.decodeName(buf, buf);
     }
 
     /**
@@ -959,7 +959,7 @@ public final class DNSResourceRecord {
         Map<Integer, byte[]> params = new LinkedHashMap<>();
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.position(2);
-        DNSMessage.decodeName(buf, buf);
+        DnsMessage.decodeName(buf, buf);
         while (buf.remaining() >= 4) {
             int key = buf.getShort() & 0xFFFF;
             int len = buf.getShort() & 0xFFFF;
@@ -1029,7 +1029,7 @@ public final class DNSResourceRecord {
     // -- RRSIG RDATA accessors (RFC 4034 section 3.1) --
 
     private void checkRRSIG() {
-        if (type != DNSType.RRSIG) {
+        if (type != DnsType.RRSIG) {
             throw new IllegalStateException("Not an RRSIG record: " + type);
         }
     }
@@ -1133,7 +1133,7 @@ public final class DNSResourceRecord {
         checkRRSIG();
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.position(18);
-        return DNSMessage.decodeName(buf, buf);
+        return DnsMessage.decodeName(buf, buf);
     }
 
     /**
@@ -1147,7 +1147,7 @@ public final class DNSResourceRecord {
         checkRRSIG();
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.position(18);
-        DNSMessage.decodeName(buf, buf);
+        DnsMessage.decodeName(buf, buf);
         byte[] sig = new byte[buf.remaining()];
         buf.get(sig);
         return sig;
@@ -1166,7 +1166,7 @@ public final class DNSResourceRecord {
         checkRRSIG();
         ByteBuffer buf = ByteBuffer.wrap(rdata);
         buf.position(18);
-        DNSMessage.decodeName(buf, buf);
+        DnsMessage.decodeName(buf, buf);
         int headerLen = buf.position();
         byte[] header = new byte[headerLen];
         System.arraycopy(rdata, 0, header, 0, headerLen);
@@ -1176,7 +1176,7 @@ public final class DNSResourceRecord {
     // -- DNSKEY RDATA accessors (RFC 4034 section 2.1) --
 
     private void checkDNSKEY() {
-        if (type != DNSType.DNSKEY) {
+        if (type != DnsType.DNSKEY) {
             throw new IllegalStateException("Not a DNSKEY record: " + type);
         }
     }
@@ -1292,7 +1292,7 @@ public final class DNSResourceRecord {
     // -- DS RDATA accessors (RFC 4034 section 5.1) --
 
     private void checkDS() {
-        if (type != DNSType.DS) {
+        if (type != DnsType.DS) {
             throw new IllegalStateException("Not a DS record: " + type);
         }
     }
@@ -1357,11 +1357,11 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not an NSEC record
      */
     public String getNSECNextDomainName() {
-        if (type != DNSType.NSEC) {
+        if (type != DnsType.NSEC) {
             throw new IllegalStateException("Not an NSEC record: " + type);
         }
         ByteBuffer buf = ByteBuffer.wrap(rdata);
-        return DNSMessage.decodeName(buf, buf);
+        return DnsMessage.decodeName(buf, buf);
     }
 
     /**
@@ -1373,18 +1373,18 @@ public final class DNSResourceRecord {
      * @throws IllegalStateException if this is not an NSEC record
      */
     public List<Integer> getNSECTypeBitMaps() {
-        if (type != DNSType.NSEC) {
+        if (type != DnsType.NSEC) {
             throw new IllegalStateException("Not an NSEC record: " + type);
         }
         ByteBuffer buf = ByteBuffer.wrap(rdata);
-        DNSMessage.decodeName(buf, buf);
+        DnsMessage.decodeName(buf, buf);
         return parseTypeBitMaps(buf);
     }
 
     // -- NSEC3 RDATA accessors (RFC 5155 section 3.2) --
 
     private void checkNSEC3() {
-        if (type != DNSType.NSEC3) {
+        if (type != DnsType.NSEC3) {
             throw new IllegalStateException("Not an NSEC3 record: " + type);
         }
     }
@@ -1481,7 +1481,7 @@ public final class DNSResourceRecord {
     // -- NSEC3PARAM RDATA accessors (RFC 5155 section 4.2) --
 
     private void checkNSEC3PARAM() {
-        if (type != DNSType.NSEC3PARAM) {
+        if (type != DnsType.NSEC3PARAM) {
             throw new IllegalStateException("Not an NSEC3PARAM record: " + type);
         }
     }
@@ -1575,10 +1575,10 @@ public final class DNSResourceRecord {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof DNSResourceRecord)) {
+        if (!(o instanceof DnsResourceRecord)) {
             return false;
         }
-        DNSResourceRecord that = (DNSResourceRecord) o;
+        DnsResourceRecord that = (DnsResourceRecord) o;
         return ttl == that.ttl &&
                rawType == that.rawType &&
                rawClass == that.rawClass &&
@@ -1679,7 +1679,7 @@ public final class DNSResourceRecord {
                     sb.append(" bytes]");
                     break;
                 case RRSIG:
-                    DNSType covered = DNSType.fromValue(getRRSIGTypeCovered());
+                    DnsType covered = DnsType.fromValue(getRRSIGTypeCovered());
                     sb.append(" ");
                     sb.append(covered != null ? covered : ("TYPE" + getRRSIGTypeCovered()));
                     sb.append(" ");

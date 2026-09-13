@@ -32,7 +32,7 @@ import javax.net.ssl.X509TrustManager;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <p>This class provides a simple, concrete API for connecting to Redis servers
  * using the RESP (Redis Serialization Protocol) wire format. It internally
- * creates a {@link TCPTransportFactory}, {@link ClientEndpoint}, and
+ * creates a {@link TcpTransportFactory}, {@link ClientEndpoint}, and
  * {@link RedisClientProtocolHandler}, wiring them together and forwarding
  * lifecycle events to the caller's {@link RedisConnectionReady} handler.
  *
@@ -89,7 +89,7 @@ public class RedisClient {
     private String keystoreFormat;
 
     // Internal transport components (created at connect time)
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private RedisClientProtocolHandler endpointHandler;
     private boolean connected;
@@ -153,7 +153,7 @@ public class RedisClient {
 
     /**
      * Creates a Redis client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance.
@@ -262,7 +262,7 @@ public class RedisClient {
      * @param handler the handler to receive connection lifecycle events
      */
     public void connect(RedisConnectionReady handler) {
-        transportFactory = new TCPTransportFactory();
+        transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);

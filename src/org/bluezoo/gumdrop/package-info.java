@@ -37,9 +37,9 @@
  * written against, backed by TCP, UDP, or QUIC depending on the {@link
  * org.bluezoo.gumdrop.TransportFactory} in use; {@link
  * org.bluezoo.gumdrop.ProtocolHandler} is the callback interface protocol
- * implementations receive events through. {@link org.bluezoo.gumdrop.TCPListener}
+ * implementations receive events through. {@link org.bluezoo.gumdrop.TcpListener}
  * is the base class for server-side connectors (TCP or, via {@link
- * org.bluezoo.gumdrop.TCPListener#setPath}, a UNIX domain socket); {@link
+ * org.bluezoo.gumdrop.TcpListener#setPath}, a UNIX domain socket); {@link
  * org.bluezoo.gumdrop.ClientEndpoint} is its client-side counterpart for
  * initiating outbound connections. {@link org.bluezoo.gumdrop.SecurityInfo}
  * exposes negotiated TLS/DTLS/QUIC session metadata to protocol handlers,
@@ -78,7 +78,7 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.SelectorLoop
- * @see org.bluezoo.gumdrop.TCPListener
+ * @see org.bluezoo.gumdrop.TcpListener
  * @see org.bluezoo.gumdrop.ClientEndpoint
  */
 package org.bluezoo.gumdrop;

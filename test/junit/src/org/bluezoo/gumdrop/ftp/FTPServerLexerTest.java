@@ -35,7 +35,7 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for {@link FTPServerLexer}, verifying exact token content
  * (including the free-form TEXT chunking property relied on by {@link
- * FTPProtocolHandler} to reconstruct pathname arguments with embedded
+ * FtpProtocolHandler} to reconstruct pathname arguments with embedded
  * whitespace preserved verbatim) independent of the full protocol
  * handler's business logic.
  *

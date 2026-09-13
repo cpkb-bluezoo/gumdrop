@@ -14,7 +14,7 @@ This document compares deployment size, dependencies, and startup characteristic
 
 | Framework | Deployment Model | Total JAR Size | Dependencies | Download & Build Time | Notes |
 |-----------|------------------|----------------|--------------|---------------|-------|
-| **Gumdrop (HTTPService)** | gumdrop.jar + gonzalez-core OR jsonparser | ~2.7 MB / ~2.57 MB | 2–3 JARs | Seconds | Minimal async microservice |
+| **Gumdrop (HttpServer)** | gumdrop.jar + gonzalez-core OR jsonparser | ~2.7 MB / ~2.57 MB | 2–3 JARs | Seconds | Minimal async microservice |
 | **Gumdrop (Servlet)** | gumdrop-container.jar (fat) | ~5.2 MB | Self-contained | Seconds | Full servlet container |
 | **Netty** | netty-codec-http + XML or JSON | ~2.3 MB / ~4.5 MB | 6–8 Netty + aalto or Jackson | ~10–30 sec | No servlet, HTTP handler only |
 | **Jetty** | jetty-server + embedded | ~8–12 MB | Jetty + JSP compiler | ~30–60 sec | Servlet container |
@@ -27,7 +27,7 @@ This document compares deployment size, dependencies, and startup characteristic
 
 ### Deployment Options
 
-#### Option A: HTTPService (Microservice / Async API)
+#### Option A: HttpServer (Microservice / Async API)
 
 For a pure async microservice without servlets:
 
@@ -75,7 +75,7 @@ For a pure async microservice without servlets:
 
 ### Sample gumdroprc Configurations
 
-**HTTPService** (e.g. `gumdroprc.http` — async HTTPService, no servlet container:
+**HttpServer** (e.g. `gumdroprc.http` — async HttpServer, no servlet container:
 
 ```xml
 <?xml version='1.0' standalone='yes'?>

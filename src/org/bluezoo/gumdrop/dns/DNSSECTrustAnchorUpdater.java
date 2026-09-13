@@ -1,5 +1,5 @@
 /*
- * DNSSECTrustAnchorUpdater.java
+ * DnssecTrustAnchorUpdater.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.dns;
 
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 
 import java.io.File;
 import java.io.IOException;
@@ -81,21 +81,21 @@ import java.util.logging.Logger;
  * point with zero Valid keys is rejected outright (RFC 5011 section
  * 5.1) rather than applied.
  *
- * <p>Valid keys are promoted into {@link DNSSECTrustAnchor} via {@link
- * DNSSECTrustAnchor#addDNSKEYAnchor}; keys leaving the Valid state are
+ * <p>Valid keys are promoted into {@link DnssecTrustAnchor} via {@link
+ * DnssecTrustAnchor#addDNSKEYAnchor}; keys leaving the Valid state are
  * removed from it the same way. Tracked state (which keys, which
  * state, and since when) is persisted to {@link #setStateFile} across
  * restarts, as RFC 5011 section 2.3 requires for hold-down timers to
  * survive one.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSSECTrustAnchor
+ * @see DnssecTrustAnchor
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5011">RFC 5011</a>
  */
-public class DNSSECTrustAnchorUpdater {
+public class DnssecTrustAnchorUpdater {
 
     private static final Logger LOGGER =
-            Logger.getLogger(DNSSECTrustAnchorUpdater.class.getName());
+            Logger.getLogger(DnssecTrustAnchorUpdater.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
@@ -119,8 +119,8 @@ public class DNSSECTrustAnchorUpdater {
     /** RFC 4034 section 2.1.1: DNSKEY REVOKE flag, bit 8. */
     private static final int FLAG_REVOKE = 0x0080;
 
-    private final DNSResolver resolver;
-    private final DNSSECTrustAnchor trustAnchor;
+    private final DnsResolver resolver;
+    private final DnssecTrustAnchor trustAnchor;
 
     private volatile long addHoldDownMs = DEFAULT_HOLD_DOWN_MS;
     private volatile long removeHoldDownMs = DEFAULT_HOLD_DOWN_MS;
@@ -140,7 +140,7 @@ public class DNSSECTrustAnchorUpdater {
      * @param resolver the resolver to query trust points with
      * @param trustAnchor the trust anchor store to keep current
      */
-    public DNSSECTrustAnchorUpdater(DNSResolver resolver, DNSSECTrustAnchor trustAnchor) {
+    public DnssecTrustAnchorUpdater(DnsResolver resolver, DnssecTrustAnchor trustAnchor) {
         if (resolver == null) {
             throw new NullPointerException("resolver");
         }
@@ -219,7 +219,7 @@ public class DNSSECTrustAnchorUpdater {
 
     /**
      * Enrolls a zone for automated rollover. Its currently-configured
-     * {@link DNSSECTrustAnchor} DS anchors (if any) seed the initial
+     * {@link DnssecTrustAnchor} DS anchors (if any) seed the initial
      * Valid key(s) on the first successful check; a zone with no
      * static anchor at all can still be enrolled, but nothing is ever
      * promoted for it unless some other already-Valid key already
@@ -228,7 +228,7 @@ public class DNSSECTrustAnchorUpdater {
      * @param zone the trust point zone name (e.g. {@code "."} for the root)
      */
     public void addTrustPoint(String zone) {
-        String key = DNSSECValidator.canonicalizeName(zone);
+        String key = DnssecValidator.canonicalizeName(zone);
         trustPoints.computeIfAbsent(key, z -> new ArrayList<>());
     }
 
@@ -249,7 +249,7 @@ public class DNSSECTrustAnchorUpdater {
      * @return the tracked keys, or an empty list if the zone isn't enrolled
      */
     public List<TrackedKeyInfo> getTrackedKeys(String zone) {
-        List<TrackedKey> tracked = trustPoints.get(DNSSECValidator.canonicalizeName(zone));
+        List<TrackedKey> tracked = trustPoints.get(DnssecValidator.canonicalizeName(zone));
         if (tracked == null) {
             return Collections.emptyList();
         }
@@ -326,10 +326,10 @@ public class DNSSECTrustAnchorUpdater {
      * @param zone the trust point zone name
      */
     public void checkNow(final String zone) {
-        final String canonical = DNSSECValidator.canonicalizeName(zone);
-        resolver.query(zone, DNSType.DNSKEY, new DNSQueryCallback() {
+        final String canonical = DnssecValidator.canonicalizeName(zone);
+        resolver.query(zone, DnsType.DNSKEY, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 handleDNSKEYResponse(canonical, response);
             }
 
@@ -365,16 +365,16 @@ public class DNSSECTrustAnchorUpdater {
      * response for {@code zone}. Package-private (not private) so
      * tests can drive it directly.
      */
-    void handleDNSKEYResponse(String zoneParam, DNSMessage response) {
-        String zone = DNSSECValidator.canonicalizeName(zoneParam);
-        List<DNSResourceRecord> answers = response.getAnswers();
-        List<DNSResourceRecord> dnskeys =
-                DNSSECValidator.filterByType(answers, DNSType.DNSKEY);
+    void handleDNSKEYResponse(String zoneParam, DnsMessage response) {
+        String zone = DnssecValidator.canonicalizeName(zoneParam);
+        List<DnsResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> dnskeys =
+                DnssecValidator.filterByType(answers, DnsType.DNSKEY);
         if (dnskeys.isEmpty()) {
             return; // fail open: nothing usable this round
         }
-        List<DNSResourceRecord> rrsigs =
-                DNSSECValidator.findRRSIGs(answers, DNSType.DNSKEY.getValue());
+        List<DnsResourceRecord> rrsigs =
+                DnssecValidator.findRRSIGs(answers, DnsType.DNSKEY.getValue());
 
         List<TrackedKey> tracked =
                 trustPoints.computeIfAbsent(zone, z -> new ArrayList<>());
@@ -391,7 +391,7 @@ public class DNSSECTrustAnchorUpdater {
         long now = now();
         Set<TrackedKey> seenThisRound = new HashSet<>();
 
-        for (DNSResourceRecord candidate : dnskeys) {
+        for (DnsResourceRecord candidate : dnskeys) {
             if (!candidate.isDNSKEYSecureEntryPoint()) {
                 continue; // RFC 5011 manages Secure Entry Points (KSKs) only
             }
@@ -489,29 +489,29 @@ public class DNSSECTrustAnchorUpdater {
      * anchor, or an already-Valid tracked key.
      */
     private boolean signedByCurrentlyTrustedKey(String zone,
-            List<DNSResourceRecord> dnskeys, List<DNSResourceRecord> rrsigs,
+            List<DnsResourceRecord> dnskeys, List<DnsResourceRecord> rrsigs,
             List<TrackedKey> tracked) {
-        for (DNSResourceRecord rrsig : rrsigs) {
-            if (!DNSSECValidator.isRRSIGCurrent(rrsig)) {
+        for (DnsResourceRecord rrsig : rrsigs) {
+            if (!DnssecValidator.isRRSIGCurrent(rrsig)) {
                 continue;
             }
-            if (!zone.equals(DNSSECValidator.canonicalizeName(rrsig.getRRSIGSignerName()))) {
+            if (!zone.equals(DnssecValidator.canonicalizeName(rrsig.getRRSIGSignerName()))) {
                 continue; // must be signed at the trust point itself, not a parent
             }
-            DNSResourceRecord signer = DNSSECValidator.findMatchingDNSKEY(rrsig, dnskeys);
+            DnsResourceRecord signer = DnssecValidator.findMatchingDNSKEY(rrsig, dnskeys);
             if (signer == null) {
                 continue;
             }
             boolean trusted = trustAnchor.isDNSKEYTrusted(zone, signer)
                     || isTrackedValid(tracked, signer);
-            if (trusted && DNSSECValidator.verifyRRSIG(dnskeys, rrsig, signer)) {
+            if (trusted && DnssecValidator.verifyRRSIG(dnskeys, rrsig, signer)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean isTrackedValid(List<TrackedKey> tracked, DNSResourceRecord key) {
+    private static boolean isTrackedValid(List<TrackedKey> tracked, DnsResourceRecord key) {
         TrackedKey tk = find(tracked, key.getDNSKEYAlgorithm(), key.getDNSKEYPublicKey());
         return tk != null && tk.state == KeyState.VALID;
     }
@@ -525,14 +525,14 @@ public class DNSSECTrustAnchorUpdater {
      * looks for a signature under the key's current (revoked) tag,
      * which is what a genuine self-signature would carry.
      */
-    private static boolean isValidlySelfSigned(DNSResourceRecord revokedKey,
-            List<DNSResourceRecord> dnskeys, List<DNSResourceRecord> rrsigs) {
+    private static boolean isValidlySelfSigned(DnsResourceRecord revokedKey,
+            List<DnsResourceRecord> dnskeys, List<DnsResourceRecord> rrsigs) {
         int tag = revokedKey.computeKeyTag();
         int algorithm = revokedKey.getDNSKEYAlgorithm();
-        for (DNSResourceRecord rrsig : rrsigs) {
+        for (DnsResourceRecord rrsig : rrsigs) {
             if (rrsig.getRRSIGKeyTag() == tag && rrsig.getRRSIGAlgorithm() == algorithm
-                    && DNSSECValidator.isRRSIGCurrent(rrsig)
-                    && DNSSECValidator.verifyRRSIG(dnskeys, rrsig, revokedKey)) {
+                    && DnssecValidator.isRRSIGCurrent(rrsig)
+                    && DnssecValidator.verifyRRSIG(dnskeys, rrsig, revokedKey)) {
                 return true;
             }
         }
@@ -565,8 +565,8 @@ public class DNSSECTrustAnchorUpdater {
         return result;
     }
 
-    private static DNSResourceRecord toDNSKEYRecord(String zone, byte[] rdata) {
-        return new DNSResourceRecord(zone, DNSType.DNSKEY, DNSClass.IN, 0, rdata);
+    private static DnsResourceRecord toDNSKEYRecord(String zone, byte[] rdata) {
+        return new DnsResourceRecord(zone, DnsType.DNSKEY, DnsClass.IN, 0, rdata);
     }
 
     // ── Persistence (RFC 5011 section 2.3) ──
@@ -608,7 +608,7 @@ public class DNSSECTrustAnchorUpdater {
                 long stateChangedAt = Long.parseLong(parts[2]);
                 byte[] rdata = Base64.getDecoder().decode(parts[3]);
 
-                DNSResourceRecord synthetic = toDNSKEYRecord(zone, rdata);
+                DnsResourceRecord synthetic = toDNSKEYRecord(zone, rdata);
                 TrackedKey tk = new TrackedKey(synthetic.computeKeyTag(),
                         synthetic.getDNSKEYAlgorithm(), rdata);
                 tk.state = state;

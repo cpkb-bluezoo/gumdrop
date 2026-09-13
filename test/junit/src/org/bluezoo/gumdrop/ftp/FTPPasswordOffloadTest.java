@@ -111,8 +111,8 @@ public class FTPPasswordOffloadTest {
         SimpleFTPHandler connectionHandler = new SimpleFTPHandler(
                 fs, new Pbkdf2PasswordRealm(USERNAME, PASSWORD));
 
-        FTPListener listener = new FTPListener();
-        FTPProtocolHandler handler = new FTPProtocolHandler(listener, connectionHandler);
+        FtpListener listener = new FtpListener();
+        FtpProtocolHandler handler = new FtpProtocolHandler(listener, connectionHandler);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(21);
         handler.connected(endpoint);
 

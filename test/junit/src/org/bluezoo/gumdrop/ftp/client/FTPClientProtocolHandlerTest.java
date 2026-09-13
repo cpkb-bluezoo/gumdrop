@@ -41,7 +41,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link FTPClientProtocolHandler} state transitions:
+ * Unit tests for {@link FtpClientProtocolHandler} state transitions:
  * greeting, USER/PASS/ACCT login sequences, AUTH TLS, and the
  * authenticated-state commands (CWD/CDUP/PWD/TYPE/STRU/MODE/DELE/RMD/MKD/
  * QUIT). Mirrors the structure of {@code SMTPClientProtocolHandlerTest}.
@@ -50,7 +50,7 @@ import static org.junit.Assert.*;
  */
 public class FTPClientProtocolHandlerTest {
 
-    private FTPClientProtocolHandler handler;
+    private FtpClientProtocolHandler handler;
     private StubEndpoint endpoint;
     private final List<String> sentCommands = new ArrayList<>();
     private final AtomicBoolean disconnected = new AtomicBoolean();
@@ -62,7 +62,7 @@ public class FTPClientProtocolHandlerTest {
         disconnected.set(false);
         serviceUnavailable.set(null);
         endpoint = new StubEndpoint(sentCommands);
-        handler = new FTPClientProtocolHandler(new ServerGreeting() {
+        handler = new FtpClientProtocolHandler(new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientLoginState login, String message) {
             }
@@ -98,11 +98,11 @@ public class FTPClientProtocolHandlerTest {
     private void login() {
         simulateResponse("220 mail.example.com FTP ready\r\n");
         AtomicReference<ClientAuthenticatedState> auth = new AtomicReference<>();
-        handler.user("alice", new ServerUserReplyHandler() {
+        handler.user("alice", new UserReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleUserAccepted(ClientAuthenticatedState a) { auth.set(a); }
             @Override public void handlePasswordRequired(ClientPasswordState pass) {
-                pass.pass("secret", new ServerPassReplyHandler() {
+                pass.pass("secret", new PassReplyHandler() {
                     @Override public void handleServiceClosing(String message) { }
                     @Override public void handleAuthenticated(ClientAuthenticatedState a) {
                         auth.set(a);
@@ -124,7 +124,7 @@ public class FTPClientProtocolHandlerTest {
     @Test
     public void testGreetingOk() {
         AtomicReference<String> greeting = new AtomicReference<>();
-        FTPClientProtocolHandler h = new FTPClientProtocolHandler(new ServerGreeting() {
+        FtpClientProtocolHandler h = new FtpClientProtocolHandler(new RemoteGreeting() {
             @Override public void handleGreeting(ClientLoginState login, String message) {
                 greeting.set(message);
             }
@@ -152,7 +152,7 @@ public class FTPClientProtocolHandlerTest {
     public void testUserAcceptedWithoutPassword() {
         simulateResponse("220 ready\r\n");
         AtomicReference<ClientAuthenticatedState> auth = new AtomicReference<>();
-        handler.user("anonymous", new ServerUserReplyHandler() {
+        handler.user("anonymous", new UserReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleUserAccepted(ClientAuthenticatedState a) { auth.set(a); }
             @Override public void handlePasswordRequired(ClientPasswordState pass) { }
@@ -168,7 +168,7 @@ public class FTPClientProtocolHandlerTest {
     public void testUserRejected() {
         simulateResponse("220 ready\r\n");
         AtomicReference<String> rejected = new AtomicReference<>();
-        handler.user("baduser", new ServerUserReplyHandler() {
+        handler.user("baduser", new UserReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleUserAccepted(ClientAuthenticatedState a) { }
             @Override public void handlePasswordRequired(ClientPasswordState pass) { }
@@ -185,7 +185,7 @@ public class FTPClientProtocolHandlerTest {
     public void testPassAuthFailed() {
         simulateResponse("220 ready\r\n");
         AtomicReference<ClientPasswordState> passState = new AtomicReference<>();
-        handler.user("alice", new ServerUserReplyHandler() {
+        handler.user("alice", new UserReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleUserAccepted(ClientAuthenticatedState a) { }
             @Override public void handlePasswordRequired(ClientPasswordState pass) {
@@ -196,7 +196,7 @@ public class FTPClientProtocolHandlerTest {
         });
         simulateResponse("331 Password required\r\n");
         AtomicReference<String> failed = new AtomicReference<>();
-        passState.get().pass("wrong", new ServerPassReplyHandler() {
+        passState.get().pass("wrong", new PassReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleAuthenticated(ClientAuthenticatedState a) { }
             @Override public void handleAccountRequired(ClientAccountState acct) { }
@@ -213,11 +213,11 @@ public class FTPClientProtocolHandlerTest {
     public void testAccountRequiredFlow() {
         simulateResponse("220 ready\r\n");
         AtomicReference<ClientAccountState> acctState = new AtomicReference<>();
-        handler.user("alice", new ServerUserReplyHandler() {
+        handler.user("alice", new UserReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleUserAccepted(ClientAuthenticatedState a) { }
             @Override public void handlePasswordRequired(ClientPasswordState pass) {
-                pass.pass("secret", new ServerPassReplyHandler() {
+                pass.pass("secret", new PassReplyHandler() {
                     @Override public void handleServiceClosing(String message) { }
                     @Override public void handleAuthenticated(ClientAuthenticatedState a) { }
                     @Override public void handleAccountRequired(ClientAccountState acct) {
@@ -234,7 +234,7 @@ public class FTPClientProtocolHandlerTest {
         assertNotNull(acctState.get());
 
         AtomicReference<ClientAuthenticatedState> auth = new AtomicReference<>();
-        acctState.get().acct("finance", new ServerAcctReplyHandler() {
+        acctState.get().acct("finance", new AcctReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleAuthenticated(ClientAuthenticatedState a) { auth.set(a); }
             @Override public void handleAuthFailed(ClientLoginState login, String message) { }
@@ -250,7 +250,7 @@ public class FTPClientProtocolHandlerTest {
     public void testAuthTlsEstablished() {
         simulateResponse("220 ready\r\n");
         AtomicBoolean established = new AtomicBoolean();
-        handler.authTls(new ServerAuthTlsReplyHandler() {
+        handler.authTls(new AuthTlsReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleTlsEstablished(ClientLoginState login) {
                 established.set(true);
@@ -278,7 +278,7 @@ public class FTPClientProtocolHandlerTest {
     public void testAuthTlsUnavailable() {
         simulateResponse("220 ready\r\n");
         AtomicBoolean unavailable = new AtomicBoolean();
-        handler.authTls(new ServerAuthTlsReplyHandler() {
+        handler.authTls(new AuthTlsReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleTlsEstablished(ClientLoginState login) { }
             @Override public void handleTlsUnavailable(ClientLoginState login) {
@@ -295,7 +295,7 @@ public class FTPClientProtocolHandlerTest {
     public void testCwdOk() {
         login();
         AtomicBoolean ok = new AtomicBoolean();
-        handler.cwd("/pub", new ServerCwdReplyHandler() {
+        handler.cwd("/pub", new CwdReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { ok.set(true); }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }
@@ -309,7 +309,7 @@ public class FTPClientProtocolHandlerTest {
     public void testCwdError() {
         login();
         AtomicReference<Integer> errCode = new AtomicReference<>();
-        handler.cwd("/nope", new ServerCwdReplyHandler() {
+        handler.cwd("/nope", new CwdReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) {
@@ -324,7 +324,7 @@ public class FTPClientProtocolHandlerTest {
     public void testPwdParsesQuotedPathname() {
         login();
         AtomicReference<String> path = new AtomicReference<>();
-        handler.pwd(new ServerPwdReplyHandler() {
+        handler.pwd(new PwdReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handlePathname(String pathname, ClientAuthenticatedState a) {
                 path.set(pathname);
@@ -340,7 +340,7 @@ public class FTPClientProtocolHandlerTest {
     public void testPwdParsesDoubledQuoteEscape() {
         login();
         AtomicReference<String> path = new AtomicReference<>();
-        handler.pwd(new ServerPwdReplyHandler() {
+        handler.pwd(new PwdReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handlePathname(String pathname, ClientAuthenticatedState a) {
                 path.set(pathname);
@@ -355,7 +355,7 @@ public class FTPClientProtocolHandlerTest {
     public void testMkdParsesQuotedPathname() {
         login();
         AtomicReference<String> path = new AtomicReference<>();
-        handler.mkd("newdir", new ServerMkdReplyHandler() {
+        handler.mkd("newdir", new MkdReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handlePathname(String pathname, ClientAuthenticatedState a) {
                 path.set(pathname);
@@ -431,7 +431,7 @@ public class FTPClientProtocolHandlerTest {
     public void testSimpleReplyError() {
         login();
         AtomicReference<Integer> errCode = new AtomicReference<>();
-        handler.dele("missing.txt", new ServerSimpleReplyHandler() {
+        handler.dele("missing.txt", new SimpleReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) {
@@ -457,7 +457,7 @@ public class FTPClientProtocolHandlerTest {
     public void testPasvParsesAddress() {
         login();
         AtomicReference<InetSocketAddress> addr = new AtomicReference<>();
-        handler.pasv(new ServerPasvReplyHandler() {
+        handler.pasv(new PasvReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handlePassive(InetSocketAddress a, ClientAuthenticatedState s) {
                 addr.set(a);
@@ -474,7 +474,7 @@ public class FTPClientProtocolHandlerTest {
     public void testPasvError() {
         login();
         AtomicReference<Integer> errCode = new AtomicReference<>();
-        handler.pasv(new ServerPasvReplyHandler() {
+        handler.pasv(new PasvReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handlePassive(InetSocketAddress a, ClientAuthenticatedState s) { }
             @Override public void handleError(ClientAuthenticatedState s, int code, String message) {
@@ -489,7 +489,7 @@ public class FTPClientProtocolHandlerTest {
     public void testEpsvParsesPortUsingControlHost() {
         login();
         AtomicReference<InetSocketAddress> addr = new AtomicReference<>();
-        handler.epsv(new ServerEpsvReplyHandler() {
+        handler.epsv(new EpsvReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handlePassive(InetSocketAddress a, ClientAuthenticatedState s) {
                 addr.set(a);
@@ -506,7 +506,7 @@ public class FTPClientProtocolHandlerTest {
     public void testEpsvError() {
         login();
         AtomicBoolean unavailable = new AtomicBoolean();
-        handler.epsv(new ServerEpsvReplyHandler() {
+        handler.epsv(new EpsvReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handlePassive(InetSocketAddress a, ClientAuthenticatedState s) { }
             @Override public void handleError(ClientAuthenticatedState s, int code, String message) {
@@ -522,7 +522,7 @@ public class FTPClientProtocolHandlerTest {
     @Test
     public void testPortSendsLoopbackAddressAndEphemeralPort() {
         login();
-        handler.port(new ServerPortReplyHandler() {
+        handler.port(new PortReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }
@@ -535,7 +535,7 @@ public class FTPClientProtocolHandlerTest {
     public void testPortOkCallback() {
         login();
         AtomicBoolean ok = new AtomicBoolean();
-        handler.port(new ServerPortReplyHandler() {
+        handler.port(new PortReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { ok.set(true); }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }
@@ -548,7 +548,7 @@ public class FTPClientProtocolHandlerTest {
     public void testPortError() {
         login();
         AtomicReference<Integer> errCode = new AtomicReference<>();
-        handler.port(new ServerPortReplyHandler() {
+        handler.port(new PortReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) {
@@ -562,7 +562,7 @@ public class FTPClientProtocolHandlerTest {
     @Test
     public void testEprtSendsIpv4AddressFamilyOne() {
         login();
-        handler.eprt(new ServerPortReplyHandler() {
+        handler.eprt(new PortReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }
@@ -575,7 +575,7 @@ public class FTPClientProtocolHandlerTest {
     public void testEprtOkCallback() {
         login();
         AtomicBoolean ok = new AtomicBoolean();
-        handler.eprt(new ServerPortReplyHandler() {
+        handler.eprt(new PortReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { ok.set(true); }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }
@@ -620,7 +620,7 @@ public class FTPClientProtocolHandlerTest {
     public void testProtError() {
         login();
         AtomicReference<Integer> errCode = new AtomicReference<>();
-        handler.prot("P", new ServerSimpleReplyHandler() {
+        handler.prot("P", new SimpleReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) {
@@ -636,7 +636,7 @@ public class FTPClientProtocolHandlerTest {
     @Test
     public void test421ClosesConnectionMidSession() {
         login();
-        handler.pwd(new ServerPwdReplyHandler() {
+        handler.pwd(new PwdReplyHandler() {
             @Override public void handleServiceClosing(String message) {
                 serviceUnavailable.set(message);
             }
@@ -648,8 +648,8 @@ public class FTPClientProtocolHandlerTest {
         assertFalse(handler.isOpen());
     }
 
-    private static ServerSimpleReplyHandler simpleOk(AtomicBoolean ok) {
-        return new ServerSimpleReplyHandler() {
+    private static SimpleReplyHandler simpleOk(AtomicBoolean ok) {
+        return new SimpleReplyHandler() {
             @Override public void handleServiceClosing(String message) { }
             @Override public void handleOk(ClientAuthenticatedState a) { ok.set(true); }
             @Override public void handleError(ClientAuthenticatedState a, int code, String message) { }

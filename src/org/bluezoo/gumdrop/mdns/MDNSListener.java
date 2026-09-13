@@ -1,5 +1,5 @@
 /*
- * MDNSListener.java
+ * MdnsListener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -40,13 +40,13 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.UDPEndpoint;
-import org.bluezoo.gumdrop.UDPTransportFactory;
+import org.bluezoo.gumdrop.UdpEndpoint;
+import org.bluezoo.gumdrop.UdpTransportFactory;
 
 /**
  * UDP multicast transport listener for multicast DNS (RFC 6762).
  *
- * <p>Unlike {@link org.bluezoo.gumdrop.dns.DNSListener}, this endpoint
+ * <p>Unlike {@link org.bluezoo.gumdrop.dns.DnsListener}, this endpoint
  * binds a single shared datagram socket on port 5353 and joins the
  * mDNS IPv4 multicast group ({@code 224.0.0.251}) on every active,
  * multicast-capable, non-loopback network interface, rather than a
@@ -54,12 +54,12 @@ import org.bluezoo.gumdrop.UDPTransportFactory;
  * yet supported &mdash; see the RFC 6762 phase plan.)
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MDNSService
+ * @see MdnsServer
  */
-public class MDNSListener extends Listener {
+public class MdnsListener extends Listener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(MDNSListener.class.getName());
+            Logger.getLogger(MdnsListener.class.getName());
 
     static final int DEFAULT_PORT = 5353;
 
@@ -74,9 +74,9 @@ public class MDNSListener extends Listener {
     private static final int MULTICAST_TTL = 255;
 
     private int port = DEFAULT_PORT;
-    private MDNSService service;
-    private UDPTransportFactory transportFactory;
-    private UDPEndpoint endpoint;
+    private MdnsServer service;
+    private UdpTransportFactory transportFactory;
+    private UdpEndpoint endpoint;
     private InetAddress group;
     private InetSocketAddress groupAddress;
 
@@ -100,12 +100,12 @@ public class MDNSListener extends Listener {
     }
 
     /**
-     * Sets the owning mDNS service. Called by {@link MDNSService}
+     * Sets the owning mDNS service. Called by {@link MdnsServer}
      * during wiring.
      *
      * @param service the owning service
      */
-    void setService(MDNSService service) {
+    void setService(MdnsServer service) {
         this.service = service;
     }
 
@@ -114,16 +114,16 @@ public class MDNSListener extends Listener {
      *
      * @return the owning service
      */
-    public MDNSService getService() {
+    public MdnsServer getService() {
         return service;
     }
 
     /**
      * Returns true if this listener successfully bound its datagram
      * endpoint. {@link #start()} logs and swallows bind failures
-     * (matching {@link org.bluezoo.gumdrop.dns.DNSListener}'s
+     * (matching {@link org.bluezoo.gumdrop.dns.DnsListener}'s
      * convention) rather than throwing, so callers that need to know
-     * whether starting actually worked &mdash; e.g. {@link MDNSService}
+     * whether starting actually worked &mdash; e.g. {@link MdnsServer}
      * deciding whether it's safe to begin probing &mdash; must check
      * this explicitly instead of relying on {@code start()} throwing.
      *
@@ -143,7 +143,7 @@ public class MDNSListener extends Listener {
         }
         groupAddress = new InetSocketAddress(group, port);
 
-        transportFactory = new UDPTransportFactory();
+        transportFactory = new UdpTransportFactory();
         transportFactory.start();
 
         try {
@@ -157,7 +157,7 @@ public class MDNSListener extends Listener {
 
             int joined = joinAllInterfaces(channel);
             if (joined == 0) {
-                LOGGER.warning(MDNSService.L10N.getString(
+                LOGGER.warning(MdnsServer.L10N.getString(
                         "warn.mdns_no_multicast_interface"));
             }
 
@@ -206,7 +206,7 @@ public class MDNSListener extends Listener {
                 }
             } catch (IOException e) {
                 if (LOGGER.isLoggable(Level.FINE)) {
-                    String msg = MessageFormat.format(MDNSService.L10N.getString(
+                    String msg = MessageFormat.format(MdnsServer.L10N.getString(
                             "warn.mdns_join_failed"), ni.getName());
                     LOGGER.log(Level.FINE, msg, e);
                 }
@@ -303,24 +303,24 @@ public class MDNSListener extends Listener {
 
     /**
      * Inner handler that dispatches received datagrams to the owning
-     * {@link MDNSService}.
+     * {@link MdnsServer}.
      */
     private class MDNSDatagramHandler implements ProtocolHandler {
 
         @Override
         public void connected(Endpoint ep) {
-            // endpoint is already bound and joined via MDNSListener.start()
+            // endpoint is already bound and joined via MdnsListener.start()
         }
 
         @Override
         public void receive(ByteBuffer data) {
             if (service == null) {
-                LOGGER.warning(MDNSService.L10N.getString("warn.mdns_no_service_set"));
+                LOGGER.warning(MdnsServer.L10N.getString("warn.mdns_no_service_set"));
                 return;
             }
             InetSocketAddress source =
                     (InetSocketAddress) endpoint.getRemoteAddress();
-            service.handleDatagram(MDNSListener.this, data, source);
+            service.handleDatagram(MdnsListener.this, data, source);
         }
 
         @Override

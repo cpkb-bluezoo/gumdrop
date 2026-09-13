@@ -30,7 +30,7 @@ package org.bluezoo.gumdrop.dns.client;
  * <p>Each transport's port defaults to 0, meaning "let the transport
  * use its own well-known default" (RFC 7858 §3.1 / RFC 9250 §4.1.1:
  * 853 for DoT/DoQ; RFC 8484 §5.1: 443 for DoH) -- the same "port &lt;= 0
- * means use the default" convention {@link DNSClientTransport}
+ * means use the default" convention {@link DnsClientTransport}
  * implementations already follow. DDR's {@code port} SvcParam (RFC
  * 9460 §7.3) overrides this when a resolver advertises a non-default
  * port for a given transport.

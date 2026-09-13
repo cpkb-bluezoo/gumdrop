@@ -37,11 +37,11 @@ import org.bluezoo.gumdrop.util.DirectByteBufferPool;
  * Manages TLS 1.3 record-layer wrap/unwrap operations for a TCP
  * connection, driving an in-tree {@link TlsRecordEngine} -- the direct
  * replacement for the former JSSE-backed {@code SSLState}, playing the
- * exact same role relative to {@link TCPEndpoint}: same {@link Callback}
+ * exact same role relative to {@link TcpEndpoint}: same {@link Callback}
  * shape, same {@code netIn}/{@code netOut} buffer ownership (still
- * {@link TCPEndpoint}'s, accessed here the same way {@code SSLState}
- * accessed them). {@link TCPEndpoint#tlsEngineLock} serializes engine
- * access; {@link TCPEndpoint#netOutLock} guards {@code netOut} alone so
+ * {@link TcpEndpoint}'s, accessed here the same way {@code SSLState}
+ * accessed them). {@link TcpEndpoint#tlsEngineLock} serializes engine
+ * access; {@link TcpEndpoint#netOutLock} guards {@code netOut} alone so
  * the selector loop can write ciphertext to the socket while decrypt runs.
  *
  * <p>Record-layer AEAD (wrap/unwrap) runs on the {@code SelectorLoop}
@@ -51,8 +51,8 @@ import org.bluezoo.gumdrop.util.DirectByteBufferPool;
  * safe for concurrent access from more than one thread at a time, every
  * method that touches it -- {@link #wrap}, {@link #unwrap},
  * {@link #startClientHandshake}, {@link #closeOutbound} -- synchronizes on
- * {@link TCPEndpoint#tlsEngineLock}. Outbound buffer writes from
- * {@link #ciphertextReady} take {@link TCPEndpoint#netOutLock} only.
+ * {@link TcpEndpoint#tlsEngineLock}. Outbound buffer writes from
+ * {@link #ciphertextReady} take {@link TcpEndpoint#netOutLock} only.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -62,7 +62,7 @@ final class TlsRecordState implements TlsRecordSink {
 
     private static final int DEFAULT_BUFFER_SIZE = 32768;
 
-    /** Callback interface for TlsRecordState to communicate with TCPEndpoint -- mirrors the former SSLState.Callback exactly. */
+    /** Callback interface for TlsRecordState to communicate with TcpEndpoint -- mirrors the former SSLState.Callback exactly. */
     interface Callback {
         /** Called when decrypted application data is available. */
         void onApplicationData(ByteBuffer data);
@@ -85,7 +85,7 @@ final class TlsRecordState implements TlsRecordSink {
     }
 
     private final TlsRecordEngine engine;
-    private final TCPEndpoint tcpEndpoint;
+    private final TcpEndpoint tcpEndpoint;
     private final Callback callback;
 
     private boolean handshakeStarted;
@@ -100,7 +100,7 @@ final class TlsRecordState implements TlsRecordSink {
     // once via flushPendingAppData().
     private ByteBuffer pendingAppData;
 
-    TlsRecordState(HandshakeConfig config, TCPEndpoint tcpEndpoint, Callback callback) {
+    TlsRecordState(HandshakeConfig config, TcpEndpoint tcpEndpoint, Callback callback) {
         this.engine = new TlsRecordEngine(config, handshakeOffload(tcpEndpoint));
         this.tcpEndpoint = tcpEndpoint;
         this.callback = callback;
@@ -141,7 +141,7 @@ final class TlsRecordState implements TlsRecordSink {
 
     /**
      * Processes incoming encrypted data from {@code netIn}. Called by
-     * {@link TCPEndpoint#processInbound} after data is appended. The
+     * {@link TcpEndpoint#processInbound} after data is appended. The
      * {@code netIn} buffer is in read mode (flipped).
      */
     void unwrap() {
@@ -339,7 +339,7 @@ final class TlsRecordState implements TlsRecordSink {
      * Grows {@code netOut} to fit {@code needed} more bytes, the same
      * ceiling-enforced, pooled-buffer pattern {@code SSLState.growNetOut()}
      * used. Returns false (does not grow) if the peer is not draining and
-     * the buffer would have to exceed {@link TCPEndpoint#getMaxNetOutSize()}.
+     * the buffer would have to exceed {@link TcpEndpoint#getMaxNetOutSize()}.
      */
     private boolean ensureNetOutCapacityOrOverflow(int needed) {
         ByteBuffer out = netOut();
@@ -382,11 +382,11 @@ final class TlsRecordState implements TlsRecordSink {
         callback.onClosed();
     }
 
-    private static HandshakeAsyncOffload handshakeOffload(final TCPEndpoint endpoint) {
+    private static HandshakeAsyncOffload handshakeOffload(final TcpEndpoint endpoint) {
         return new TlsHandshakeAsyncOffload(loopExecutor(endpoint));
     }
 
-    private static Executor loopExecutor(final TCPEndpoint endpoint) {
+    private static Executor loopExecutor(final TcpEndpoint endpoint) {
         return new Executor() {
             @Override
             public void execute(Runnable task) {

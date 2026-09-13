@@ -95,10 +95,10 @@ Transport endpoints wire engines into the reactor model:
 </p>
 
 <ul>
-<li><b>TCP</b> &mdash; <code>TCPEndpoint</code> &rarr;
+<li><b>TCP</b> &mdash; <code>TcpEndpoint</code> &rarr;
     <code>TlsRecordState</code> / <code>Tls12RecordState</code> &rarr;
     <code>TlsRecordEngine</code> / <code>Tls12RecordEngine</code></li>
-<li><b>UDP</b> &mdash; <code>UDPEndpoint</code> &rarr; one
+<li><b>UDP</b> &mdash; <code>UdpEndpoint</code> &rarr; one
     <code>Dtls12Session</code> or <code>Dtls13Session</code> per remote peer
     &rarr; <code>Dtls12RecordEngine</code> / <code>Dtls13RecordEngine</code></li>
 <li><b>QUIC</b> &mdash; <code>QuicTlsClientEngine</code> /
@@ -127,14 +127,14 @@ state.
   <td>TCP (HTTPS, SMTP, IMAP, &hellip;)</td>
   <td>TLS&nbsp;1.2, TLS&nbsp;1.3</td>
   <td>TLS&nbsp;1.3</td>
-  <td><code>tls-version</code> on <code>TCPTransportFactory</code> /
+  <td><code>tls-version</code> on <code>TcpTransportFactory</code> /
       <code>Listener</code> (<code>TLS_1_2</code> or <code>TLS_1_3</code>)</td>
 </tr>
 <tr>
   <td>UDP (DNS, CoAP-style services, &hellip;)</td>
   <td>DTLS&nbsp;1.2, DTLS&nbsp;1.3</td>
   <td>DTLS&nbsp;1.2</td>
-  <td><code>dtls-version</code> on <code>UDPTransportFactory</code> /
+  <td><code>dtls-version</code> on <code>UdpTransportFactory</code> /
       <code>Listener</code> (<code>DTLS_1_2</code> or <code>DTLS_1_3</code>)</td>
 </tr>
 <tr>
@@ -378,7 +378,7 @@ and may set DTLS-specific properties (<code>require-cookie</code>,
 <h3>Programmatic client (factory)</h3>
 
 <pre>
-TCPTransportFactory factory = new TCPTransportFactory();
+TcpTransportFactory factory = new TcpTransportFactory();
 factory.setSecure(true);
 factory.setTlsVersion(TlsVersion.TLS_1_3);
 factory.setKeystoreFile("client.p12");
@@ -395,7 +395,7 @@ endpoint.connect(new MyProtocolHandler());
 </pre>
 
 <p>
-UDP clients mirror this with <code>UDPTransportFactory</code>,
+UDP clients mirror this with <code>UdpTransportFactory</code>,
 <code>setDtlsVersion(DtlsVersion.DTLS_1_3)</code>, and protocol-specific ALPN
 (e.g. <code>dot</code>, <code>doq</code>).
 </p>
@@ -412,7 +412,7 @@ vs HTTP/1.1, <code>h3</code> on QUIC, <code>dot</code> for DoT, etc.).
     <code>HttpListener</code> offers <code>h2</code> and <code>http/1.1</code>;
     <code>Http3Listener</code> sets <code>h3</code></li>
 <li><b>Custom service:</b> <code>setApplicationProtocols(String...)</code> on
-    <code>TCPTransportFactory</code> / <code>UDPTransportFactory</code></li>
+    <code>TcpTransportFactory</code> / <code>UdpTransportFactory</code></li>
 <li><b>After handshake:</b> negotiated protocol is available from
     <code>SecurityInfo.getApplicationProtocol()</code> and passed to
     <code>ProtocolHandler.securityEstablished(SecurityInfo)</code></li>

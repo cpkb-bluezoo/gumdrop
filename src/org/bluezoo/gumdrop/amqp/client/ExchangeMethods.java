@@ -49,8 +49,8 @@ final class ExchangeMethods {
                 + 1 // bits
                 + 4 + args.encodedContentSize();
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_EXCHANGE);
-        buf.putShort((short) AMQPMethod.EXCHANGE_DECLARE);
+        buf.putShort((short) AmqpMethod.CLASS_EXCHANGE);
+        buf.putShort((short) AmqpMethod.EXCHANGE_DECLARE);
         buf.putShort((short) 0);
         FieldTable.putShortString(buf, exchange);
         FieldTable.putShortString(buf, type);
@@ -69,8 +69,8 @@ final class ExchangeMethods {
 
     static ByteBuffer encodeDeclareOk() {
         ByteBuffer buf = ByteBuffer.allocate(4);
-        buf.putShort((short) AMQPMethod.CLASS_EXCHANGE);
-        buf.putShort((short) AMQPMethod.EXCHANGE_DECLARE_OK);
+        buf.putShort((short) AmqpMethod.CLASS_EXCHANGE);
+        buf.putShort((short) AmqpMethod.EXCHANGE_DECLARE_OK);
         buf.flip();
         return buf;
     }
@@ -88,7 +88,7 @@ final class ExchangeMethods {
         }
     }
 
-    static Declare decodeDeclare(ByteBuffer payload) throws AMQPProtocolException {
+    static Declare decodeDeclare(ByteBuffer payload) throws AmqpProtocolException {
         payload.getShort(); // reserved-1 (ticket)
         String exchange = FieldTable.getShortString(payload);
         String type = FieldTable.getShortString(payload);

@@ -758,7 +758,7 @@ public class IMAPClientProtocolHandlerTest {
 
     // Streaming lexer conversion (issue #85): the FETCH-literal transcript
     // above, fed one byte at a time across many receive() calls, mirroring
-    // the real transport contract (TCPEndpoint.processInbound()) — a
+    // the real transport contract (TcpEndpoint.processInbound()) — a
     // single persistent buffer, compacted between calls so unconsumed
     // bytes from a partial token/raw run are preserved and physically
     // moved forward, not a fresh isolated buffer per chunk.

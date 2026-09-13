@@ -1,5 +1,5 @@
 /*
- * MQTTProperties.java
+ * MqttProperties.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -37,7 +37,7 @@ import java.util.Map;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class MQTTProperties {
+public class MqttProperties {
 
     // MQTT 5.0 property identifiers (section 2.2.2.2)
     public static final int PAYLOAD_FORMAT_INDICATOR = 0x01;
@@ -69,11 +69,11 @@ public class MQTTProperties {
     public static final int SHARED_SUBSCRIPTION_AVAILABLE = 0x2A;
 
     /** Shared empty instance for 3.1.1 packets. */
-    public static final MQTTProperties EMPTY = new MQTTProperties();
+    public static final MqttProperties EMPTY = new MqttProperties();
 
     private Map<Integer, Object> properties;
 
-    public MQTTProperties() {
+    public MqttProperties() {
     }
 
     public boolean isEmpty() {
@@ -222,14 +222,14 @@ public class MQTTProperties {
      *
      * @return decoded properties, or {@link #EMPTY} if length is zero
      */
-    public static MQTTProperties decode(ByteBuffer buf) {
+    public static MqttProperties decode(ByteBuffer buf) {
         int propLen = VariableLengthEncoding.decode(buf);
         if (propLen <= 0) {
             return EMPTY;
         }
 
         int endPos = buf.position() + propLen;
-        MQTTProperties props = new MQTTProperties();
+        MqttProperties props = new MqttProperties();
 
         while (buf.position() < endPos) {
             int id = buf.get() & 0xFF;

@@ -1,0 +1,194 @@
+/*
+ * RoleBasedFTPServer.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.ftp.file;
+
+import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
+import java.util.logging.Logger;
+
+import org.bluezoo.gumdrop.TcpListener;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
+import org.bluezoo.gumdrop.ftp.FtpFileSystem;
+import org.bluezoo.gumdrop.ftp.FtpServer;
+import org.bluezoo.gumdrop.quota.QuotaManager;
+
+/**
+ * FTP service with role-based access control.
+ *
+ * <p>This service authenticates users against a {@link Realm} and
+ * authorises operations based on standard FTP roles (ftp-admin,
+ * ftp-delete, ftp-write, ftp-read).
+ *
+ * <p>The file system can be provided in two ways:
+ * <ul>
+ *   <li>Set {@code rootDirectory} (and optionally {@code readOnly}) to
+ *       have a {@link BasicFTPFileSystem} created automatically.</li>
+ *   <li>Set {@code fileSystem} directly for a custom
+ *       {@link FtpFileSystem} implementation.</li>
+ * </ul>
+ *
+ * <h2>Configuration Example</h2>
+ * <pre>{@code
+ * <service class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer">
+ *   <property name="realm" ref="#ftpRealm"/>
+ *   <property name="root-directory">/var/ftp</property>
+ *   <property name="welcome-message">Welcome to Secure FTP</property>
+ *   <property name="quota-manager" ref="#quotaManager"/>
+ *   <property name="filesystem-enforcement">true</property>
+ *   <listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/>
+ * </service>
+ * }</pre>
+ *
+ * <p>When {@code filesystem-enforcement} is {@code true}, each handler's
+ * file system is wrapped in a {@link RoleAwareFTPFileSystem} decorator
+ * that enforces role checks at the filesystem operation level, in
+ * addition to the command-level checks in {@link RoleBasedFTPHandler}.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see FtpServer
+ * @see RoleBasedFTPHandler
+ * @see org.bluezoo.gumdrop.ftp.FtpRoles
+ */
+public class RoleBasedFTPServer extends FtpServer {
+
+    private static final Logger LOGGER =
+            Logger.getLogger(RoleBasedFTPServer.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
+
+    private FtpFileSystem fileSystem;
+    private Path rootDirectory;
+    private boolean readOnly = false;
+    private boolean filesystemEnforcement = false;
+    private QuotaManager quotaManager;
+    private String welcomeMessage;
+
+    // ── Configuration ──
+
+    public FtpFileSystem getFileSystem() {
+        return fileSystem;
+    }
+
+    /**
+     * Sets a custom file system implementation. When set, this takes
+     * precedence over {@code rootDirectory}/{@code readOnly}.
+     *
+     * @param fileSystem the file system
+     */
+    public void setFileSystem(FtpFileSystem fileSystem) {
+        this.fileSystem = fileSystem;
+    }
+
+    public Path getRootDirectory() {
+        return rootDirectory;
+    }
+
+    public void setRootDirectory(Path rootDirectory) {
+        this.rootDirectory = rootDirectory;
+    }
+
+    public void setRootDirectory(String rootDirectory) {
+        this.rootDirectory = Path.of(rootDirectory);
+    }
+
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
+    public void setReadOnly(boolean readOnly) {
+        this.readOnly = readOnly;
+    }
+
+    /**
+     * Enables filesystem-level role enforcement via
+     * {@link RoleAwareFTPFileSystem}. When enabled, the file system
+     * returned by each handler is wrapped in a decorator that checks
+     * the authenticated user's roles before every operation. This
+     * provides defense-in-depth alongside the command-level checks
+     * in {@link RoleBasedFTPHandler}.
+     *
+     * @param enabled true to enable filesystem enforcement
+     */
+    public void setFilesystemEnforcement(boolean enabled) {
+        this.filesystemEnforcement = enabled;
+    }
+
+    public boolean isFilesystemEnforcement() {
+        return filesystemEnforcement;
+    }
+
+    public QuotaManager getQuotaManager() {
+        return quotaManager;
+    }
+
+    public void setQuotaManager(QuotaManager quotaManager) {
+        this.quotaManager = quotaManager;
+    }
+
+    public String getWelcomeMessage() {
+        return welcomeMessage;
+    }
+
+    public void setWelcomeMessage(String welcomeMessage) {
+        this.welcomeMessage = welcomeMessage;
+    }
+
+    // ── FtpServer hooks ──
+
+    @Override
+    protected void initService() {
+        if (getRealm() == null) {
+            throw new IllegalStateException("realm must be configured");
+        }
+        if (fileSystem == null) {
+            if (rootDirectory == null) {
+                throw new IllegalStateException(
+                        "Either fileSystem or rootDirectory must be "
+                        + "configured");
+            }
+            fileSystem = new BasicFTPFileSystem(rootDirectory, readOnly);
+        }
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.role_based_ftp_service_initialised"),
+                getRealm().getClass().getSimpleName(), quotaManager != null));
+    }
+
+    @Override
+    protected FtpConnectionHandler createHandler(TcpListener endpoint) {
+        FtpFileSystem fs = fileSystem;
+        if (filesystemEnforcement) {
+            Realm realm = getRealm();
+            fs = new RoleAwareFTPFileSystem(fs, realm);
+        }
+        RoleBasedFTPHandler handler =
+                new RoleBasedFTPHandler(getRealm(), fs);
+        if (welcomeMessage != null) {
+            handler.setWelcomeMessage(welcomeMessage);
+        }
+        if (quotaManager != null) {
+            handler.setQuotaManager(quotaManager);
+        }
+        return handler;
+    }
+
+}

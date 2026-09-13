@@ -143,7 +143,7 @@ public class POP3ClientProtocolHandlerTest {
     // that requestStop() correctly hands off to DotUnstuffer.
     // ═══════════════════════════════════════════════════════════════════
 
-    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // Mirrors the real transport contract (TcpEndpoint.processInbound()):
     // a single persistent buffer, compacted between receive() calls.
     private void receiveResponseSliced(String line, int chunkSize) {
         byte[] wire = (line + "\r\n").getBytes(StandardCharsets.US_ASCII);

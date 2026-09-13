@@ -27,11 +27,11 @@ import java.security.SecureRandom;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
 
 /**
  * DMARC (Domain-based Message Authentication, Reporting and Conformance)
@@ -67,7 +67,7 @@ import org.bluezoo.gumdrop.dns.DNSType;
  *
  * <p>Event-driven usage (recommended):
  * <pre><code>
- * DNSResolver resolver = new DNSResolver();
+ * DnsResolver resolver = new DnsResolver();
  * resolver.useSystemResolvers();
  * resolver.open();
  *
@@ -100,7 +100,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
     private static final Logger LOGGER = Logger.getLogger(DMARCValidator.class.getName());
 
-    private final DNSResolver resolver;
+    private final DnsResolver resolver;
     private final SecureRandom random;
 
     // Callback for delivering DMARC results
@@ -128,7 +128,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      *
      * @param resolver the DNS resolver to use for policy lookups
      */
-    public DMARCValidator(DNSResolver resolver) {
+    public DMARCValidator(DnsResolver resolver) {
         this(resolver, null);
     }
 
@@ -142,7 +142,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * @param resolver the DNS resolver to use for policy lookups
      * @param callback the callback to receive DMARC results
      */
-    public DMARCValidator(DNSResolver resolver, DMARCCallback callback) {
+    public DMARCValidator(DnsResolver resolver, DMARCCallback callback) {
         this.resolver = resolver;
         this.callback = callback;
         this.random = new SecureRandom();
@@ -372,9 +372,9 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
         // Look up DMARC record
         String dmarcDomain = "_dmarc." + fromDomain;
-        resolver.queryTXT(dmarcDomain, new DNSQueryCallback() {
+        resolver.queryTXT(dmarcDomain, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 handleDMARCResponse(response, fromDomain, spfResult, spfDomain,
                         dkimResult, dkimDomain, callback);
             }
@@ -389,13 +389,13 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     /**
      * Handles the DNS response for a DMARC lookup.
      */
-    private void handleDMARCResponse(DNSMessage response, String fromDomain,
+    private void handleDMARCResponse(DnsMessage response, String fromDomain,
                                       SPFResult spfResult, String spfDomain,
                                       DKIMResult dkimResult, String dkimDomain,
                                       DMARCCallback callback) {
 
         int rcode = response.getRcode();
-        if (rcode == DNSMessage.RCODE_NXDOMAIN) {
+        if (rcode == DnsMessage.RCODE_NXDOMAIN) {
             // Try organizational domain (parent domain)
             String orgDomain = getOrganizationalDomain(fromDomain);
             if (orgDomain != null && !orgDomain.equals(fromDomain)) {
@@ -407,17 +407,17 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
             return;
         }
 
-        if (rcode != DNSMessage.RCODE_NOERROR) {
+        if (rcode != DnsMessage.RCODE_NOERROR) {
             callback.dmarcResult(DMARCResult.TEMPERROR, null, fromDomain, AuthVerdict.NONE);
             return;
         }
 
         // Find DMARC record
         String dmarcRecord = null;
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.TXT) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.TXT) {
                 String txt = rr.getText();
                 if (txt != null && txt.startsWith("v=DMARC1")) {
                     if (dmarcRecord != null) {
@@ -461,9 +461,9 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
                                   final DMARCCallback callback) {
 
         String dmarcDomain = "_dmarc." + orgDomain;
-        resolver.queryTXT(dmarcDomain, new DNSQueryCallback() {
+        resolver.queryTXT(dmarcDomain, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 handleOrgDMARCResponse(response, orgDomain, fromDomain,
                         spfResult, spfDomain, dkimResult, dkimDomain, callback);
             }
@@ -478,24 +478,24 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     /**
      * Handles the DNS response for organizational domain DMARC lookup.
      */
-    private void handleOrgDMARCResponse(DNSMessage response, String orgDomain,
+    private void handleOrgDMARCResponse(DnsMessage response, String orgDomain,
                                          String fromDomain,
                                          SPFResult spfResult, String spfDomain,
                                          DKIMResult dkimResult, String dkimDomain,
                                          DMARCCallback callback) {
 
         int rcode = response.getRcode();
-        if (rcode != DNSMessage.RCODE_NOERROR) {
+        if (rcode != DnsMessage.RCODE_NOERROR) {
             lookupPsd(orgDomain, fromDomain, spfResult, spfDomain, dkimResult, dkimDomain, callback);
             return;
         }
 
         // Find DMARC record
         String dmarcRecord = null;
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.TXT) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.TXT) {
                 String txt = rr.getText();
                 if (txt != null && txt.startsWith("v=DMARC1")) {
                     dmarcRecord = txt;
@@ -578,9 +578,9 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         String psdCandidate = orgDomain.substring(dot + 1);
 
         String dmarcDomain = "_dmarc." + psdCandidate;
-        resolver.queryTXT(dmarcDomain, new DNSQueryCallback() {
+        resolver.queryTXT(dmarcDomain, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 handlePsdResponse(response, fromDomain, spfResult, spfDomain,
                         dkimResult, dkimDomain, callback);
             }
@@ -596,21 +596,21 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * Handles the DNS response for a PSD-level DMARC lookup (see
      * {@link #lookupPsd}).
      */
-    private void handlePsdResponse(DNSMessage response, String fromDomain,
+    private void handlePsdResponse(DnsMessage response, String fromDomain,
                                     SPFResult spfResult, String spfDomain,
                                     DKIMResult dkimResult, String dkimDomain,
                                     DMARCCallback callback) {
 
-        if (response.getRcode() != DNSMessage.RCODE_NOERROR) {
+        if (response.getRcode() != DnsMessage.RCODE_NOERROR) {
             callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
             return;
         }
 
         String dmarcRecord = null;
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.TXT) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.TXT) {
                 String txt = rr.getText();
                 if (txt != null && txt.startsWith("v=DMARC1")) {
                     dmarcRecord = txt;

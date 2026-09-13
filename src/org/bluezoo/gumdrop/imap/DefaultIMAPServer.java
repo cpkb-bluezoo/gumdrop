@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.imap.handler.ClientConnected;
 import org.bluezoo.gumdrop.imap.handler.DefaultIMAPHandler;
 
@@ -54,7 +54,7 @@ import org.bluezoo.gumdrop.imap.handler.DefaultIMAPHandler;
 public class DefaultIMAPServer extends ImapServer {
 
     @Override
-    protected ClientConnected createHandler(TCPListener endpoint) {
+    protected ClientConnected createHandler(TcpListener endpoint) {
         return new DefaultIMAPHandler();
     }
 

@@ -26,7 +26,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSQuestion}.
+ * Unit tests for {@link DnsQuestion}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -34,39 +34,39 @@ public class DNSQuestionTest {
 
     @Test
     public void testConstructorWithAllArgs() {
-        DNSQuestion question = new DNSQuestion("example.com", DNSType.MX, DNSClass.IN);
+        DnsQuestion question = new DnsQuestion("example.com", DnsType.MX, DnsClass.IN);
         
         assertEquals("example.com", question.getName());
-        assertEquals(DNSType.MX, question.getType());
-        assertEquals(DNSClass.IN, question.getDNSClass());
+        assertEquals(DnsType.MX, question.getType());
+        assertEquals(DnsClass.IN, question.getDNSClass());
     }
     
     @Test
     public void testConstructorDefaultsToIN() {
-        DNSQuestion question = new DNSQuestion("example.com", DNSType.A);
+        DnsQuestion question = new DnsQuestion("example.com", DnsType.A);
         
-        assertEquals(DNSClass.IN, question.getDNSClass());
+        assertEquals(DnsClass.IN, question.getDNSClass());
     }
     
     @Test
     public void testDifferentRecordTypes() {
-        DNSQuestion a = new DNSQuestion("example.com", DNSType.A);
-        DNSQuestion aaaa = new DNSQuestion("example.com", DNSType.AAAA);
-        DNSQuestion mx = new DNSQuestion("example.com", DNSType.MX);
-        DNSQuestion txt = new DNSQuestion("example.com", DNSType.TXT);
-        DNSQuestion ns = new DNSQuestion("example.com", DNSType.NS);
+        DnsQuestion a = new DnsQuestion("example.com", DnsType.A);
+        DnsQuestion aaaa = new DnsQuestion("example.com", DnsType.AAAA);
+        DnsQuestion mx = new DnsQuestion("example.com", DnsType.MX);
+        DnsQuestion txt = new DnsQuestion("example.com", DnsType.TXT);
+        DnsQuestion ns = new DnsQuestion("example.com", DnsType.NS);
         
-        assertEquals(DNSType.A, a.getType());
-        assertEquals(DNSType.AAAA, aaaa.getType());
-        assertEquals(DNSType.MX, mx.getType());
-        assertEquals(DNSType.TXT, txt.getType());
-        assertEquals(DNSType.NS, ns.getType());
+        assertEquals(DnsType.A, a.getType());
+        assertEquals(DnsType.AAAA, aaaa.getType());
+        assertEquals(DnsType.MX, mx.getType());
+        assertEquals(DnsType.TXT, txt.getType());
+        assertEquals(DnsType.NS, ns.getType());
     }
     
     @Test
     public void testEqualsSameName() {
-        DNSQuestion q1 = new DNSQuestion("example.com", DNSType.A);
-        DNSQuestion q2 = new DNSQuestion("example.com", DNSType.A);
+        DnsQuestion q1 = new DnsQuestion("example.com", DnsType.A);
+        DnsQuestion q2 = new DnsQuestion("example.com", DnsType.A);
         
         assertEquals(q1, q2);
         assertEquals(q1.hashCode(), q2.hashCode());
@@ -74,8 +74,8 @@ public class DNSQuestionTest {
     
     @Test
     public void testEqualsCaseInsensitive() {
-        DNSQuestion q1 = new DNSQuestion("example.com", DNSType.A);
-        DNSQuestion q2 = new DNSQuestion("EXAMPLE.COM", DNSType.A);
+        DnsQuestion q1 = new DnsQuestion("example.com", DnsType.A);
+        DnsQuestion q2 = new DnsQuestion("EXAMPLE.COM", DnsType.A);
         
         assertEquals(q1, q2);
         assertEquals(q1.hashCode(), q2.hashCode());
@@ -83,31 +83,31 @@ public class DNSQuestionTest {
     
     @Test
     public void testNotEqualsDifferentType() {
-        DNSQuestion q1 = new DNSQuestion("example.com", DNSType.A);
-        DNSQuestion q2 = new DNSQuestion("example.com", DNSType.AAAA);
+        DnsQuestion q1 = new DnsQuestion("example.com", DnsType.A);
+        DnsQuestion q2 = new DnsQuestion("example.com", DnsType.AAAA);
         
         assertNotEquals(q1, q2);
     }
     
     @Test
     public void testNotEqualsDifferentClass() {
-        DNSQuestion q1 = new DNSQuestion("example.com", DNSType.A, DNSClass.IN);
-        DNSQuestion q2 = new DNSQuestion("example.com", DNSType.A, DNSClass.CH);
+        DnsQuestion q1 = new DnsQuestion("example.com", DnsType.A, DnsClass.IN);
+        DnsQuestion q2 = new DnsQuestion("example.com", DnsType.A, DnsClass.CH);
         
         assertNotEquals(q1, q2);
     }
     
     @Test
     public void testNotEqualsDifferentName() {
-        DNSQuestion q1 = new DNSQuestion("example.com", DNSType.A);
-        DNSQuestion q2 = new DNSQuestion("example.org", DNSType.A);
+        DnsQuestion q1 = new DnsQuestion("example.com", DnsType.A);
+        DnsQuestion q2 = new DnsQuestion("example.org", DnsType.A);
         
         assertNotEquals(q1, q2);
     }
     
     @Test
     public void testToString() {
-        DNSQuestion question = new DNSQuestion("www.example.com", DNSType.A);
+        DnsQuestion question = new DnsQuestion("www.example.com", DnsType.A);
         String str = question.toString();
         
         assertTrue(str.contains("www.example.com"));
@@ -117,33 +117,33 @@ public class DNSQuestionTest {
     
     @Test
     public void testAnyQuery() {
-        DNSQuestion question = new DNSQuestion("example.com", DNSType.ANY);
+        DnsQuestion question = new DnsQuestion("example.com", DnsType.ANY);
 
-        assertEquals(DNSType.ANY, question.getType());
+        assertEquals(DnsType.ANY, question.getType());
     }
 
     @Test
     public void testUnicastResponseRequestedDefaultsFalse() {
-        DNSQuestion question = new DNSQuestion("example.com", DNSType.A);
+        DnsQuestion question = new DnsQuestion("example.com", DnsType.A);
 
         assertFalse(question.isUnicastResponseRequested());
     }
 
     @Test
     public void testUnicastResponseRequestedTrue() {
-        DNSQuestion question = new DNSQuestion(
-                "example.local", DNSType.A, DNSClass.IN, true);
+        DnsQuestion question = new DnsQuestion(
+                "example.local", DnsType.A, DnsClass.IN, true);
 
         assertTrue(question.isUnicastResponseRequested());
-        assertEquals(DNSClass.IN, question.getDNSClass());
+        assertEquals(DnsClass.IN, question.getDNSClass());
     }
 
     @Test
     public void testEqualsIgnoresUnicastResponseRequested() {
-        DNSQuestion q1 = new DNSQuestion(
-                "example.local", DNSType.A, DNSClass.IN, true);
-        DNSQuestion q2 = new DNSQuestion(
-                "example.local", DNSType.A, DNSClass.IN, false);
+        DnsQuestion q1 = new DnsQuestion(
+                "example.local", DnsType.A, DnsClass.IN, true);
+        DnsQuestion q2 = new DnsQuestion(
+                "example.local", DnsType.A, DnsClass.IN, false);
 
         assertEquals(q1, q2);
         assertEquals(q1.hashCode(), q2.hashCode());

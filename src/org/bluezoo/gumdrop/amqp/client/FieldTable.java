@@ -348,10 +348,10 @@ public final class FieldTable {
      * {@code contentSize} bytes (the size the caller already read from
      * the containing frame/property list's 4-byte length prefix).
      */
-    public static FieldTable decode(ByteBuffer buf, int contentSize) throws AMQPProtocolException {
+    public static FieldTable decode(ByteBuffer buf, int contentSize) throws AmqpProtocolException {
         int end = buf.position() + contentSize;
         if (end > buf.limit()) {
-            throw new AMQPProtocolException("Truncated field-table");
+            throw new AmqpProtocolException("Truncated field-table");
         }
         LinkedHashMap<String, Object> map = new LinkedHashMap<String, Object>();
         while (buf.position() < end) {
@@ -360,14 +360,14 @@ public final class FieldTable {
             map.put(name, value);
         }
         if (buf.position() != end) {
-            throw new AMQPProtocolException("Field-table entries overran declared size");
+            throw new AmqpProtocolException("Field-table entries overran declared size");
         }
         return new FieldTable(map);
     }
 
-    private static Object readValue(ByteBuffer buf) throws AMQPProtocolException {
+    private static Object readValue(ByteBuffer buf) throws AmqpProtocolException {
         if (!buf.hasRemaining()) {
-            throw new AMQPProtocolException("Truncated field-table value");
+            throw new AmqpProtocolException("Truncated field-table value");
         }
         byte tag = buf.get();
         switch (tag) {
@@ -424,31 +424,31 @@ public final class FieldTable {
                 return list;
             }
             default:
-                throw new AMQPProtocolException(
+                throw new AmqpProtocolException(
                         "Unsupported field-table value tag: 0x" + Integer.toHexString(tag & 0xFF));
         }
     }
 
-    private static String readShortString(ByteBuffer buf) throws AMQPProtocolException {
+    private static String readShortString(ByteBuffer buf) throws AmqpProtocolException {
         if (!buf.hasRemaining()) {
-            throw new AMQPProtocolException("Truncated short-string length");
+            throw new AmqpProtocolException("Truncated short-string length");
         }
         int len = buf.get() & 0xFF;
         if (buf.remaining() < len) {
-            throw new AMQPProtocolException("Truncated short-string content");
+            throw new AmqpProtocolException("Truncated short-string content");
         }
         byte[] bytes = new byte[len];
         buf.get(bytes);
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
-    private static String readLongString(ByteBuffer buf) throws AMQPProtocolException {
+    private static String readLongString(ByteBuffer buf) throws AmqpProtocolException {
         if (buf.remaining() < 4) {
-            throw new AMQPProtocolException("Truncated long-string length");
+            throw new AmqpProtocolException("Truncated long-string length");
         }
         int len = buf.getInt();
         if (len < 0 || buf.remaining() < len) {
-            throw new AMQPProtocolException("Truncated long-string content");
+            throw new AmqpProtocolException("Truncated long-string content");
         }
         byte[] bytes = new byte[len];
         buf.get(bytes);
@@ -485,7 +485,7 @@ public final class FieldTable {
     }
 
     /** Reads a short-string (1-byte length + UTF-8 bytes) — used by callers outside a table too. */
-    static String getShortString(ByteBuffer buf) throws AMQPProtocolException {
+    static String getShortString(ByteBuffer buf) throws AmqpProtocolException {
         return readShortString(buf);
     }
 
@@ -501,7 +501,7 @@ public final class FieldTable {
 
 
     /** Reads a long-string (4-byte length + UTF-8 bytes) — used by callers outside a table too. */
-    static String getLongString(ByteBuffer buf) throws AMQPProtocolException {
+    static String getLongString(ByteBuffer buf) throws AmqpProtocolException {
         return readLongString(buf);
     }
 

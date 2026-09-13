@@ -1,5 +1,5 @@
 /*
- * AMQPFrameHandler.java
+ * AmqpFrameHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -25,7 +25,7 @@ import java.nio.ByteBuffer;
 
 /**
  * Callback interface for receiving parsed AMQP 0-9-1 frames from an
- * {@link AMQPFrameParser}.
+ * {@link AmqpFrameParser}.
  *
  * <p>Implementations receive frame data directly from the parser without
  * intermediate frame-object allocation. {@code ByteBuffer} parameters are
@@ -33,9 +33,9 @@ import java.nio.ByteBuffer;
  * duration of the callback — copy anything that must outlive it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see AMQPFrameParser
+ * @see AmqpFrameParser
  */
-public interface AMQPFrameHandler {
+public interface AmqpFrameHandler {
 
     /**
      * A method frame (AMQP frame type 1): a class/method ID pair

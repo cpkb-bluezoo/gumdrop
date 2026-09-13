@@ -29,7 +29,7 @@ import org.bluezoo.gumdrop.http.client.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 
-import org.bluezoo.gumdrop.util.TLSUtils;
+import org.bluezoo.gumdrop.util.TlsUtils;
 
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
@@ -170,7 +170,7 @@ class OTLPGrpcEndpoint {
             }
             if (truststoreFile != null && truststorePass != null) {
                 try {
-                    TrustManager[] managers = TLSUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat);
+                    TrustManager[] managers = TlsUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat);
                     for (int i = 0; i < managers.length; i++) {
                         if (managers[i] instanceof X509TrustManager) {
                             trustManager = (X509TrustManager) managers[i];

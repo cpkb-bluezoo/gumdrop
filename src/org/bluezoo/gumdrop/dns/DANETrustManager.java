@@ -53,7 +53,7 @@ import javax.net.ssl.X509TrustManager;
 public class DANETrustManager implements X509TrustManager {
 
     private final X509TrustManager delegate;
-    private final List<DNSResourceRecord> tlsaRecords;
+    private final List<DnsResourceRecord> tlsaRecords;
 
     /**
      * Creates a DANE trust manager.
@@ -65,7 +65,7 @@ public class DANETrustManager implements X509TrustManager {
      *                    against; must not be empty
      */
     public DANETrustManager(X509TrustManager delegate,
-                            List<DNSResourceRecord> tlsaRecords) {
+                            List<DnsResourceRecord> tlsaRecords) {
         if (tlsaRecords == null || tlsaRecords.isEmpty()) {
             throw new IllegalArgumentException(
                     "No TLSA records supplied");
@@ -90,7 +90,7 @@ public class DANETrustManager implements X509TrustManager {
     public void checkServerTrusted(X509Certificate[] chain,
                                    String authType)
             throws CertificateException {
-        DNSResourceRecord match;
+        DnsResourceRecord match;
         try {
             match = DANEVerifier.findMatch(chain, tlsaRecords);
         } catch (CertificateEncodingException e) {

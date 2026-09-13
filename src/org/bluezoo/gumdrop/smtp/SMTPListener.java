@@ -28,7 +28,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
@@ -43,8 +43,8 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  * <p>SMTP-specific features include:
  * <ul>
  * <li>CIDR-based network filtering (allow/block lists)</li>
- * <li>Connection rate limiting (inherited from TCPListener)</li>
- * <li>Authentication rate limiting (inherited from TCPListener)</li>
+ * <li>Connection rate limiting (inherited from TcpListener)</li>
+ * <li>Authentication rate limiting (inherited from TcpListener)</li>
  * <li>Optional authentication requirement (MSA mode)</li>
  * </ul>
  *
@@ -53,7 +53,7 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 - Implicit TLS (port 465)</a>
  */
-public class SmtpListener extends TCPListener {
+public class SmtpListener extends TcpListener {
 
     private static final Logger LOGGER =
             Logger.getLogger(SmtpListener.class.getName());
@@ -327,7 +327,7 @@ public class SmtpListener extends TCPListener {
      * Creates a new SmtpProtocolHandler for a newly accepted connection.
      *
      * <p>If an {@link SmtpServer} is set, the handler is obtained from
-     * the service's {@link SmtpServer#createHandler(org.bluezoo.gumdrop.TCPListener)}
+     * the service's {@link SmtpServer#createHandler(org.bluezoo.gumdrop.TcpListener)}
      * method.
      *
      * @return a new SMTP endpoint handler

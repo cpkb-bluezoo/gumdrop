@@ -27,7 +27,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 
 /**
  * In-memory store for MQTT retained messages.
@@ -46,10 +46,10 @@ public class RetainedMessageStore {
      */
     public static class RetainedMessage {
         private final String topic;
-        private final MQTTMessageContent content;
+        private final MqttMessageContent content;
         private final QoS qos;
 
-        public RetainedMessage(String topic, MQTTMessageContent content,
+        public RetainedMessage(String topic, MqttMessageContent content,
                                QoS qos) {
             this.topic = topic;
             this.content = content;
@@ -60,7 +60,7 @@ public class RetainedMessageStore {
             return topic;
         }
 
-        public MQTTMessageContent getContent() {
+        public MqttMessageContent getContent() {
             return content;
         }
 
@@ -100,7 +100,7 @@ public class RetainedMessageStore {
      * @param content the message content (null or empty to remove)
      * @param qos the message QoS
      */
-    public void set(String topic, MQTTMessageContent content, QoS qos) {
+    public void set(String topic, MqttMessageContent content, QoS qos) {
         if (content == null || content.size() == 0) {
             RetainedMessage old = store.remove(topic);
             if (old != null) {

@@ -26,7 +26,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelope;
@@ -36,12 +36,12 @@ import org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientSession;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerDataReplyHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerEhloReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
+import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerMailFromReplyHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerMessageReplyHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.ServerRcptToReplyHandler;
-import org.bluezoo.gumdrop.socks.client.SOCKSClientConfig;
-import org.bluezoo.gumdrop.socks.client.SOCKSClientHandler;
+import org.bluezoo.gumdrop.socks.client.SocksClientConfig;
+import org.bluezoo.gumdrop.socks.client.SocksClientHandler;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -101,7 +101,7 @@ public class SocksClientDantedIntegrationTest {
     @Test
     public void testNoAuthTunnelDeliversMailToDestination() throws Exception {
         String subject = "gumdrop-socks-noauth-" + System.nanoTime();
-        runTunneledDelivery(DantedTestSupport.PROXY_PORT, new SOCKSClientConfig(), subject);
+        runTunneledDelivery(DantedTestSupport.PROXY_PORT, new SocksClientConfig(), subject);
 
         String mailbox = DantedTestSupport.awaitMailbox(TIMEOUT_SECONDS * 1000);
         assertTrue("subject not found in mail delivered through the SOCKS tunnel",
@@ -113,7 +113,7 @@ public class SocksClientDantedIntegrationTest {
     @Test
     public void testUsernamePasswordAuthTunnelDeliversMailToDestination() throws Exception {
         String subject = "gumdrop-socks-auth-" + System.nanoTime();
-        SOCKSClientConfig config = new SOCKSClientConfig(
+        SocksClientConfig config = new SocksClientConfig(
                 DantedTestSupport.AUTH_USERNAME, DantedTestSupport.AUTH_PASSWORD);
         runTunneledDelivery(DantedTestSupport.PROXY_AUTH_PORT, config, subject);
 
@@ -126,11 +126,11 @@ public class SocksClientDantedIntegrationTest {
 
     @Test
     public void testWrongPasswordRejectedByAuthProxy() throws Exception {
-        SOCKSClientConfig config = new SOCKSClientConfig(DantedTestSupport.AUTH_USERNAME, "wrong-password");
+        SocksClientConfig config = new SocksClientConfig(DantedTestSupport.AUTH_USERNAME, "wrong-password");
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        connectThroughTunnel(DantedTestSupport.PROXY_AUTH_PORT, config, new ServerGreeting() {
+        connectThroughTunnel(DantedTestSupport.PROXY_AUTH_PORT, config, new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 error.set(new RuntimeException("should never reach the SMTP greeting with a rejected SOCKS auth"));
@@ -170,12 +170,12 @@ public class SocksClientDantedIntegrationTest {
 
     // ── Shared plumbing ──
 
-    private void runTunneledDelivery(int proxyPort, SOCKSClientConfig config, String subject) throws Exception {
+    private void runTunneledDelivery(int proxyPort, SocksClientConfig config, String subject) throws Exception {
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
         String body = "Subject: " + subject + "\r\n\r\ndelivered through a real SOCKS5 tunnel\r\n";
 
-        connectThroughTunnel(proxyPort, config, new ServerGreeting() {
+        connectThroughTunnel(proxyPort, config, new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("gumdrop-test", new ServerEhloReplyHandler() {
@@ -317,21 +317,21 @@ public class SocksClientDantedIntegrationTest {
     /**
      * Connects a {@link ClientEndpoint} to the SOCKS proxy (not the
      * final destination) and wraps {@code greeting}'s SMTP handler in a
-     * {@link SOCKSClientHandler} tunnelling to {@link
+     * {@link SocksClientHandler} tunnelling to {@link
      * DantedTestSupport#DEST_HOST}:{@link DantedTestSupport#DEST_PORT}
      * -- exactly the composable pattern shown in {@code
-     * SOCKSClientHandler}'s own class Javadoc.
+     * SocksClientHandler}'s own class Javadoc.
      */
-    private void connectThroughTunnel(int proxyPort, SOCKSClientConfig config, ServerGreeting greeting)
+    private void connectThroughTunnel(int proxyPort, SocksClientConfig config, RemoteGreeting greeting)
             throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         Gumdrop gumdrop = Gumdrop.getInstance();
         gumdrop.start();
         SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
         ClientEndpoint client = new ClientEndpoint(
                 factory, selectorLoop, DantedTestSupport.PROXY_HOST, proxyPort);
-        client.connect(new SOCKSClientHandler(
+        client.connect(new SocksClientHandler(
                 DantedTestSupport.DEST_HOST, DantedTestSupport.DEST_PORT, config,
                 new SmtpClientProtocolHandler(greeting)));
     }

@@ -37,10 +37,10 @@ import org.bluezoo.gumdrop.util.DirectByteBufferPool;
  * Manages TLS 1.2 record-layer wrap/unwrap operations for a TCP
  * connection, driving an in-tree {@link Tls12RecordEngine} -- the TLS 1.2
  * sibling of {@link TlsRecordState}, playing the exact same role relative
- * to {@link TCPEndpoint}: same {@link TlsRecordState.Callback} shape
+ * to {@link TcpEndpoint}: same {@link TlsRecordState.Callback} shape
  * (reused unchanged -- it has no TLS-1.3-specific coupling), same
- * {@code netIn}/{@code netOut} buffer ownership. {@link TCPEndpoint#tlsEngineLock}
- * serializes engine access; {@link TCPEndpoint#netOutLock} guards
+ * {@code netIn}/{@code netOut} buffer ownership. {@link TcpEndpoint#tlsEngineLock}
+ * serializes engine access; {@link TcpEndpoint#netOutLock} guards
  * {@code netOut} alone so the selector loop can write ciphertext to the
  * socket while decrypt runs.
  *
@@ -58,7 +58,7 @@ final class Tls12RecordState implements TlsRecordSink {
     private static final int DEFAULT_BUFFER_SIZE = 32768;
 
     private final Tls12RecordEngine engine;
-    private final TCPEndpoint tcpEndpoint;
+    private final TcpEndpoint tcpEndpoint;
     private final TlsRecordState.Callback callback;
 
     private boolean handshakeStarted;
@@ -67,7 +67,7 @@ final class Tls12RecordState implements TlsRecordSink {
     // See TlsRecordState.pendingAppData's doc comment -- identical reasoning.
     private ByteBuffer pendingAppData;
 
-    Tls12RecordState(Tls12HandshakeConfig config, TCPEndpoint tcpEndpoint, TlsRecordState.Callback callback) {
+    Tls12RecordState(Tls12HandshakeConfig config, TcpEndpoint tcpEndpoint, TlsRecordState.Callback callback) {
         this.engine = new Tls12RecordEngine(config, handshakeOffload(tcpEndpoint));
         this.tcpEndpoint = tcpEndpoint;
         this.callback = callback;
@@ -108,7 +108,7 @@ final class Tls12RecordState implements TlsRecordSink {
 
     /**
      * Processes incoming encrypted data from {@code netIn}. Called by
-     * {@link TCPEndpoint#processInbound} after data is appended. The
+     * {@link TcpEndpoint#processInbound} after data is appended. The
      * {@code netIn} buffer is in read mode (flipped).
      */
     void unwrap() {
@@ -340,11 +340,11 @@ final class Tls12RecordState implements TlsRecordSink {
         callback.onClosed();
     }
 
-    private static HandshakeAsyncOffload handshakeOffload(final TCPEndpoint endpoint) {
+    private static HandshakeAsyncOffload handshakeOffload(final TcpEndpoint endpoint) {
         return new TlsHandshakeAsyncOffload(loopExecutor(endpoint));
     }
 
-    private static Executor loopExecutor(final TCPEndpoint endpoint) {
+    private static Executor loopExecutor(final TcpEndpoint endpoint) {
         return new Executor() {
             @Override
             public void execute(Runnable task) {

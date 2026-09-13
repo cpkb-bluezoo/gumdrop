@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.socks.handler;
 
 import org.bluezoo.gumdrop.Endpoint;
-import org.bluezoo.gumdrop.socks.SOCKSRequest;
+import org.bluezoo.gumdrop.socks.SocksRequest;
 
 /**
  * Handler for authorizing incoming SOCKS BIND requests.
@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.socks.SOCKSRequest;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see BindState
- * @see org.bluezoo.gumdrop.socks.SOCKSService#createBindHandler
+ * @see org.bluezoo.gumdrop.socks.SocksServer#createBindHandler
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928#section-4">
  *      RFC 1928 §4</a>
  */
@@ -64,7 +64,7 @@ public interface BindHandler {
      *                user)
      * @param clientEndpoint the client's endpoint (for address info)
      */
-    void handleBind(BindState state, SOCKSRequest request,
+    void handleBind(BindState state, SocksRequest request,
                     Endpoint clientEndpoint);
 
 }

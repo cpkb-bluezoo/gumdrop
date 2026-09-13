@@ -22,20 +22,20 @@
 package org.bluezoo.gumdrop.ftp;
 
 /**
- * Interface for FTP control connections used by {@link FTPDataConnectionCoordinator}
+ * Interface for FTP control connections used by {@link FtpDataConnectionCoordinator}
  * and {@link FTPDataServer} to obtain server configuration (e.g. for TLS data
  * connections).
  *
- * <p>Implemented by {@link FTPProtocolHandler}.
+ * <p>Implemented by {@link FtpProtocolHandler}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 interface FTPControlConnection {
 
     /**
-     * Returns the FTPListener instance for this connection.
+     * Returns the FtpListener instance for this connection.
      *
      * @return the FTP server listener
      */
-    FTPListener getServer();
+    FtpListener getServer();
 }

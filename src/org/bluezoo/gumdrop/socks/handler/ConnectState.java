@@ -52,7 +52,7 @@ public interface ConnectState {
      * appropriate SOCKS4 reply (0x5b rejected).
      *
      * @param replyCode the SOCKS5 reply code (e.g.
-     *        {@link org.bluezoo.gumdrop.socks.SOCKSConstants#SOCKS5_REPLY_NOT_ALLOWED})
+     *        {@link org.bluezoo.gumdrop.socks.SocksConstants#SOCKS5_REPLY_NOT_ALLOWED})
      */
     void deny(int replyCode);
 

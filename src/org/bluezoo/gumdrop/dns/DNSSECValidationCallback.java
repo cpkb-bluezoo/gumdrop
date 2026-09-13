@@ -1,5 +1,5 @@
 /*
- * DNSSECValidationCallback.java
+ * DnssecValidationCallback.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -25,9 +25,9 @@ package org.bluezoo.gumdrop.dns;
  * Callback interface for asynchronous DNSSEC validation results.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSSECChainValidator
+ * @see DnssecChainValidator
  */
-public interface DNSSECValidationCallback {
+public interface DnssecValidationCallback {
 
     /**
      * Called when DNSSEC validation completes.
@@ -35,6 +35,6 @@ public interface DNSSECValidationCallback {
      * @param status the validation result
      * @param response the original DNS response
      */
-    void onValidated(DNSSECStatus status, DNSMessage response);
+    void onValidated(DnssecStatus status, DnsMessage response);
 
 }

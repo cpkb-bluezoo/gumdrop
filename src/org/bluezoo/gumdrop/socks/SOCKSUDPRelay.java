@@ -36,13 +36,13 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.UDPEndpoint;
-import org.bluezoo.gumdrop.UDPTransportFactory;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.UdpEndpoint;
+import org.bluezoo.gumdrop.UdpTransportFactory;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 
-import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
+import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
  * Manages a single SOCKS5 UDP ASSOCIATE session (RFC 1928 §7).
@@ -79,14 +79,14 @@ class SOCKSUDPRelay {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
     private final Endpoint tcpControlEndpoint;
-    private final SOCKSService service;
-    private final SOCKSServerMetrics metrics;
+    private final SocksServer service;
+    private final SocksServerMetrics metrics;
     private final long idleTimeoutMs;
     private final InetAddress expectedClientAddress;
     private final SelectorLoop selectorLoop;
 
-    private UDPEndpoint clientFacingEndpoint;
-    private UDPEndpoint upstreamEndpoint;
+    private UdpEndpoint clientFacingEndpoint;
+    private UdpEndpoint upstreamEndpoint;
     private InetSocketAddress clientDatagramAddress;
 
     private boolean closed;
@@ -105,8 +105,8 @@ class SOCKSUDPRelay {
      *        the TCP connection's remote address if DST.ADDR was
      *        0.0.0.0)
      */
-    SOCKSUDPRelay(Endpoint tcpEndpoint, SOCKSService service,
-                  SOCKSServerMetrics metrics, long idleTimeoutMs,
+    SOCKSUDPRelay(Endpoint tcpEndpoint, SocksServer service,
+                  SocksServerMetrics metrics, long idleTimeoutMs,
                   InetAddress expectedClientAddress) {
         this.tcpControlEndpoint = tcpEndpoint;
         this.service = service;
@@ -124,7 +124,7 @@ class SOCKSUDPRelay {
      * @throws IOException if the UDP ports cannot be bound
      */
     InetSocketAddress start() throws IOException {
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
 
         clientFacingEndpoint = factory.createServerEndpoint(
@@ -235,7 +235,7 @@ class SOCKSUDPRelay {
                 return;
             }
 
-            // UDPEndpoint sets remoteAddress before calling receive()
+            // UdpEndpoint sets remoteAddress before calling receive()
             InetSocketAddress source =
                     (InetSocketAddress) clientFacingEndpoint
                             .getRemoteAddress();
@@ -251,7 +251,7 @@ class SOCKSUDPRelay {
                 return;
             }
 
-            SOCKSUDPHeader.parse(data, new SOCKSUDPHeader.Handler() {
+            SocksUDPHeader.parse(data, new SocksUDPHeader.Handler() {
                 @Override
                 public void datagram(byte frag, InetAddress address,
                         String hostname, int port, ByteBuffer payload) {
@@ -324,7 +324,7 @@ class SOCKSUDPRelay {
                 return;
             }
 
-            // UDPEndpoint sets remoteAddress before calling receive()
+            // UdpEndpoint sets remoteAddress before calling receive()
             InetSocketAddress source =
                     (InetSocketAddress) upstreamEndpoint
                             .getRemoteAddress();
@@ -335,7 +335,7 @@ class SOCKSUDPRelay {
 
             // RFC 1928 §7: encapsulate with header
             ByteBuffer encapsulated =
-                    SOCKSUDPHeader.encode(source, data);
+                    SocksUDPHeader.encode(source, data);
             try {
                 clientFacingEndpoint.sendTo(
                         encapsulated, clientDatagramAddress);
@@ -376,7 +376,7 @@ class SOCKSUDPRelay {
 
     private void resolveAndForward(final String hostname, final int port,
                                    final ByteBuffer payload) {
-        DNSResolver resolver = DNSResolver.forLoop(selectorLoop);
+        DnsResolver resolver = DnsResolver.forLoop(selectorLoop);
         resolver.resolve(hostname, new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {

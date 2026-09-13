@@ -25,8 +25,8 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.servlet.jndi.Resource;
 import org.bluezoo.gumdrop.servlet.jndi.ServletInitialContext;
 import org.bluezoo.gumdrop.servlet.jndi.ServletInitialContextFactory;
-import org.bluezoo.gumdrop.servlet.manager.ManagerContainerService;
-import org.bluezoo.gumdrop.servlet.manager.ManagerContextService;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContainerServer;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContextServer;
 import org.bluezoo.gumdrop.servlet.session.Cluster;
 import org.bluezoo.gumdrop.servlet.session.ClusterContainer;
 import org.bluezoo.gumdrop.servlet.session.SessionContext;
@@ -55,7 +55,7 @@ import jakarta.servlet.ServletException;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class Container implements ManagerContainerService, ClusterContainer {
+public class Container implements ManagerContainerServer, ClusterContainer {
 
     final List<Context> contexts = new ArrayList<>();
 
@@ -98,11 +98,11 @@ public class Container implements ManagerContainerService, ClusterContainer {
     String replicationAllowedClasses;
     Cluster cluster;
 
-    @Override public Collection<ManagerContextService> getContexts() {
+    @Override public Collection<ManagerContextServer> getContexts() {
         return Collections.unmodifiableList(contexts);
     }
 
-    @Override public ManagerContextService getContext(String contextPath) {
+    @Override public ManagerContextServer getContext(String contextPath) {
         // Don't need lookup as this is a rarely used admin function
         for (Context context : contexts) {
             if (contextPath.equals(context.contextPath)) {

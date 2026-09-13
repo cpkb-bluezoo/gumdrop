@@ -23,6 +23,6 @@
  * Handler and state interfaces for the MQTT broker's policy decisions.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.mqtt.MQTTProtocolHandler
+ * @see org.bluezoo.gumdrop.mqtt.MqttProtocolHandler
  */
 package org.bluezoo.gumdrop.mqtt.handler;

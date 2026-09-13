@@ -21,7 +21,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientProtocolHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
@@ -93,7 +93,7 @@ public class OTLPEndpointIntegrationTest {
 
     @Test
     public void testHTTPClientChunkedUpload() throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
                 new HttpClientHandler() {
@@ -183,7 +183,7 @@ public class OTLPEndpointIntegrationTest {
 
     @Test
     public void testHTTPClientSimpleGET() throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
                 new HttpClientHandler() {

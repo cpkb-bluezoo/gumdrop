@@ -1,5 +1,5 @@
 /*
- * MQTTEventHandler.java
+ * MqttEventHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -25,7 +25,7 @@ import java.nio.ByteBuffer;
 
 /**
  * SAX-style callback interface for receiving decoded MQTT events from
- * {@link MQTTFrameParser}.
+ * {@link MqttFrameParser}.
  *
  * <p>Each MQTT control packet is delivered as one or more typed method
  * calls with flat parameters — no intermediate packet objects are
@@ -49,11 +49,11 @@ import java.nio.ByteBuffer;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MQTTFrameParser
+ * @see MqttFrameParser
  * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html">MQTT 3.1.1</a>
  * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html">MQTT 5.0</a>
  */
-public interface MQTTEventHandler {
+public interface MqttEventHandler {
 
     // ─────────────────────────────────────────────────────────────────────
     // CONNACK return codes (MQTT 3.1.1 §3.2.2.3 Table 3.1)
@@ -125,11 +125,11 @@ public interface MQTTEventHandler {
      *
      * @param sessionPresent true if a stored session exists
      * @param returnCode the connect return/reason code
-     * @param properties MQTT 5.0 properties ({@link MQTTProperties#EMPTY} for 3.1.1)
+     * @param properties MQTT 5.0 properties ({@link MqttProperties#EMPTY} for 3.1.1)
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718033">MQTT 3.1.1 §3.2</a>
      */
     void connAck(boolean sessionPresent, int returnCode,
-                 MQTTProperties properties);
+                 MqttProperties properties);
 
     // ─────────────────────────────────────────────────────────────────────
     // PUBLISH events (streaming)
@@ -147,13 +147,13 @@ public interface MQTTEventHandler {
      * @param retain the RETAIN flag
      * @param topicName the topic name
      * @param packetId the packet identifier (0 for QoS 0)
-     * @param properties MQTT 5.0 properties ({@link MQTTProperties#EMPTY} for 3.1.1)
+     * @param properties MQTT 5.0 properties ({@link MqttProperties#EMPTY} for 3.1.1)
      * @param payloadLength the total payload length in bytes
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718037">MQTT 3.1.1 §3.3</a>
      */
     void startPublish(boolean dup, int qos, boolean retain,
                       String topicName, int packetId,
-                      MQTTProperties properties, int payloadLength);
+                      MqttProperties properties, int payloadLength);
 
     /**
      * Called zero or more times between {@link #startPublish} and
@@ -184,7 +184,7 @@ public interface MQTTEventHandler {
      * @param properties MQTT 5.0 properties
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718043">MQTT 3.1.1 §3.4</a>
      */
-    void pubAck(int packetId, int reasonCode, MQTTProperties properties);
+    void pubAck(int packetId, int reasonCode, MqttProperties properties);
 
     /**
      * Called when a PUBREC packet is received (QoS 2, step 1).
@@ -194,7 +194,7 @@ public interface MQTTEventHandler {
      * @param properties MQTT 5.0 properties
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718048">MQTT 3.1.1 §3.5</a>
      */
-    void pubRec(int packetId, int reasonCode, MQTTProperties properties);
+    void pubRec(int packetId, int reasonCode, MqttProperties properties);
 
     /**
      * Called when a PUBREL packet is received (QoS 2, step 2).
@@ -204,7 +204,7 @@ public interface MQTTEventHandler {
      * @param properties MQTT 5.0 properties
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718053">MQTT 3.1.1 §3.6</a>
      */
-    void pubRel(int packetId, int reasonCode, MQTTProperties properties);
+    void pubRel(int packetId, int reasonCode, MqttProperties properties);
 
     /**
      * Called when a PUBCOMP packet is received (QoS 2, final step).
@@ -214,7 +214,7 @@ public interface MQTTEventHandler {
      * @param properties MQTT 5.0 properties
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718058">MQTT 3.1.1 §3.7</a>
      */
-    void pubComp(int packetId, int reasonCode, MQTTProperties properties);
+    void pubComp(int packetId, int reasonCode, MqttProperties properties);
 
     // ─────────────────────────────────────────────────────────────────────
     // SUBSCRIBE events (SAX-style)
@@ -231,7 +231,7 @@ public interface MQTTEventHandler {
      * @param properties MQTT 5.0 properties
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718063">MQTT 3.1.1 §3.8</a>
      */
-    void startSubscribe(int packetId, MQTTProperties properties);
+    void startSubscribe(int packetId, MqttProperties properties);
 
     /**
      * Called one or more times between {@link #startSubscribe} and
@@ -261,7 +261,7 @@ public interface MQTTEventHandler {
      * @param returnCodes one return code per subscription (0/1/2 = granted QoS, 0x80 = failure)
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718068">MQTT 3.1.1 §3.9</a>
      */
-    void subAck(int packetId, MQTTProperties properties, int[] returnCodes);
+    void subAck(int packetId, MqttProperties properties, int[] returnCodes);
 
     // ─────────────────────────────────────────────────────────────────────
     // UNSUBSCRIBE events (SAX-style)
@@ -277,7 +277,7 @@ public interface MQTTEventHandler {
      * @param properties MQTT 5.0 properties
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718072">MQTT 3.1.1 §3.10</a>
      */
-    void startUnsubscribe(int packetId, MQTTProperties properties);
+    void startUnsubscribe(int packetId, MqttProperties properties);
 
     /**
      * Called one or more times between {@link #startUnsubscribe} and
@@ -305,7 +305,7 @@ public interface MQTTEventHandler {
      * @param reasonCodes per-filter reason codes (empty array for MQTT 3.1.1)
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718077">MQTT 3.1.1 §3.11</a>
      */
-    void unsubAck(int packetId, MQTTProperties properties, int[] reasonCodes);
+    void unsubAck(int packetId, MqttProperties properties, int[] reasonCodes);
 
     // ─────────────────────────────────────────────────────────────────────
     // Ping events
@@ -336,7 +336,7 @@ public interface MQTTEventHandler {
      * @param properties MQTT 5.0 properties
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718090">MQTT 3.1.1 §3.14</a>
      */
-    void disconnect(int reasonCode, MQTTProperties properties);
+    void disconnect(int reasonCode, MqttProperties properties);
 
     /**
      * Called when an AUTH packet is received (MQTT 5.0 only).
@@ -345,7 +345,7 @@ public interface MQTTEventHandler {
      * @param properties MQTT 5.0 properties
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901217">MQTT 5.0 §3.15</a>
      */
-    void auth(int reasonCode, MQTTProperties properties);
+    void auth(int reasonCode, MqttProperties properties);
 
     // ─────────────────────────────────────────────────────────────────────
     // Error

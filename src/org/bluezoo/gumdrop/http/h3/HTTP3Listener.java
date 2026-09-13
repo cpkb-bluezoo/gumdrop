@@ -36,7 +36,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
@@ -65,7 +65,7 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  * @see Http3ServerHandler
  * @see H3Stream
  */
-public class Http3Listener extends TCPListener
+public class Http3Listener extends TcpListener
         implements QuicEngine.ConnectionAcceptedHandler {
 
     private static final Logger LOGGER =

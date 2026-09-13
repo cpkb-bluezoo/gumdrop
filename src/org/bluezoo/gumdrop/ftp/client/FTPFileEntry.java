@@ -1,5 +1,5 @@
 /*
- * FTPFileEntry.java
+ * FtpFileEntry.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,7 +27,7 @@ import java.util.Map;
 /**
  * A single entry from a directory listing (LIST, NLST, or MLSD).
  *
- * <p>The counterpart, server-side formatter is {@code FTPFileInfo}
+ * <p>The counterpart, server-side formatter is {@code FtpFileInfo}
  * ({@code formatAsListingLine()} / {@code formatAsMLSEntry()}); this class
  * parses the inverse of those two formats, plus NLST's bare-name lines.
  *
@@ -35,7 +35,7 @@ import java.util.Map;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a> §4.1.3 (LIST/NLST)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3659">RFC 3659</a> §7 (MLSD)
  */
-public final class FTPFileEntry {
+public final class FtpFileEntry {
 
     private final String name;
     private final long size;
@@ -43,7 +43,7 @@ public final class FTPFileEntry {
     private final Map<String, String> facts;
     private final String rawLine;
 
-    private FTPFileEntry(String name, long size, boolean directory,
+    private FtpFileEntry(String name, long size, boolean directory,
             Map<String, String> facts, String rawLine) {
         this.name = name;
         this.size = size;
@@ -117,8 +117,8 @@ public final class FTPFileEntry {
      * @param line the NLST line
      * @return the parsed entry
      */
-    static FTPFileEntry parseNlstLine(String line) {
-        return new FTPFileEntry(line, -1, false,
+    static FtpFileEntry parseNlstLine(String line) {
+        return new FtpFileEntry(line, -1, false,
                 java.util.Collections.<String, String>emptyMap(), line);
     }
 
@@ -129,7 +129,7 @@ public final class FTPFileEntry {
      * @param line the MLSD line
      * @return the parsed entry
      */
-    static FTPFileEntry parseMlsdLine(String line) {
+    static FtpFileEntry parseMlsdLine(String line) {
         int sp = line.indexOf(' ');
         String factsPart = sp >= 0 ? line.substring(0, sp) : line;
         String filename = sp >= 0 ? line.substring(sp + 1) : "";
@@ -160,7 +160,7 @@ public final class FTPFileEntry {
                 || "cdir".equalsIgnoreCase(type)
                 || "pdir".equalsIgnoreCase(type);
 
-        return new FTPFileEntry(filename, size, directory, facts, line);
+        return new FtpFileEntry(filename, size, directory, facts, line);
     }
 
     /**
@@ -169,7 +169,7 @@ public final class FTPFileEntry {
      *
      * <p>LIST's format is not standardised by RFC 959 — this handles the
      * common {@code ls -l}-style output that most FTP servers (including
-     * this project's own {@code FTPFileInfo.formatAsListingLine()})
+     * this project's own {@code FtpFileInfo.formatAsListingLine()})
      * produce, but is not guaranteed to parse every server's format.
      * Fields that cannot be located are left at their default (name is
      * the whole line, size is -1, directory is false).
@@ -177,10 +177,10 @@ public final class FTPFileEntry {
      * @param line the LIST line
      * @return the parsed entry
      */
-    static FTPFileEntry parseListLine(String line) {
+    static FtpFileEntry parseListLine(String line) {
         Map<String, String> facts = java.util.Collections.emptyMap();
         if (line.isEmpty()) {
-            return new FTPFileEntry(line, -1, false, facts, line);
+            return new FtpFileEntry(line, -1, false, facts, line);
         }
 
         boolean directory = line.charAt(0) == 'd';
@@ -201,6 +201,6 @@ public final class FTPFileEntry {
             name = parts[8];
         }
 
-        return new FTPFileEntry(name, size, directory, facts, line);
+        return new FtpFileEntry(name, size, directory, facts, line);
     }
 }

@@ -1,5 +1,5 @@
 /*
- * MQTTClientCallback.java
+ * MqttClientCallback.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.mqtt.client;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface MQTTClientCallback {
+public interface MqttClientCallback {
 
     /**
      * Called when the CONNACK is received and the connection is established.

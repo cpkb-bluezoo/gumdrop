@@ -28,7 +28,7 @@ import java.net.InetAddress;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link TCPTransportFactory}.
+ * Unit tests for {@link TcpTransportFactory}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -39,20 +39,20 @@ public class TCPTransportFactoryTest {
      */
     @Test
     public void testTcpFastOpenDefault() {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         assertFalse(factory.isTcpFastOpen());
     }
 
     @Test
     public void testTcpFastOpenEnabled() {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.setTcpFastOpen(true);
         assertTrue(factory.isTcpFastOpen());
     }
 
     @Test
     public void testTcpFastOpenDisabled() {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.setTcpFastOpen(true);
         factory.setTcpFastOpen(false);
         assertFalse(factory.isTcpFastOpen());
@@ -65,15 +65,15 @@ public class TCPTransportFactoryTest {
      */
     @Test
     public void testSessionCacheConfigurationAccessible() throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         assertNotNull(factory);
     }
 
     @Test
     public void tlsServerNameForIpv6LoopbackUsesLocalhost() throws Exception {
         InetAddress loopback = InetAddress.getByName("::1");
-        assertEquals("localhost", TCPTransportFactory.tlsServerNameFor(loopback, null));
-        assertEquals("localhost", TCPTransportFactory.tlsServerNameFor(null, "::1"));
-        assertEquals("localhost", TCPTransportFactory.tlsServerNameFor(null, "127.0.0.1"));
+        assertEquals("localhost", TcpTransportFactory.tlsServerNameFor(loopback, null));
+        assertEquals("localhost", TcpTransportFactory.tlsServerNameFor(null, "::1"));
+        assertEquals("localhost", TcpTransportFactory.tlsServerNameFor(null, "127.0.0.1"));
     }
 }

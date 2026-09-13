@@ -1,5 +1,5 @@
 /*
- * MQTTPacketType.java
+ * MqttPacketType.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.mqtt.codec;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum MQTTPacketType {
+public enum MqttPacketType {
 
     CONNECT(1),
     CONNACK(2),
@@ -46,7 +46,7 @@ public enum MQTTPacketType {
 
     private final int value;
 
-    MQTTPacketType(int value) {
+    MqttPacketType(int value) {
         this.value = value;
     }
 
@@ -54,10 +54,10 @@ public enum MQTTPacketType {
         return value;
     }
 
-    private static final MQTTPacketType[] LOOKUP = new MQTTPacketType[16];
+    private static final MqttPacketType[] LOOKUP = new MqttPacketType[16];
 
     static {
-        for (MQTTPacketType type : values()) {
+        for (MqttPacketType type : values()) {
             LOOKUP[type.value] = type;
         }
     }
@@ -68,7 +68,7 @@ public enum MQTTPacketType {
      * @param value the packet type value (1-15)
      * @return the packet type, or null if invalid
      */
-    public static MQTTPacketType fromValue(int value) {
+    public static MqttPacketType fromValue(int value) {
         if (value < 1 || value > 15) {
             return null;
         }

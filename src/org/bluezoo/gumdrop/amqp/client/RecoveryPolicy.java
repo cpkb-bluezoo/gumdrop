@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.amqp.client;
 
 /**
- * Reconnect backoff parameters for {@link AMQPClientRecovery}.
+ * Reconnect backoff parameters for {@link AmqpClientRecovery}.
  *
  * <p>Defaults: 1s initial delay, doubling each attempt, capped at 30s,
  * unlimited attempts — a conventional exponential backoff that retries

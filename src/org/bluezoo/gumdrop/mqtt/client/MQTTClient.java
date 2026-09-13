@@ -1,5 +1,5 @@
 /*
- * MQTTClient.java
+ * MqttClient.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,34 +31,34 @@ import javax.net.ssl.X509TrustManager;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.mqtt.codec.ConnectPacket;
-import org.bluezoo.gumdrop.mqtt.codec.MQTTVersion;
+import org.bluezoo.gumdrop.mqtt.codec.MqttVersion;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageStore;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * High-level MQTT client facade.
  *
  * <p>Provides a simple API for connecting to MQTT brokers. Internally
- * creates a {@link TCPTransportFactory}, {@link ClientEndpoint}, and
- * {@link MQTTClientProtocolHandler}.
+ * creates a {@link TcpTransportFactory}, {@link ClientEndpoint}, and
+ * {@link MqttClientProtocolHandler}.
  *
  * <h4>Usage</h4>
  * <pre>{@code
- * MQTTClient client = new MQTTClient("broker.example.com", 1883);
+ * MqttClient client = new MqttClient("broker.example.com", 1883);
  * client.setClientId("myClient");
- * client.connect(new MQTTClientCallback() {
+ * client.connect(new MqttClientCallback() {
  *     public void connected(boolean sessionPresent, int returnCode) {
  *         client.subscribe("sensors/#", QoS.AT_LEAST_ONCE);
  *     }
  *     public void connectionLost(Exception cause) { ... }
  *     public void subscribeAcknowledged(int id, int[] qos) { ... }
  *     public void publishComplete(int id) { ... }
- * }, new MQTTMessageListener() {
- *     public void messageReceived(String topic, MQTTMessageContent content,
+ * }, new MqttMessageListener() {
+ *     public void messageReceived(String topic, MqttMessageContent content,
  *             int qos, boolean retain) {
  *         System.out.println("Received: " + topic);
  *     }
@@ -66,10 +66,10 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MQTTClientProtocolHandler
- * @see MQTTClientCallback
+ * @see MqttClientProtocolHandler
+ * @see MqttClientCallback
  */
-public class MQTTClient {
+public class MqttClient {
 
     private final String host;
     private final InetAddress hostAddress;
@@ -83,7 +83,7 @@ public class MQTTClient {
     private Path keystoreFile;
     private String keystorePass;
 
-    private MQTTVersion version = MQTTVersion.V3_1_1;
+    private MqttVersion version = MqttVersion.V3_1_1;
     private String clientId;
     private boolean cleanSession = true;
     private int keepAlive = 60;
@@ -96,16 +96,16 @@ public class MQTTClient {
     private QoS willQoS;
     private boolean willRetain;
 
-    private MQTTMessageStore messageStore;
-    private TCPTransportFactory transportFactory;
+    private MqttMessageStore messageStore;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
-    private MQTTClientProtocolHandler protocolHandler;
+    private MqttClientProtocolHandler protocolHandler;
 
-    public MQTTClient(String host, int port) {
+    public MqttClient(String host, int port) {
         this(null, host, port);
     }
 
-    public MQTTClient(SelectorLoop selectorLoop, String host, int port) {
+    public MqttClient(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
         this.hostAddress = null;
@@ -113,11 +113,11 @@ public class MQTTClient {
         this.socketPath = null;
     }
 
-    public MQTTClient(InetAddress host, int port) {
+    public MqttClient(InetAddress host, int port) {
         this(null, host, port);
     }
 
-    public MQTTClient(SelectorLoop selectorLoop, InetAddress host, int port) {
+    public MqttClient(SelectorLoop selectorLoop, InetAddress host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = null;
         this.hostAddress = host;
@@ -127,11 +127,11 @@ public class MQTTClient {
 
     /**
      * Creates an MQTT client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
      *
      * @param socketPath the UNIX domain socket path
      */
-    public MQTTClient(String socketPath) {
+    public MqttClient(String socketPath) {
         this(null, socketPath);
     }
 
@@ -142,7 +142,7 @@ public class MQTTClient {
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param socketPath the UNIX domain socket path
      */
-    public MQTTClient(SelectorLoop selectorLoop, String socketPath) {
+    public MqttClient(SelectorLoop selectorLoop, String socketPath) {
         if (socketPath == null) {
             throw new NullPointerException("socketPath");
         }
@@ -175,7 +175,7 @@ public class MQTTClient {
         this.keystorePass = pass;
     }
 
-    public void setVersion(MQTTVersion version) {
+    public void setVersion(MqttVersion version) {
         this.version = version;
     }
 
@@ -197,7 +197,7 @@ public class MQTTClient {
                 ? password.getBytes(StandardCharsets.UTF_8) : null;
     }
 
-    public void setMessageStore(MQTTMessageStore messageStore) {
+    public void setMessageStore(MqttMessageStore messageStore) {
         this.messageStore = messageStore;
     }
 
@@ -217,17 +217,17 @@ public class MQTTClient {
      * @param messageListener message delivery callback
      * @throws IOException if the transport cannot be created
      */
-    public void connect(MQTTClientCallback callback,
-                        MQTTMessageListener messageListener) throws IOException {
+    public void connect(MqttClientCallback callback,
+                        MqttMessageListener messageListener) throws IOException {
         ConnectPacket connectPacket = buildConnectPacket();
 
         if (messageStore == null) {
             messageStore = new InMemoryMessageStore();
         }
-        protocolHandler = new MQTTClientProtocolHandler(
+        protocolHandler = new MqttClientProtocolHandler(
                 connectPacket, callback, messageListener, messageStore);
 
-        transportFactory = new TCPTransportFactory();
+        transportFactory = new TcpTransportFactory();
         if (secure) {
             transportFactory.setSecure(true);
         }

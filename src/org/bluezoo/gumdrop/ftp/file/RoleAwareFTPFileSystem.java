@@ -29,14 +29,14 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.ftp.FTPConnectionMetadata;
-import org.bluezoo.gumdrop.ftp.FTPFileInfo;
-import org.bluezoo.gumdrop.ftp.FTPFileOperationResult;
-import org.bluezoo.gumdrop.ftp.FTPFileSystem;
+import org.bluezoo.gumdrop.ftp.FtpConnectionMetadata;
+import org.bluezoo.gumdrop.ftp.FtpFileInfo;
+import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
+import org.bluezoo.gumdrop.ftp.FtpFileSystem;
 
 /**
  * Decorator that enforces role-based access control on an
- * {@link FTPFileSystem}.
+ * {@link FtpFileSystem}.
  *
  * <p>Each file operation checks the authenticated user's roles via the
  * configured {@link Realm}:
@@ -63,22 +63,22 @@ import org.bluezoo.gumdrop.ftp.FTPFileSystem;
  *
  * <h4>Usage</h4>
  * <pre>{@code
- * FTPFileSystem base = new BasicFTPFileSystem(rootPath);
+ * FtpFileSystem base = new BasicFTPFileSystem(rootPath);
  * RoleAwareFTPFileSystem secured =
  *         new RoleAwareFTPFileSystem(base, realm);
  * secured.setHomeDirectoryConfinement(true);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see FTPFileSystem
+ * @see FtpFileSystem
  * @see Realm
  */
-public class RoleAwareFTPFileSystem implements FTPFileSystem {
+public class RoleAwareFTPFileSystem implements FtpFileSystem {
 
     private static final Logger LOGGER =
             Logger.getLogger(RoleAwareFTPFileSystem.class.getName());
 
-    private final FTPFileSystem delegate;
+    private final FtpFileSystem delegate;
     private final Realm realm;
 
     private String readRole = "ftp-read";
@@ -92,7 +92,7 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
      * @param delegate the underlying file system
      * @param realm    the realm for role checks
      */
-    public RoleAwareFTPFileSystem(FTPFileSystem delegate, Realm realm) {
+    public RoleAwareFTPFileSystem(FtpFileSystem delegate, Realm realm) {
         if (delegate == null) {
             throw new NullPointerException("delegate");
         }
@@ -147,8 +147,8 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
     // ── Read operations ──
 
     @Override
-    public List<FTPFileInfo> listDirectory(String path,
-                                           FTPConnectionMetadata metadata) {
+    public List<FtpFileInfo> listDirectory(String path,
+                                           FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, readRole) || !checkConfinement(path, metadata)) {
             return null;
         }
@@ -158,17 +158,17 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
     @Override
     public DirectoryChangeResult changeDirectory(String path,
                                                  String currentDirectory,
-                                                 FTPConnectionMetadata metadata) {
+                                                 FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, readRole) || !checkConfinement(path, metadata)) {
             return new DirectoryChangeResult(
-                    FTPFileOperationResult.ACCESS_DENIED, currentDirectory);
+                    FtpFileOperationResult.ACCESS_DENIED, currentDirectory);
         }
         return delegate.changeDirectory(path, currentDirectory, metadata);
     }
 
     @Override
-    public FTPFileInfo getFileInfo(String path,
-                                   FTPConnectionMetadata metadata) {
+    public FtpFileInfo getFileInfo(String path,
+                                   FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, readRole) || !checkConfinement(path, metadata)) {
             return null;
         }
@@ -178,7 +178,7 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
     @Override
     public ReadableByteChannel openForReading(String path,
                                               long restartOffset,
-                                              FTPConnectionMetadata metadata) {
+                                              FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, readRole) || !checkConfinement(path, metadata)) {
             return null;
         }
@@ -187,7 +187,7 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
 
     @Override
     public Path resolvePathForAsyncRead(String path, long restartOffset,
-            FTPConnectionMetadata metadata) {
+            FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, readRole) || !checkConfinement(path, metadata)) {
             return null;
         }
@@ -199,7 +199,7 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
     @Override
     public WritableByteChannel openForWriting(String path,
                                               boolean append,
-                                              FTPConnectionMetadata metadata) {
+                                              FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, writeRole) || !checkConfinement(path, metadata)) {
             return null;
         }
@@ -208,7 +208,7 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
 
     @Override
     public Path resolvePathForAsyncWrite(String path, boolean append,
-            FTPConnectionMetadata metadata) {
+            FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, writeRole) || !checkConfinement(path, metadata)) {
             return null;
         }
@@ -216,21 +216,21 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
     }
 
     @Override
-    public FTPFileOperationResult createDirectory(String path,
-                                                  FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult createDirectory(String path,
+                                                  FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, writeRole) || !checkConfinement(path, metadata)) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
         return delegate.createDirectory(path, metadata);
     }
 
     @Override
-    public FTPFileOperationResult rename(String fromPath, String toPath,
-                                         FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult rename(String fromPath, String toPath,
+                                         FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, writeRole)
                 || !checkConfinement(fromPath, metadata)
                 || !checkConfinement(toPath, metadata)) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
         return delegate.rename(fromPath, toPath, metadata);
     }
@@ -238,19 +238,19 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
     @Override
     public UniqueNameResult generateUniqueName(String basePath,
                                                String suggestedName,
-                                               FTPConnectionMetadata metadata) {
+                                               FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, writeRole) || !checkConfinement(basePath, metadata)) {
             return new UniqueNameResult(
-                    FTPFileOperationResult.ACCESS_DENIED, null);
+                    FtpFileOperationResult.ACCESS_DENIED, null);
         }
         return delegate.generateUniqueName(basePath, suggestedName, metadata);
     }
 
     @Override
-    public FTPFileOperationResult allocateSpace(String path, long size,
-                                                FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult allocateSpace(String path, long size,
+                                                FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, writeRole) || !checkConfinement(path, metadata)) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
         return delegate.allocateSpace(path, size, metadata);
     }
@@ -258,26 +258,26 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
     // ── Delete operations ──
 
     @Override
-    public FTPFileOperationResult deleteFile(String path,
-                                             FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult deleteFile(String path,
+                                             FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, deleteRole) || !checkConfinement(path, metadata)) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
         return delegate.deleteFile(path, metadata);
     }
 
     @Override
-    public FTPFileOperationResult removeDirectory(String path,
-                                                  FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult removeDirectory(String path,
+                                                  FtpConnectionMetadata metadata) {
         if (!checkRole(metadata, deleteRole) || !checkConfinement(path, metadata)) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
         return delegate.removeDirectory(path, metadata);
     }
 
     // ── Internal helpers ──
 
-    private boolean checkRole(FTPConnectionMetadata metadata, String role) {
+    private boolean checkRole(FtpConnectionMetadata metadata, String role) {
         String user = metadata.getAuthenticatedUser();
         if (user == null) {
             return false;
@@ -293,7 +293,7 @@ public class RoleAwareFTPFileSystem implements FTPFileSystem {
     }
 
     private boolean checkConfinement(String path,
-                                     FTPConnectionMetadata metadata) {
+                                     FtpConnectionMetadata metadata) {
         if (!homeDirectoryConfinement) {
             return true;
         }

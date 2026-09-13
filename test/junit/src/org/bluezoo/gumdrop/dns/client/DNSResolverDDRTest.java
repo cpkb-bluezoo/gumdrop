@@ -23,11 +23,11 @@ package org.bluezoo.gumdrop.dns.client;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.dns.DNSClass;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQuestion;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsClass;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQuestion;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
 
 import org.junit.After;
 import org.junit.Before;
@@ -47,7 +47,7 @@ import java.util.Map;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for issue #410: {@link DNSResolver}'s RFC 9462 Discovery
+ * Unit tests for issue #410: {@link DnsResolver}'s RFC 9462 Discovery
  * of Designated Resolvers (DDR) support, built on the transport
  * preference/fallback machinery from issue #408.
  *
@@ -85,11 +85,11 @@ public class DNSResolverDDRTest {
         assertNotNull("DDR should have opened its own transport", resolver.ddrTransport.handler);
         assertNotNull("DDR should have sent a query", resolver.ddrTransport.lastSent);
 
-        DNSMessage sent = DNSMessage.parse(resolver.ddrTransport.lastSent);
+        DnsMessage sent = DnsMessage.parse(resolver.ddrTransport.lastSent);
         assertEquals(1, sent.getQuestions().size());
-        DNSQuestion question = sent.getQuestions().get(0);
+        DnsQuestion question = sent.getQuestions().get(0);
         assertEquals("_dns.resolver.arpa", question.getName());
-        assertEquals(DNSType.SVCB, question.getType());
+        assertEquals(DnsType.SVCB, question.getType());
         resolver.close();
     }
 
@@ -103,9 +103,9 @@ public class DNSResolverDDRTest {
         assertEquals(Collections.singletonList(DNSTransportType.PLAIN), resolver.attempted);
 
         Map<Integer, byte[]> params = new LinkedHashMap<>();
-        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
-                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("doq", "dot")));
-        DNSResourceRecord svcb = DNSResourceRecord.svcb("_dns.resolver.arpa", 300, 1, ".", params);
+        params.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("doq", "dot")));
+        DnsResourceRecord svcb = DnsResourceRecord.svcb("_dns.resolver.arpa", 300, 1, ".", params);
         resolver.ddrTransport.handler.onReceive(ddrResponse(svcb).serialize());
 
         InetSocketAddress server = server("203.0.113.1");
@@ -128,11 +128,11 @@ public class DNSResolverDDRTest {
         resolver.open();
 
         Map<Integer, byte[]> withPath = new LinkedHashMap<>();
-        withPath.put(DNSResourceRecord.SVCB_PARAM_ALPN,
-                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h2")));
-        withPath.put(DNSResourceRecord.SVCB_PARAM_DOHPATH,
-                DNSResourceRecord.encodeSVCBDohPath("/custom-doh{?dns}"));
-        DNSResourceRecord svcb = DNSResourceRecord.svcb("_dns.resolver.arpa", 300, 1, ".", withPath);
+        withPath.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("h2")));
+        withPath.put(DnsResourceRecord.SVCB_PARAM_DOHPATH,
+                DnsResourceRecord.encodeSVCBDohPath("/custom-doh{?dns}"));
+        DnsResourceRecord svcb = DnsResourceRecord.svcb("_dns.resolver.arpa", 300, 1, ".", withPath);
         resolver.ddrTransport.handler.onReceive(ddrResponse(svcb).serialize());
 
         DNSServerCapabilities caps = DNSServerCapabilityCache.get(server("203.0.113.1"));
@@ -149,14 +149,14 @@ public class DNSResolverDDRTest {
         resolver.addServer("203.0.113.1");
         resolver.open();
 
-        List<DNSQuestion> questions = Collections.singletonList(
-                new DNSQuestion("_dns.resolver.arpa", DNSType.SVCB, DNSClass.IN));
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA
-                | DNSMessage.RCODE_NXDOMAIN;
-        DNSMessage response = new DNSMessage(1, flags, questions,
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList());
+        List<DnsQuestion> questions = Collections.singletonList(
+                new DnsQuestion("_dns.resolver.arpa", DnsType.SVCB, DnsClass.IN));
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA
+                | DnsMessage.RCODE_NXDOMAIN;
+        DnsMessage response = new DnsMessage(1, flags, questions,
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
         resolver.ddrTransport.handler.onReceive(response.serialize());
 
         assertEquals(DNSServerCapabilities.UNKNOWN, describeUnknown(server("203.0.113.1")));
@@ -173,7 +173,7 @@ public class DNSResolverDDRTest {
         resolver.open();
 
         // SvcPriority 0 (AliasForm) carries no usable SvcParams.
-        DNSResourceRecord alias = DNSResourceRecord.svcb(
+        DnsResourceRecord alias = DnsResourceRecord.svcb(
                 "_dns.resolver.arpa", 300, 0, "target.example.net", null);
         resolver.ddrTransport.handler.onReceive(ddrResponse(alias).serialize());
 
@@ -233,26 +233,26 @@ public class DNSResolverDDRTest {
         return DNSServerCapabilityCache.get(server);
     }
 
-    private static DNSMessage ddrResponse(DNSResourceRecord... answers) {
-        List<DNSQuestion> questions = Collections.singletonList(
-                new DNSQuestion("_dns.resolver.arpa", DNSType.SVCB, DNSClass.IN));
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        return new DNSMessage(1, flags, questions, Arrays.asList(answers),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList());
+    private static DnsMessage ddrResponse(DnsResourceRecord... answers) {
+        List<DnsQuestion> questions = Collections.singletonList(
+                new DnsQuestion("_dns.resolver.arpa", DnsType.SVCB, DnsClass.IN));
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        return new DnsMessage(1, flags, questions, Arrays.asList(answers),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
     }
 
     // ── Test doubles ──
 
-    private static class RecordingTransport implements DNSClientTransport {
-        DNSClientTransportHandler handler;
+    private static class RecordingTransport implements DnsClientTransport {
+        DnsClientTransportHandler handler;
         ByteBuffer lastSent;
         boolean closed;
         Runnable onTimeoutCallback;
 
         @Override
         public void open(InetAddress server, int port, SelectorLoop loop,
-                         DNSClientTransportHandler handler) {
+                         DnsClientTransportHandler handler) {
             this.handler = handler;
         }
 
@@ -279,25 +279,25 @@ public class DNSResolverDDRTest {
     }
 
     /**
-     * Resolver subclass overriding both {@link DNSResolver#newTransportInstance}
-     * (from issue #408) and {@link DNSResolver#createDdrTransport} to
+     * Resolver subclass overriding both {@link DnsResolver#newTransportInstance}
+     * (from issue #408) and {@link DnsResolver#createDdrTransport} to
      * inject mocks instead of real network transports.
      */
-    private static class TestableResolver extends DNSResolver {
-        final Map<DNSTransportType, DNSClientTransport> transports =
+    private static class TestableResolver extends DnsResolver {
+        final Map<DNSTransportType, DnsClientTransport> transports =
                 new EnumMap<>(DNSTransportType.class);
         final List<DNSTransportType> attempted = new ArrayList<>();
         final RecordingTransport ddrTransport = new RecordingTransport();
 
         @Override
-        DNSClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
+        DnsClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
             attempted.add(type);
-            DNSClientTransport transport = transports.get(type);
+            DnsClientTransport transport = transports.get(type);
             return transport != null ? transport : new RecordingTransport();
         }
 
         @Override
-        DNSClientTransport createDdrTransport() {
+        DnsClientTransport createDdrTransport() {
             return ddrTransport;
         }
     }

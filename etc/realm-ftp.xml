@@ -3,7 +3,7 @@
   FTP realm with role-based access control.
 
   Roles: ftp-admin, ftp-delete, ftp-write, ftp-read
-  See org.bluezoo.gumdrop.ftp.FTPRoles for role semantics.
+  See org.bluezoo.gumdrop.ftp.FtpRoles for role semantics.
 -->
 <realm>
   <group id="ftpAdminGroup" name="ftp-admin"/>

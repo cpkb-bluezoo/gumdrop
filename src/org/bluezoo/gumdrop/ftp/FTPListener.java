@@ -1,5 +1,5 @@
 /*
- * FTPListener.java
+ * FtpListener.java
  * Copyright (C) 2006, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -25,7 +25,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 
 /**
@@ -35,11 +35,11 @@ import org.bluezoo.gumdrop.auth.Realm;
  *
  * <p>Handler creation follows a dual-source pattern:
  * <ol>
- *   <li>When used within an {@link FTPService}, the service's
+ *   <li>When used within an {@link FtpServer}, the service's
  *       {@code createHandler()} method is called to create handlers.
  *       This is the normal server deployment path.</li>
  *   <li>When used standalone (no service), a
- *       {@link FTPConnectionHandlerFactory} can be set directly via
+ *       {@link FtpConnectionHandlerFactory} can be set directly via
  *       {@link #setHandlerFactory}. This enables standalone FTP data
  *       servers or embedded usage without a full service lifecycle.</li>
  * </ol>
@@ -66,10 +66,10 @@ import org.bluezoo.gumdrop.auth.Realm;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class FTPListener extends TCPListener {
+public class FtpListener extends TcpListener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(FTPListener.class.getName());
+            Logger.getLogger(FtpListener.class.getName());
 
     /**
      * The default FTP transmission control port.
@@ -88,7 +88,7 @@ public class FTPListener extends TCPListener {
 
     protected int port = FTP_DEFAULT_PORT;
     private boolean portExplicitlySet = false;
-    protected FTPConnectionHandlerFactory handlerFactory;
+    protected FtpConnectionHandlerFactory handlerFactory;
     private boolean requireTLSForData = false;
     private boolean allowActiveModeBounce = false;
     private int pasvMinPort = 0;
@@ -96,10 +96,10 @@ public class FTPListener extends TCPListener {
     private Realm realm;
 
     // Back-reference to the owning service (null when used standalone)
-    private FTPService service;
+    private FtpServer service;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
-    private FTPServerMetrics metrics;
+    private FtpServerMetrics metrics;
 
     @Override
     public String getDescription() {
@@ -124,11 +124,11 @@ public class FTPListener extends TCPListener {
         this.portExplicitlySet = true;
     }
 
-    public void setHandlerFactory(FTPConnectionHandlerFactory factory) {
+    public void setHandlerFactory(FtpConnectionHandlerFactory factory) {
         this.handlerFactory = factory;
     }
 
-    public FTPConnectionHandlerFactory getHandlerFactory() {
+    public FtpConnectionHandlerFactory getHandlerFactory() {
         return handlerFactory;
     }
 
@@ -249,7 +249,7 @@ public class FTPListener extends TCPListener {
     public void start() {
         super.start();
         if (isMetricsEnabled()) {
-            metrics = new FTPServerMetrics(getTelemetryConfig());
+            metrics = new FtpServerMetrics(getTelemetryConfig());
         }
     }
 
@@ -259,13 +259,13 @@ public class FTPListener extends TCPListener {
      *
      * @return the FTP server metrics
      */
-    public FTPServerMetrics getMetrics() {
+    public FtpServerMetrics getMetrics() {
         return metrics;
     }
 
     /**
      * No-op: server channel cleanup is handled centrally by
-     * {@link org.bluezoo.gumdrop.TCPListener#closeServerChannels} during
+     * {@link org.bluezoo.gumdrop.TcpListener#closeServerChannels} during
      * unregister/shutdown, so individual listeners do not need to
      * close their own channels.
      */
@@ -274,12 +274,12 @@ public class FTPListener extends TCPListener {
     }
 
     /**
-     * Sets the owning service. Called by {@link FTPService} during
+     * Sets the owning service. Called by {@link FtpServer} during
      * wiring.
      *
      * @param service the owning service
      */
-    void setService(FTPService service) {
+    void setService(FtpServer service) {
         this.service = service;
     }
 
@@ -288,13 +288,13 @@ public class FTPListener extends TCPListener {
      *
      * @return the owning service
      */
-    public FTPService getService() {
+    public FtpServer getService() {
         return service;
     }
 
     @Override
     protected ProtocolHandler createHandler() {
-        FTPConnectionHandler handler = null;
+        FtpConnectionHandler handler = null;
         if (service != null) {
             try {
                 handler = service.createHandler(this);
@@ -316,7 +316,7 @@ public class FTPListener extends TCPListener {
                 }
             }
         }
-        return new FTPProtocolHandler(this, handler);
+        return new FtpProtocolHandler(this, handler);
     }
 
 }

@@ -35,9 +35,9 @@ import java.nio.ByteBuffer;
 import static org.junit.Assert.*;
 
 /**
- * Regression tests for issue #193: {@link UDPEndpoint#netIn} previously
+ * Regression tests for issue #193: {@link UdpEndpoint#netIn} previously
  * used a plain heap {@code ByteBuffer.allocate(...)} rather than a
- * pooled direct buffer like {@link TCPEndpoint}'s read/write path.
+ * pooled direct buffer like {@link TcpEndpoint}'s read/write path.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -72,10 +72,10 @@ public class UDPEndpointTest {
 
     @Test
     public void testNetInIsAPooledDirectBuffer() throws Exception {
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
 
-        UDPEndpoint endpoint = factory.createServerEndpoint(
+        UdpEndpoint endpoint = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0, new NoopHandler());
         try {
             assertNotNull(endpoint.netIn);
@@ -88,10 +88,10 @@ public class UDPEndpointTest {
 
     @Test
     public void testNetInIsReturnedToThePoolOnClose() throws Exception {
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
 
-        UDPEndpoint endpoint = factory.createServerEndpoint(
+        UdpEndpoint endpoint = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0, new NoopHandler());
         ByteBuffer netIn = endpoint.netIn;
         int capacity = netIn.capacity();
@@ -113,10 +113,10 @@ public class UDPEndpointTest {
 
     @Test
     public void testPendingDatagramBuffersReleasedOnClose() throws Exception {
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
 
-        UDPEndpoint endpoint = factory.createServerEndpoint(
+        UdpEndpoint endpoint = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0, new NoopHandler());
         ByteBuffer pending = ByteBufferPool.acquire(128);
         pending.put(new byte[64]);
@@ -152,11 +152,11 @@ public class UDPEndpointTest {
 
     @Test
     public void testPendingDatagramQueueCapClosesEndpoint() throws Exception {
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.setMaxNetOutSize(100);
         factory.start();
 
-        UDPEndpoint endpoint = factory.createServerEndpoint(
+        UdpEndpoint endpoint = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0, new NoopHandler());
         InetSocketAddress dest = (InetSocketAddress) endpoint.getLocalAddress();
 

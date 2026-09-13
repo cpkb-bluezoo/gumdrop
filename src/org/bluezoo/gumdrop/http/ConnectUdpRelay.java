@@ -33,8 +33,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.UDPEndpoint;
-import org.bluezoo.gumdrop.UDPTransportFactory;
+import org.bluezoo.gumdrop.UdpEndpoint;
+import org.bluezoo.gumdrop.UdpTransportFactory;
 
 /**
  * Relays RFC 9298 CONNECT-UDP datagrams between one HTTP request/response
@@ -79,7 +79,7 @@ final class ConnectUdpRelay {
     private final HttpResponseState state;
     private final long idleTimeoutMs;
 
-    private UDPEndpoint upstream;
+    private UdpEndpoint upstream;
     private boolean closed;
     private TimerHandle idleTimer;
 
@@ -99,7 +99,7 @@ final class ConnectUdpRelay {
      * @throws IOException if the UDP socket cannot be opened
      */
     void start(InetSocketAddress target) throws IOException {
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
         upstream = factory.connect(target.getAddress(), target.getPort(),
                 new UpstreamHandler(), state.getSelectorLoop());

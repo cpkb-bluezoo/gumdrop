@@ -22,14 +22,14 @@
 /**
  * MQTT packet encoding and decoding for both 3.1.1 and 5.0.
  *
- * <p>{@link org.bluezoo.gumdrop.mqtt.codec.MQTTFrameParser} is a
+ * <p>{@link org.bluezoo.gumdrop.mqtt.codec.MqttFrameParser} is a
  * streaming push-parser delivering decoded packets to a {@link
- * org.bluezoo.gumdrop.mqtt.codec.MQTTEventHandler}; {@link
- * org.bluezoo.gumdrop.mqtt.codec.MQTTPacketEncoder} writes them back.
+ * org.bluezoo.gumdrop.mqtt.codec.MqttEventHandler}; {@link
+ * org.bluezoo.gumdrop.mqtt.codec.MqttPacketEncoder} writes them back.
  * {@link org.bluezoo.gumdrop.mqtt.codec.VariableLengthEncoding}
  * implements MQTT's variable-length integer encoding for remaining
  * length and property-length fields; {@link
- * org.bluezoo.gumdrop.mqtt.codec.MQTTPacketType} and {@link
+ * org.bluezoo.gumdrop.mqtt.codec.MqttPacketType} and {@link
  * org.bluezoo.gumdrop.mqtt.codec.QoS} hold the packet type and quality-
  * of-service constants; {@link org.bluezoo.gumdrop.mqtt.codec.ConnectPacket}
  * is the decoded CONNECT packet both client and broker build a session

@@ -42,8 +42,8 @@ import org.bluezoo.gumdrop.servlet.jndi.Resource;
 import org.bluezoo.gumdrop.servlet.jndi.ResourceRef;
 import org.bluezoo.gumdrop.servlet.jndi.ServiceRef;
 import org.bluezoo.gumdrop.servlet.jndi.ServletInitialContext;
-import org.bluezoo.gumdrop.servlet.manager.ManagerContainerService;
-import org.bluezoo.gumdrop.servlet.manager.ManagerContextService;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContainerServer;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContextServer;
 import org.bluezoo.gumdrop.servlet.manager.HitStatistics;
 import org.bluezoo.gumdrop.servlet.session.SessionContext;
 import org.bluezoo.gumdrop.servlet.session.SessionManager;
@@ -128,7 +128,7 @@ import javax.xml.ws.WebServiceRefs;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class Context extends DeploymentDescriptor implements ManagerContextService, SessionContext, Comparator<WebFragment> {
+public final class Context extends DeploymentDescriptor implements ManagerContextServer, SessionContext, Comparator<WebFragment> {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
@@ -558,7 +558,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         initializeInternal();
     }
 
-    @Override public ManagerContainerService getContainer() {
+    @Override public ManagerContainerServer getContainer() {
         return container;
     }
 

@@ -38,7 +38,7 @@ public interface ClientConnection {
      *      1 to the negotiated channel-max)
      * @param handler receives {@code channel.open-ok}
      */
-    void channelOpen(int channelId, ServerChannelOpenHandler handler);
+    void channelOpen(int channelId, ChannelOpenHandler handler);
 
     /**
      * Closes the connection gracefully.
@@ -47,5 +47,5 @@ public interface ClientConnection {
      * @param replyText a human-readable reason
      * @param handler receives {@code connection.close-ok}
      */
-    void close(int replyCode, String replyText, ServerCloseHandler handler);
+    void close(int replyCode, String replyText, CloseHandler handler);
 }

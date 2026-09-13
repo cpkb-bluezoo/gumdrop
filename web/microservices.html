@@ -56,7 +56,7 @@ event-driven parsing with <a href="https://github.com/cpkb-bluezoo/gonzalez">Gon
 <h3 id="overview">Overview</h3>
 
 <p>
-A Gumdrop microservice is an <code>HTTPService</code> with a custom
+A Gumdrop microservice is an <code>HttpServer</code> with a custom
 <code>HttpRequestHandlerFactory</code>. The factory creates
 <code>HttpRequestHandler</code> instances for each request. Handlers receive
 events in sequence:
@@ -229,7 +229,7 @@ class XmlEchoHandler extends DefaultHttpRequestHandler {
 <h4>Step 3: Create the Service and Factory</h4>
 
 <p>
-Extend <code>HTTPService</code> and provide a handler factory. The factory
+Extend <code>HttpServer</code> and provide a handler factory. The factory
 routes requests (here, all POST requests to <code>/echo</code> get the
 XML handler):
 </p>
@@ -237,7 +237,7 @@ XML handler):
 <pre>
 import org.bluezoo.gumdrop.http.*;
 
-public class XmlEchoService extends HTTPService {
+public class XmlEchoService extends HttpServer {
 
     @Override
     protected void initService() {
@@ -557,7 +557,7 @@ class LookupResponseHandler extends JSONDefaultHandler {
 <h4>Step 4: Service with Downstream Configuration</h4>
 
 <pre>
-public class LookupService extends HTTPService {
+public class LookupService extends HttpServer {
     private String downstreamHost = "localhost";
     private int downstreamPort = 9091;
 
@@ -624,7 +624,7 @@ and the full dependency injection framework.
 <h3>Summary</h3>
 
 <ul>
-<li>Extend <code>HTTPService</code> and implement <code>getHandlerFactory()</code></li>
+<li>Extend <code>HttpServer</code> and implement <code>getHandlerFactory()</code></li>
 <li>Feed <code>requestBodyContent(ByteBuffer)</code> chunks directly to
     <code>Parser.receive()</code> (Gonzalez) or <code>JSONParser.receive()</code>
     (jsonparser) &mdash; never buffer the entire body</li>

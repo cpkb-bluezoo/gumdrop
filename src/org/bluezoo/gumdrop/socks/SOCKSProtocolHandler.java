@@ -42,18 +42,18 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPEndpoint;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpEndpoint;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.socks.handler.BindHandler;
 import org.bluezoo.gumdrop.socks.handler.BindState;
 import org.bluezoo.gumdrop.socks.handler.ConnectHandler;
 import org.bluezoo.gumdrop.socks.handler.ConnectState;
 
-import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
+import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
  * Server-side SOCKS protocol handler.
@@ -70,7 +70,7 @@ import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
  * or 0x05 (SOCKS5) per RFC 1928 §3 first octet.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SOCKSService
+ * @see SocksServer
  * @see SOCKSRelay
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1928">RFC 1928</a> SOCKS Protocol Version 5
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1929">RFC 1929</a> Username/Password Authentication
@@ -100,8 +100,8 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         CLOSED
     }
 
-    private final SOCKSListener listener;
-    private final SOCKSService service;
+    private final SocksListener listener;
+    private final SocksServer service;
 
     private Endpoint endpoint;
     private State state = State.VERSION_DETECT;
@@ -119,7 +119,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
     private SOCKSUDPRelay udpRelay;
     private SOCKSBindRelay bindRelay;
 
-    SOCKSProtocolHandler(SOCKSListener listener, SOCKSService service) {
+    SOCKSProtocolHandler(SocksListener listener, SocksServer service) {
         this.listener = listener;
         this.service = service;
     }
@@ -140,7 +140,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
     public void connected(Endpoint endpoint) {
         this.endpoint = endpoint;
         this.connectionTimeMillis = System.currentTimeMillis();
-        SOCKSServerMetrics metrics = getServerMetrics();
+        SocksServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.connectionOpened();
         }
@@ -166,7 +166,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
             gssapiExchange.dispose();
             gssapiExchange = null;
         }
-        SOCKSServerMetrics metrics = getServerMetrics();
+        SocksServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             double durationMs = (double) (System.currentTimeMillis()
                     - connectionTimeMillis);
@@ -337,7 +337,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
 
         // SOCKS4 protocol: CD=1 is CONNECT, CD=2 is BIND
         if (cmd == SOCKS4_CMD_BIND) {
-            SOCKSRequest bindRequest = new SOCKSRequest(
+            SocksRequest bindRequest = new SocksRequest(
                     SOCKS4_VERSION, cmd, address, hostname, port,
                     userid, null);
             handleBind(bindRequest);
@@ -350,7 +350,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
             return;
         }
 
-        SOCKSRequest request = new SOCKSRequest(
+        SocksRequest request = new SocksRequest(
                 SOCKS4_VERSION, cmd, address, hostname, port,
                 userid, null);
 
@@ -464,7 +464,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         String password = new String(pBytes, StandardCharsets.UTF_8);
 
         Realm realm = listener.getRealm();
-        SOCKSServerMetrics metrics = getServerMetrics();
+        SocksServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.authAttempt("username_password");
         }
@@ -528,7 +528,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         byte[] clientToken = new byte[tokenLen];
         data.get(clientToken);
 
-        SOCKSServerMetrics metrics = getServerMetrics();
+        SocksServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.authAttempt("gssapi");
         }
@@ -665,7 +665,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
 
         if (cmd == SOCKS5_CMD_BIND) {
             // RFC 1928 §4: CMD=0x02 BIND
-            SOCKSRequest bindRequest = new SOCKSRequest(
+            SocksRequest bindRequest = new SocksRequest(
                     SOCKS5_VERSION, cmd, address, hostname, port,
                     null, authenticatedUser);
             handleBind(bindRequest);
@@ -682,7 +682,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
             return;
         }
 
-        SOCKSRequest request = new SOCKSRequest(
+        SocksRequest request = new SocksRequest(
                 SOCKS5_VERSION, cmd, address, hostname, port,
                 null, authenticatedUser);
 
@@ -699,10 +699,10 @@ class SOCKSProtocolHandler implements ProtocolHandler {
     // Connect request processing (common for SOCKS4/4a/5)
     // ═══════════════════════════════════════════════════════════════════
 
-    private void processConnectRequest(final SOCKSRequest request) {
+    private void processConnectRequest(final SocksRequest request) {
         state = State.CONNECT_AUTHORIZE;
 
-        SOCKSServerMetrics metrics = getServerMetrics();
+        SocksServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             String version = socksVersionLabel(request);
             metrics.connectRequest(version);
@@ -716,7 +716,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         }
     }
 
-    private void authorizeAndConnect(SOCKSRequest request) {
+    private void authorizeAndConnect(SocksRequest request) {
         if (request.getHost() != null && request.getAddress() == null) {
             resolveAndConnect(request);
         } else {
@@ -724,9 +724,9 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         }
     }
 
-    private void resolveAndConnect(final SOCKSRequest request) {
+    private void resolveAndConnect(final SocksRequest request) {
         SelectorLoop loop = endpoint.getSelectorLoop();
-        DNSResolver resolver = DNSResolver.forLoop(loop);
+        DnsResolver resolver = DnsResolver.forLoop(loop);
         resolver.resolve(request.getHost(), new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {
@@ -735,7 +735,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
                 // multi-RR DNS responses.
                 for (InetAddress addr : addresses) {
                     if (!service.isDestinationAllowed(addr)) {
-                        SOCKSServerMetrics metrics = getServerMetrics();
+                        SocksServerMetrics metrics = getServerMetrics();
                         if (metrics != null) {
                             metrics.destinationBlocked();
                         }
@@ -769,10 +769,10 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         });
     }
 
-    private void connectToDestination(SOCKSRequest request,
+    private void connectToDestination(SocksRequest request,
                                       InetAddress resolved) {
         if (!service.isDestinationAllowed(resolved)) {
-            SOCKSServerMetrics metrics = getServerMetrics();
+            SocksServerMetrics metrics = getServerMetrics();
             if (metrics != null) {
                 metrics.destinationBlocked();
             }
@@ -807,10 +807,10 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         initiateUpstreamConnection(request, resolved);
     }
 
-    private void initiateUpstreamConnection(final SOCKSRequest request,
+    private void initiateUpstreamConnection(final SocksRequest request,
                                             final InetAddress resolved) {
         try {
-            TCPTransportFactory factory = new TCPTransportFactory();
+            TcpTransportFactory factory = new TcpTransportFactory();
             factory.start();
 
             SelectorLoop loop = endpoint.getSelectorLoop();
@@ -894,8 +894,8 @@ class SOCKSProtocolHandler implements ProtocolHandler {
      * <p>RFC 1928 §4: "it is expected that a SOCKS server will use
      * DST.ADDR and DST.PORT in evaluating the BIND request."
      */
-    private void handleBind(final SOCKSRequest request) {
-        SOCKSServerMetrics mtr = getServerMetrics();
+    private void handleBind(final SocksRequest request) {
+        SocksServerMetrics mtr = getServerMetrics();
         if (mtr != null) {
             String version = socksVersionLabel(request);
             mtr.bindRequest(version);
@@ -922,12 +922,12 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         }
     }
 
-    private void authorizeAndBind(SOCKSRequest request) {
+    private void authorizeAndBind(SocksRequest request) {
         // Apply destination policy to the DST.ADDR supplied in the BIND request.
         InetAddress dst = request.getAddress();
         if (dst != null && !dst.isAnyLocalAddress()
                 && !service.isDestinationAllowed(dst)) {
-            SOCKSServerMetrics mtr = getServerMetrics();
+            SocksServerMetrics mtr = getServerMetrics();
             if (mtr != null) {
                 mtr.destinationBlocked();
             }
@@ -956,7 +956,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         initiateBind(request);
     }
 
-    private void initiateBind(final SOCKSRequest request) {
+    private void initiateBind(final SocksRequest request) {
         InetAddress expectedPeer = request.getAddress();
         if (expectedPeer != null && expectedPeer.isAnyLocalAddress()) {
             expectedPeer = null;
@@ -1009,7 +1009,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
      * Called by SOCKSBindRelay on the control SelectorLoop thread
      * when an incoming connection has been accepted and validated.
      */
-    private void onBindAccepted(SOCKSRequest request,
+    private void onBindAccepted(SocksRequest request,
                                 SocketChannel sc,
                                 InetSocketAddress peerAddress) {
         try {
@@ -1024,7 +1024,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
                         peerAddress.getPort());
             }
 
-            TCPTransportFactory factory = new TCPTransportFactory();
+            TcpTransportFactory factory = new TcpTransportFactory();
             factory.start();
 
             relay = new SOCKSRelay(endpoint, service,
@@ -1060,7 +1060,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
             };
 
             SelectorLoop loop = endpoint.getSelectorLoop();
-            TCPEndpoint peerEndpoint =
+            TcpEndpoint peerEndpoint =
                     factory.createServerEndpoint(sc, upstreamHandler);
             loop.registerTCP(sc, peerEndpoint);
             upstreamHandler.connected(peerEndpoint);
@@ -1081,7 +1081,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
      * Called by SOCKSBindRelay when the bind fails (timeout or
      * peer rejected).
      */
-    private void onBindFailed(SOCKSRequest request, byte replyCode) {
+    private void onBindFailed(SocksRequest request, byte replyCode) {
         if (request.getVersion() == SOCKS4_VERSION) {
             sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
         } else {
@@ -1105,7 +1105,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
      * remote address is used for source validation.
      */
     private void handleUDPAssociate(InetAddress address) {
-        SOCKSServerMetrics mtr = getServerMetrics();
+        SocksServerMetrics mtr = getServerMetrics();
         if (mtr != null) {
             mtr.connectRequest("5");
         }
@@ -1158,7 +1158,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
     // Reply sending
     // ═══════════════════════════════════════════════════════════════════
 
-    private void sendConnectSuccess(SOCKSRequest request,
+    private void sendConnectSuccess(SocksRequest request,
                                     InetAddress bound) {
         if (request.getVersion() == SOCKS4_VERSION) {
             sendSOCKS4Reply(SOCKS4_REPLY_GRANTED);
@@ -1315,11 +1315,11 @@ class SOCKSProtocolHandler implements ProtocolHandler {
     // Telemetry
     // ═══════════════════════════════════════════════════════════════════
 
-    private SOCKSServerMetrics getServerMetrics() {
+    private SocksServerMetrics getServerMetrics() {
         return listener != null ? listener.getMetrics() : null;
     }
 
-    private static String socksVersionLabel(SOCKSRequest request) {
+    private static String socksVersionLabel(SocksRequest request) {
         if (request.getVersion() == SOCKS4_VERSION) {
             return request.getHost() != null ? "4a" : "4";
         }
@@ -1332,9 +1332,9 @@ class SOCKSProtocolHandler implements ProtocolHandler {
 
     private final class ConnectStateImpl implements ConnectState {
 
-        private final SOCKSRequest request;
+        private final SocksRequest request;
 
-        ConnectStateImpl(SOCKSRequest request) {
+        ConnectStateImpl(SocksRequest request) {
             this.request = request;
         }
 
@@ -1360,9 +1360,9 @@ class SOCKSProtocolHandler implements ProtocolHandler {
 
     private final class BindStateImpl implements BindState {
 
-        private final SOCKSRequest request;
+        private final SocksRequest request;
 
-        BindStateImpl(SOCKSRequest request) {
+        BindStateImpl(SocksRequest request) {
             this.request = request;
         }
 

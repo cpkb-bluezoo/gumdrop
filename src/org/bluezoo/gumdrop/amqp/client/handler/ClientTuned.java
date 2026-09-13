@@ -34,5 +34,5 @@ public interface ClientTuned {
      * @param virtualHost the virtual host to connect to (typically {@code "/"})
      * @param handler receives {@code open-ok}
      */
-    void open(String virtualHost, ServerOpenHandler handler);
+    void open(String virtualHost, OpenHandler handler);
 }

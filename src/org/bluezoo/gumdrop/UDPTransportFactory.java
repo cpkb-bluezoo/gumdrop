@@ -1,5 +1,5 @@
 /*
- * UDPTransportFactory.java
+ * UdpTransportFactory.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,7 +36,7 @@ import org.bluezoo.gumdrop.tls.Tls12CipherSuite;
 import org.bluezoo.gumdrop.tls.Tls12HandshakeConfig;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.util.SniCredentialsResolver;
-import org.bluezoo.gumdrop.util.TLSUtils;
+import org.bluezoo.gumdrop.util.TlsUtils;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -61,12 +61,12 @@ import javax.net.ssl.X509TrustManager;
  * UDP transport factory using the in-tree DTLS 1.2/1.3 engines.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see UDPEndpoint
+ * @see UdpEndpoint
  */
-public class UDPTransportFactory extends TransportFactory {
+public class UdpTransportFactory extends TransportFactory {
 
     private static final Logger LOGGER =
-            Logger.getLogger(UDPTransportFactory.class.getName());
+            Logger.getLogger(UdpTransportFactory.class.getName());
 
     private ServerCredentials serverCredentials;
     private ServerCredentialsResolver serverCredentialsResolver;
@@ -95,7 +95,7 @@ public class UDPTransportFactory extends TransportFactory {
     private Dtls12HandshakeConfig sharedServerConfig;
     private Dtls13HandshakeConfig sharedServerConfig13;
 
-    public UDPTransportFactory() {
+    public UdpTransportFactory() {
     }
 
     public DtlsVersion getDtlsVersion() {
@@ -157,7 +157,7 @@ public class UDPTransportFactory extends TransportFactory {
 
     /**
      * Maximum number of concurrent DTLS peers tracked on one server-mode
-     * {@link UDPEndpoint}. {@code 0} means unlimited.
+     * {@link UdpEndpoint}. {@code 0} means unlimited.
      *
      * @param maxDtlsPeers the peer cap
      */
@@ -193,11 +193,11 @@ public class UDPTransportFactory extends TransportFactory {
                     serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
                 } else if (keystoreFile != null && keystorePass != null) {
                     if (isSNIEnabled()) {
-                        KeyStore keyStore = TLSUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat);
+                        KeyStore keyStore = TlsUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat);
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
                     } else {
-                        serverCredentials = TLSUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat);
+                        serverCredentials = TlsUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat);
                     }
                 }
             }
@@ -323,7 +323,7 @@ public class UDPTransportFactory extends TransportFactory {
         if (trustManager != null) {
             base = trustManager;
         } else if (truststoreFile != null && truststorePass != null) {
-            base = firstX509TrustManager(TLSUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat));
+            base = firstX509TrustManager(TlsUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat));
         } else {
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             tmf.init((KeyStore) null);
@@ -410,19 +410,19 @@ public class UDPTransportFactory extends TransportFactory {
         return resolved.isEmpty() ? null : resolved;
     }
 
-    public UDPEndpoint createServerEndpoint(InetAddress bindAddress,
+    public UdpEndpoint createServerEndpoint(InetAddress bindAddress,
                                                   int port,
                                                   ProtocolHandler handler)
             throws IOException {
         return createServerEndpoint(bindAddress, port, handler, null);
     }
 
-    public UDPEndpoint createServerEndpoint(InetAddress bindAddress,
+    public UdpEndpoint createServerEndpoint(InetAddress bindAddress,
                                                   int port,
                                                   ProtocolHandler handler,
                                                   SelectorLoop loop)
             throws IOException {
-        UDPEndpoint endpoint = new UDPEndpoint(handler);
+        UdpEndpoint endpoint = new UdpEndpoint(handler);
         endpoint.setFactory(this);
         endpoint.setSecure(secure);
         endpoint.setClientMode(false);
@@ -449,10 +449,10 @@ public class UDPTransportFactory extends TransportFactory {
         return endpoint;
     }
 
-    public UDPEndpoint createServerEndpoint(DatagramChannel channel,
+    public UdpEndpoint createServerEndpoint(DatagramChannel channel,
                                                   ProtocolHandler handler)
             throws IOException {
-        UDPEndpoint endpoint = new UDPEndpoint(handler);
+        UdpEndpoint endpoint = new UdpEndpoint(handler);
         endpoint.setFactory(this);
         endpoint.setSecure(secure);
         endpoint.setClientMode(false);
@@ -470,17 +470,17 @@ public class UDPTransportFactory extends TransportFactory {
         return endpoint;
     }
 
-    public UDPEndpoint connect(InetAddress host, int port,
+    public UdpEndpoint connect(InetAddress host, int port,
                                     ProtocolHandler handler)
             throws IOException {
         return connect(host, port, handler, null);
     }
 
-    public UDPEndpoint connect(InetAddress host, int port,
+    public UdpEndpoint connect(InetAddress host, int port,
                                     ProtocolHandler handler,
                                     SelectorLoop loop)
             throws IOException {
-        UDPEndpoint endpoint = new UDPEndpoint(handler);
+        UdpEndpoint endpoint = new UdpEndpoint(handler);
         endpoint.setFactory(this);
         endpoint.setSecure(secure);
         endpoint.setClientMode(true);
@@ -500,7 +500,7 @@ public class UDPTransportFactory extends TransportFactory {
         workerLoop.registerDatagram(channel, endpoint);
         gumdrop.addChannelHandler(endpoint);
 
-        final UDPEndpoint endpointForCallback = endpoint;
+        final UdpEndpoint endpointForCallback = endpoint;
         workerLoop.invokeLater(new Runnable() {
             @Override
             public void run() {

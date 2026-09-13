@@ -25,7 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.bluezoo.gumdrop.mqtt.MQTTSession;
+import org.bluezoo.gumdrop.mqtt.MqttSession;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 
 /**
@@ -42,7 +42,7 @@ public class SubscriptionManager {
     private final TopicTree topicTree = new TopicTree();
     private final RetainedMessageStore retainedStore = new RetainedMessageStore();
 
-    private final ConcurrentHashMap<String, MQTTSession> sessions =
+    private final ConcurrentHashMap<String, MqttSession> sessions =
             new ConcurrentHashMap<>();
 
     public TopicTree getTopicTree() {
@@ -57,21 +57,21 @@ public class SubscriptionManager {
      * Registers a session. If a session with the same client ID already
      * exists, it is replaced (the old session should be disconnected first).
      */
-    public void registerSession(MQTTSession session) {
+    public void registerSession(MqttSession session) {
         sessions.put(session.getClientId(), session);
     }
 
     /**
      * Removes a session registration.
      */
-    public MQTTSession removeSession(String clientId) {
+    public MqttSession removeSession(String clientId) {
         return sessions.remove(clientId);
     }
 
     /**
      * Returns the session for the given client ID, or null.
      */
-    public MQTTSession getSession(String clientId) {
+    public MqttSession getSession(String clientId) {
         return sessions.get(clientId);
     }
 

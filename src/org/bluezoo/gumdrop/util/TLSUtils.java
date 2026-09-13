@@ -1,5 +1,5 @@
 /*
- * TLSUtils.java
+ * TlsUtils.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -48,7 +48,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class TLSUtils {
+public final class TlsUtils {
 
     private static final ConcurrentHashMap<Path, CachedKeyStore> keystoreCache = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, KeyManager[]> keyManagerCache = new ConcurrentHashMap<>();
@@ -64,7 +64,7 @@ public final class TLSUtils {
         }
     }
 
-    private TLSUtils() {
+    private TlsUtils() {
     }
 
     /**

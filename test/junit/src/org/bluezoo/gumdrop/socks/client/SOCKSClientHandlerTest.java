@@ -15,7 +15,7 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link SOCKSClientHandler}'s CONNECT, BIND, and UDP
+ * Unit tests for {@link SocksClientHandler}'s CONNECT, BIND, and UDP
  * ASSOCIATE handshake logic, driven directly against a {@link
  * StubEndpoint} rather than a real socket.
  */
@@ -38,8 +38,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testConnectSocks5NoAuthSuccess() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                "example.com", 80, new SOCKSClientConfig(), innerHandler);
+        SocksClientHandler handler = new SocksClientHandler(
+                "example.com", 80, new SocksClientConfig(), innerHandler);
         handler.connected(endpoint);
 
         handler.receive(methodSelection((byte) 0x00));
@@ -51,8 +51,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testConnectSocks4Success() {
-        SOCKSClientConfig config = new SOCKSClientConfig().setVersion(SOCKSClientConfig.Version.SOCKS4);
-        SOCKSClientHandler handler = new SOCKSClientHandler("192.168.0.5", 25, config, innerHandler);
+        SocksClientConfig config = new SocksClientConfig().setVersion(SocksClientConfig.Version.SOCKS4);
+        SocksClientHandler handler = new SocksClientHandler("192.168.0.5", 25, config, innerHandler);
         handler.connected(endpoint);
 
         handler.receive(socks4Reply((byte) 0x5a, "192.168.0.5", 25));
@@ -65,8 +65,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testBindSocks5FullSequence() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                "ftp.example.com", 21, new SOCKSClientConfig(), bindListener, innerHandler);
+        SocksClientHandler handler = new SocksClientHandler(
+                "ftp.example.com", 21, new SocksClientConfig(), bindListener, innerHandler);
         handler.connected(endpoint);
 
         handler.receive(methodSelection((byte) 0x00));
@@ -83,8 +83,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testBindSocks5Reply1Rejected() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                "ftp.example.com", 21, new SOCKSClientConfig(), bindListener, innerHandler);
+        SocksClientHandler handler = new SocksClientHandler(
+                "ftp.example.com", 21, new SocksClientConfig(), bindListener, innerHandler);
         handler.connected(endpoint);
 
         handler.receive(methodSelection((byte) 0x00));
@@ -97,8 +97,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testBindSocks5Reply2Rejected() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                "ftp.example.com", 21, new SOCKSClientConfig(), bindListener, innerHandler);
+        SocksClientHandler handler = new SocksClientHandler(
+                "ftp.example.com", 21, new SocksClientConfig(), bindListener, innerHandler);
         handler.connected(endpoint);
 
         handler.receive(methodSelection((byte) 0x00));
@@ -113,8 +113,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testBindReply1SplitAcrossReads() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                "ftp.example.com", 21, new SOCKSClientConfig(), bindListener, innerHandler);
+        SocksClientHandler handler = new SocksClientHandler(
+                "ftp.example.com", 21, new SocksClientConfig(), bindListener, innerHandler);
         handler.connected(endpoint);
         handler.receive(methodSelection((byte) 0x00));
 
@@ -133,8 +133,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testBindSocks5Reply1DomainNameParsedCorrectly() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                "ftp.example.com", 21, new SOCKSClientConfig(), bindListener, innerHandler);
+        SocksClientHandler handler = new SocksClientHandler(
+                "ftp.example.com", 21, new SocksClientConfig(), bindListener, innerHandler);
         handler.connected(endpoint);
         handler.receive(methodSelection((byte) 0x00));
 
@@ -146,8 +146,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testBindSocks4FullSequence() {
-        SOCKSClientConfig config = new SOCKSClientConfig().setVersion(SOCKSClientConfig.Version.SOCKS4);
-        SOCKSClientHandler handler = new SOCKSClientHandler(
+        SocksClientConfig config = new SocksClientConfig().setVersion(SocksClientConfig.Version.SOCKS4);
+        SocksClientHandler handler = new SocksClientHandler(
                 "10.0.0.1", 21, config, bindListener, innerHandler);
         handler.connected(endpoint);
 
@@ -161,8 +161,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testBindSocks4Reply1Rejected() {
-        SOCKSClientConfig config = new SOCKSClientConfig().setVersion(SOCKSClientConfig.Version.SOCKS4);
-        SOCKSClientHandler handler = new SOCKSClientHandler(
+        SocksClientConfig config = new SocksClientConfig().setVersion(SocksClientConfig.Version.SOCKS4);
+        SocksClientHandler handler = new SocksClientHandler(
                 "10.0.0.1", 21, config, bindListener, innerHandler);
         handler.connected(endpoint);
 
@@ -178,7 +178,7 @@ public class SOCKSClientHandlerTest {
     @Test
     public void testBindConstructorRejectsNullHost() {
         try {
-            new SOCKSClientHandler(null, 21, new SOCKSClientConfig(), bindListener, innerHandler);
+            new SocksClientHandler(null, 21, new SocksClientConfig(), bindListener, innerHandler);
             fail("expected NullPointerException");
         } catch (NullPointerException expected) {
         }
@@ -187,7 +187,7 @@ public class SOCKSClientHandlerTest {
     @Test
     public void testBindConstructorRejectsNullBindListener() {
         try {
-            new SOCKSClientHandler("ftp.example.com", 21, new SOCKSClientConfig(), null, innerHandler);
+            new SocksClientHandler("ftp.example.com", 21, new SocksClientConfig(), null, innerHandler);
             fail("expected NullPointerException");
         } catch (NullPointerException expected) {
         }
@@ -196,7 +196,7 @@ public class SOCKSClientHandlerTest {
     @Test
     public void testBindConstructorRejectsNullInnerHandler() {
         try {
-            new SOCKSClientHandler("ftp.example.com", 21, new SOCKSClientConfig(), bindListener, null);
+            new SocksClientHandler("ftp.example.com", 21, new SocksClientConfig(), bindListener, null);
             fail("expected NullPointerException");
         } catch (NullPointerException expected) {
         }
@@ -205,7 +205,7 @@ public class SOCKSClientHandlerTest {
     @Test
     public void testUDPAssociateConstructorRejectsNullFactory() {
         try {
-            new SOCKSClientHandler(new SOCKSClientConfig(), null, udpListener);
+            new SocksClientHandler(new SocksClientConfig(), null, udpListener);
             fail("expected NullPointerException");
         } catch (NullPointerException expected) {
         }
@@ -214,7 +214,7 @@ public class SOCKSClientHandlerTest {
     @Test
     public void testUDPAssociateConstructorRejectsNullListener() {
         try {
-            new SOCKSClientHandler(new SOCKSClientConfig(), new org.bluezoo.gumdrop.UDPTransportFactory(), null);
+            new SocksClientHandler(new SocksClientConfig(), new org.bluezoo.gumdrop.UdpTransportFactory(), null);
             fail("expected NullPointerException");
         } catch (NullPointerException expected) {
         }
@@ -224,8 +224,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testUDPAssociateRequestBytes() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                new SOCKSClientConfig(), new org.bluezoo.gumdrop.UDPTransportFactory(), udpListener);
+        SocksClientHandler handler = new SocksClientHandler(
+                new SocksClientConfig(), new org.bluezoo.gumdrop.UdpTransportFactory(), udpListener);
         handler.connected(endpoint);
         handler.receive(methodSelection((byte) 0x00));
 
@@ -238,8 +238,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testUDPAssociateReplyRejected() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                new SOCKSClientConfig(), new org.bluezoo.gumdrop.UDPTransportFactory(), udpListener);
+        SocksClientHandler handler = new SocksClientHandler(
+                new SocksClientConfig(), new org.bluezoo.gumdrop.UdpTransportFactory(), udpListener);
         handler.connected(endpoint);
         handler.receive(methodSelection((byte) 0x00));
 
@@ -252,8 +252,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testUDPAssociateReplyUnresolvedDomainNameRejected() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                new SOCKSClientConfig(), new org.bluezoo.gumdrop.UDPTransportFactory(), udpListener);
+        SocksClientHandler handler = new SocksClientHandler(
+                new SocksClientConfig(), new org.bluezoo.gumdrop.UdpTransportFactory(), udpListener);
         handler.connected(endpoint);
         handler.receive(methodSelection((byte) 0x00));
 
@@ -266,9 +266,9 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testUDPAssociateConstructorRejectsSocks4() {
-        SOCKSClientConfig config = new SOCKSClientConfig().setVersion(SOCKSClientConfig.Version.SOCKS4);
+        SocksClientConfig config = new SocksClientConfig().setVersion(SocksClientConfig.Version.SOCKS4);
         try {
-            new SOCKSClientHandler(config, new org.bluezoo.gumdrop.UDPTransportFactory(), udpListener);
+            new SocksClientHandler(config, new org.bluezoo.gumdrop.UdpTransportFactory(), udpListener);
             fail("expected IllegalArgumentException");
         } catch (IllegalArgumentException expected) {
             // expected: RFC 1928 §7 has no SOCKS4 equivalent
@@ -277,8 +277,8 @@ public class SOCKSClientHandlerTest {
 
     @Test
     public void testSendDatagramBeforeAssociationThrows() {
-        SOCKSClientHandler handler = new SOCKSClientHandler(
-                new SOCKSClientConfig(), new org.bluezoo.gumdrop.UDPTransportFactory(), udpListener);
+        SocksClientHandler handler = new SocksClientHandler(
+                new SocksClientConfig(), new org.bluezoo.gumdrop.UdpTransportFactory(), udpListener);
         try {
             handler.sendDatagram(new InetSocketAddress("example.com", 53), ByteBuffer.allocate(4));
             fail("expected IllegalStateException");
@@ -369,7 +369,7 @@ public class SOCKSClientHandlerTest {
         }
     }
 
-    private static class RecordingBindListener implements SOCKSClientHandler.BindListener {
+    private static class RecordingBindListener implements SocksClientHandler.BindListener {
         InetSocketAddress boundAddress;
 
         @Override
@@ -378,7 +378,7 @@ public class SOCKSClientHandlerTest {
         }
     }
 
-    private static class RecordingUDPAssociateListener implements SOCKSClientHandler.UDPAssociateListener {
+    private static class RecordingUDPAssociateListener implements SocksClientHandler.UdpAssociateListener {
         InetSocketAddress associatedAddress;
         Exception error;
         final List<ByteBuffer> received = new ArrayList<>();

@@ -37,12 +37,12 @@ import java.util.concurrent.ConcurrentMap;
  * <ul>
  * <li>A permanent, seeded table of well-known public resolvers (Google,
  *     Cloudflare, Quad9) known in advance to support DoQ, DoT, and DoH
- *     -- so {@link DNSResolver#useSystemResolvers()}'s plaintext
+ *     -- so {@link DnsResolver#useSystemResolvers()}'s plaintext
  *     fallback to these addresses prefers an encrypted transport
  *     instead of landing on plain UDP.</li>
  * <li>A runtime-learned positive cache: capabilities discovered for an
  *     otherwise-unknown server via RFC 9462 Discovery of Designated
- *     Resolvers (DDR, see {@link DNSResolver}'s DDR support). Kept
+ *     Resolvers (DDR, see {@link DnsResolver}'s DDR support). Kept
  *     without expiry -- a resolver that stops supporting what it
  *     advertised will surface through the negative cache below the
  *     next time that transport actually fails.</li>
@@ -67,7 +67,7 @@ import java.util.concurrent.ConcurrentMap;
  * one extra round trip rather than a whole connection attempt.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSResolver
+ * @see DnsResolver
  */
 final class DNSServerCapabilityCache {
 
@@ -161,7 +161,7 @@ final class DNSServerCapabilityCache {
 
     // RFC 8484 §4.1: all three providers below use the conventional
     // "/dns-query" path, so it isn't varied per entry here. Also used by
-    // DNSResolver's DDR discovery as the RFC 9461 §5 default when a
+    // DnsResolver's DDR discovery as the RFC 9461 §5 default when a
     // "dohpath" SvcParam is absent.
     static final String DOH_PATH = "/dns-query";
 

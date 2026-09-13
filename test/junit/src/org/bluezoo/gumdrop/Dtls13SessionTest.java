@@ -94,7 +94,7 @@ public class Dtls13SessionTest {
         return new Dtls13HandshakeConfig(base);
     }
 
-    private static final class RecordingEndpoint extends UDPEndpoint {
+    private static final class RecordingEndpoint extends UdpEndpoint {
         final Deque<ByteBuffer> sent = new ArrayDeque<ByteBuffer>();
         SecurityInfo securityInfo;
         boolean usesDtls13;
@@ -116,7 +116,7 @@ public class Dtls13SessionTest {
         }
 
         void initDtls13() {
-            UDPTransportFactory factory = new UDPTransportFactory() {
+            UdpTransportFactory factory = new UdpTransportFactory() {
                 @Override
                 public DtlsVersion getDtlsVersion() {
                     return usesDtls13 ? DtlsVersion.DTLS_1_3 : DtlsVersion.DTLS_1_2;
@@ -232,7 +232,7 @@ public class Dtls13SessionTest {
 
     @Test
     public void udpTransportFactoryBuildsDtls13Configs() throws Exception {
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.setDtlsVersion(DtlsVersion.DTLS_1_3);
         factory.setServerCredentials(new ServerCredentials(chain, privateKey));
         factory.setTrustManager(CertificateVerifier.trustManagerFromCertificates(chain));

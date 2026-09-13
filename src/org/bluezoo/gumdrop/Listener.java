@@ -55,7 +55,7 @@ import org.bluezoo.gumdrop.util.CIDRNetwork;
  * Common base class for all server endpoint types (TCP and UDP).
  *
  * <p>Holds transport-agnostic configuration shared by both
- * {@link TCPListener} (TCP) and {@link UDPListener} (UDP):
+ * {@link TcpListener} (TCP) and {@link UdpListener} (UDP):
  * port, addresses, TLS/DTLS settings, rate limiting, CIDR
  * allow/block lists, and timeouts.
  *
@@ -63,8 +63,8 @@ import org.bluezoo.gumdrop.util.CIDRNetwork;
  * the appropriate transport (TCP, UDP, or QUIC).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see TCPListener
- * @see UDPListener
+ * @see TcpListener
+ * @see UdpListener
  */
 public abstract class Listener {
 
@@ -130,9 +130,9 @@ public abstract class Listener {
 
     /**
      * Maximum concurrent DTLS peers on one secure UDP listener socket.
-     * {@code 0} means unlimited. See {@link UDPTransportFactory#getMaxDtlsPeers()}.
+     * {@code 0} means unlimited. See {@link UdpTransportFactory#getMaxDtlsPeers()}.
      */
-    private int maxDtlsPeers = UDPTransportFactory.DEFAULT_MAX_DTLS_PEERS;
+    private int maxDtlsPeers = UdpTransportFactory.DEFAULT_MAX_DTLS_PEERS;
 
     /**
      * Number of currently open connections accepted by this listener.
@@ -631,13 +631,13 @@ public abstract class Listener {
     /**
      * Creates the transport factory for this endpoint.
      *
-     * <p>The default implementation returns a {@link TCPTransportFactory}.
+     * <p>The default implementation returns a {@link TcpTransportFactory}.
      * Subclasses override this to select a different transport.
      *
      * @return the transport factory
      */
     protected TransportFactory createTransportFactory() {
-        return new TCPTransportFactory();
+        return new TcpTransportFactory();
     }
 
     /**
@@ -670,8 +670,8 @@ public abstract class Listener {
         factory.setMaxNetInSize(maxNetInSize);
         factory.setMaxNetOutSize(maxNetOutSize);
 
-        if (factory instanceof TCPTransportFactory) {
-            TCPTransportFactory tcpFactory = (TCPTransportFactory) factory;
+        if (factory instanceof TcpTransportFactory) {
+            TcpTransportFactory tcpFactory = (TcpTransportFactory) factory;
             if (serverCredentials != null) {
                 tcpFactory.setServerCredentials(serverCredentials);
             }
@@ -686,8 +686,8 @@ public abstract class Listener {
                 tcpFactory.setSniDefaultAlias(sniDefaultAlias);
             }
         }
-        if (factory instanceof UDPTransportFactory) {
-            UDPTransportFactory udpFactory = (UDPTransportFactory) factory;
+        if (factory instanceof UdpTransportFactory) {
+            UdpTransportFactory udpFactory = (UdpTransportFactory) factory;
             if (serverCredentials != null) {
                 udpFactory.setServerCredentials(serverCredentials);
             }

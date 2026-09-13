@@ -1,5 +1,5 @@
 /*
- * TCPDNSClientTransport.java
+ * TcpDNSClientTransport.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -33,8 +33,8 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPEndpoint;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpEndpoint;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TimerHandle;
 
 /**
@@ -57,9 +57,9 @@ import org.bluezoo.gumdrop.TimerHandle;
  * check's delegate rather than being replaced by it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSClientTransport
+ * @see DnsClientTransport
  */
-public class TCPDNSClientTransport implements DNSClientTransport {
+public class TcpDNSClientTransport implements DnsClientTransport {
 
     // RFC 1035 section 4.2.2: DNS-over-TCP on port 53
     private static final int DEFAULT_TCP_PORT = 53;
@@ -74,7 +74,7 @@ public class TCPDNSClientTransport implements DNSClientTransport {
 
     private boolean secure;
     private int defaultPort = DEFAULT_TCP_PORT;
-    private TCPEndpoint endpoint;
+    private TcpEndpoint endpoint;
 
     /**
      * RFC 7858 section 4.2: SPKI fingerprints for the Strict usage profile.
@@ -94,8 +94,8 @@ public class TCPDNSClientTransport implements DNSClientTransport {
     /**
      * Returns a transport configured for DNS-over-TLS (port 853, TLS enabled).
      */
-    public static TCPDNSClientTransport createDoT() {
-        TCPDNSClientTransport transport = new TCPDNSClientTransport();
+    public static TcpDNSClientTransport createDoT() {
+        TcpDNSClientTransport transport = new TcpDNSClientTransport();
         transport.setSecure(true);
         return transport;
     }
@@ -149,8 +149,8 @@ public class TCPDNSClientTransport implements DNSClientTransport {
 
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
-                     DNSClientTransportHandler handler) throws IOException {
-        TCPTransportFactory factory = createTransportFactory();
+                     DnsClientTransportHandler handler) throws IOException {
+        TcpTransportFactory factory = createTransportFactory();
         factory.start();
         if (port <= 0) {
             port = defaultPort;
@@ -165,8 +165,8 @@ public class TCPDNSClientTransport implements DNSClientTransport {
      * private so tests can inspect the resulting ALPN/trust manager
      * configuration without a live connection.
      */
-    TCPTransportFactory createTransportFactory() {
-        TCPTransportFactory factory = new TCPTransportFactory();
+    TcpTransportFactory createTransportFactory() {
+        TcpTransportFactory factory = new TcpTransportFactory();
         if (secure) {
             factory.setSecure(true);
             // RFC 7858 section 3.4, RFC 7413: use TCP Fast Open
@@ -225,10 +225,10 @@ public class TCPDNSClientTransport implements DNSClientTransport {
      */
     private static class TCPProtocolHandler implements ProtocolHandler {
 
-        private final DNSClientTransportHandler handler;
+        private final DnsClientTransportHandler handler;
         private ByteBuffer accumulator;
 
-        TCPProtocolHandler(DNSClientTransportHandler handler) {
+        TCPProtocolHandler(DnsClientTransportHandler handler) {
             this.handler = handler;
         }
 

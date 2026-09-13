@@ -46,7 +46,7 @@ public class DANEVerifierTest {
     @Test
     public void testFullCertMatch() throws Exception {
         X509Certificate cert = generateSelfSignedCert("dane-1");
-        DNSResourceRecord tlsa = DNSResourceRecord.tlsa(
+        DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
                 DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
                 DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded());
@@ -59,7 +59,7 @@ public class DANEVerifierTest {
         X509Certificate cert = generateSelfSignedCert("dane-2");
         byte[] hash = MessageDigest.getInstance("SHA-256")
                 .digest(cert.getEncoded());
-        DNSResourceRecord tlsa = DNSResourceRecord.tlsa(
+        DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
                 DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
                 DANEVerifier.MATCHING_TYPE_SHA256, hash);
@@ -72,7 +72,7 @@ public class DANEVerifierTest {
         X509Certificate cert = generateSelfSignedCert("dane-3");
         byte[] hash = MessageDigest.getInstance("SHA-256")
                 .digest(cert.getPublicKey().getEncoded());
-        DNSResourceRecord tlsa = DNSResourceRecord.tlsa(
+        DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
                 DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_SPKI,
                 DANEVerifier.MATCHING_TYPE_SHA256, hash);
@@ -85,7 +85,7 @@ public class DANEVerifierTest {
         X509Certificate cert = generateSelfSignedCert("dane-4");
         byte[] hash = MessageDigest.getInstance("SHA-512")
                 .digest(cert.getPublicKey().getEncoded());
-        DNSResourceRecord tlsa = DNSResourceRecord.tlsa(
+        DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
                 DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_SPKI,
                 DANEVerifier.MATCHING_TYPE_SHA512, hash);
@@ -98,7 +98,7 @@ public class DANEVerifierTest {
         X509Certificate cert = generateSelfSignedCert("dane-5");
         byte[] wrongHash = new byte[32];
         Arrays.fill(wrongHash, (byte) 0x11);
-        DNSResourceRecord tlsa = DNSResourceRecord.tlsa(
+        DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
                 DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
                 DANEVerifier.MATCHING_TYPE_SHA256, wrongHash);
@@ -114,12 +114,12 @@ public class DANEVerifierTest {
         // TLSA record matches "other", not "leaf" -- usage DANE-EE (3)
         // must only ever compare against chain[0] (the leaf), so this
         // must not match even though "other" is in the chain.
-        DNSResourceRecord tlsa = DNSResourceRecord.tlsa(
+        DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
                 DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
                 DANEVerifier.MATCHING_TYPE_FULL, other.getEncoded());
 
-        DNSResourceRecord match = DANEVerifier.findMatch(
+        DnsResourceRecord match = DANEVerifier.findMatch(
                 new X509Certificate[]{ leaf, other },
                 Collections.singletonList(tlsa));
         assertNull(match);
@@ -132,12 +132,12 @@ public class DANEVerifierTest {
 
         // Usage DANE-TA (2) may match any certificate in the chain,
         // not just the leaf.
-        DNSResourceRecord tlsa = DNSResourceRecord.tlsa(
+        DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
                 DANEVerifier.USAGE_DANE_TA, DANEVerifier.SELECTOR_FULL_CERT,
                 DANEVerifier.MATCHING_TYPE_FULL, ca.getEncoded());
 
-        DNSResourceRecord match = DANEVerifier.findMatch(
+        DnsResourceRecord match = DANEVerifier.findMatch(
                 new X509Certificate[]{ leaf, ca },
                 Collections.singletonList(tlsa));
         assertSame(tlsa, match);
@@ -147,7 +147,7 @@ public class DANEVerifierTest {
     public void testFindMatchReturnsNullWhenNoneMatch() throws Exception {
         X509Certificate leaf = generateSelfSignedCert("dane-leaf-3");
         byte[] wrongHash = new byte[32];
-        DNSResourceRecord tlsa = DNSResourceRecord.tlsa(
+        DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
                 DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
                 DANEVerifier.MATCHING_TYPE_SHA256, wrongHash);
@@ -159,7 +159,7 @@ public class DANEVerifierTest {
 
     @Test
     public void testFindMatchNullOrEmptyChainReturnsNull() throws Exception {
-        DNSResourceRecord tlsa = DNSResourceRecord.tlsa(
+        DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
                 DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
                 DANEVerifier.MATCHING_TYPE_FULL, new byte[32]);

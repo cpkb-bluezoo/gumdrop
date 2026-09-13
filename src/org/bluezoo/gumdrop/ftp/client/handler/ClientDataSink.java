@@ -28,7 +28,7 @@ import java.nio.ByteBuffer;
  * RFC 959 §4.1.3.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerStorReplyHandler#handleReadyToSend
+ * @see StorReplyHandler#handleReadyToSend
  */
 public interface ClientDataSink {
 

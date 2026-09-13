@@ -1,5 +1,5 @@
 /*
- * TCPListener.java
+ * TcpListener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -42,7 +42,7 @@ import java.net.UnixDomainSocketAddress;
  *
  * <p>Extends {@link Listener} with TCP-specific
  * functionality: managing {@link ServerSocketChannel}s and creating
- * per-connection {@link TCPEndpoint} instances via
+ * per-connection {@link TcpEndpoint} instances via
  * {@link #newEndpoint(SocketChannel, SelectorLoop)}.
  *
  * <p>A listener may be configured for either TCP (port-based) or UNIX
@@ -50,17 +50,17 @@ import java.net.UnixDomainSocketAddress;
  * and {@code port} are specified, {@link #start()} throws
  * {@link IllegalStateException}.
  *
- * <p>For UDP-based servers, see {@link UDPListener}.
+ * <p>For UDP-based servers, see {@link UdpListener}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Listener
- * @see UDPListener
+ * @see UdpListener
  * @see ProtocolHandler
  */
-public abstract class TCPListener extends Listener {
+public abstract class TcpListener extends Listener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(TCPListener.class.getName());
+            Logger.getLogger(TcpListener.class.getName());
 
     // ── UNIX domain socket path ──
 
@@ -71,7 +71,7 @@ public abstract class TCPListener extends Listener {
     private List<ServerSocketChannel> serverChannels =
             new ArrayList<ServerSocketChannel>();
 
-    protected TCPListener() {
+    protected TcpListener() {
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -128,25 +128,25 @@ public abstract class TCPListener extends Listener {
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Creates a TCPEndpoint for a newly accepted socket channel and
+     * Creates a TcpEndpoint for a newly accepted socket channel and
      * wires it to a ProtocolHandler from {@link #createHandler()}.
      *
      * <p>Called by {@link AcceptSelectorLoop} after accepting a TCP
      * connection. Only applicable when the transport factory is a
-     * {@link TCPTransportFactory}. QUIC subclasses set up their own
+     * {@link TcpTransportFactory}. QUIC subclasses set up their own
      * accept path in {@link #start()} and do not use this.
      *
      * @param sc the accepted socket channel
      * @param workerLoop the worker selector loop
-     * @return the TCPEndpoint
+     * @return the TcpEndpoint
      * @throws IOException if an I/O error occurs
      */
-    public TCPEndpoint newEndpoint(SocketChannel sc, SelectorLoop workerLoop)
+    public TcpEndpoint newEndpoint(SocketChannel sc, SelectorLoop workerLoop)
             throws IOException {
         ProtocolHandler handler = createHandler();
-        TCPTransportFactory tcpFactory =
-                (TCPTransportFactory) getTransportFactory();
-        TCPEndpoint endpoint = tcpFactory.createServerEndpoint(sc, handler);
+        TcpTransportFactory tcpFactory =
+                (TcpTransportFactory) getTransportFactory();
+        TcpEndpoint endpoint = tcpFactory.createServerEndpoint(sc, handler);
         return endpoint;
     }
 

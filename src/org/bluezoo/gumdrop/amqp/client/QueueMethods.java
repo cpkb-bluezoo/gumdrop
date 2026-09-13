@@ -46,8 +46,8 @@ final class QueueMethods {
                 + 1 // bits
                 + 4 + args.encodedContentSize();
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_QUEUE);
-        buf.putShort((short) AMQPMethod.QUEUE_DECLARE);
+        buf.putShort((short) AmqpMethod.CLASS_QUEUE);
+        buf.putShort((short) AmqpMethod.QUEUE_DECLARE);
         buf.putShort((short) 0);
         FieldTable.putShortString(buf, queue);
         buf.put(AMQPBits.pack(passive, durable, exclusive, autoDelete, noWait));
@@ -71,7 +71,7 @@ final class QueueMethods {
         }
     }
 
-    static DeclareOk decodeDeclareOk(ByteBuffer payload) throws AMQPProtocolException {
+    static DeclareOk decodeDeclareOk(ByteBuffer payload) throws AmqpProtocolException {
         String queue = FieldTable.getShortString(payload);
         long messageCount = payload.getInt() & 0xFFFFFFFFL;
         long consumerCount = payload.getInt() & 0xFFFFFFFFL;
@@ -81,8 +81,8 @@ final class QueueMethods {
     static ByteBuffer encodeDeclareOk(String queue, long messageCount, long consumerCount) {
         int size = 4 + FieldTable.shortStringEncodedSize(queue) + 4 + 4;
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_QUEUE);
-        buf.putShort((short) AMQPMethod.QUEUE_DECLARE_OK);
+        buf.putShort((short) AmqpMethod.CLASS_QUEUE);
+        buf.putShort((short) AmqpMethod.QUEUE_DECLARE_OK);
         FieldTable.putShortString(buf, queue);
         buf.putInt((int) messageCount);
         buf.putInt((int) consumerCount);
@@ -105,7 +105,7 @@ final class QueueMethods {
         }
     }
 
-    static Declare decodeDeclare(ByteBuffer payload) throws AMQPProtocolException {
+    static Declare decodeDeclare(ByteBuffer payload) throws AmqpProtocolException {
         payload.getShort(); // reserved-1 (ticket)
         String queue = FieldTable.getShortString(payload);
         byte bits = payload.get();
@@ -129,8 +129,8 @@ final class QueueMethods {
                 + 1 // bits
                 + 4 + args.encodedContentSize();
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_QUEUE);
-        buf.putShort((short) AMQPMethod.QUEUE_BIND);
+        buf.putShort((short) AmqpMethod.CLASS_QUEUE);
+        buf.putShort((short) AmqpMethod.QUEUE_BIND);
         buf.putShort((short) 0);
         FieldTable.putShortString(buf, queue);
         FieldTable.putShortString(buf, exchange);
@@ -150,8 +150,8 @@ final class QueueMethods {
 
     static ByteBuffer encodeBindOk() {
         ByteBuffer buf = ByteBuffer.allocate(4);
-        buf.putShort((short) AMQPMethod.CLASS_QUEUE);
-        buf.putShort((short) AMQPMethod.QUEUE_BIND_OK);
+        buf.putShort((short) AmqpMethod.CLASS_QUEUE);
+        buf.putShort((short) AmqpMethod.QUEUE_BIND_OK);
         buf.flip();
         return buf;
     }
@@ -169,7 +169,7 @@ final class QueueMethods {
         }
     }
 
-    static Bind decodeBind(ByteBuffer payload) throws AMQPProtocolException {
+    static Bind decodeBind(ByteBuffer payload) throws AmqpProtocolException {
         payload.getShort(); // reserved-1 (ticket)
         String queue = FieldTable.getShortString(payload);
         String exchange = FieldTable.getShortString(payload);

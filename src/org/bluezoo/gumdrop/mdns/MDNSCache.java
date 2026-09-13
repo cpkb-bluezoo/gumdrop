@@ -29,13 +29,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
 
 /**
  * The querier-side record cache for multicast DNS (RFC 6762).
  *
- * <p>Unlike {@link org.bluezoo.gumdrop.dns.DNSCache} (passive,
+ * <p>Unlike {@link org.bluezoo.gumdrop.dns.DnsCache} (passive,
  * lazy-expiring, one immutable RRset per key), this cache actively
  * re-queries each record at 80%, 85%, 90%, and 95% of its original TTL
  * (RFC 6762 section 5.2) so long-lived answers stay fresh without a
@@ -47,20 +47,20 @@ import org.bluezoo.gumdrop.dns.DNSType;
  * than one packet. A record with TTL 0 (a "goodbye", section 10.1) gets
  * the same one-second grace removal.
  *
- * <p>Every method here is called only from {@link MDNSService}, itself
+ * <p>Every method here is called only from {@link MdnsServer}, itself
  * only ever invoked on its listener's single transport thread, so
- * (like {@link MDNSService}) this class needs no synchronization of its
+ * (like {@link MdnsServer}) this class needs no synchronization of its
  * own.
  *
  * <p>Simplification: known-answer lists built from this cache (see
- * {@link MDNSService#query}) reuse each record's originally-cached TTL
+ * {@link MdnsServer#query}) reuse each record's originally-cached TTL
  * rather than computing its live remaining TTL. A slightly-stale known
  * answer just means a responder answers a query it didn't strictly need
  * to &mdash; harmless, and cheaper than tracking per-record insertion
  * timestamps only for this purpose.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MDNSService
+ * @see MdnsServer
  */
 final class MDNSCache {
 
@@ -75,19 +75,19 @@ final class MDNSCache {
     /**
      * Supplies the transport operations this cache needs: sending a
      * refresh query, and scheduling a callback on the owning
-     * listener's transport thread. Implemented by {@link MDNSService}
+     * listener's transport thread. Implemented by {@link MdnsServer}
      * so this class stays independently testable.
      */
     interface Refresher {
-        void sendRefreshQuery(String name, DNSType type);
-        MDNSListener.TimerHandleWrapper scheduleTimer(long delayMs, Runnable task);
+        void sendRefreshQuery(String name, DnsType type);
+        MdnsListener.TimerHandleWrapper scheduleTimer(long delayMs, Runnable task);
     }
 
     private static final class Key {
         final String name;
-        final DNSType type;
+        final DnsType type;
 
-        Key(String name, DNSType type) {
+        Key(String name, DnsType type) {
             this.name = name.toLowerCase(Locale.ROOT);
             this.type = type;
         }
@@ -108,11 +108,11 @@ final class MDNSCache {
     }
 
     private static final class CachedRecord {
-        DNSResourceRecord record;
+        DnsResourceRecord record;
         int generation;
         /** Next RFC 6762 section 5.2 stage to fire (0 .. REFRESH_FRACTIONS.length - 1). */
         int refreshStage;
-        MDNSListener.TimerHandleWrapper timer;
+        MdnsListener.TimerHandleWrapper timer;
     }
 
     private final Map<Key, List<CachedRecord>> entries = new LinkedHashMap<Key, List<CachedRecord>>();
@@ -130,12 +130,12 @@ final class MDNSCache {
      * @param type the record type
      * @return the cached records (a snapshot; safe to retain)
      */
-    List<DNSResourceRecord> lookup(String name, DNSType type) {
+    List<DnsResourceRecord> lookup(String name, DnsType type) {
         List<CachedRecord> cached = entries.get(new Key(name, type));
         if (cached == null || cached.isEmpty()) {
             return Collections.emptyList();
         }
-        List<DNSResourceRecord> result = new ArrayList<DNSResourceRecord>(cached.size());
+        List<DnsResourceRecord> result = new ArrayList<DnsResourceRecord>(cached.size());
         for (CachedRecord cr : cached) {
             result.add(cr.record);
         }
@@ -153,33 +153,33 @@ final class MDNSCache {
      *                or a probe's authority section observed from
      *                another host)
      */
-    void addAll(List<DNSResourceRecord> records) {
-        Map<Key, List<DNSResourceRecord>> groups =
-                new LinkedHashMap<Key, List<DNSResourceRecord>>();
-        List<DNSResourceRecord> goodbyes = new ArrayList<DNSResourceRecord>();
-        for (DNSResourceRecord rr : records) {
+    void addAll(List<DnsResourceRecord> records) {
+        Map<Key, List<DnsResourceRecord>> groups =
+                new LinkedHashMap<Key, List<DnsResourceRecord>>();
+        List<DnsResourceRecord> goodbyes = new ArrayList<DnsResourceRecord>();
+        for (DnsResourceRecord rr : records) {
             if (rr.getTTL() <= 0) {
                 goodbyes.add(rr);
                 continue;
             }
             Key key = new Key(rr.getName(), rr.getType());
-            List<DNSResourceRecord> group = groups.get(key);
+            List<DnsResourceRecord> group = groups.get(key);
             if (group == null) {
-                group = new ArrayList<DNSResourceRecord>();
+                group = new ArrayList<DnsResourceRecord>();
                 groups.put(key, group);
             }
             group.add(rr);
         }
 
-        for (Map.Entry<Key, List<DNSResourceRecord>> e : groups.entrySet()) {
+        for (Map.Entry<Key, List<DnsResourceRecord>> e : groups.entrySet()) {
             processGroup(e.getKey(), e.getValue());
         }
-        for (DNSResourceRecord rr : goodbyes) {
+        for (DnsResourceRecord rr : goodbyes) {
             processGoodbye(new Key(rr.getName(), rr.getType()), rr);
         }
     }
 
-    private void processGroup(Key key, List<DNSResourceRecord> incoming) {
+    private void processGroup(Key key, List<DnsResourceRecord> incoming) {
         boolean flush = false;
         for (int i = 0; i < incoming.size(); i++) {
             if (incoming.get(i).isCacheFlush()) {
@@ -204,7 +204,7 @@ final class MDNSCache {
         }
     }
 
-    private void processGoodbye(Key key, DNSResourceRecord rr) {
+    private void processGoodbye(Key key, DnsResourceRecord rr) {
         List<CachedRecord> existing = entries.get(key);
         if (existing == null) {
             return;
@@ -216,7 +216,7 @@ final class MDNSCache {
         }
     }
 
-    private static boolean containsRdata(List<DNSResourceRecord> records, byte[] rdata) {
+    private static boolean containsRdata(List<DnsResourceRecord> records, byte[] rdata) {
         for (int i = 0; i < records.size(); i++) {
             if (Arrays.equals(records.get(i).getRData(), rdata)) {
                 return true;
@@ -225,7 +225,7 @@ final class MDNSCache {
         return false;
     }
 
-    private void upsert(Key key, List<CachedRecord> existing, DNSResourceRecord rr) {
+    private void upsert(Key key, List<CachedRecord> existing, DnsResourceRecord rr) {
         CachedRecord cr = null;
         for (int i = 0; i < existing.size(); i++) {
             if (Arrays.equals(existing.get(i).record.getRData(), rr.getRData())) {

@@ -38,11 +38,11 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.util.ByteArrays;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
 
 /**
  * DKIM (DomainKeys Identified Mail) validator as defined in RFC 6376.
@@ -57,7 +57,7 @@ import org.bluezoo.gumdrop.dns.DNSType;
  *
  * <p>Example usage:
  * <pre><code>
- * DNSResolver resolver = new DNSResolver();
+ * DnsResolver resolver = new DnsResolver();
  * resolver.useSystemResolvers();
  * resolver.open();
  *
@@ -91,7 +91,7 @@ public class DKIMValidator {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.auth.L10N");
 
-    private final DNSResolver resolver;
+    private final DnsResolver resolver;
 
     private DKIMMessageParser messageParser;
     private DKIMSignature signature;
@@ -102,7 +102,7 @@ public class DKIMValidator {
      *
      * @param resolver the DNS resolver to use for public key lookups
      */
-    public DKIMValidator(DNSResolver resolver) {
+    public DKIMValidator(DnsResolver resolver) {
         this.resolver = resolver;
     }
 
@@ -202,9 +202,9 @@ public class DKIMValidator {
 
         // Look up public key
         String queryName = signature.getKeyQueryName();
-        resolver.queryTXT(queryName, new DNSQueryCallback() {
+        resolver.queryTXT(queryName, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 handleKeyResponse(response, callback);
             }
 
@@ -220,16 +220,16 @@ public class DKIMValidator {
      * Handles the DNS response for the public key lookup.
      * RFC 6376 §6.1.2 — key retrieval via DNS TXT.
      */
-    private void handleKeyResponse(DNSMessage response, DKIMCallback callback) {
+    private void handleKeyResponse(DnsMessage response, DKIMCallback callback) {
         // Check for errors
         int rcode = response.getRcode();
-        if (rcode == DNSMessage.RCODE_NXDOMAIN) {
+        if (rcode == DnsMessage.RCODE_NXDOMAIN) {
             callback.dkimResult(DKIMResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
             return;
         }
 
-        if (rcode != DNSMessage.RCODE_NOERROR) {
+        if (rcode != DnsMessage.RCODE_NOERROR) {
             callback.dkimResult(DKIMResult.TEMPERROR, signature.getDomain(),
                     signature.getSelector());
             return;
@@ -237,10 +237,10 @@ public class DKIMValidator {
 
         // Find the public key record
         String keyRecord = null;
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         for (int i = 0; i < answers.size(); i++) {
-            DNSResourceRecord rr = answers.get(i);
-            if (rr.getType() == DNSType.TXT) {
+            DnsResourceRecord rr = answers.get(i);
+            if (rr.getType() == DnsType.TXT) {
                 String txt = rr.getText();
                 if (txt != null && txt.contains("p=")) {
                     keyRecord = txt;

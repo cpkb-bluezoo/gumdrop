@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.mqtt.handler;
 
-import org.bluezoo.gumdrop.mqtt.codec.MQTTEventHandler;
+import org.bluezoo.gumdrop.mqtt.codec.MqttEventHandler;
 
 /**
  * Operations for responding to an MQTT CONNECT.
@@ -56,7 +56,7 @@ public interface ConnectState {
      * Rejects the connection with a specific CONNACK return code.
      *
      * @param returnCode the CONNACK return code
-     *                   (see {@link MQTTEventHandler} CONNACK constants)
+     *                   (see {@link MqttEventHandler} CONNACK constants)
      */
     void reject(int returnCode);
 }

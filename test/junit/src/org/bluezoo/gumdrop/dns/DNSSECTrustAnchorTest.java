@@ -34,11 +34,11 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSSECTrustAnchor}'s direct-DNSKEY trust
+ * Unit tests for {@link DnssecTrustAnchor}'s direct-DNSKEY trust
  * support, added for issue #411 (RFC 5011) -- {@link
- * DNSSECTrustAnchor#addDNSKEYAnchor}, {@link
- * DNSSECTrustAnchor#removeDNSKEYAnchor}, and the corresponding
- * extension to {@link DNSSECTrustAnchor#isDNSKEYTrusted}. The
+ * DnssecTrustAnchor#addDNSKEYAnchor}, {@link
+ * DnssecTrustAnchor#removeDNSKEYAnchor}, and the corresponding
+ * extension to {@link DnssecTrustAnchor#isDNSKEYTrusted}. The
  * pre-existing DS-based anchor methods are not covered here (no
  * behavioural change was made to them).
  *
@@ -50,8 +50,8 @@ public class DNSSECTrustAnchorTest {
 
     @Test
     public void testAddDNSKEYAnchorMakesKeyTrusted() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
-        DNSResourceRecord key = buildKSK();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
+        DnsResourceRecord key = buildKSK();
 
         assertFalse(anchor.isDNSKEYTrusted(ZONE, key));
         anchor.addDNSKEYAnchor(ZONE, key);
@@ -60,8 +60,8 @@ public class DNSSECTrustAnchorTest {
 
     @Test
     public void testRemoveDNSKEYAnchorStopsTrust() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
-        DNSResourceRecord key = buildKSK();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
+        DnsResourceRecord key = buildKSK();
 
         anchor.addDNSKEYAnchor(ZONE, key);
         assertTrue(anchor.isDNSKEYTrusted(ZONE, key));
@@ -75,9 +75,9 @@ public class DNSSECTrustAnchorTest {
         // wire RDATA (and therefore its key tag), but addDNSKEYAnchor
         // must still recognize the same key -- it's matched by
         // algorithm and public key material only, not tag or flags.
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
-        DNSResourceRecord key = buildKSK();
-        DNSResourceRecord revokedForm = DNSResourceRecord.dnskey(
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
+        DnsResourceRecord key = buildKSK();
+        DnsResourceRecord revokedForm = DnsResourceRecord.dnskey(
                 ZONE, 3600, key.getDNSKEYFlags() | 0x0080,
                 key.getDNSKEYAlgorithm(), key.getDNSKEYPublicKey());
         assertNotEquals(key.computeKeyTag(), revokedForm.computeKeyTag());
@@ -91,8 +91,8 @@ public class DNSSECTrustAnchorTest {
 
     @Test
     public void testDNSKEYAnchorIsPerZone() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
-        DNSResourceRecord key = buildKSK();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
+        DnsResourceRecord key = buildKSK();
 
         anchor.addDNSKEYAnchor("zone-a", key);
         assertTrue(anchor.isDNSKEYTrusted("zone-a", key));
@@ -101,8 +101,8 @@ public class DNSSECTrustAnchorTest {
 
     @Test
     public void testAddDNSKEYAnchorDoesNotDuplicate() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
-        DNSResourceRecord key = buildKSK();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
+        DnsResourceRecord key = buildKSK();
 
         anchor.addDNSKEYAnchor(ZONE, key);
         anchor.addDNSKEYAnchor(ZONE, key);
@@ -111,8 +111,8 @@ public class DNSSECTrustAnchorTest {
 
     @Test
     public void testRemoveAnchorsClearsDNSKEYAnchorsToo() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
-        DNSResourceRecord key = buildKSK();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
+        DnsResourceRecord key = buildKSK();
 
         anchor.addDNSKEYAnchor(ZONE, key);
         anchor.removeAnchors(ZONE);
@@ -122,8 +122,8 @@ public class DNSSECTrustAnchorTest {
 
     @Test
     public void testClearRemovesDNSKEYAnchorsToo() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
-        DNSResourceRecord key = buildKSK();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
+        DnsResourceRecord key = buildKSK();
 
         anchor.addDNSKEYAnchor(ZONE, key);
         anchor.clear();
@@ -132,10 +132,10 @@ public class DNSSECTrustAnchorTest {
 
     @Test
     public void testDNSKEYAnchorDoesNotMatchDifferentAlgorithm() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
-        DNSResourceRecord key = buildKSK();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
+        DnsResourceRecord key = buildKSK();
         // Same public key bytes, different algorithm number: must not match.
-        DNSResourceRecord differentAlgorithm = DNSResourceRecord.dnskey(
+        DnsResourceRecord differentAlgorithm = DnsResourceRecord.dnskey(
                 ZONE, 3600, key.getDNSKEYFlags(), 10, key.getDNSKEYPublicKey());
 
         anchor.addDNSKEYAnchor(ZONE, key);
@@ -144,12 +144,12 @@ public class DNSSECTrustAnchorTest {
 
     // ── Helpers ──
 
-    private static DNSResourceRecord buildKSK() throws Exception {
+    private static DnsResourceRecord buildKSK() throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(1024);
         KeyPair kp = kpg.generateKeyPair();
-        return DNSResourceRecord.dnskey(ZONE, 3600, 0x0101,
-                DNSSECAlgorithm.RSASHA256.getNumber(), rsaWireFormat(kp.getPublic()));
+        return DnsResourceRecord.dnskey(ZONE, 3600, 0x0101,
+                DnssecAlgorithm.RSASHA256.getNumber(), rsaWireFormat(kp.getPublic()));
     }
 
     private static byte[] rsaWireFormat(PublicKey pub) {

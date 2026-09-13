@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.pop3;
 
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
 import org.bluezoo.gumdrop.pop3.handler.DefaultPOP3Handler;
 
@@ -74,7 +74,7 @@ public class DefaultPOP3Server extends Pop3Server {
     }
 
     @Override
-    protected ClientConnected createHandler(TCPListener endpoint) {
+    protected ClientConnected createHandler(TcpListener endpoint) {
         return new DefaultPOP3Handler(greeting);
     }
 

@@ -28,7 +28,7 @@ import java.nio.ByteBuffer;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSCookie}.
+ * Unit tests for {@link DnsCookie}.
  * RFC 7873: DNS Cookies.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -37,15 +37,15 @@ public class DNSCookieTest {
 
     @Test
     public void testClientCookieLength() {
-        DNSCookie cookie = new DNSCookie();
+        DnsCookie cookie = new DnsCookie();
         byte[] cc = cookie.getClientCookie();
-        assertEquals(DNSCookie.CLIENT_COOKIE_LENGTH, cc.length);
+        assertEquals(DnsCookie.CLIENT_COOKIE_LENGTH, cc.length);
     }
 
     @Test
     public void testClientCookieIsRandom() {
-        DNSCookie c1 = new DNSCookie();
-        DNSCookie c2 = new DNSCookie();
+        DnsCookie c1 = new DnsCookie();
+        DnsCookie c2 = new DnsCookie();
         // Extremely unlikely to be equal
         assertFalse(java.util.Arrays.equals(
                 c1.getClientCookie(), c2.getClientCookie()));
@@ -53,7 +53,7 @@ public class DNSCookieTest {
 
     @Test
     public void testRegenerateClientCookie() {
-        DNSCookie cookie = new DNSCookie();
+        DnsCookie cookie = new DnsCookie();
         byte[] first = cookie.getClientCookie();
         cookie.regenerateClientCookie();
         byte[] second = cookie.getClientCookie();
@@ -62,19 +62,19 @@ public class DNSCookieTest {
 
     @Test
     public void testBuildCookieOptionDataWithoutServerCookie() {
-        DNSCookie cookie = new DNSCookie();
+        DnsCookie cookie = new DnsCookie();
         byte[] data = cookie.buildCookieOptionData("1.2.3.4");
-        assertEquals(DNSCookie.CLIENT_COOKIE_LENGTH, data.length);
+        assertEquals(DnsCookie.CLIENT_COOKIE_LENGTH, data.length);
     }
 
     @Test
     public void testBuildCookieOption() {
-        DNSCookie cookie = new DNSCookie();
+        DnsCookie cookie = new DnsCookie();
         byte[] opt = cookie.buildCookieOption("1.2.3.4");
         // 2 (option code) + 2 (option length) + 8 (client cookie) = 12
         assertEquals(12, opt.length);
         ByteBuffer buf = ByteBuffer.wrap(opt);
-        assertEquals(DNSCookie.EDNS_OPTION_COOKIE, buf.getShort() & 0xFFFF);
+        assertEquals(DnsCookie.EDNS_OPTION_COOKIE, buf.getShort() & 0xFFFF);
         assertEquals(8, buf.getShort() & 0xFFFF);
     }
 
@@ -82,14 +82,14 @@ public class DNSCookieTest {
     public void testServerCookieRoundTrip() {
         byte[] secret = new byte[16];
         java.util.Arrays.fill(secret, (byte) 0x42);
-        DNSCookie cookie = new DNSCookie(secret);
+        DnsCookie cookie = new DnsCookie(secret);
 
         byte[] clientAddr = { 10, 0, 0, 1 };
         byte[] clientCookie = cookie.getClientCookie();
 
         byte[] serverCookie = cookie.generateServerCookie(
                 clientAddr, clientCookie);
-        assertEquals(DNSCookie.MIN_SERVER_COOKIE_LENGTH,
+        assertEquals(DnsCookie.MIN_SERVER_COOKIE_LENGTH,
                 serverCookie.length);
 
         assertTrue(cookie.validateServerCookie(
@@ -100,11 +100,11 @@ public class DNSCookieTest {
     public void testServerCookieInvalidation() {
         byte[] secret = new byte[16];
         java.util.Arrays.fill(secret, (byte) 0x42);
-        DNSCookie cookie = new DNSCookie(secret);
+        DnsCookie cookie = new DnsCookie(secret);
 
         byte[] clientAddr = { 10, 0, 0, 1 };
         byte[] clientCookie = cookie.getClientCookie();
-        byte[] wrongCookie = new byte[DNSCookie.MIN_SERVER_COOKIE_LENGTH];
+        byte[] wrongCookie = new byte[DnsCookie.MIN_SERVER_COOKIE_LENGTH];
 
         assertFalse(cookie.validateServerCookie(
                 clientAddr, clientCookie, wrongCookie));
@@ -112,7 +112,7 @@ public class DNSCookieTest {
 
     @Test
     public void testProcessResponseCookie() {
-        DNSCookie cookie = new DNSCookie();
+        DnsCookie cookie = new DnsCookie();
 
         // Simulate a response with client+server cookie
         byte[] optionData = new byte[16]; // 8 client + 8 server
@@ -131,13 +131,13 @@ public class DNSCookieTest {
     public void testFindEdnsOption() {
         // Build EDNS0 option: code=10, length=8, data=8 bytes
         ByteBuffer buf = ByteBuffer.allocate(4 + 8);
-        buf.putShort((short) DNSCookie.EDNS_OPTION_COOKIE);
+        buf.putShort((short) DnsCookie.EDNS_OPTION_COOKIE);
         buf.putShort((short) 8);
         buf.put(new byte[]{ 1, 2, 3, 4, 5, 6, 7, 8 });
         byte[] rdata = buf.array();
 
-        byte[] found = DNSCookie.findEdnsOption(rdata,
-                DNSCookie.EDNS_OPTION_COOKIE);
+        byte[] found = DnsCookie.findEdnsOption(rdata,
+                DnsCookie.EDNS_OPTION_COOKIE);
         assertNotNull(found);
         assertEquals(8, found.length);
         assertEquals(1, found[0]);
@@ -146,8 +146,8 @@ public class DNSCookieTest {
     @Test
     public void testFindEdnsOptionNotPresent() {
         byte[] rdata = new byte[0]; // empty RDATA
-        assertNull(DNSCookie.findEdnsOption(rdata,
-                DNSCookie.EDNS_OPTION_COOKIE));
+        assertNull(DnsCookie.findEdnsOption(rdata,
+                DnsCookie.EDNS_OPTION_COOKIE));
     }
 
     @Test
@@ -157,13 +157,13 @@ public class DNSCookieTest {
         buf.putShort((short) 1);  // LLQ
         buf.putShort((short) 2);  // length=2
         buf.put(new byte[]{ 0, 0 });
-        buf.putShort((short) DNSCookie.EDNS_OPTION_COOKIE);
+        buf.putShort((short) DnsCookie.EDNS_OPTION_COOKIE);
         buf.putShort((short) 8);
         buf.put(new byte[]{ 9, 8, 7, 6, 5, 4, 3, 2 });
         byte[] rdata = buf.array();
 
-        byte[] found = DNSCookie.findEdnsOption(rdata,
-                DNSCookie.EDNS_OPTION_COOKIE);
+        byte[] found = DnsCookie.findEdnsOption(rdata,
+                DnsCookie.EDNS_OPTION_COOKIE);
         assertNotNull(found);
         assertEquals(9, found[0]);
     }

@@ -22,10 +22,10 @@
 package org.bluezoo.gumdrop.dns.client;
 
 /**
- * The transport types {@link DNSResolver} chooses between for a given
+ * The transport types {@link DnsResolver} chooses between for a given
  * server, tried in this declared order (descending preference) when no
  * transport was explicitly configured via {@link
- * DNSResolver#setTransport}.
+ * DnsResolver#setTransport}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DNSServerCapabilityCache

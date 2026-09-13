@@ -30,7 +30,7 @@ import java.nio.channels.SelectionKey;
  *
  * <p>Implementations include:
  * <ul>
- * <li>{@link TCPEndpoint} - TCP stream endpoints</li>
+ * <li>{@link TcpEndpoint} - TCP stream endpoints</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -32,8 +32,8 @@ Treat each protocol acronym as one word with **only the first letter capitalised
 | `WEBDAV` | `Webdav` |
 | `TLS` / `QUIC` / `UDP` / `TCP` | `Tls` / `Quic` / `Udp` / `Tcp` |
 
-Examples: `HTTPService` → `HttpServer`, `AMQPClient` → `AmqpClient`,
-`DNSMessage` → `DnsMessage`, `Http3Listener` → `Http3Listener`.
+Examples: `HttpServer` → `HttpServer`, `AMQPClient` → `AmqpClient`,
+`DnsMessage` → `DnsMessage`, `Http3Listener` → `Http3Listener`.
 
 ### 2. Application tier: `*Server`, not `*Service`
 
@@ -64,7 +64,7 @@ Dial-side entry types use the same acronym rules: `HttpClient`, `SmtpClient`,
 The `smtp.client.handler.ServerEhloReplyHandler` pattern is **legacy**: the
 handler runs on the **client** and receives the **remote server's** reply. Rename
 to `EhloReplyHandler` (package context supplies protocol). Similarly
-`ServerGreeting` → `RemoteGreeting`.
+`RemoteGreeting` → `RemoteGreeting`.
 
 ### 5. Listeners and transport
 
@@ -97,7 +97,7 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.1.2** | HTTP stack | `HttpServer`, `HttpClient`, handlers, listeners, metrics; `http/server/` facade *(done)* |
 | **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `ServletServer`, `WebdavServer`, `WebSocketServer` *(done)* |
 | **C.1.4** | Mail protocols | SMTP, IMAP, POP3 servers, clients, client reply handlers *(done)* |
-| **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, … |
+| **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, transport types *(done)* |
 | **C.1.6** | Internal / package-private | Lexers, protocol handlers, HPACK/QPACK (can follow public API) |
 
 After **C.1.2**, begin **C.2** package moves (`http/server/`, `http/client/`) in
@@ -110,20 +110,20 @@ the same HTTP slice where practical.
 | Legacy (2.x) | Target (3.0) |
 |--------------|--------------|
 | `org.bluezoo.gumdrop.Service` | Deprecated; extends `Server` — use `Server` / `Gumdrop#addServer` |
-| `HTTPService` | `HttpServer` |
+| `HttpServer` | `HttpServer` |
 | `ServletServer` | `ServletServer` |
 | `WebdavServer` | `WebdavServer` |
 | `WebSocketServer` | `WebSocketServer` *(WebSocket is one word)* |
 | `SmtpServer` | `SmtpServer` |
 | `ImapServer` | `ImapServer` |
 | `Pop3Server` | `Pop3Server` |
-| `FTPService` | `FtpServer` |
-| `DNSService` | `DnsServer` |
-| `MQTTService` | `MqttServer` |
-| `SOCKSService` | `SocksServer` |
-| `MDNSService` | `MdnsServer` |
-| `HealthService` | `HealthServer` |
-| `GrpcService` | `GrpcServer` |
+| `FtpServer` | `FtpServer` |
+| `DnsServer` | `DnsServer` |
+| `MqttServer` | `MqttServer` |
+| `SocksServer` | `SocksServer` |
+| `MdnsServer` | `MdnsServer` |
+| `HealthServer` | `HealthServer` |
+| `GrpcServer` | `GrpcServer` |
 
 ---
 
@@ -131,7 +131,7 @@ the same HTTP slice where practical.
 
 | Legacy | Target |
 |--------|--------|
-| `ServerReplyHandler` | `ReplyHandler` |
+| `ReplyHandler` | `ReplyHandler` |
 | `ServerEhloReplyHandler` | `EhloReplyHandler` |
 | `ServerHeloReplyHandler` | `HeloReplyHandler` |
 | `ServerStarttlsReplyHandler` | `StarttlsReplyHandler` |
@@ -142,7 +142,7 @@ the same HTTP slice where practical.
 | `ServerDataReplyHandler` | `DataReplyHandler` |
 | `ServerMessageReplyHandler` | `MessageReplyHandler` |
 | `ServerRsetReplyHandler` | `RsetReplyHandler` |
-| `ServerGreeting` | `RemoteGreeting` |
+| `RemoteGreeting` | `RemoteGreeting` |
 
 ---
 

@@ -167,14 +167,14 @@ some methods.
 <h3 id="server">gRPC Server</h3>
 
 <p>
-Implement <code>GrpcService</code> to handle RPC calls:
+Implement <code>GrpcServer</code> to handle RPC calls:
 </p>
 
 <pre>
 import org.bluezoo.gumdrop.grpc.server.*;
 import java.nio.ByteBuffer;
 
-public class UserGrpcService implements GrpcService {
+public class UserGrpcService implements GrpcServer {
 
     @Override
     public void unaryCall(String path, ByteBuffer request, GrpcResponseSender response) {
@@ -208,7 +208,7 @@ The factory routes requests where <code>:path</code> matches
 
 <pre>
 ProtoFile protoFile = ProtoFileParser.parse(protoSource);
-GrpcService service = new UserGrpcService();
+GrpcServer service = new UserGrpcService();
 GrpcHandlerFactory grpcFactory = new GrpcHandlerFactory(protoFile, service);
 
 // Set on your HTTP service (see Integration below)
@@ -335,7 +335,7 @@ adapter.endRootMessage();
 <h3 id="integration">Integration with HTTP Services</h3>
 
 <p>
-An <code>HTTPService</code> has a single <code>HttpRequestHandlerFactory</code>.
+An <code>HttpServer</code> has a single <code>HttpRequestHandlerFactory</code>.
 To serve both gRPC and other content (e.g. servlets, static files), use a
 composite factory that delegates to <code>GrpcHandlerFactory</code> first:
 </p>
@@ -346,7 +346,7 @@ public class CompositeHandlerFactory implements HttpRequestHandlerFactory {
     private final GrpcHandlerFactory grpcFactory;
     private final HttpRequestHandlerFactory fallback;
 
-    public CompositeHandlerFactory(ProtoFile protoFile, GrpcService grpcService,
+    public CompositeHandlerFactory(ProtoFile protoFile, GrpcServer grpcService,
                                    HttpRequestHandlerFactory fallback) {
         this.grpcFactory = new GrpcHandlerFactory(protoFile, grpcService);
         this.fallback = fallback;
@@ -381,7 +381,7 @@ For a gRPC-only service, set the factory directly:
 </p>
 
 <pre>
-HTTPService service = new HTTPService() {
+HttpServer service = new HttpServer() {
     protected HttpRequestHandlerFactory getHandlerFactory() {
         return new GrpcHandlerFactory(protoFile, grpcService);
     }

@@ -22,16 +22,16 @@
 package org.bluezoo.gumdrop.health;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 
 /**
  * Plaintext TCP listener that serves liveness/readiness probes via
  * {@link HealthProtocolHandler}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HealthService
+ * @see HealthServer
  */
-public class HealthListener extends TCPListener {
+public class HealthListener extends TcpListener {
 
     /** Default health/readiness port. */
     public static final int DEFAULT_PORT = 8081;

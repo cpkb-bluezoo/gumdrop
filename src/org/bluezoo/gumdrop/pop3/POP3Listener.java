@@ -26,7 +26,7 @@ import java.nio.file.Path;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6816">RFC 6816 - UTF-8</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 - TLS</a>
  */
-public class Pop3Listener extends TCPListener {
+public class Pop3Listener extends TcpListener {
 
     private static final Logger LOGGER =
             Logger.getLogger(Pop3Listener.class.getName());

@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 
 /**
  * Tracks in-flight QoS 1 and QoS 2 message state for a single MQTT session.
@@ -51,13 +51,13 @@ public class QoSManager {
     public static class InFlightMessage {
         private final int packetId;
         private final String topic;
-        private final MQTTMessageContent content;
+        private final MqttMessageContent content;
         private final QoS qos;
         private volatile QoS2State qos2State;
         private volatile int retryCount;
 
         public InFlightMessage(int packetId, String topic,
-                               MQTTMessageContent content, QoS qos) {
+                               MqttMessageContent content, QoS qos) {
             this.packetId = packetId;
             this.topic = topic;
             this.content = content;
@@ -69,7 +69,7 @@ public class QoSManager {
 
         public int getPacketId() { return packetId; }
         public String getTopic() { return topic; }
-        public MQTTMessageContent getContent() { return content; }
+        public MqttMessageContent getContent() { return content; }
         public QoS getQoS() { return qos; }
         public QoS2State getQoS2State() { return qos2State; }
         public void setQoS2State(QoS2State state) { this.qos2State = state; }

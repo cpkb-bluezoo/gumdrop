@@ -1,5 +1,5 @@
 /*
- * MQTTServerMetrics.java
+ * MqttServerMetrics.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class MQTTServerMetrics {
+public class MqttServerMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.mqtt";
     private static final String UNIT_ATTEMPTS = "attempts";
@@ -75,7 +75,7 @@ public class MQTTServerMetrics {
      *
      * @param config the telemetry configuration
      */
-    public MQTTServerMetrics(TelemetryConfig config) {
+    public MqttServerMetrics(TelemetryConfig config) {
         Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         this.connectionCounter = meter.counterBuilder("mqtt.server.connections")

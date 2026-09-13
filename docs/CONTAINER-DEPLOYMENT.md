@@ -71,12 +71,12 @@ image:
 
 ## Health & readiness endpoint
 
-`HealthService` exposes a small, dependency-free HTTP endpoint that reports the
+`HealthServer` exposes a small, dependency-free HTTP endpoint that reports the
 server lifecycle state, independent of the main protocol stacks (so it keeps
 answering while listeners are still starting or while draining):
 
 ```xml
-<service class="org.bluezoo.gumdrop.health.HealthService">
+<service class="org.bluezoo.gumdrop.health.HealthServer">
     <property name="port" value="${ENV:GUMDROP_HEALTH_PORT:8081}"/>
     <property name="addresses" value="0.0.0.0"/>
 </service>

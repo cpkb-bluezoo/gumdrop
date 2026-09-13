@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.smtp;
 
 import java.util.ResourceBundle;
 
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 
 /**
@@ -95,7 +95,7 @@ public class LocalDeliveryServer extends SmtpServer {
     }
 
     @Override
-    protected ClientConnected createHandler(TCPListener endpoint) {
+    protected ClientConnected createHandler(TcpListener endpoint) {
         if (getMailboxFactory() == null) {
             throw new IllegalStateException(
                     L10N.getString("err.mailbox_factory_not_configured"));

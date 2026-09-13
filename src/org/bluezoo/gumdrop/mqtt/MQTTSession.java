@@ -1,5 +1,5 @@
 /*
- * MQTTSession.java
+ * MqttSession.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.mqtt;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.mqtt.broker.QoSManager;
-import org.bluezoo.gumdrop.mqtt.codec.MQTTVersion;
+import org.bluezoo.gumdrop.mqtt.codec.MqttVersion;
 
 /**
  * Per-client MQTT session state.
@@ -34,17 +34,17 @@ import org.bluezoo.gumdrop.mqtt.codec.MQTTVersion;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class MQTTSession {
+public class MqttSession {
 
     private final String clientId;
-    private final MQTTVersion version;
+    private final MqttVersion version;
     private final boolean cleanSession;
     private final QoSManager qosManager;
     private volatile Endpoint endpoint;
     private volatile String username;
     private volatile int keepAlive;
 
-    public MQTTSession(String clientId, MQTTVersion version,
+    public MqttSession(String clientId, MqttVersion version,
                        boolean cleanSession) {
         this.clientId = clientId;
         this.version = version;
@@ -56,7 +56,7 @@ public class MQTTSession {
         return clientId;
     }
 
-    public MQTTVersion getVersion() {
+    public MqttVersion getVersion() {
         return version;
     }
 
@@ -102,7 +102,7 @@ public class MQTTSession {
 
     @Override
     public String toString() {
-        return "MQTTSession(clientId=" + clientId + ", version=" + version +
+        return "MqttSession(clientId=" + clientId + ", version=" + version +
                 ", cleanSession=" + cleanSession + ")";
     }
 }

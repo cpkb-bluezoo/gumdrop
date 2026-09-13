@@ -1,5 +1,5 @@
 /*
- * FTPOperation.java
+ * FtpOperation.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -42,10 +42,10 @@ package org.bluezoo.gumdrop.ftp;
  * </ul>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see FTPRoles
- * @see FTPConnectionHandler#isAuthorized(FTPOperation, String, FTPConnectionMetadata)
+ * @see FtpRoles
+ * @see FtpConnectionHandler#isAuthorized(FtpOperation, String, FtpConnectionMetadata)
  */
-public enum FTPOperation {
+public enum FtpOperation {
     
     /**
      * Read operations: retrieving files and listing directories.

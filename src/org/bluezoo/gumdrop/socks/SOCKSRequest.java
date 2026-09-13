@@ -1,5 +1,5 @@
 /*
- * SOCKSRequest.java
+ * SocksRequest.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -47,7 +47,7 @@ import java.net.InetAddress;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1928#section-4">RFC 1928 §4 - Requests</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/draft-ietf-aft-socks-protocol">SOCKS4 protocol</a>
  */
-public final class SOCKSRequest {
+public final class SocksRequest {
 
     /** SOCKS4 §Request VER / RFC 1928 §4 VER */
     private final byte version;
@@ -78,7 +78,7 @@ public final class SOCKSRequest {
      * @param authenticatedUser the authenticated username from SOCKS5
      *                          auth, or null if no authentication; RFC 1929 §2 / RFC 1961 §4
      */
-    public SOCKSRequest(byte version, byte command,
+    public SocksRequest(byte version, byte command,
                         InetAddress address, String host,
                         int port, String userid,
                         String authenticatedUser) {
@@ -177,14 +177,14 @@ public final class SOCKSRequest {
      * @return true if SOCKS4a
      */
     public boolean isSOCKS4a() {
-        return version == SOCKSConstants.SOCKS4_VERSION && host != null;
+        return version == SocksConstants.SOCKS4_VERSION && host != null;
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("SOCKS");
-        if (version == SOCKSConstants.SOCKS4_VERSION) {
+        if (version == SocksConstants.SOCKS4_VERSION) {
             sb.append(host != null ? "4a" : "4");
         } else {
             sb.append("5");
@@ -192,10 +192,10 @@ public final class SOCKSRequest {
         sb.append(' ');
         // SOCKS4_CMD_BIND == SOCKS5_CMD_BIND == 0x02
         switch (command) {
-            case SOCKSConstants.SOCKS5_CMD_BIND:
+            case SocksConstants.SOCKS5_CMD_BIND:
                 sb.append("BIND");
                 break;
-            case SOCKSConstants.SOCKS5_CMD_UDP_ASSOCIATE:
+            case SocksConstants.SOCKS5_CMD_UDP_ASSOCIATE:
                 sb.append("UDP ASSOCIATE");
                 break;
             default:

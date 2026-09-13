@@ -27,12 +27,12 @@ import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConfirmSelectHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerExchangeDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueBindHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.ExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.QueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.QueueDeclareHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -49,8 +49,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * End-to-end tests of {@link AMQPClientRecovery} (and transitively
- * {@link AMQPClientProtocolHandler}) against {@link FakeAMQPBroker} over a
+ * End-to-end tests of {@link AmqpClientRecovery} (and transitively
+ * {@link AmqpClientProtocolHandler}) against {@link FakeAMQPBroker} over a
  * real loopback socket — exercising connect, channel open, exchange/queue
  * declare, bind, publish, consume, ack, publisher confirms, and a forced
  * disconnect-then-recover scenario, per issue #154's "no real broker in
@@ -65,7 +65,7 @@ public class AMQPClientIntegrationTest {
     private static final long TIMEOUT_SECONDS = 10;
 
     private FakeAMQPBroker broker;
-    private AMQPClientRecovery client;
+    private AmqpClientRecovery client;
 
     @Before
     public void setUp() throws IOException {
@@ -89,14 +89,14 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testConnectAndOpenChannel() throws Exception {
-        client = new AMQPClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
+        client = new AmqpClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
 
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(ClientChannel channel) {
                         channelRef.set(channel);
@@ -114,7 +114,7 @@ public class AMQPClientIntegrationTest {
     @Test
     public void testConnectWithAMQPLainMechanism() throws Exception {
         broker.requireCredentials("appuser", "s3cret");
-        client = new AMQPClientRecovery("localhost", broker.getPort())
+        client = new AmqpClientRecovery("localhost", broker.getPort())
                 .credentials("appuser", "s3cret")
                 .mechanism("AMQPLAIN");
 
@@ -123,7 +123,7 @@ public class AMQPClientIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(ClientChannel channel) {
                         channelRef.set(channel);
@@ -140,7 +140,7 @@ public class AMQPClientIntegrationTest {
     /** Issue #188 — a mechanism the broker never advertises fails fast rather than silently falling back to PLAIN. */
     @Test
     public void testUnofferedMechanismDoesNotSilentlyFallBackToPlain() throws Exception {
-        client = new AMQPClientRecovery("localhost", broker.getPort())
+        client = new AmqpClientRecovery("localhost", broker.getPort())
                 .credentials("guest", "guest")
                 .mechanism("X-NOT-OFFERED")
                 .recoveryPolicy(new RecoveryPolicy().withMaxAttempts(1));
@@ -165,7 +165,7 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testDeclareBindPublishConsumeRoundTrip() throws Exception {
-        client = new AMQPClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
+        client = new AmqpClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
 
         final CountDownLatch deliveredLatch = new CountDownLatch(1);
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
@@ -174,16 +174,16 @@ public class AMQPClientIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
-                        channel.exchangeDeclare("test-exchange", "direct", false, false, null, new ServerExchangeDeclareHandler() {
+                        channel.exchangeDeclare("test-exchange", "direct", false, false, null, new ExchangeDeclareHandler() {
                             @Override
                             public void handleExchangeDeclareOk() {
-                                channel.queueDeclare("test-queue", false, false, false, null, new ServerQueueDeclareHandler() {
+                                channel.queueDeclare("test-queue", false, false, false, null, new QueueDeclareHandler() {
                                     @Override
                                     public void handleQueueDeclareOk(String queue, long mc, long cc) {
-                                        channel.queueBind("test-queue", "test-exchange", "test-key", null, new ServerQueueBindHandler() {
+                                        channel.queueBind("test-queue", "test-exchange", "test-key", null, new QueueBindHandler() {
                                             @Override
                                             public void handleQueueBindOk() {
                                                 channel.basicConsume("test-queue", "", false, false, null,
@@ -215,7 +215,7 @@ public class AMQPClientIntegrationTest {
                                                                 deliveredLatch.countDown();
                                                             }
                                                         },
-                                                        new ServerConsumeHandler() {
+                                                        new ConsumeHandler() {
                                                             @Override
                                                             public void handleConsumeOk(String consumerTag) {
                                                                 // Now that a consumer is registered, publish.
@@ -244,7 +244,7 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testDefaultExchangeRoutesByQueueName() throws Exception {
-        client = new AMQPClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
+        client = new AmqpClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
 
         final CountDownLatch deliveredLatch = new CountDownLatch(1);
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
@@ -252,15 +252,15 @@ public class AMQPClientIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
-                        channel.queueDeclare("direct-queue", false, false, false, null, new ServerQueueDeclareHandler() {
+                        channel.queueDeclare("direct-queue", false, false, false, null, new QueueDeclareHandler() {
                             @Override
                             public void handleQueueDeclareOk(String queue, long mc, long cc) {
                                 channel.basicConsume("direct-queue", "", false, false, null,
                                         new SimpleDeliveryHandler(deliveredBody, deliveredLatch),
-                                        new ServerConsumeHandler() {
+                                        new ConsumeHandler() {
                                             @Override
                                             public void handleConsumeOk(String consumerTag) {
                                                 // Default exchange ("") routes directly to the queue named by the routing key.
@@ -281,7 +281,7 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testPublisherConfirmsAckedByBroker() throws Exception {
-        client = new AMQPClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
+        client = new AmqpClientRecovery("localhost", broker.getPort()).credentials("guest", "guest");
 
         final CountDownLatch confirmLatch = new CountDownLatch(1);
         final AtomicReference<Long> ackedSeq = new AtomicReference<>();
@@ -289,10 +289,10 @@ public class AMQPClientIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
-                        channel.confirmSelect(new ServerConfirmSelectHandler() {
+                        channel.confirmSelect(new ConfirmSelectHandler() {
                             @Override
                             public void handleConfirmSelectOk() {
                                 channel.setConfirmListener(new org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener() {
@@ -321,7 +321,7 @@ public class AMQPClientIntegrationTest {
 
     @Test
     public void testForcedDisconnectTriggersReconnectAndTopologyReplay() throws Exception {
-        client = new AMQPClientRecovery("localhost", broker.getPort())
+        client = new AmqpClientRecovery("localhost", broker.getPort())
                 .credentials("guest", "guest")
                 .recoveryPolicy(new RecoveryPolicy().withInitialDelayMs(200L).withMaxDelayMs(500L));
 
@@ -331,16 +331,16 @@ public class AMQPClientIntegrationTest {
         client.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
                         channelRef.set(channel);
-                        channel.queueDeclare("recovery-queue", false, false, false, null, new ServerQueueDeclareHandler() {
+                        channel.queueDeclare("recovery-queue", false, false, false, null, new QueueDeclareHandler() {
                             @Override
                             public void handleQueueDeclareOk(String queue, long mc, long cc) {
                                 channel.basicConsume("recovery-queue", "", false, false, null,
                                         new NoopDeliveryHandler(),
-                                        new ServerConsumeHandler() {
+                                        new ConsumeHandler() {
                                             @Override
                                             public void handleConsumeOk(String consumerTag) {
                                                 firstConsumeOk.countDown();

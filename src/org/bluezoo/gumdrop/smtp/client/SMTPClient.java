@@ -32,14 +32,14 @@ import javax.net.ssl.X509TrustManager;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.dns.DANETrustManager;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSSECAwareQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSSECStatus;
-import org.bluezoo.gumdrop.dns.DNSType;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnssecAwareQueryCallback;
+import org.bluezoo.gumdrop.dns.DnssecStatus;
+import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
@@ -47,7 +47,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * High-level SMTP client facade.
  *
  * <p>This class provides a simple, concrete API for connecting to SMTP
- * servers. It internally creates a {@link TCPTransportFactory},
+ * servers. It internally creates a {@link TcpTransportFactory},
  * {@link ClientEndpoint}, and {@link SmtpClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
  * {@link RemoteGreeting} handler.
@@ -76,7 +76,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * <h4>Opportunistic DANE (RFC 7672)</h4>
  * <pre>{@code
  * SmtpClient client = new SmtpClient("mail.example.com", 25);
- * client.setDaneResolver(myResolver); // a DNSSEC-enabled DNSResolver
+ * client.setDaneResolver(myResolver); // a DNSSEC-enabled DnsResolver
  * client.connect(greetingHandler);
  * }</pre>
  *
@@ -103,9 +103,9 @@ public class SmtpClient {
     private Path keystoreFile;
     private String keystorePass;
     private String keystoreFormat;
-    private DNSResolver daneResolver;
+    private DnsResolver daneResolver;
 
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private SmtpClientProtocolHandler endpointHandler;
 
@@ -171,7 +171,7 @@ public class SmtpClient {
 
     /**
      * Creates an SMTP client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance.
@@ -259,7 +259,7 @@ public class SmtpClient {
      * @param resolver the resolver to use for the TLSA lookup, or
      *                 null to disable DANE
      */
-    public void setDaneResolver(DNSResolver resolver) {
+    public void setDaneResolver(DnsResolver resolver) {
         this.daneResolver = resolver;
     }
 
@@ -326,13 +326,13 @@ public class SmtpClient {
      */
     private void lookupDane(final RemoteGreeting handler) {
         String tlsaName = "_" + port + "._tcp." + host;
-        daneResolver.queryTLSA(tlsaName, new DNSSECAwareQueryCallback() {
+        daneResolver.queryTLSA(tlsaName, new DnssecAwareQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response, DNSSECStatus status) {
-                if (status == DNSSECStatus.SECURE) {
-                    List<DNSResourceRecord> tlsaRecords = new ArrayList<>();
-                    for (DNSResourceRecord rr : response.getAnswers()) {
-                        if (rr.getType() == DNSType.TLSA) {
+            public void onResponse(DnsMessage response, DnssecStatus status) {
+                if (status == DnssecStatus.SECURE) {
+                    List<DnsResourceRecord> tlsaRecords = new ArrayList<>();
+                    for (DnsResourceRecord rr : response.getAnswers()) {
+                        if (rr.getType() == DnsType.TLSA) {
                             tlsaRecords.add(rr);
                         }
                     }
@@ -360,7 +360,7 @@ public class SmtpClient {
      *                lifecycle events
      */
     private void doConnect(RemoteGreeting handler) {
-        transportFactory = new TCPTransportFactory();
+        transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);

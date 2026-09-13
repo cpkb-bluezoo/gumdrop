@@ -70,7 +70,7 @@
   <import file='compile-jpms.xml'/>
 
   <!-- util + jakarta JSP stubs (mime and the rest of core depend on this).
-       crypto/tls compile here too: util (TLSUtils/SniCredentialsResolver)
+       crypto/tls compile here too: util (TlsUtils/SniCredentialsResolver)
        depends on tls.ServerCredentials, and tls depends on crypto, a
        one-way dependency (neither crypto nor tls depends back on util),
        so they compile safely in the same pass ahead of build-core-main,

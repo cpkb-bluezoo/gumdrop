@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.mqtt.broker;
 import org.bluezoo.gumdrop.mqtt.broker.RetainedMessageStore.RetainedMessage;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -49,7 +49,7 @@ public class RetainedMessageStoreTest {
         store = new RetainedMessageStore();
     }
 
-    private static MQTTMessageContent content(String data) {
+    private static MqttMessageContent content(String data) {
         return new InMemoryMessageStore.InMemoryContent(data.getBytes());
     }
 

@@ -44,10 +44,10 @@ import org.bluezoo.gumdrop.mime.MIMEVersion;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
 import org.bluezoo.gumdrop.mime.rfc5322.ObsoleteStructureType;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 
 /**
  * Unit tests for {@link DKIMValidator} — RFC 6376 §6 verifier actions.
@@ -82,7 +82,7 @@ public class DKIMValidatorTest {
     }
 
     /** Fake resolver that answers any TXT query with a fixed public-key record, synchronously. */
-    private static class FakeKeyResolver extends DNSResolver {
+    private static class FakeKeyResolver extends DnsResolver {
         private final String txtRecord;
 
         FakeKeyResolver(String txtRecord) {
@@ -90,9 +90,9 @@ public class DKIMValidatorTest {
         }
 
         @Override
-        public void queryTXT(String name, DNSQueryCallback callback) {
-            DNSResourceRecord rr = DNSResourceRecord.txt(name, 300, txtRecord);
-            DNSMessage response = new DNSMessage(1, DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA,
+        public void queryTXT(String name, DnsQueryCallback callback) {
+            DnsResourceRecord rr = DnsResourceRecord.txt(name, 300, txtRecord);
+            DnsMessage response = new DnsMessage(1, DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA,
                     Collections.emptyList(), Collections.singletonList(rr),
                     Collections.emptyList(), Collections.emptyList());
             callback.onResponse(response);

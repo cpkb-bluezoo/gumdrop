@@ -30,7 +30,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSMultiQType}.
+ * Unit tests for {@link DnsMultiQType}.
  * RFC 10029: DNS Multiple QTYPEs.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -38,67 +38,67 @@ import static org.junit.Assert.*;
 public class DNSMultiQTypeTest {
 
     @Test
-    public void testQueryOptionRoundTrip() throws DNSFormatException {
-        List<DNSType> requested = Arrays.asList(DNSType.AAAA, DNSType.HTTPS);
-        byte[] option = DNSMultiQType.buildMQTypeQueryOption(requested);
+    public void testQueryOptionRoundTrip() throws DnsFormatException {
+        List<DnsType> requested = Arrays.asList(DnsType.AAAA, DnsType.HTTPS);
+        byte[] option = DnsMultiQType.buildMQTypeQueryOption(requested);
 
-        byte[] data = DNSCookie.findEdnsOption(option, DNSMultiQType.EDNS_OPTION_MQTYPE_QUERY);
+        byte[] data = DnsCookie.findEdnsOption(option, DnsMultiQType.EDNS_OPTION_MQTYPE_QUERY);
         assertNotNull(data);
-        assertEquals(requested, DNSMultiQType.parseMQTypeQueryOption(data));
+        assertEquals(requested, DnsMultiQType.parseMQTypeQueryOption(data));
     }
 
     @Test
-    public void testResponseOptionRoundTrip() throws DNSFormatException {
-        List<DNSType> included = Collections.singletonList(DNSType.AAAA);
-        byte[] option = DNSMultiQType.buildMQTypeResponseOption(included);
+    public void testResponseOptionRoundTrip() throws DnsFormatException {
+        List<DnsType> included = Collections.singletonList(DnsType.AAAA);
+        byte[] option = DnsMultiQType.buildMQTypeResponseOption(included);
 
-        byte[] data = DNSCookie.findEdnsOption(option, DNSMultiQType.EDNS_OPTION_MQTYPE_RESPONSE);
+        byte[] data = DnsCookie.findEdnsOption(option, DnsMultiQType.EDNS_OPTION_MQTYPE_RESPONSE);
         assertNotNull(data);
-        assertEquals(included, DNSMultiQType.parseMQTypeResponseOption(data));
+        assertEquals(included, DnsMultiQType.parseMQTypeResponseOption(data));
     }
 
     @Test
     public void testOptionCodeAndLength() {
-        byte[] option = DNSMultiQType.buildMQTypeQueryOption(
-                Arrays.asList(DNSType.A, DNSType.AAAA, DNSType.HTTPS));
+        byte[] option = DnsMultiQType.buildMQTypeQueryOption(
+                Arrays.asList(DnsType.A, DnsType.AAAA, DnsType.HTTPS));
         // option-code(2) + option-length(2) + 3 types * 2 octets
         assertEquals(4 + 6, option.length);
         int code = ((option[0] & 0xFF) << 8) | (option[1] & 0xFF);
         int length = ((option[2] & 0xFF) << 8) | (option[3] & 0xFF);
-        assertEquals(DNSMultiQType.EDNS_OPTION_MQTYPE_QUERY, code);
+        assertEquals(DnsMultiQType.EDNS_OPTION_MQTYPE_QUERY, code);
         assertEquals(6, length);
     }
 
     @Test
-    public void testEmptyListRoundTrips() throws DNSFormatException {
-        byte[] option = DNSMultiQType.buildMQTypeQueryOption(Collections.<DNSType>emptyList());
-        byte[] data = DNSCookie.findEdnsOption(option, DNSMultiQType.EDNS_OPTION_MQTYPE_QUERY);
+    public void testEmptyListRoundTrips() throws DnsFormatException {
+        byte[] option = DnsMultiQType.buildMQTypeQueryOption(Collections.<DnsType>emptyList());
+        byte[] data = DnsCookie.findEdnsOption(option, DnsMultiQType.EDNS_OPTION_MQTYPE_QUERY);
         assertNotNull(data);
-        assertTrue(DNSMultiQType.parseMQTypeQueryOption(data).isEmpty());
+        assertTrue(DnsMultiQType.parseMQTypeQueryOption(data).isEmpty());
     }
 
     @Test
-    public void testPreservesOrder() throws DNSFormatException {
-        List<DNSType> requested = Arrays.asList(DNSType.HTTPS, DNSType.A, DNSType.AAAA);
-        byte[] option = DNSMultiQType.buildMQTypeQueryOption(requested);
-        byte[] data = DNSCookie.findEdnsOption(option, DNSMultiQType.EDNS_OPTION_MQTYPE_QUERY);
-        assertEquals(requested, DNSMultiQType.parseMQTypeQueryOption(data));
+    public void testPreservesOrder() throws DnsFormatException {
+        List<DnsType> requested = Arrays.asList(DnsType.HTTPS, DnsType.A, DnsType.AAAA);
+        byte[] option = DnsMultiQType.buildMQTypeQueryOption(requested);
+        byte[] data = DnsCookie.findEdnsOption(option, DnsMultiQType.EDNS_OPTION_MQTYPE_QUERY);
+        assertEquals(requested, DnsMultiQType.parseMQTypeQueryOption(data));
     }
 
     @Test
-    public void testUnrecognizedTypeValueIsSkippedNotRejected() throws DNSFormatException {
-        // 65280 is not a value any DNSType enum constant uses.
+    public void testUnrecognizedTypeValueIsSkippedNotRejected() throws DnsFormatException {
+        // 65280 is not a value any DnsType enum constant uses.
         byte[] data = new byte[] {
-                (byte) 0, (byte) DNSType.A.getValue(),
+                (byte) 0, (byte) DnsType.A.getValue(),
                 (byte) 0xFF, (byte) 0x00,
-                (byte) 0, (byte) DNSType.AAAA.getValue()
+                (byte) 0, (byte) DnsType.AAAA.getValue()
         };
-        List<DNSType> parsed = DNSMultiQType.parseMQTypeQueryOption(data);
-        assertEquals(Arrays.asList(DNSType.A, DNSType.AAAA), parsed);
+        List<DnsType> parsed = DnsMultiQType.parseMQTypeQueryOption(data);
+        assertEquals(Arrays.asList(DnsType.A, DnsType.AAAA), parsed);
     }
 
-    @Test(expected = DNSFormatException.class)
-    public void testOddLengthDataIsRejected() throws DNSFormatException {
-        DNSMultiQType.parseMQTypeQueryOption(new byte[] {0, 1, 0});
+    @Test(expected = DnsFormatException.class)
+    public void testOddLengthDataIsRejected() throws DnsFormatException {
+        DnsMultiQType.parseMQTypeQueryOption(new byte[] {0, 1, 0});
     }
 }

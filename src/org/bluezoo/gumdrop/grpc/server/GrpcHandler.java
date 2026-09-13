@@ -59,7 +59,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private static final int GRPC_STATUS_UNIMPLEMENTED = 12;
 
     private final ProtoFile protoFile;
-    private final GrpcService service;
+    private final GrpcServer service;
     private final String path;
     private final long maxMessageSize;
     private final String requestTypeName;
@@ -74,7 +74,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private boolean bodyStarted;
     private boolean bodyRejected;
 
-    GrpcHandler(ProtoFile protoFile, GrpcService service, String path,
+    GrpcHandler(ProtoFile protoFile, GrpcServer service, String path,
             long maxMessageSize, RpcDescriptor rpc) {
         this.protoFile = protoFile;
         this.service = service;

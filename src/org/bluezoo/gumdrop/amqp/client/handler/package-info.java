@@ -26,15 +26,15 @@
  *
  * <pre>
  * ConnectionReady --(connection.start)--&gt; ClientHandshake
- *      --(start-ok, connection.tune)--&gt; ServerTuneHandler
+ *      --(start-ok, connection.tune)--&gt; TuneHandler
  *      --(tune-ok)--&gt; ClientTuned
- *      --(connection.open)--&gt; ServerOpenHandler
+ *      --(connection.open)--&gt; OpenHandler
  *      --(open-ok)--&gt; ClientConnection
- *      --(channel.open)--&gt; ServerChannelOpenHandler
+ *      --(channel.open)--&gt; ChannelOpenHandler
  *      --(open-ok)--&gt; ClientChannel
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.amqp.client.AMQPClientProtocolHandler
+ * @see org.bluezoo.gumdrop.amqp.client.AmqpClientProtocolHandler
  */
 package org.bluezoo.gumdrop.amqp.client.handler;

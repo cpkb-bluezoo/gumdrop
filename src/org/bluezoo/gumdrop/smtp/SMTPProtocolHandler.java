@@ -359,7 +359,7 @@ public final class SmtpProtocolHandler
                 connectedHandler.disconnected();
             }
             // Connection admission (rate-limit / per-IP / global count) is
-            // released centrally by TCPEndpoint when the endpoint closes, so
+            // released centrally by TcpEndpoint when the endpoint closes, so
             // no per-handler connectionClosed call is needed here.
         } catch (Exception e) {
             if (LOGGER.isLoggable(Level.WARNING)) {

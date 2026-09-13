@@ -1,5 +1,5 @@
 /*
- * DNSQueryCallback.java
+ * DnsQueryCallback.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,16 +28,16 @@ package org.bluezoo.gumdrop.dns;
  * is called when the query completes, times out, or encounters an error.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.dns.client.DNSResolver
+ * @see org.bluezoo.gumdrop.dns.client.DnsResolver
  */
-public interface DNSQueryCallback {
+public interface DnsQueryCallback {
 
     /**
      * Called when a DNS query completes successfully.
      *
      * @param response the DNS response message
      */
-    void onResponse(DNSMessage response);
+    void onResponse(DnsMessage response);
 
     /**
      * Called when a DNS query fails due to timeout or network error.

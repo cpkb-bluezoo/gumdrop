@@ -1,5 +1,5 @@
 /*
- * SOCKSServerMetrics.java
+ * SocksServerMetrics.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -66,7 +66,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class SOCKSServerMetrics {
+public class SocksServerMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.socks";
     private static final String UNIT_ATTEMPTS = "attempts";
@@ -105,7 +105,7 @@ public class SOCKSServerMetrics {
      *
      * @param config the telemetry configuration
      */
-    public SOCKSServerMetrics(TelemetryConfig config) {
+    public SocksServerMetrics(TelemetryConfig config) {
         Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         this.connectionCounter = meter.counterBuilder(

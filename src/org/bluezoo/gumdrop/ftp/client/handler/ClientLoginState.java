@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.ftp.client.handler;
  * failed login attempt. RFC 959 §4.1.1 (USER); RFC 4217 (AUTH TLS).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerGreeting#handleGreeting
+ * @see RemoteGreeting#handleGreeting
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4217">RFC 4217</a> (AUTH TLS)
  */
@@ -38,7 +38,7 @@ public interface ClientLoginState {
      * @param username the username to authenticate
      * @param callback receives the server's response
      */
-    void user(String username, ServerUserReplyHandler callback);
+    void user(String username, UserReplyHandler callback);
 
     /**
      * Sends an AUTH TLS command to upgrade the control connection to TLS
@@ -46,7 +46,7 @@ public interface ClientLoginState {
      *
      * @param callback receives the server's response
      */
-    void authTls(ServerAuthTlsReplyHandler callback);
+    void authTls(AuthTlsReplyHandler callback);
 
     /**
      * Closes the connection without authenticating.

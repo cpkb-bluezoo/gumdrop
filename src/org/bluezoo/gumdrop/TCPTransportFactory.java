@@ -1,5 +1,5 @@
 /*
- * TCPTransportFactory.java
+ * TcpTransportFactory.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.tls.Tls12HandshakeConfig;
 import org.bluezoo.gumdrop.tls.TlsVersion;
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
 import org.bluezoo.gumdrop.util.SniCredentialsResolver;
-import org.bluezoo.gumdrop.util.TLSUtils;
+import org.bluezoo.gumdrop.util.TlsUtils;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -63,7 +63,7 @@ import javax.net.ssl.X509TrustManager;
 /**
  * TCP transport factory.
  *
- * <p>Creates {@link TCPEndpoint} instances for both server-side (accepted)
+ * <p>Creates {@link TcpEndpoint} instances for both server-side (accepted)
  * and client-side (outgoing) connections.
  *
  * <p>For TLS, this factory builds an in-tree
@@ -76,13 +76,13 @@ import javax.net.ssl.X509TrustManager;
  * JSSE type.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see TCPEndpoint
+ * @see TcpEndpoint
  * @see TransportFactory
  */
-public class TCPTransportFactory extends TransportFactory {
+public class TcpTransportFactory extends TransportFactory {
 
     private static final Logger LOGGER =
-            Logger.getLogger(TCPTransportFactory.class.getName());
+            Logger.getLogger(TcpTransportFactory.class.getName());
 
     // Server identity: either a fixed value, or (SNI) a per-hostname
     // resolver -- at most one is ever set, the resolver taking priority
@@ -120,7 +120,7 @@ public class TCPTransportFactory extends TransportFactory {
     // existing caller's behaviour is unchanged.
     private TlsVersion tlsVersion = TlsVersion.TLS_1_3;
 
-    public TCPTransportFactory() {
+    public TcpTransportFactory() {
     }
 
     /**
@@ -321,7 +321,7 @@ public class TCPTransportFactory extends TransportFactory {
                     serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
                 } else if (keystoreFile != null && keystorePass != null) {
                     if (isSNIEnabled()) {
-                        KeyStore keyStore = TLSUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat);
+                        KeyStore keyStore = TlsUtils.loadKeyStore(keystoreFile, keystorePass, keystoreFormat);
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
                         if (LOGGER.isLoggable(Level.INFO)) {
@@ -330,7 +330,7 @@ public class TCPTransportFactory extends TransportFactory {
                                     sniHostnameToAlias.size()));
                         }
                     } else {
-                        serverCredentials = TLSUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat);
+                        serverCredentials = TlsUtils.loadServerCredentials(keystoreFile, keystorePass, keystoreFormat);
                     }
                 }
             }
@@ -367,7 +367,7 @@ public class TCPTransportFactory extends TransportFactory {
         if (trustManager != null) {
             base = trustManager;
         } else if (truststoreFile != null && truststorePass != null) {
-            base = firstX509TrustManager(TLSUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat));
+            base = firstX509TrustManager(TlsUtils.loadTrustManagers(truststoreFile, truststorePass, truststoreFormat));
         } else {
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             tmf.init((KeyStore) null);
@@ -457,21 +457,21 @@ public class TCPTransportFactory extends TransportFactory {
     // -- Endpoint creation --
 
     /**
-     * Creates a server-side TCPEndpoint for an accepted connection.
+     * Creates a server-side TcpEndpoint for an accepted connection.
      *
      * @param channel the accepted socket channel
      * @param handler the protocol handler
      * @return the new endpoint
      * @throws IOException if initialisation fails
      */
-    public TCPEndpoint createServerEndpoint(SocketChannel channel,
+    public TcpEndpoint createServerEndpoint(SocketChannel channel,
                                             ProtocolHandler handler)
             throws IOException {
         return createServerEndpoint(channel, handler, secure);
     }
 
     /**
-     * Creates a server-side TCPEndpoint for an accepted connection, with
+     * Creates a server-side TcpEndpoint for an accepted connection, with
      * an explicit choice of whether TLS is active immediately —
      * independent of this factory's own {@link #setSecure(boolean)}
      * setting.
@@ -491,7 +491,7 @@ public class TCPTransportFactory extends TransportFactory {
      * @return the new endpoint
      * @throws IOException if initialisation fails
      */
-    public TCPEndpoint createServerEndpoint(SocketChannel channel,
+    public TcpEndpoint createServerEndpoint(SocketChannel channel,
                                             ProtocolHandler handler,
                                             boolean secure)
             throws IOException {
@@ -506,7 +506,7 @@ public class TCPTransportFactory extends TransportFactory {
         // when secure -- a STARTTLS-capable server starts out plaintext
         // but still needs credentials ready for the in-band upgrade.
         boolean haveCredentials = serverCredentials != null || serverCredentialsResolver != null;
-        TCPEndpoint endpoint;
+        TcpEndpoint endpoint;
         if (tlsVersion == TlsVersion.TLS_1_2) {
             Tls12HandshakeConfig config12 = haveCredentials ? buildServerConfig12() : null;
             if (secure && config12 == null) {
@@ -514,7 +514,7 @@ public class TCPTransportFactory extends TransportFactory {
                         "No TLS configuration configured on this transport factory; "
                                 + "cannot create a secure endpoint");
             }
-            endpoint = new TCPEndpoint(handler, config12, secure);
+            endpoint = new TcpEndpoint(handler, config12, secure);
         } else {
             HandshakeConfig config = haveCredentials ? buildServerConfig() : null;
             if (secure && config == null) {
@@ -522,7 +522,7 @@ public class TCPTransportFactory extends TransportFactory {
                         "No TLS configuration configured on this transport factory; "
                                 + "cannot create a secure endpoint");
             }
-            endpoint = new TCPEndpoint(handler, config, secure);
+            endpoint = new TcpEndpoint(handler, config, secure);
         }
         endpoint.setFactory(this);
         endpoint.setChannel(channel);
@@ -532,7 +532,7 @@ public class TCPTransportFactory extends TransportFactory {
     }
 
     /**
-     * Creates a client-side TCPEndpoint and connects to a remote host.
+     * Creates a client-side TcpEndpoint and connects to a remote host.
      *
      * <p>The connection is initiated asynchronously. The handler's
      * {@link ProtocolHandler#connected(Endpoint)} callback is invoked
@@ -545,20 +545,20 @@ public class TCPTransportFactory extends TransportFactory {
      * @return the new endpoint (connection is still in progress)
      * @throws IOException if the connection cannot be initiated
      */
-    public TCPEndpoint connect(InetAddress host, int port,
+    public TcpEndpoint connect(InetAddress host, int port,
                                ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
         return connect(host, port, null, handler, loop);
     }
 
     /**
-     * Creates a client-side TCPEndpoint and connects to a remote host.
+     * Creates a client-side TcpEndpoint and connects to a remote host.
      *
      * @param tlsServerNameHint optional TLS/SNI/hostname-verify name; when
      *     {@code null}, derived from {@code host} (loopback literals map to
      *     {@code localhost} to match typical test PKI)
      */
-    public TCPEndpoint connect(InetAddress host, int port, String tlsServerNameHint,
+    public TcpEndpoint connect(InetAddress host, int port, String tlsServerNameHint,
                                ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
         SocketChannel channel = SocketChannel.open();
@@ -591,14 +591,14 @@ public class TCPTransportFactory extends TransportFactory {
             }
         }
 
-        TCPEndpoint endpoint;
+        TcpEndpoint endpoint;
         String tlsServerName = tlsServerNameFor(host, tlsServerNameHint);
         if (tlsVersion == TlsVersion.TLS_1_2) {
             Tls12HandshakeConfig config12 = secure ? buildClientConfig12(tlsServerName) : null;
-            endpoint = new TCPEndpoint(handler, config12, secure);
+            endpoint = new TcpEndpoint(handler, config12, secure);
         } else {
             HandshakeConfig config = secure ? buildClientConfig(tlsServerName) : null;
-            endpoint = new TCPEndpoint(handler, config, secure);
+            endpoint = new TcpEndpoint(handler, config, secure);
         }
         endpoint.setFactory(this);
         endpoint.setChannel(channel);
@@ -624,7 +624,7 @@ public class TCPTransportFactory extends TransportFactory {
             // broker/server would connect but never progress).
             //
             // This connect() method can itself be called off the
-            // SelectorLoop thread (e.g. AMQPClientRecovery's reconnect
+            // SelectorLoop thread (e.g. AmqpClientRecovery's reconnect
             // runs on its own scheduled-executor thread, not any
             // SelectorLoop), so the ProtocolHandler callbacks below --
             // which the framework's contract guarantees always run on the
@@ -648,8 +648,8 @@ public class TCPTransportFactory extends TransportFactory {
     }
 
     /**
-     * Creates a client-side TCPEndpoint and connects to a UNIX domain
-     * socket, mirroring {@link TCPListener#setPath} on the server side:
+     * Creates a client-side TcpEndpoint and connects to a UNIX domain
+     * socket, mirroring {@link TcpListener#setPath} on the server side:
      * {@link StandardProtocolFamily#UNIX} instead of a TCP port.
      *
      * <p>The connection is initiated asynchronously, with the same
@@ -666,18 +666,18 @@ public class TCPTransportFactory extends TransportFactory {
      * @return the new endpoint (connection is still in progress)
      * @throws IOException if the connection cannot be initiated
      */
-    public TCPEndpoint connect(String path, ProtocolHandler handler,
+    public TcpEndpoint connect(String path, ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
         SocketChannel channel = SocketChannel.open(StandardProtocolFamily.UNIX);
         channel.configureBlocking(false);
 
-        TCPEndpoint endpoint;
+        TcpEndpoint endpoint;
         if (tlsVersion == TlsVersion.TLS_1_2) {
             Tls12HandshakeConfig config12 = secure ? buildClientConfig12(null) : null;
-            endpoint = new TCPEndpoint(handler, config12, secure);
+            endpoint = new TcpEndpoint(handler, config12, secure);
         } else {
             HandshakeConfig config = secure ? buildClientConfig(null) : null;
-            endpoint = new TCPEndpoint(handler, config, secure);
+            endpoint = new TcpEndpoint(handler, config, secure);
         }
         endpoint.setFactory(this);
         endpoint.setChannel(channel);
@@ -801,17 +801,17 @@ public class TCPTransportFactory extends TransportFactory {
     // -- Registration helpers --
 
     /**
-     * Registers a TCPEndpoint with a SelectorLoop for OP_READ.
+     * Registers a TcpEndpoint with a SelectorLoop for OP_READ.
      */
-    void registerEndpoint(SocketChannel channel, TCPEndpoint endpoint,
+    void registerEndpoint(SocketChannel channel, TcpEndpoint endpoint,
                           SelectorLoop loop) {
         loop.register(channel, endpoint);
     }
 
     /**
-     * Registers a TCPEndpoint with a SelectorLoop for OP_CONNECT.
+     * Registers a TcpEndpoint with a SelectorLoop for OP_CONNECT.
      */
-    void registerForConnect(SocketChannel channel, TCPEndpoint endpoint,
+    void registerForConnect(SocketChannel channel, TcpEndpoint endpoint,
                             SelectorLoop loop) {
         loop.registerForConnect(channel, endpoint);
     }

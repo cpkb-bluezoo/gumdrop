@@ -1,5 +1,5 @@
 /*
- * MQTTMessageStore.java
+ * MqttMessageStore.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -24,32 +24,32 @@ package org.bluezoo.gumdrop.mqtt.store;
 /**
  * Factory for MQTT message payload storage.
  *
- * <p>Provides {@link MQTTMessageWriter} instances for accumulating
+ * <p>Provides {@link MqttMessageWriter} instances for accumulating
  * inbound PUBLISH payloads. The default implementation
  * ({@link InMemoryMessageStore}) buffers payloads in memory;
  * subclasses may override to provide file-backed or database-backed
  * storage for large messages.
  *
- * <p>Obtained from {@link org.bluezoo.gumdrop.mqtt.MQTTService#createMessageStore()},
+ * <p>Obtained from {@link org.bluezoo.gumdrop.mqtt.MqttServer#createMessageStore()},
  * which subclasses may override to supply a custom implementation.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MQTTMessageWriter
- * @see MQTTMessageContent
+ * @see MqttMessageWriter
+ * @see MqttMessageContent
  * @see InMemoryMessageStore
  */
-public interface MQTTMessageStore {
+public interface MqttMessageStore {
 
     /**
      * Creates a new writer for accumulating message payload data.
      *
      * <p>The caller writes payload bytes via the
      * {@link java.nio.channels.WritableByteChannel} interface, then
-     * calls {@link MQTTMessageWriter#commit()} to obtain a readable
-     * {@link MQTTMessageContent} handle, or
-     * {@link MQTTMessageWriter#discard()} to abandon the write.
+     * calls {@link MqttMessageWriter#commit()} to obtain a readable
+     * {@link MqttMessageContent} handle, or
+     * {@link MqttMessageWriter#discard()} to abandon the write.
      *
      * @return a new message writer
      */
-    MQTTMessageWriter createWriter();
+    MqttMessageWriter createWriter();
 }

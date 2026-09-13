@@ -1,5 +1,5 @@
 /*
- * DNSResolver.java
+ * DnsResolver.java
  * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -44,23 +44,23 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.dns.DNSBailiwick;
-import org.bluezoo.gumdrop.dns.DNSCache;
-import org.bluezoo.gumdrop.dns.DNSQueryIdGenerator;
-import org.bluezoo.gumdrop.dns.DNSClass;
-import org.bluezoo.gumdrop.dns.DNSCookie;
-import org.bluezoo.gumdrop.dns.DNSFormatException;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSMultiQType;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSQuestion;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSSECAwareQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSSECChainValidator;
-import org.bluezoo.gumdrop.dns.DNSSECStatus;
-import org.bluezoo.gumdrop.dns.DNSSECTrustAnchor;
-import org.bluezoo.gumdrop.dns.DNSSECValidationCallback;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsBailiwick;
+import org.bluezoo.gumdrop.dns.DnsCache;
+import org.bluezoo.gumdrop.dns.DnsQueryIdGenerator;
+import org.bluezoo.gumdrop.dns.DnsClass;
+import org.bluezoo.gumdrop.dns.DnsCookie;
+import org.bluezoo.gumdrop.dns.DnsFormatException;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsMultiQType;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsQuestion;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnssecAwareQueryCallback;
+import org.bluezoo.gumdrop.dns.DnssecChainValidator;
+import org.bluezoo.gumdrop.dns.DnssecStatus;
+import org.bluezoo.gumdrop.dns.DnssecTrustAnchor;
+import org.bluezoo.gumdrop.dns.DnssecValidationCallback;
+import org.bluezoo.gumdrop.dns.DnsType;
 
 /**
  * Asynchronous DNS stub resolver using non-blocking I/O.
@@ -80,10 +80,10 @@ import org.bluezoo.gumdrop.dns.DNSType;
  * configurable depth limit.
  *
  * <p>The transport used for DNS communication is pluggable via {@link
- * DNSClientTransport} and {@link #setTransport}. Without an explicit
+ * DnsClientTransport} and {@link #setTransport}. Without an explicit
  * override, each configured server gets its own transport chosen by
  * descending preference -- RFC 9250 DoQ, then RFC 7858 DoT, then RFC
- * 8484 DoH, then plain UDP ({@link UDPDNSClientTransport}) -- based on
+ * 8484 DoH, then plain UDP ({@link UdpDNSClientTransport}) -- based on
  * what {@link DNSServerCapabilityCache} already knows that server
  * supports (seeded for well-known public resolvers; otherwise plain
  * UDP, since most servers support none of the encrypted transports and
@@ -97,15 +97,15 @@ import org.bluezoo.gumdrop.dns.DNSType;
  *
  * <p>Example usage:
  * <pre><code>
- * DNSResolver resolver = new DNSResolver();
+ * DnsResolver resolver = new DnsResolver();
  * resolver.addServer("8.8.8.8");
  * resolver.open();
  *
- * resolver.queryTXT("_dmarc.example.com", new DNSQueryCallback() {
+ * resolver.queryTXT("_dmarc.example.com", new DnsQueryCallback() {
  *     &#64;Override
- *     public void onResponse(DNSMessage response) {
- *         for (DNSResourceRecord rr : response.getAnswers()) {
- *             if (rr.getType() == DNSType.TXT) {
+ *     public void onResponse(DnsMessage response) {
+ *         for (DnsResourceRecord rr : response.getAnswers()) {
+ *             if (rr.getType() == DnsType.TXT) {
  *                 String txt = rr.getTxtData();
  *                 // Process TXT record...
  *             }
@@ -120,12 +120,12 @@ import org.bluezoo.gumdrop.dns.DNSType;
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSQueryCallback
- * @see DNSClientTransport
+ * @see DnsQueryCallback
+ * @see DnsClientTransport
  */
-public class DNSResolver {
+public class DnsResolver {
 
-    private static final Logger LOGGER = Logger.getLogger(DNSResolver.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(DnsResolver.class.getName());
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
@@ -134,9 +134,9 @@ public class DNSResolver {
     // RFC 1034 section 3.6.2: limit CNAME chain depth to prevent loops
     private static final int MAX_CNAME_DEPTH = 8;
 
-    private static final Map<SelectorLoop, DNSResolver> resolvers =
+    private static final Map<SelectorLoop, DnsResolver> resolvers =
             new ConcurrentHashMap<>();
-    private static volatile DNSCache sharedCache = new DNSCache();
+    private static volatile DnsCache sharedCache = new DnsCache();
     private static volatile boolean defaultDnssecEnabled;
 
     /**
@@ -159,12 +159,12 @@ public class DNSResolver {
      * @param loop the SelectorLoop
      * @return the resolver for this loop
      */
-    public static DNSResolver forLoop(SelectorLoop loop) {
-        DNSResolver existing = resolvers.get(loop);
+    public static DnsResolver forLoop(SelectorLoop loop) {
+        DnsResolver existing = resolvers.get(loop);
         if (existing != null) {
             return existing;
         }
-        DNSResolver r = new DNSResolver();
+        DnsResolver r = new DnsResolver();
         r.setSelectorLoop(loop);
         r.setDnssecEnabled(defaultDnssecEnabled);
         r.useSystemResolvers();
@@ -174,7 +174,7 @@ public class DNSResolver {
             LOGGER.log(Level.WARNING, "Failed to open resolver for loop", e);
             return r;
         }
-        DNSResolver race = resolvers.putIfAbsent(loop, r);
+        DnsResolver race = resolvers.putIfAbsent(loop, r);
         if (race != null) {
             r.close();
             return race;
@@ -192,7 +192,7 @@ public class DNSResolver {
      * @param loop the SelectorLoop being shut down
      */
     public static void removeForLoop(SelectorLoop loop) {
-        DNSResolver r = resolvers.remove(loop);
+        DnsResolver r = resolvers.remove(loop);
         if (r != null) {
             r.close();
         }
@@ -207,7 +207,7 @@ public class DNSResolver {
      *
      * @param cache the cache to use, or null to disable caching
      */
-    public static void setCache(DNSCache cache) {
+    public static void setCache(DnsCache cache) {
         sharedCache = cache;
     }
 
@@ -216,26 +216,26 @@ public class DNSResolver {
      *
      * @return the shared cache, or null if caching is disabled
      */
-    public static DNSCache getCache() {
+    public static DnsCache getCache() {
         return sharedCache;
     }
 
     private final List<InetSocketAddress> servers;
     private final Map<Integer, PendingQuery> pendingQueries;
-    private final List<DNSClientTransport> transports;
+    private final List<DnsClientTransport> transports;
 
-    private DNSClientTransport transportPrototype;
+    private DnsClientTransport transportPrototype;
     private long timeoutMs;
     private boolean opened;
     private SelectorLoop selectorLoop;
 
     /** RFC 7873: DNS cookie manager for source address verification. */
-    private final DNSCookie dnsCookie = new DNSCookie();
+    private final DnsCookie dnsCookie = new DnsCookie();
 
     /** RFC 4035: when true, set the DO bit and validate responses. */
     private boolean dnssecEnabled;
-    private DNSSECChainValidator chainValidator;
-    private DNSSECTrustAnchor trustAnchor;
+    private DnssecChainValidator chainValidator;
+    private DnssecTrustAnchor trustAnchor;
 
     /** RFC 9462: when true, opportunistically discover encrypted endpoints. */
     private boolean ddrEnabled;
@@ -245,7 +245,7 @@ public class DNSResolver {
      * Call {@link #addServer(String)} or {@link #addServer(InetAddress, int)}
      * to add DNS servers before opening.
      */
-    public DNSResolver() {
+    public DnsResolver() {
         this.servers = new ArrayList<>();
         this.pendingQueries = new ConcurrentHashMap<>();
         this.transports = new ArrayList<>();
@@ -266,7 +266,7 @@ public class DNSResolver {
      *
      * @param transport the transport prototype to use for each server
      */
-    public void setTransport(DNSClientTransport transport) {
+    public void setTransport(DnsClientTransport transport) {
         this.transportPrototype = transport;
     }
 
@@ -398,7 +398,7 @@ public class DNSResolver {
      *
      * @param trustAnchor the trust anchor store
      */
-    public void setTrustAnchor(DNSSECTrustAnchor trustAnchor) {
+    public void setTrustAnchor(DnssecTrustAnchor trustAnchor) {
         this.trustAnchor = trustAnchor;
     }
 
@@ -465,9 +465,9 @@ public class DNSResolver {
         }
         if (dnssecEnabled) {
             if (trustAnchor == null) {
-                trustAnchor = new DNSSECTrustAnchor();
+                trustAnchor = new DnssecTrustAnchor();
             }
-            chainValidator = new DNSSECChainValidator(this, trustAnchor);
+            chainValidator = new DnssecChainValidator(this, trustAnchor);
         }
         for (int i = 0; i < servers.size(); i++) {
             InetSocketAddress server = servers.get(i);
@@ -498,7 +498,7 @@ public class DNSResolver {
             pending.callback.onError(L10N.getString("err.resolver.closed"));
         }
         pendingQueries.clear();
-        for (DNSClientTransport transport : transports) {
+        for (DnsClientTransport transport : transports) {
             transport.close();
         }
         transports.clear();
@@ -513,8 +513,8 @@ public class DNSResolver {
      * @param name the domain name to query
      * @param callback the callback to receive results
      */
-    public void queryTXT(String name, DNSQueryCallback callback) {
-        query(name, DNSType.TXT, callback);
+    public void queryTXT(String name, DnsQueryCallback callback) {
+        query(name, DnsType.TXT, callback);
     }
 
     /**
@@ -523,8 +523,8 @@ public class DNSResolver {
      * @param name the domain name to query
      * @param callback the callback to receive results
      */
-    public void queryA(String name, DNSQueryCallback callback) {
-        query(name, DNSType.A, callback);
+    public void queryA(String name, DnsQueryCallback callback) {
+        query(name, DnsType.A, callback);
     }
 
     /**
@@ -533,8 +533,8 @@ public class DNSResolver {
      * @param name the domain name to query
      * @param callback the callback to receive results
      */
-    public void queryAAAA(String name, DNSQueryCallback callback) {
-        query(name, DNSType.AAAA, callback);
+    public void queryAAAA(String name, DnsQueryCallback callback) {
+        query(name, DnsType.AAAA, callback);
     }
 
     /**
@@ -543,8 +543,8 @@ public class DNSResolver {
      * @param name the domain name to query
      * @param callback the callback to receive results
      */
-    public void queryMX(String name, DNSQueryCallback callback) {
-        query(name, DNSType.MX, callback);
+    public void queryMX(String name, DnsQueryCallback callback) {
+        query(name, DnsType.MX, callback);
     }
 
     /**
@@ -553,8 +553,8 @@ public class DNSResolver {
      * @param name the domain name to query (e.g., "1.0.0.127.in-addr.arpa")
      * @param callback the callback to receive results
      */
-    public void queryPTR(String name, DNSQueryCallback callback) {
-        query(name, DNSType.PTR, callback);
+    public void queryPTR(String name, DnsQueryCallback callback) {
+        query(name, DnsType.PTR, callback);
     }
 
     /**
@@ -567,7 +567,7 @@ public class DNSResolver {
      * @param type the record type to query
      * @param callback the callback to receive results
      */
-    public void query(String name, DNSType type, DNSQueryCallback callback) {
+    public void query(String name, DnsType type, DnsQueryCallback callback) {
         query(name, type, callback, 0);
     }
 
@@ -579,8 +579,8 @@ public class DNSResolver {
      * @param name the service name (e.g. _sip._tcp.example.com)
      * @param callback the callback to receive results
      */
-    public void querySRV(String name, DNSQueryCallback callback) {
-        query(name, DNSType.SRV, callback);
+    public void querySRV(String name, DnsQueryCallback callback) {
+        query(name, DnsType.SRV, callback);
     }
 
     /**
@@ -592,8 +592,8 @@ public class DNSResolver {
      * @param name the domain name to query
      * @param callback the callback to receive results
      */
-    public void queryHTTPS(String name, DNSQueryCallback callback) {
-        query(name, DNSType.HTTPS, callback);
+    public void queryHTTPS(String name, DnsQueryCallback callback) {
+        query(name, DnsType.HTTPS, callback);
     }
 
     /**
@@ -602,17 +602,17 @@ public class DNSResolver {
      * domain name for a specific port and protocol, e.g.
      * {@code _25._tcp.mail.example.com}.
      *
-     * <p>Use a {@link DNSSECAwareQueryCallback} rather than a plain
-     * {@link DNSQueryCallback} to find out whether the answer was
+     * <p>Use a {@link DnssecAwareQueryCallback} rather than a plain
+     * {@link DnsQueryCallback} to find out whether the answer was
      * DNSSEC-validated -- RFC 7672 section 3.1.3 requires a TLSA
      * lookup to be ignored unless it came back
-     * {@link org.bluezoo.gumdrop.dns.DNSSECStatus#SECURE}.
+     * {@link org.bluezoo.gumdrop.dns.DnssecStatus#SECURE}.
      *
      * @param name the TLSA owner name (e.g. "_25._tcp.mail.example.com")
      * @param callback the callback to receive results
      */
-    public void queryTLSA(String name, DNSQueryCallback callback) {
-        query(name, DNSType.TLSA, callback);
+    public void queryTLSA(String name, DnsQueryCallback callback) {
+        query(name, DnsType.TLSA, callback);
     }
 
     // -- High-Level Resolution --
@@ -627,7 +627,7 @@ public class DNSResolver {
      * <p>Resolution order:
      * <ol>
      * <li>Check the local hosts file ({@link HostsFile})</li>
-     * <li>Check the shared {@link DNSCache} (RFC 1035 section 7.4)</li>
+     * <li>Check the shared {@link DnsCache} (RFC 1035 section 7.4)</li>
      * <li>Issue A and AAAA queries in parallel</li>
      * </ol>
      *
@@ -710,18 +710,18 @@ public class DNSResolver {
         final List<InetAddress> v6Addresses = Collections.synchronizedList(new ArrayList<InetAddress>());
         final List<InetAddress> v4Addresses = Collections.synchronizedList(new ArrayList<InetAddress>());
         final String[] lastError = new String[1];
-        queryBatch(hostname, Arrays.asList(DNSType.AAAA, DNSType.A),
+        queryBatch(hostname, Arrays.asList(DnsType.AAAA, DnsType.A),
                 new BatchQueryCallback() {
                     @Override
-                    public void onResult(DNSType type, List<DNSResourceRecord> records) {
-                        List<InetAddress> target = (type == DNSType.AAAA) ? v6Addresses : v4Addresses;
-                        for (DNSResourceRecord rr : records) {
+                    public void onResult(DnsType type, List<DnsResourceRecord> records) {
+                        List<InetAddress> target = (type == DnsType.AAAA) ? v6Addresses : v4Addresses;
+                        for (DnsResourceRecord rr : records) {
                             target.add(rr.getAddress());
                         }
                     }
 
                     @Override
-                    public void onTypeError(DNSType type, String error) {
+                    public void onTypeError(DnsType type, String error) {
                         lastError[0] = error;
                     }
 
@@ -761,9 +761,9 @@ public class DNSResolver {
         }
     }
 
-    private void query(String name, DNSType type,
-                       final DNSQueryCallback callback, int cnameDepth) {
-        query(name, type, Collections.<DNSType>emptyList(), callback, cnameDepth);
+    private void query(String name, DnsType type,
+                       final DnsQueryCallback callback, int cnameDepth) {
+        query(name, type, Collections.<DnsType>emptyList(), callback, cnameDepth);
     }
 
     // additionalTypes: RFC 10029 extra RRTYPEs to request via MQTYPE-Query
@@ -771,8 +771,8 @@ public class DNSResolver {
     // target server isn't known not to support it. Used by queryBatch and
     // (to keep the option attached across a client-side CNAME chase) by
     // deliverResponse's CNAME re-query.
-    private void query(String name, DNSType type, List<DNSType> additionalTypes,
-                       final DNSQueryCallback callback, int cnameDepth) {
+    private void query(String name, DnsType type, List<DnsType> additionalTypes,
+                       final DnsQueryCallback callback, int cnameDepth) {
         if (!opened) {
             callback.onError(L10N.getString("err.resolver_not_opened"));
             return;
@@ -781,27 +781,27 @@ public class DNSResolver {
             callback.onError(L10N.getString("err.no_dns_servers"));
             return;
         }
-        final DNSQuestion question = new DNSQuestion(name, type, DNSClass.IN);
-        DNSCache cache = sharedCache;
+        final DnsQuestion question = new DnsQuestion(name, type, DnsClass.IN);
+        DnsCache cache = sharedCache;
         if (cache != null) {
             if (cache.isNegativelyCached(name)) {
                 deliverCachedNxdomain(name, type, callback);
                 return;
             }
-            List<DNSResourceRecord> cached = cache.lookup(question);
+            List<DnsResourceRecord> cached = cache.lookup(question);
             if (cached != null) {
                 deliverCachedResponse(name, type, cached, callback);
                 return;
             }
         }
-        int queryId = DNSQueryIdGenerator.allocate(pendingQueries.keySet());
-        List<DNSQuestion> questions = new ArrayList<>();
+        int queryId = DnsQueryIdGenerator.allocate(pendingQueries.keySet());
+        List<DnsQuestion> questions = new ArrayList<>();
         questions.add(question);
         // RFC 6891 section 6.1.1: include OPT pseudo-record to signal
         // EDNS0 support and advertise UDP payload size.
         // RFC 7873: include DNS cookie in the OPT record.
         // RFC 4035 section 3.2.1: set DO bit when DNSSEC is enabled.
-        List<DNSResourceRecord> additionals = new ArrayList<>();
+        List<DnsResourceRecord> additionals = new ArrayList<>();
         InetSocketAddress targetServer = servers.isEmpty() ? null : servers.get(0);
         String serverAddr = targetServer == null ? "" :
                 targetServer.getAddress().getHostAddress();
@@ -814,7 +814,7 @@ public class DNSResolver {
                 && !DNSMultiQTypeCache.isKnownUnsupported(targetServer);
         byte[] optionData;
         if (attachMQType) {
-            byte[] mqtypeOption = DNSMultiQType.buildMQTypeQueryOption(additionalTypes);
+            byte[] mqtypeOption = DnsMultiQType.buildMQTypeQueryOption(additionalTypes);
             optionData = new byte[cookieOption.length + mqtypeOption.length];
             System.arraycopy(cookieOption, 0, optionData, 0, cookieOption.length);
             System.arraycopy(mqtypeOption, 0, optionData, cookieOption.length, mqtypeOption.length);
@@ -822,18 +822,18 @@ public class DNSResolver {
             optionData = cookieOption;
         }
         int ednsFlags = dnssecEnabled
-                ? DNSResourceRecord.EDNS_FLAG_DO : 0;
-        additionals.add(DNSResourceRecord.opt(
-                DNSMessage.DEFAULT_EDNS_UDP_SIZE, ednsFlags,
+                ? DnsResourceRecord.EDNS_FLAG_DO : 0;
+        additionals.add(DnsResourceRecord.opt(
+                DnsMessage.DEFAULT_EDNS_UDP_SIZE, ednsFlags,
                 optionData));
         // RFC 1035 section 4.1.1: set RD to request recursive resolution
-        int flags = DNSMessage.FLAG_RD;
-        DNSMessage queryMsg = new DNSMessage(
+        int flags = DnsMessage.FLAG_RD;
+        DnsMessage queryMsg = new DnsMessage(
                 queryId,
                 flags,
                 questions,
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
                 additionals
         );
         ByteBuffer serialized = queryMsg.serialize();
@@ -847,17 +847,17 @@ public class DNSResolver {
 
     // -- Internal Methods --
 
-    private void deliverCachedResponse(final String name, final DNSType type,
-                                       final List<DNSResourceRecord> records,
-                                       final DNSQueryCallback callback) {
-        int syntheticId = DNSQueryIdGenerator.allocateSynthetic();
-        List<DNSQuestion> questions = new ArrayList<>();
-        questions.add(new DNSQuestion(name, type, DNSClass.IN));
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        final DNSMessage response = new DNSMessage(
+    private void deliverCachedResponse(final String name, final DnsType type,
+                                       final List<DnsResourceRecord> records,
+                                       final DnsQueryCallback callback) {
+        int syntheticId = DnsQueryIdGenerator.allocateSynthetic();
+        List<DnsQuestion> questions = new ArrayList<>();
+        questions.add(new DnsQuestion(name, type, DnsClass.IN));
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        final DnsMessage response = new DnsMessage(
                 syntheticId, flags, questions, records,
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList()
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList()
         );
         if (selectorLoop != null) {
             selectorLoop.invokeLater(new Runnable() {
@@ -871,18 +871,18 @@ public class DNSResolver {
         }
     }
 
-    private void deliverCachedNxdomain(final String name, final DNSType type,
-                                       final DNSQueryCallback callback) {
-        int syntheticId = DNSQueryIdGenerator.allocateSynthetic();
-        List<DNSQuestion> questions = new ArrayList<>();
-        questions.add(new DNSQuestion(name, type, DNSClass.IN));
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA
-                | DNSMessage.RCODE_NXDOMAIN;
-        final DNSMessage response = new DNSMessage(
+    private void deliverCachedNxdomain(final String name, final DnsType type,
+                                       final DnsQueryCallback callback) {
+        int syntheticId = DnsQueryIdGenerator.allocateSynthetic();
+        List<DnsQuestion> questions = new ArrayList<>();
+        questions.add(new DnsQuestion(name, type, DnsClass.IN));
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA
+                | DnsMessage.RCODE_NXDOMAIN;
+        final DnsMessage response = new DnsMessage(
                 syntheticId, flags, questions,
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList()
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList()
         );
         if (selectorLoop != null) {
             selectorLoop.invokeLater(new Runnable() {
@@ -896,22 +896,22 @@ public class DNSResolver {
         }
     }
 
-    private void cacheResponse(DNSMessage response) {
-        DNSCache cache = sharedCache;
+    private void cacheResponse(DnsMessage response) {
+        DnsCache cache = sharedCache;
         if (cache == null) {
             return;
         }
-        List<DNSQuestion> questions = response.getQuestions();
+        List<DnsQuestion> questions = response.getQuestions();
         if (questions.isEmpty()) {
             return;
         }
-        DNSQuestion question = questions.get(0);
-        if (response.getRcode() == DNSMessage.RCODE_NXDOMAIN) {
-            List<DNSResourceRecord> authorities = DNSBailiwick.filterAuthoritiesInBailiwick(
+        DnsQuestion question = questions.get(0);
+        if (response.getRcode() == DnsMessage.RCODE_NXDOMAIN) {
+            List<DnsResourceRecord> authorities = DnsBailiwick.filterAuthoritiesInBailiwick(
                     question.getName(), response.getAuthorities());
             cache.cacheNegative(question.getName(), authorities);
-        } else if (response.getRcode() == DNSMessage.RCODE_NOERROR) {
-            List<DNSResourceRecord> answers = DNSBailiwick.filterAnswersInBailiwick(
+        } else if (response.getRcode() == DnsMessage.RCODE_NOERROR) {
+            List<DnsResourceRecord> answers = DnsBailiwick.filterAnswersInBailiwick(
                     question.getName(), response.getAnswers());
             if (!answers.isEmpty()) {
                 cache.cache(question, answers);
@@ -919,18 +919,18 @@ public class DNSResolver {
         }
     }
 
-    private boolean shouldChaseCname(PendingQuery pending, DNSMessage response) {
-        if (pending.type == DNSType.CNAME) {
+    private boolean shouldChaseCname(PendingQuery pending, DnsMessage response) {
+        if (pending.type == DnsType.CNAME) {
             return false;
         }
-        List<DNSResourceRecord> answers = response.getAnswers();
+        List<DnsResourceRecord> answers = response.getAnswers();
         if (answers.isEmpty()) {
             return false;
         }
         boolean hasCname = false;
         boolean hasRequestedType = false;
-        for (DNSResourceRecord rr : answers) {
-            if (rr.getType() == DNSType.CNAME) {
+        for (DnsResourceRecord rr : answers) {
+            if (rr.getType() == DnsType.CNAME) {
                 hasCname = true;
             } else if (rr.getType() == pending.type) {
                 hasRequestedType = true;
@@ -939,10 +939,10 @@ public class DNSResolver {
         return hasCname && !hasRequestedType;
     }
 
-    private String extractCname(PendingQuery pending, DNSMessage response) {
-        for (DNSResourceRecord rr : response.getAnswers()) {
-            if (rr.getType() == DNSType.CNAME
-                    && DNSBailiwick.namesEqual(rr.getName(), pending.name)) {
+    private String extractCname(PendingQuery pending, DnsMessage response) {
+        for (DnsResourceRecord rr : response.getAnswers()) {
+            if (rr.getType() == DnsType.CNAME
+                    && DnsBailiwick.namesEqual(rr.getName(), pending.name)) {
                 return rr.getTargetName();
             }
         }
@@ -950,7 +950,7 @@ public class DNSResolver {
     }
 
     private void sendToServer(final PendingQuery pending) {
-        DNSClientTransport transport = transports.get(pending.serverIndex);
+        DnsClientTransport transport = transports.get(pending.serverIndex);
         pending.timeoutHandle = transport.scheduleTimer(timeoutMs,
                 new Runnable() {
                     @Override
@@ -992,7 +992,7 @@ public class DNSResolver {
      * capability cache for future opens rather than replacing the
      * transport mid-session -- see that method's comment for why.
      */
-    private DNSClientTransport openBestTransport(InetSocketAddress server,
+    private DnsClientTransport openBestTransport(InetSocketAddress server,
                                                   TransportCallback callback) throws IOException {
         if (transportPrototype != null) {
             transportPrototype.open(server.getAddress(), server.getPort(),
@@ -1005,7 +1005,7 @@ public class DNSResolver {
             if (!supports(caps, type) || DNSServerCapabilityCache.isKnownUnsupported(server, type)) {
                 continue;
             }
-            DNSClientTransport transport = newTransportInstance(type, caps);
+            DnsClientTransport transport = newTransportInstance(type, caps);
             if (transport == null) {
                 continue; // e.g. DoH with no provider on the classpath
             }
@@ -1065,17 +1065,17 @@ public class DNSResolver {
     // Package-private (not private) and non-final so tests can override
     // it to inject mock transports per type, the same way
     // createTcpRetryTransport() below is overridable for the TC-retry path.
-    DNSClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
+    DnsClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
         switch (type) {
             case DOQ:
                 return new DoQClientTransport();
             case DOT:
-                return TCPDNSClientTransport.createDoT();
+                return TcpDNSClientTransport.createDoT();
             case DOH:
                 return createDohTransport(caps.getDohPath());
             case PLAIN:
             default:
-                return new UDPDNSClientTransport();
+                return new UdpDNSClientTransport();
         }
     }
 
@@ -1088,9 +1088,9 @@ public class DNSResolver {
      * directly -- see that interface's Javadoc), or null if no provider
      * is on the classpath.
      */
-    private static DNSClientTransport createDohTransport(String path) {
+    private static DnsClientTransport createDohTransport(String path) {
         if (!dohTransportFactoryLoaded) {
-            synchronized (DNSResolver.class) {
+            synchronized (DnsResolver.class) {
                 if (!dohTransportFactoryLoaded) {
                     for (DoHTransportFactory factory : ServiceLoader.load(DoHTransportFactory.class)) {
                         dohTransportFactory = factory;
@@ -1105,7 +1105,7 @@ public class DNSResolver {
     }
 
     // RFC 1035 section 7.3: match response to query by Message ID
-    private void handleResponse(DNSMessage response) {
+    private void handleResponse(DnsMessage response) {
         int queryId = response.getId();
         PendingQuery pending = pendingQueries.remove(queryId);
         if (pending == null) {
@@ -1135,13 +1135,13 @@ public class DNSResolver {
      * RFC 7873: extracts the server cookie from a response's OPT record
      * and caches it for use in subsequent queries.
      */
-    private void processResponseCookies(DNSMessage response,
+    private void processResponseCookies(DnsMessage response,
                                          PendingQuery pending) {
         for (Object obj : response.getAdditionals()) {
-            DNSResourceRecord rr = (DNSResourceRecord) obj;
-            if (rr.getType() == DNSType.OPT) {
-                byte[] cookieData = DNSCookie.findEdnsOption(
-                        rr.getRData(), DNSCookie.EDNS_OPTION_COOKIE);
+            DnsResourceRecord rr = (DnsResourceRecord) obj;
+            if (rr.getType() == DnsType.OPT) {
+                byte[] cookieData = DnsCookie.findEdnsOption(
+                        rr.getRData(), DnsCookie.EDNS_OPTION_COOKIE);
                 if (cookieData != null) {
                     String serverAddr = servers.get(
                             pending.serverIndex).getAddress()
@@ -1154,7 +1154,7 @@ public class DNSResolver {
         }
     }
 
-    private void deliverResponse(PendingQuery pending, DNSMessage response) {
+    private void deliverResponse(PendingQuery pending, DnsMessage response) {
         cacheResponse(response);
         if (shouldChaseCname(pending, response)) {
             String cname = extractCname(pending, response);
@@ -1176,13 +1176,13 @@ public class DNSResolver {
             LOGGER.fine(msg);
         }
         if (dnssecEnabled && chainValidator != null) {
-            final DNSQueryCallback cb = pending.callback;
-            final DNSMessage resp = response;
+            final DnsQueryCallback cb = pending.callback;
+            final DnsMessage resp = response;
             chainValidator.validate(response,
-                    new DNSSECValidationCallback() {
+                    new DnssecValidationCallback() {
                         @Override
-                        public void onValidated(DNSSECStatus status,
-                                                DNSMessage validated) {
+                        public void onValidated(DnssecStatus status,
+                                                DnsMessage validated) {
                             if (LOGGER.isLoggable(Level.FINE)) {
                                 LOGGER.fine("DNSSEC status: " + status);
                             }
@@ -1191,7 +1191,7 @@ public class DNSResolver {
                     });
         } else {
             deliverToCallback(pending.callback, response,
-                    DNSSECStatus.INDETERMINATE);
+                    DnssecStatus.INDETERMINATE);
         }
     }
 
@@ -1201,11 +1201,11 @@ public class DNSResolver {
      * (RFC 7672 section 3.1.3 needs this to reject an insecure DANE
      * lookup) without changing behavior for plain callbacks.
      */
-    private static void deliverToCallback(DNSQueryCallback callback,
-                                          DNSMessage response,
-                                          DNSSECStatus status) {
-        if (callback instanceof DNSSECAwareQueryCallback) {
-            ((DNSSECAwareQueryCallback) callback)
+    private static void deliverToCallback(DnsQueryCallback callback,
+                                          DnsMessage response,
+                                          DnssecStatus status) {
+        if (callback instanceof DnssecAwareQueryCallback) {
+            ((DnssecAwareQueryCallback) callback)
                     .onResponse(response, status);
         } else {
             callback.onResponse(response);
@@ -1239,15 +1239,15 @@ public class DNSResolver {
 
     private static final int TCP_TIMEOUT_MS = 5000;
 
-    DNSClientTransport createTcpRetryTransport() {
-        return new TCPDNSClientTransport();
+    DnsClientTransport createTcpRetryTransport() {
+        return new TcpDNSClientTransport();
     }
 
     private void retryOverTcpAsync(final PendingQuery pending,
                                    InetSocketAddress server,
-                                   final DNSMessage truncatedResponse) {
+                                   final DnsMessage truncatedResponse) {
         try {
-            final DNSClientTransport tcpTransport =
+            final DnsClientTransport tcpTransport =
                     createTcpRetryTransport();
             TcpRetryHandler handler = new TcpRetryHandler(
                     pending, truncatedResponse, tcpTransport);
@@ -1269,17 +1269,17 @@ public class DNSResolver {
         }
     }
 
-    private class TcpRetryHandler implements DNSClientTransportHandler {
+    private class TcpRetryHandler implements DnsClientTransportHandler {
 
         private final PendingQuery pending;
-        private final DNSMessage truncatedResponse;
-        private final DNSClientTransport transport;
+        private final DnsMessage truncatedResponse;
+        private final DnsClientTransport transport;
         TimerHandle timeoutHandle;
         private boolean completed;
 
         TcpRetryHandler(PendingQuery pending,
-                        DNSMessage truncatedResponse,
-                        DNSClientTransport transport) {
+                        DnsMessage truncatedResponse,
+                        DnsClientTransport transport) {
             this.pending = pending;
             this.truncatedResponse = truncatedResponse;
             this.transport = transport;
@@ -1295,7 +1295,7 @@ public class DNSResolver {
                 timeoutHandle.cancel();
             }
             try {
-                DNSMessage tcpResponse = DNSMessage.parse(data);
+                DnsMessage tcpResponse = DnsMessage.parse(data);
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.fine(MessageFormat.format(
                             "TCP retry for {0} succeeded ({1} answers)",
@@ -1303,7 +1303,7 @@ public class DNSResolver {
                             tcpResponse.getAnswers().size()));
                 }
                 deliverResponse(pending, tcpResponse);
-            } catch (DNSFormatException e) {
+            } catch (DnsFormatException e) {
                 LOGGER.log(Level.WARNING,
                         "TCP retry parse error for " + pending.name, e);
                 deliverResponse(pending, truncatedResponse);
@@ -1355,8 +1355,8 @@ public class DNSResolver {
      * #createTcpRetryTransport} is overridable for the truncation-retry
      * path.
      */
-    DNSClientTransport createDdrTransport() {
-        return new UDPDNSClientTransport();
+    DnsClientTransport createDdrTransport() {
+        return new UdpDNSClientTransport();
     }
 
     /**
@@ -1368,7 +1368,7 @@ public class DNSResolver {
      */
     private void startDdrDiscovery(final int serverIndex, final InetSocketAddress server) {
         try {
-            final DNSClientTransport transport = createDdrTransport();
+            final DnsClientTransport transport = createDdrTransport();
             final DDRHandler handler = new DDRHandler(serverIndex, server, transport);
             transport.open(server.getAddress(), server.getPort(), selectorLoop, handler);
             handler.timeoutHandle = transport.scheduleTimer(DDR_TIMEOUT_MS, new Runnable() {
@@ -1377,13 +1377,13 @@ public class DNSResolver {
                     handler.onTimeout();
                 }
             });
-            List<DNSQuestion> questions = Collections.singletonList(
-                    new DNSQuestion(DDR_QUERY_NAME, DNSType.SVCB, DNSClass.IN));
-            DNSMessage queryMsg = new DNSMessage(
-                    DNSQueryIdGenerator.allocateSynthetic(), DNSMessage.FLAG_RD, questions,
-                    Collections.<DNSResourceRecord>emptyList(),
-                    Collections.<DNSResourceRecord>emptyList(),
-                    Collections.<DNSResourceRecord>emptyList());
+            List<DnsQuestion> questions = Collections.singletonList(
+                    new DnsQuestion(DDR_QUERY_NAME, DnsType.SVCB, DnsClass.IN));
+            DnsMessage queryMsg = new DnsMessage(
+                    DnsQueryIdGenerator.allocateSynthetic(), DnsMessage.FLAG_RD, questions,
+                    Collections.<DnsResourceRecord>emptyList(),
+                    Collections.<DnsResourceRecord>emptyList(),
+                    Collections.<DnsResourceRecord>emptyList());
             transport.send(queryMsg.serialize());
         } catch (IOException e) {
             if (LOGGER.isLoggable(Level.FINE)) {
@@ -1404,8 +1404,8 @@ public class DNSResolver {
      * indicate DoH support. AliasForm records (SvcPriority 0) carry no
      * SvcParams and are skipped.
      */
-    private DNSServerCapabilities parseDdrResponse(DNSMessage response) {
-        if (response.getRcode() != DNSMessage.RCODE_NOERROR) {
+    private DNSServerCapabilities parseDdrResponse(DnsMessage response) {
+        if (response.getRcode() != DnsMessage.RCODE_NOERROR) {
             return null;
         }
         boolean doq = false;
@@ -1414,8 +1414,8 @@ public class DNSResolver {
         int dotPort = 0;
         String dohPath = null;
         int dohPort = 0;
-        for (DNSResourceRecord rr : response.getAnswers()) {
-            if (rr.getType() != DNSType.SVCB || rr.isSVCBAliasForm()) {
+        for (DnsResourceRecord rr : response.getAnswers()) {
+            if (rr.getType() != DnsType.SVCB || rr.isSVCBAliasForm()) {
                 continue;
             }
             List<String> alpns = rr.getSVCBAlpnProtocols();
@@ -1468,10 +1468,10 @@ public class DNSResolver {
             return;
         }
         InetSocketAddress server = servers.get(serverIndex);
-        DNSClientTransport oldTransport = transports.get(serverIndex);
+        DnsClientTransport oldTransport = transports.get(serverIndex);
         TransportCallback callback = new TransportCallback(serverIndex);
         try {
-            DNSClientTransport newTransport = openBestTransport(server, callback);
+            DnsClientTransport newTransport = openBestTransport(server, callback);
             transports.set(serverIndex, newTransport);
             oldTransport.close();
             if (LOGGER.isLoggable(Level.FINE)) {
@@ -1494,15 +1494,15 @@ public class DNSResolver {
      * separate, dedicated transport and handler for the truncation-retry
      * path.
      */
-    private class DDRHandler implements DNSClientTransportHandler {
+    private class DDRHandler implements DnsClientTransportHandler {
 
         private final int serverIndex;
         private final InetSocketAddress server;
-        private final DNSClientTransport transport;
+        private final DnsClientTransport transport;
         TimerHandle timeoutHandle;
         private boolean completed;
 
-        DDRHandler(int serverIndex, InetSocketAddress server, DNSClientTransport transport) {
+        DDRHandler(int serverIndex, InetSocketAddress server, DnsClientTransport transport) {
             this.serverIndex = serverIndex;
             this.server = server;
             this.transport = transport;
@@ -1518,7 +1518,7 @@ public class DNSResolver {
                 timeoutHandle.cancel();
             }
             try {
-                DNSMessage response = DNSMessage.parse(data);
+                DnsMessage response = DnsMessage.parse(data);
                 DNSServerCapabilities discovered = parseDdrResponse(response);
                 if (discovered != null) {
                     DNSServerCapabilityCache.learn(server, discovered);
@@ -1528,7 +1528,7 @@ public class DNSResolver {
                     }
                     upgradeServerTransport(serverIndex);
                 }
-            } catch (DNSFormatException e) {
+            } catch (DnsFormatException e) {
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.log(Level.FINE, "Malformed DDR response from " + server, e);
                 }
@@ -1562,18 +1562,18 @@ public class DNSResolver {
     private static class PendingQuery {
         final int queryId;
         final String name;
-        final DNSType type;
-        final List<DNSType> additionalTypes;
-        final DNSQueryCallback callback;
+        final DnsType type;
+        final List<DnsType> additionalTypes;
+        final DnsQueryCallback callback;
         final long expiry;
         final ByteBuffer queryData;
         final int cnameDepth;
         int serverIndex;
         TimerHandle timeoutHandle;
 
-        PendingQuery(int queryId, String name, DNSType type,
-                     List<DNSType> additionalTypes,
-                     DNSQueryCallback callback, long expiry,
+        PendingQuery(int queryId, String name, DnsType type,
+                     List<DnsType> additionalTypes,
+                     DnsQueryCallback callback, long expiry,
                      int serverIndex, ByteBuffer queryData,
                      int cnameDepth) {
             this.queryId = queryId;
@@ -1612,27 +1612,27 @@ public class DNSResolver {
      *              primary QTYPE
      * @param callback the callback to receive results
      */
-    public void queryBatch(String name, List<DNSType> types, BatchQueryCallback callback) {
-        final Set<DNSType> requested = new LinkedHashSet<>(types);
+    public void queryBatch(String name, List<DnsType> types, BatchQueryCallback callback) {
+        final Set<DnsType> requested = new LinkedHashSet<>(types);
         if (requested.isEmpty()) {
             throw new IllegalArgumentException("types must not be empty");
         }
         final BatchCollector collector = new BatchCollector(requested, callback);
-        Iterator<DNSType> it = requested.iterator();
-        final DNSType primaryType = it.next();
-        final List<DNSType> additionalTypes = new ArrayList<>();
+        Iterator<DnsType> it = requested.iterator();
+        final DnsType primaryType = it.next();
+        final List<DnsType> additionalTypes = new ArrayList<>();
         while (it.hasNext()) {
             additionalTypes.add(it.next());
         }
 
         final InetSocketAddress targetServer = servers.isEmpty() ? null : servers.get(0);
-        final List<DNSType> optionTypes = (!additionalTypes.isEmpty() && targetServer != null
+        final List<DnsType> optionTypes = (!additionalTypes.isEmpty() && targetServer != null
                 && !DNSMultiQTypeCache.isKnownUnsupported(targetServer))
-                ? additionalTypes : Collections.<DNSType>emptyList();
+                ? additionalTypes : Collections.<DnsType>emptyList();
 
-        query(name, primaryType, optionTypes, new DNSQueryCallback() {
+        query(name, primaryType, optionTypes, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 collector.deliver(primaryType, recordsOfType(response, primaryType));
                 if (additionalTypes.isEmpty()) {
                     return;
@@ -1641,13 +1641,13 @@ public class DNSResolver {
                     // Didn't attempt the option this round (known
                     // unsupported, or nothing to attach it to) --
                     // resolve every additional type independently.
-                    for (DNSType t : additionalTypes) {
+                    for (DnsType t : additionalTypes) {
                         queryStandaloneForBatch(name, t, collector);
                     }
                     return;
                 }
-                List<DNSType> covered = mqTypeResponseCoverage(response, targetServer);
-                for (DNSType t : additionalTypes) {
+                List<DnsType> covered = mqTypeResponseCoverage(response, targetServer);
+                for (DnsType t : additionalTypes) {
                     if (covered.contains(t)) {
                         collector.deliver(t, recordsOfType(response, t));
                     } else {
@@ -1662,18 +1662,18 @@ public class DNSResolver {
                 // a per-type DNS-level outcome) -- every requested type
                 // fails together.
                 collector.fail(primaryType, error);
-                for (DNSType t : additionalTypes) {
+                for (DnsType t : additionalTypes) {
                     collector.fail(t, error);
                 }
             }
         }, 0);
     }
 
-    private void queryStandaloneForBatch(String name, final DNSType type,
+    private void queryStandaloneForBatch(String name, final DnsType type,
                                          final BatchCollector collector) {
-        query(name, type, new DNSQueryCallback() {
+        query(name, type, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 collector.deliver(type, recordsOfType(response, type));
             }
 
@@ -1684,9 +1684,9 @@ public class DNSResolver {
         });
     }
 
-    private static List<DNSResourceRecord> recordsOfType(DNSMessage response, DNSType type) {
-        List<DNSResourceRecord> result = new ArrayList<>();
-        for (DNSResourceRecord rr : response.getAnswers()) {
+    private static List<DnsResourceRecord> recordsOfType(DnsMessage response, DnsType type) {
+        List<DnsResourceRecord> result = new ArrayList<>();
+        for (DnsResourceRecord rr : response.getAnswers()) {
             if (rr.getType() == type) {
                 result.add(rr);
             }
@@ -1699,15 +1699,15 @@ public class DNSResolver {
     // not supporting the mechanism (so future queries skip attaching the
     // option, per DNSMultiQTypeCache) when that option is absent or the
     // server erroneously echoed MQTYPE-Query back instead.
-    private List<DNSType> mqTypeResponseCoverage(DNSMessage response, InetSocketAddress server) {
+    private List<DnsType> mqTypeResponseCoverage(DnsMessage response, InetSocketAddress server) {
         for (Object obj : response.getAdditionals()) {
-            DNSResourceRecord rr = (DNSResourceRecord) obj;
-            if (rr.getType() != DNSType.OPT) {
+            DnsResourceRecord rr = (DnsResourceRecord) obj;
+            if (rr.getType() != DnsType.OPT) {
                 continue;
             }
             byte[] rdata = rr.getRData();
-            byte[] responseData = DNSCookie.findEdnsOption(
-                    rdata, DNSMultiQType.EDNS_OPTION_MQTYPE_RESPONSE);
+            byte[] responseData = DnsCookie.findEdnsOption(
+                    rdata, DnsMultiQType.EDNS_OPTION_MQTYPE_RESPONSE);
             if (responseData == null) {
                 if (server != null) {
                     DNSMultiQTypeCache.markUnsupported(server);
@@ -1715,8 +1715,8 @@ public class DNSResolver {
                 return Collections.emptyList();
             }
             try {
-                return DNSMultiQType.parseMQTypeResponseOption(responseData);
-            } catch (DNSFormatException e) {
+                return DnsMultiQType.parseMQTypeResponseOption(responseData);
+            } catch (DnsFormatException e) {
                 if (LOGGER.isLoggable(Level.FINE)) {
                     LOGGER.log(Level.FINE, "Malformed MQTYPE-Response option", e);
                 }
@@ -1738,24 +1738,24 @@ public class DNSResolver {
      */
     private static final class BatchCollector {
         private final BatchQueryCallback callback;
-        private final Set<DNSType> outstanding;
+        private final Set<DnsType> outstanding;
 
-        BatchCollector(Set<DNSType> requested, BatchQueryCallback callback) {
+        BatchCollector(Set<DnsType> requested, BatchQueryCallback callback) {
             this.callback = callback;
             this.outstanding = Collections.synchronizedSet(new HashSet<>(requested));
         }
 
-        void deliver(DNSType type, List<DNSResourceRecord> records) {
+        void deliver(DnsType type, List<DnsResourceRecord> records) {
             callback.onResult(type, records);
             settle(type);
         }
 
-        void fail(DNSType type, String error) {
+        void fail(DnsType type, String error) {
             callback.onTypeError(type, error);
             settle(type);
         }
 
-        private void settle(DNSType type) {
+        private void settle(DnsType type) {
             boolean done;
             synchronized (outstanding) {
                 // A type can settle twice if it's both the primary type
@@ -1771,7 +1771,7 @@ public class DNSResolver {
         }
     }
 
-    private class TransportCallback implements DNSClientTransportHandler {
+    private class TransportCallback implements DnsClientTransportHandler {
 
         private final int serverIndex;
 
@@ -1790,9 +1790,9 @@ public class DNSResolver {
         @Override
         public void onReceive(ByteBuffer data) {
             try {
-                DNSMessage response = DNSMessage.parse(data);
+                DnsMessage response = DnsMessage.parse(data);
                 handleResponse(response);
-            } catch (DNSFormatException e) {
+            } catch (DnsFormatException e) {
                 LOGGER.log(Level.WARNING,
                         L10N.getString("err.malformed_response"), e);
             }

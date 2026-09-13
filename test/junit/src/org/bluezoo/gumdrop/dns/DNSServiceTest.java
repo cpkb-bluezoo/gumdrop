@@ -42,28 +42,28 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSService}.
+ * Unit tests for {@link DnsServer}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DNSServiceTest {
 
     /**
-     * Drives {@link DNSService#processQuery} to completion and returns
-     * its response. A cache hit or {@link DNSService#resolve} hit
+     * Drives {@link DnsServer#processQuery} to completion and returns
+     * its response. A cache hit or {@link DnsServer#resolve} hit
      * completes synchronously (the latch is already at zero by the
      * time {@code await} runs); upstream forwarding is genuinely
      * asynchronous, so this always waits rather than assuming either
      * shape.
      */
-    private static DNSMessage syncProcessQuery(DNSService service, DNSMessage query)
+    private static DnsMessage syncProcessQuery(DnsServer service, DnsMessage query)
             throws Exception {
-        final AtomicReference<DNSMessage> result = new AtomicReference<>();
+        final AtomicReference<DnsMessage> result = new AtomicReference<>();
         final AtomicReference<String> error = new AtomicReference<>();
         final CountDownLatch latch = new CountDownLatch(1);
-        service.processQuery(query, null, new DNSQueryCallback() {
+        service.processQuery(query, null, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
+            public void onResponse(DnsMessage response) {
                 result.set(response);
                 latch.countDown();
             }
@@ -83,11 +83,11 @@ public class DNSServiceTest {
     }
 
     /**
-     * Drives {@link DNSService#handleDatagram} to completion (i.e.
+     * Drives {@link DnsServer#handleDatagram} to completion (i.e.
      * waits for its {@code onComplete} callback, which fires only
      * once a response has actually been sent).
      */
-    private static void syncHandleDatagram(DNSService service, DNSListener listener,
+    private static void syncHandleDatagram(DnsServer service, DnsListener listener,
             ByteBuffer data, InetSocketAddress source) throws Exception {
         final CountDownLatch latch = new CountDownLatch(1);
         service.handleDatagram(listener, data, source, new Runnable() {
@@ -131,16 +131,16 @@ public class DNSServiceTest {
                     mockUpstream.receive(pkt);
 
                     ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
-                    DNSMessage query = DNSMessage.parse(queryBuf);
+                    DnsMessage query = DnsMessage.parse(queryBuf);
 
                     // Respond with a WRONG ID to simulate spoofing
                     int wrongId = (query.getId() + 1) & 0xFFFF;
-                    DNSMessage badResponse = new DNSMessage(
+                    DnsMessage badResponse = new DnsMessage(
                             wrongId,
-                            DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA,
+                            DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA,
                             query.getQuestions(),
                             Collections.singletonList(
-                                    DNSResourceRecord.a("example.com", 300,
+                                    DnsResourceRecord.a("example.com", 300,
                                             InetAddress.getByName("1.2.3.4"))),
                             Collections.emptyList(),
                             Collections.emptyList());
@@ -161,17 +161,17 @@ public class DNSServiceTest {
         responder.start();
 
         try {
-            DNSService service = new DNSService();
+            DnsServer service = new DnsServer();
             service.setUseSystemResolvers(false);
             service.setCacheEnabled(false);
             service.setUpstreamServers("127.0.0.1:" + mockPort);
             service.start();
 
             try {
-                DNSMessage query = DNSMessage.createQuery(42, "example.com", DNSType.A);
-                DNSMessage response = syncProcessQuery(service, query);
+                DnsMessage query = DnsMessage.createQuery(42, "example.com", DnsType.A);
+                DnsMessage response = syncProcessQuery(service, query);
 
-                assertEquals(DNSMessage.RCODE_SERVFAIL, response.getRcode());
+                assertEquals(DnsMessage.RCODE_SERVFAIL, response.getRcode());
             } finally {
                 service.stop();
             }
@@ -202,12 +202,12 @@ public class DNSServiceTest {
                     mockUpstream.receive(pkt);
 
                     ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
-                    DNSMessage query = DNSMessage.parse(queryBuf);
+                    DnsMessage query = DnsMessage.parse(queryBuf);
 
                     // Return a truncated response (TC bit set)
-                    int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD
-                            | DNSMessage.FLAG_RA | DNSMessage.FLAG_TC;
-                    DNSMessage truncated = new DNSMessage(
+                    int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD
+                            | DnsMessage.FLAG_RA | DnsMessage.FLAG_TC;
+                    DnsMessage truncated = new DnsMessage(
                             query.getId(), flags,
                             query.getQuestions(),
                             Collections.emptyList(),
@@ -230,22 +230,22 @@ public class DNSServiceTest {
         udpResponder.start();
 
         // Note: TCP fallback goes to the same host but port in the
-        // upstream address. Since our DNSService.retryOverTcp uses the
+        // upstream address. Since our DnsServer.retryOverTcp uses the
         // same address, we need the TCP server on the same port.
         // For simplicity, this test verifies the truncation detection
         // path exists by checking the response is still valid even if
         // TCP fallback fails (graceful degradation).
 
         try {
-            DNSService service = new DNSService();
+            DnsServer service = new DnsServer();
             service.setUseSystemResolvers(false);
             service.setCacheEnabled(false);
             service.setUpstreamServers("127.0.0.1:" + mockPort);
             service.start();
 
             try {
-                DNSMessage query = DNSMessage.createQuery(42, "example.com", DNSType.A);
-                DNSMessage response = syncProcessQuery(service, query);
+                DnsMessage query = DnsMessage.createQuery(42, "example.com", DnsType.A);
+                DnsMessage response = syncProcessQuery(service, query);
 
                 // Even if TCP fallback fails, we should get a response
                 // (truncated or SERVFAIL)
@@ -277,15 +277,15 @@ public class DNSServiceTest {
                     mockUpstream.receive(pkt);
 
                     ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
-                    DNSMessage query = DNSMessage.parse(queryBuf);
+                    DnsMessage query = DnsMessage.parse(queryBuf);
 
                     // Respond with correct ID
-                    DNSMessage goodResponse = new DNSMessage(
+                    DnsMessage goodResponse = new DnsMessage(
                             query.getId(),
-                            DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA,
+                            DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA,
                             query.getQuestions(),
                             Collections.singletonList(
-                                    DNSResourceRecord.a("example.com", 300,
+                                    DnsResourceRecord.a("example.com", 300,
                                             InetAddress.getByName("93.184.216.34"))),
                             Collections.emptyList(),
                             Collections.emptyList());
@@ -306,17 +306,17 @@ public class DNSServiceTest {
         responder.start();
 
         try {
-            DNSService service = new DNSService();
+            DnsServer service = new DnsServer();
             service.setUseSystemResolvers(false);
             service.setCacheEnabled(false);
             service.setUpstreamServers("127.0.0.1:" + mockPort);
             service.start();
 
             try {
-                DNSMessage query = DNSMessage.createQuery(42, "example.com", DNSType.A);
-                DNSMessage response = syncProcessQuery(service, query);
+                DnsMessage query = DnsMessage.createQuery(42, "example.com", DnsType.A);
+                DnsMessage response = syncProcessQuery(service, query);
 
-                assertEquals(DNSMessage.RCODE_NOERROR, response.getRcode());
+                assertEquals(DnsMessage.RCODE_NOERROR, response.getRcode());
                 assertFalse(response.getAnswers().isEmpty());
             } finally {
                 service.stop();
@@ -333,35 +333,35 @@ public class DNSServiceTest {
     @Test
     public void testCookieOnlyResponseWithoutServerCookie() throws Exception {
         CapturingDNSListener listener = new CapturingDNSListener();
-        DNSService service = new DNSService();
+        DnsServer service = new DnsServer();
         service.setUseSystemResolvers(false);
         service.setCacheEnabled(false);
         listener.setService(service);
 
-        DNSCookie clientCookie = new DNSCookie();
+        DnsCookie clientCookie = new DnsCookie();
         byte[] cc = clientCookie.getClientCookie();
-        DNSResourceRecord opt = DNSResourceRecord.opt(
-                DNSMessage.DEFAULT_EDNS_UDP_SIZE,
+        DnsResourceRecord opt = DnsResourceRecord.opt(
+                DnsMessage.DEFAULT_EDNS_UDP_SIZE,
                 buildCookieEdnsOption(cc));
-        DNSMessage query = DNSMessage.createQuery(7, "example.com",
-                DNSType.A, Collections.singletonList(opt));
+        DnsMessage query = DnsMessage.createQuery(7, "example.com",
+                DnsType.A, Collections.singletonList(opt));
 
         InetSocketAddress source =
                 new InetSocketAddress("127.0.0.1", 54321);
         syncHandleDatagram(service, listener, query.serialize(), source);
 
         assertNotNull(listener.lastSent);
-        DNSMessage response = DNSMessage.parse(listener.lastSent);
+        DnsMessage response = DnsMessage.parse(listener.lastSent);
         assertTrue(response.getAnswers().isEmpty());
         assertEquals(1, response.getAdditionals().size());
 
-        DNSResourceRecord responseOpt =
+        DnsResourceRecord responseOpt =
                 response.getAdditionals().get(0);
-        byte[] cookieData = DNSCookie.findEdnsOption(
-                responseOpt.getRData(), DNSCookie.EDNS_OPTION_COOKIE);
+        byte[] cookieData = DnsCookie.findEdnsOption(
+                responseOpt.getRData(), DnsCookie.EDNS_OPTION_COOKIE);
         assertNotNull(cookieData);
-        assertEquals(DNSCookie.CLIENT_COOKIE_LENGTH
-                + DNSCookie.MIN_SERVER_COOKIE_LENGTH, cookieData.length);
+        assertEquals(DnsCookie.CLIENT_COOKIE_LENGTH
+                + DnsCookie.MIN_SERVER_COOKIE_LENGTH, cookieData.length);
     }
 
     /**
@@ -384,10 +384,10 @@ public class DNSServiceTest {
                     mockUpstream.receive(pkt);
 
                     ByteBuffer queryBuf = ByteBuffer.wrap(buf, 0, pkt.getLength());
-                    DNSMessage query = DNSMessage.parse(queryBuf);
-                    DNSMessage goodResponse = query.createResponse(
+                    DnsMessage query = DnsMessage.parse(queryBuf);
+                    DnsMessage goodResponse = query.createResponse(
                             Collections.singletonList(
-                                    DNSResourceRecord.a("example.com", 300,
+                                    DnsResourceRecord.a("example.com", 300,
                                             InetAddress.getByName("1.2.3.4"))));
                     ByteBuffer resp = goodResponse.serialize();
                     byte[] respBytes = new byte[resp.remaining()];
@@ -404,7 +404,7 @@ public class DNSServiceTest {
 
         try {
             CapturingDNSListener listener = new CapturingDNSListener();
-            DNSService service = new DNSService();
+            DnsServer service = new DnsServer();
             service.setUseSystemResolvers(false);
             service.setCacheEnabled(false);
             service.setUpstreamServers("127.0.0.1:" + mockPort);
@@ -414,34 +414,34 @@ public class DNSServiceTest {
             service.start();
             listener.setService(service);
 
-            DNSCookie clientCookie = new DNSCookie();
+            DnsCookie clientCookie = new DnsCookie();
             byte[] cc = clientCookie.getClientCookie();
             InetSocketAddress source =
                     new InetSocketAddress("127.0.0.1", 54322);
 
-            DNSResourceRecord opt1 = DNSResourceRecord.opt(
-                    DNSMessage.DEFAULT_EDNS_UDP_SIZE,
+            DnsResourceRecord opt1 = DnsResourceRecord.opt(
+                    DnsMessage.DEFAULT_EDNS_UDP_SIZE,
                     buildCookieEdnsOption(cc));
-            DNSMessage query1 = DNSMessage.createQuery(8, "example.com",
-                    DNSType.A, Collections.singletonList(opt1));
+            DnsMessage query1 = DnsMessage.createQuery(8, "example.com",
+                    DnsType.A, Collections.singletonList(opt1));
             syncHandleDatagram(service, listener, query1.serialize(), source);
 
-            DNSMessage cookieResponse = DNSMessage.parse(listener.lastSent);
-            byte[] cookieData = DNSCookie.findEdnsOption(
+            DnsMessage cookieResponse = DnsMessage.parse(listener.lastSent);
+            byte[] cookieData = DnsCookie.findEdnsOption(
                     cookieResponse.getAdditionals().get(0).getRData(),
-                    DNSCookie.EDNS_OPTION_COOKIE);
+                    DnsCookie.EDNS_OPTION_COOKIE);
             assertNotNull(cookieData);
-            assertTrue(cookieData.length > DNSCookie.CLIENT_COOKIE_LENGTH);
+            assertTrue(cookieData.length > DnsCookie.CLIENT_COOKIE_LENGTH);
 
-            DNSResourceRecord opt2 = DNSResourceRecord.opt(
-                    DNSMessage.DEFAULT_EDNS_UDP_SIZE,
+            DnsResourceRecord opt2 = DnsResourceRecord.opt(
+                    DnsMessage.DEFAULT_EDNS_UDP_SIZE,
                     buildCookieEdnsOption(cookieData));
-            DNSMessage query2 = DNSMessage.createQuery(9, "example.com",
-                    DNSType.A, Collections.singletonList(opt2));
+            DnsMessage query2 = DnsMessage.createQuery(9, "example.com",
+                    DnsType.A, Collections.singletonList(opt2));
             syncHandleDatagram(service, listener, query2.serialize(), source);
 
-            DNSMessage response = DNSMessage.parse(listener.lastSent);
-            assertEquals(DNSMessage.RCODE_NOERROR, response.getRcode());
+            DnsMessage response = DnsMessage.parse(listener.lastSent);
+            assertEquals(DnsMessage.RCODE_NOERROR, response.getRcode());
             assertFalse(response.getAnswers().isEmpty());
         } finally {
             mockUpstream.close();
@@ -452,75 +452,75 @@ public class DNSServiceTest {
 
     @Test
     public void testMQTypeMergesAdditionalTypeIntoResponse() throws Exception {
-        Map<DNSType, InetAddress> perType = new HashMap<>();
-        perType.put(DNSType.A, InetAddress.getByName("10.0.0.1"));
-        perType.put(DNSType.AAAA, InetAddress.getByName("::1"));
-        DNSService service = serviceAnsweringPerType(perType);
+        Map<DnsType, InetAddress> perType = new HashMap<>();
+        perType.put(DnsType.A, InetAddress.getByName("10.0.0.1"));
+        perType.put(DnsType.AAAA, InetAddress.getByName("::1"));
+        DnsServer service = serviceAnsweringPerType(perType);
 
-        DNSMessage query = buildMQTypeQuery(1, "merge.example.com", DNSType.A,
-                Collections.singletonList(DNSType.AAAA));
-        DNSMessage response = syncProcessQuery(service, query);
+        DnsMessage query = buildMQTypeQuery(1, "merge.example.com", DnsType.A,
+                Collections.singletonList(DnsType.AAAA));
+        DnsMessage response = syncProcessQuery(service, query);
 
-        assertEquals(DNSMessage.RCODE_NOERROR, response.getRcode());
+        assertEquals(DnsMessage.RCODE_NOERROR, response.getRcode());
         assertEquals("Should have merged both A and AAAA answers",
                 2, response.getAnswers().size());
         boolean hasA = false;
         boolean hasAAAA = false;
-        for (DNSResourceRecord rr : response.getAnswers()) {
-            if (rr.getType() == DNSType.A) hasA = true;
-            if (rr.getType() == DNSType.AAAA) hasAAAA = true;
+        for (DnsResourceRecord rr : response.getAnswers()) {
+            if (rr.getType() == DnsType.A) hasA = true;
+            if (rr.getType() == DnsType.AAAA) hasAAAA = true;
         }
         assertTrue(hasA);
         assertTrue(hasAAAA);
         assertEquals("MQTYPE-Response should list AAAA as covered",
-                Collections.singletonList(DNSType.AAAA), mqtypeResponseCoverage(response));
+                Collections.singletonList(DnsType.AAAA), mqtypeResponseCoverage(response));
     }
 
     @Test
     public void testMQTypeFormerrOnEmptyOption() throws Exception {
-        DNSService service = serviceAnsweringPerType(Collections.<DNSType, InetAddress>emptyMap());
-        DNSMessage query = buildMQTypeQuery(2, "empty.example.com", DNSType.A,
-                Collections.<DNSType>emptyList());
-        DNSMessage response = syncProcessQuery(service, query);
-        assertEquals(DNSMessage.RCODE_FORMERR, response.getRcode());
+        DnsServer service = serviceAnsweringPerType(Collections.<DnsType, InetAddress>emptyMap());
+        DnsMessage query = buildMQTypeQuery(2, "empty.example.com", DnsType.A,
+                Collections.<DnsType>emptyList());
+        DnsMessage response = syncProcessQuery(service, query);
+        assertEquals(DnsMessage.RCODE_FORMERR, response.getRcode());
     }
 
     @Test
     public void testMQTypeFormerrWhenExceedingCap() throws Exception {
-        DNSService service = serviceAnsweringPerType(Collections.<DNSType, InetAddress>emptyMap());
+        DnsServer service = serviceAnsweringPerType(Collections.<DnsType, InetAddress>emptyMap());
         // 5 additional types > DEFAULT_MAX_MQTYPES (4)
-        DNSMessage query = buildMQTypeQuery(3, "toomany.example.com", DNSType.A,
-                Arrays.asList(DNSType.NS, DNSType.CNAME, DNSType.MX, DNSType.TXT, DNSType.AAAA));
-        DNSMessage response = syncProcessQuery(service, query);
-        assertEquals(DNSMessage.RCODE_FORMERR, response.getRcode());
+        DnsMessage query = buildMQTypeQuery(3, "toomany.example.com", DnsType.A,
+                Arrays.asList(DnsType.NS, DnsType.CNAME, DnsType.MX, DnsType.TXT, DnsType.AAAA));
+        DnsMessage response = syncProcessQuery(service, query);
+        assertEquals(DnsMessage.RCODE_FORMERR, response.getRcode());
     }
 
     @Test
     public void testMQTypeExcludesTypeWithMismatchedRcode() throws Exception {
-        DNSService service = new DNSService() {
+        DnsServer service = new DnsServer() {
             @Override
-            protected DNSMessage resolve(DNSMessage query) {
-                DNSQuestion q = query.getQuestions().get(0);
-                if (q.getType() == DNSType.A) {
+            protected DnsMessage resolve(DnsMessage query) {
+                DnsQuestion q = query.getQuestions().get(0);
+                if (q.getType() == DnsType.A) {
                     return query.createResponse(Collections.singletonList(
-                            DNSResourceRecord.a(q.getName(), 60,
+                            DnsResourceRecord.a(q.getName(), 60,
                                     inetAddressUnchecked("10.0.0.2"))));
                 }
                 // AAAA resolves to NXDOMAIN -- inconsistent with the
                 // primary A response's NOERROR, so RFC 10029 requires
                 // it be omitted from MQTYPE-Response.
-                return query.createErrorResponse(DNSMessage.RCODE_NXDOMAIN);
+                return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
             }
         };
 
-        DNSMessage query = buildMQTypeQuery(4, "mismatch.example.com", DNSType.A,
-                Collections.singletonList(DNSType.AAAA));
-        DNSMessage response = syncProcessQuery(service, query);
+        DnsMessage query = buildMQTypeQuery(4, "mismatch.example.com", DnsType.A,
+                Collections.singletonList(DnsType.AAAA));
+        DnsMessage response = syncProcessQuery(service, query);
 
-        assertEquals(DNSMessage.RCODE_NOERROR, response.getRcode());
+        assertEquals(DnsMessage.RCODE_NOERROR, response.getRcode());
         assertEquals("Only the primary A answer should be present",
                 1, response.getAnswers().size());
-        assertEquals(DNSType.A, response.getAnswers().get(0).getType());
+        assertEquals(DnsType.A, response.getAnswers().get(0).getType());
         assertTrue("AAAA should not be listed as covered",
                 mqtypeResponseCoverage(response).isEmpty());
     }
@@ -528,46 +528,46 @@ public class DNSServiceTest {
     @Test
     public void testMQTypeOmitsAdditionalTypeWhenMergedResponseExceedsPayloadLimit()
             throws Exception {
-        Map<DNSType, InetAddress> perType = new HashMap<DNSType, InetAddress>();
-        perType.put(DNSType.A, InetAddress.getByName("10.0.0.1"));
-        perType.put(DNSType.AAAA, InetAddress.getByName("::1"));
-        DNSService service = serviceAnsweringPerType(perType);
+        Map<DnsType, InetAddress> perType = new HashMap<DnsType, InetAddress>();
+        perType.put(DnsType.A, InetAddress.getByName("10.0.0.1"));
+        perType.put(DnsType.AAAA, InetAddress.getByName("::1"));
+        DnsServer service = serviceAnsweringPerType(perType);
 
-        DNSQuestion question = new DNSQuestion("merge.example.com", DNSType.A, DNSClass.IN);
-        byte[] optionData = DNSMultiQType.buildMQTypeQueryOption(
-                Collections.singletonList(DNSType.AAAA));
-        DNSMessage probeQuery = new DNSMessage(99, DNSMessage.FLAG_RD,
+        DnsQuestion question = new DnsQuestion("merge.example.com", DnsType.A, DnsClass.IN);
+        byte[] optionData = DnsMultiQType.buildMQTypeQueryOption(
+                Collections.singletonList(DnsType.AAAA));
+        DnsMessage probeQuery = new DnsMessage(99, DnsMessage.FLAG_RD,
                 Collections.singletonList(question),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
                 Collections.singletonList(
-                        DNSResourceRecord.opt(DNSMessage.DEFAULT_EDNS_UDP_SIZE, 0, optionData)));
-        DNSMessage merged = syncProcessQuery(service, probeQuery);
+                        DnsResourceRecord.opt(DnsMessage.DEFAULT_EDNS_UDP_SIZE, 0, optionData)));
+        DnsMessage merged = syncProcessQuery(service, probeQuery);
         int fullSize = merged.wireSize();
 
-        DNSMessage primaryOnlyQuery = new DNSMessage(100, DNSMessage.FLAG_RD,
+        DnsMessage primaryOnlyQuery = new DnsMessage(100, DnsMessage.FLAG_RD,
                 Collections.singletonList(question),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList());
-        DNSMessage primaryOnly = syncProcessQuery(service, primaryOnlyQuery);
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
+        DnsMessage primaryOnly = syncProcessQuery(service, primaryOnlyQuery);
         int primarySize = primaryOnly.wireSize();
         assertTrue("fixture must leave room between primary-only and merged sizes",
                 primarySize < fullSize);
 
         int tightPayload = primarySize + 1;
-        DNSMessage tightQuery = new DNSMessage(101, DNSMessage.FLAG_RD,
+        DnsMessage tightQuery = new DnsMessage(101, DnsMessage.FLAG_RD,
                 Collections.singletonList(question),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
                 Collections.singletonList(
-                        DNSResourceRecord.opt(tightPayload, 0, optionData)));
-        DNSMessage tightResponse = syncProcessQuery(service, tightQuery);
+                        DnsResourceRecord.opt(tightPayload, 0, optionData)));
+        DnsMessage tightResponse = syncProcessQuery(service, tightQuery);
 
-        assertEquals(DNSMessage.RCODE_NOERROR, tightResponse.getRcode());
+        assertEquals(DnsMessage.RCODE_NOERROR, tightResponse.getRcode());
         assertEquals("Only the primary A answer should fit the tight payload",
                 1, tightResponse.getAnswers().size());
-        assertEquals(DNSType.A, tightResponse.getAnswers().get(0).getType());
+        assertEquals(DnsType.A, tightResponse.getAnswers().get(0).getType());
         assertTrue("AAAA should be omitted when the merged response would not fit",
                 mqtypeResponseCoverage(tightResponse).isEmpty());
     }
@@ -580,44 +580,44 @@ public class DNSServiceTest {
         }
     }
 
-    private static DNSService serviceAnsweringPerType(final Map<DNSType, InetAddress> perType) {
-        return new DNSService() {
+    private static DnsServer serviceAnsweringPerType(final Map<DnsType, InetAddress> perType) {
+        return new DnsServer() {
             @Override
-            protected DNSMessage resolve(DNSMessage query) {
-                DNSQuestion q = query.getQuestions().get(0);
+            protected DnsMessage resolve(DnsMessage query) {
+                DnsQuestion q = query.getQuestions().get(0);
                 InetAddress addr = perType.get(q.getType());
                 if (addr == null) {
-                    return query.createResponse(Collections.<DNSResourceRecord>emptyList());
+                    return query.createResponse(Collections.<DnsResourceRecord>emptyList());
                 }
-                DNSResourceRecord rr = (q.getType() == DNSType.AAAA)
-                        ? DNSResourceRecord.aaaa(q.getName(), 60, addr)
-                        : DNSResourceRecord.a(q.getName(), 60, addr);
+                DnsResourceRecord rr = (q.getType() == DnsType.AAAA)
+                        ? DnsResourceRecord.aaaa(q.getName(), 60, addr)
+                        : DnsResourceRecord.a(q.getName(), 60, addr);
                 return query.createResponse(Collections.singletonList(rr));
             }
         };
     }
 
-    private static DNSMessage buildMQTypeQuery(int id, String name, DNSType primaryType,
-                                               List<DNSType> additionalTypes) {
-        DNSQuestion question = new DNSQuestion(name, primaryType, DNSClass.IN);
-        byte[] optionData = DNSMultiQType.buildMQTypeQueryOption(additionalTypes);
-        List<DNSResourceRecord> additionals = Collections.singletonList(
-                DNSResourceRecord.opt(DNSMessage.DEFAULT_EDNS_UDP_SIZE, 0, optionData));
-        return new DNSMessage(id, DNSMessage.FLAG_RD,
+    private static DnsMessage buildMQTypeQuery(int id, String name, DnsType primaryType,
+                                               List<DnsType> additionalTypes) {
+        DnsQuestion question = new DnsQuestion(name, primaryType, DnsClass.IN);
+        byte[] optionData = DnsMultiQType.buildMQTypeQueryOption(additionalTypes);
+        List<DnsResourceRecord> additionals = Collections.singletonList(
+                DnsResourceRecord.opt(DnsMessage.DEFAULT_EDNS_UDP_SIZE, 0, optionData));
+        return new DnsMessage(id, DnsMessage.FLAG_RD,
                 Collections.singletonList(question),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
                 additionals);
     }
 
-    private static List<DNSType> mqtypeResponseCoverage(DNSMessage response)
-            throws DNSFormatException {
-        for (DNSResourceRecord rr : response.getAdditionals()) {
-            if (rr.getType() == DNSType.OPT) {
-                byte[] data = DNSCookie.findEdnsOption(
-                        rr.getRData(), DNSMultiQType.EDNS_OPTION_MQTYPE_RESPONSE);
+    private static List<DnsType> mqtypeResponseCoverage(DnsMessage response)
+            throws DnsFormatException {
+        for (DnsResourceRecord rr : response.getAdditionals()) {
+            if (rr.getType() == DnsType.OPT) {
+                byte[] data = DnsCookie.findEdnsOption(
+                        rr.getRData(), DnsMultiQType.EDNS_OPTION_MQTYPE_RESPONSE);
                 if (data != null) {
-                    return DNSMultiQType.parseMQTypeResponseOption(data);
+                    return DnsMultiQType.parseMQTypeResponseOption(data);
                 }
             }
         }
@@ -626,14 +626,14 @@ public class DNSServiceTest {
 
     private static byte[] buildCookieEdnsOption(byte[] cookieData) {
         ByteBuffer buf = ByteBuffer.allocate(4 + cookieData.length);
-        buf.putShort((short) DNSCookie.EDNS_OPTION_COOKIE);
+        buf.putShort((short) DnsCookie.EDNS_OPTION_COOKIE);
         buf.putShort((short) cookieData.length);
         buf.put(cookieData);
         return buf.array();
     }
 
     /** Test listener that captures outbound datagrams. */
-    private static final class CapturingDNSListener extends DNSListener {
+    private static final class CapturingDNSListener extends DnsListener {
         ByteBuffer lastSent;
         InetSocketAddress lastDest;
 

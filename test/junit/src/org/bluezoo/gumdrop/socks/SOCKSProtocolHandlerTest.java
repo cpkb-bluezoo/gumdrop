@@ -9,7 +9,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
-import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
+import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
  * Unit tests for {@link SOCKSProtocolHandler}.
@@ -21,15 +21,15 @@ import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
  */
 public class SOCKSProtocolHandlerTest {
 
-    private DefaultSOCKSService service;
-    private SOCKSListener listener;
+    private DefaultSOCKSServer service;
+    private SocksListener listener;
     private SOCKSProtocolHandler handler;
     private StubEndpoint endpoint;
 
     @Before
     public void setUp() {
-        service = new DefaultSOCKSService();
-        listener = new SOCKSListener();
+        service = new DefaultSOCKSServer();
+        listener = new SocksListener();
         listener.setService(service);
         handler = service.createProtocolHandler(listener);
         endpoint = new StubEndpoint();
@@ -174,7 +174,7 @@ public class SOCKSProtocolHandlerTest {
 
         handler.receive(req);
 
-        // DNS resolution fails (no SelectorLoop/DNSResolver); handler
+        // DNS resolution fails (no SelectorLoop/DnsResolver); handler
         // catches the error and closes.
         assertFalse(endpoint.isOpen());
     }
@@ -249,7 +249,7 @@ public class SOCKSProtocolHandlerTest {
 
         handler.receive(buf);
 
-        // DNS resolution fails (no SelectorLoop/DNSResolver); handler
+        // DNS resolution fails (no SelectorLoop/DnsResolver); handler
         // catches the error and closes.
         assertFalse(endpoint.isOpen());
     }
@@ -427,7 +427,7 @@ public class SOCKSProtocolHandlerTest {
                     public void handleConnect(
                             org.bluezoo.gumdrop.socks.handler
                                     .ConnectState state,
-                            SOCKSRequest request,
+                            SocksRequest request,
                             org.bluezoo.gumdrop.Endpoint clientEp) {
                         state.deny(SOCKS5_REPLY_NOT_ALLOWED);
                     }

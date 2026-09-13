@@ -37,12 +37,12 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
@@ -134,7 +134,7 @@ public class WebSocketClient implements AltSvcListener {
     private final List<WebSocketExtension> requestedExtensions = new ArrayList<>();
 
     // Internal transport components (created at connect time) -- TCP/H1.1/H2 path
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private WebSocketClientProtocolHandler protocolHandler;
     private WebSocketConnection h2WebSocketConnection;
@@ -202,7 +202,7 @@ public class WebSocketClient implements AltSvcListener {
 
     /**
      * Creates a WebSocket client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance. Incompatible with {@link #setH3Enabled(boolean)}
@@ -421,7 +421,7 @@ public class WebSocketClient implements AltSvcListener {
      * support, checked before connecting.
      *
      * <p>When enabled (the default), {@link #connect} queries an HTTPS
-     * record for the target host via gumdrop's async {@link DNSResolver}
+     * record for the target host via gumdrop's async {@link DnsResolver}
      * before choosing a transport; if it advertises "h3" ALPN support, the
      * connection uses Extended CONNECT over QUIC directly. This is the
      * first tier of automatic negotiation, checked ahead of the
@@ -480,7 +480,7 @@ public class WebSocketClient implements AltSvcListener {
      * <p>Skipped entirely -- straight to {@link #connectTcp} -- when there
      * is no hostname to query: a literal {@link InetAddress} was given at
      * construction, {@link #host} is itself a literal IP, or it's
-     * {@code localhost} (matching {@link DNSResolver#resolve}'s own
+     * {@code localhost} (matching {@link DnsResolver#resolve}'s own
      * loopback fast-path).
      */
     private void discoverAndConnect(final String path, final WebSocketEventHandler handler) {
@@ -507,12 +507,12 @@ public class WebSocketClient implements AltSvcListener {
             return;
         }
 
-        DNSResolver resolver = DNSResolver.forLoop(loop);
-        resolver.queryHTTPS(host, new DNSQueryCallback() {
+        DnsResolver resolver = DnsResolver.forLoop(loop);
+        resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
-                for (DNSResourceRecord rr : response.getAnswers()) {
-                    if (rr.getType() != DNSType.HTTPS || rr.isSVCBAliasForm()) {
+            public void onResponse(DnsMessage response) {
+                for (DnsResourceRecord rr : response.getAnswers()) {
+                    if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
                     }
                     if (rr.getSVCBAlpnProtocols().contains("h3")) {
@@ -575,7 +575,7 @@ public class WebSocketClient implements AltSvcListener {
         final Headers upgradeHeaders =
                 WebSocketHandshake.createUpgradeRequest(key, subprotocol, extOffer);
 
-        transportFactory = new TCPTransportFactory();
+        transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);

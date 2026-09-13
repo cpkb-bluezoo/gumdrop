@@ -25,6 +25,6 @@
  * point in the session, so the compiler rejects out-of-sequence calls.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.ftp.client.FTPClientProtocolHandler
+ * @see org.bluezoo.gumdrop.ftp.client.FtpClientProtocolHandler
  */
 package org.bluezoo.gumdrop.ftp.client.handler;

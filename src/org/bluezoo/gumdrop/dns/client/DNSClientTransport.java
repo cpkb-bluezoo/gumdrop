@@ -1,5 +1,5 @@
 /*
- * DNSClientTransport.java
+ * DnsClientTransport.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -37,15 +37,15 @@ import org.bluezoo.gumdrop.TimerHandle;
  *
  * <p>Each implementation wraps an existing Gumdrop transport factory:
  * <ul>
- * <li>{@link UDPDNSClientTransport} -- plain UDP via
- *     {@link org.bluezoo.gumdrop.UDPTransportFactory}</li>
+ * <li>{@link UdpDNSClientTransport} -- plain UDP via
+ *     {@link org.bluezoo.gumdrop.UdpTransportFactory}</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSResolver
- * @see DNSClientTransportHandler
+ * @see DnsResolver
+ * @see DnsClientTransportHandler
  */
-public interface DNSClientTransport {
+public interface DnsClientTransport {
 
     /**
      * Opens a connection to the specified DNS server.
@@ -57,7 +57,7 @@ public interface DNSClientTransport {
      * @throws IOException if the connection cannot be established
      */
     void open(InetAddress server, int port, SelectorLoop loop,
-              DNSClientTransportHandler handler) throws IOException;
+              DnsClientTransportHandler handler) throws IOException;
 
     /**
      * Sends a serialized DNS message to the server.

@@ -37,8 +37,8 @@ final class ConfirmMethods {
     /** {@code confirm.select} (85,10) — sent by the client. */
     static ByteBuffer encodeSelect(boolean noWait) {
         ByteBuffer buf = ByteBuffer.allocate(4 + 1);
-        buf.putShort((short) AMQPMethod.CLASS_CONFIRM);
-        buf.putShort((short) AMQPMethod.CONFIRM_SELECT);
+        buf.putShort((short) AmqpMethod.CLASS_CONFIRM);
+        buf.putShort((short) AmqpMethod.CONFIRM_SELECT);
         buf.put(AMQPBits.pack(noWait));
         buf.flip();
         return buf;
@@ -55,8 +55,8 @@ final class ConfirmMethods {
 
     static ByteBuffer encodeSelectOk() {
         ByteBuffer buf = ByteBuffer.allocate(4);
-        buf.putShort((short) AMQPMethod.CLASS_CONFIRM);
-        buf.putShort((short) AMQPMethod.CONFIRM_SELECT_OK);
+        buf.putShort((short) AmqpMethod.CLASS_CONFIRM);
+        buf.putShort((short) AmqpMethod.CONFIRM_SELECT_OK);
         buf.flip();
         return buf;
     }

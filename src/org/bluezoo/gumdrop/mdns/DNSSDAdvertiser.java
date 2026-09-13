@@ -31,7 +31,7 @@ import java.util.Set;
 
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 
 /**
  * Builds DNS-SD (RFC 6763) service records for gumdrop's own configured
@@ -43,8 +43,8 @@ import org.bluezoo.gumdrop.dns.DNSResourceRecord;
  * itself, so it's independently unit-testable against fake servers
  * without needing a running {@code Gumdrop} instance &mdash; the same
  * reasoning behind {@link MDNSCache} taking its scheduling capability
- * through a small interface instead of reaching into {@link MDNSListener}
- * directly. {@link MDNSService} is what supplies the real server list.
+ * through a small interface instead of reaching into {@link MdnsListener}
+ * directly. {@link MdnsServer} is what supplies the real server list.
  *
  * <p>Only {@link Listener#getDescription()} values with a well-known,
  * long-established DNS-SD service type are advertised (see {@link
@@ -68,7 +68,7 @@ import org.bluezoo.gumdrop.dns.DNSResourceRecord;
  * collision probing actually protects against.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MDNSService
+ * @see MdnsServer
  */
 final class DNSSDAdvertiser {
 
@@ -120,9 +120,9 @@ final class DNSSDAdvertiser {
      *                             resolver)
      * @return the generated records, empty if nothing was eligible
      */
-    static List<DNSResourceRecord> buildRecords(List<Server> servers, String hostLabel,
+    static List<DnsResourceRecord> buildRecords(List<Server> servers, String hostLabel,
                                                  int ttl, Set<String> excludedDescriptions) {
-        List<DNSResourceRecord> records = new ArrayList<DNSResourceRecord>();
+        List<DnsResourceRecord> records = new ArrayList<DnsResourceRecord>();
         Set<String> serviceTypesAdvertised = new LinkedHashSet<String>();
         String hostTarget = hostLabel + ".local";
 
@@ -153,19 +153,19 @@ final class DNSSDAdvertiser {
                 // and must never carry the cache-flush bit, but the
                 // SRV/TXT records for one specific instance are unique
                 // records and should.
-                records.add(DNSResourceRecord.ptr(serviceTypeLocal, ttl, instanceName));
-                records.add(DNSResourceRecord.srv(instanceName, ttl, 0, 0, port, hostTarget)
+                records.add(DnsResourceRecord.ptr(serviceTypeLocal, ttl, instanceName));
+                records.add(DnsResourceRecord.srv(instanceName, ttl, 0, 0, port, hostTarget)
                         .withCacheFlush());
                 // RFC 6763 section 6.1: a TXT record's RDATA must never be
                 // zero-length; a single empty string means "no attributes".
-                records.add(DNSResourceRecord.txt(instanceName, ttl,
+                records.add(DnsResourceRecord.txt(instanceName, ttl,
                         Collections.singletonList("")).withCacheFlush());
                 serviceTypesAdvertised.add(serviceTypeLocal);
             }
         }
 
         for (String serviceTypeLocal : serviceTypesAdvertised) {
-            records.add(DNSResourceRecord.ptr(DNS_SD_META_QUERY_NAME, ttl, serviceTypeLocal));
+            records.add(DnsResourceRecord.ptr(DNS_SD_META_QUERY_NAME, ttl, serviceTypeLocal));
         }
         return records;
     }

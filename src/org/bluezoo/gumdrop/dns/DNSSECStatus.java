@@ -1,5 +1,5 @@
 /*
- * DNSSECStatus.java
+ * DnssecStatus.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,7 +28,7 @@ package org.bluezoo.gumdrop.dns;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum DNSSECStatus {
+public enum DnssecStatus {
 
     /**
      * The response was validated via a chain of trust to a

@@ -30,8 +30,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import org.bluezoo.gumdrop.dns.client.DNSClientTransport;
-import org.bluezoo.gumdrop.dns.client.DNSClientTransportHandler;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -63,10 +63,10 @@ import javax.net.ssl.X509TrustManager;
  * <p>RFC 8484 section 5.1: the default port is 443 (standard HTTPS).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSClientTransport
+ * @see DnsClientTransport
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8484">RFC 8484</a>
  */
-public class DoHClientTransport implements DNSClientTransport {
+public class DoHClientTransport implements DnsClientTransport {
 
     // RFC 8484 section 6
     static final String DNS_MESSAGE_CONTENT_TYPE = "application/dns-message";
@@ -81,7 +81,7 @@ public class DoHClientTransport implements DNSClientTransport {
             createTimerExecutor();
 
     private HttpClient httpClient;
-    private DNSClientTransportHandler handler;
+    private DnsClientTransportHandler handler;
     private volatile boolean connected;
 
     private String path = DEFAULT_PATH;
@@ -140,7 +140,7 @@ public class DoHClientTransport implements DNSClientTransport {
 
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
-                     DNSClientTransportHandler handler) throws IOException {
+                     DnsClientTransportHandler handler) throws IOException {
         this.handler = handler;
         if (port <= 0) {
             port = DEFAULT_DOH_PORT;
@@ -230,12 +230,12 @@ public class DoHClientTransport implements DNSClientTransport {
      */
     private static class DoHResponseHandler implements HttpResponseHandler {
 
-        private final DNSClientTransportHandler handler;
+        private final DnsClientTransportHandler handler;
         private final ByteArrayOutputStream accumulator =
                 new ByteArrayOutputStream(512);
         private boolean success;
 
-        DoHResponseHandler(DNSClientTransportHandler handler) {
+        DoHResponseHandler(DnsClientTransportHandler handler) {
             this.handler = handler;
         }
 

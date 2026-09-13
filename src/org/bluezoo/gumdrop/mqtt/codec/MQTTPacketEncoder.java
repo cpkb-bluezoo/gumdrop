@@ -1,5 +1,5 @@
 /*
- * MQTTPacketEncoder.java
+ * MqttPacketEncoder.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,14 +36,14 @@ import java.nio.charset.StandardCharsets;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class MQTTPacketEncoder {
+public final class MqttPacketEncoder {
 
-    private MQTTPacketEncoder() {
+    private MqttPacketEncoder() {
     }
 
     public static ByteBuffer encodeConnect(ConnectPacket packet) {
-        MQTTVersion ver = packet.getVersion();
-        boolean v5 = ver == MQTTVersion.V5_0;
+        MqttVersion ver = packet.getVersion();
+        boolean v5 = ver == MqttVersion.V5_0;
 
         byte[] clientIdBytes = utf8Bytes(packet.getClientId());
         byte[] willTopicBytes = null;
@@ -57,7 +57,7 @@ public final class MQTTPacketEncoder {
             byte[] willPayload = packet.getWillPayload();
             payloadLen += 2 + (willPayload != null ? willPayload.length : 0);
             if (v5 && packet.getWillProperties() != null) {
-                MQTTProperties wp = packet.getWillProperties();
+                MqttProperties wp = packet.getWillProperties();
                 int wpLen = wp.encodedLength();
                 payloadLen += VariableLengthEncoding.encodedLength(wpLen) + wpLen;
             }
@@ -74,7 +74,7 @@ public final class MQTTPacketEncoder {
         int varHeaderLen = 2 + protocolNameBytes.length + 1 + 1 + 2;
 
         if (v5) {
-            MQTTProperties props = packet.getProperties();
+            MqttProperties props = packet.getProperties();
             int pLen = props.encodedLength();
             varHeaderLen += VariableLengthEncoding.encodedLength(pLen) + pLen;
         }
@@ -84,7 +84,7 @@ public final class MQTTPacketEncoder {
                 + remainingLength;
         ByteBuffer buf = ByteBuffer.allocate(totalLen);
 
-        buf.put((byte) (MQTTPacketType.CONNECT.getValue() << 4));
+        buf.put((byte) (MqttPacketType.CONNECT.getValue() << 4));
         VariableLengthEncoding.encode(buf, remainingLength);
 
         writeUTF8String(buf, protocolNameBytes);
@@ -145,9 +145,9 @@ public final class MQTTPacketEncoder {
 
     public static ByteBuffer encodeConnAck(boolean sessionPresent,
                                            int returnCode,
-                                           MQTTProperties props,
-                                           MQTTVersion version) {
-        boolean v5 = version == MQTTVersion.V5_0;
+                                           MqttProperties props,
+                                           MqttVersion version) {
+        boolean v5 = version == MqttVersion.V5_0;
         int propsEncodedLen = 0;
         if (v5) {
             int pLen = props.encodedLength();
@@ -159,7 +159,7 @@ public final class MQTTPacketEncoder {
                 + remainingLength;
         ByteBuffer buf = ByteBuffer.allocate(totalLen);
 
-        buf.put((byte) (MQTTPacketType.CONNACK.getValue() << 4));
+        buf.put((byte) (MqttPacketType.CONNACK.getValue() << 4));
         VariableLengthEncoding.encode(buf, remainingLength);
         buf.put((byte) (sessionPresent ? 0x01 : 0x00));
         buf.put((byte) returnCode);
@@ -175,9 +175,9 @@ public final class MQTTPacketEncoder {
     public static ByteBuffer encodePublish(String topic, int qos,
                                            boolean dup, boolean retain,
                                            int packetId, byte[] payload,
-                                           MQTTProperties props,
-                                           MQTTVersion version) {
-        boolean v5 = version == MQTTVersion.V5_0;
+                                           MqttProperties props,
+                                           MqttVersion version) {
+        boolean v5 = version == MqttVersion.V5_0;
         byte[] topicBytes = utf8Bytes(topic);
         if (payload == null) {
             payload = new byte[0];
@@ -206,7 +206,7 @@ public final class MQTTPacketEncoder {
                 + remainingLength;
         ByteBuffer buf = ByteBuffer.allocate(totalLen);
 
-        buf.put((byte) ((MQTTPacketType.PUBLISH.getValue() << 4) | flags));
+        buf.put((byte) ((MqttPacketType.PUBLISH.getValue() << 4) | flags));
         VariableLengthEncoding.encode(buf, remainingLength);
         writeUTF8String(buf, topicBytes);
         if (qos > 0) {
@@ -244,9 +244,9 @@ public final class MQTTPacketEncoder {
                                                  boolean dup, boolean retain,
                                                  int packetId,
                                                  long payloadSize,
-                                                 MQTTProperties props,
-                                                 MQTTVersion version) {
-        boolean v5 = version == MQTTVersion.V5_0;
+                                                 MqttProperties props,
+                                                 MqttVersion version) {
+        boolean v5 = version == MqttVersion.V5_0;
         byte[] topicBytes = utf8Bytes(topic);
 
         int variableHeaderLen = 2 + topicBytes.length;
@@ -275,7 +275,7 @@ public final class MQTTPacketEncoder {
                 + variableHeaderLen;
         ByteBuffer buf = ByteBuffer.allocate(headerLen);
 
-        buf.put((byte) ((MQTTPacketType.PUBLISH.getValue() << 4) | flags));
+        buf.put((byte) ((MqttPacketType.PUBLISH.getValue() << 4) | flags));
         VariableLengthEncoding.encode(buf, remainingLength);
         writeUTF8String(buf, topicBytes);
         if (qos > 0) {
@@ -290,39 +290,39 @@ public final class MQTTPacketEncoder {
     }
 
     public static ByteBuffer encodePubAck(int packetId, int reasonCode,
-                                          MQTTProperties props,
-                                          MQTTVersion version) {
-        return encodeSimpleAck(MQTTPacketType.PUBACK, 0,
+                                          MqttProperties props,
+                                          MqttVersion version) {
+        return encodeSimpleAck(MqttPacketType.PUBACK, 0,
                 packetId, reasonCode, props, version);
     }
 
     public static ByteBuffer encodePubRec(int packetId, int reasonCode,
-                                          MQTTProperties props,
-                                          MQTTVersion version) {
-        return encodeSimpleAck(MQTTPacketType.PUBREC, 0,
+                                          MqttProperties props,
+                                          MqttVersion version) {
+        return encodeSimpleAck(MqttPacketType.PUBREC, 0,
                 packetId, reasonCode, props, version);
     }
 
     public static ByteBuffer encodePubRel(int packetId, int reasonCode,
-                                          MQTTProperties props,
-                                          MQTTVersion version) {
-        return encodeSimpleAck(MQTTPacketType.PUBREL, 0x02,
+                                          MqttProperties props,
+                                          MqttVersion version) {
+        return encodeSimpleAck(MqttPacketType.PUBREL, 0x02,
                 packetId, reasonCode, props, version);
     }
 
     public static ByteBuffer encodePubComp(int packetId, int reasonCode,
-                                           MQTTProperties props,
-                                           MQTTVersion version) {
-        return encodeSimpleAck(MQTTPacketType.PUBCOMP, 0,
+                                           MqttProperties props,
+                                           MqttVersion version) {
+        return encodeSimpleAck(MqttPacketType.PUBCOMP, 0,
                 packetId, reasonCode, props, version);
     }
 
     public static ByteBuffer encodeSubscribe(int packetId,
                                              String[] topicFilters,
                                              int[] qosLevels,
-                                             MQTTProperties props,
-                                             MQTTVersion version) {
-        boolean v5 = version == MQTTVersion.V5_0;
+                                             MqttProperties props,
+                                             MqttVersion version) {
+        boolean v5 = version == MqttVersion.V5_0;
 
         int remainingLength = 2;
         if (v5) {
@@ -339,7 +339,7 @@ public final class MQTTPacketEncoder {
                 + remainingLength;
         ByteBuffer buf = ByteBuffer.allocate(totalLen);
 
-        buf.put((byte) ((MQTTPacketType.SUBSCRIBE.getValue() << 4) | 0x02));
+        buf.put((byte) ((MqttPacketType.SUBSCRIBE.getValue() << 4) | 0x02));
         VariableLengthEncoding.encode(buf, remainingLength);
         buf.putShort((short) packetId);
 
@@ -357,9 +357,9 @@ public final class MQTTPacketEncoder {
     }
 
     public static ByteBuffer encodeSubAck(int packetId, int[] returnCodes,
-                                          MQTTProperties props,
-                                          MQTTVersion version) {
-        boolean v5 = version == MQTTVersion.V5_0;
+                                          MqttProperties props,
+                                          MqttVersion version) {
+        boolean v5 = version == MqttVersion.V5_0;
 
         int remainingLength = 2;
         if (v5) {
@@ -372,7 +372,7 @@ public final class MQTTPacketEncoder {
                 + remainingLength;
         ByteBuffer buf = ByteBuffer.allocate(totalLen);
 
-        buf.put((byte) (MQTTPacketType.SUBACK.getValue() << 4));
+        buf.put((byte) (MqttPacketType.SUBACK.getValue() << 4));
         VariableLengthEncoding.encode(buf, remainingLength);
         buf.putShort((short) packetId);
 
@@ -390,9 +390,9 @@ public final class MQTTPacketEncoder {
 
     public static ByteBuffer encodeUnsubscribe(int packetId,
                                                String[] topicFilters,
-                                               MQTTProperties props,
-                                               MQTTVersion version) {
-        boolean v5 = version == MQTTVersion.V5_0;
+                                               MqttProperties props,
+                                               MqttVersion version) {
+        boolean v5 = version == MqttVersion.V5_0;
 
         int remainingLength = 2;
         if (v5) {
@@ -409,7 +409,7 @@ public final class MQTTPacketEncoder {
                 + remainingLength;
         ByteBuffer buf = ByteBuffer.allocate(totalLen);
 
-        buf.put((byte) ((MQTTPacketType.UNSUBSCRIBE.getValue() << 4) | 0x02));
+        buf.put((byte) ((MqttPacketType.UNSUBSCRIBE.getValue() << 4) | 0x02));
         VariableLengthEncoding.encode(buf, remainingLength);
         buf.putShort((short) packetId);
 
@@ -426,9 +426,9 @@ public final class MQTTPacketEncoder {
     }
 
     public static ByteBuffer encodeUnsubAck(int packetId, int[] reasonCodes,
-                                            MQTTProperties props,
-                                            MQTTVersion version) {
-        boolean v5 = version == MQTTVersion.V5_0;
+                                            MqttProperties props,
+                                            MqttVersion version) {
+        boolean v5 = version == MqttVersion.V5_0;
 
         int remainingLength = 2;
         if (v5) {
@@ -441,7 +441,7 @@ public final class MQTTPacketEncoder {
                 + remainingLength;
         ByteBuffer buf = ByteBuffer.allocate(totalLen);
 
-        buf.put((byte) (MQTTPacketType.UNSUBACK.getValue() << 4));
+        buf.put((byte) (MqttPacketType.UNSUBACK.getValue() << 4));
         VariableLengthEncoding.encode(buf, remainingLength);
         buf.putShort((short) packetId);
 
@@ -458,7 +458,7 @@ public final class MQTTPacketEncoder {
 
     public static ByteBuffer encodePingReq() {
         ByteBuffer buf = ByteBuffer.allocate(2);
-        buf.put((byte) (MQTTPacketType.PINGREQ.getValue() << 4));
+        buf.put((byte) (MqttPacketType.PINGREQ.getValue() << 4));
         buf.put((byte) 0);
         buf.flip();
         return buf;
@@ -466,18 +466,18 @@ public final class MQTTPacketEncoder {
 
     public static ByteBuffer encodePingResp() {
         ByteBuffer buf = ByteBuffer.allocate(2);
-        buf.put((byte) (MQTTPacketType.PINGRESP.getValue() << 4));
+        buf.put((byte) (MqttPacketType.PINGRESP.getValue() << 4));
         buf.put((byte) 0);
         buf.flip();
         return buf;
     }
 
     public static ByteBuffer encodeDisconnect(int reasonCode,
-                                              MQTTProperties props,
-                                              MQTTVersion version) {
-        if (version != MQTTVersion.V5_0) {
+                                              MqttProperties props,
+                                              MqttVersion version) {
+        if (version != MqttVersion.V5_0) {
             ByteBuffer buf = ByteBuffer.allocate(2);
-            buf.put((byte) (MQTTPacketType.DISCONNECT.getValue() << 4));
+            buf.put((byte) (MqttPacketType.DISCONNECT.getValue() << 4));
             buf.put((byte) 0);
             buf.flip();
             return buf;
@@ -491,7 +491,7 @@ public final class MQTTPacketEncoder {
                 + remainingLength;
         ByteBuffer buf = ByteBuffer.allocate(totalLen);
 
-        buf.put((byte) (MQTTPacketType.DISCONNECT.getValue() << 4));
+        buf.put((byte) (MqttPacketType.DISCONNECT.getValue() << 4));
         VariableLengthEncoding.encode(buf, remainingLength);
         buf.put((byte) reasonCode);
         props.encode(buf);
@@ -500,7 +500,7 @@ public final class MQTTPacketEncoder {
         return buf;
     }
 
-    public static ByteBuffer encodeAuth(int reasonCode, MQTTProperties props) {
+    public static ByteBuffer encodeAuth(int reasonCode, MqttProperties props) {
         int remainingLength = 1;
         int pLen = props.encodedLength();
         remainingLength += VariableLengthEncoding.encodedLength(pLen) + pLen;
@@ -509,7 +509,7 @@ public final class MQTTPacketEncoder {
                 + remainingLength;
         ByteBuffer buf = ByteBuffer.allocate(totalLen);
 
-        buf.put((byte) (MQTTPacketType.AUTH.getValue() << 4));
+        buf.put((byte) (MqttPacketType.AUTH.getValue() << 4));
         VariableLengthEncoding.encode(buf, remainingLength);
         buf.put((byte) reasonCode);
         props.encode(buf);
@@ -520,12 +520,12 @@ public final class MQTTPacketEncoder {
 
     // -- Helpers --
 
-    private static ByteBuffer encodeSimpleAck(MQTTPacketType type,
+    private static ByteBuffer encodeSimpleAck(MqttPacketType type,
                                               int fixedFlags,
                                               int packetId, int reasonCode,
-                                              MQTTProperties props,
-                                              MQTTVersion version) {
-        boolean v5 = version == MQTTVersion.V5_0;
+                                              MqttProperties props,
+                                              MqttVersion version) {
+        boolean v5 = version == MqttVersion.V5_0;
 
         if (!v5) {
             ByteBuffer buf = ByteBuffer.allocate(4);

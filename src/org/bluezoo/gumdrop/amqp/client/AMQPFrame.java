@@ -1,5 +1,5 @@
 /*
- * AMQPFrame.java
+ * AmqpFrame.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,21 +36,21 @@ import java.nio.ByteBuffer;
  *  octet   short     long        'size' octets    octet
  * </pre>
  *
- * <p>Parsing frames off the wire is handled by {@link AMQPFrameParser},
+ * <p>Parsing frames off the wire is handled by {@link AmqpFrameParser},
  * not this class — bytes arrive incrementally and a frame is never
  * assumed to be complete in a single read, so parsing is a push
- * (event-driven) process dispatching to {@link AMQPFrameHandler}, not a
+ * (event-driven) process dispatching to {@link AmqpFrameHandler}, not a
  * synchronous "parse one complete frame" call. This class only provides
  * the shared constants and the encode side, where a complete frame's
  * bytes are always available up front.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see AMQPFrameParser
+ * @see AmqpFrameParser
  * @see <a href="https://www.rabbitmq.com/resources/specs/amqp0-9-1.pdf">AMQP 0-9-1 specification</a>
  */
-public final class AMQPFrame {
+public final class AmqpFrame {
 
-    private AMQPFrame() {
+    private AmqpFrame() {
     }
 
     /** Frame type: method frame (carries a class/method ID + arguments). */

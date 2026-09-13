@@ -1,5 +1,5 @@
 /*
- * DNSServerMetrics.java
+ * DnsServerMetrics.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -47,7 +47,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class DNSServerMetrics {
+public class DnsServerMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.dns";
 
@@ -67,7 +67,7 @@ public class DNSServerMetrics {
      *
      * @param config the telemetry configuration
      */
-    public DNSServerMetrics(TelemetryConfig config) {
+    public DnsServerMetrics(TelemetryConfig config) {
         Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         this.queryCounter = meter.counterBuilder("dns.server.queries")

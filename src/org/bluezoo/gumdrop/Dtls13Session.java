@@ -34,7 +34,7 @@ final class Dtls13Session implements TlsRecordSink {
     private static final Logger LOGGER = Logger.getLogger(Dtls13Session.class.getName());
 
     private final Dtls13HandshakeConfig config;
-    private final UDPEndpoint endpoint;
+    private final UdpEndpoint endpoint;
     private final InetSocketAddress remoteAddress;
 
     private Dtls13RecordEngine engine;
@@ -47,7 +47,7 @@ final class Dtls13Session implements TlsRecordSink {
     private SecurityInfo securityInfo;
     private final long handshakeStartTime = System.currentTimeMillis();
 
-    Dtls13Session(Dtls13HandshakeConfig config, UDPEndpoint endpoint, InetSocketAddress remoteAddress) {
+    Dtls13Session(Dtls13HandshakeConfig config, UdpEndpoint endpoint, InetSocketAddress remoteAddress) {
         this.config = config;
         this.endpoint = endpoint;
         this.remoteAddress = remoteAddress;
@@ -276,11 +276,11 @@ final class Dtls13Session implements TlsRecordSink {
         endpoint.onDtls13SessionFailed(remoteAddress, new IOException(reason));
     }
 
-    private static HandshakeAsyncOffload handshakeOffload(final UDPEndpoint endpoint) {
+    private static HandshakeAsyncOffload handshakeOffload(final UdpEndpoint endpoint) {
         return new TlsHandshakeAsyncOffload(loopExecutor(endpoint));
     }
 
-    private static Executor loopExecutor(final UDPEndpoint endpoint) {
+    private static Executor loopExecutor(final UdpEndpoint endpoint) {
         return new Executor() {
             @Override
             public void execute(Runnable task) {

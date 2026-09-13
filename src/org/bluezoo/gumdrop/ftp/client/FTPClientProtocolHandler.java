@@ -1,5 +1,5 @@
 /*
- * FTPClientProtocolHandler.java
+ * FtpClientProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -44,22 +44,22 @@ import org.bluezoo.gumdrop.ftp.client.handler.ClientAuthenticatedState;
 import org.bluezoo.gumdrop.ftp.client.handler.ClientDataSink;
 import org.bluezoo.gumdrop.ftp.client.handler.ClientLoginState;
 import org.bluezoo.gumdrop.ftp.client.handler.ClientPasswordState;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerAcctReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerAuthTlsReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerCwdReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerEpsvReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerGreeting;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerListReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerMkdReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerPassReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerPasvReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerPortReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerPwdReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerRetrReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerSimpleReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerStorReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerUserReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.AcctReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.AuthTlsReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.CwdReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.EpsvReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.ftp.client.handler.ListReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.MkdReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.PassReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.PasvReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.PortReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.PwdReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.ReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.RetrReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.SimpleReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.StorReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.handler.UserReplyHandler;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -83,23 +83,23 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see ServerGreeting
+ * @see RemoteGreeting
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959 - FTP</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4217">RFC 4217 - AUTH TLS</a>
  */
-public final class FTPClientProtocolHandler
+public final class FtpClientProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<FTPClientLexer.Token>,
         ClientLoginState, ClientPasswordState, ClientAccountState,
         ClientAuthenticatedState {
 
     private static final Logger LOGGER =
-            Logger.getLogger(FTPClientProtocolHandler.class.getName());
+            Logger.getLogger(FtpClientProtocolHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
 
     private static final String CRLF = "\r\n";
 
-    private final ServerGreeting handler;
+    private final RemoteGreeting handler;
 
     private Endpoint endpoint;
     private FTPState state = FTPState.DISCONNECTED;
@@ -122,9 +122,9 @@ public final class FTPClientProtocolHandler
     private boolean dataConnClosed;
     private boolean controlAckReceived;
     private final StringBuilder listingBuffer = new StringBuilder();
-    private List<FTPFileEntry> pendingListEntries;
+    private List<FtpFileEntry> pendingListEntries;
 
-    // RFC 4217 §9 (PROT). The client credentials are supplied by FTPClient
+    // RFC 4217 §9 (PROT). The client credentials are supplied by FtpClient
     // (the same ones used for AUTH TLS on the control connection) so data
     // connections can present the same client certificate too; remembered
     // here since PROT is sent well after connect().
@@ -146,7 +146,7 @@ public final class FTPClientProtocolHandler
      *
      * @param handler the server greeting handler
      */
-    public FTPClientProtocolHandler(ServerGreeting handler) {
+    public FtpClientProtocolHandler(RemoteGreeting handler) {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
@@ -206,9 +206,9 @@ public final class FTPClientProtocolHandler
             LOGGER.fine("TLS established: " + info.getCipherSuite());
         }
 
-        if (currentCallback instanceof ServerAuthTlsReplyHandler) {
-            ServerAuthTlsReplyHandler callback =
-                    (ServerAuthTlsReplyHandler) currentCallback;
+        if (currentCallback instanceof AuthTlsReplyHandler) {
+            AuthTlsReplyHandler callback =
+                    (AuthTlsReplyHandler) currentCallback;
             currentCallback = null;
             state = FTPState.CONNECTED;
             callback.handleTlsEstablished(this);
@@ -217,7 +217,7 @@ public final class FTPClientProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        handleError(new FTPException("Connection error", cause));
+        handleError(new FtpException("Connection error", cause));
     }
 
     // ── ByteStreamLexer.Handler implementation (issue #85) ──
@@ -323,7 +323,7 @@ public final class FTPClientProtocolHandler
 
         try {
             if (error != null) {
-                throw new FTPException(error);
+                throw new FtpException(error);
             }
 
             if (code == 421) {
@@ -349,10 +349,10 @@ public final class FTPClientProtocolHandler
                     dispatchResponse(code, singleLine);
                 }
             }
-        } catch (FTPException e) {
+        } catch (FtpException e) {
             handleError(e);
         } catch (Exception e) {
-            handleError(new FTPException("Failed to parse FTP response", e));
+            handleError(new FtpException("Failed to parse FTP response", e));
         }
     }
 
@@ -395,14 +395,14 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.1 — USER command. */
     @Override
-    public void user(String username, ServerUserReplyHandler callback) {
+    public void user(String username, UserReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("USER " + username, FTPState.USER_SENT);
     }
 
     /** RFC 4217 §4 — AUTH TLS command. */
     @Override
-    public void authTls(ServerAuthTlsReplyHandler callback) {
+    public void authTls(AuthTlsReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("AUTH TLS", FTPState.AUTH_TLS_SENT);
     }
@@ -417,7 +417,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.1 — PASS command. */
     @Override
-    public void pass(String password, ServerPassReplyHandler callback) {
+    public void pass(String password, PassReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("PASS " + password, FTPState.PASS_SENT);
     }
@@ -426,7 +426,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.1 — ACCT command. */
     @Override
-    public void acct(String account, ServerAcctReplyHandler callback) {
+    public void acct(String account, AcctReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("ACCT " + account, FTPState.ACCT_SENT);
     }
@@ -435,84 +435,84 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.3 — CWD command. */
     @Override
-    public void cwd(String pathname, ServerCwdReplyHandler callback) {
+    public void cwd(String pathname, CwdReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("CWD " + pathname, FTPState.CWD_SENT);
     }
 
     /** RFC 959 §4.1.3 — CDUP command. */
     @Override
-    public void cdup(ServerSimpleReplyHandler callback) {
+    public void cdup(SimpleReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("CDUP", FTPState.CDUP_SENT);
     }
 
     /** RFC 959 §4.1.3 — PWD command. */
     @Override
-    public void pwd(ServerPwdReplyHandler callback) {
+    public void pwd(PwdReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("PWD", FTPState.PWD_SENT);
     }
 
     /** RFC 959 §4.1.2 — TYPE command. */
     @Override
-    public void type(String type, ServerSimpleReplyHandler callback) {
+    public void type(String type, SimpleReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("TYPE " + type, FTPState.TYPE_SENT);
     }
 
     /** RFC 959 §4.1.2 — STRU command. */
     @Override
-    public void stru(String structure, ServerSimpleReplyHandler callback) {
+    public void stru(String structure, SimpleReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("STRU " + structure, FTPState.STRU_SENT);
     }
 
     /** RFC 959 §4.1.2 — MODE command. */
     @Override
-    public void mode(String mode, ServerSimpleReplyHandler callback) {
+    public void mode(String mode, SimpleReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("MODE " + mode, FTPState.MODE_SENT);
     }
 
     /** RFC 959 §4.1.3 — DELE command. */
     @Override
-    public void dele(String pathname, ServerSimpleReplyHandler callback) {
+    public void dele(String pathname, SimpleReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("DELE " + pathname, FTPState.DELE_SENT);
     }
 
     /** RFC 959 §4.1.3 — RMD command. */
     @Override
-    public void rmd(String pathname, ServerSimpleReplyHandler callback) {
+    public void rmd(String pathname, SimpleReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("RMD " + pathname, FTPState.RMD_SENT);
     }
 
     /** RFC 959 §4.1.3 — MKD command. */
     @Override
-    public void mkd(String pathname, ServerMkdReplyHandler callback) {
+    public void mkd(String pathname, MkdReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("MKD " + pathname, FTPState.MKD_SENT);
     }
 
     /** RFC 959 §4.1.2 — PASV command. */
     @Override
-    public void pasv(ServerPasvReplyHandler callback) {
+    public void pasv(PasvReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("PASV", FTPState.PASV_SENT);
     }
 
     /** RFC 2428 §3 — EPSV command. */
     @Override
-    public void epsv(ServerEpsvReplyHandler callback) {
+    public void epsv(EpsvReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("EPSV", FTPState.EPSV_SENT);
     }
 
     /** RFC 959 §4.1.2 — PORT command. Opens the local active-mode listener first. */
     @Override
-    public void port(ServerPortReplyHandler callback) {
+    public void port(PortReplyHandler callback) {
         this.currentCallback = callback;
         try {
             InetSocketAddress local = dataCoordinator.openActiveListener();
@@ -534,7 +534,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 2428 §2 — EPRT command. Opens the local active-mode listener first. */
     @Override
-    public void eprt(ServerPortReplyHandler callback) {
+    public void eprt(PortReplyHandler callback) {
         this.currentCallback = callback;
         try {
             InetSocketAddress local = dataCoordinator.openActiveListener();
@@ -550,14 +550,14 @@ public final class FTPClientProtocolHandler
 
     /** RFC 4217 §8 — PBSZ command. */
     @Override
-    public void pbsz(int size, ServerSimpleReplyHandler callback) {
+    public void pbsz(int size, SimpleReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("PBSZ " + size, FTPState.PBSZ_SENT);
     }
 
     /** RFC 4217 §9 — PROT command. */
     @Override
-    public void prot(String level, ServerSimpleReplyHandler callback) {
+    public void prot(String level, SimpleReplyHandler callback) {
         this.currentCallback = callback;
         this.pendingProtLevel = level;
         sendCommand("PROT " + level, FTPState.PROT_SENT);
@@ -573,7 +573,7 @@ public final class FTPClientProtocolHandler
      */
     @Override
     public void retr(String pathname, InetSocketAddress dataAddress,
-            ServerRetrReplyHandler callback) {
+            RetrReplyHandler callback) {
         beginDataTransfer(callback);
         openDataConnection(dataAddress, new DownloadDataHandler(pathname, callback));
     }
@@ -581,7 +581,7 @@ public final class FTPClientProtocolHandler
     /** RFC 959 §4.1.3 — STOR command. See {@link #retr}. */
     @Override
     public void stor(String pathname, InetSocketAddress dataAddress,
-            ServerStorReplyHandler callback) {
+            StorReplyHandler callback) {
         beginDataTransfer(callback);
         openDataConnection(dataAddress, new UploadDataHandler(pathname, false, callback));
     }
@@ -589,7 +589,7 @@ public final class FTPClientProtocolHandler
     /** RFC 959 §4.1.3 — APPE command. See {@link #retr}. */
     @Override
     public void appe(String pathname, InetSocketAddress dataAddress,
-            ServerStorReplyHandler callback) {
+            StorReplyHandler callback) {
         beginDataTransfer(callback);
         openDataConnection(dataAddress, new UploadDataHandler(pathname, true, callback));
     }
@@ -597,7 +597,7 @@ public final class FTPClientProtocolHandler
     /** RFC 959 §4.1.3 — LIST command. See {@link #retr}. */
     @Override
     public void list(String pathname, InetSocketAddress dataAddress,
-            ServerListReplyHandler callback) {
+            ListReplyHandler callback) {
         beginDataTransfer(callback);
         openDataConnection(dataAddress, new ListingDataHandler("LIST", pathname, callback));
     }
@@ -605,7 +605,7 @@ public final class FTPClientProtocolHandler
     /** RFC 959 §4.1.3 — NLST command. See {@link #retr}. */
     @Override
     public void nlst(String pathname, InetSocketAddress dataAddress,
-            ServerListReplyHandler callback) {
+            ListReplyHandler callback) {
         beginDataTransfer(callback);
         openDataConnection(dataAddress, new ListingDataHandler("NLST", pathname, callback));
     }
@@ -613,7 +613,7 @@ public final class FTPClientProtocolHandler
     /** RFC 3659 §7 — MLSD command. See {@link #retr}. */
     @Override
     public void mlsd(String pathname, InetSocketAddress dataAddress,
-            ServerListReplyHandler callback) {
+            ListReplyHandler callback) {
         beginDataTransfer(callback);
         openDataConnection(dataAddress, new ListingDataHandler("MLSD", pathname, callback));
     }
@@ -650,7 +650,7 @@ public final class FTPClientProtocolHandler
 
     private void sendCommand(String command, FTPState newState) {
         if (!isConnected()) {
-            handler.onError(new FTPException("Not connected"));
+            handler.onError(new FtpException("Not connected"));
             return;
         }
         rejectCrlf(command);
@@ -676,8 +676,8 @@ public final class FTPClientProtocolHandler
     private void handle421ServiceClosing(String message) {
         state = FTPState.CLOSED;
 
-        if (currentCallback instanceof ServerReplyHandler) {
-            ((ServerReplyHandler) currentCallback).handleServiceClosing(message);
+        if (currentCallback instanceof ReplyHandler) {
+            ((ReplyHandler) currentCallback).handleServiceClosing(message);
         } else {
             handler.handleServiceUnavailable("421 " + message);
         }
@@ -785,7 +785,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.1 — 230 logged in, 331 need password, 332 need account. */
     private void dispatchUserReply(int code, String message) {
-        ServerUserReplyHandler callback = (ServerUserReplyHandler) currentCallback;
+        UserReplyHandler callback = (UserReplyHandler) currentCallback;
         currentCallback = null;
 
         if (code == 230) {
@@ -805,7 +805,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.1 — 230 logged in, 332 need account, else rejected. */
     private void dispatchPassReply(int code, String message) {
-        ServerPassReplyHandler callback = (ServerPassReplyHandler) currentCallback;
+        PassReplyHandler callback = (PassReplyHandler) currentCallback;
         currentCallback = null;
 
         if (code == 230) {
@@ -822,7 +822,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.1 — 230 logged in, else rejected. */
     private void dispatchAcctReply(int code, String message) {
-        ServerAcctReplyHandler callback = (ServerAcctReplyHandler) currentCallback;
+        AcctReplyHandler callback = (AcctReplyHandler) currentCallback;
         currentCallback = null;
 
         if (code == 230) {
@@ -836,7 +836,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 4217 §4 — 234 ready for TLS, else unavailable. */
     private void dispatchAuthTlsReply(int code, String message) {
-        ServerAuthTlsReplyHandler callback = (ServerAuthTlsReplyHandler) currentCallback;
+        AuthTlsReplyHandler callback = (AuthTlsReplyHandler) currentCallback;
 
         if (code == 234) {
             try {
@@ -855,7 +855,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.3 — 250 directory changed, else error. */
     private void dispatchCwdReply(int code, String message) {
-        ServerCwdReplyHandler callback = (ServerCwdReplyHandler) currentCallback;
+        CwdReplyHandler callback = (CwdReplyHandler) currentCallback;
         currentCallback = null;
         state = FTPState.AUTHENTICATED;
 
@@ -868,7 +868,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.3 — 257 "pathname" [commentary]. */
     private void dispatchPwdReply(int code, String message) {
-        ServerPwdReplyHandler callback = (ServerPwdReplyHandler) currentCallback;
+        PwdReplyHandler callback = (PwdReplyHandler) currentCallback;
         currentCallback = null;
         state = FTPState.AUTHENTICATED;
 
@@ -881,7 +881,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.3 — 257 "pathname" [commentary]. */
     private void dispatchMkdReply(int code, String message) {
-        ServerMkdReplyHandler callback = (ServerMkdReplyHandler) currentCallback;
+        MkdReplyHandler callback = (MkdReplyHandler) currentCallback;
         currentCallback = null;
         state = FTPState.AUTHENTICATED;
 
@@ -894,7 +894,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.2 — 227 Entering Passive Mode (h1,h2,h3,h4,p1,p2). */
     private void dispatchPasvReply(int code, String message) {
-        ServerPasvReplyHandler callback = (ServerPasvReplyHandler) currentCallback;
+        PasvReplyHandler callback = (PasvReplyHandler) currentCallback;
         currentCallback = null;
         state = FTPState.AUTHENTICATED;
 
@@ -911,7 +911,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 2428 §3 — 229 Entering Extended Passive Mode (|||port|). */
     private void dispatchEpsvReply(int code, String message) {
-        ServerEpsvReplyHandler callback = (ServerEpsvReplyHandler) currentCallback;
+        EpsvReplyHandler callback = (EpsvReplyHandler) currentCallback;
         currentCallback = null;
         state = FTPState.AUTHENTICATED;
 
@@ -931,7 +931,7 @@ public final class FTPClientProtocolHandler
 
     /** RFC 959 §4.1.2 — PORT/EPRT: 2xx accepted, else rejected. */
     private void dispatchPortReply(int code, String message) {
-        ServerPortReplyHandler callback = (ServerPortReplyHandler) currentCallback;
+        PortReplyHandler callback = (PortReplyHandler) currentCallback;
         currentCallback = null;
         state = FTPState.AUTHENTICATED;
 
@@ -948,7 +948,7 @@ public final class FTPClientProtocolHandler
      * protection for subsequent passive-mode transfers), else rejected.
      */
     private void dispatchProtReply(int code, String message) {
-        ServerSimpleReplyHandler callback = (ServerSimpleReplyHandler) currentCallback;
+        SimpleReplyHandler callback = (SimpleReplyHandler) currentCallback;
         currentCallback = null;
         state = FTPState.AUTHENTICATED;
         String level = pendingProtLevel;
@@ -999,15 +999,15 @@ public final class FTPClientProtocolHandler
         dataConnClosed = false;
         controlAckReceived = false;
 
-        if (callback instanceof ServerRetrReplyHandler) {
-            ((ServerRetrReplyHandler) callback).handleTransferComplete(this);
-        } else if (callback instanceof ServerStorReplyHandler) {
-            ((ServerStorReplyHandler) callback).handleTransferComplete(this);
-        } else if (callback instanceof ServerListReplyHandler) {
-            List<FTPFileEntry> entries =
-                    pendingListEntries != null ? pendingListEntries : new ArrayList<FTPFileEntry>();
+        if (callback instanceof RetrReplyHandler) {
+            ((RetrReplyHandler) callback).handleTransferComplete(this);
+        } else if (callback instanceof StorReplyHandler) {
+            ((StorReplyHandler) callback).handleTransferComplete(this);
+        } else if (callback instanceof ListReplyHandler) {
+            List<FtpFileEntry> entries =
+                    pendingListEntries != null ? pendingListEntries : new ArrayList<FtpFileEntry>();
             pendingListEntries = null;
-            ((ServerListReplyHandler) callback).handleEntries(entries, this);
+            ((ListReplyHandler) callback).handleEntries(entries, this);
         }
     }
 
@@ -1032,12 +1032,12 @@ public final class FTPClientProtocolHandler
         controlAckReceived = false;
         pendingListEntries = null;
 
-        if (callback instanceof ServerRetrReplyHandler) {
-            ((ServerRetrReplyHandler) callback).handleTransferFailed(this, code, message);
-        } else if (callback instanceof ServerStorReplyHandler) {
-            ((ServerStorReplyHandler) callback).handleTransferFailed(this, code, message);
-        } else if (callback instanceof ServerListReplyHandler) {
-            ((ServerListReplyHandler) callback).handleTransferFailed(this, code, message);
+        if (callback instanceof RetrReplyHandler) {
+            ((RetrReplyHandler) callback).handleTransferFailed(this, code, message);
+        } else if (callback instanceof StorReplyHandler) {
+            ((StorReplyHandler) callback).handleTransferFailed(this, code, message);
+        } else if (callback instanceof ListReplyHandler) {
+            ((ListReplyHandler) callback).handleTransferFailed(this, code, message);
         }
     }
 
@@ -1110,19 +1110,19 @@ public final class FTPClientProtocolHandler
      * Parses a completed LIST/NLST/MLSD transfer's accumulated text into
      * entries, per {@code command}'s format.
      */
-    private List<FTPFileEntry> parseListingBuffer(String command) {
-        List<FTPFileEntry> entries = new ArrayList<FTPFileEntry>();
+    private List<FtpFileEntry> parseListingBuffer(String command) {
+        List<FtpFileEntry> entries = new ArrayList<FtpFileEntry>();
         String[] lines = listingBuffer.toString().split("\r\n|\n");
         for (String line : lines) {
             if (line.isEmpty()) {
                 continue;
             }
             if ("NLST".equals(command)) {
-                entries.add(FTPFileEntry.parseNlstLine(line));
+                entries.add(FtpFileEntry.parseNlstLine(line));
             } else if ("MLSD".equals(command)) {
-                entries.add(FTPFileEntry.parseMlsdLine(line));
+                entries.add(FtpFileEntry.parseMlsdLine(line));
             } else {
-                entries.add(FTPFileEntry.parseListLine(line));
+                entries.add(FtpFileEntry.parseListLine(line));
             }
         }
         return entries;
@@ -1133,9 +1133,9 @@ public final class FTPClientProtocolHandler
     /** Handles the data connection for a RETR (download). */
     private class DownloadDataHandler implements ProtocolHandler {
         private final String pathname;
-        private final ServerRetrReplyHandler callback;
+        private final RetrReplyHandler callback;
 
-        DownloadDataHandler(String pathname, ServerRetrReplyHandler callback) {
+        DownloadDataHandler(String pathname, RetrReplyHandler callback) {
             this.pathname = pathname;
             this.callback = callback;
         }
@@ -1171,10 +1171,10 @@ public final class FTPClientProtocolHandler
     private class UploadDataHandler implements ProtocolHandler, ClientDataSink {
         private final String pathname;
         private final boolean append;
-        private final ServerStorReplyHandler callback;
+        private final StorReplyHandler callback;
         private Endpoint ep;
 
-        UploadDataHandler(String pathname, boolean append, ServerStorReplyHandler callback) {
+        UploadDataHandler(String pathname, boolean append, StorReplyHandler callback) {
             this.pathname = pathname;
             this.append = append;
             this.callback = callback;
@@ -1241,9 +1241,9 @@ public final class FTPClientProtocolHandler
     private class ListingDataHandler implements ProtocolHandler {
         private final String command;
         private final String pathname;
-        private final ServerListReplyHandler callback;
+        private final ListReplyHandler callback;
 
-        ListingDataHandler(String command, String pathname, ServerListReplyHandler callback) {
+        ListingDataHandler(String command, String pathname, ListReplyHandler callback) {
             this.command = command;
             this.pathname = pathname;
             this.callback = callback;
@@ -1285,7 +1285,7 @@ public final class FTPClientProtocolHandler
 
     /** CDUP/TYPE/STRU/MODE/DELE/RMD — plain 2xx success, else error. */
     private void dispatchSimpleReply(int code, String message) {
-        ServerSimpleReplyHandler callback = (ServerSimpleReplyHandler) currentCallback;
+        SimpleReplyHandler callback = (SimpleReplyHandler) currentCallback;
         currentCallback = null;
         state = FTPState.AUTHENTICATED;
 
@@ -1332,7 +1332,7 @@ public final class FTPClientProtocolHandler
 
     // ── Error handling ──
 
-    private void handleError(FTPException error) {
+    private void handleError(FtpException error) {
         if (LOGGER.isLoggable(Level.WARNING)) {
             LOGGER.warning(MessageFormat.format(
                     L10N.getString("warn.ftp_client_error"), error.getMessage()));

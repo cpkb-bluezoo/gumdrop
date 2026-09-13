@@ -43,10 +43,10 @@ import static org.junit.Assert.fail;
 
 /**
  * Real-socket regression test for issue #404: {@link ClientEndpoint} and
- * {@link TCPTransportFactory} previously had no way to address a UNIX
+ * {@link TcpTransportFactory} previously had no way to address a UNIX
  * domain socket at all -- only the {@code String host, int port} /
  * {@code InetAddress host, int port} constructors existed, mirroring only
- * half of what {@link TCPListener#setPath} already supported on the
+ * half of what {@link TcpListener#setPath} already supported on the
  * server side.
  *
  * <p>The server side of each test here is a plain JDK {@link
@@ -57,7 +57,7 @@ import static org.junit.Assert.fail;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientEndpoint
- * @see TCPTransportFactory
+ * @see TcpTransportFactory
  */
 public class ClientEndpointUnixSocketTest {
 
@@ -109,14 +109,14 @@ public class ClientEndpointUnixSocketTest {
     }
 
     /**
-     * {@link TCPListener#setPath} has advertised UNIX domain socket
+     * {@link TcpListener#setPath} has advertised UNIX domain socket
      * support on the server side since it was added, but nothing ever
      * exercised a real accepted UNIX domain socket connection through
-     * {@link TCPEndpoint#init} end to end -- it shared the exact same
+     * {@link TcpEndpoint#init} end to end -- it shared the exact same
      * unconditional {@code channel.socket()} call the client path above
      * hit, so a real server accept over a UNIX domain socket was equally
-     * broken. This drives {@link TCPTransportFactory#createServerEndpoint}
-     * (what {@link TCPListener#newEndpoint} calls for every accepted
+     * broken. This drives {@link TcpTransportFactory#createServerEndpoint}
+     * (what {@link TcpListener#newEndpoint} calls for every accepted
      * connection) directly against a real accepted UNIX domain socket
      * channel, independent of the full {@code AcceptSelectorLoop}/{@code
      * Listener} bootstrap, to confirm the fix covers this path too.
@@ -137,9 +137,9 @@ public class ClientEndpointUnixSocketTest {
                 public void run() {
                     try (SocketChannel accepted = serverChannel.accept()) {
                         accepted.configureBlocking(false);
-                        TCPTransportFactory serverFactory = new TCPTransportFactory();
+                        TcpTransportFactory serverFactory = new TcpTransportFactory();
                         serverFactory.start();
-                        org.bluezoo.gumdrop.TCPEndpoint endpoint =
+                        org.bluezoo.gumdrop.TcpEndpoint endpoint =
                                 serverFactory.createServerEndpoint(accepted, new ProtocolHandler() {
                                     @Override
                                     public void connected(Endpoint e) {
@@ -208,7 +208,7 @@ public class ClientEndpointUnixSocketTest {
             serverChannel.bind(UnixDomainSocketAddress.of(socketPath));
             startEchoServer(serverChannel);
 
-            TCPTransportFactory factory = new TCPTransportFactory();
+            TcpTransportFactory factory = new TcpTransportFactory();
             factory.start();
 
             final byte[] payload = "hello-unix-socket".getBytes(StandardCharsets.US_ASCII);
@@ -267,7 +267,7 @@ public class ClientEndpointUnixSocketTest {
             serverChannel.bind(UnixDomainSocketAddress.of(socketPath));
             startEchoServer(serverChannel);
 
-            TCPTransportFactory factory = new TCPTransportFactory();
+            TcpTransportFactory factory = new TcpTransportFactory();
             factory.start();
 
             final byte[] payload = "standalone".getBytes(StandardCharsets.US_ASCII);
@@ -332,7 +332,7 @@ public class ClientEndpointUnixSocketTest {
     @Test
     public void testConnectToMissingSocketThrowsIOException() throws Exception {
         Path missing = socketPath; // never bound by any server in this test
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
 
         ClientEndpoint client = new ClientEndpoint(

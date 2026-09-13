@@ -1,5 +1,5 @@
 /*
- * MQTTMessageWriter.java
+ * MqttMessageWriter.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -30,16 +30,16 @@ import java.nio.channels.WritableByteChannel;
  * <p>Extends {@link WritableByteChannel} so callers can write payload
  * chunks as {@link java.nio.ByteBuffer} instances. Once all data has
  * been written, call {@link #commit()} to finalize the write and
- * obtain a readable {@link MQTTMessageContent} handle.
+ * obtain a readable {@link MqttMessageContent} handle.
  *
  * <p>If the payload should be abandoned (e.g. authorization rejected),
  * call {@link #discard()} to release any resources without committing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MQTTMessageStore#createWriter()
- * @see MQTTMessageContent
+ * @see MqttMessageStore#createWriter()
+ * @see MqttMessageContent
  */
-public interface MQTTMessageWriter extends WritableByteChannel {
+public interface MqttMessageWriter extends WritableByteChannel {
 
     /**
      * Finalizes the written data and returns a readable content handle.
@@ -50,7 +50,7 @@ public interface MQTTMessageWriter extends WritableByteChannel {
      * @return a readable handle for the accumulated payload
      * @throws IOException if an I/O error occurs
      */
-    MQTTMessageContent commit() throws IOException;
+    MqttMessageContent commit() throws IOException;
 
     /**
      * Discards the written data without committing.

@@ -86,7 +86,7 @@ public class IMAPProtocolHandlerTest {
         handler.receive(ByteBuffer.wrap(data.getBytes(StandardCharsets.US_ASCII)));
     }
 
-    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // Mirrors the real transport contract (TcpEndpoint.processInbound()):
     // a single persistent buffer, compacted between receive() calls so
     // unconsumed bytes from a partial token are preserved and physically
     // moved forward, not a fresh isolated buffer per chunk.

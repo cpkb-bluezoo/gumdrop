@@ -21,11 +21,11 @@
 
 package org.bluezoo.gumdrop.mqtt.mosquitto;
 
-import org.bluezoo.gumdrop.mqtt.client.MQTTClient;
-import org.bluezoo.gumdrop.mqtt.client.MQTTClientCallback;
-import org.bluezoo.gumdrop.mqtt.client.MQTTMessageListener;
+import org.bluezoo.gumdrop.mqtt.client.MqttClient;
+import org.bluezoo.gumdrop.mqtt.client.MqttClientCallback;
+import org.bluezoo.gumdrop.mqtt.client.MqttMessageListener;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -64,8 +64,8 @@ public class MosquittoClientIntegrationTest {
         assumeTrue(MosquittoTestSupport.NOT_REACHABLE_MESSAGE, MosquittoTestSupport.isReachable());
     }
 
-    private MQTTClient newClient(String clientIdSuffix) {
-        MQTTClient client = new MQTTClient(MosquittoTestSupport.HOST, MosquittoTestSupport.PORT);
+    private MqttClient newClient(String clientIdSuffix) {
+        MqttClient client = new MqttClient(MosquittoTestSupport.HOST, MosquittoTestSupport.PORT);
         client.setClientId("gumdrop-test-" + clientIdSuffix + "-" + System.nanoTime());
         client.setCredentials(MosquittoTestSupport.USERNAME, MosquittoTestSupport.PASSWORD);
         return client;
@@ -83,7 +83,7 @@ public class MosquittoClientIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<String> received = new AtomicReference<>();
 
-        MQTTClient subscriber = newClient("sub");
+        MqttClient subscriber = newClient("sub");
         subscriber.connect(new TestCallback(error, subscribedLatch) {
             @Override
             public void connected(boolean sessionPresent, int returnCode) {
@@ -98,9 +98,9 @@ public class MosquittoClientIntegrationTest {
             public void subscribeAcknowledged(int packetId, int[] grantedQoS) {
                 subscribedLatch.countDown();
             }
-        }, new MQTTMessageListener() {
+        }, new MqttMessageListener() {
             @Override
-            public void messageReceived(String t, MQTTMessageContent content, int qos, boolean retain) {
+            public void messageReceived(String t, MqttMessageContent content, int qos, boolean retain) {
                 try {
                     received.set(new String(content.asByteArray(), StandardCharsets.UTF_8));
                 } finally {
@@ -117,7 +117,7 @@ public class MosquittoClientIntegrationTest {
         }
 
         CountDownLatch publishedLatch = new CountDownLatch(1);
-        MQTTClient publisher = newClient("pub");
+        MqttClient publisher = newClient("pub");
         publisher.connect(new TestCallback(error, publishedLatch) {
             @Override
             public void connected(boolean sessionPresent, int returnCode) {
@@ -132,9 +132,9 @@ public class MosquittoClientIntegrationTest {
             public void publishComplete(int packetId) {
                 publishedLatch.countDown();
             }
-        }, new MQTTMessageListener() {
+        }, new MqttMessageListener() {
             @Override
-            public void messageReceived(String t, MQTTMessageContent content, int qos, boolean retain) {
+            public void messageReceived(String t, MqttMessageContent content, int qos, boolean retain) {
                 content.release();
             }
         });
@@ -158,7 +158,7 @@ public class MosquittoClientIntegrationTest {
         String topic = "gumdrop/test/tls/" + System.nanoTime();
         String payload = "hello over tls";
 
-        MQTTClient client = new MQTTClient(MosquittoTestSupport.HOST, MosquittoTestSupport.TLS_PORT);
+        MqttClient client = new MqttClient(MosquittoTestSupport.HOST, MosquittoTestSupport.TLS_PORT);
         client.setClientId("gumdrop-test-tls-" + System.nanoTime());
         client.setCredentials(MosquittoTestSupport.USERNAME, MosquittoTestSupport.PASSWORD);
         client.setSecure(true);
@@ -182,9 +182,9 @@ public class MosquittoClientIntegrationTest {
             public void subscribeAcknowledged(int packetId, int[] grantedQoS) {
                 client.publish(topic, payload, QoS.AT_LEAST_ONCE);
             }
-        }, new MQTTMessageListener() {
+        }, new MqttMessageListener() {
             @Override
-            public void messageReceived(String t, MQTTMessageContent content, int qos, boolean retain) {
+            public void messageReceived(String t, MqttMessageContent content, int qos, boolean retain) {
                 try {
                     received.set(new String(content.asByteArray(), StandardCharsets.UTF_8));
                 } finally {
@@ -205,7 +205,7 @@ public class MosquittoClientIntegrationTest {
 
     @Test
     public void testWrongPasswordRejected() throws Exception {
-        MQTTClient client = new MQTTClient(MosquittoTestSupport.HOST, MosquittoTestSupport.PORT);
+        MqttClient client = new MqttClient(MosquittoTestSupport.HOST, MosquittoTestSupport.PORT);
         client.setClientId("gumdrop-test-badauth-" + System.nanoTime());
         client.setCredentials(MosquittoTestSupport.USERNAME, "wrong-password");
 
@@ -213,7 +213,7 @@ public class MosquittoClientIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<Integer> connackCode = new AtomicReference<>();
 
-        client.connect(new MQTTClientCallback() {
+        client.connect(new MqttClientCallback() {
             @Override
             public void connected(boolean sessionPresent, int returnCode) {
                 connackCode.set(returnCode);
@@ -235,9 +235,9 @@ public class MosquittoClientIntegrationTest {
             @Override
             public void publishComplete(int packetId) {
             }
-        }, new MQTTMessageListener() {
+        }, new MqttMessageListener() {
             @Override
-            public void messageReceived(String t, MQTTMessageContent content, int qos, boolean retain) {
+            public void messageReceived(String t, MqttMessageContent content, int qos, boolean retain) {
                 content.release();
             }
         });
@@ -273,7 +273,7 @@ public class MosquittoClientIntegrationTest {
 
     // ── Test callback base class (default: fail on unexpected callback) ──
 
-    private abstract class TestCallback implements MQTTClientCallback {
+    private abstract class TestCallback implements MqttClientCallback {
         final AtomicReference<Exception> error;
         final CountDownLatch latch;
 

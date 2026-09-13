@@ -97,15 +97,20 @@ gravity.
 
 ### C.1 Naming and taxonomy
 
-**Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.4** complete — see
-[SmtpServer.java](../src/org/bluezoo/gumdrop/smtp/SmtpServer.java),
-[ImapServer.java](../src/org/bluezoo/gumdrop/imap/ImapServer.java),
-[Pop3Server.java](../src/org/bluezoo/gumdrop/pop3/Pop3Server.java),
-mail client {@code ReplyHandler} renames. Next slice: **C.1.5** remaining protocols.
+**Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.5** complete — see
+[FtpServer.java](../src/org/bluezoo/gumdrop/ftp/FtpServer.java),
+[DnsServer.java](../src/org/bluezoo/gumdrop/dns/DnsServer.java),
+[MqttServer.java](../src/org/bluezoo/gumdrop/mqtt/MqttServer.java),
+[SocksServer.java](../src/org/bluezoo/gumdrop/socks/SocksServer.java),
+[MdnsServer.java](../src/org/bluezoo/gumdrop/mdns/MdnsServer.java),
+[GrpcServer.java](../src/org/bluezoo/gumdrop/grpc/server/GrpcServer.java),
+[HealthServer.java](../src/org/bluezoo/gumdrop/health/HealthServer.java),
+AMQP/DNS/FTP/MQTT/SOCKS listener and handler renames. Next slice: **C.1.6**
+internal / package-private types.
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
-| `HTTPService`, `SmtpServer` | `HttpServer`, `SmtpServer` | “Server” = collection of listeners + app wiring; not a `Service` lifecycle contract |
+| `HttpServer`, `SmtpServer` | `HttpServer`, `SmtpServer` | “Server” = collection of listeners + app wiring; not a `Service` lifecycle contract |
 | `Service` interface | Retire or narrow | Lifecycle moves to `Runtime` + optional `Server`/`Client` facades |
 | `HTTPServer`, `AMQPClient` | `HttpServer`, `AmqpClient` | **CamelCase acronyms** throughout (hopf precedent) |
 | `HttpRequestHandler` | `http.server.HttpRequestHandler` | Handler interfaces live under role subpackages |
@@ -154,7 +159,7 @@ abstract classes you must extend.
 
 | Anti-pattern | Target |
 |--------------|--------|
-| Subclass `HTTPService` / `WebdavServer` / `ServletServer` for app logic | Compose `HttpServer` with `HttpRequestHandlerFactory` / decorators |
+| Subclass `HttpServer` / `WebdavServer` / `ServletServer` for app logic | Compose `HttpServer` with `HttpRequestHandlerFactory` / decorators |
 | Override methods on protocol base classes | Implement staged handler interfaces or wrap factories |
 | Client already OK (`HttpClient` works without subclassing) | Extend that pattern to all protocols |
 

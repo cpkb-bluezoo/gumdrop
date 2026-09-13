@@ -26,8 +26,8 @@ package org.bluezoo.gumdrop.ftp.client.handler;
  * §4.1.1 (332 need account for login).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerUserReplyHandler#handleAccountRequired
- * @see ServerPassReplyHandler#handleAccountRequired
+ * @see UserReplyHandler#handleAccountRequired
+ * @see PassReplyHandler#handleAccountRequired
  */
 public interface ClientAccountState {
 
@@ -37,7 +37,7 @@ public interface ClientAccountState {
      * @param account the account information
      * @param callback receives the server's response
      */
-    void acct(String account, ServerAcctReplyHandler callback);
+    void acct(String account, AcctReplyHandler callback);
 
     /**
      * Closes the connection without completing authentication.

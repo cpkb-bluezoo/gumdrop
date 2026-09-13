@@ -1,5 +1,5 @@
 /*
- * MQTTMessageListener.java
+ * MqttMessageListener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -21,18 +21,18 @@
 
 package org.bluezoo.gumdrop.mqtt.client;
 
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 
 /**
  * Callback interface for receiving MQTT messages.
  *
  * <p>The listener <b>owns</b> the content and <b>must</b> call
- * {@link MQTTMessageContent#release()} when done, typically in a
+ * {@link MqttMessageContent#release()} when done, typically in a
  * {@code finally} block.
  *
  * <p>For small messages, materialize the payload and release:
  * <pre>{@code
- * public void messageReceived(String topic, MQTTMessageContent content,
+ * public void messageReceived(String topic, MqttMessageContent content,
  *                             int qos, boolean retain) {
  *     byte[] data = content.asByteArray();
  *     try {
@@ -43,10 +43,10 @@ import org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent;
  * }
  * }</pre>
  *
- * <p>For large messages, stream via {@link MQTTMessageContent#openChannel()}
+ * <p>For large messages, stream via {@link MqttMessageContent#openChannel()}
  * to avoid loading the entire payload into memory:
  * <pre>{@code
- * public void messageReceived(String topic, MQTTMessageContent content,
+ * public void messageReceived(String topic, MqttMessageContent content,
  *                             int qos, boolean retain) {
  *     try (ReadableByteChannel ch = content.openChannel()) {
  *         streamToFile(ch, Path.of("received.dat"));
@@ -60,19 +60,19 @@ import org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface MQTTMessageListener {
+public interface MqttMessageListener {
 
     /**
      * Called when a message is received on a subscribed topic.
      *
      * <p>Ownership of the content transfers to the listener. The listener
-     * must call {@link MQTTMessageContent#release()} when done.
+     * must call {@link MqttMessageContent#release()} when done.
      *
      * @param topic the topic name
-     * @param content the message payload; call {@link MQTTMessageContent#release()}
+     * @param content the message payload; call {@link MqttMessageContent#release()}
      *        when done
      * @param qos the QoS level of the delivered message
      * @param retain whether this is a retained message
      */
-    void messageReceived(String topic, MQTTMessageContent content, int qos, boolean retain);
+    void messageReceived(String topic, MqttMessageContent content, int qos, boolean retain);
 }

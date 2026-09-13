@@ -1,5 +1,5 @@
 /*
- * MQTTFrameParser.java
+ * MqttFrameParser.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,13 +34,13 @@ import java.util.logging.Logger;
  *
  * <p>Follows the same event-driven pattern as {@code H2Parser}: consumes
  * bytes from a {@link ByteBuffer} and delivers decoded events to an
- * {@link MQTTEventHandler} via typed callbacks. No intermediate packet
+ * {@link MqttEventHandler} via typed callbacks. No intermediate packet
  * objects are allocated (except {@link ConnectPacket}).
  *
  * <p>PUBLISH packets are delivered as a streaming triple:
- * {@link MQTTEventHandler#startPublish startPublish} /
- * {@link MQTTEventHandler#publishData publishData} /
- * {@link MQTTEventHandler#endPublish endPublish}. This avoids
+ * {@link MqttEventHandler#startPublish startPublish} /
+ * {@link MqttEventHandler#publishData publishData} /
+ * {@link MqttEventHandler#endPublish endPublish}. This avoids
  * buffering the entire payload (which can be up to 256 MB) in the
  * parser. SUBSCRIBE and UNSUBSCRIBE use a similar SAX-style pattern.
  *
@@ -55,25 +55,25 @@ import java.util.logging.Logger;
  *       directly from the network buffer.</li>
  * </ul>
  *
- * <p>The parser is version-aware. Call {@link #setVersion(MQTTVersion)}
+ * <p>The parser is version-aware. Call {@link #setVersion(MqttVersion)}
  * after receiving a CONNECT packet to enable MQTT 5.0 property parsing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MQTTEventHandler
+ * @see MqttEventHandler
  */
-public class MQTTFrameParser {
+public class MqttFrameParser {
 
     private static final Logger LOGGER =
-            Logger.getLogger(MQTTFrameParser.class.getName());
+            Logger.getLogger(MqttFrameParser.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
 
     /** Default maximum packet size: 1 MB. */
     public static final int DEFAULT_MAX_PACKET_SIZE = 1_048_576;
 
-    private final MQTTEventHandler handler;
+    private final MqttEventHandler handler;
     private int maxPacketSize = DEFAULT_MAX_PACKET_SIZE;
-    private MQTTVersion version = MQTTVersion.V3_1_1;
+    private MqttVersion version = MqttVersion.V3_1_1;
 
     // Three-state machine for PUBLISH streaming
     private enum State { IDLE, PUBLISH_HEADER, STREAMING_PAYLOAD }
@@ -86,7 +86,7 @@ public class MQTTFrameParser {
     private int pubHeaderLen;
     private int pubPayloadRemaining;
 
-    public MQTTFrameParser(MQTTEventHandler handler) {
+    public MqttFrameParser(MqttEventHandler handler) {
         if (handler == null) {
             throw new IllegalArgumentException("handler must not be null");
         }
@@ -101,11 +101,11 @@ public class MQTTFrameParser {
         this.maxPacketSize = maxPacketSize;
     }
 
-    public MQTTVersion getVersion() {
+    public MqttVersion getVersion() {
         return version;
     }
 
-    public void setVersion(MQTTVersion version) {
+    public void setVersion(MqttVersion version) {
         this.version = version;
     }
 
@@ -170,14 +170,14 @@ public class MQTTFrameParser {
             return false;
         }
 
-        MQTTPacketType type = MQTTPacketType.fromValue(typeValue);
+        MqttPacketType type = MqttPacketType.fromValue(typeValue);
         if (type == null) {
             handler.parseError(MessageFormat.format(
                     L10N.getString("err.unknown_packet_type"), typeValue));
             return false;
         }
 
-        if (type == MQTTPacketType.PUBLISH) {
+        if (type == MqttPacketType.PUBLISH) {
             pubFlags = flags;
             pubRemainingLength = remainingLength;
             pubHeaderBuf = new byte[Math.min(remainingLength + 1, 512)];
@@ -285,7 +285,7 @@ public class MQTTFrameParser {
 
     /**
      * Attempts to parse the PUBLISH variable header from accumulated
-     * bytes. Calls {@link MQTTEventHandler#startPublish} on success.
+     * bytes. Calls {@link MqttEventHandler#startPublish} on success.
      *
      * @return header size in bytes on success, -1 if more data needed
      */
@@ -312,8 +312,8 @@ public class MQTTFrameParser {
             packetId = buf.getShort() & 0xFFFF;
         }
 
-        MQTTProperties props = MQTTProperties.EMPTY;
-        if (version == MQTTVersion.V5_0) {
+        MqttProperties props = MqttProperties.EMPTY;
+        if (version == MqttVersion.V5_0) {
             int propStart = buf.position();
             if (!buf.hasRemaining()) {
                 return -1;
@@ -333,13 +333,13 @@ public class MQTTFrameParser {
             }
             buf.position(propStart);
             try {
-                props = MQTTProperties.decode(buf);
+                props = MqttProperties.decode(buf);
             } catch (BufferUnderflowException | IndexOutOfBoundsException e) {
                 // A property's own declared length (e.g. a UTF-8
                 // string's length prefix) is inconsistent with the
                 // properties block's overall declared length -- the
                 // "buf.remaining() < propLen" check above only bounds
-                // the block as a whole. MQTTProperties.decode's other
+                // the block as a whole. MqttProperties.decode's other
                 // call sites are already covered by
                 // dispatchNonPublish's broad catch (Exception); this
                 // PUBLISH-streaming path has no equivalent.
@@ -391,7 +391,7 @@ public class MQTTFrameParser {
     // v5 spec section 2.1.3) and kept in the dispatch signature for
     // symmetry with the PUBLISH path even though only PUBLISH's flags
     // (dup/qos/retain, decoded separately) currently carry meaning.
-    private void dispatchNonPublish(MQTTPacketType type,
+    private void dispatchNonPublish(MqttPacketType type,
                                     @SuppressWarnings("unused") int flags,
                                     ByteBuffer payload) {
         switch (type) {
@@ -402,16 +402,16 @@ public class MQTTFrameParser {
                 decodeConnAck(payload);
                 break;
             case PUBACK:
-                decodeSimpleAck(payload, MQTTPacketType.PUBACK);
+                decodeSimpleAck(payload, MqttPacketType.PUBACK);
                 break;
             case PUBREC:
-                decodeSimpleAck(payload, MQTTPacketType.PUBREC);
+                decodeSimpleAck(payload, MqttPacketType.PUBREC);
                 break;
             case PUBREL:
-                decodeSimpleAck(payload, MQTTPacketType.PUBREL);
+                decodeSimpleAck(payload, MqttPacketType.PUBREL);
                 break;
             case PUBCOMP:
-                decodeSimpleAck(payload, MQTTPacketType.PUBCOMP);
+                decodeSimpleAck(payload, MqttPacketType.PUBCOMP);
                 break;
             case SUBSCRIBE:
                 decodeSubscribe(payload);
@@ -454,7 +454,7 @@ public class MQTTFrameParser {
         readUTF8String(buf); // protocol name (not stored; version from level)
         int protocolLevel = buf.get() & 0xFF;
 
-        MQTTVersion ver = MQTTVersion.fromProtocolLevel(protocolLevel);
+        MqttVersion ver = MqttVersion.fromProtocolLevel(protocolLevel);
         if (ver == null) {
             handler.parseError(MessageFormat.format(
                     L10N.getString("err.unsupported_protocol"), protocolLevel));
@@ -476,8 +476,8 @@ public class MQTTFrameParser {
         int keepAlive = buf.getShort() & 0xFFFF;
         packet.setKeepAlive(keepAlive);
 
-        if (ver == MQTTVersion.V5_0) {
-            packet.setProperties(MQTTProperties.decode(buf));
+        if (ver == MqttVersion.V5_0) {
+            packet.setProperties(MqttProperties.decode(buf));
         }
 
         packet.setClientId(readUTF8String(buf));
@@ -487,8 +487,8 @@ public class MQTTFrameParser {
             packet.setWillQoS(QoS.fromValue(willQoSValue));
             packet.setWillRetain(willRetain);
 
-            if (ver == MQTTVersion.V5_0) {
-                packet.setWillProperties(MQTTProperties.decode(buf));
+            if (ver == MqttVersion.V5_0) {
+                packet.setWillProperties(MqttProperties.decode(buf));
             }
             packet.setWillTopic(readUTF8String(buf));
             packet.setWillPayload(readBinaryData(buf));
@@ -509,21 +509,21 @@ public class MQTTFrameParser {
         boolean sessionPresent = (ackFlags & 0x01) != 0;
         int returnCode = buf.get() & 0xFF;
 
-        MQTTProperties props = MQTTProperties.EMPTY;
-        if (version == MQTTVersion.V5_0 && buf.hasRemaining()) {
-            props = MQTTProperties.decode(buf);
+        MqttProperties props = MqttProperties.EMPTY;
+        if (version == MqttVersion.V5_0 && buf.hasRemaining()) {
+            props = MqttProperties.decode(buf);
         }
         handler.connAck(sessionPresent, returnCode, props);
     }
 
-    private void decodeSimpleAck(ByteBuffer buf, MQTTPacketType type) {
+    private void decodeSimpleAck(ByteBuffer buf, MqttPacketType type) {
         int packetId = buf.getShort() & 0xFFFF;
         int reasonCode = 0;
-        MQTTProperties props = MQTTProperties.EMPTY;
-        if (version == MQTTVersion.V5_0 && buf.hasRemaining()) {
+        MqttProperties props = MqttProperties.EMPTY;
+        if (version == MqttVersion.V5_0 && buf.hasRemaining()) {
             reasonCode = buf.get() & 0xFF;
             if (buf.hasRemaining()) {
-                props = MQTTProperties.decode(buf);
+                props = MqttProperties.decode(buf);
             }
         }
         switch (type) {
@@ -537,9 +537,9 @@ public class MQTTFrameParser {
 
     private void decodeSubscribe(ByteBuffer buf) {
         int packetId = buf.getShort() & 0xFFFF;
-        MQTTProperties props = MQTTProperties.EMPTY;
-        if (version == MQTTVersion.V5_0) {
-            props = MQTTProperties.decode(buf);
+        MqttProperties props = MqttProperties.EMPTY;
+        if (version == MqttVersion.V5_0) {
+            props = MqttProperties.decode(buf);
         }
         handler.startSubscribe(packetId, props);
         while (buf.hasRemaining()) {
@@ -552,9 +552,9 @@ public class MQTTFrameParser {
 
     private void decodeSubAck(ByteBuffer buf) {
         int packetId = buf.getShort() & 0xFFFF;
-        MQTTProperties props = MQTTProperties.EMPTY;
-        if (version == MQTTVersion.V5_0) {
-            props = MQTTProperties.decode(buf);
+        MqttProperties props = MqttProperties.EMPTY;
+        if (version == MqttVersion.V5_0) {
+            props = MqttProperties.decode(buf);
         }
         int count = buf.remaining();
         int[] returnCodes = new int[count];
@@ -566,9 +566,9 @@ public class MQTTFrameParser {
 
     private void decodeUnsubscribe(ByteBuffer buf) {
         int packetId = buf.getShort() & 0xFFFF;
-        MQTTProperties props = MQTTProperties.EMPTY;
-        if (version == MQTTVersion.V5_0) {
-            props = MQTTProperties.decode(buf);
+        MqttProperties props = MqttProperties.EMPTY;
+        if (version == MqttVersion.V5_0) {
+            props = MqttProperties.decode(buf);
         }
         handler.startUnsubscribe(packetId, props);
         while (buf.hasRemaining()) {
@@ -579,10 +579,10 @@ public class MQTTFrameParser {
 
     private void decodeUnsubAck(ByteBuffer buf) {
         int packetId = buf.getShort() & 0xFFFF;
-        MQTTProperties props = MQTTProperties.EMPTY;
+        MqttProperties props = MqttProperties.EMPTY;
         int[] reasonCodes = new int[0];
-        if (version == MQTTVersion.V5_0 && buf.hasRemaining()) {
-            props = MQTTProperties.decode(buf);
+        if (version == MqttVersion.V5_0 && buf.hasRemaining()) {
+            props = MqttProperties.decode(buf);
             reasonCodes = new int[buf.remaining()];
             for (int i = 0; i < reasonCodes.length; i++) {
                 reasonCodes[i] = buf.get() & 0xFF;
@@ -593,11 +593,11 @@ public class MQTTFrameParser {
 
     private void decodeDisconnect(ByteBuffer buf) {
         int reasonCode = 0;
-        MQTTProperties props = MQTTProperties.EMPTY;
-        if (version == MQTTVersion.V5_0 && buf.hasRemaining()) {
+        MqttProperties props = MqttProperties.EMPTY;
+        if (version == MqttVersion.V5_0 && buf.hasRemaining()) {
             reasonCode = buf.get() & 0xFF;
             if (buf.hasRemaining()) {
-                props = MQTTProperties.decode(buf);
+                props = MqttProperties.decode(buf);
             }
         }
         handler.disconnect(reasonCode, props);
@@ -605,11 +605,11 @@ public class MQTTFrameParser {
 
     private void decodeAuth(ByteBuffer buf) {
         int reasonCode = 0;
-        MQTTProperties props = MQTTProperties.EMPTY;
+        MqttProperties props = MqttProperties.EMPTY;
         if (buf.hasRemaining()) {
             reasonCode = buf.get() & 0xFF;
             if (buf.hasRemaining()) {
-                props = MQTTProperties.decode(buf);
+                props = MqttProperties.decode(buf);
             }
         }
         handler.auth(reasonCode, props);

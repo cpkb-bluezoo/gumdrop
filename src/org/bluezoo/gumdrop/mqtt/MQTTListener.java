@@ -1,5 +1,5 @@
 /*
- * MQTTListener.java
+ * MqttListener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,7 +26,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 
 /**
@@ -39,10 +39,10 @@ import org.bluezoo.gumdrop.auth.Realm;
  * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html">MQTT 3.1.1</a>
  * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html">MQTT 5.0</a>
  */
-public class MQTTListener extends TCPListener {
+public class MqttListener extends TcpListener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(MQTTListener.class.getName());
+            Logger.getLogger(MqttListener.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
 
@@ -54,8 +54,8 @@ public class MQTTListener extends TCPListener {
     private int defaultKeepAlive = 60;
     private Realm realm;
 
-    private MQTTService service;
-    private MQTTServerMetrics metrics;
+    private MqttServer service;
+    private MqttServerMetrics metrics;
 
     @Override
     public void start() {
@@ -64,7 +64,7 @@ public class MQTTListener extends TCPListener {
             port = secure ? MQTTS_DEFAULT_PORT : MQTT_DEFAULT_PORT;
         }
         if (isMetricsEnabled()) {
-            metrics = new MQTTServerMetrics(getTelemetryConfig());
+            metrics = new MqttServerMetrics(getTelemetryConfig());
         }
     }
 
@@ -74,7 +74,7 @@ public class MQTTListener extends TCPListener {
      *
      * @return the MQTT server metrics
      */
-    public MQTTServerMetrics getMetrics() {
+    public MqttServerMetrics getMetrics() {
         return metrics;
     }
 
@@ -116,11 +116,11 @@ public class MQTTListener extends TCPListener {
         this.realm = realm;
     }
 
-    MQTTService getService() {
+    MqttServer getService() {
         return service;
     }
 
-    void setService(MQTTService service) {
+    void setService(MqttServer service) {
         this.service = service;
     }
 
@@ -135,6 +135,6 @@ public class MQTTListener extends TCPListener {
             }
         }
         // Should not happen if service is correctly configured
-        throw new IllegalStateException("MQTTListener requires an MQTTService");
+        throw new IllegalStateException("MqttListener requires an MqttServer");
     }
 }

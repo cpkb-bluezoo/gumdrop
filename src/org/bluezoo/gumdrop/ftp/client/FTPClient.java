@@ -1,5 +1,5 @@
 /*
- * FTPClient.java
+ * FtpClient.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -30,25 +30,25 @@ import javax.net.ssl.X509TrustManager;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerGreeting;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * High-level FTP client facade.
  *
  * <p>This class provides a simple, concrete API for connecting to FTP
- * servers. It internally creates a {@link TCPTransportFactory}, {@link
- * ClientEndpoint}, and {@link FTPClientProtocolHandler}, wiring them
+ * servers. It internally creates a {@link TcpTransportFactory}, {@link
+ * ClientEndpoint}, and {@link FtpClientProtocolHandler}, wiring them
  * together and forwarding lifecycle events to the caller's {@link
- * ServerGreeting} handler. Mirrors {@code
+ * RemoteGreeting} handler. Mirrors {@code
  * org.bluezoo.gumdrop.smtp.client.SmtpClient}.
  *
  * <h4>Plaintext with AUTH TLS (explicit FTPS)</h4>
  * <pre>{@code
- * FTPClient client = new FTPClient("ftp.example.com", 21);
+ * FtpClient client = new FtpClient("ftp.example.com", 21);
  * client.setClientCredentials(clientCredentials);
- * client.connect(new ServerGreeting() {
+ * client.connect(new RemoteGreeting() {
  *     public void handleGreeting(ClientLoginState login, String message) {
  *         login.authTls(authTlsHandler);
  *     }
@@ -58,19 +58,19 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <h4>Implicit TLS (FTPS, port 990)</h4>
  * <pre>{@code
- * FTPClient client = new FTPClient("ftp.example.com", 990);
+ * FtpClient client = new FtpClient("ftp.example.com", 990);
  * client.setSecure(true);
  * client.setClientCredentials(clientCredentials);
  * client.connect(greetingHandler);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerGreeting
- * @see FTPClientProtocolHandler
+ * @see RemoteGreeting
+ * @see FtpClientProtocolHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a> (FTP)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4217">RFC 4217</a> (AUTH TLS)
  */
-public class FTPClient {
+public class FtpClient {
 
     private final String host;
     private final InetAddress hostAddress;
@@ -85,9 +85,9 @@ public class FTPClient {
     private String keystorePass;
     private String keystoreFormat;
 
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
-    private FTPClientProtocolHandler endpointHandler;
+    private FtpClientProtocolHandler endpointHandler;
 
     /**
      * Creates an FTP client for the given hostname and port.
@@ -99,7 +99,7 @@ public class FTPClient {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public FTPClient(String host, int port) {
+    public FtpClient(String host, int port) {
         this(null, host, port);
     }
 
@@ -111,7 +111,7 @@ public class FTPClient {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public FTPClient(SelectorLoop selectorLoop, String host, int port) {
+    public FtpClient(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
         this.hostAddress = null;
@@ -125,7 +125,7 @@ public class FTPClient {
      * @param host the remote host address
      * @param port the remote port
      */
-    public FTPClient(InetAddress host, int port) {
+    public FtpClient(InetAddress host, int port) {
         this(null, host, port);
     }
 
@@ -137,7 +137,7 @@ public class FTPClient {
      * @param host the remote host address
      * @param port the remote port
      */
-    public FTPClient(SelectorLoop selectorLoop, InetAddress host, int port) {
+    public FtpClient(SelectorLoop selectorLoop, InetAddress host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = null;
         this.hostAddress = host;
@@ -147,7 +147,7 @@ public class FTPClient {
 
     /**
      * Creates an FTP client whose control connection is a UNIX domain
-     * socket, mirroring {@link org.bluezoo.gumdrop.TCPListener#setPath}
+     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#setPath}
      * on the server side. Only the control connection may be a UNIX
      * domain socket -- PASV/EPSV data connections are always TCP,
      * negotiated against the server's own advertised address/port and
@@ -158,20 +158,20 @@ public class FTPClient {
      *
      * @param socketPath the UNIX domain socket path
      */
-    public FTPClient(String socketPath) {
+    public FtpClient(String socketPath) {
         this(null, socketPath);
     }
 
     /**
      * Creates an FTP client whose control connection is a UNIX domain
      * socket, with an explicit selector loop. See {@link
-     * #FTPClient(String)} for the PASV/EPSV caveat that applies to
+     * #FtpClient(String)} for the PASV/EPSV caveat that applies to
      * every UNIX-domain-socket client.
      *
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param socketPath the UNIX domain socket path
      */
-    public FTPClient(SelectorLoop selectorLoop, String socketPath) {
+    public FtpClient(SelectorLoop selectorLoop, String socketPath) {
         if (socketPath == null) {
             throw new NullPointerException("socketPath");
         }
@@ -257,8 +257,8 @@ public class FTPClient {
      * @param handler the handler to receive the server greeting and
      *                lifecycle events
      */
-    public void connect(ServerGreeting handler) {
-        transportFactory = new TCPTransportFactory();
+    public void connect(RemoteGreeting handler) {
+        transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);
@@ -277,7 +277,7 @@ public class FTPClient {
         }
         transportFactory.start();
 
-        endpointHandler = new FTPClientProtocolHandler(handler);
+        endpointHandler = new FtpClientProtocolHandler(handler);
         endpointHandler.setSecure(secure);
         if (clientCredentials != null) {
             endpointHandler.setClientCredentials(clientCredentials);

@@ -107,7 +107,7 @@ import java.nio.ByteBuffer;
  * After {@link #feed(ByteBuffer)} returns, the buffer's position marks the
  * start of unconsumed data (a partial structured token still being
  * accumulated). The caller is responsible for compacting the buffer
- * before reading more data — see {@code TCPEndpoint.processInbound()} for
+ * before reading more data — see {@code TcpEndpoint.processInbound()} for
  * the transport-level contract this class relies on: unconsumed bytes are
  * preserved across reads via {@code compact()}, and the receive buffer
  * grows (bounded by {@code maxNetInSize}) if a single token does not yet

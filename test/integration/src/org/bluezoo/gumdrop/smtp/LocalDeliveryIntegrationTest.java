@@ -26,7 +26,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
@@ -140,7 +140,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setSubject("Test Subject via SMTP");
         handler.setBody("This message was delivered via SMTP.");
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SmtpClientProtocolHandler(handler));
@@ -185,7 +185,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setBody("Body");
         handler.setExpectRecipientRejection(true);
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SmtpClientProtocolHandler(handler));
@@ -203,7 +203,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setSubject("Multi-recipient Test");
         handler.setBody("This message was sent to multiple recipients.");
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SmtpClientProtocolHandler(handler));
@@ -228,7 +228,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setSubjects(new String[]{"First Message", "Second Message"});
         handler.setBodies(new String[]{"First body.", "Second body."});
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SmtpClientProtocolHandler(handler));
@@ -260,7 +260,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         RsetTestHandler handler = new RsetTestHandler();
         handler.setRecipient(TEST_USER + "@" + LOCAL_DOMAIN);
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
         client.connect(new SmtpClientProtocolHandler(handler));

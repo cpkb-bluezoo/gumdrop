@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.dns.client.ResolvConf;
 import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
@@ -118,7 +118,7 @@ public class Gumdrop {
     private final List<Server> servers;
 
     // Server listeners (controls AcceptSelectorLoop lifecycle)
-    private final List<TCPListener> serverListeners;
+    private final List<TcpListener> serverListeners;
 
     // Active channel handlers (internal bookkeeping for selector dispatch)
     private final Set<ChannelHandler> activeHandlers;
@@ -280,7 +280,7 @@ public class Gumdrop {
 
         this.servers = Collections.synchronizedList(new ArrayList<Server>());
         this.serverListeners =
-                Collections.synchronizedList(new ArrayList<TCPListener>());
+                Collections.synchronizedList(new ArrayList<TcpListener>());
         this.activeHandlers = Collections.newSetFromMap(new ConcurrentHashMap<ChannelHandler, Boolean>());
         this.activeClients = Collections.newSetFromMap(new ConcurrentHashMap<ClientEndpoint, Boolean>());
         this.workerCount = workerCount;
@@ -393,8 +393,8 @@ public class Gumdrop {
         List<?> listeners = server.getListeners();
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
-            if (listener instanceof TCPListener) {
-                TCPListener ep = (TCPListener) listener;
+            if (listener instanceof TcpListener) {
+                TcpListener ep = (TcpListener) listener;
                 serverListeners.add(ep);
                 if (ep.requiresTcpAccept()) {
                     ensureAcceptLoop();
@@ -411,8 +411,8 @@ public class Gumdrop {
         List<?> listeners = server.getListeners();
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
-            if (listener instanceof TCPListener) {
-                TCPListener ep = (TCPListener) listener;
+            if (listener instanceof TcpListener) {
+                TcpListener ep = (TcpListener) listener;
                 serverListeners.remove(ep);
                 if (ep.requiresTcpAccept()) {
                     ep.closeServerChannels();
@@ -455,7 +455,7 @@ public class Gumdrop {
      *
      * @param server the endpoint server to add
      */
-    public void addListener(TCPListener server) {
+    public void addListener(TcpListener server) {
         serverListeners.add(server);
         server.start();
 
@@ -473,7 +473,7 @@ public class Gumdrop {
      *
      * @param server the endpoint server to remove
      */
-    public void removeListener(TCPListener server) {
+    public void removeListener(TcpListener server) {
         serverListeners.remove(server);
         server.stop();
         server.closeServerChannels();
@@ -492,7 +492,7 @@ public class Gumdrop {
      *
      * @return unmodifiable view of the server listeners
      */
-    public Collection<TCPListener> getListeners() {
+    public Collection<TcpListener> getListeners() {
         return Collections.unmodifiableList(serverListeners);
     }
 
@@ -675,8 +675,8 @@ public class Gumdrop {
         // listeners to serverListeners, so we capture the standalone ones now
         // to register them exactly once (and avoid double-registering the
         // service listeners, which register themselves).
-        List<TCPListener> standaloneListeners =
-                new ArrayList<TCPListener>(serverListeners);
+        List<TcpListener> standaloneListeners =
+                new ArrayList<TcpListener>(serverListeners);
 
         // Create or recreate scheduled timer
         if (scheduledTimer == null || !scheduledTimer.isRunning()) {
@@ -703,12 +703,12 @@ public class Gumdrop {
         startMailboxLifecycle();
 
         // Parse /etc/hosts (or Windows hosts) once off the selector so the
-        // first DNSResolver.resolve after accept cannot stall a reactor
+        // first DnsResolver.resolve after accept cannot stall a reactor
         // thread on cold hosts-file I/O.
         HostsFile.warm();
 
         // Parse /etc/resolv.conf once off the selector so the first
-        // DNSResolver.forLoop() call cannot stall a reactor thread on cold
+        // DnsResolver.forLoop() call cannot stall a reactor thread on cold
         // resolver-configuration I/O (see ResolvConf.warm()).
         ResolvConf.warm();
 
@@ -744,7 +744,7 @@ public class Gumdrop {
         // if addListener() ran before workerLoops existed — their start()
         // call at addListener() time deferred in that case. Give them a
         // second chance now that the worker-loop pool is ready (issue #106).
-        for (TCPListener listener : standaloneListeners) {
+        for (TcpListener listener : standaloneListeners) {
             if (!listener.requiresTcpAccept()) {
                 listener.start();
             }
@@ -752,7 +752,7 @@ public class Gumdrop {
 
         // Start AcceptSelectorLoop if we have TCP listeners
         boolean hasTcpListeners = false;
-        for (TCPListener listener : serverListeners) {
+        for (TcpListener listener : serverListeners) {
             if (listener.requiresTcpAccept()) {
                 hasTcpListeners = true;
                 break;
@@ -765,7 +765,7 @@ public class Gumdrop {
             // added after start() are registered directly by addListener(),
             // and protocol-server-owned listeners were registered by
             // registerServerListeners() above.
-            for (TCPListener listener : standaloneListeners) {
+            for (TcpListener listener : standaloneListeners) {
                 if (listener.requiresTcpAccept()) {
                     acceptLoop.registerListener(listener);
                 }
@@ -969,8 +969,8 @@ public class Gumdrop {
         // Close server channels now so no new connections are admitted, but
         // keep the listener objects so their in-flight counts can be observed
         // during the drain phase below.
-        for (TCPListener server :
-                new ArrayList<TCPListener>(serverListeners)) {
+        for (TcpListener server :
+                new ArrayList<TcpListener>(serverListeners)) {
             server.closeServerChannels();
         }
 
@@ -989,8 +989,8 @@ public class Gumdrop {
         servers.clear();
 
         // Stop any standalone server listeners
-        for (TCPListener server :
-                new ArrayList<TCPListener>(serverListeners)) {
+        for (TcpListener server :
+                new ArrayList<TcpListener>(serverListeners)) {
             server.stop();
             server.closeServerChannels();
         }
@@ -1002,7 +1002,7 @@ public class Gumdrop {
 
         // Close DNS resolvers bound to worker loops
         for (SelectorLoop loop : workerLoops) {
-            DNSResolver.removeForLoop(loop);
+            DnsResolver.removeForLoop(loop);
         }
 
         // Stop worker loops, then wait briefly for each to flush and exit.
@@ -1092,8 +1092,8 @@ public class Gumdrop {
      */
     private int activeServerConnectionCount() {
         int total = 0;
-        for (TCPListener listener :
-                new ArrayList<TCPListener>(serverListeners)) {
+        for (TcpListener listener :
+                new ArrayList<TcpListener>(serverListeners)) {
             total += listener.getActiveConnectionCount();
         }
         return total;

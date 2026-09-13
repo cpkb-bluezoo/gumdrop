@@ -1,5 +1,5 @@
 /*
- * SOCKSConstants.java
+ * SocksConstants.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -41,9 +41,9 @@ package org.bluezoo.gumdrop.socks;
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1961">RFC 1961
  *      — GSS-API Authentication Method for SOCKS Version 5</a>
  */
-public final class SOCKSConstants {
+public final class SocksConstants {
 
-    private SOCKSConstants() {
+    private SocksConstants() {
     }
 
     // ═══════════════════════════════════════════════════════════════════

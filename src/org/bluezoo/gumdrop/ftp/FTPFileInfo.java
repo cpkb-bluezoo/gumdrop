@@ -1,5 +1,5 @@
 /*
- * FTPFileInfo.java
+ * FtpFileInfo.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,7 +34,7 @@ import java.util.ResourceBundle;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class FTPFileInfo {
+public class FtpFileInfo {
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
     
     private final String name;
@@ -55,7 +55,7 @@ public class FTPFileInfo {
      * @param group the file group (can be null)  
      * @param permissions Unix-style permissions string (e.g., "rw-r--r--")
      */
-    public FTPFileInfo(String name, long size, Instant lastModified, 
+    public FtpFileInfo(String name, long size, Instant lastModified, 
                        String owner, String group, String permissions) {
         this.name = name;
         this.directory = false;
@@ -75,7 +75,7 @@ public class FTPFileInfo {
      * @param group the directory group (can be null)
      * @param permissions Unix-style permissions string (e.g., "rwxr-xr-x")
      */
-    public FTPFileInfo(String name, Instant lastModified, 
+    public FtpFileInfo(String name, Instant lastModified, 
                        String owner, String group, String permissions) {
         this.name = name;
         this.directory = true;
@@ -239,7 +239,7 @@ public class FTPFileInfo {
 
     @Override
     public String toString() {
-        return String.format("FTPFileInfo{name='%s', directory=%s, size=%d, modified=%s}", 
+        return String.format("FtpFileInfo{name='%s', directory=%s, size=%d, modified=%s}", 
                            name, directory, size, lastModified);
     }
 }

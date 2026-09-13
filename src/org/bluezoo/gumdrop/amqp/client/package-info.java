@@ -23,10 +23,10 @@
  * Non-blocking AMQP 0-9-1 client for publishing and consuming messages
  * against a broker such as RabbitMQ.
  *
- * <p>{@link org.bluezoo.gumdrop.amqp.client.AMQPFrameParser} is a
+ * <p>{@link org.bluezoo.gumdrop.amqp.client.AmqpFrameParser} is a
  * push-parser for the frame envelope: it never assumes a network read
  * contains a complete frame, or that a message body fits in memory.
- * {@link org.bluezoo.gumdrop.amqp.client.AMQPClientProtocolHandler}
+ * {@link org.bluezoo.gumdrop.amqp.client.AmqpClientProtocolHandler}
  * drives the connection and channel lifecycle -- the protocol header,
  * {@code connection.start}/{@code tune}/{@code open} and their replies,
  * {@code channel.open}, exchange/queue declaration and binding, publish
@@ -35,13 +35,13 @@
  * transactions, and flow control -- entirely through the typed-state
  * handler API in {@link org.bluezoo.gumdrop.amqp.client.handler}.
  *
- * <p>{@link org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery} is the
+ * <p>{@link org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery} is the
  * facade most applications should use: automatic reconnect with
  * exponential backoff ({@link
  * org.bluezoo.gumdrop.amqp.client.RecoveryPolicy}), replaying recorded
  * topology (declarations, bindings, consumers) against each new
  * connection so the application's channel references keep working
- * across a reconnect. {@code AMQPClientProtocolHandler} directly is for
+ * across a reconnect. {@code AmqpClientProtocolHandler} directly is for
  * callers that want to handle reconnection themselves.
  *
  * <p>Publisher confirms (RabbitMQ's {@code confirm.select} extension)

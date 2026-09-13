@@ -30,11 +30,11 @@
  *
  * <h3>Services (v2)</h3>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.SimpleFTPService} - Simple
+ *   <li>{@link org.bluezoo.gumdrop.ftp.file.SimpleFTPServer} - Simple
  *       file-based FTP service with optional realm authentication</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService} - FTP
+ *   <li>{@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer} - FTP
  *       service with role-based access control and quota support</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.AnonymousFTPService} - FTP
+ *   <li>{@link org.bluezoo.gumdrop.ftp.file.AnonymousFTPServer} - FTP
  *       service for anonymous public file distribution</li>
  * </ul>
  *
@@ -51,7 +51,7 @@
  *   <li>{@link org.bluezoo.gumdrop.ftp.file.RoleAwareFTPFileSystem} -
  *       Decorator that enforces role-based access at the filesystem
  *       operation level; activated via
- *       {@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService#setFilesystemEnforcement(boolean)}</li>
+ *       {@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer#setFilesystemEnforcement(boolean)}</li>
  * </ul>
  *
  * <h2>Features</h2>
@@ -71,11 +71,11 @@
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  *
- * <service class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService">
+ * <service class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer">
  *   <property name="realm" ref="#ftpRealm"/>
  *   <property name="root-directory">/var/ftp/users</property>
  *   <property name="welcome-message">Welcome to Gumdrop FTP</property>
- *   <listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/>
+ *   <listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/>
  * </service>
  * }</pre>
  *
@@ -86,7 +86,7 @@
  * and cannot access files outside their scope.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.ftp.FTPConnectionHandler
+ * @see org.bluezoo.gumdrop.ftp.FtpConnectionHandler
  * @see org.bluezoo.gumdrop.ftp.file.RoleBasedFTPHandler
  */
 package org.bluezoo.gumdrop.ftp.file;

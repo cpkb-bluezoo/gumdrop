@@ -29,7 +29,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.mime.MIMEParseException;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
@@ -83,7 +83,7 @@ public class AuthPipeline implements SmtpPipeline {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.auth.L10N");
 
-    private final DNSResolver resolver;
+    private final DnsResolver resolver;
     private final InetAddress clientIP;
     private final String heloHost;
 
@@ -265,7 +265,7 @@ public class AuthPipeline implements SmtpPipeline {
      */
     public static class Builder {
 
-        private final DNSResolver resolver;
+        private final DnsResolver resolver;
         private final InetAddress clientIP;
         private final String heloHost;
 
@@ -281,7 +281,7 @@ public class AuthPipeline implements SmtpPipeline {
          * @param clientIP the IP address of the connecting client
          * @param heloHost the HELO/EHLO hostname from the client
          */
-        public Builder(DNSResolver resolver, InetAddress clientIP, String heloHost) {
+        public Builder(DnsResolver resolver, InetAddress clientIP, String heloHost) {
             if (resolver == null) {
                 throw new NullPointerException(L10N.getString("err.null_resolver"));
             }

@@ -22,18 +22,18 @@
 package org.bluezoo.gumdrop.dns.client;
 
 /**
- * SPI for creating a DNS-over-HTTPS (RFC 8484) {@link DNSClientTransport}.
+ * SPI for creating a DNS-over-HTTPS (RFC 8484) {@link DnsClientTransport}.
  *
  * <p>The implementation ({@code org.bluezoo.gumdrop.http.doh.DoHClientTransport},
  * via a small adapter) lives in {@code gumdrop-http.jar} and is discovered
- * via {@link java.util.ServiceLoader} -- core, where {@link DNSResolver}
+ * via {@link java.util.ServiceLoader} -- core, where {@link DnsResolver}
  * lives, cannot depend on the HTTP client stack directly, since DoH is
  * itself built on it. When no provider is on the classpath (a core-only
- * deployment without the HTTP module), {@link DNSResolver} simply skips
+ * deployment without the HTTP module), {@link DnsResolver} simply skips
  * DoH in its transport preference order.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSResolver
+ * @see DnsResolver
  */
 public interface DoHTransportFactory {
 
@@ -44,6 +44,6 @@ public interface DoHTransportFactory {
      *             {@code "/dns-query"}), or null for the implementation's default
      * @return a new transport instance
      */
-    DNSClientTransport createTransport(String path);
+    DnsClientTransport createTransport(String path);
 
 }

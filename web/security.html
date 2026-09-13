@@ -777,9 +777,9 @@ preventing rapid reconnection attacks.
 </p>
 
 <pre>
-&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
+&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer"&gt;
     &lt;property name="rate-limit"&gt;100/60s&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/&gt;
 &lt;/service&gt;
 </pre>
 

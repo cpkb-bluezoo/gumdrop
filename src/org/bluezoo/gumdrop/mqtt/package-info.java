@@ -26,31 +26,31 @@
  *
  * <h2>Server (broker)</h2>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.MQTTListener} — TCP listener (ports 1883/8883)</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.MQTTService} — service base class</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.DefaultMQTTService} — default broker</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.MQTTProtocolHandler} — protocol state machine</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.MQTTWebSocketHandler} — WebSocket bridge</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.MqttListener} — TCP listener (ports 1883/8883)</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.MqttServer} — service base class</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.DefaultMQTTServer} — default broker</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.MqttProtocolHandler} — protocol state machine</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.MqttWebSocketHandler} — WebSocket bridge</li>
  * </ul>
  *
  * <h2>Client</h2>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.client.MQTTClient} — high-level client API</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.client.MQTTMessageListener} — receives messages
- *       as {@link org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent} for streaming
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.client.MqttClient} — high-level client API</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.client.MqttMessageListener} — receives messages
+ *       as {@link org.bluezoo.gumdrop.mqtt.store.MqttMessageContent} for streaming
  *       large payloads without buffering</li>
  * </ul>
  *
  * <h2>Store</h2>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.store.MQTTMessageStore} — payload storage factory</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent} — readable payload handle</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.store.MqttMessageStore} — payload storage factory</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.store.MqttMessageContent} — readable payload handle</li>
  * </ul>
  *
  * <h2>Codec</h2>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.codec.MQTTFrameParser} — packet parser</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.codec.MQTTPacketEncoder} — packet encoder</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.codec.MqttFrameParser} — packet parser</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.codec.MqttPacketEncoder} — packet encoder</li>
  * </ul>
  *
  * <h2>Broker</h2>

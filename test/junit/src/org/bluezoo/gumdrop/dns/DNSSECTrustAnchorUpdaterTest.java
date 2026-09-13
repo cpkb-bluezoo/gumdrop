@@ -23,9 +23,9 @@ package org.bluezoo.gumdrop.dns;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.dns.client.DNSClientTransport;
-import org.bluezoo.gumdrop.dns.client.DNSClientTransportHandler;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 
 import org.junit.Test;
 
@@ -48,18 +48,18 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for issue #411: {@link DNSSECTrustAnchorUpdater}'s RFC
+ * Unit tests for issue #411: {@link DnssecTrustAnchorUpdater}'s RFC
  * 5011 state machine (AddPending/Valid/Missing/Revoked, hold-down
  * timers, the "never leave zero Valid keys" safeguard) and its
  * persistence across restarts.
  *
- * <p>Most tests drive {@link DNSSECTrustAnchorUpdater#handleDNSKEYResponse}
+ * <p>Most tests drive {@link DnssecTrustAnchorUpdater#handleDNSKEYResponse}
  * directly with real RSA-signed fixtures (genuine cryptographic
  * verification, not a mocked check) and a controllable fake clock
- * (overriding {@link DNSSECTrustAnchorUpdater#now}) rather than
+ * (overriding {@link DnssecTrustAnchorUpdater#now}) rather than
  * sleeping through real hold-down periods. One end-to-end test drives
- * the whole thing through a real {@link DNSResolver} with a mock
- * transport, to prove {@link DNSSECTrustAnchorUpdater#checkNow}'s
+ * the whole thing through a real {@link DnsResolver} with a mock
+ * transport, to prove {@link DnssecTrustAnchorUpdater#checkNow}'s
  * wiring (query out, response in) actually works.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -71,26 +71,26 @@ public class DNSSECTrustAnchorUpdaterTest {
     // one production caller) does not canonicalize its zone parameter
     // itself, so tests must pass it pre-canonicalized.
     private static final String ZONE = "example";
-    private static final int ALGORITHM = DNSSECAlgorithm.RSASHA256.getNumber();
+    private static final int ALGORITHM = DnssecAlgorithm.RSASHA256.getNumber();
 
     // ── Bootstrap ──
 
     @Test
     public void testBootstrapPromotesStaticallyTrustedKeyImmediately() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
         FakeClockUpdater updater = new FakeClockUpdater(anchor);
         KeyPair ksk1 = generateKeyPair();
-        DNSResourceRecord ksk1Key = buildKSK(ksk1, 0);
+        DnsResourceRecord ksk1Key = buildKSK(ksk1, 0);
         addStaticAnchor(anchor, ksk1Key);
         updater.addTrustPoint(ZONE);
 
-        DNSMessage response = buildResponse(Collections.singletonList(ksk1Key),
+        DnsMessage response = buildResponse(Collections.singletonList(ksk1Key),
                 sign(Collections.singletonList(ksk1Key), ksk1, ksk1Key.computeKeyTag()));
         updater.handleDNSKEYResponse(ZONE, response);
 
-        List<DNSSECTrustAnchorUpdater.TrackedKeyInfo> tracked = updater.getTrackedKeys(ZONE);
+        List<DnssecTrustAnchorUpdater.TrackedKeyInfo> tracked = updater.getTrackedKeys(ZONE);
         assertEquals(1, tracked.size());
-        assertEquals(DNSSECTrustAnchorUpdater.KeyState.VALID, tracked.get(0).getState());
+        assertEquals(DnssecTrustAnchorUpdater.KeyState.VALID, tracked.get(0).getState());
         assertTrue(anchor.isDNSKEYTrusted(ZONE, ksk1Key));
     }
 
@@ -98,37 +98,37 @@ public class DNSSECTrustAnchorUpdaterTest {
 
     @Test
     public void testNewKeyAddedAsPendingThenPromotedAfterHoldDown() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
         FakeClockUpdater updater = new FakeClockUpdater(anchor);
         updater.setAddHoldDownMs(1000);
         KeyPair ksk1 = generateKeyPair();
-        DNSResourceRecord ksk1Key = buildKSK(ksk1, 0);
+        DnsResourceRecord ksk1Key = buildKSK(ksk1, 0);
         addStaticAnchor(anchor, ksk1Key);
         updater.addTrustPoint(ZONE);
         bootstrap(updater, ksk1, ksk1Key);
 
         KeyPair ksk2 = generateKeyPair();
-        DNSResourceRecord ksk2Key = buildKSK(ksk2, 0);
-        List<DNSResourceRecord> rrset = Arrays.asList(ksk1Key, ksk2Key);
+        DnsResourceRecord ksk2Key = buildKSK(ksk2, 0);
+        List<DnsResourceRecord> rrset = Arrays.asList(ksk1Key, ksk2Key);
 
         updater.fakeNow = 0;
         updater.handleDNSKEYResponse(ZONE, buildResponse(rrset,
                 sign(rrset, ksk1, ksk1Key.computeKeyTag())));
 
-        assertKeyState(updater, ksk2Key, DNSSECTrustAnchorUpdater.KeyState.ADD_PENDING);
+        assertKeyState(updater, ksk2Key, DnssecTrustAnchorUpdater.KeyState.ADD_PENDING);
         assertFalse(anchor.isDNSKEYTrusted(ZONE, ksk2Key));
 
         // Not yet past the hold-down: still pending.
         updater.fakeNow = 999;
         updater.handleDNSKEYResponse(ZONE, buildResponse(rrset,
                 sign(rrset, ksk1, ksk1Key.computeKeyTag())));
-        assertKeyState(updater, ksk2Key, DNSSECTrustAnchorUpdater.KeyState.ADD_PENDING);
+        assertKeyState(updater, ksk2Key, DnssecTrustAnchorUpdater.KeyState.ADD_PENDING);
 
         // Past the hold-down: promoted.
         updater.fakeNow = 1001;
         updater.handleDNSKEYResponse(ZONE, buildResponse(rrset,
                 sign(rrset, ksk1, ksk1Key.computeKeyTag())));
-        assertKeyState(updater, ksk2Key, DNSSECTrustAnchorUpdater.KeyState.VALID);
+        assertKeyState(updater, ksk2Key, DnssecTrustAnchorUpdater.KeyState.VALID);
         assertTrue(anchor.isDNSKEYTrusted(ZONE, ksk2Key));
     }
 
@@ -136,56 +136,56 @@ public class DNSSECTrustAnchorUpdaterTest {
 
     @Test
     public void testMissingKeyReturnsToValidWithoutNewHoldDown() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
         FakeClockUpdater updater = new FakeClockUpdater(anchor);
         KeyPair ksk1 = generateKeyPair();
-        DNSResourceRecord ksk1Key = buildKSK(ksk1, 0);
+        DnsResourceRecord ksk1Key = buildKSK(ksk1, 0);
         addStaticAnchor(anchor, ksk1Key);
         updater.addTrustPoint(ZONE);
         bootstrap(updater, ksk1, ksk1Key);
 
         KeyPair ksk2 = generateKeyPair();
-        DNSResourceRecord ksk2Key = buildKSK(ksk2, 0);
+        DnsResourceRecord ksk2Key = buildKSK(ksk2, 0);
         promoteViaRfc5011(updater, ksk1, ksk1Key, ksk2Key);
 
-        List<DNSResourceRecord> both = Arrays.asList(ksk1Key, ksk2Key);
-        assertKeyState(updater, ksk2Key, DNSSECTrustAnchorUpdater.KeyState.VALID);
+        List<DnsResourceRecord> both = Arrays.asList(ksk1Key, ksk2Key);
+        assertKeyState(updater, ksk2Key, DnssecTrustAnchorUpdater.KeyState.VALID);
         assertTrue(anchor.isDNSKEYTrusted(ZONE, ksk2Key));
 
         // ksk2 disappears from the RRset.
-        List<DNSResourceRecord> onlyKsk1 = Collections.singletonList(ksk1Key);
+        List<DnsResourceRecord> onlyKsk1 = Collections.singletonList(ksk1Key);
         updater.handleDNSKEYResponse(ZONE, buildResponse(onlyKsk1,
                 sign(onlyKsk1, ksk1, ksk1Key.computeKeyTag())));
-        assertKeyState(updater, ksk2Key, DNSSECTrustAnchorUpdater.KeyState.MISSING);
+        assertKeyState(updater, ksk2Key, DnssecTrustAnchorUpdater.KeyState.MISSING);
         assertFalse(anchor.isDNSKEYTrusted(ZONE, ksk2Key));
 
         // ksk2 reappears: back to Valid immediately, no hold-down wait.
         updater.handleDNSKEYResponse(ZONE, buildResponse(both,
                 sign(both, ksk1, ksk1Key.computeKeyTag())));
-        assertKeyState(updater, ksk2Key, DNSSECTrustAnchorUpdater.KeyState.VALID);
+        assertKeyState(updater, ksk2Key, DnssecTrustAnchorUpdater.KeyState.VALID);
         assertTrue(anchor.isDNSKEYTrusted(ZONE, ksk2Key));
     }
 
     @Test
     public void testMissingKeyRemovedAfterRemoveHoldDown() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
         FakeClockUpdater updater = new FakeClockUpdater(anchor);
         updater.setRemoveHoldDownMs(1000);
         KeyPair ksk1 = generateKeyPair();
-        DNSResourceRecord ksk1Key = buildKSK(ksk1, 0);
+        DnsResourceRecord ksk1Key = buildKSK(ksk1, 0);
         addStaticAnchor(anchor, ksk1Key);
         updater.addTrustPoint(ZONE);
         updater.fakeNow = 0;
         bootstrap(updater, ksk1, ksk1Key);
 
         KeyPair ksk2 = generateKeyPair();
-        DNSResourceRecord ksk2Key = buildKSK(ksk2, 0);
+        DnsResourceRecord ksk2Key = buildKSK(ksk2, 0);
         promoteViaRfc5011(updater, ksk1, ksk1Key, ksk2Key);
 
-        List<DNSResourceRecord> onlyKsk1 = Collections.singletonList(ksk1Key);
+        List<DnsResourceRecord> onlyKsk1 = Collections.singletonList(ksk1Key);
         updater.handleDNSKEYResponse(ZONE, buildResponse(onlyKsk1,
                 sign(onlyKsk1, ksk1, ksk1Key.computeKeyTag())));
-        assertKeyState(updater, ksk2Key, DNSSECTrustAnchorUpdater.KeyState.MISSING);
+        assertKeyState(updater, ksk2Key, DnssecTrustAnchorUpdater.KeyState.MISSING);
 
         updater.fakeNow = 1001;
         updater.handleDNSKEYResponse(ZONE, buildResponse(onlyKsk1,
@@ -194,7 +194,7 @@ public class DNSSECTrustAnchorUpdaterTest {
         // ksk2 was purged entirely once its remove hold-down expired --
         // only ksk1 remains tracked.
         assertEquals(1, updater.getTrackedKeys(ZONE).size());
-        assertEquals(DNSSECTrustAnchorUpdater.KeyState.VALID,
+        assertEquals(DnssecTrustAnchorUpdater.KeyState.VALID,
                 updater.getTrackedKeys(ZONE).get(0).getState());
     }
 
@@ -202,66 +202,66 @@ public class DNSSECTrustAnchorUpdaterTest {
 
     @Test
     public void testRevokedKeyWithValidSelfSignatureIsRevokedImmediately() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
         FakeClockUpdater updater = new FakeClockUpdater(anchor);
         KeyPair ksk1 = generateKeyPair();
-        DNSResourceRecord ksk1Key = buildKSK(ksk1, 0);
+        DnsResourceRecord ksk1Key = buildKSK(ksk1, 0);
         addStaticAnchor(anchor, ksk1Key);
         updater.addTrustPoint(ZONE);
         bootstrap(updater, ksk1, ksk1Key);
 
         KeyPair ksk2 = generateKeyPair();
-        DNSResourceRecord ksk2Key = buildKSK(ksk2, 0);
+        DnsResourceRecord ksk2Key = buildKSK(ksk2, 0);
         promoteViaRfc5011(updater, ksk1, ksk1Key, ksk2Key);
-        assertKeyState(updater, ksk2Key, DNSSECTrustAnchorUpdater.KeyState.VALID);
+        assertKeyState(updater, ksk2Key, DnssecTrustAnchorUpdater.KeyState.VALID);
         assertTrue(anchor.isDNSKEYTrusted(ZONE, ksk2Key));
 
         // RFC 5011 section 5.1: revoke bit set (changes the key tag),
         // signed by a trusted key (ksk1) AND self-signed by ksk2 itself.
-        DNSResourceRecord ksk2Revoked = buildKSK(ksk2, 0x0080);
-        List<DNSResourceRecord> rrsetWithRevocation = Arrays.asList(ksk1Key, ksk2Revoked);
-        DNSResourceRecord trustedSig = sign(rrsetWithRevocation, ksk1, ksk1Key.computeKeyTag());
-        DNSResourceRecord selfSig = sign(rrsetWithRevocation, ksk2, ksk2Revoked.computeKeyTag());
+        DnsResourceRecord ksk2Revoked = buildKSK(ksk2, 0x0080);
+        List<DnsResourceRecord> rrsetWithRevocation = Arrays.asList(ksk1Key, ksk2Revoked);
+        DnsResourceRecord trustedSig = sign(rrsetWithRevocation, ksk1, ksk1Key.computeKeyTag());
+        DnsResourceRecord selfSig = sign(rrsetWithRevocation, ksk2, ksk2Revoked.computeKeyTag());
 
-        List<DNSResourceRecord> answers = new ArrayList<>(rrsetWithRevocation);
+        List<DnsResourceRecord> answers = new ArrayList<>(rrsetWithRevocation);
         answers.add(trustedSig);
         answers.add(selfSig);
         updater.handleDNSKEYResponse(ZONE, messageFrom(answers));
 
-        assertKeyState(updater, ksk2Key, DNSSECTrustAnchorUpdater.KeyState.REVOKED);
+        assertKeyState(updater, ksk2Key, DnssecTrustAnchorUpdater.KeyState.REVOKED);
         assertFalse("a revoked key must stop being trusted immediately",
                 anchor.isDNSKEYTrusted(ZONE, ksk2Key));
     }
 
     @Test
     public void testRevocationWithoutValidSelfSignatureIsNotHonored() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
         FakeClockUpdater updater = new FakeClockUpdater(anchor);
         KeyPair ksk1 = generateKeyPair();
         KeyPair ksk2 = generateKeyPair();
-        DNSResourceRecord ksk1Key = buildKSK(ksk1, 0);
-        DNSResourceRecord ksk2Key = buildKSK(ksk2, 0);
+        DnsResourceRecord ksk1Key = buildKSK(ksk1, 0);
+        DnsResourceRecord ksk2Key = buildKSK(ksk2, 0);
         addStaticAnchor(anchor, ksk1Key);
         addStaticAnchor(anchor, ksk2Key);
         updater.addTrustPoint(ZONE);
 
-        List<DNSResourceRecord> both = Arrays.asList(ksk1Key, ksk2Key);
+        List<DnsResourceRecord> both = Arrays.asList(ksk1Key, ksk2Key);
         updater.handleDNSKEYResponse(ZONE, buildResponse(both,
                 sign(both, ksk1, ksk1Key.computeKeyTag())));
 
         // REVOKE bit set, but only signed by the trusted key -- no
         // self-signature by ksk2 itself. Must not be honored as a
         // revocation (RFC 5011 section 5.1 requires both).
-        DNSResourceRecord ksk2Revoked = buildKSK(ksk2, 0x0080);
-        List<DNSResourceRecord> rrsetWithRevocation = Arrays.asList(ksk1Key, ksk2Revoked);
-        DNSResourceRecord trustedSig = sign(rrsetWithRevocation, ksk1, ksk1Key.computeKeyTag());
+        DnsResourceRecord ksk2Revoked = buildKSK(ksk2, 0x0080);
+        List<DnsResourceRecord> rrsetWithRevocation = Arrays.asList(ksk1Key, ksk2Revoked);
+        DnsResourceRecord trustedSig = sign(rrsetWithRevocation, ksk1, ksk1Key.computeKeyTag());
 
-        List<DNSResourceRecord> answers = new ArrayList<>(rrsetWithRevocation);
+        List<DnsResourceRecord> answers = new ArrayList<>(rrsetWithRevocation);
         answers.add(trustedSig);
         updater.handleDNSKEYResponse(ZONE, messageFrom(answers));
 
-        for (DNSSECTrustAnchorUpdater.TrackedKeyInfo info : updater.getTrackedKeys(ZONE)) {
-            assertNotEquals(DNSSECTrustAnchorUpdater.KeyState.REVOKED, info.getState());
+        for (DnssecTrustAnchorUpdater.TrackedKeyInfo info : updater.getTrackedKeys(ZONE)) {
+            assertNotEquals(DnssecTrustAnchorUpdater.KeyState.REVOKED, info.getState());
         }
     }
 
@@ -269,10 +269,10 @@ public class DNSSECTrustAnchorUpdaterTest {
 
     @Test
     public void testSelfRevocationOfTheOnlyValidKeyIsRejected() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
         FakeClockUpdater updater = new FakeClockUpdater(anchor);
         KeyPair ksk1 = generateKeyPair();
-        DNSResourceRecord ksk1Key = buildKSK(ksk1, 0);
+        DnsResourceRecord ksk1Key = buildKSK(ksk1, 0);
         addStaticAnchor(anchor, ksk1Key);
         updater.addTrustPoint(ZONE);
         bootstrap(updater, ksk1, ksk1Key);
@@ -280,16 +280,16 @@ public class DNSSECTrustAnchorUpdaterTest {
         // ksk1 -- the ONLY Valid key -- revokes itself. A single
         // self-signature satisfies both "signed by a trusted key" (it
         // was trusted right up until this) and "self-signed".
-        DNSResourceRecord ksk1Revoked = buildKSK(ksk1, 0x0080);
-        List<DNSResourceRecord> rrset = Collections.singletonList(ksk1Revoked);
-        DNSResourceRecord selfSig = sign(rrset, ksk1, ksk1Revoked.computeKeyTag());
+        DnsResourceRecord ksk1Revoked = buildKSK(ksk1, 0x0080);
+        List<DnsResourceRecord> rrset = Collections.singletonList(ksk1Revoked);
+        DnsResourceRecord selfSig = sign(rrset, ksk1, ksk1Revoked.computeKeyTag());
 
-        List<DNSResourceRecord> answers = new ArrayList<>(rrset);
+        List<DnsResourceRecord> answers = new ArrayList<>(rrset);
         answers.add(selfSig);
         updater.handleDNSKEYResponse(ZONE, messageFrom(answers));
 
         // RFC 5011 section 5.1: rejected outright -- ksk1 stays Valid.
-        assertKeyState(updater, ksk1Key, DNSSECTrustAnchorUpdater.KeyState.VALID);
+        assertKeyState(updater, ksk1Key, DnssecTrustAnchorUpdater.KeyState.VALID);
         assertTrue(anchor.isDNSKEYTrusted(ZONE, ksk1Key));
     }
 
@@ -297,13 +297,13 @@ public class DNSSECTrustAnchorUpdaterTest {
 
     @Test
     public void testNoTrustedSignatureLeavesStateUntouched() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
         FakeClockUpdater updater = new FakeClockUpdater(anchor);
         updater.addTrustPoint(ZONE);
 
         KeyPair untrusted = generateKeyPair();
-        DNSResourceRecord untrustedKey = buildKSK(untrusted, 0);
-        List<DNSResourceRecord> rrset = Collections.singletonList(untrustedKey);
+        DnsResourceRecord untrustedKey = buildKSK(untrusted, 0);
+        List<DnsResourceRecord> rrset = Collections.singletonList(untrustedKey);
         // Self-signed by a key nothing trusts yet -- no basis to act on it.
         updater.handleDNSKEYResponse(ZONE, buildResponse(rrset,
                 sign(rrset, untrusted, untrustedKey.computeKeyTag())));
@@ -318,22 +318,22 @@ public class DNSSECTrustAnchorUpdaterTest {
         File stateFile = File.createTempFile("rfc5011-test", ".state");
         stateFile.deleteOnExit();
         try {
-            DNSSECTrustAnchor anchor1 = new DNSSECTrustAnchor();
+            DnssecTrustAnchor anchor1 = new DnssecTrustAnchor();
             FakeClockUpdater updater1 = new FakeClockUpdater(anchor1);
             KeyPair ksk1 = generateKeyPair();
-            DNSResourceRecord ksk1Key = buildKSK(ksk1, 0);
+            DnsResourceRecord ksk1Key = buildKSK(ksk1, 0);
             addStaticAnchor(anchor1, ksk1Key);
             updater1.setStateFile(stateFile);
             updater1.addTrustPoint(ZONE);
             bootstrap(updater1, ksk1, ksk1Key);
-            assertKeyState(updater1, ksk1Key, DNSSECTrustAnchorUpdater.KeyState.VALID);
+            assertKeyState(updater1, ksk1Key, DnssecTrustAnchorUpdater.KeyState.VALID);
 
             // Fresh process: new trust anchor store, new updater, same file.
-            DNSSECTrustAnchor anchor2 = new DNSSECTrustAnchor();
+            DnssecTrustAnchor anchor2 = new DnssecTrustAnchor();
             FakeClockUpdater updater2 = new FakeClockUpdater(anchor2);
             updater2.setStateFile(stateFile);
 
-            assertKeyState(updater2, ksk1Key, DNSSECTrustAnchorUpdater.KeyState.VALID);
+            assertKeyState(updater2, ksk1Key, DnssecTrustAnchorUpdater.KeyState.VALID);
             assertTrue("restored Valid keys must be re-promoted into the trust anchor store",
                     anchor2.isDNSKEYTrusted(ZONE, ksk1Key));
         } finally {
@@ -345,40 +345,40 @@ public class DNSSECTrustAnchorUpdaterTest {
 
     @Test
     public void testCheckNowQueriesDNSKEYAndAppliesTheResponse() throws Exception {
-        DNSSECTrustAnchor anchor = new DNSSECTrustAnchor();
+        DnssecTrustAnchor anchor = new DnssecTrustAnchor();
         KeyPair ksk1 = generateKeyPair();
-        DNSResourceRecord ksk1Key = buildKSK(ksk1, 0);
+        DnsResourceRecord ksk1Key = buildKSK(ksk1, 0);
         addStaticAnchor(anchor, ksk1Key);
 
         RecordingTransport transport = new RecordingTransport();
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setTransport(transport);
         resolver.addServer("203.0.113.53");
         resolver.open();
 
-        DNSSECTrustAnchorUpdater updater = new DNSSECTrustAnchorUpdater(resolver, anchor);
+        DnssecTrustAnchorUpdater updater = new DnssecTrustAnchorUpdater(resolver, anchor);
         updater.addTrustPoint(ZONE);
         updater.checkNow(ZONE);
 
         assertNotNull("checkNow should have sent a DNSKEY query", transport.lastSent);
-        DNSMessage sent = DNSMessage.parse(transport.lastSent);
+        DnsMessage sent = DnsMessage.parse(transport.lastSent);
         assertEquals(ZONE, sent.getQuestions().get(0).getName());
-        assertEquals(DNSType.DNSKEY, sent.getQuestions().get(0).getType());
+        assertEquals(DnsType.DNSKEY, sent.getQuestions().get(0).getType());
 
-        List<DNSResourceRecord> rrset = Collections.singletonList(ksk1Key);
-        DNSMessage response = buildResponse(rrset, sign(rrset, ksk1, ksk1Key.computeKeyTag()));
+        List<DnsResourceRecord> rrset = Collections.singletonList(ksk1Key);
+        DnsMessage response = buildResponse(rrset, sign(rrset, ksk1, ksk1Key.computeKeyTag()));
         response = withId(response, sent.getId());
         transport.handler.onReceive(response.serialize());
 
-        assertKeyState(updater, ksk1Key, DNSSECTrustAnchorUpdater.KeyState.VALID);
+        assertKeyState(updater, ksk1Key, DnssecTrustAnchorUpdater.KeyState.VALID);
         resolver.close();
     }
 
     // ── Helpers ──
 
-    private static void bootstrap(FakeClockUpdater updater, KeyPair ksk, DNSResourceRecord kskRecord)
+    private static void bootstrap(FakeClockUpdater updater, KeyPair ksk, DnsResourceRecord kskRecord)
             throws Exception {
-        List<DNSResourceRecord> rrset = Collections.singletonList(kskRecord);
+        List<DnsResourceRecord> rrset = Collections.singletonList(kskRecord);
         updater.handleDNSKEYResponse(ZONE, buildResponse(rrset,
                 sign(rrset, ksk, kskRecord.computeKeyTag())));
     }
@@ -394,26 +394,26 @@ public class DNSSECTrustAnchorUpdaterTest {
      * hold-down has already elapsed.
      */
     private static void promoteViaRfc5011(FakeClockUpdater updater, KeyPair trustedKey,
-            DNSResourceRecord trustedKeyRecord, DNSResourceRecord newKey) throws Exception {
+            DnsResourceRecord trustedKeyRecord, DnsResourceRecord newKey) throws Exception {
         long savedHoldDown = updater.getAddHoldDownMs();
         updater.setAddHoldDownMs(0);
-        List<DNSResourceRecord> rrset = Arrays.asList(trustedKeyRecord, newKey);
-        DNSResourceRecord rrsig = sign(rrset, trustedKey, trustedKeyRecord.computeKeyTag());
+        List<DnsResourceRecord> rrset = Arrays.asList(trustedKeyRecord, newKey);
+        DnsResourceRecord rrsig = sign(rrset, trustedKey, trustedKeyRecord.computeKeyTag());
         updater.handleDNSKEYResponse(ZONE, buildResponse(rrset, rrsig));
-        assertKeyState(updater, newKey, DNSSECTrustAnchorUpdater.KeyState.ADD_PENDING);
+        assertKeyState(updater, newKey, DnssecTrustAnchorUpdater.KeyState.ADD_PENDING);
         updater.handleDNSKEYResponse(ZONE, buildResponse(rrset, rrsig));
         updater.setAddHoldDownMs(savedHoldDown);
     }
 
-    private static void assertKeyState(DNSSECTrustAnchorUpdater updater, DNSResourceRecord key,
-            DNSSECTrustAnchorUpdater.KeyState expected) {
+    private static void assertKeyState(DnssecTrustAnchorUpdater updater, DnsResourceRecord key,
+            DnssecTrustAnchorUpdater.KeyState expected) {
         byte[] publicKey = key.getDNSKEYPublicKey();
-        for (DNSSECTrustAnchorUpdater.TrackedKeyInfo info : updater.getTrackedKeys(ZONE)) {
+        for (DnssecTrustAnchorUpdater.TrackedKeyInfo info : updater.getTrackedKeys(ZONE)) {
             // Matched by public key material, not tag: a key's tag
             // changes the moment its REVOKE bit is set (RFC 5011
             // section 5.1), so this is the only way to reliably find
             // "the same key" across that flip -- the same identity
-            // DNSSECTrustAnchorUpdater itself uses internally.
+            // DnssecTrustAnchorUpdater itself uses internally.
             if (info.getAlgorithm() == key.getDNSKEYAlgorithm()
                     && Arrays.equals(info.getPublicKey(), publicKey)) {
                 assertEquals(expected, info.getState());
@@ -423,9 +423,9 @@ public class DNSSECTrustAnchorUpdaterTest {
         fail("key not tracked: tag=" + key.computeKeyTag());
     }
 
-    private static void addStaticAnchor(DNSSECTrustAnchor anchor, DNSResourceRecord dnskey) throws Exception {
+    private static void addStaticAnchor(DnssecTrustAnchor anchor, DnsResourceRecord dnskey) throws Exception {
         MessageDigest md = MessageDigest.getInstance("SHA-256");
-        md.update(DNSMessage.encodeName(DNSSECValidator.canonicalizeName(dnskey.getName())));
+        md.update(DnsMessage.encodeName(DnssecValidator.canonicalizeName(dnskey.getName())));
         md.update(dnskey.getRData());
         byte[] digest = md.digest();
         StringBuilder hex = new StringBuilder();
@@ -441,8 +441,8 @@ public class DNSSECTrustAnchorUpdaterTest {
         return kpg.generateKeyPair();
     }
 
-    private static DNSResourceRecord buildKSK(KeyPair kp, int extraFlags) {
-        return DNSResourceRecord.dnskey(ZONE, 3600, 0x0101 | extraFlags,
+    private static DnsResourceRecord buildKSK(KeyPair kp, int extraFlags) {
+        return DnsResourceRecord.dnskey(ZONE, 3600, 0x0101 | extraFlags,
                 ALGORITHM, rsaWireFormat(kp.getPublic()));
     }
 
@@ -470,51 +470,51 @@ public class DNSSECTrustAnchorUpdaterTest {
         return b;
     }
 
-    private static DNSResourceRecord sign(List<DNSResourceRecord> rrset, KeyPair signer, int keyTag)
+    private static DnsResourceRecord sign(List<DnsResourceRecord> rrset, KeyPair signer, int keyTag)
             throws Exception {
         long now = System.currentTimeMillis() / 1000;
-        DNSResourceRecord template = DNSResourceRecord.rrsig(ZONE, 3600, DNSType.DNSKEY,
+        DnsResourceRecord template = DnsResourceRecord.rrsig(ZONE, 3600, DnsType.DNSKEY,
                 ALGORITHM, 1, 3600, now + 3600, now - 3600, keyTag, ZONE, new byte[0]);
         byte[] header = template.getRRSIGHeaderBytes();
-        List<byte[]> canonical = DNSSECValidator.buildCanonicalRRset(rrset, template);
+        List<byte[]> canonical = DnssecValidator.buildCanonicalRRset(rrset, template);
         ByteArrayOutputStream toSign = new ByteArrayOutputStream();
         toSign.write(header);
         for (byte[] rec : canonical) {
             toSign.write(rec);
         }
-        Signature sig = Signature.getInstance(DNSSECAlgorithm.RSASHA256.getSignatureAlgorithm());
+        Signature sig = Signature.getInstance(DnssecAlgorithm.RSASHA256.getSignatureAlgorithm());
         sig.initSign(signer.getPrivate());
         sig.update(toSign.toByteArray());
         byte[] signature = sig.sign();
-        return DNSResourceRecord.rrsig(ZONE, 3600, DNSType.DNSKEY,
+        return DnsResourceRecord.rrsig(ZONE, 3600, DnsType.DNSKEY,
                 ALGORITHM, 1, 3600, now + 3600, now - 3600, keyTag, ZONE, signature);
     }
 
-    private static DNSMessage buildResponse(List<DNSResourceRecord> dnskeys, DNSResourceRecord rrsig) {
-        List<DNSResourceRecord> answers = new ArrayList<>(dnskeys);
+    private static DnsMessage buildResponse(List<DnsResourceRecord> dnskeys, DnsResourceRecord rrsig) {
+        List<DnsResourceRecord> answers = new ArrayList<>(dnskeys);
         answers.add(rrsig);
         return messageFrom(answers);
     }
 
-    private static DNSMessage messageFrom(List<DNSResourceRecord> answers) {
-        List<DNSQuestion> questions = Collections.singletonList(
-                new DNSQuestion(ZONE, DNSType.DNSKEY, DNSClass.IN));
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        return new DNSMessage(1, flags, questions, answers,
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList());
+    private static DnsMessage messageFrom(List<DnsResourceRecord> answers) {
+        List<DnsQuestion> questions = Collections.singletonList(
+                new DnsQuestion(ZONE, DnsType.DNSKEY, DnsClass.IN));
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        return new DnsMessage(1, flags, questions, answers,
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
     }
 
-    private static DNSMessage withId(DNSMessage message, int id) {
-        return new DNSMessage(id, message.getFlags(), message.getQuestions(), message.getAnswers(),
+    private static DnsMessage withId(DnsMessage message, int id) {
+        return new DnsMessage(id, message.getFlags(), message.getQuestions(), message.getAnswers(),
                 message.getAuthorities(), message.getAdditionals());
     }
 
-    /** Overrides {@link DNSSECTrustAnchorUpdater#now} for deterministic hold-down tests. */
-    private static class FakeClockUpdater extends DNSSECTrustAnchorUpdater {
+    /** Overrides {@link DnssecTrustAnchorUpdater#now} for deterministic hold-down tests. */
+    private static class FakeClockUpdater extends DnssecTrustAnchorUpdater {
         long fakeNow;
 
-        FakeClockUpdater(DNSSECTrustAnchor anchor) {
+        FakeClockUpdater(DnssecTrustAnchor anchor) {
             super(dummyResolver(), anchor);
         }
 
@@ -523,18 +523,18 @@ public class DNSSECTrustAnchorUpdaterTest {
             return fakeNow;
         }
 
-        private static DNSResolver dummyResolver() {
-            return new DNSResolver();
+        private static DnsResolver dummyResolver() {
+            return new DnsResolver();
         }
     }
 
-    private static class RecordingTransport implements DNSClientTransport {
-        DNSClientTransportHandler handler;
+    private static class RecordingTransport implements DnsClientTransport {
+        DnsClientTransportHandler handler;
         ByteBuffer lastSent;
 
         @Override
         public void open(InetAddress server, int port, SelectorLoop loop,
-                         DNSClientTransportHandler handler) {
+                         DnsClientTransportHandler handler) {
             this.handler = handler;
         }
 

@@ -31,7 +31,7 @@ import javax.net.ssl.X509TrustManager;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.imap.client.handler.MailboxEventListener;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.imap.client.handler.RemoteGreeting;
@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.imap.client.handler.RemoteGreeting;
  * High-level IMAP4rev2 client facade (RFC 9051).
  *
  * <p>This class provides a simple, concrete API for connecting to IMAP
- * servers. It internally creates a {@link TCPTransportFactory},
+ * servers. It internally creates a {@link TcpTransportFactory},
  * {@link ClientEndpoint}, and {@link ImapClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
  * {@link RemoteGreeting} handler.
@@ -94,7 +94,7 @@ public class ImapClient {
     private String keystoreFormat;
     private MailboxEventListener mailboxEventListener;
 
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private ImapClientProtocolHandler endpointHandler;
 
@@ -160,7 +160,7 @@ public class ImapClient {
 
     /**
      * Creates an IMAP client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
+     * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
      *
      * <p>Uses the next available worker loop from the global {@link
      * Gumdrop} instance.
@@ -296,7 +296,7 @@ public class ImapClient {
      *                lifecycle events
      */
     public void connect(RemoteGreeting handler) {
-        transportFactory = new TCPTransportFactory();
+        transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);

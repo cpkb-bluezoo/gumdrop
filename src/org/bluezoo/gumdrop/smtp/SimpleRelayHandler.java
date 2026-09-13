@@ -43,14 +43,14 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.smtp.handler.*;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.ClientEndpoint;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.*;
 
@@ -97,7 +97,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
-    private final DNSResolver dnsResolver;
+    private final DnsResolver dnsResolver;
     private final String localHostname;
 
     // Transaction state
@@ -112,7 +112,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
      * @param dnsResolver the DNS resolver for MX lookups
      * @param localHostname the local hostname for EHLO
      */
-    public SimpleRelayHandler(DNSResolver dnsResolver, String localHostname) {
+    public SimpleRelayHandler(DnsResolver dnsResolver, String localHostname) {
         this.dnsResolver = dnsResolver;
         this.localHostname = localHostname;
         this.recipients = new ArrayList<EmailAddress>();
@@ -503,7 +503,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         /**
          * Callback for MX lookup.
          */
-        private class MXQueryCallback implements DNSQueryCallback {
+        private class MXQueryCallback implements DnsQueryCallback {
 
             private final String domain;
             private final List<EmailAddress> domainRecipients;
@@ -514,12 +514,12 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             }
 
             @Override
-            public void onResponse(DNSMessage response) {
-                List<DNSResourceRecord> answers = response.getAnswers();
+            public void onResponse(DnsMessage response) {
+                List<DnsResourceRecord> answers = response.getAnswers();
                 List<MXRecord> mxRecords = new ArrayList<MXRecord>();
 
-                for (DNSResourceRecord rr : answers) {
-                    if (rr.getType() == DNSType.MX) {
+                for (DnsResourceRecord rr : answers) {
+                    if (rr.getType() == DnsType.MX) {
                         mxRecords.add(new MXRecord(rr.getMXPreference(), rr.getMXExchange()));
                     }
                 }
@@ -553,7 +553,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
 
         void deliverToDomain(String host, List<EmailAddress> domainRecipients) {
             try {
-                TCPTransportFactory factory = new TCPTransportFactory();
+                TcpTransportFactory factory = new TcpTransportFactory();
                 factory.start();
                 DeliveryHandler handler = new DeliveryHandler(domainRecipients);
                 SmtpClientProtocolHandler endpointHandler =

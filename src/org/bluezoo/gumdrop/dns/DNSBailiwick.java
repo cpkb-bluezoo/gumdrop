@@ -1,5 +1,5 @@
 /*
- * DNSBailiwick.java
+ * DnsBailiwick.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,9 +32,9 @@ import java.util.List;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class DNSBailiwick {
+public final class DnsBailiwick {
 
-    private DNSBailiwick() {
+    private DnsBailiwick() {
     }
 
     /**
@@ -77,13 +77,13 @@ public final class DNSBailiwick {
     /**
      * Filters answer records to those owned within the query name's bailiwick.
      */
-    public static List<DNSResourceRecord> filterAnswersInBailiwick(
-            String qname, List<DNSResourceRecord> answers) {
+    public static List<DnsResourceRecord> filterAnswersInBailiwick(
+            String qname, List<DnsResourceRecord> answers) {
         if (answers == null || answers.isEmpty()) {
             return answers;
         }
-        List<DNSResourceRecord> filtered = new ArrayList<>();
-        for (DNSResourceRecord rr : answers) {
+        List<DnsResourceRecord> filtered = new ArrayList<>();
+        for (DnsResourceRecord rr : answers) {
             if (isWithinBailiwick(rr.getName(), qname)) {
                 filtered.add(rr);
             }
@@ -94,13 +94,13 @@ public final class DNSBailiwick {
     /**
      * Filters authority records to those owned within the query name's bailiwick.
      */
-    public static List<DNSResourceRecord> filterAuthoritiesInBailiwick(
-            String qname, List<DNSResourceRecord> authorities) {
+    public static List<DnsResourceRecord> filterAuthoritiesInBailiwick(
+            String qname, List<DnsResourceRecord> authorities) {
         if (authorities == null || authorities.isEmpty()) {
             return authorities;
         }
-        List<DNSResourceRecord> filtered = new ArrayList<>();
-        for (DNSResourceRecord rr : authorities) {
+        List<DnsResourceRecord> filtered = new ArrayList<>();
+        for (DnsResourceRecord rr : authorities) {
             if (isWithinBailiwick(rr.getName(), qname)) {
                 filtered.add(rr);
             }

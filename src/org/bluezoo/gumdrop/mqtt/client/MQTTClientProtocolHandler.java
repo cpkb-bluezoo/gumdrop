@@ -1,5 +1,5 @@
 /*
- * MQTTClientProtocolHandler.java
+ * MqttClientProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,9 +34,9 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.mqtt.broker.QoSManager;
 import org.bluezoo.gumdrop.mqtt.codec.*;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageStore;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageWriter;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageWriter;
 
 /**
  * Client-side MQTT protocol handler.
@@ -46,16 +46,16 @@ import org.bluezoo.gumdrop.mqtt.store.MQTTMessageWriter;
  * keep-alive pings. Reuses the same codec as the server-side handler.
  *
  * <p>Incoming PUBLISH messages arrive as streaming events and are
- * accumulated via an {@link MQTTMessageWriter} before delivery
- * to the {@link MQTTMessageListener}.
+ * accumulated via an {@link MqttMessageWriter} before delivery
+ * to the {@link MqttMessageListener}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class MQTTClientProtocolHandler
-        implements ProtocolHandler, MQTTEventHandler {
+public final class MqttClientProtocolHandler
+        implements ProtocolHandler, MqttEventHandler {
 
     private static final Logger LOGGER =
-            Logger.getLogger(MQTTClientProtocolHandler.class.getName());
+            Logger.getLogger(MqttClientProtocolHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.mqtt.L10N");
     private static final String LOG_CLIENT_ERROR = "log.client_error";
@@ -68,14 +68,14 @@ public final class MQTTClientProtocolHandler
     }
 
     private final ConnectPacket connectPacket;
-    private final MQTTClientCallback callback;
-    private final MQTTMessageListener messageListener;
-    private final MQTTMessageStore messageStore;
-    private final MQTTFrameParser parser;
+    private final MqttClientCallback callback;
+    private final MqttMessageListener messageListener;
+    private final MqttMessageStore messageStore;
+    private final MqttFrameParser parser;
     private final QoSManager qosManager = new QoSManager();
 
     private Endpoint endpoint;
-    private MQTTVersion version;
+    private MqttVersion version;
     private State state = State.CONNECTING;
     private TimerHandle keepAliveTimer;
 
@@ -84,18 +84,18 @@ public final class MQTTClientProtocolHandler
     private boolean rxPubRetain;
     private String rxPubTopicName;
     private int rxPubPacketId;
-    private MQTTMessageWriter rxPubWriter;
+    private MqttMessageWriter rxPubWriter;
 
-    public MQTTClientProtocolHandler(ConnectPacket connectPacket,
-                                     MQTTClientCallback callback,
-                                     MQTTMessageListener messageListener,
-                                     MQTTMessageStore messageStore) {
+    public MqttClientProtocolHandler(ConnectPacket connectPacket,
+                                     MqttClientCallback callback,
+                                     MqttMessageListener messageListener,
+                                     MqttMessageStore messageStore) {
         this.connectPacket = connectPacket;
         this.callback = callback;
         this.messageListener = messageListener;
         this.messageStore = messageStore;
         this.version = connectPacket.getVersion();
-        this.parser = new MQTTFrameParser(this);
+        this.parser = new MqttFrameParser(this);
         this.parser.setVersion(version);
     }
 
@@ -115,7 +115,7 @@ public final class MQTTClientProtocolHandler
     public void connected(Endpoint endpoint) {
         this.endpoint = endpoint;
         state = State.AWAITING_CONNACK;
-        endpoint.send(MQTTPacketEncoder.encodeConnect(connectPacket));
+        endpoint.send(MqttPacketEncoder.encodeConnect(connectPacket));
     }
 
     @Override
@@ -150,7 +150,7 @@ public final class MQTTClientProtocolHandler
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // MQTTEventHandler — received from server
+    // MqttEventHandler — received from server
     // ═══════════════════════════════════════════════════════════════════
 
     @Override
@@ -160,7 +160,7 @@ public final class MQTTClientProtocolHandler
 
     @Override
     public void connAck(boolean sessionPresent, int returnCode,
-                        MQTTProperties properties) {
+                        MqttProperties properties) {
         if (state != State.AWAITING_CONNACK) {
             return;
         }
@@ -182,7 +182,7 @@ public final class MQTTClientProtocolHandler
     @Override
     public void startPublish(boolean dup, int qos, boolean retain,
                              String topicName, int packetId,
-                             MQTTProperties properties, int payloadLength) {
+                             MqttProperties properties, int payloadLength) {
         if (state != State.CONNECTED) {
             return;
         }
@@ -218,7 +218,7 @@ public final class MQTTClientProtocolHandler
             return;
         }
 
-        MQTTMessageContent content;
+        MqttMessageContent content;
         try {
             content = rxPubWriter.commit();
         } catch (IOException e) {
@@ -234,8 +234,8 @@ public final class MQTTClientProtocolHandler
             case AT_MOST_ONCE:
                 break;
             case AT_LEAST_ONCE:
-                sendPacket(MQTTPacketEncoder.encodePubAck(
-                        rxPubPacketId, 0, MQTTProperties.EMPTY, version));
+                sendPacket(MqttPacketEncoder.encodePubAck(
+                        rxPubPacketId, 0, MqttProperties.EMPTY, version));
                 break;
             case EXACTLY_ONCE: {
                 if (!qosManager.isInboundQoS2Tracked(rxPubPacketId)) {
@@ -245,8 +245,8 @@ public final class MQTTClientProtocolHandler
                                     content, QoS.EXACTLY_ONCE);
                     qosManager.trackInboundQoS2(inFlight);
                 }
-                sendPacket(MQTTPacketEncoder.encodePubRec(
-                        rxPubPacketId, 0, MQTTProperties.EMPTY, version));
+                sendPacket(MqttPacketEncoder.encodePubRec(
+                        rxPubPacketId, 0, MqttProperties.EMPTY, version));
                 return;
             }
         }
@@ -263,7 +263,7 @@ public final class MQTTClientProtocolHandler
 
     @Override
     public void pubAck(int packetId, int reasonCode,
-                       MQTTProperties properties) {
+                       MqttProperties properties) {
         qosManager.completeQoS1Outbound(packetId);
         if (callback != null) {
             callback.publishComplete(packetId);
@@ -272,31 +272,31 @@ public final class MQTTClientProtocolHandler
 
     @Override
     public void pubRec(int packetId, int reasonCode,
-                       MQTTProperties properties) {
+                       MqttProperties properties) {
         qosManager.receivedPubRec(packetId);
-        sendPacket(MQTTPacketEncoder.encodePubRel(
-                packetId, 0, MQTTProperties.EMPTY, version));
+        sendPacket(MqttPacketEncoder.encodePubRel(
+                packetId, 0, MqttProperties.EMPTY, version));
     }
 
     @Override
     public void pubRel(int packetId, int reasonCode,
-                       MQTTProperties properties) {
+                       MqttProperties properties) {
         QoSManager.InFlightMessage msg =
                 qosManager.receivedPubRel(packetId);
         if (msg != null && messageListener != null) {
-            MQTTMessageContent content = msg.getContent();
+            MqttMessageContent content = msg.getContent();
             if (content != null) {
                 messageListener.messageReceived(msg.getTopic(), content,
                         msg.getQoS().getValue(), false);
             }
         }
-        sendPacket(MQTTPacketEncoder.encodePubComp(
-                packetId, 0, MQTTProperties.EMPTY, version));
+        sendPacket(MqttPacketEncoder.encodePubComp(
+                packetId, 0, MqttProperties.EMPTY, version));
     }
 
     @Override
     public void pubComp(int packetId, int reasonCode,
-                        MQTTProperties properties) {
+                        MqttProperties properties) {
         qosManager.completePubComp(packetId);
         if (callback != null) {
             callback.publishComplete(packetId);
@@ -306,7 +306,7 @@ public final class MQTTClientProtocolHandler
     // ── SUBSCRIBE / UNSUBSCRIBE events ─────────────────────────────────
 
     @Override
-    public void startSubscribe(int packetId, MQTTProperties properties) {
+    public void startSubscribe(int packetId, MqttProperties properties) {
         // Client-side: not expected
     }
 
@@ -321,7 +321,7 @@ public final class MQTTClientProtocolHandler
     }
 
     @Override
-    public void subAck(int packetId, MQTTProperties properties,
+    public void subAck(int packetId, MqttProperties properties,
                        int[] returnCodes) {
         if (callback != null) {
             callback.subscribeAcknowledged(packetId, returnCodes);
@@ -329,7 +329,7 @@ public final class MQTTClientProtocolHandler
     }
 
     @Override
-    public void startUnsubscribe(int packetId, MQTTProperties properties) {
+    public void startUnsubscribe(int packetId, MqttProperties properties) {
         // Client-side: not expected
     }
 
@@ -344,7 +344,7 @@ public final class MQTTClientProtocolHandler
     }
 
     @Override
-    public void unsubAck(int packetId, MQTTProperties properties,
+    public void unsubAck(int packetId, MqttProperties properties,
                          int[] reasonCodes) {
         // Unsubscribe confirmed
     }
@@ -362,14 +362,14 @@ public final class MQTTClientProtocolHandler
     }
 
     @Override
-    public void disconnect(int reasonCode, MQTTProperties properties) {
+    public void disconnect(int reasonCode, MqttProperties properties) {
         state = State.DISCONNECTED;
         cancelKeepAlive();
         endpoint.close();
     }
 
     @Override
-    public void auth(int reasonCode, MQTTProperties properties) {
+    public void auth(int reasonCode, MqttProperties properties) {
         // Client-side: not expected
     }
 
@@ -381,7 +381,7 @@ public final class MQTTClientProtocolHandler
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Client operations (called by MQTTClient)
+    // Client operations (called by MqttClient)
     // ═══════════════════════════════════════════════════════════════════
 
     /**
@@ -393,7 +393,7 @@ public final class MQTTClientProtocolHandler
         int packetId = 0;
         if (qos != QoS.AT_MOST_ONCE) {
             packetId = qosManager.nextPacketId();
-            MQTTMessageContent content =
+            MqttMessageContent content =
                     new org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore
                             .InMemoryContent(payload);
             QoSManager.InFlightMessage inFlight = new QoSManager.InFlightMessage(
@@ -401,9 +401,9 @@ public final class MQTTClientProtocolHandler
             qosManager.trackOutbound(inFlight);
         }
 
-        sendPacket(MQTTPacketEncoder.encodePublish(
+        sendPacket(MqttPacketEncoder.encodePublish(
                 topic, qos.getValue(), false, retain, packetId, payload,
-                MQTTProperties.EMPTY, version));
+                MqttProperties.EMPTY, version));
         return packetId;
     }
 
@@ -418,9 +418,9 @@ public final class MQTTClientProtocolHandler
         for (int i = 0; i < qosLevels.length; i++) {
             qosValues[i] = qosLevels[i].getValue();
         }
-        sendPacket(MQTTPacketEncoder.encodeSubscribe(
+        sendPacket(MqttPacketEncoder.encodeSubscribe(
                 packetId, topicFilters, qosValues,
-                MQTTProperties.EMPTY, version));
+                MqttProperties.EMPTY, version));
         return packetId;
     }
 
@@ -431,8 +431,8 @@ public final class MQTTClientProtocolHandler
      */
     public int unsubscribe(String[] topicFilters) {
         int packetId = qosManager.nextPacketId();
-        sendPacket(MQTTPacketEncoder.encodeUnsubscribe(
-                packetId, topicFilters, MQTTProperties.EMPTY, version));
+        sendPacket(MqttPacketEncoder.encodeUnsubscribe(
+                packetId, topicFilters, MqttProperties.EMPTY, version));
         return packetId;
     }
 
@@ -440,8 +440,8 @@ public final class MQTTClientProtocolHandler
      * Sends a DISCONNECT packet and closes the connection.
      */
     public void disconnect() {
-        sendPacket(MQTTPacketEncoder.encodeDisconnect(
-                DISCONNECT_NORMAL, MQTTProperties.EMPTY, version));
+        sendPacket(MqttPacketEncoder.encodeDisconnect(
+                DISCONNECT_NORMAL, MqttProperties.EMPTY, version));
         state = State.DISCONNECTED;
         cancelKeepAlive();
         endpoint.close();
@@ -467,7 +467,7 @@ public final class MQTTClientProtocolHandler
     private void sendPing() {
         if (state == State.CONNECTED && endpoint != null
                 && endpoint.isOpen()) {
-            sendPacket(MQTTPacketEncoder.encodePingReq());
+            sendPacket(MqttPacketEncoder.encodePingReq());
             int keepAlive = connectPacket.getKeepAlive();
             if (keepAlive > 0) {
                 keepAliveTimer = endpoint.scheduleTimer(

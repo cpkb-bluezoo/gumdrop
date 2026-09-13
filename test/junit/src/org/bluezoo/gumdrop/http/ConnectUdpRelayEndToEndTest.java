@@ -37,8 +37,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.UDPEndpoint;
-import org.bluezoo.gumdrop.UDPTransportFactory;
+import org.bluezoo.gumdrop.UdpEndpoint;
+import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
 import static org.junit.Assert.assertArrayEquals;
@@ -61,13 +61,13 @@ import static org.junit.Assert.assertTrue;
 public class ConnectUdpRelayEndToEndTest {
 
     private SelectorLoop loop;
-    private UDPEndpoint echoServer;
+    private UdpEndpoint echoServer;
 
     @Before
     public void startLoopAndEchoServer() throws Exception {
         loop = new SelectorLoop(0);
         loop.start();
-        UDPTransportFactory factory = new UDPTransportFactory();
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
         echoServer = factory.createServerEndpoint(
                 InetAddress.getLoopbackAddress(), 0, new EchoHandler(), loop);
@@ -86,11 +86,11 @@ public class ConnectUdpRelayEndToEndTest {
 
     /** Echoes every received datagram straight back to its sender. */
     private static final class EchoHandler implements ProtocolHandler {
-        private UDPEndpoint self;
+        private UdpEndpoint self;
 
         @Override
         public void connected(Endpoint endpoint) {
-            this.self = (UDPEndpoint) endpoint;
+            this.self = (UdpEndpoint) endpoint;
         }
 
         @Override

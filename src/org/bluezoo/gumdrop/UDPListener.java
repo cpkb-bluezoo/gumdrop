@@ -1,5 +1,5 @@
 /*
- * UDPListener.java
+ * UdpListener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,30 +27,30 @@ import java.util.logging.Logger;
 
 /**
  * Base class for UDP server endpoints that bind a
- * {@link UDPEndpoint} and receive datagrams.
+ * {@link UdpEndpoint} and receive datagrams.
  *
- * <p>Unlike {@link TCPListener} (TCP), which creates a per-connection
- * {@link TCPEndpoint} and {@link ProtocolHandler}, a datagram endpoint
+ * <p>Unlike {@link TcpListener} (TCP), which creates a per-connection
+ * {@link TcpEndpoint} and {@link ProtocolHandler}, a datagram endpoint
  * uses a single {@link ProtocolHandler} for all received datagrams.
  * The handler is provided by subclasses via
  * {@link #createProtocolHandler()}.
  *
  * <p>On {@link #start()}, the endpoint creates a
- * {@link UDPTransportFactory}, binds a {@link UDPEndpoint} to
+ * {@link UdpTransportFactory}, binds a {@link UdpEndpoint} to
  * the configured port, and self-registers with a {@link SelectorLoop}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see TCPListener
+ * @see TcpListener
  * @see Listener
  */
-public abstract class UDPListener extends Listener {
+public abstract class UdpListener extends Listener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(UDPListener.class.getName());
+            Logger.getLogger(UdpListener.class.getName());
 
-    private UDPEndpoint endpoint;
+    private UdpEndpoint endpoint;
 
-    protected UDPListener() {
+    protected UdpListener() {
     }
 
     /**
@@ -64,23 +64,23 @@ public abstract class UDPListener extends Listener {
     /**
      * Returns the transport factory type for UDP.
      *
-     * @return a new {@link UDPTransportFactory}
+     * @return a new {@link UdpTransportFactory}
      */
     @Override
     protected TransportFactory createTransportFactory() {
-        return new UDPTransportFactory();
+        return new UdpTransportFactory();
     }
 
     /**
      * Starts this datagram endpoint. Creates the transport factory,
-     * binds a {@link UDPEndpoint} to the configured port, and
+     * binds a {@link UdpEndpoint} to the configured port, and
      * registers with a {@link SelectorLoop} for read events.
      */
     @Override
     public void start() {
         super.start();
-        UDPTransportFactory udpFactory =
-                (UDPTransportFactory) getTransportFactory();
+        UdpTransportFactory udpFactory =
+                (UdpTransportFactory) getTransportFactory();
         ProtocolHandler handler = createProtocolHandler();
         try {
             endpoint = udpFactory.createServerEndpoint(
@@ -95,7 +95,7 @@ public abstract class UDPListener extends Listener {
 
     /**
      * Stops this datagram endpoint. Closes the underlying
-     * {@link UDPEndpoint}.
+     * {@link UdpEndpoint}.
      */
     @Override
     public void stop() {
@@ -110,7 +110,7 @@ public abstract class UDPListener extends Listener {
      *
      * @return the datagram endpoint
      */
-    protected UDPEndpoint getEndpoint() {
+    protected UdpEndpoint getEndpoint() {
         return endpoint;
     }
 

@@ -41,10 +41,10 @@ import java.util.logging.Logger;
  * <p>Subclasses translate the shared configuration into the appropriate
  * backend:
  * <ul>
- * <li>TCPTransportFactory -- the in-tree {@link org.bluezoo.gumdrop.tls}
+ * <li>TcpTransportFactory -- the in-tree {@link org.bluezoo.gumdrop.tls}
  *     engine, TLS 1.3 or TLS 1.2 (a deployment-time choice, see
- *     {@code TCPTransportFactory#setTlsVersion})</li>
- * <li>UDPTransportFactory -- in-tree DTLS 1.2 engine (see {@code Dtls12RecordEngine})</li>
+ *     {@code TcpTransportFactory#setTlsVersion})</li>
+ * <li>UdpTransportFactory -- in-tree DTLS 1.2 engine (see {@code Dtls12RecordEngine})</li>
  * <li>{@link org.bluezoo.gumdrop.quic.QuicTransportFactory} -- the
  *     pure-Java {@link org.bluezoo.gumdrop.quic} engine (always TLS 1.3)</li>
  * </ul>
@@ -167,7 +167,7 @@ public abstract class TransportFactory {
     /**
      * Sets the Java keystore file path.
      * Used by all transports (TCP/TLS, DTLS, QUIC) via
-     * {@link org.bluezoo.gumdrop.util.TLSUtils}.
+     * {@link org.bluezoo.gumdrop.util.TlsUtils}.
      *
      * @param file the keystore file path
      */

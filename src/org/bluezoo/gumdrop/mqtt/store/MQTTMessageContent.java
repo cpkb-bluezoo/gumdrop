@@ -1,5 +1,5 @@
 /*
- * MQTTMessageContent.java
+ * MqttMessageContent.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,10 +39,10 @@ import java.nio.channels.ReadableByteChannel;
  * to free any underlying storage resources.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MQTTMessageWriter#commit()
- * @see MQTTMessageStore
+ * @see MqttMessageWriter#commit()
+ * @see MqttMessageStore
  */
-public interface MQTTMessageContent {
+public interface MqttMessageContent {
 
     /**
      * Returns the size of the payload in bytes.

@@ -1,5 +1,5 @@
 /*
- * SOCKSClientHandler.java
+ * SocksClientHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -37,11 +37,11 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.UDPTransportFactory;
-import org.bluezoo.gumdrop.socks.SOCKSUDPHeader;
+import org.bluezoo.gumdrop.UdpTransportFactory;
+import org.bluezoo.gumdrop.socks.SocksUDPHeader;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 
-import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
+import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
  * Composable client-side SOCKS protocol handler.
@@ -62,36 +62,36 @@ import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
  *
  * <p>UDP ASSOCIATE (RFC 1928 §7, SOCKS5 only -- SOCKS4 has no
  * equivalent) is also supported: once the association is established,
- * a {@link UDPAssociateListener} is notified of the relay's address,
+ * a {@link UdpAssociateListener} is notified of the relay's address,
  * and datagrams may be exchanged with arbitrary destinations via
  * {@link #sendDatagram(InetSocketAddress, ByteBuffer)} and the
  * listener's {@code receive} callback, both using the same RFC 1928 §7
- * header framing ({@link SOCKSUDPHeader}) as the server side.
+ * header framing ({@link SocksUDPHeader}) as the server side.
  *
  * <h4>Usage</h4>
  * <pre>{@code
  * // Connect to smtp.example.com:587 via SOCKS proxy at proxy:1080
  * ClientEndpoint client = new ClientEndpoint(factory, "proxy", 1080);
- * client.connect(new SOCKSClientHandler(
+ * client.connect(new SocksClientHandler(
  *     "smtp.example.com", 587,
  *     new SmtpClientProtocolHandler(callback)));
  *
  * // With authentication
- * SOCKSClientConfig config = new SOCKSClientConfig("user", "pass");
- * client.connect(new SOCKSClientHandler(
+ * SocksClientConfig config = new SocksClientConfig("user", "pass");
+ * client.connect(new SocksClientHandler(
  *     "smtp.example.com", 587, config,
  *     new SmtpClientProtocolHandler(callback)));
  *
  * // BIND: proxy listens on our behalf; give the reported address to
  * // the remote peer (e.g. via an FTP PORT command) before it connects
- * client.connect(new SOCKSClientHandler(
+ * client.connect(new SocksClientHandler(
  *     "ftp.example.com", 0, config,
  *     boundAddress -> sendPortCommandToPeer(boundAddress),
  *     new MyPeerProtocolHandler(callback)));
  *
  * // UDP ASSOCIATE: exchange datagrams with arbitrary destinations
  * // through the proxy's relay
- * SOCKSClientHandler assoc = new SOCKSClientHandler(
+ * SocksClientHandler assoc = new SocksClientHandler(
  *     config, udpTransportFactory, myUdpAssociateListener);
  * client.connect(assoc);
  * // ... once myUdpAssociateListener.associated(relayAddress) fires:
@@ -99,16 +99,16 @@ import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SOCKSClientConfig
+ * @see SocksClientConfig
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1928">RFC 1928</a> SOCKS Protocol Version 5
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1929">RFC 1929</a> Username/Password Authentication for SOCKS V5
  * @see <a href="https://www.openssh.com/txt/socks4.protocol">SOCKS4 protocol</a>
  * @see <a href="https://www.openssh.com/txt/socks4a.protocol">SOCKS4a protocol</a>
  */
-public class SOCKSClientHandler implements ProtocolHandler {
+public class SocksClientHandler implements ProtocolHandler {
 
     private static final Logger LOGGER =
-            Logger.getLogger(SOCKSClientHandler.class.getName());
+            Logger.getLogger(SocksClientHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -141,7 +141,7 @@ public class SOCKSClientHandler implements ProtocolHandler {
      * the association is established, once for each datagram received
      * from the relay, and on error.
      */
-    public interface UDPAssociateListener {
+    public interface UdpAssociateListener {
         void associated(InetSocketAddress relayAddress);
         void receive(InetSocketAddress source, ByteBuffer payload);
         void error(Exception cause);
@@ -149,12 +149,12 @@ public class SOCKSClientHandler implements ProtocolHandler {
 
     private final String destHost;
     private final int destPort;
-    private final SOCKSClientConfig config;
+    private final SocksClientConfig config;
     private final ProtocolHandler innerHandler;
     private final byte command;
     private final BindListener bindListener;
-    private final UDPTransportFactory udpTransportFactory;
-    private final UDPAssociateListener udpAssociateListener;
+    private final UdpTransportFactory udpTransportFactory;
+    private final UdpAssociateListener udpAssociateListener;
 
     private Endpoint endpoint;
     private Endpoint udpEndpoint;
@@ -178,9 +178,9 @@ public class SOCKSClientHandler implements ProtocolHandler {
      * @param destPort the real destination port
      * @param innerHandler the protocol handler to tunnel
      */
-    public SOCKSClientHandler(String destHost, int destPort,
+    public SocksClientHandler(String destHost, int destPort,
                               ProtocolHandler innerHandler) {
-        this(destHost, destPort, new SOCKSClientConfig(), innerHandler);
+        this(destHost, destPort, new SocksClientConfig(), innerHandler);
     }
 
     /**
@@ -191,8 +191,8 @@ public class SOCKSClientHandler implements ProtocolHandler {
      * @param config the SOCKS client configuration
      * @param innerHandler the protocol handler to tunnel
      */
-    public SOCKSClientHandler(String destHost, int destPort,
-                              SOCKSClientConfig config,
+    public SocksClientHandler(String destHost, int destPort,
+                              SocksClientConfig config,
                               ProtocolHandler innerHandler) {
         if (destHost == null) {
             throw new NullPointerException("destHost");
@@ -233,8 +233,8 @@ public class SOCKSClientHandler implements ProtocolHandler {
      * @param bindListener notified of the proxy's listening address
      * @param innerHandler the protocol handler to run once a peer connects
      */
-    public SOCKSClientHandler(String host, int port,
-                              SOCKSClientConfig config,
+    public SocksClientHandler(String host, int port,
+                              SocksClientConfig config,
                               BindListener bindListener,
                               ProtocolHandler innerHandler) {
         if (host == null) {
@@ -269,7 +269,7 @@ public class SOCKSClientHandler implements ProtocolHandler {
      * arbitrary destinations via {@link #sendDatagram(InetSocketAddress,
      * ByteBuffer)} and are delivered back via the listener's {@code
      * receive} callback, both wrapped in the RFC 1928 §7 header
-     * ({@link SOCKSUDPHeader}). {@code udpTransportFactory} is used to
+     * ({@link SocksUDPHeader}). {@code udpTransportFactory} is used to
      * open the local UDP socket that talks to the relay, on the same
      * SelectorLoop as the TCP control connection; the association's
      * lifetime is tied to that connection staying open (RFC 1928 §7).
@@ -278,9 +278,9 @@ public class SOCKSClientHandler implements ProtocolHandler {
      * @param udpTransportFactory factory for the local UDP socket to the relay
      * @param listener notified of the association and of received datagrams
      */
-    public SOCKSClientHandler(SOCKSClientConfig config,
-                              UDPTransportFactory udpTransportFactory,
-                              UDPAssociateListener listener) {
+    public SocksClientHandler(SocksClientConfig config,
+                              UdpTransportFactory udpTransportFactory,
+                              UdpAssociateListener listener) {
         if (config == null) {
             throw new NullPointerException("config");
         }
@@ -290,7 +290,7 @@ public class SOCKSClientHandler implements ProtocolHandler {
         if (listener == null) {
             throw new NullPointerException("listener");
         }
-        if (config.getVersion() == SOCKSClientConfig.Version.SOCKS4) {
+        if (config.getVersion() == SocksClientConfig.Version.SOCKS4) {
             // RFC 1928 §7 is SOCKS5-only; there is no SOCKS4 equivalent
             // of UDP ASSOCIATE, so an explicit SOCKS4 request here can
             // only be a caller mistake -- fail fast rather than silently
@@ -314,7 +314,7 @@ public class SOCKSClientHandler implements ProtocolHandler {
 
         // The UDP ASSOCIATE constructor already rejects SOCKS4 (RFC 1928
         // §7 has no SOCKS4 equivalent), so this check is never true for it.
-        if (config.getVersion() == SOCKSClientConfig.Version.SOCKS4) {
+        if (config.getVersion() == SocksClientConfig.Version.SOCKS4) {
             sendSOCKS4Request();
         } else {
             sendSOCKS5MethodRequest();
@@ -1032,7 +1032,7 @@ public class SOCKSClientHandler implements ProtocolHandler {
         if (state != State.UDP_ASSOCIATED || udpEndpoint == null) {
             throw new IllegalStateException("UDP association not yet established");
         }
-        ByteBuffer encoded = SOCKSUDPHeader.encode(destination, payload);
+        ByteBuffer encoded = SocksUDPHeader.encode(destination, payload);
         try {
             udpEndpoint.send(encoded);
         } finally {
@@ -1061,7 +1061,7 @@ public class SOCKSClientHandler implements ProtocolHandler {
 
         @Override
         public void receive(ByteBuffer data) {
-            SOCKSUDPHeader.parse(data, new SOCKSUDPHeader.Handler() {
+            SocksUDPHeader.parse(data, new SocksUDPHeader.Handler() {
                 @Override
                 public void datagram(byte frag, InetAddress address,
                         String hostname, int port, ByteBuffer payload) {

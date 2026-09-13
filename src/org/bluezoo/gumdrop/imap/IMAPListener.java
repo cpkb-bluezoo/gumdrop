@@ -28,7 +28,7 @@ import java.util.Set;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
@@ -56,7 +56,7 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6851">RFC 6851 - MOVE</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9208">RFC 9208 - QUOTA</a>
  */
-public class ImapListener extends TCPListener {
+public class ImapListener extends TcpListener {
 
     private static final Logger LOGGER =
             Logger.getLogger(ImapListener.class.getName());

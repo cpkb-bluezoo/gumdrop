@@ -1,5 +1,5 @@
 /*
- * SOCKSListener.java
+ * SocksListener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,7 +28,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.GSSAPIServer;
 import org.bluezoo.gumdrop.auth.Realm;
 
@@ -40,15 +40,15 @@ import org.bluezoo.gumdrop.auth.Realm;
  * implicitly).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SOCKSService
+ * @see SocksServer
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928">RFC 1928</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1929">RFC 1929</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1961">RFC 1961</a>
  */
-public class SOCKSListener extends TCPListener {
+public class SocksListener extends TcpListener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(SOCKSListener.class.getName());
+            Logger.getLogger(SocksListener.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -56,18 +56,18 @@ public class SOCKSListener extends TCPListener {
     private Realm realm;
     private GSSAPIServer gssapiServer;
 
-    private SOCKSService service;
-    private SOCKSServerMetrics metrics;
+    private SocksServer service;
+    private SocksServerMetrics metrics;
 
     @Override
     public void start() {
         super.start();
         if (port <= 0) {
-            port = secure ? SOCKSConstants.SOCKSS_DEFAULT_PORT
-                          : SOCKSConstants.SOCKS_DEFAULT_PORT;
+            port = secure ? SocksConstants.SOCKSS_DEFAULT_PORT
+                          : SocksConstants.SOCKS_DEFAULT_PORT;
         }
         if (isMetricsEnabled()) {
-            metrics = new SOCKSServerMetrics(getTelemetryConfig());
+            metrics = new SocksServerMetrics(getTelemetryConfig());
         }
     }
 
@@ -77,7 +77,7 @@ public class SOCKSListener extends TCPListener {
      *
      * @return the SOCKS server metrics
      */
-    public SOCKSServerMetrics getMetrics() {
+    public SocksServerMetrics getMetrics() {
         return metrics;
     }
 
@@ -151,11 +151,11 @@ public class SOCKSListener extends TCPListener {
         this.gssapiServer = new GSSAPIServer(keytabPath, servicePrincipal);
     }
 
-    SOCKSService getService() {
+    SocksServer getService() {
         return service;
     }
 
-    void setService(SOCKSService service) {
+    void setService(SocksServer service) {
         this.service = service;
     }
 
@@ -170,7 +170,7 @@ public class SOCKSListener extends TCPListener {
             }
         }
         throw new IllegalStateException(
-                "SOCKSListener requires a SOCKSService");
+                "SocksListener requires a SocksServer");
     }
 
 }

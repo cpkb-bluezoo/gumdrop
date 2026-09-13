@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.config;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfigurator;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 
 import java.io.File;
 
@@ -51,7 +51,7 @@ public class DefaultConfigurator implements GumdropConfigurator {
         for (Server server : result.getServers()) {
             gumdrop.addServer(server);
         }
-        for (TCPListener listener : result.getListeners()) {
+        for (TcpListener listener : result.getListeners()) {
             gumdrop.addListener(listener);
         }
     }

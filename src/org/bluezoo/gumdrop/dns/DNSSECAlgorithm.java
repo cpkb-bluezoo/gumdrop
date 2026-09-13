@@ -1,5 +1,5 @@
 /*
- * DNSSECAlgorithm.java
+ * DnssecAlgorithm.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ package org.bluezoo.gumdrop.dns;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum DNSSECAlgorithm {
+public enum DnssecAlgorithm {
 
     /** RSA/SHA-256. RFC 5702. MUST implement per RFC 8624. */
     RSASHA256(8, "SHA256withRSA", "RSA"),
@@ -56,7 +56,7 @@ public enum DNSSECAlgorithm {
     private final String signatureAlgorithm;
     private final String keyAlgorithm;
 
-    DNSSECAlgorithm(int number, String signatureAlgorithm,
+    DnssecAlgorithm(int number, String signatureAlgorithm,
                     String keyAlgorithm) {
         this.number = number;
         this.signatureAlgorithm = signatureAlgorithm;
@@ -91,13 +91,13 @@ public enum DNSSECAlgorithm {
     }
 
     /**
-     * Returns the DNSSECAlgorithm for the given IANA number.
+     * Returns the DnssecAlgorithm for the given IANA number.
      *
      * @param number the algorithm number
      * @return the algorithm, or null if unsupported
      */
-    public static DNSSECAlgorithm fromNumber(int number) {
-        for (DNSSECAlgorithm alg : values()) {
+    public static DnssecAlgorithm fromNumber(int number) {
+        for (DnssecAlgorithm alg : values()) {
             if (alg.number == number) {
                 return alg;
             }

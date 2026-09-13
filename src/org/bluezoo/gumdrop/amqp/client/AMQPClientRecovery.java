@@ -1,5 +1,5 @@
 /*
- * AMQPClientRecovery.java
+ * AmqpClientRecovery.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -43,15 +43,15 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientTuned;
 import org.bluezoo.gumdrop.amqp.client.handler.ConnectionReady;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTuneHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.OpenHandler;
+import org.bluezoo.gumdrop.amqp.client.handler.TuneHandler;
 import org.bluezoo.gumdrop.auth.SASLClientMechanism;
 import org.bluezoo.gumdrop.auth.SASLUtils;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
@@ -68,22 +68,22 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * reconnects on failure:
  *
  * <pre>{@code
- * AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
+ * AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
  *         .credentials("guest", "guest")
  *         .virtualHost("/")
  *         .recoveryListener(myListener); // optional
  *
  * client.connect(new RecoveryHandler() {
  *     public void onFirstConnect(ClientConnection connection) {
- *         connection.channelOpen(1, new ServerChannelOpenHandler() {
+ *         connection.channelOpen(1, new ChannelOpenHandler() {
  *             public void handleChannelOpenOk(ClientChannel channel) {
  *                 channel.queueDeclare("my-queue", true, false, false, null,
- *                         new ServerQueueDeclareHandler() {
+ *                         new QueueDeclareHandler() {
  *                             public void handleQueueDeclareOk(
  *                                     String queue, long msgCount, long consumerCount) { }
  *                         });
  *                 channel.basicConsume("my-queue", "", false, false, null,
- *                         myDeliveryHandler, new ServerConsumeHandler() {
+ *                         myDeliveryHandler, new ConsumeHandler() {
  *                             public void handleConsumeOk(String consumerTag) { }
  *                         });
  *             }
@@ -115,10 +115,10 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * @see RecoveryListener
  * @see RecoveryPolicy
  */
-public class AMQPClientRecovery {
+public class AmqpClientRecovery {
 
-    private static final Logger LOGGER = Logger.getLogger(AMQPClientRecovery.class.getName());
-    private static final ResourceBundle L10N = AMQPClientProtocolHandler.L10N;
+    private static final Logger LOGGER = Logger.getLogger(AmqpClientRecovery.class.getName());
+    private static final ResourceBundle L10N = AmqpClientProtocolHandler.L10N;
 
     /**
      * Deliberately <strong>not</strong> gumdrop's own timer/{@link
@@ -179,15 +179,15 @@ public class AMQPClientRecovery {
     private RecoverableConnectionImpl recoverableConnection;
     private int attempt;
     private volatile boolean closed;
-    private volatile AMQPClientProtocolHandler currentHandler;
+    private volatile AmqpClientProtocolHandler currentHandler;
     private volatile ClientEndpoint currentEndpoint;
     private volatile ScheduledFuture<?> pendingRetry;
 
-    public AMQPClientRecovery(String host, int port) {
+    public AmqpClientRecovery(String host, int port) {
         this(null, host, port);
     }
 
-    public AMQPClientRecovery(SelectorLoop selectorLoop, String host, int port) {
+    public AmqpClientRecovery(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
         this.hostAddress = null;
@@ -195,11 +195,11 @@ public class AMQPClientRecovery {
         this.socketPath = null;
     }
 
-    public AMQPClientRecovery(InetAddress host, int port) {
+    public AmqpClientRecovery(InetAddress host, int port) {
         this(null, host, port);
     }
 
-    public AMQPClientRecovery(SelectorLoop selectorLoop, InetAddress host, int port) {
+    public AmqpClientRecovery(SelectorLoop selectorLoop, InetAddress host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = null;
         this.hostAddress = host;
@@ -209,12 +209,12 @@ public class AMQPClientRecovery {
 
     /**
      * Creates an AMQP client for a broker reached over a UNIX domain
-     * socket, mirroring {@link org.bluezoo.gumdrop.TCPListener#setPath}
+     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#setPath}
      * on the server side.
      *
      * @param socketPath the broker's UNIX domain socket path
      */
-    public AMQPClientRecovery(String socketPath) {
+    public AmqpClientRecovery(String socketPath) {
         this(null, socketPath);
     }
 
@@ -225,7 +225,7 @@ public class AMQPClientRecovery {
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param socketPath the broker's UNIX domain socket path
      */
-    public AMQPClientRecovery(SelectorLoop selectorLoop, String socketPath) {
+    public AmqpClientRecovery(SelectorLoop selectorLoop, String socketPath) {
         if (socketPath == null) {
             throw new NullPointerException("socketPath");
         }
@@ -238,23 +238,23 @@ public class AMQPClientRecovery {
 
     // ── configuration (before connect) ──
 
-    public AMQPClientRecovery credentials(String username, String password) {
+    public AmqpClientRecovery credentials(String username, String password) {
         this.username = username;
         this.password = password;
         return this;
     }
 
-    public AMQPClientRecovery virtualHost(String virtualHost) {
+    public AmqpClientRecovery virtualHost(String virtualHost) {
         this.virtualHost = virtualHost;
         return this;
     }
 
-    public AMQPClientRecovery recoveryPolicy(RecoveryPolicy policy) {
+    public AmqpClientRecovery recoveryPolicy(RecoveryPolicy policy) {
         this.policy = policy;
         return this;
     }
 
-    public AMQPClientRecovery recoveryListener(RecoveryListener listener) {
+    public AmqpClientRecovery recoveryListener(RecoveryListener listener) {
         this.listener = listener;
         return this;
     }
@@ -273,7 +273,7 @@ public class AMQPClientRecovery {
      *
      * @param mechanism the SASL mechanism name
      */
-    public AMQPClientRecovery mechanism(String mechanism) {
+    public AmqpClientRecovery mechanism(String mechanism) {
         this.mechanism = mechanism;
         return this;
     }
@@ -290,7 +290,7 @@ public class AMQPClientRecovery {
      *        contact made by the first challenge evaluation; never called
      *        on the connection's own event-loop thread
      */
-    public AMQPClientRecovery gssapiCredentials(Subject subject, String servicePrincipal,
+    public AmqpClientRecovery gssapiCredentials(Subject subject, String servicePrincipal,
             ExecutorService executor) {
         this.gssapiSubject = subject;
         this.gssapiServicePrincipal = servicePrincipal;
@@ -299,32 +299,32 @@ public class AMQPClientRecovery {
     }
 
     /** Implicit TLS (AMQPS, typically port 5671). */
-    public AMQPClientRecovery setSecure(boolean secure) {
+    public AmqpClientRecovery setSecure(boolean secure) {
         this.secure = secure;
         return this;
     }
 
-    public AMQPClientRecovery setClientCredentials(ServerCredentials clientCredentials) {
+    public AmqpClientRecovery setClientCredentials(ServerCredentials clientCredentials) {
         this.clientCredentials = clientCredentials;
         return this;
     }
 
-    public AMQPClientRecovery setTrustManager(X509TrustManager trustManager) {
+    public AmqpClientRecovery setTrustManager(X509TrustManager trustManager) {
         this.trustManager = trustManager;
         return this;
     }
 
-    public AMQPClientRecovery setKeystoreFile(Path path) {
+    public AmqpClientRecovery setKeystoreFile(Path path) {
         this.keystoreFile = path;
         return this;
     }
 
-    public AMQPClientRecovery setKeystorePass(String password) {
+    public AmqpClientRecovery setKeystorePass(String password) {
         this.keystorePass = password;
         return this;
     }
 
-    public AMQPClientRecovery setKeystoreFormat(String format) {
+    public AmqpClientRecovery setKeystoreFormat(String format) {
         this.keystoreFormat = format;
         return this;
     }
@@ -350,7 +350,7 @@ public class AMQPClientRecovery {
         if (closed) {
             return;
         }
-        TCPTransportFactory transportFactory = new TCPTransportFactory();
+        TcpTransportFactory transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);
@@ -369,7 +369,7 @@ public class AMQPClientRecovery {
         }
         transportFactory.start();
 
-        AMQPClientProtocolHandler handler = new AMQPClientProtocolHandler(new RecoveryConnectionReady(first));
+        AmqpClientProtocolHandler handler = new AmqpClientProtocolHandler(new RecoveryConnectionReady(first));
         currentHandler = handler;
 
         try {
@@ -492,11 +492,11 @@ public class AMQPClientRecovery {
                 return;
             }
 
-            ServerTuneHandler tuneHandler = new ServerTuneHandler() {
+            TuneHandler tuneHandler = new TuneHandler() {
                 @Override
                 public void handleTune(int channelMax, long frameMax, int heartbeat,
                         ClientTuned tuned) {
-                    tuned.open(virtualHost, new ServerOpenHandler() {
+                    tuned.open(virtualHost, new OpenHandler() {
                         @Override
                         public void handleOpenOk(ClientConnection connection) {
                             attempt = 0;

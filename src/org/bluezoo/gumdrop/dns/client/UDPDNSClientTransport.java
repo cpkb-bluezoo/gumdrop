@@ -1,5 +1,5 @@
 /*
- * UDPDNSClientTransport.java
+ * UdpDNSClientTransport.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -30,8 +30,8 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.UDPEndpoint;
-import org.bluezoo.gumdrop.UDPTransportFactory;
+import org.bluezoo.gumdrop.UdpEndpoint;
+import org.bluezoo.gumdrop.UdpTransportFactory;
 
 /**
  * Plain UDP transport for DNS client queries.
@@ -41,22 +41,22 @@ import org.bluezoo.gumdrop.UDPTransportFactory;
  * If the response is truncated (TC bit), the client should retry over TCP
  * (RFC 1035 section 4.2.2).
  *
- * <p>Wraps {@link UDPTransportFactory} to send and receive DNS messages
+ * <p>Wraps {@link UdpTransportFactory} to send and receive DNS messages
  * as single UDP datagrams on port 53 (or a configured port).
  *
- * <p>This is the default transport used by {@link DNSResolver}.
+ * <p>This is the default transport used by {@link DnsResolver}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSClientTransport
+ * @see DnsClientTransport
  */
-public class UDPDNSClientTransport implements DNSClientTransport {
+public class UdpDNSClientTransport implements DnsClientTransport {
 
-    private UDPEndpoint endpoint;
+    private UdpEndpoint endpoint;
 
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
-                     DNSClientTransportHandler handler) throws IOException {
-        UDPTransportFactory factory = new UDPTransportFactory();
+                     DnsClientTransportHandler handler) throws IOException {
+        UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
         this.endpoint = factory.connect(server, port,
                 new UDPProtocolHandler(handler), loop);
@@ -81,13 +81,13 @@ public class UDPDNSClientTransport implements DNSClientTransport {
 
     /**
      * Adapts the Gumdrop {@link ProtocolHandler} callbacks to
-     * {@link DNSClientTransportHandler}.
+     * {@link DnsClientTransportHandler}.
      */
     private static class UDPProtocolHandler implements ProtocolHandler {
 
-        private final DNSClientTransportHandler handler;
+        private final DnsClientTransportHandler handler;
 
-        UDPProtocolHandler(DNSClientTransportHandler handler) {
+        UDPProtocolHandler(DnsClientTransportHandler handler) {
             this.handler = handler;
         }
 

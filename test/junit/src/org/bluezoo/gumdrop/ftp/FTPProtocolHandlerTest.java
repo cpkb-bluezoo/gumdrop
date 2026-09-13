@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link FTPProtocolHandler}.
+ * Unit tests for {@link FtpProtocolHandler}.
  *
  * <p>There was no pre-existing unit coverage for the FTP control channel
  * protocol handler prior to its streaming-lexer conversion (issue #85) —
@@ -54,14 +54,14 @@ import static org.junit.Assert.*;
  */
 public class FTPProtocolHandlerTest {
 
-    private FTPProtocolHandler handler;
+    private FtpProtocolHandler handler;
     private StubEndpoint endpoint;
-    private FTPListener listener;
+    private FtpListener listener;
 
     @Before
     public void setUp() {
-        listener = new FTPListener();
-        handler = new FTPProtocolHandler(listener, null);
+        listener = new FtpListener();
+        handler = new FtpProtocolHandler(listener, null);
         endpoint = new StubEndpoint();
     }
 
@@ -74,7 +74,7 @@ public class FTPProtocolHandlerTest {
         handler.receive(ByteBuffer.wrap(data));
     }
 
-    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // Mirrors the real transport contract (TcpEndpoint.processInbound()):
     // a single persistent buffer, compacted between receive() calls so
     // unconsumed bytes from a partial token are preserved and physically
     // moved forward, not a fresh isolated buffer per chunk.
@@ -184,8 +184,8 @@ public class FTPProtocolHandlerTest {
     @Test
     public void testCommandWithArgsSlicedAtEveryChunkSize() {
         for (int chunkSize = 1; chunkSize <= 12; chunkSize++) {
-            listener = new FTPListener();
-            handler = new FTPProtocolHandler(listener, null);
+            listener = new FtpListener();
+            handler = new FtpProtocolHandler(listener, null);
             endpoint = new StubEndpoint();
 
             connect();
@@ -202,8 +202,8 @@ public class FTPProtocolHandlerTest {
         // reply only comes at all if the whole line (including a
         // multi-space pathname arg) was correctly lexed through to CRLF.
         for (int chunkSize = 1; chunkSize <= 20; chunkSize++) {
-            listener = new FTPListener();
-            handler = new FTPProtocolHandler(listener, null);
+            listener = new FtpListener();
+            handler = new FtpProtocolHandler(listener, null);
             endpoint = new StubEndpoint();
 
             connect();

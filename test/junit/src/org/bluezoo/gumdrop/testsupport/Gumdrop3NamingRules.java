@@ -81,7 +81,7 @@ public final class Gumdrop3NamingRules {
                 && typeName.length() > "Server".length()) {
             return typeName.substring("Server".length());
         }
-        if ("ServerGreeting".equals(typeName)) {
+        if ("RemoteGreeting".equals(typeName)) {
             return "RemoteGreeting";
         }
         return null;

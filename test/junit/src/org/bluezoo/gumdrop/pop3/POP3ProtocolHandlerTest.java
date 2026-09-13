@@ -45,7 +45,7 @@ import org.junit.Test;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
@@ -205,7 +205,7 @@ public class POP3ProtocolHandlerTest {
     // buffered-line parsing preserves identical semantic dispatch.
     // ═══════════════════════════════════════════════════════════════════
 
-    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // Mirrors the real transport contract (TcpEndpoint.processInbound()):
     // a single persistent buffer, compacted between receive() calls so
     // unconsumed bytes from a partial token are preserved and physically
     // moved forward, not a fresh isolated buffer per chunk.
@@ -1662,7 +1662,7 @@ public class POP3ProtocolHandlerTest {
 
         @Override
         protected ClientConnected createHandler(
-                TCPListener endpoint) {
+                TcpListener endpoint) {
             return handler;
         }
     }

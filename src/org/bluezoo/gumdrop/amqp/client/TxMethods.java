@@ -36,18 +36,18 @@ final class TxMethods {
 
     private static ByteBuffer noArgs(int methodId) {
         ByteBuffer buf = ByteBuffer.allocate(4);
-        buf.putShort((short) AMQPMethod.CLASS_TX);
+        buf.putShort((short) AmqpMethod.CLASS_TX);
         buf.putShort((short) methodId);
         buf.flip();
         return buf;
     }
 
-    static ByteBuffer encodeSelect() { return noArgs(AMQPMethod.TX_SELECT); }
-    static ByteBuffer encodeCommit() { return noArgs(AMQPMethod.TX_COMMIT); }
-    static ByteBuffer encodeRollback() { return noArgs(AMQPMethod.TX_ROLLBACK); }
+    static ByteBuffer encodeSelect() { return noArgs(AmqpMethod.TX_SELECT); }
+    static ByteBuffer encodeCommit() { return noArgs(AmqpMethod.TX_COMMIT); }
+    static ByteBuffer encodeRollback() { return noArgs(AmqpMethod.TX_ROLLBACK); }
 
     // Server-side replies — used by a server-side implementation.
-    static ByteBuffer encodeSelectOk() { return noArgs(AMQPMethod.TX_SELECT_OK); }
-    static ByteBuffer encodeCommitOk() { return noArgs(AMQPMethod.TX_COMMIT_OK); }
-    static ByteBuffer encodeRollbackOk() { return noArgs(AMQPMethod.TX_ROLLBACK_OK); }
+    static ByteBuffer encodeSelectOk() { return noArgs(AmqpMethod.TX_SELECT_OK); }
+    static ByteBuffer encodeCommitOk() { return noArgs(AmqpMethod.TX_COMMIT_OK); }
+    static ByteBuffer encodeRollbackOk() { return noArgs(AmqpMethod.TX_ROLLBACK_OK); }
 }

@@ -167,7 +167,7 @@ public class ConnectUdpH2WireTest {
         // hand off a decrypted, decrypted frame; the H2 Extended CONNECT
         // path (unlike H3, which this test does not cover) validates
         // synchronously up through calling the factory-created handler's
-        // headers(), and DNSResolver itself tolerates being invoked from
+        // headers(), and DnsResolver itself tolerates being invoked from
         // any thread for a literal IP target (no actual query is made).
         connection.headersFrameReceived(1, false, true, 0, false, 16,
                 encodeConnectUdpHeaders("127.0.0.1", 4433));

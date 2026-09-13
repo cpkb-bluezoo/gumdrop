@@ -44,7 +44,7 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for issue #408: {@link DNSServerCapabilityCache}'s two
  * tiers (permanent seed table, temporary negative cache), and {@link
- * DNSResolver}'s automatic per-server transport preference and
+ * DnsResolver}'s automatic per-server transport preference and
  * fallback that uses it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -104,7 +104,7 @@ public class DNSResolverTransportPreferenceTest {
         assertTrue(DNSServerCapabilityCache.get(server).isDoqSupported());
     }
 
-    // ── DNSResolver transport preference/fallback ──
+    // ── DnsResolver transport preference/fallback ──
 
     @Test
     public void testPrefersDoqForWellKnownServer() throws Exception {
@@ -187,7 +187,7 @@ public class DNSResolverTransportPreferenceTest {
 
     /**
      * Exercises the real (non-overridden) DOH branch of {@link
-     * DNSResolver#newTransportInstance}, which loads the {@link
+     * DnsResolver#newTransportInstance}, which loads the {@link
      * DoHTransportFactory} SPI -- unlike the other tests here, which
      * override that method entirely and so never touch the SPI lookup.
      * gumdrop-http.jar (with its {@code META-INF/services} registration)
@@ -198,9 +198,9 @@ public class DNSResolverTransportPreferenceTest {
      */
     @Test
     public void testDohTransportInstanceResolvesViaServiceLoader() {
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         DNSServerCapabilities caps = DNSServerCapabilities.of(false, 0, false, 0, "/dns-query", 0);
-        DNSClientTransport transport = resolver.newTransportInstance(DNSTransportType.DOH, caps);
+        DnsClientTransport transport = resolver.newTransportInstance(DNSTransportType.DOH, caps);
         assertNotNull("DoHTransportFactory should be discovered from gumdrop-http.jar on the test classpath",
                 transport);
     }
@@ -262,13 +262,13 @@ public class DNSResolverTransportPreferenceTest {
 
     // ── Test doubles ──
 
-    private static class RecordingTransport implements DNSClientTransport {
-        DNSClientTransportHandler handler;
+    private static class RecordingTransport implements DnsClientTransport {
+        DnsClientTransportHandler handler;
         int openedPort = Integer.MIN_VALUE;
 
         @Override
         public void open(InetAddress server, int port, SelectorLoop loop,
-                         DNSClientTransportHandler handler) {
+                         DnsClientTransportHandler handler) {
             this.handler = handler;
             this.openedPort = port;
         }
@@ -290,10 +290,10 @@ public class DNSResolverTransportPreferenceTest {
         }
     }
 
-    private static class FailingTransport implements DNSClientTransport {
+    private static class FailingTransport implements DnsClientTransport {
         @Override
         public void open(InetAddress server, int port, SelectorLoop loop,
-                         DNSClientTransportHandler handler) throws IOException {
+                         DnsClientTransportHandler handler) throws IOException {
             throw new IOException("simulated open failure");
         }
 
@@ -312,19 +312,19 @@ public class DNSResolverTransportPreferenceTest {
     }
 
     /**
-     * Resolver subclass overriding {@link DNSResolver#newTransportInstance}
+     * Resolver subclass overriding {@link DnsResolver#newTransportInstance}
      * to return pre-configured mocks per type instead of real network
      * transports, and recording which types were attempted, in order.
      */
-    private static class TestableResolver extends DNSResolver {
-        final Map<DNSTransportType, DNSClientTransport> transports =
+    private static class TestableResolver extends DnsResolver {
+        final Map<DNSTransportType, DnsClientTransport> transports =
                 new EnumMap<>(DNSTransportType.class);
         final List<DNSTransportType> attempted = new ArrayList<>();
 
         @Override
-        DNSClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
+        DnsClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
             attempted.add(type);
-            DNSClientTransport transport = transports.get(type);
+            DnsClientTransport transport = transports.get(type);
             return transport != null ? transport : new RecordingTransport();
         }
     }

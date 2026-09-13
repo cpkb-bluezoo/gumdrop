@@ -38,7 +38,7 @@
  * <ul>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketServer} -
  *       Abstract service base class (extends
- *       {@link org.bluezoo.gumdrop.http.HTTPService})</li>
+ *       {@link org.bluezoo.gumdrop.http.HttpServer})</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketEventHandler} -
  *       Handler for WebSocket lifecycle events</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler} -

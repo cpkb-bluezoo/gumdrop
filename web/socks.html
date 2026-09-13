@@ -46,8 +46,8 @@ consistent with the rest of the framework.
 <ul>
 <li><a href="#architecture">Architecture</a></li>
 <li><a href="#configuration">Configuration</a></li>
-<li><a href="#service-properties"><code>SOCKSService</code> properties</a></li>
-<li><a href="#listener-properties"><code>SOCKSListener</code> properties</a></li>
+<li><a href="#service-properties"><code>SocksServer</code> properties</a></li>
+<li><a href="#listener-properties"><code>SocksListener</code> properties</a></li>
 <li><a href="#listener-common">Common listener options</a></li>
 <li><a href="#custom-handlers">Custom authorization</a></li>
 <li><a href="#client">Client API</a></li>
@@ -57,27 +57,27 @@ consistent with the rest of the framework.
 <h3 id="architecture">Architecture</h3>
 
 <p>
-A <code>SOCKSService</code> owns one or more <code>SOCKSListener</code>
+A <code>SocksServer</code> owns one or more <code>SocksListener</code>
 instances. Each accepted connection is handled by
 <code>SOCKSProtocolHandler</code>, which negotiates the SOCKS version,
 performs optional authentication, and establishes relays via
 <code>SOCKSRelay</code>, <code>SOCKSBindRelay</code>, or
 <code>SOCKSUDPRelay</code> as appropriate. Subclasses of
-<code>SOCKSService</code> may supply <code>ConnectHandler</code> and
+<code>SocksServer</code> may supply <code>ConnectHandler</code> and
 <code>BindHandler</code> implementations for application-level authorization.
 </p>
 
 <ul>
-<li><code>org.bluezoo.gumdrop.socks.SOCKSService</code> &mdash; abstract base;
+<li><code>org.bluezoo.gumdrop.socks.SocksServer</code> &mdash; abstract base;
 destination filtering, relay limits, idle timeout</li>
-<li><code>org.bluezoo.gumdrop.socks.DefaultSOCKSService</code> &mdash; default
+<li><code>org.bluezoo.gumdrop.socks.DefaultSOCKSServer</code> &mdash; default
 proxy (accept CONNECT/BIND that pass filtering; optional realm for SOCKS5)</li>
-<li><code>org.bluezoo.gumdrop.socks.SOCKSListener</code> &mdash; TCP listener;
+<li><code>org.bluezoo.gumdrop.socks.SocksListener</code> &mdash; TCP listener;
 defaults to port 1080 (plaintext) or 1081 (TLS)</li>
-<li><code>org.bluezoo.gumdrop.socks.client.SOCKSClientHandler</code> &mdash;
+<li><code>org.bluezoo.gumdrop.socks.client.SocksClientHandler</code> &mdash;
 wraps another <code>ProtocolHandler</code> and tunnels it through a SOCKS
 proxy</li>
-<li><code>org.bluezoo.gumdrop.socks.client.SOCKSClientConfig</code> &mdash;
+<li><code>org.bluezoo.gumdrop.socks.client.SocksClientConfig</code> &mdash;
 version preference, credentials, handshake timeout</li>
 </ul>
 
@@ -86,8 +86,8 @@ version preference, credentials, handshake timeout</li>
 <h4>Minimal proxy (no authentication)</h4>
 
 <pre>
-&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.socks.SOCKSListener" port="1080"/&gt;
+&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSServer"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.socks.SocksListener" port="1080"/&gt;
 &lt;/service&gt;
 </pre>
 
@@ -98,15 +98,15 @@ version preference, credentials, handshake timeout</li>
     &lt;property name="href" path="realm-socks.xml"/&gt;
 &lt;/realm&gt;
 
-&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService"&gt;
+&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSServer"&gt;
     &lt;property name="realm" ref="#socksRealm"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.socks.SOCKSListener" port="1080"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.socks.SocksListener" port="1080"/&gt;
 &lt;/service&gt;
 </pre>
 
 <p>
 When a <code>realm</code> is set on the service, it is applied to each
-<code>SOCKSListener</code> that does not already define its own
+<code>SocksListener</code> that does not already define its own
 <code>realm</code>. SOCKS5 clients must complete RFC&nbsp;1929
 username/password authentication. SOCKS4 carries an unauthenticated userid
 field in the request only.
@@ -115,8 +115,8 @@ field in the request only.
 <h4>TLS (<code>sockss</code>)</h4>
 
 <pre>
-&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.socks.SOCKSListener"
+&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSServer"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.socks.SocksListener"
             port="1081" secure="true"&gt;
         &lt;property name="keystore-file" path="keystore.p12"/&gt;
         &lt;property name="keystore-pass" value="secret"/&gt;
@@ -132,12 +132,12 @@ If no <code>port</code> is set, the listener uses 1080 for cleartext and
 <h4>Destination filtering and relay limits</h4>
 
 <pre>
-&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSService"&gt;
+&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSServer"&gt;
     &lt;property name="allowed-destinations"&gt;203.0.113.0/24,2001:db8::/32&lt;/property&gt;
     &lt;property name="blocked-destinations"&gt;127.0.0.0/8,::1/128&lt;/property&gt;
     &lt;property name="max-relays" value="1000"/&gt;
     &lt;property name="relay-idle-timeout" value="5m"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.socks.SOCKSListener" port="1080"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.socks.SocksListener" port="1080"/&gt;
 &lt;/service&gt;
 </pre>
 
@@ -151,7 +151,7 @@ suffixes <code>ms</code>, <code>s</code>, <code>m</code>, <code>h</code>
 milliseconds).
 </p>
 
-<h3 id="service-properties"><code>SOCKSService</code> properties</h3>
+<h3 id="service-properties"><code>SocksServer</code> properties</h3>
 
 <table border="1" cellpadding="5">
 <tr><th>Property</th><th>Setter</th><th>Default</th><th>Description</th></tr>
@@ -172,7 +172,7 @@ unlimited</td></tr>
 <td>300000</td><td>Same as above, in milliseconds</td></tr>
 </table>
 
-<h3 id="listener-properties"><code>SOCKSListener</code> properties</h3>
+<h3 id="listener-properties"><code>SocksListener</code> properties</h3>
 
 <table border="1" cellpadding="5">
 <tr><th>Property</th><th>Setter</th><th>Default</th><th>Description</th></tr>
@@ -191,7 +191,7 @@ supplied as a configured bean reference</td></tr>
 
 <p>
 To configure Kerberos from code, use
-<code>SOCKSListener.configureGSSAPI(Path&nbsp;keytabPath,
+<code>SocksListener.configureGSSAPI(Path&nbsp;keytabPath,
 String&nbsp;servicePrincipal)</code>, which constructs a
 <code>GSSAPIServer</code> for that listener.
 </p>
@@ -209,7 +209,7 @@ TLS and transport settings (<code>secure</code>,
 <code>auth-lockout-time</code>), CIDR access control
 (<code>allowed-networks</code>, <code>blocked-networks</code>), and
 <code>max-net-in-size</code> are inherited from <code>Listener</code> /
-<code>TCPListener</code> and behave like other TCP-based services. See
+<code>TcpListener</code> and behave like other TCP-based services. See
 <a href="tls.html">TLS &amp; DTLS</a>, <a href="security.html">Security</a>, and
 <a href="index.html">main documentation</a> (UNIX domain sockets).
 </p>
@@ -217,9 +217,9 @@ TLS and transport settings (<code>secure</code>,
 <h3 id="custom-handlers">Custom authorization</h3>
 
 <p>
-Subclass <code>SOCKSService</code> and override
-<code>createConnectHandler(TCPListener)</code> and/or
-<code>createBindHandler(TCPListener)</code> to install
+Subclass <code>SocksServer</code> and override
+<code>createConnectHandler(TcpListener)</code> and/or
+<code>createBindHandler(TcpListener)</code> to install
 <code>ConnectHandler</code> / <code>BindHandler</code> callbacks that approve
 or reject individual requests using <code>ConnectState</code> and
 <code>BindState</code> (see <code>org.bluezoo.gumdrop.socks.handler</code>).
@@ -230,7 +230,7 @@ filtering and relay limits).
 <h3 id="client">Client API</h3>
 
 <p>
-Use <code>SOCKSClientHandler</code> as the outer handler when connecting
+Use <code>SocksClientHandler</code> as the outer handler when connecting
 with <code>ClientEndpoint</code> to the proxy; it performs the SOCKS
 handshake then delegates to your inner protocol handler (for example SMTP or
 HTTP client handlers).
@@ -239,19 +239,19 @@ HTTP client handlers).
 <pre>
 // Connect to smtp.example.com:587 via SOCKS proxy at proxy:1080
 ClientEndpoint client = new ClientEndpoint(factory, "proxy", 1080);
-client.connect(new SOCKSClientHandler(
+client.connect(new SocksClientHandler(
     "smtp.example.com", 587,
     new SmtpClientProtocolHandler(callback)));
 
 // With SOCKS5 username/password
-SOCKSClientConfig config = new SOCKSClientConfig("user", "pass");
-client.connect(new SOCKSClientHandler(
+SocksClientConfig config = new SocksClientConfig("user", "pass");
+client.connect(new SocksClientHandler(
     "smtp.example.com", 587, config,
     new SmtpClientProtocolHandler(callback)));
 </pre>
 
 <p>
-<code>SOCKSClientConfig</code> exposes <code>version</code> (AUTO, SOCKS4,
+<code>SocksClientConfig</code> exposes <code>version</code> (AUTO, SOCKS4,
 SOCKS5), <code>username</code> / <code>password</code>, and
 <code>handshake-timeout-ms</code> (default 30&nbsp;s).
 </p>
@@ -260,7 +260,7 @@ SOCKS5), <code>username</code> / <code>password</code>, and
 
 <p>
 When a <code>TelemetryConfig</code> is attached to the listener, 
-<code>SOCKSServerMetrics</code> records counters and histograms for
+<code>SocksServerMetrics</code> records counters and histograms for
 connections, CONNECT/BIND/UDP ASSOCIATE requests, relays, bytes, 
 authentication outcomes, and blocked destinations. See
 <a href="telemetry.html">Telemetry</a> for OTLP setup.

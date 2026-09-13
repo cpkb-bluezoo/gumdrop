@@ -29,7 +29,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
  * <p>A {@code Pop3Server} defines the application logic for handling
  * POP3 connections. It owns authentication, mailbox storage, and
  * protocol configuration, and acts as the handler factory: subclasses
- * override {@link #createHandler(TCPListener)} to return the
+ * override {@link #createHandler(TcpListener)} to return the
  * appropriate {@link ClientConnected} handler for each new connection.
  *
  * <p>Service-level configuration is pushed into each listener during
@@ -184,7 +184,7 @@ public abstract class Pop3Server implements Server {
      * @return a handler for the new connection, or null for default
      */
     protected abstract ClientConnected createHandler(
-            TCPListener endpoint);
+            TcpListener endpoint);
 
     // ── Lifecycle ──
 

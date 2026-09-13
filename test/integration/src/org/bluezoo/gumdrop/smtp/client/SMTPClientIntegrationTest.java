@@ -27,7 +27,7 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.handler.*;
@@ -116,14 +116,14 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     private static class SMTPClientHelper {
         private final ClientEndpoint client;
-        private final TCPTransportFactory factory;
+        private final TcpTransportFactory factory;
         private final int port;
         private boolean secure;
         private javax.net.ssl.X509TrustManager trustManager;
 
         SMTPClientHelper(int port) throws Exception {
             this.port = port;
-            this.factory = new TCPTransportFactory();
+            this.factory = new TcpTransportFactory();
             this.factory.start();
             Gumdrop gumdrop = Gumdrop.getInstance();
             SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();

@@ -39,27 +39,27 @@ final class ChannelMethods {
     static ByteBuffer encodeOpen() {
         int size = 4 + FieldTable.shortStringEncodedSize(""); // reserved-1 (out-of-band)
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_CHANNEL);
-        buf.putShort((short) AMQPMethod.CHANNEL_OPEN);
+        buf.putShort((short) AmqpMethod.CLASS_CHANNEL);
+        buf.putShort((short) AmqpMethod.CHANNEL_OPEN);
         FieldTable.putShortString(buf, "");
         buf.flip();
         return buf;
     }
 
     /** {@code channel.open-ok} (20,11) — sent by the server; no fields we care about. */
-    static void decodeOpenOk(ByteBuffer payload) throws AMQPProtocolException {
+    static void decodeOpenOk(ByteBuffer payload) throws AmqpProtocolException {
         int len = payload.getInt();
         payload.position(payload.position() + len); // reserved-1 (channel-id), discarded
     }
 
-    static void decodeOpen(ByteBuffer payload) throws AMQPProtocolException {
+    static void decodeOpen(ByteBuffer payload) throws AmqpProtocolException {
         FieldTable.getShortString(payload); // reserved-1 (out-of-band), discarded
     }
 
     static ByteBuffer encodeOpenOk() {
         ByteBuffer buf = ByteBuffer.allocate(4 + 4);
-        buf.putShort((short) AMQPMethod.CLASS_CHANNEL);
-        buf.putShort((short) AMQPMethod.CHANNEL_OPEN_OK);
+        buf.putShort((short) AmqpMethod.CLASS_CHANNEL);
+        buf.putShort((short) AmqpMethod.CHANNEL_OPEN_OK);
         buf.putInt(0); // reserved-1 (channel-id), empty
         buf.flip();
         return buf;
@@ -72,8 +72,8 @@ final class ChannelMethods {
 
     static ByteBuffer encodeFlow(boolean active) {
         ByteBuffer buf = ByteBuffer.allocate(5);
-        buf.putShort((short) AMQPMethod.CLASS_CHANNEL);
-        buf.putShort((short) AMQPMethod.CHANNEL_FLOW);
+        buf.putShort((short) AmqpMethod.CLASS_CHANNEL);
+        buf.putShort((short) AmqpMethod.CHANNEL_FLOW);
         buf.put(AMQPBits.pack(active));
         buf.flip();
         return buf;
@@ -86,8 +86,8 @@ final class ChannelMethods {
 
     static ByteBuffer encodeFlowOk(boolean active) {
         ByteBuffer buf = ByteBuffer.allocate(5);
-        buf.putShort((short) AMQPMethod.CLASS_CHANNEL);
-        buf.putShort((short) AMQPMethod.CHANNEL_FLOW_OK);
+        buf.putShort((short) AmqpMethod.CLASS_CHANNEL);
+        buf.putShort((short) AmqpMethod.CHANNEL_FLOW_OK);
         buf.put(AMQPBits.pack(active));
         buf.flip();
         return buf;
@@ -97,8 +97,8 @@ final class ChannelMethods {
     static ByteBuffer encodeClose(int replyCode, String replyText) {
         int size = 4 + 2 + FieldTable.shortStringEncodedSize(replyText) + 2 + 2;
         ByteBuffer buf = ByteBuffer.allocate(size);
-        buf.putShort((short) AMQPMethod.CLASS_CHANNEL);
-        buf.putShort((short) AMQPMethod.CHANNEL_CLOSE);
+        buf.putShort((short) AmqpMethod.CLASS_CHANNEL);
+        buf.putShort((short) AmqpMethod.CHANNEL_CLOSE);
         buf.putShort((short) replyCode);
         FieldTable.putShortString(buf, replyText);
         buf.putShort((short) 0);
@@ -107,15 +107,15 @@ final class ChannelMethods {
         return buf;
     }
 
-    static ConnectionMethods.CloseReason decodeClose(ByteBuffer payload) throws AMQPProtocolException {
+    static ConnectionMethods.CloseReason decodeClose(ByteBuffer payload) throws AmqpProtocolException {
         return ConnectionMethods.decodeClose(payload);
     }
 
     /** {@code channel.close-ok} (20,41) — sent by either peer; no arguments. */
     static ByteBuffer encodeCloseOk() {
         ByteBuffer buf = ByteBuffer.allocate(4);
-        buf.putShort((short) AMQPMethod.CLASS_CHANNEL);
-        buf.putShort((short) AMQPMethod.CHANNEL_CLOSE_OK);
+        buf.putShort((short) AmqpMethod.CLASS_CHANNEL);
+        buf.putShort((short) AmqpMethod.CHANNEL_CLOSE_OK);
         buf.flip();
         return buf;
     }

@@ -44,8 +44,8 @@ public class DANETrustManagerTest {
     @Test
     public void testDaneEeMatchAcceptedWithoutDelegate() throws Exception {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-1");
-        List<DNSResourceRecord> tlsa = Collections.singletonList(
-                DNSResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
+        List<DnsResourceRecord> tlsa = Collections.singletonList(
+                DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
                         DANEVerifier.USAGE_DANE_EE,
                         DANEVerifier.SELECTOR_FULL_CERT,
                         DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
@@ -57,8 +57,8 @@ public class DANETrustManagerTest {
     @Test
     public void testDaneTaMatchAcceptedWithoutDelegate() throws Exception {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-2");
-        List<DNSResourceRecord> tlsa = Collections.singletonList(
-                DNSResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
+        List<DnsResourceRecord> tlsa = Collections.singletonList(
+                DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
                         DANEVerifier.USAGE_DANE_TA,
                         DANEVerifier.SELECTOR_FULL_CERT,
                         DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
@@ -70,8 +70,8 @@ public class DANETrustManagerTest {
     @Test
     public void testPkixEeMatchRequiresDelegateSuccess() throws Exception {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-3");
-        List<DNSResourceRecord> tlsa = Collections.singletonList(
-                DNSResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
+        List<DnsResourceRecord> tlsa = Collections.singletonList(
+                DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
                         DANEVerifier.USAGE_PKIX_EE,
                         DANEVerifier.SELECTOR_FULL_CERT,
                         DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
@@ -84,8 +84,8 @@ public class DANETrustManagerTest {
     @Test(expected = CertificateException.class)
     public void testPkixEeMatchWithoutDelegateRejected() throws Exception {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-4");
-        List<DNSResourceRecord> tlsa = Collections.singletonList(
-                DNSResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
+        List<DnsResourceRecord> tlsa = Collections.singletonList(
+                DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
                         DANEVerifier.USAGE_PKIX_EE,
                         DANEVerifier.SELECTOR_FULL_CERT,
                         DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
@@ -99,8 +99,8 @@ public class DANETrustManagerTest {
     @Test(expected = CertificateException.class)
     public void testPkixTaMatchPropagatesDelegateFailure() throws Exception {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-5");
-        List<DNSResourceRecord> tlsa = Collections.singletonList(
-                DNSResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
+        List<DnsResourceRecord> tlsa = Collections.singletonList(
+                DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
                         DANEVerifier.USAGE_PKIX_TA,
                         DANEVerifier.SELECTOR_FULL_CERT,
                         DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
@@ -129,8 +129,8 @@ public class DANETrustManagerTest {
     @Test(expected = CertificateException.class)
     public void testNoMatchRejected() throws Exception {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-6");
-        List<DNSResourceRecord> tlsa = Collections.singletonList(
-                DNSResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
+        List<DnsResourceRecord> tlsa = Collections.singletonList(
+                DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
                         DANEVerifier.USAGE_DANE_EE,
                         DANEVerifier.SELECTOR_FULL_CERT,
                         DANEVerifier.MATCHING_TYPE_FULL, new byte[]{ 1, 2, 3 }));
@@ -141,7 +141,7 @@ public class DANETrustManagerTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void testConstructorRejectsEmptyRecords() {
-        new DANETrustManager(null, Collections.<DNSResourceRecord>emptyList());
+        new DANETrustManager(null, Collections.<DnsResourceRecord>emptyList());
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -151,8 +151,8 @@ public class DANETrustManagerTest {
 
     @Test
     public void testGetAcceptedIssuersFallsBackToEmptyWithoutDelegate() {
-        List<DNSResourceRecord> tlsa = Collections.singletonList(
-                DNSResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
+        List<DnsResourceRecord> tlsa = Collections.singletonList(
+                DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
                         DANEVerifier.USAGE_DANE_EE,
                         DANEVerifier.SELECTOR_FULL_CERT,
                         DANEVerifier.MATCHING_TYPE_FULL, new byte[32]));

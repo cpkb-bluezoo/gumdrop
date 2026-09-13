@@ -41,14 +41,14 @@ import org.bluezoo.gumdrop.SecurityInfo;
  * <p>A single DoT connection may carry multiple sequential
  * query-response pairs. The handler accumulates incoming bytes until
  * a complete length-prefixed message is available, then delegates to
- * {@link DNSService#processQuery(DNSMessage, org.bluezoo.gumdrop.SelectorLoop, DNSQueryCallback)}.
+ * {@link DnsServer#processQuery(DnsMessage, org.bluezoo.gumdrop.SelectorLoop, DnsQueryCallback)}.
  *
  * <p>RFC 7858 section 3.4: connections SHOULD be reused for multiple
  * queries. Idle connections may be closed by either party.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoTListener
- * @see DNSService
+ * @see DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7858">RFC 7858</a>
  */
 final class DoTProtocolHandler implements ProtocolHandler {
@@ -61,11 +61,11 @@ final class DoTProtocolHandler implements ProtocolHandler {
     // RFC 1035 section 4.2.2: max DNS message size is 65535 octets
     private static final int MAX_DNS_MESSAGE_SIZE = 65535;
 
-    private final DNSService service;
+    private final DnsServer service;
     private Endpoint endpoint;
     private ByteBuffer accumulator;
 
-    DoTProtocolHandler(DNSService service) {
+    DoTProtocolHandler(DnsServer service) {
         this.service = service;
         this.accumulator = ByteBuffer.allocate(4096);
         this.accumulator.flip();
@@ -76,7 +76,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
         this.endpoint = endpoint;
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
-                    DNSService.L10N.getString("debug.dot_connected"),
+                    DnsServer.L10N.getString("debug.dot_connected"),
                     endpoint.getRemoteAddress()));
         }
     }
@@ -85,7 +85,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
     public void securityEstablished(SecurityInfo info) {
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(MessageFormat.format(
-                    DNSService.L10N.getString("debug.dot_tls_established"),
+                    DnsServer.L10N.getString("debug.dot_tls_established"),
                     endpoint.getRemoteAddress()));
         }
     }
@@ -103,7 +103,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
             if (messageLength <= 0
                     || messageLength > MAX_DNS_MESSAGE_SIZE) {
                 LOGGER.warning(MessageFormat.format(
-                        DNSService.L10N.getString("err.dot_bad_length"),
+                        DnsServer.L10N.getString("err.dot_bad_length"),
                         Integer.valueOf(messageLength),
                         endpoint.getRemoteAddress()));
                 endpoint.close();
@@ -131,7 +131,7 @@ final class DoTProtocolHandler implements ProtocolHandler {
             SocketAddress remote = (endpoint != null)
                     ? endpoint.getRemoteAddress() : null;
             LOGGER.fine(MessageFormat.format(
-                    DNSService.L10N.getString("debug.dot_disconnected"),
+                    DnsServer.L10N.getString("debug.dot_disconnected"),
                     remote));
         }
     }
@@ -139,52 +139,52 @@ final class DoTProtocolHandler implements ProtocolHandler {
     @Override
     public void error(Exception cause) {
         LOGGER.log(Level.WARNING, MessageFormat.format(
-                DNSService.L10N.getString("err.dot_error"),
+                DnsServer.L10N.getString("err.dot_error"),
                 endpoint != null ? endpoint.getRemoteAddress() : null),
                 cause);
     }
 
     private void processMessage(ByteBuffer messageBuf) {
         try {
-            final DNSMessage query = DNSMessage.parse(messageBuf);
+            final DnsMessage query = DnsMessage.parse(messageBuf);
 
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
-                        DNSService.L10N.getString(
+                        DnsServer.L10N.getString(
                                 "debug.dot_received_query"),
                         query, endpoint.getRemoteAddress()));
             }
 
-            final DNSServerMetrics metrics = service.getMetrics();
+            final DnsServerMetrics metrics = service.getMetrics();
             if (metrics != null && !query.getQuestions().isEmpty()) {
-                DNSQuestion q =
+                DnsQuestion q =
                         query.getQuestions().get(0);
                 metrics.queryReceived(q.getType().name(), "dot");
             }
 
             if (!query.isQuery()
-                    || query.getOpcode() != DNSMessage.OPCODE_QUERY) {
+                    || query.getOpcode() != DnsMessage.OPCODE_QUERY) {
                 sendResponse(query.createErrorResponse(
-                        DNSMessage.RCODE_NOTIMP));
+                        DnsMessage.RCODE_NOTIMP));
                 return;
             }
 
             if (query.getQuestions().isEmpty()) {
                 sendResponse(query.createErrorResponse(
-                        DNSMessage.RCODE_FORMERR));
+                        DnsMessage.RCODE_FORMERR));
                 return;
             }
 
             final long startNanos = System.nanoTime();
             service.processQuery(query, endpoint.getSelectorLoop(),
-                    new DNSQueryCallback() {
+                    new DnsQueryCallback() {
                         @Override
-                        public void onResponse(DNSMessage response) {
+                        public void onResponse(DnsMessage response) {
                             if (metrics != null) {
                                 double durationMs = (System.nanoTime()
                                         - startNanos) / 1_000_000.0;
                                 metrics.responseSent(
-                                        DNSService.rcodeToString(
+                                        DnsServer.rcodeToString(
                                                 response.getRcode()),
                                         durationMs, "dot");
                             }
@@ -194,24 +194,24 @@ final class DoTProtocolHandler implements ProtocolHandler {
                         @Override
                         public void onError(String error) {
                             sendResponse(query.createErrorResponse(
-                                    DNSMessage.RCODE_SERVFAIL));
+                                    DnsMessage.RCODE_SERVFAIL));
                         }
                     });
 
-        } catch (DNSFormatException e) {
+        } catch (DnsFormatException e) {
             LOGGER.log(Level.FINE, MessageFormat.format(
-                    DNSService.L10N.getString("err.dot_malformed"),
+                    DnsServer.L10N.getString("err.dot_malformed"),
                     endpoint.getRemoteAddress()), e);
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, MessageFormat.format(
-                    DNSService.L10N.getString("err.dot_query_error"),
+                    DnsServer.L10N.getString("err.dot_query_error"),
                     endpoint.getRemoteAddress()), e);
         }
     }
 
     // RFC 7858 section 3.3 / RFC 1035 section 4.2.2: response is
     // framed with a 2-byte big-endian length prefix before the DNS message.
-    private void sendResponse(DNSMessage response) {
+    private void sendResponse(DnsMessage response) {
         ByteBuffer payload = response.serialize();
         int length = payload.remaining();
 

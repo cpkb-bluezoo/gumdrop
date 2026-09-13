@@ -248,7 +248,7 @@ public class ConfigurationParserTest {
         // Service is a known element type that requires a class attribute
         String config = "<?xml version=\"1.0\"?>\n" +
             "<gumdrop>\n" +
-            "  <service id=\"dnsService\" class=\"org.bluezoo.gumdrop.dns.DNSService\">\n" +
+            "  <service id=\"dnsService\" class=\"org.bluezoo.gumdrop.dns.DnsServer\">\n" +
             "  </service>\n" +
             "</gumdrop>";
         File file = createConfigFile(config);

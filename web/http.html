@@ -203,7 +203,7 @@ openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
 <h4>Alt-Svc Discovery</h4>
 
 <p>
-When an <code>HTTPService</code> has both TCP and QUIC listeners, it
+When an <code>HttpServer</code> has both TCP and QUIC listeners, it
 automatically computes an <code>Alt-Svc</code> response header and injects it
 into HTTP/1.1 and HTTP/2 responses served by the TCP listener. This tells
 clients that HTTP/3 is available:
@@ -329,7 +329,7 @@ HEADERS, and PUSH_PROMISE frames (RFC 7540 Section 6.1).
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.http.HTTPService"&gt;
+&lt;service class="org.bluezoo.gumdrop.http.HttpServer"&gt;
   &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
@@ -475,7 +475,7 @@ Set the handler factory on the service:
 </p>
 
 <pre>
-HTTPService service = new HTTPService();
+HttpServer service = new HttpServer();
 service.setHandlerFactory(new MyFactory());
 
 HttpListener listener = new HttpListener();
@@ -741,7 +741,7 @@ but disabled by default for security; set <code>trace-method-enabled</code> to
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>HTTPService Properties</h4>
+<h4>HttpServer Properties</h4>
 
 <p>
 HTTP services (ServletServer, WebdavServer, etc.) support the following

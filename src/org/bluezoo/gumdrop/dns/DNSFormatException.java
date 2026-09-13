@@ -1,5 +1,5 @@
 /*
- * DNSFormatException.java
+ * DnsFormatException.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.dns;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class DNSFormatException extends Exception {
+public class DnsFormatException extends Exception {
 
     private static final long serialVersionUID = 1L;
 
@@ -35,7 +35,7 @@ public class DNSFormatException extends Exception {
      *
      * @param message the error message
      */
-    public DNSFormatException(String message) {
+    public DnsFormatException(String message) {
         super(message);
     }
 
@@ -45,7 +45,7 @@ public class DNSFormatException extends Exception {
      * @param message the error message
      * @param cause the underlying cause
      */
-    public DNSFormatException(String message, Throwable cause) {
+    public DnsFormatException(String message, Throwable cause) {
         super(message, cause);
     }
 

@@ -29,7 +29,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  *
  * <p>An {@code SmtpServer} defines the application logic for handling
  * SMTP connections. Subclasses override
- * {@link #createHandler(TCPListener)} to return the appropriate
+ * {@link #createHandler(TcpListener)} to return the appropriate
  * {@link ClientConnected} handler for each new connection, receiving
  * the originating listener so that different policies can be applied
  * per listener (e.g., MX on port 25 vs. submission on port 587).
@@ -180,7 +180,7 @@ public abstract class SmtpServer implements Server {
      * @return a handler for the new connection, or null for default
      */
     protected abstract ClientConnected createHandler(
-            TCPListener endpoint);
+            TcpListener endpoint);
 
     // ── Lifecycle ──
 

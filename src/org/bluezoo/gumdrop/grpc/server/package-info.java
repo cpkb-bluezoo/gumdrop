@@ -22,7 +22,7 @@
 /**
  * gRPC server, riding gumdrop's generic HTTP request handling.
  *
- * <p>{@link org.bluezoo.gumdrop.grpc.server.GrpcService} is the
+ * <p>{@link org.bluezoo.gumdrop.grpc.server.GrpcServer} is the
  * application service base, creating a {@link
  * org.bluezoo.gumdrop.grpc.server.GrpcHandler} (an {@link
  * org.bluezoo.gumdrop.http.DefaultHttpRequestHandler}, the same base
@@ -37,6 +37,6 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.grpc
- * @see org.bluezoo.gumdrop.http.HTTPService
+ * @see org.bluezoo.gumdrop.http.HttpServer
  */
 package org.bluezoo.gumdrop.grpc.server;

@@ -46,8 +46,8 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
-import org.bluezoo.gumdrop.dns.client.DNSClientTransportHandler;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.DoQClientTransport;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
@@ -72,7 +72,7 @@ import static org.junit.Assert.fail;
  * issues a QUERY and a STATUS request back to back, immediately after
  * {@code open()} -- dispatched onto the connection's own {@code
  * SelectorLoop} thread, matching how a real, always-loop-driven caller
- * like {@code DNSResolver} would use this API, so {@code open()}'s
+ * like {@code DnsResolver} would use this API, so {@code open()}'s
  * internal {@code EarlyDataHandler} fires synchronously within that same
  * task. Only the QUERY (opcode-eligible) should have gone out as 0-RTT
  * data; the STATUS request (not eligible) must have been deferred until
@@ -177,12 +177,12 @@ public class DoQProductionEndToEndTest {
             serverFactory.setEarlyDataEnabled(true);
             serverFactory.start();
 
-            final DNSService dnsService = new DNSService() {
+            final DnsServer dnsService = new DnsServer() {
                 @Override
-                protected DNSMessage resolve(DNSMessage query) {
-                    List<DNSResourceRecord> answers = new ArrayList<DNSResourceRecord>();
+                protected DnsMessage resolve(DnsMessage query) {
+                    List<DnsResourceRecord> answers = new ArrayList<DnsResourceRecord>();
                     try {
-                        answers.add(DNSResourceRecord.a(QUESTION_NAME, 60,
+                        answers.add(DnsResourceRecord.a(QUESTION_NAME, 60,
                                 InetAddress.getByName("127.0.0.1")));
                     } catch (java.net.UnknownHostException e) {
                         throw new AssertionError(e);
@@ -218,12 +218,12 @@ public class DoQProductionEndToEndTest {
                     // marked the transport connected -- issuing from the
                     // JUnit thread raced openStream/flush and could miss
                     // the 5s warm-up deadline on loaded CI hosts.
-                    firstTransport.send(buildQuery(DNSMessage.OPCODE_QUERY));
+                    firstTransport.send(buildQuery(DnsMessage.OPCODE_QUERY));
                 }
             };
             try {
                 firstTransport.open(InetAddress.getLoopbackAddress(), port, loop,
-                        new DNSClientTransportHandler() {
+                        new DnsClientTransportHandler() {
                             @Override
                             public void onReceive(ByteBuffer data) {
                                 warmupLatch.countDown();
@@ -257,7 +257,7 @@ public class DoQProductionEndToEndTest {
             // itself so open()'s internal EarlyDataHandler, which fires
             // synchronously from within connectTo(), runs before this
             // task returns (matching how a real, always-loop-driven
-            // caller like DNSResolver would use this API).
+            // caller like DnsResolver would use this API).
             //
             // sentZeroRttStream is captured synchronously, immediately
             // after both sends -- not after waiting for responses. RFC
@@ -285,7 +285,7 @@ public class DoQProductionEndToEndTest {
                 public void run() {
                     try {
                         secondTransport.open(InetAddress.getLoopbackAddress(), port, loop,
-                                new DNSClientTransportHandler() {
+                                new DnsClientTransportHandler() {
                                     @Override
                                     public void onReceive(ByteBuffer data) {
                                         bothLatch.countDown();
@@ -301,8 +301,8 @@ public class DoQProductionEndToEndTest {
                         openFailure.set(e);
                         return;
                     }
-                    secondTransport.send(buildQuery(DNSMessage.OPCODE_QUERY));
-                    secondTransport.send(buildQuery(DNSMessage.OPCODE_STATUS));
+                    secondTransport.send(buildQuery(DnsMessage.OPCODE_QUERY));
+                    secondTransport.send(buildQuery(DnsMessage.OPCODE_STATUS));
                     try {
                         QuicConnection connection =
                                 getPrivateField(secondTransport, "quicConnection", QuicConnection.class);
@@ -364,13 +364,13 @@ public class DoQProductionEndToEndTest {
 
     /**
      * RFC 9250 section 4.2.1: Message ID MUST be 0 on the wire in both
-     * directions for DoQ, so {@code DNSResolver}'s ID-keyed {@code
+     * directions for DoQ, so {@code DnsResolver}'s ID-keyed {@code
      * pendingQueries} map (RFC 1035 section 7.3 correlation, designed for
      * transports where the ID survives on the wire) cannot rely on the
      * parsed response ID to tell two concurrent DoQ queries apart -- both
      * responses parse to ID 0 regardless of which query they answer.
      * Drives two concurrent {@code queryA} calls for different names
-     * through a real {@code DNSResolver} configured with a real {@code
+     * through a real {@code DnsResolver} configured with a real {@code
      * DoQClientTransport} against a real DoQ server (same server harness
      * as the 0-RTT test above) that answers each name with a distinct
      * address, and asserts each callback receives the answer for its own
@@ -390,7 +390,7 @@ public class DoQProductionEndToEndTest {
         QuicEngine serverEngine = null;
         final DoQClientTransport transport = new DoQClientTransport();
         transport.setCaFile(certFile);
-        final DNSResolver resolver = new DNSResolver();
+        final DnsResolver resolver = new DnsResolver();
         try {
             QuicTransportFactory serverFactory = new QuicTransportFactory();
             serverFactory.setApplicationProtocols("doq");
@@ -398,14 +398,14 @@ public class DoQProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final DNSService dnsService = new DNSService() {
+            final DnsServer dnsService = new DnsServer() {
                 @Override
-                protected DNSMessage resolve(DNSMessage query) {
-                    DNSQuestion question = query.getQuestions().get(0);
+                protected DnsMessage resolve(DnsMessage query) {
+                    DnsQuestion question = query.getQuestions().get(0);
                     String ip = nameA.equals(question.getName()) ? ipA : ipB;
-                    List<DNSResourceRecord> answers = new ArrayList<DNSResourceRecord>();
+                    List<DnsResourceRecord> answers = new ArrayList<DnsResourceRecord>();
                     try {
-                        answers.add(DNSResourceRecord.a(question.getName(), 60,
+                        answers.add(DnsResourceRecord.a(question.getName(), 60,
                                 InetAddress.getByName(ip)));
                     } catch (java.net.UnknownHostException e) {
                         throw new AssertionError(e);
@@ -456,11 +456,11 @@ public class DoQProductionEndToEndTest {
             loop.invokeLater(new Runnable() {
                 @Override
                 public void run() {
-                    resolver.queryA(nameA, new DNSQueryCallback() {
+                    resolver.queryA(nameA, new DnsQueryCallback() {
                         @Override
-                        public void onResponse(DNSMessage response) {
-                            for (DNSResourceRecord rr : response.getAnswers()) {
-                                if (rr.getType() == DNSType.A) {
+                        public void onResponse(DnsMessage response) {
+                            for (DnsResourceRecord rr : response.getAnswers()) {
+                                if (rr.getType() == DnsType.A) {
                                     resultA.set(rr.getAddress());
                                 }
                             }
@@ -474,11 +474,11 @@ public class DoQProductionEndToEndTest {
                             latch.countDown();
                         }
                     });
-                    resolver.queryA(nameB, new DNSQueryCallback() {
+                    resolver.queryA(nameB, new DnsQueryCallback() {
                         @Override
-                        public void onResponse(DNSMessage response) {
-                            for (DNSResourceRecord rr : response.getAnswers()) {
-                                if (rr.getType() == DNSType.A) {
+                        public void onResponse(DnsMessage response) {
+                            for (DnsResourceRecord rr : response.getAnswers()) {
+                                if (rr.getType() == DnsType.A) {
                                     resultB.set(rr.getAddress());
                                 }
                             }
@@ -538,13 +538,13 @@ public class DoQProductionEndToEndTest {
     }
 
     private static ByteBuffer buildQuery(int opcode) {
-        DNSQuestion question = new DNSQuestion(QUESTION_NAME, DNSType.A);
-        int flags = DNSMessage.FLAG_RD | (opcode << 11);
-        DNSMessage query = new DNSMessage(1234, flags,
+        DnsQuestion question = new DnsQuestion(QUESTION_NAME, DnsType.A);
+        int flags = DnsMessage.FLAG_RD | (opcode << 11);
+        DnsMessage query = new DnsMessage(1234, flags,
                 Collections.singletonList(question),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList(),
-                Collections.<DNSResourceRecord>emptyList());
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
         return query.serialize();
     }
 

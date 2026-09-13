@@ -22,8 +22,8 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpListener;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TransportFactory;
 
 /**
@@ -33,12 +33,12 @@ import org.bluezoo.gumdrop.TransportFactory;
  * HTTP/1.1. Default ports: 80 (HTTP), 443 (HTTPS) per RFC 9110 section 4.2.
  *
  * <p>This is the transport endpoint; application logic is provided by
- * an {@link HTTPService} which sets the handler factory and
+ * an {@link HttpServer} which sets the handler factory and
  * authentication provider during wiring.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class HttpListener extends TCPListener {
+public class HttpListener extends TcpListener {
 
     protected static final int HTTP_DEFAULT_PORT = 80;
     protected static final int HTTPS_DEFAULT_PORT = 443;
@@ -93,7 +93,7 @@ public class HttpListener extends TCPListener {
 
     /**
      * Alt-Svc header value to inject into responses, or null.
-     * Set by the owning HTTPService when an HTTP/3 listener is also
+     * Set by the owning HttpServer when an HTTP/3 listener is also
      * configured.
      */
     private String altSvc;
@@ -169,7 +169,7 @@ public class HttpListener extends TCPListener {
 
     /**
      * No-op: server channel cleanup is handled centrally by
-     * {@link org.bluezoo.gumdrop.TCPListener#closeServerChannels} during
+     * {@link org.bluezoo.gumdrop.TcpListener#closeServerChannels} during
      * unregister/shutdown, so individual listeners do not need to
      * close their own channels.
      */
@@ -424,8 +424,8 @@ public class HttpListener extends TCPListener {
     @Override
     protected void configureTransportFactory(TransportFactory factory) {
         super.configureTransportFactory(factory);
-        if (secure && factory instanceof TCPTransportFactory) {
-            TCPTransportFactory tcpFactory = (TCPTransportFactory) factory;
+        if (secure && factory instanceof TcpTransportFactory) {
+            TcpTransportFactory tcpFactory = (TcpTransportFactory) factory;
             tcpFactory.setApplicationProtocols("h2", "http/1.1");
         }
     }

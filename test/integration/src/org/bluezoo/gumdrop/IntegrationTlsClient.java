@@ -138,7 +138,7 @@ public final class IntegrationTlsClient {
 
     private static byte[] run(String host, int port, X509TrustManager trustManager, int timeoutMs, Session session)
             throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.setSecure(true);
         factory.setApplicationProtocols("http/1.1");
         factory.setTrustManager(trustManager != null ? trustManager : new EmptyX509TrustManager());

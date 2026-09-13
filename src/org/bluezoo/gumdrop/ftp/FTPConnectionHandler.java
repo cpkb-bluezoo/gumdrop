@@ -1,5 +1,5 @@
 /*
- * FTPConnectionHandler.java
+ * FtpConnectionHandler.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,7 +28,7 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
 
 /**
  * Handler interface for FTP connection events and business logic.
- * Provides the application-level callbacks used by {@link FTPProtocolHandler}
+ * Provides the application-level callbacks used by {@link FtpProtocolHandler}
  * to implement the RFC 959 command semantics (authentication per section 4.1.1,
  * file operations per section 4.1.3).
  * <p>
@@ -45,26 +45,26 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  * and state isolation between connections:
  * <pre><code>
  * // Example implementation
- * public class MyFTPHandler implements FTPConnectionHandler {
- *     private final FTPFileSystem fileSystem;
+ * public class MyFTPHandler implements FtpConnectionHandler {
+ *     private final FtpFileSystem fileSystem;
  *     private final UserDatabase userDb;
  *
- *     public MyFTPHandler(FTPFileSystem fs, UserDatabase db) {
+ *     public MyFTPHandler(FtpFileSystem fs, UserDatabase db) {
  *         this.fileSystem = fs;
  *         this.userDb = db;
  *     }
  *
  *     &#64;Override
- *     public FTPAuthenticationResult authenticate(String user, String password, 
- *                                               String account, FTPConnectionMetadata metadata) {
+ *     public FtpAuthenticationResult authenticate(String user, String password, 
+ *                                               String account, FtpConnectionMetadata metadata) {
  *         if (userDb.validateCredentials(user, password)) {
- *             return FTPAuthenticationResult.SUCCESS;
+ *             return FtpAuthenticationResult.SUCCESS;
  *         }
- *         return FTPAuthenticationResult.INVALID_PASSWORD;
+ *         return FtpAuthenticationResult.INVALID_PASSWORD;
  *     }
  *
  *     &#64;Override
- *     public FTPFileSystem getFileSystem(FTPConnectionMetadata metadata) {
+ *     public FtpFileSystem getFileSystem(FtpConnectionMetadata metadata) {
  *         // Return file system scoped to authenticated user
  *         return new UserScopedFileSystem(fileSystem, metadata.getAuthenticatedUser());
  *     }
@@ -72,12 +72,12 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see FTPAuthenticationResult
- * @see FTPFileOperationResult
- * @see FTPFileSystem
- * @see FTPConnectionMetadata
+ * @see FtpAuthenticationResult
+ * @see FtpFileOperationResult
+ * @see FtpFileSystem
+ * @see FtpConnectionMetadata
  */
-public interface FTPConnectionHandler {
+public interface FtpConnectionHandler {
 
     /**
      * Notifies that a new client connection has been established.
@@ -92,7 +92,7 @@ public interface FTPConnectionHandler {
      * @param metadata connection metadata with client and security information
      * @return custom welcome banner, or null for default
      */
-    String connected(FTPConnectionMetadata metadata);
+    String connected(FtpConnectionMetadata metadata);
 
     /**
      * Handles FTP authentication (USER/PASS/ACCT command sequence).
@@ -116,8 +116,8 @@ public interface FTPConnectionHandler {
      * @param metadata complete connection context
      * @return authentication result indicating success, failure, or need for more information
      */
-    FTPAuthenticationResult authenticate(String username, String password, 
-                                       String account, FTPConnectionMetadata metadata);
+    FtpAuthenticationResult authenticate(String username, String password, 
+                                       String account, FtpConnectionMetadata metadata);
 
     /**
      * Provides the file system implementation for this connection.
@@ -138,7 +138,7 @@ public interface FTPConnectionHandler {
      * @param metadata connection context including authenticated user
      * @return file system implementation for this user
      */
-    FTPFileSystem getFileSystem(FTPConnectionMetadata metadata);
+    FtpFileSystem getFileSystem(FtpConnectionMetadata metadata);
 
     /**
      * Called when a data transfer (upload/download) is starting.
@@ -152,7 +152,7 @@ public interface FTPConnectionHandler {
      * @param metadata connection context
      */
     void transferStarting(String path, boolean upload, long size, 
-                         FTPConnectionMetadata metadata);
+                         FtpConnectionMetadata metadata);
 
     /**
      * Called during data transfer to provide transfer progress updates.
@@ -177,7 +177,7 @@ public interface FTPConnectionHandler {
      * @param metadata connection context
      */
     void transferProgress(String path, boolean upload, ByteBuffer data, 
-                         long totalBytesTransferred, FTPConnectionMetadata metadata);
+                         long totalBytesTransferred, FtpConnectionMetadata metadata);
 
     /**
      * Called when a data transfer has completed.
@@ -192,7 +192,7 @@ public interface FTPConnectionHandler {
      * @param metadata connection context
      */
     void transferCompleted(String path, boolean upload, long totalBytesTransferred, 
-                          boolean success, FTPConnectionMetadata metadata);
+                          boolean success, FtpConnectionMetadata metadata);
 
     /**
      * Handles SITE-specific commands.
@@ -212,7 +212,7 @@ public interface FTPConnectionHandler {
      * @param metadata connection context
      * @return operation result, or NOT_SUPPORTED if command is not recognized
      */
-    FTPFileOperationResult handleSiteCommand(String command, FTPConnectionMetadata metadata);
+    FtpFileOperationResult handleSiteCommand(String command, FtpConnectionMetadata metadata);
 
     /**
      * Notifies that the client connection has been closed.
@@ -231,7 +231,7 @@ public interface FTPConnectionHandler {
      *
      * @param metadata final connection context with duration and statistics
      */
-    void disconnected(FTPConnectionMetadata metadata);
+    void disconnected(FtpConnectionMetadata metadata);
 
     /**
      * Checks if the authenticated user is authorized to perform an operation.
@@ -242,7 +242,7 @@ public interface FTPConnectionHandler {
      * <p>
      * Implementations can use this for:
      * <ul>
-     * <li>Role-based access control using {@link FTPRoles}</li>
+     * <li>Role-based access control using {@link FtpRoles}</li>
      * <li>Path-based access control (restrict access to certain directories)</li>
      * <li>Time-based restrictions (maintenance windows)</li>
      * <li>Quota enforcement</li>
@@ -250,26 +250,26 @@ public interface FTPConnectionHandler {
      * <p>
      * Example role-based implementation:
      * <pre><code>
-     * public boolean isAuthorized(FTPOperation operation, String path,
-     *                            FTPConnectionMetadata metadata) {
+     * public boolean isAuthorized(FtpOperation operation, String path,
+     *                            FtpConnectionMetadata metadata) {
      *     String user = metadata.getAuthenticatedUser();
      *     
      *     // Admins can do anything
-     *     if (realm.isUserInRole(user, FTPRoles.ADMIN)) {
+     *     if (realm.isUserInRole(user, FtpRoles.ADMIN)) {
      *         return true;
      *     }
      *     
      *     switch (operation) {
      *         case READ:
      *         case NAVIGATE:
-     *             return realm.isUserInRole(user, FTPRoles.READ);
+     *             return realm.isUserInRole(user, FtpRoles.READ);
      *         case WRITE:
      *         case CREATE_DIR:
-     *             return realm.isUserInRole(user, FTPRoles.WRITE);
+     *             return realm.isUserInRole(user, FtpRoles.WRITE);
      *         case DELETE:
      *         case DELETE_DIR:
      *         case RENAME:
-     *             return realm.isUserInRole(user, FTPRoles.DELETE);
+     *             return realm.isUserInRole(user, FtpRoles.DELETE);
      *         default:
      *             return false;
      *     }
@@ -280,11 +280,11 @@ public interface FTPConnectionHandler {
      * @param path the file or directory path (may be null for general queries)
      * @param metadata connection context including authenticated user
      * @return true if the operation is allowed, false to deny with 550 response
-     * @see FTPOperation
-     * @see FTPRoles
+     * @see FtpOperation
+     * @see FtpRoles
      */
-    default boolean isAuthorized(FTPOperation operation, String path, 
-                                 FTPConnectionMetadata metadata) {
+    default boolean isAuthorized(FtpOperation operation, String path, 
+                                 FtpConnectionMetadata metadata) {
         return true; // Default: allow all operations (backward compatible)
     }
 
@@ -315,7 +315,7 @@ public interface FTPConnectionHandler {
      * @return true if storage is allowed, false if quota would be exceeded
      */
     default boolean canStore(String username, long bytesToStore, 
-                            FTPConnectionMetadata metadata) {
+                            FtpConnectionMetadata metadata) {
         QuotaManager quotaManager = getQuotaManager();
         if (quotaManager == null) {
             return true; // No quota enforcement
@@ -332,7 +332,7 @@ public interface FTPConnectionHandler {
      * @param metadata connection context
      * @return the user's quota, or null if quotas are not enabled
      */
-    default Quota getQuota(String username, FTPConnectionMetadata metadata) {
+    default Quota getQuota(String username, FtpConnectionMetadata metadata) {
         QuotaManager quotaManager = getQuotaManager();
         if (quotaManager == null) {
             return null;
@@ -348,7 +348,7 @@ public interface FTPConnectionHandler {
      * @param metadata connection context
      */
     default void recordBytesAdded(String username, long bytesAdded,
-                                 FTPConnectionMetadata metadata) {
+                                 FtpConnectionMetadata metadata) {
         QuotaManager quotaManager = getQuotaManager();
         if (quotaManager != null) {
             quotaManager.recordBytesAdded(username, bytesAdded);
@@ -363,7 +363,7 @@ public interface FTPConnectionHandler {
      * @param metadata connection context
      */
     default void recordBytesRemoved(String username, long bytesRemoved,
-                                   FTPConnectionMetadata metadata) {
+                                   FtpConnectionMetadata metadata) {
         QuotaManager quotaManager = getQuotaManager();
         if (quotaManager != null) {
             quotaManager.recordBytesRemoved(username, bytesRemoved);

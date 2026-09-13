@@ -1,5 +1,5 @@
 /*
- * DNSSECValidator.java
+ * DnssecValidator.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -56,14 +56,14 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class DNSSECValidator {
+public final class DnssecValidator {
 
     private static final Logger LOGGER =
-            Logger.getLogger(DNSSECValidator.class.getName());
+            Logger.getLogger(DnssecValidator.class.getName());
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.dns.L10N");
 
-    private DNSSECValidator() {
+    private DnssecValidator() {
     }
 
     // -- RRSIG verification (RFC 4034 section 3.1.8) --
@@ -78,11 +78,11 @@ public final class DNSSECValidator {
      * @param dnskey the DNSKEY to verify with
      * @return true if the signature is valid
      */
-    public static boolean verifyRRSIG(List<DNSResourceRecord> rrset,
-                                      DNSResourceRecord rrsig,
-                                      DNSResourceRecord dnskey) {
+    public static boolean verifyRRSIG(List<DnsResourceRecord> rrset,
+                                      DnsResourceRecord rrsig,
+                                      DnsResourceRecord dnskey) {
         int algNum = rrsig.getRRSIGAlgorithm();
-        DNSSECAlgorithm algorithm = DNSSECAlgorithm.fromNumber(algNum);
+        DnssecAlgorithm algorithm = DnssecAlgorithm.fromNumber(algNum);
         if (algorithm == null) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
@@ -101,8 +101,8 @@ public final class DNSSECValidator {
             byte[] signedData = buildSignedData(rrset, rrsig);
             byte[] sigBytes = rrsig.getRRSIGSignature();
 
-            if (algorithm == DNSSECAlgorithm.ECDSAP256SHA256
-                    || algorithm == DNSSECAlgorithm.ECDSAP384SHA384) {
+            if (algorithm == DnssecAlgorithm.ECDSAP256SHA256
+                    || algorithm == DnssecAlgorithm.ECDSAP384SHA384) {
                 sigBytes = ecdsaRawToDER(sigBytes,
                         algorithm.getECDSACurveSize());
             }
@@ -130,7 +130,7 @@ public final class DNSSECValidator {
      * @param rrsig the RRSIG record
      * @return true if the signature is within its validity period
      */
-    public static boolean isRRSIGCurrent(DNSResourceRecord rrsig) {
+    public static boolean isRRSIGCurrent(DnsResourceRecord rrsig) {
         long now = System.currentTimeMillis() / 1000;
         long inception = rrsig.getRRSIGInception();
         long expiration = rrsig.getRRSIGExpiration();
@@ -147,10 +147,10 @@ public final class DNSSECValidator {
      * @param ds the DS record
      * @return true if the DNSKEY matches the DS digest
      */
-    public static boolean verifyDS(DNSResourceRecord dnskey,
-                                   DNSResourceRecord ds) {
+    public static boolean verifyDS(DnsResourceRecord dnskey,
+                                   DnsResourceRecord ds) {
         int digestType = ds.getDSDigestType();
-        String digestAlg = DNSSECAlgorithm.dsDigestAlgorithm(digestType);
+        String digestAlg = DnssecAlgorithm.dsDigestAlgorithm(digestType);
         if (digestAlg == null) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
@@ -162,7 +162,7 @@ public final class DNSSECValidator {
 
         try {
             MessageDigest md = MessageDigest.getInstance(digestAlg);
-            byte[] ownerWire = DNSMessage.encodeName(
+            byte[] ownerWire = DnsMessage.encodeName(
                     canonicalizeName(dnskey.getName()));
             md.update(ownerWire);
             md.update(dnskey.getRData());
@@ -192,14 +192,14 @@ public final class DNSSECValidator {
      * @param nsecRecords the NSEC records from the authority section
      * @return true if denial of existence is proven
      */
-    public static boolean verifyNSEC(String queryName, DNSType queryType,
-                                     List<DNSResourceRecord> nsecRecords) {
+    public static boolean verifyNSEC(String queryName, DnsType queryType,
+                                     List<DnsResourceRecord> nsecRecords) {
         String qLower = canonicalizeName(queryName);
         int qTypeVal = queryType.getValue();
 
         for (int i = 0; i < nsecRecords.size(); i++) {
-            DNSResourceRecord nsec = nsecRecords.get(i);
-            if (nsec.getType() != DNSType.NSEC) {
+            DnsResourceRecord nsec = nsecRecords.get(i);
+            if (nsec.getType() != DnsType.NSEC) {
                 continue;
             }
 
@@ -209,7 +209,7 @@ public final class DNSSECValidator {
             if (owner.equalsIgnoreCase(qLower)) {
                 List<Integer> types = nsec.getNSECTypeBitMaps();
                 if (!types.contains(qTypeVal)
-                        && !types.contains(DNSType.CNAME.getValue())) {
+                        && !types.contains(DnsType.CNAME.getValue())) {
                     return true;
                 }
             }
@@ -233,13 +233,13 @@ public final class DNSSECValidator {
      * @param nsec3Records the NSEC3 records from the authority section
      * @return true if denial of existence is proven
      */
-    public static boolean verifyNSEC3(String queryName, DNSType queryType,
-                                      List<DNSResourceRecord> nsec3Records) {
+    public static boolean verifyNSEC3(String queryName, DnsType queryType,
+                                      List<DnsResourceRecord> nsec3Records) {
         if (nsec3Records.isEmpty()) {
             return false;
         }
 
-        DNSResourceRecord first = nsec3Records.get(0);
+        DnsResourceRecord first = nsec3Records.get(0);
         int hashAlg = first.getNSEC3HashAlgorithm();
         int iterations = first.getNSEC3Iterations();
         byte[] salt = first.getNSEC3Salt();
@@ -252,8 +252,8 @@ public final class DNSSECValidator {
         String qHashB32 = base32HexEncode(queryHash);
 
         for (int i = 0; i < nsec3Records.size(); i++) {
-            DNSResourceRecord nsec3 = nsec3Records.get(i);
-            if (nsec3.getType() != DNSType.NSEC3) {
+            DnsResourceRecord nsec3 = nsec3Records.get(i);
+            if (nsec3.getType() != DnsType.NSEC3) {
                 continue;
             }
 
@@ -268,7 +268,7 @@ public final class DNSSECValidator {
             if (ownerHash.equalsIgnoreCase(qHashB32)) {
                 List<Integer> types = nsec3.getNSEC3TypeBitMaps();
                 if (!types.contains(queryType.getValue())
-                        && !types.contains(DNSType.CNAME.getValue())) {
+                        && !types.contains(DnsType.CNAME.getValue())) {
                     return true;
                 }
             }
@@ -289,8 +289,8 @@ public final class DNSSECValidator {
      * @param algorithm the DNSSEC algorithm
      * @return the public key, or null if construction fails
      */
-    static PublicKey buildPublicKey(DNSResourceRecord dnskey,
-                                   DNSSECAlgorithm algorithm) {
+    static PublicKey buildPublicKey(DnsResourceRecord dnskey,
+                                   DnssecAlgorithm algorithm) {
         byte[] keyData = dnskey.getDNSKEYPublicKey();
         try {
             switch (algorithm) {
@@ -347,7 +347,7 @@ public final class DNSSECValidator {
      * point (x || y), each coordinate curveSize bytes.
      */
     private static PublicKey buildECPublicKey(byte[] keyData,
-                                             DNSSECAlgorithm algorithm)
+                                             DnssecAlgorithm algorithm)
             throws Exception {
         int curveSize = algorithm.getECDSACurveSize();
         byte[] xBytes = new byte[curveSize];
@@ -375,10 +375,10 @@ public final class DNSSECValidator {
      * RFC 8080 section 3: EdDSA public key is the raw key bytes.
      */
     private static PublicKey buildEdDSAPublicKey(byte[] keyData,
-                                                 DNSSECAlgorithm algorithm)
+                                                 DnssecAlgorithm algorithm)
             throws Exception {
         NamedParameterSpec paramSpec;
-        if (algorithm == DNSSECAlgorithm.ED25519) {
+        if (algorithm == DnssecAlgorithm.ED25519) {
             paramSpec = NamedParameterSpec.ED25519;
         } else {
             paramSpec = NamedParameterSpec.ED448;
@@ -403,8 +403,8 @@ public final class DNSSECValidator {
      * RFC 4034 section 3.1.8.1: RRSIG_RDATA (header, no signature)
      * followed by the canonicalized RRset.
      */
-    private static byte[] buildSignedData(List<DNSResourceRecord> rrset,
-                                          DNSResourceRecord rrsig) {
+    private static byte[] buildSignedData(List<DnsResourceRecord> rrset,
+                                          DnsResourceRecord rrsig) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] rrsigHeader = rrsig.getRRSIGHeaderBytes();
         out.write(rrsigHeader, 0, rrsigHeader.length);
@@ -427,17 +427,17 @@ public final class DNSSECValidator {
      * <li>Records sorted by RDATA in canonical order</li>
      * </ol>
      */
-    static List<byte[]> buildCanonicalRRset(List<DNSResourceRecord> rrset,
-                                            DNSResourceRecord rrsig) {
+    static List<byte[]> buildCanonicalRRset(List<DnsResourceRecord> rrset,
+                                            DnsResourceRecord rrsig) {
         String ownerLower = canonicalizeName(
                 rrset.get(0).getName());
-        byte[] ownerWire = DNSMessage.encodeName(ownerLower);
+        byte[] ownerWire = DnsMessage.encodeName(ownerLower);
         int typeCovered = rrsig.getRRSIGTypeCovered();
         int originalTTL = rrsig.getRRSIGOriginalTTL();
 
         List<byte[]> records = new ArrayList<>(rrset.size());
         for (int i = 0; i < rrset.size(); i++) {
-            DNSResourceRecord rr = rrset.get(i);
+            DnsResourceRecord rr = rrset.get(i);
             byte[] rdata = rr.getRData();
             ByteArrayOutputStream rec = new ByteArrayOutputStream();
 
@@ -545,7 +545,7 @@ public final class DNSSECValidator {
         }
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-1");
-            byte[] wire = DNSMessage.encodeName(canonicalizeName(name));
+            byte[] wire = DnsMessage.encodeName(canonicalizeName(name));
             md.update(wire);
             md.update(salt);
             byte[] hash = md.digest();
@@ -693,14 +693,14 @@ public final class DNSSECValidator {
      * @param dnskeys the available DNSKEY records
      * @return the matching DNSKEY, or null if not found
      */
-    public static DNSResourceRecord findMatchingDNSKEY(
-            DNSResourceRecord rrsig,
-            List<DNSResourceRecord> dnskeys) {
+    public static DnsResourceRecord findMatchingDNSKEY(
+            DnsResourceRecord rrsig,
+            List<DnsResourceRecord> dnskeys) {
         int keyTag = rrsig.getRRSIGKeyTag();
         int algorithm = rrsig.getRRSIGAlgorithm();
         for (int i = 0; i < dnskeys.size(); i++) {
-            DNSResourceRecord dnskey = dnskeys.get(i);
-            if (dnskey.getType() != DNSType.DNSKEY) {
+            DnsResourceRecord dnskey = dnskeys.get(i);
+            if (dnskey.getType() != DnsType.DNSKEY) {
                 continue;
             }
             if (dnskey.getDNSKEYAlgorithm() == algorithm
@@ -718,12 +718,12 @@ public final class DNSSECValidator {
      * @param coveredType the type value to match
      * @return list of matching RRSIG records
      */
-    public static List<DNSResourceRecord> findRRSIGs(
-            List<DNSResourceRecord> records, int coveredType) {
-        List<DNSResourceRecord> result = new ArrayList<>();
+    public static List<DnsResourceRecord> findRRSIGs(
+            List<DnsResourceRecord> records, int coveredType) {
+        List<DnsResourceRecord> result = new ArrayList<>();
         for (int i = 0; i < records.size(); i++) {
-            DNSResourceRecord rr = records.get(i);
-            if (rr.getType() == DNSType.RRSIG
+            DnsResourceRecord rr = records.get(i);
+            if (rr.getType() == DnsType.RRSIG
                     && rr.getRRSIGTypeCovered() == coveredType) {
                 result.add(rr);
             }
@@ -738,11 +738,11 @@ public final class DNSSECValidator {
      * @param type the type to match
      * @return list of matching records
      */
-    public static List<DNSResourceRecord> filterByType(
-            List<DNSResourceRecord> records, DNSType type) {
-        List<DNSResourceRecord> result = new ArrayList<>();
+    public static List<DnsResourceRecord> filterByType(
+            List<DnsResourceRecord> records, DnsType type) {
+        List<DnsResourceRecord> result = new ArrayList<>();
         for (int i = 0; i < records.size(); i++) {
-            DNSResourceRecord rr = records.get(i);
+            DnsResourceRecord rr = records.get(i);
             if (rr.getType() == type) {
                 result.add(rr);
             }

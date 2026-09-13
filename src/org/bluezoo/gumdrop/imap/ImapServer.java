@@ -29,7 +29,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.imap.handler.ClientConnected;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  * <p>An {@code ImapServer} defines the application logic for handling
  * IMAP connections. It owns authentication, mailbox storage, and quota
  * configuration, and acts as the handler factory: subclasses override
- * {@link #createHandler(TCPListener)} to return the appropriate
+ * {@link #createHandler(TcpListener)} to return the appropriate
  * {@link ClientConnected} handler for each new connection, receiving
  * the originating endpoint so that different policies can be applied
  * per listener.
@@ -234,7 +234,7 @@ public abstract class ImapServer implements Server {
      * @return a handler for the new connection, or null for default
      */
     protected abstract ClientConnected createHandler(
-            TCPListener endpoint);
+            TcpListener endpoint);
 
     // ── Lifecycle ──
 

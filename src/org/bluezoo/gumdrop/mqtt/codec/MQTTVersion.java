@@ -1,5 +1,5 @@
 /*
- * MQTTVersion.java
+ * MqttVersion.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.mqtt.codec;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum MQTTVersion {
+public enum MqttVersion {
 
     /** MQTT 3.1.1 (protocol level 4). */
     V3_1_1(4, "MQTT"),
@@ -37,7 +37,7 @@ public enum MQTTVersion {
     private final int protocolLevel;
     private final String protocolName;
 
-    MQTTVersion(int protocolLevel, String protocolName) {
+    MqttVersion(int protocolLevel, String protocolName) {
         this.protocolLevel = protocolLevel;
         this.protocolName = protocolName;
     }
@@ -56,7 +56,7 @@ public enum MQTTVersion {
      * @param level the protocol level (4 for 3.1.1, 5 for 5.0)
      * @return the version, or null if unrecognized
      */
-    public static MQTTVersion fromProtocolLevel(int level) {
+    public static MqttVersion fromProtocolLevel(int level) {
         switch (level) {
             case 4: return V3_1_1;
             case 5: return V5_0;

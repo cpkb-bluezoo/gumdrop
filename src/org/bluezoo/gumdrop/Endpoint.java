@@ -42,8 +42,8 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * <p>Implementations include:
  * <ul>
- * <li>TCPEndpoint -- TCP connections with optional JSSE TLS</li>
- * <li>UDPEndpoint -- UDP datagrams with optional JSSE DTLS</li>
+ * <li>TcpEndpoint -- TCP connections with optional JSSE TLS</li>
+ * <li>UdpEndpoint -- UDP datagrams with optional JSSE DTLS</li>
  * <li>QuicStreamEndpoint -- a single QUIC stream (always secure)</li>
  * </ul>
  *

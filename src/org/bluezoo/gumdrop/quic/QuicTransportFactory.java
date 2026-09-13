@@ -55,7 +55,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
 import org.bluezoo.gumdrop.util.SniCredentialsResolver;
-import org.bluezoo.gumdrop.util.TLSUtils;
+import org.bluezoo.gumdrop.util.TlsUtils;
 
 /**
  * Configuration and bootstrap for QUIC transports.
@@ -526,7 +526,7 @@ public class QuicTransportFactory extends TransportFactory {
                     serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
                 } else if (keystoreFile != null && keystorePass != null) {
                     if (isSNIEnabled()) {
-                        KeyStore keyStore = TLSUtils.loadKeyStore(
+                        KeyStore keyStore = TlsUtils.loadKeyStore(
                                 keystoreFile, keystorePass, keystoreFormat);
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
@@ -537,7 +537,7 @@ public class QuicTransportFactory extends TransportFactory {
                                     sniHostnameToAlias.size()));
                         }
                     } else {
-                        serverCredentials = TLSUtils.loadServerCredentials(
+                        serverCredentials = TlsUtils.loadServerCredentials(
                                 keystoreFile, keystorePass, keystoreFormat);
                     }
                 }
@@ -562,7 +562,7 @@ public class QuicTransportFactory extends TransportFactory {
         if (explicitTrustManager != null) {
             base = explicitTrustManager;
         } else if (truststoreFile != null && truststorePass != null) {
-            base = firstX509TrustManager(TLSUtils.loadTrustManagers(
+            base = firstX509TrustManager(TlsUtils.loadTrustManagers(
                     truststoreFile, truststorePass, truststoreFormat));
         } else if (caFile != null) {
             base = PemCredentials.loadTrustManager(caFile);

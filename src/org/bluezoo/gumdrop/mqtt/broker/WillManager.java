@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.mqtt.broker;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
-import org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent;
+import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 
 /**
  * Manages MQTT Last Will and Testament messages.
@@ -42,11 +42,11 @@ public class WillManager {
      */
     public static class WillMessage {
         private final String topic;
-        private final MQTTMessageContent content;
+        private final MqttMessageContent content;
         private final QoS qos;
         private final boolean retain;
 
-        public WillMessage(String topic, MQTTMessageContent content,
+        public WillMessage(String topic, MqttMessageContent content,
                            QoS qos, boolean retain) {
             this.topic = topic;
             this.content = content;
@@ -55,7 +55,7 @@ public class WillManager {
         }
 
         public String getTopic() { return topic; }
-        public MQTTMessageContent getContent() { return content; }
+        public MqttMessageContent getContent() { return content; }
         public QoS getQoS() { return qos; }
         public boolean isRetain() { return retain; }
     }
@@ -66,7 +66,7 @@ public class WillManager {
     /**
      * Stores a will message for the given client.
      */
-    public void set(String clientId, String topic, MQTTMessageContent content,
+    public void set(String clientId, String topic, MqttMessageContent content,
                     QoS qos, boolean retain) {
         WillMessage old = wills.put(clientId,
                 new WillMessage(topic, content, qos, retain));

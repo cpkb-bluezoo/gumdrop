@@ -23,13 +23,13 @@
  * A tiny built-in HTTP liveness/readiness endpoint for orchestrators
  * (Kubernetes probes, load-balancer health checks).
  *
- * <p>{@link org.bluezoo.gumdrop.health.HealthService} owns the
+ * <p>{@link org.bluezoo.gumdrop.health.HealthServer} owns the
  * configuration; {@link org.bluezoo.gumdrop.health.HealthListener} is
  * the transport listener; {@link
  * org.bluezoo.gumdrop.health.HealthProtocolHandler} answers each
  * request with the current health status.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.health.HealthService
+ * @see org.bluezoo.gumdrop.health.HealthServer
  */
 package org.bluezoo.gumdrop.health;

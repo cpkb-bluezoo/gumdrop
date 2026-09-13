@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.smtp.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.DeliveryRequirements;
@@ -76,7 +76,7 @@ public class AcceptAllService extends SmtpServer {
     private String expectedPassword = "testpass";
 
     @Override
-    protected ClientConnected createHandler(TCPListener endpoint) {
+    protected ClientConnected createHandler(TcpListener endpoint) {
         return new AcceptAllHandler();
     }
 

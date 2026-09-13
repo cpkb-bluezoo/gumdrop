@@ -28,18 +28,18 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FTPService} - Abstract base for
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FtpServer} - Abstract base for
  *       FTP application services; owns configuration, creates per-connection
  *       handlers, and manages dynamic data-connection listeners</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FTPListener} - TCP transport
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FtpListener} - TCP transport
  *       listener for FTP control connections</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FTPProtocolHandler} - Handles
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FtpProtocolHandler} - Handles
  *       the FTP control session and command processing</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FTPConnectionHandler} - Interface for
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FtpConnectionHandler} - Interface for
  *       handling FTP commands and filesystem operations</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FTPConnectionHandlerFactory} - Factory
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FtpConnectionHandlerFactory} - Factory
  *       for creating per-session FTP handlers</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FTPFileSystem} - Interface for
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FtpFileSystem} - Interface for
  *       filesystem operations</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp.FTPDataConnection} - Handles the
  *       data connection for file transfers</li>
@@ -67,10 +67,10 @@
  *   <property name="href">ftp-users.xml</property>
  * </realm>
  *
- * <service class="org.bluezoo.gumdrop.ftp.file.SimpleFTPService">
+ * <service class="org.bluezoo.gumdrop.ftp.file.SimpleFTPServer">
  *   <property name="realm" ref="#ftpRealm"/>
  *   <property name="root-directory">/var/ftp</property>
- *   <listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/>
+ *   <listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/>
  * </service>
  * }</pre>
  *
@@ -93,13 +93,13 @@
  *   <li>Data channel protection via PROT command</li>
  *   <li>RFC 4217 section 10 data-connection IP verification in both
  *       passive and active modes (override with
- *       {@link org.bluezoo.gumdrop.ftp.FTPListener#setAllowActiveModeBounce}
+ *       {@link org.bluezoo.gumdrop.ftp.FtpListener#setAllowActiveModeBounce}
  *       only when required)</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.ftp.FTPListener
- * @see org.bluezoo.gumdrop.ftp.FTPConnectionHandler
+ * @see org.bluezoo.gumdrop.ftp.FtpListener
+ * @see org.bluezoo.gumdrop.ftp.FtpConnectionHandler
  * @see org.bluezoo.gumdrop.ftp.file
  */
 package org.bluezoo.gumdrop.ftp;

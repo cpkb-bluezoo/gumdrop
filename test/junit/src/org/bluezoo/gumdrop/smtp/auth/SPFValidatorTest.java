@@ -21,10 +21,10 @@
 
 package org.bluezoo.gumdrop.smtp.auth;
 
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.junit.Before;
 import org.junit.Test;
@@ -130,7 +130,7 @@ public class SPFValidatorTest {
     /**
      * Synchronous stub resolver for SPF TXT lookups.
      */
-    private static final class StubDNSResolver extends DNSResolver {
+    private static final class StubDNSResolver extends DnsResolver {
 
         private final Map<String, String> txtRecords = new HashMap<>();
 
@@ -143,7 +143,7 @@ public class SPFValidatorTest {
         }
 
         @Override
-        public void queryTXT(String name, DNSQueryCallback callback) {
+        public void queryTXT(String name, DnsQueryCallback callback) {
             String text = txtRecords.get(name.toLowerCase());
             if (text == null) {
                 callback.onResponse(nxdomainResponse());
@@ -152,22 +152,22 @@ public class SPFValidatorTest {
             }
         }
 
-        private static DNSMessage txtResponse(String text) {
-            int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RA
-                    | DNSMessage.RCODE_NOERROR;
-            List<DNSResourceRecord> answers = Collections.singletonList(
-                    DNSResourceRecord.txt("example.com", 300, text));
-            return new DNSMessage(1, flags,
+        private static DnsMessage txtResponse(String text) {
+            int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RA
+                    | DnsMessage.RCODE_NOERROR;
+            List<DnsResourceRecord> answers = Collections.singletonList(
+                    DnsResourceRecord.txt("example.com", 300, text));
+            return new DnsMessage(1, flags,
                     Collections.emptyList(),
                     answers,
                     Collections.emptyList(),
                     Collections.emptyList());
         }
 
-        private static DNSMessage nxdomainResponse() {
-            int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RA
-                    | DNSMessage.RCODE_NXDOMAIN;
-            return new DNSMessage(1, flags,
+        private static DnsMessage nxdomainResponse() {
+            int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RA
+                    | DnsMessage.RCODE_NXDOMAIN;
+            return new DnsMessage(1, flags,
                     Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),

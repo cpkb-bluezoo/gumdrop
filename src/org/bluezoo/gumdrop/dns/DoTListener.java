@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.dns;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 
 /**
  * TCP/TLS transport listener for DNS-over-TLS (DoT) queries.
@@ -42,15 +42,15 @@ import org.bluezoo.gumdrop.TCPListener;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoTProtocolHandler
- * @see DNSService
+ * @see DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7858">RFC 7858 - DNS over TLS</a>
  */
-public class DoTListener extends TCPListener {
+public class DoTListener extends TcpListener {
 
     private static final int DEFAULT_PORT = 853;
 
     private int port = DEFAULT_PORT;
-    private DNSService service;
+    private DnsServer service;
 
     /**
      * Creates a new DoT listener. TLS is enabled by default.
@@ -83,7 +83,7 @@ public class DoTListener extends TCPListener {
      *
      * @param service the owning service
      */
-    void setService(DNSService service) {
+    void setService(DnsServer service) {
         this.service = service;
     }
 
@@ -92,7 +92,7 @@ public class DoTListener extends TCPListener {
      *
      * @return the owning service
      */
-    public DNSService getService() {
+    public DnsServer getService() {
         return service;
     }
 
