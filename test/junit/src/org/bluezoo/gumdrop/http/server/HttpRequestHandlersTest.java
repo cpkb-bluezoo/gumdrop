@@ -55,6 +55,13 @@ public class HttpRequestHandlersTest {
     }
 
     @Test
+    public void testNotFoundRouterUsesSharedHandler() {
+        HttpRequestRouter router = HttpRequestHandlers.notFound();
+        assertSame(NotFoundHttpRequestHandler.INSTANCE,
+                router.route(null, new Headers()));
+    }
+
+    @Test
     public void testToFactoryDelegatesToRouter() {
         HttpRequestRouter router = HttpRequestHandlers.fixed(new DefaultHttpRequestHandler());
         HttpRequestHandlerFactory factory = HttpRequestHandlers.toFactory(router);

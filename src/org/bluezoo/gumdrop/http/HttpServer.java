@@ -474,13 +474,15 @@ public abstract class HttpServer implements Server {
         }
 
         /**
-         * Builds the server. At least one listener and a handler or router
-         * must be configured.
+         * Builds the server. At least one listener must be configured.
+         *
+         * <p>When no handler or router is set, {@link HttpRequestHandlers#notFound()}
+         * is used — the server speaks HTTP but returns {@code 404} for every
+         * mapped request.
          */
         public HttpServer build() {
             if (router == null) {
-                throw new IllegalStateException(
-                        "handler, handlerPerRequest, or router is required");
+                router = HttpRequestHandlers.notFound();
             }
             if (tcpListeners.isEmpty() && quicListeners.isEmpty()) {
                 throw new IllegalStateException(

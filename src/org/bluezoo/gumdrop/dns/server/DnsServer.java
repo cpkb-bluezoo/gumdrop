@@ -69,8 +69,8 @@ import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 /**
- * A DNS application service that resolves queries locally or proxies to
- * upstream servers.
+ * DNS protocol server — listeners, validation, and query dispatch to a
+ * {@link DnsQueryHandler}. Default handler returns empty results.
  * RFC 1035 section 6: name server implementation. This service operates
  * as a caching forwarder (RFC 1035 section 7) rather than an authoritative
  * server. It validates incoming queries (section 4.1.1) and returns
@@ -156,25 +156,30 @@ public class DnsServer implements Server {
 
     // ── Configuration ──
 
-    private final List<InetSocketAddress> upstreamServers = new ArrayList<InetSocketAddress>();
-    private boolean useSystemResolvers = true;
-    private boolean cacheEnabled = true;
-    private boolean dnssecEnabled;
     private int maxMQTypes = DnsMultiQType.DEFAULT_MAX_MQTYPES;
-    private DnsCache cache;
     private DnsServerMetrics metrics;
 
     private final DnsCookie dnsCookie = new DnsCookie();
 
-    // Reused across every upstream attempt for this service's lifetime,
-    // rather than constructed per-query.
-    private UdpTransportFactory upstreamUdpFactory;
-    private TcpTransportFactory upstreamTcpFactory;
+    private DnsQueryHandler queryHandler;
+    private DnsQueryHandler activeHandler;
+    private UpstreamRelayHandler legacyRelay;
 
     /**
      * Creates a new DNS service.
      */
     public DnsServer() {
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /**
+     * Sets the query handler for composed servers.
+     */
+    public void setHandler(DnsQueryHandler handler) {
+        this.queryHandler = handler;
     }
 
     // ── Listener management ──
@@ -246,25 +251,7 @@ public class DnsServer implements Server {
      * @param servers space-separated list of server addresses
      */
     public void setUpstreamServers(String servers) {
-        upstreamServers.clear();
-        if (servers == null || servers.trim().isEmpty()) {
-            return;
-        }
-
-        StringTokenizer st = new StringTokenizer(servers);
-        while (st.hasMoreTokens()) {
-            String server = st.nextToken();
-            try {
-                InetSocketAddress addr =
-                        parseAddress(server, DEFAULT_PORT);
-                upstreamServers.add(addr);
-            } catch (Exception e) {
-                String msg = MessageFormat.format(
-                        L10N.getString("err.invalid_upstream_server"),
-                        server);
-                LOGGER.log(Level.WARNING, msg, e);
-            }
-        }
+        legacyRelay().setUpstreamServers(servers);
     }
 
     /**
@@ -273,7 +260,7 @@ public class DnsServer implements Server {
      * @param useSystemResolvers true to use system resolvers as fallback
      */
     public void setUseSystemResolvers(boolean useSystemResolvers) {
-        this.useSystemResolvers = useSystemResolvers;
+        legacyRelay().setUseSystemResolvers(useSystemResolvers);
     }
 
     /**
@@ -282,7 +269,7 @@ public class DnsServer implements Server {
      * @param cacheEnabled true to enable caching
      */
     public void setCacheEnabled(boolean cacheEnabled) {
-        this.cacheEnabled = cacheEnabled;
+        legacyRelay().setCacheEnabled(cacheEnabled);
     }
 
     /**
@@ -296,7 +283,7 @@ public class DnsServer implements Server {
      * @param dnssecEnabled true to enable DNSSEC-aware proxying
      */
     public void setDnssecEnabled(boolean dnssecEnabled) {
-        this.dnssecEnabled = dnssecEnabled;
+        legacyRelay().setDnssecEnabled(dnssecEnabled);
     }
 
     /**
@@ -305,7 +292,11 @@ public class DnsServer implements Server {
      * @return true if DNSSEC is enabled
      */
     public boolean isDnssecEnabled() {
-        return dnssecEnabled;
+        if (activeHandler instanceof UpstreamRelayHandler) {
+            return ((UpstreamRelayHandler) activeHandler).isDnssecEnabled();
+        }
+        UpstreamRelayHandler relay = getLegacyRelayIfConfigured();
+        return relay != null && relay.isDnssecEnabled();
     }
 
     /**
@@ -327,7 +318,8 @@ public class DnsServer implements Server {
      * @return the cache, or null if caching is disabled
      */
     public DnsCache getCache() {
-        return cache;
+        UpstreamRelayHandler relay = getLegacyRelayIfConfigured();
+        return relay != null ? relay.getCache() : null;
     }
 
     /**
@@ -359,33 +351,6 @@ public class DnsServer implements Server {
     public void start() {
         initService();
 
-        if (cacheEnabled) {
-            cache = new DnsCache();
-        }
-
-        upstreamUdpFactory = new UdpTransportFactory();
-        upstreamUdpFactory.start();
-        upstreamTcpFactory = new TcpTransportFactory();
-        upstreamTcpFactory.start();
-
-        if (useSystemResolvers && upstreamServers.isEmpty()) {
-            loadSystemResolvers();
-        }
-
-        if (upstreamServers.isEmpty()) {
-            LOGGER.warning(L10N.getString("warn.no_upstream_servers"));
-        } else if (LOGGER.isLoggable(Level.FINE)) {
-            String message = L10N.getString("info.upstream_servers");
-            message = MessageFormat.format(message, upstreamServers);
-            LOGGER.fine(message);
-        }
-
-        for (int i = 0; i < listeners.size(); i++) {
-            Object listener = listeners.get(i);
-            wireListener(listener);
-            startListener(listener);
-        }
-
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
             if (listener instanceof Listener) {
@@ -397,6 +362,18 @@ public class DnsServer implements Server {
                 }
             }
         }
+
+        activeHandler = resolveActiveHandler();
+        if (metrics != null && activeHandler instanceof UpstreamRelayHandler) {
+            ((UpstreamRelayHandler) activeHandler).setMetrics(metrics);
+        }
+        activeHandler.start();
+
+        for (int i = 0; i < listeners.size(); i++) {
+            Object listener = listeners.get(i);
+            wireListener(listener);
+            startListener(listener);
+        }
     }
 
     @Override
@@ -404,8 +381,9 @@ public class DnsServer implements Server {
         for (int i = 0; i < listeners.size(); i++) {
             stopListener(listeners.get(i));
         }
-        if (cache != null) {
-            cache.clear();
+        if (activeHandler != null) {
+            activeHandler.stop();
+            activeHandler = null;
         }
         destroyService();
     }
@@ -502,7 +480,7 @@ public class DnsServer implements Server {
                     // RFC 4035 section 3.2.1: strip DNSSEC records from
                     // responses when the client did not set DO.
                     DnsMessage finalResponse = response;
-                    if (dnssecEnabled && !query.hasDO()) {
+                    if (isDnssecEnabled() && !query.hasDO()) {
                         finalResponse = stripDNSSECRecords(finalResponse);
                     }
 
@@ -577,67 +555,12 @@ public class DnsServer implements Server {
     public void processQuery(final DnsMessage query, final SelectorLoop loop,
                              final DnsQueryCallback callback) {
         final DnsQuestion question = query.getQuestions().get(0);
-
-        // 1. Check cache
-        if (cacheEnabled && cache != null) {
-            if (cache.isNegativelyCached(question.getName())) {
-                if (metrics != null) { metrics.cacheHit(); }
-                callback.onResponse(query.createErrorResponse(
-                        DnsMessage.RCODE_NXDOMAIN));
-                return;
-            }
-
-            List<DnsResourceRecord> cached = cache.lookup(question);
-            if (cached != null) {
-                if (metrics != null) { metrics.cacheHit(); }
-                if (LOGGER.isLoggable(Level.FINEST)) {
-                    String msg = MessageFormat.format(
-                            L10N.getString("debug.cache_hit"), question);
-                    LOGGER.finest(msg);
-                }
-                withMQTypeResponse(query, question,
-                        query.createResponse(cached), loop, callback);
-                return;
-            }
-            if (metrics != null) { metrics.cacheMiss(); }
-        }
-
-        // 2. Try custom resolution
-        DnsMessage customResponse = resolve(query);
-        if (customResponse != null) {
-            if (cacheEnabled && cache != null
-                    && !customResponse.getAnswers().isEmpty()) {
-                cache.cache(question, customResponse.getAnswers());
-            }
-            withMQTypeResponse(query, question, customResponse, loop, callback);
-            return;
-        }
-
-        // 3. Proxy to upstream
-        proxyToUpstream(query, loop, new DnsQueryCallback() {
+        DnsQueryHandler handler = activeHandler != null
+                ? activeHandler : resolveActiveHandler();
+        handler.handleQuery(query, loop, new DnsQueryCallback() {
             @Override
-            public void onResponse(DnsMessage upstreamResponse) {
-                // Internal convention: proxyToUpstream reports total
-                // failure (no upstream servers configured, or every
-                // configured server failed) as a null response, not
-                // onError -- translate that into SERVFAIL here so it
-                // never leaks past this method.
-                if (upstreamResponse == null) {
-                    callback.onResponse(query.createErrorResponse(
-                            DnsMessage.RCODE_SERVFAIL));
-                    return;
-                }
-                if (cacheEnabled && cache != null) {
-                    if (upstreamResponse.getRcode()
-                            == DnsMessage.RCODE_NXDOMAIN) {
-                        cache.cacheNegative(question.getName(),
-                                upstreamResponse.getAuthorities());
-                    } else if (!upstreamResponse.getAnswers().isEmpty()) {
-                        cache.cache(question,
-                                upstreamResponse.getAnswers());
-                    }
-                }
-                withMQTypeResponse(query, question, upstreamResponse, loop, callback);
+            public void onResponse(DnsMessage response) {
+                withMQTypeResponse(query, question, response, loop, callback);
             }
 
             @Override
@@ -865,448 +788,14 @@ public class DnsServer implements Server {
      * Override this method to provide custom name resolution.
      *
      * <p>Return a response message to handle the query locally,
-     * or return null to proxy to upstream servers.
+     * or return {@code null} for an empty {@code NOERROR} response when
+     * no explicit handler is configured.
      *
      * @param query the DNS query
-     * @return a response message, or null to proxy to upstream
+     * @return a response message, or {@code null} for empty {@code NOERROR}
      */
     protected DnsMessage resolve(DnsMessage query) {
         return null;
-    }
-
-    // ── Upstream proxy ──
-
-    /**
-     * RFC 1035 section 7.2: forwards {@code query} to the configured
-     * upstream servers in order, asynchronously, until one produces an
-     * acceptable answer. Reports total failure (no upstream servers
-     * configured, or every server exhausted without an acceptable
-     * answer) by calling {@code callback.onResponse(null)} -- this is
-     * an internal convention private to this method and its caller,
-     * not part of {@link DnsQueryCallback}'s general contract.
-     */
-    private void proxyToUpstream(DnsMessage query, SelectorLoop loop,
-                                 DnsQueryCallback callback) {
-        if (upstreamServers.isEmpty()) {
-            callback.onResponse(null);
-            return;
-        }
-
-        int upstreamId = DnsQueryIdGenerator.allocateSynthetic();
-        // RFC 6891 section 6.1.1: add OPT record to advertise EDNS0
-        // support and signal our UDP payload size to the upstream.
-        List<DnsResourceRecord> additionals =
-                new ArrayList<>(query.getAdditionals());
-        boolean hasOpt = false;
-        for (DnsResourceRecord rr : additionals) {
-            if (rr.getType() == DnsType.OPT) {
-                hasOpt = true;
-                break;
-            }
-        }
-        if (!hasOpt) {
-            // RFC 4035 section 3.2.1: set DO bit to request DNSSEC records
-            int ednsFlags = dnssecEnabled
-                    ? DnsResourceRecord.EDNS_FLAG_DO : 0;
-            additionals.add(DnsResourceRecord.opt(
-                    MAX_DNS_MESSAGE_SIZE, ednsFlags, new byte[0]));
-        }
-        DnsMessage upstreamQuery = new DnsMessage(
-                upstreamId,
-                query.getFlags(),
-                query.getQuestions(),
-                query.getAnswers(),
-                query.getAuthorities(),
-                additionals
-        );
-
-        ByteBuffer queryBytes = upstreamQuery.serialize();
-        byte[] queryData = new byte[queryBytes.remaining()];
-        queryBytes.get(queryData);
-
-        SelectorLoop effectiveLoop = loop;
-        if (effectiveLoop == null) {
-            // No natural loop available (e.g. a query submitted
-            // directly rather than via a bound listener) -- fall back
-            // to a worker loop, the same way SmtpClient/HttpClient do
-            // for outbound connections with no inherited loop.
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            gumdrop.start();
-            effectiveLoop = gumdrop.nextWorkerLoop();
-        }
-
-        tryUpstreamServer(0, query, upstreamQuery, queryData, upstreamId,
-                effectiveLoop, callback);
-    }
-
-    private void tryUpstreamServer(int index, DnsMessage originalQuery,
-                                   DnsMessage upstreamQuery, byte[] queryData,
-                                   int upstreamId, SelectorLoop loop,
-                                   DnsQueryCallback callback) {
-        if (index >= upstreamServers.size()) {
-            LOGGER.fine(L10N.getString("err.upstream_failed"));
-            callback.onResponse(null);
-            return;
-        }
-        new UpstreamAttempt(index, originalQuery, upstreamQuery, queryData,
-                upstreamId, loop, callback).start();
-    }
-
-    /**
-     * One asynchronous attempt to resolve a query against a single
-     * upstream server over UDP (RFC 1035 section 4.2.1), with a
-     * timeout and automatic fallback to the next configured server.
-     * A truncated response (TC bit) triggers a {@link TcpRetry} to the
-     * same server before this attempt is considered complete.
-     */
-    private final class UpstreamAttempt implements ProtocolHandler {
-
-        private final int index;
-        private final InetSocketAddress upstream;
-        private final DnsMessage originalQuery;
-        private final DnsMessage upstreamQuery;
-        private final byte[] queryData;
-        private final int upstreamId;
-        private final SelectorLoop loop;
-        private final DnsQueryCallback callback;
-        private final long startNanos;
-
-        private Endpoint endpoint;
-        private TimerHandle timeoutTimer;
-        private boolean done;
-
-        UpstreamAttempt(int index, DnsMessage originalQuery, DnsMessage upstreamQuery,
-                        byte[] queryData, int upstreamId, SelectorLoop loop,
-                        DnsQueryCallback callback) {
-            this.index = index;
-            this.upstream = upstreamServers.get(index);
-            this.originalQuery = originalQuery;
-            this.upstreamQuery = upstreamQuery;
-            this.queryData = queryData;
-            this.upstreamId = upstreamId;
-            this.loop = loop;
-            this.callback = callback;
-            this.startNanos = System.nanoTime();
-        }
-
-        void start() {
-            try {
-                upstreamUdpFactory.connect(
-                        upstream.getAddress(), upstream.getPort(), this, loop);
-            } catch (IOException e) {
-                fail("err.upstream", e);
-            }
-        }
-
-        @Override
-        public void connected(Endpoint ep) {
-            this.endpoint = ep;
-            ep.send(ByteBuffer.wrap(queryData));
-            timeoutTimer = ep.scheduleTimer(UPSTREAM_TIMEOUT_MS, new Runnable() {
-                @Override
-                public void run() {
-                    fail("err.timeout_upstream", null);
-                }
-            });
-        }
-
-        // RFC 5452 section 9.1's source-address check is enforced by
-        // the OS here rather than in application code: this endpoint's
-        // channel is connect()-ed to exactly one peer (see
-        // UdpTransportFactory.connect), so the kernel already discards
-        // any datagram not from that address:port before it ever
-        // reaches receive().
-        @Override
-        public void receive(ByteBuffer data) {
-            if (done) {
-                return;
-            }
-            DnsMessage response;
-            try {
-                response = DnsMessage.parse(data);
-            } catch (DnsFormatException e) {
-                fail("err.upstream_malformed", e);
-                return;
-            }
-
-            // RFC 5452: verify response ID matches the query to
-            // prevent blind spoofing attacks.
-            if (response.getId() != upstreamId) {
-                failWarn("warn.upstream_id_mismatch",
-                        upstream, upstreamId, response.getId());
-                return;
-            }
-            // RFC 1035 section 4.1.1: QR bit must be set in a response.
-            if (!response.isResponse()) {
-                failWarn("warn.upstream_not_response", upstream);
-                return;
-            }
-            // RFC 5452 section 9.1: question section must echo the query.
-            if (!response.getQuestions().equals(upstreamQuery.getQuestions())) {
-                failWarn("warn.upstream_question_mismatch", upstream);
-                return;
-            }
-
-            done = true;
-            cancelTimer();
-            endpoint.close();
-
-            // RFC 1035 section 4.2.1: if response is truncated, retry
-            // the same query over TCP to get the full answer.
-            if (response.isTruncated()) {
-                if (LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.fine("Truncated response from " + upstream
-                            + ", retrying over TCP");
-                }
-                final DnsMessage udpResponse = response;
-                new TcpRetry(upstream, queryData, upstreamId, loop,
-                        new TcpRetryCallback() {
-                            @Override
-                            public void onResult(DnsMessage tcpResponse) {
-                                succeed(tcpResponse != null ? tcpResponse : udpResponse);
-                            }
-                        }).start();
-                return;
-            }
-            succeed(response);
-        }
-
-        @Override
-        public void disconnected() {
-            fail("err.upstream", null);
-        }
-
-        @Override
-        public void securityEstablished(SecurityInfo info) {
-        }
-
-        @Override
-        public void error(Exception cause) {
-            fail("err.upstream", cause);
-        }
-
-        private void succeed(DnsMessage response) {
-            if (metrics != null) {
-                double durationMs = (System.nanoTime() - startNanos) / 1_000_000.0;
-                metrics.upstreamQuery(durationMs);
-            }
-            DnsMessage finalResponse = new DnsMessage(
-                    originalQuery.getId(),
-                    response.getFlags(),
-                    response.getQuestions(),
-                    response.getAnswers(),
-                    response.getAuthorities(),
-                    response.getAdditionals()
-            );
-            if (LOGGER.isLoggable(Level.FINE)) {
-                String message = MessageFormat.format(
-                        L10N.getString("debug.upstream_response"),
-                        upstream, finalResponse);
-                LOGGER.fine(message);
-            }
-            callback.onResponse(finalResponse);
-        }
-
-        private void failWarn(String key, Object... args) {
-            if (done) {
-                return;
-            }
-            done = true;
-            cancelTimer();
-            if (endpoint != null) {
-                endpoint.close();
-            }
-            if (metrics != null) {
-                metrics.upstreamFailure();
-            }
-            LOGGER.warning(MessageFormat.format(L10N.getString(key), args));
-            next();
-        }
-
-        private void fail(String key, Exception cause) {
-            if (done) {
-                return;
-            }
-            done = true;
-            cancelTimer();
-            if (endpoint != null) {
-                endpoint.close();
-            }
-            if (metrics != null) {
-                metrics.upstreamFailure();
-            }
-            String msg = MessageFormat.format(L10N.getString(key), upstream);
-            if (cause != null) {
-                LOGGER.log(Level.FINE, msg, cause);
-            } else {
-                LOGGER.log(Level.FINE, msg);
-            }
-            next();
-        }
-
-        private void cancelTimer() {
-            if (timeoutTimer != null) {
-                timeoutTimer.cancel();
-            }
-        }
-
-        private void next() {
-            tryUpstreamServer(index + 1, originalQuery, upstreamQuery,
-                    queryData, upstreamId, loop, callback);
-        }
-    }
-
-    private interface TcpRetryCallback {
-        /**
-         * @param response the TCP response, or null if the fallback
-         *                 failed for any reason (the caller falls back
-         *                 to the truncated UDP response it already has)
-         */
-        void onResult(DnsMessage response);
-    }
-
-    /**
-     * RFC 1035 section 4.2.1/4.2.2: retries a query over TCP when the
-     * UDP response was truncated (TC bit set), using the same 2-byte
-     * length-prefixed framing as DNS-over-TCP.
-     */
-    private final class TcpRetry implements ProtocolHandler {
-
-        private final InetSocketAddress upstream;
-        private final byte[] queryData;
-        private final int expectedId;
-        private final SelectorLoop loop;
-        private final TcpRetryCallback resultCallback;
-
-        private Endpoint endpoint;
-        private TimerHandle timeoutTimer;
-        private boolean done;
-        private ByteBuffer accumulator = ByteBuffer.allocate(512);
-
-        TcpRetry(InetSocketAddress upstream, byte[] queryData, int expectedId,
-                SelectorLoop loop, TcpRetryCallback resultCallback) {
-            this.upstream = upstream;
-            this.queryData = queryData;
-            this.expectedId = expectedId;
-            this.loop = loop;
-            this.resultCallback = resultCallback;
-            this.accumulator.flip();
-        }
-
-        void start() {
-            try {
-                upstreamTcpFactory.connect(
-                        upstream.getAddress(), upstream.getPort(), this, loop);
-            } catch (IOException e) {
-                finish(null, "TCP fallback to " + upstream + " failed", e);
-            }
-        }
-
-        @Override
-        public void connected(Endpoint ep) {
-            this.endpoint = ep;
-            int length = queryData.length;
-            ByteBuffer frame = ByteBuffer.allocate(TCP_LENGTH_PREFIX_SIZE + length);
-            frame.put((byte) ((length >> 8) & 0xFF));
-            frame.put((byte) (length & 0xFF));
-            frame.put(queryData);
-            frame.flip();
-            ep.send(frame);
-            timeoutTimer = ep.scheduleTimer(UPSTREAM_TIMEOUT_MS, new Runnable() {
-                @Override
-                public void run() {
-                    finish(null, "TCP fallback to " + upstream + " timed out", null);
-                }
-            });
-        }
-
-        @Override
-        public void receive(ByteBuffer data) {
-            if (done) {
-                return;
-            }
-            appendToAccumulator(data);
-            if (accumulator.remaining() < TCP_LENGTH_PREFIX_SIZE) {
-                return;
-            }
-            accumulator.mark();
-            int messageLength = ((accumulator.get() & 0xFF) << 8)
-                    | (accumulator.get() & 0xFF);
-            if (messageLength <= 0 || messageLength > MAX_TCP_MESSAGE_SIZE) {
-                finish(null, "TCP fallback to " + upstream
-                        + " sent an invalid message length: " + messageLength, null);
-                return;
-            }
-            if (accumulator.remaining() < messageLength) {
-                accumulator.reset();
-                return;
-            }
-            byte[] respData = new byte[messageLength];
-            accumulator.get(respData);
-            try {
-                DnsMessage response = DnsMessage.parse(ByteBuffer.wrap(respData));
-                if (response.getId() != expectedId) {
-                    finish(null, "TCP fallback to " + upstream
-                            + " returned a mismatched response ID", null);
-                    return;
-                }
-                finish(response, null, null);
-            } catch (DnsFormatException e) {
-                finish(null, "TCP fallback to " + upstream
-                        + " returned a malformed response", e);
-            }
-        }
-
-        @Override
-        public void disconnected() {
-            finish(null, "TCP fallback to " + upstream + " closed unexpectedly", null);
-        }
-
-        @Override
-        public void securityEstablished(SecurityInfo info) {
-        }
-
-        @Override
-        public void error(Exception cause) {
-            finish(null, "TCP fallback to " + upstream + " failed", cause);
-        }
-
-        private void appendToAccumulator(ByteBuffer data) {
-            int needed = accumulator.remaining() + data.remaining();
-            if (needed > accumulator.capacity()) {
-                ByteBuffer bigger = ByteBuffer.allocate(
-                        Math.max(needed, accumulator.capacity() * 2));
-                bigger.put(accumulator);
-                bigger.put(data);
-                bigger.flip();
-                accumulator = bigger;
-            } else {
-                accumulator.compact();
-                accumulator.put(data);
-                accumulator.flip();
-            }
-        }
-
-        private void finish(DnsMessage response, String logMessage, Exception cause) {
-            if (done) {
-                return;
-            }
-            done = true;
-            if (timeoutTimer != null) {
-                timeoutTimer.cancel();
-            }
-            if (endpoint != null) {
-                endpoint.close();
-            }
-            if (logMessage != null) {
-                if (cause != null) {
-                    LOGGER.log(Level.FINE, logMessage, cause);
-                } else {
-                    LOGGER.fine(logMessage);
-                }
-            }
-            resultCallback.onResult(response);
-        }
     }
 
     // ── DNSSEC helpers ──
@@ -1495,91 +984,81 @@ public class DnsServer implements Server {
         }
     }
 
-    private static InetSocketAddress parseAddress(String address,
-                                                  int defaultPort)
-            throws Exception {
-        int port = defaultPort;
-        String host = address;
-
-        if (address.startsWith("[")) {
-            int bracketEnd = address.indexOf(']');
-            if (bracketEnd > 0) {
-                host = address.substring(1, bracketEnd);
-                if (address.length() > bracketEnd + 2
-                        && address.charAt(bracketEnd + 1) == ':') {
-                    port = Integer.parseInt(
-                            address.substring(bracketEnd + 2));
-                }
-            }
-        } else if (address.indexOf(':') >= 0
-                && address.indexOf("::") < 0) {
-            int colonIdx = address.lastIndexOf(':');
-            host = address.substring(0, colonIdx);
-            port = Integer.parseInt(
-                    address.substring(colonIdx + 1));
+    private UpstreamRelayHandler legacyRelay() {
+        if (legacyRelay == null) {
+            legacyRelay = new UpstreamRelayHandler();
         }
-
-        InetAddress inetAddr = InetAddress.getByName(host);
-        return new InetSocketAddress(inetAddr, port);
+        return legacyRelay;
     }
 
-    private void loadSystemResolvers() {
-        Path resolvConf = Paths.get("/etc/resolv.conf");
-        if (Files.exists(resolvConf)) {
-            try {
-                BufferedReader reader = new BufferedReader(
-                        new FileReader(resolvConf.toFile()));
-                try {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        line = line.trim();
-                        if (line.startsWith("nameserver ")) {
-                            String server = line.substring(11).trim();
-                            try {
-                                InetSocketAddress addr =
-                                        parseAddress(server,
-                                                DEFAULT_PORT);
-                                upstreamServers.add(addr);
-                                if (LOGGER.isLoggable(Level.FINE)) {
-                                    String msg = MessageFormat.format(
-                                            L10N.getString(
-                                                    "debug.added_system_resolver"),
-                                            addr);
-                                    LOGGER.fine(msg);
-                                }
-                            } catch (Exception e) {
-                                String msg = MessageFormat.format(
-                                        L10N.getString(
-                                                "debug.skip_invalid_resolver"),
-                                        server);
-                                LOGGER.log(Level.FINE, msg, e);
-                            }
-                        }
-                    }
-                } finally {
-                    reader.close();
-                }
-            } catch (IOException e) {
-                LOGGER.log(Level.FINE,
-                        L10N.getString("err.read_resolv_conf"), e);
+    private boolean legacyRelayConfigured() {
+        return legacyRelay != null;
+    }
+
+    private UpstreamRelayHandler getLegacyRelayIfConfigured() {
+        return legacyRelayConfigured() ? legacyRelay : null;
+    }
+
+    private DnsQueryHandler resolveActiveHandler() {
+        if (queryHandler != null) {
+            return queryHandler;
+        }
+        if (getClass() != DnsServer.class) {
+            DnsQueryHandler resolveHandler = new LegacyResolveDnsHandler(this);
+            if (legacyRelayConfigured()) {
+                return DnsQueryHandlers.chain(resolveHandler, legacyRelay());
             }
+            return resolveHandler;
+        }
+        if (legacyRelayConfigured()) {
+            return legacyRelay();
+        }
+        return DnsQueryHandlers.empty();
+    }
+
+    /**
+     * Builds a {@link DnsServer} with listeners and an optional handler.
+     */
+    public static final class Builder {
+
+        private final List<Listener> listeners = new ArrayList<Listener>();
+        private DnsQueryHandler handler;
+
+        private Builder() {
         }
 
-        if (upstreamServers.isEmpty()) {
-            try {
-                InetAddress google =
-                        InetAddress.getByName("8.8.8.8");
-                upstreamServers.add(
-                        new InetSocketAddress(google, DEFAULT_PORT));
-                InetAddress cloudflare =
-                        InetAddress.getByName("1.1.1.1");
-                upstreamServers.add(
-                        new InetSocketAddress(cloudflare, DEFAULT_PORT));
-                LOGGER.fine(L10N.getString("debug.using_fallback"));
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING,
-                        L10N.getString("warn.no_fallback"), e);
+        public Builder listener(DnsListener listener) {
+            listeners.add(listener);
+            return this;
+        }
+
+        public Builder listener(DoTListener listener) {
+            listeners.add(listener);
+            return this;
+        }
+
+        public Builder listener(DoQListener listener) {
+            listeners.add(listener);
+            return this;
+        }
+
+        public Builder handler(DnsQueryHandler handler) {
+            this.handler = handler;
+            return this;
+        }
+
+        public DnsServer build() {
+            if (listeners.isEmpty()) {
+                throw new IllegalStateException("at least one listener is required");
             }
+            DnsServer server = new DnsServer();
+            if (handler != null) {
+                server.setHandler(handler);
+            }
+            for (int i = 0; i < listeners.size(); i++) {
+                server.listeners.add(listeners.get(i));
+            }
+            return server;
         }
     }
 

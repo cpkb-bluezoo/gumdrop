@@ -73,6 +73,16 @@ public final class HttpRequestHandlers {
     }
 
     /**
+     * Returns a router that always declines the request with {@code 404}.
+     *
+     * <p>This is the default when {@link org.bluezoo.gumdrop.http.HttpServer.Builder}
+     * is built without an explicit handler.
+     */
+    public static HttpRequestRouter notFound() {
+        return fixed(NotFoundHttpRequestHandler.INSTANCE);
+    }
+
+    /**
      * Adapts a legacy {@link HttpRequestHandlerFactory} to a router.
      */
     public static HttpRequestRouter fromFactory(final HttpRequestHandlerFactory factory) {

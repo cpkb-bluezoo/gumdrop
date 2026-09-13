@@ -178,4 +178,23 @@ public class DnsListener extends UdpListener {
         }
     }
 
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static final class Builder {
+        private int port = DEFAULT_PORT;
+
+        public Builder port(int port) {
+            this.port = port;
+            return this;
+        }
+
+        public DnsListener build() {
+            DnsListener listener = new DnsListener();
+            listener.setPort(port);
+            return listener;
+        }
+    }
+
 }

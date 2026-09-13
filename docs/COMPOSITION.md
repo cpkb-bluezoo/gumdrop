@@ -1,7 +1,7 @@
 # Application composition (Gumdrop 3)
 
 **Canonical way to run Gumdrop.** Gumdrop 3 applications are assembled in Java:
-an explicit `Runtime`, protocol listeners, and **handler implementations** —
+listeners, **handler implementations**, and an explicit process entry point —
 not XML configuration files or reflective dependency injection.
 
 **Related:** [GUMDROP-3-PLAN.md](GUMDROP-3-PLAN.md) §C.3–C.5,
@@ -11,48 +11,75 @@ not XML configuration files or reflective dependency injection.
 
 ## Principles
 
-1. **Handlers, not server subclasses** — implement `HttpRequestHandler` (or
-   protocol-specific staged handlers for SMTP, IMAP, etc.). Do not subclass
-   `HttpServer`, `ServletServer`, or `WebDAVServer` for application logic.
-2. **One HTTP entry type** — `org.bluezoo.gumdrop.http.HttpServer` owns
-   listeners and a single handler (or router/decorator chain). Servlet and
-   WebDAV stacks attach as **`ServletRequestHandler`** and
-   **`WebDAVRequestHandler`**, both implementing `HttpRequestHandler`.
-3. **Explicit runtime** — create a `Runtime`, register servers and clients,
-   call `start()`. No process-wide singleton in application code.
-4. **No `gumdroprc` in 3.0** — XML configuration and `ComponentRegistry`
-   are removed for the migration period. Examples and web documentation
-   show composition only. A future declarative format is not planned unless
-   there is a concrete design; do not maintain parallel XML while the Java
-   API is still moving.
+1. **Handlers, not server subclasses** — implement protocol handler interfaces
+   (`HttpRequestHandler`, staged SMTP handlers, `DnsQueryHandler`, …). Do not
+   subclass `HttpServer`, `ServletServer`, or `WebdavServer` for application
+   logic.
+2. **One entry type per protocol** — e.g. `HttpServer` owns listeners and a
+   single handler (or router/decorator chain). Servlet and WebDAV stacks attach
+   as **`ServletRequestHandler`** and **`WebDAVRequestHandler`** (planned;
+   see below).
+3. **Default servers do nothing (application layer)** — a composed server with
+   no handler wired must not silently pick up relay, upstream, or mailbox
+   behaviour. “Do nothing” is protocol-specific (see [Default behaviour](#default-behaviour)).
+4. **Stock handlers compose in one line** — relay, authoritative zones, servlet
+   container, etc. are explicit handler implementations you attach when you want
+   them (`new UpstreamRelayHandler(...)`, `new SimpleRelayHandler(...)`, …).
+5. **Explicit runtime (target)** — [GUMDROP-3-PLAN.md](GUMDROP-3-PLAN.md) §C.4
+   introduces `Runtime` to replace `Gumdrop.getInstance()`. Until then,
+   examples use `Gumdrop` as the process entry point.
+6. **No `gumdroprc` in 3.0** — XML configuration and `ComponentRegistry` are
+   not supported for new deployments. Legacy XML may remain in `etc/` for
+   regression tests only.
+
+---
+
+## Default behaviour
+
+Unconfigured servers must be safe and predictable: the **transport and protocol
+stack works**, but the **application layer answers empty / not-found**, never
+implicit upstream relay or similar.
+
+| Protocol | Default (no handler) | Unknown method / opcode |
+|----------|----------------------|-------------------------|
+| **HTTP** | **404 Not Found** for standard methods on any path | **501 Not Implemented** (HTTP layer) |
+| **DNS** | **Empty answer** (NOERROR, zero RRs) — no upstream, no cache side effects | Appropriate REFUSED / NOTIMP where applicable |
+| **SMTP** *(today)* | `SmtpServer` requires `createHandler()` — no silent relay | Staged handler rejects at SMTP layer |
+
+**Previously:** `DnsServer` always forwarded to upstream resolvers
+(`useSystemResolvers=true` by default). **Now split:** default `DnsServer` uses
+`DnsQueryHandlers.empty()`; **`UpstreamRelayHandler`** is an explicit one-line
+composable stock implementation (like **`SimpleRelayHandler`** for SMTP).
 
 ---
 
 ## Minimal HTTP server
 
 ```java
-import org.bluezoo.gumdrop.Runtime;
-import org.bluezoo.gumdrop.RuntimeConfig;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.server.HttpListener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.Headers;
 
 public final class EchoMain {
     public static void main(String[] args) throws Exception {
-        Runtime rt = Runtime.start(RuntimeConfig.builder().build());
+        Gumdrop gumdrop = Gumdrop.getInstance();
 
         HttpServer server = HttpServer.builder()
                 .listener(HttpListener.builder().port(8080).build())
                 .handler(new EchoHandler())
                 .build();
 
-        rt.addServer(server);
-        server.start(rt);
-        rt.awaitShutdown();
+        gumdrop.addServer(server);
+        gumdrop.start();
+        gumdrop.join();
     }
 
+    /** Stateless — safe with {@code .handler(...)}. */
     private static final class EchoHandler implements HttpRequestHandler {
         @Override
         public void headers(HttpResponseState state, Headers headers) {
@@ -70,58 +97,130 @@ public final class EchoMain {
 }
 ```
 
-*(Builder APIs above are the **target** surface from workstream C.3; until they
-land, the same structure applies using today's constructors and listener wiring
-— see [Migration from 2.x](#migration-from-2x).)*
+### Handler-less HTTP server
 
----
-
-## Servlet container
-
-The servlet stack is a **`ServletRequestHandler`** wired into `HttpServer`, not
-a separate `ServletServer` type:
+Omitting `.handler()` / `.router()` installs the default
+**`NotFoundHttpRequestHandler`** (`HttpRequestHandlers.notFound()`): valid HTTP,
+every request **404**.
 
 ```java
-Container container = Container.builder()
-        .context(Context.builder()
-                .path("")
-                .root(Path.of("web"))
-                .build())
-        .build();
-
-HttpServer server = HttpServer.builder()
+HttpServer empty = HttpServer.builder()
         .listener(HttpListener.builder().port(8080).build())
-        .listener(Http3Listener.builder().port(8443).tls(credentials).build())
-        .handler(new ServletRequestHandler(container))
         .build();
 ```
 
-`ServletRequestHandler` owns the servlet container lifecycle (contexts, filters,
-JSP, security constraints). Multiple contexts, realms, and clustering options
-are constructor/builder parameters on the handler or `Container`, not XML
-properties on a `ServletServer` service.
-
----
-
-## File server and WebDAV
-
-Static files and RFC 4918 authoring use **`WebDAVRequestHandler`** (note
-**WebDAV** — tradename; see [Naming exceptions](#naming-exceptions)):
+### Per-request handlers and routing
 
 ```java
 HttpServer server = HttpServer.builder()
         .listener(HttpListener.builder().port(8080).build())
-        .handler(WebDAVRequestHandler.builder()
+        .handlerPerRequest(MyHandler::new)   // fresh instance per request
+        .build();
+
+HttpRequestRouter router = (state, headers) -> {
+    if (headers.getPath().startsWith("/api/")) {
+        return new ApiHandler();
+    }
+    return null;   // → 404
+};
+
+HttpServer routed = HttpServer.builder()
+        .listener(HttpListener.builder().port(8080).build())
+        .router(router)
+        .build();
+```
+
+Legacy `HttpRequestHandlerFactory` code can bridge via
+`HttpRequestHandlers.fromFactory(factory)`.
+
+---
+
+## Servlet container *(planned — C.3 step 2)*
+
+Target: **`ServletRequestHandler`** on `HttpServer`, not a separate
+`ServletServer` type:
+
+```java
+Container container = /* … */;
+
+HttpServer server = HttpServer.builder()
+        .listener(HttpListener.builder().port(8080).build())
+        .handler(new ServletRequestHandler(container))   // planned
+        .build();
+```
+
+Until `ServletRequestHandler` lands, use `ServletServer` (interim).
+
+---
+
+## File server and WebDAV *(planned — C.3 step 2)*
+
+Target: **`WebDAVRequestHandler`** (tradename **WebDAV**, not `Webdav*`):
+
+```java
+HttpServer server = HttpServer.builder()
+        .listener(HttpListener.builder().port(8080).build())
+        .handler(WebDAVRequestHandler.builder()   // planned
                 .rootPath(Path.of("/var/www/html"))
-                .welcomeFile("index.html")
-                .allowWrite(false)
                 .webdavEnabled(true)
                 .build())
         .build();
 ```
 
-There is no `WebDAVServer` / `WebdavServer` in the end state — only `HttpServer`
-plus this handler.
+Until then, use `WebdavServer` (interim).
+
+---
+
+## DNS *(target — C.3)*
+
+Split today's monolithic `DnsServer` (implicit upstream relay) into:
+
+| Piece | Role |
+|-------|------|
+| **`DnsServer`** | Listeners + dispatch only; default = empty answers |
+| **`UpstreamRelayHandler`** | Today's forwarder / cache / `proxyToUpstream` logic |
+| **`AuthoritativeZoneHandler`** | Answers from zone file(s); AA bit set |
+
+Composition (target API):
+
+```java
+// Default: speaks DNS, returns empty results
+DnsServer dns = DnsServer.builder()
+        .listener(DnsListener.builder().port(53).build())
+        .build();
+
+// One-line relay (replaces implicit upstream default)
+DnsServer relay = DnsServer.builder()
+        .listener(DnsListener.builder().port(53).build())
+        .handler(new UpstreamRelayHandler(
+                UpstreamRelayHandler.builder()
+                        .servers("8.8.8.8", "1.1.1.1")
+                        .cacheEnabled(true)
+                        .build()))
+        .build();
+
+// Authoritative zone from file
+DnsServer auth = DnsServer.builder()
+        .listener(DnsListener.builder().port(53).build())
+        .handler(new AuthoritativeZoneHandler(
+                ZoneFile.load(Path.of("/etc/named/example.com.zone"))))
+        .build();
+```
+
+Same pattern as SMTP:
+
+```java
+// MX relay — stock handler, explicit wiring
+SmtpServer relay = new SimpleRelayServer();
+relay.addListener(new SmtpListener());
+relay.setHostname("relay.example.com");
+// → createHandler() returns new SimpleRelayHandler(...)
+
+// Local mailbox delivery — different stock handler
+SmtpServer mbox = new LocalDeliveryServer();
+mbox.addListener(new SmtpListener());
+// → createHandler() returns new LocalDeliveryHandler(...)
+```
 
 ---
 
@@ -130,12 +229,12 @@ plus this handler.
 Wrap handlers instead of subclassing servers or factories:
 
 ```java
-HttpRequestHandler app = new ServletRequestHandler(container);
+HttpRequestHandler app = new ServletRequestHandler(container);  // planned
 HttpRequestHandler withAuth = BasicAuthHandler.decorate(app, realm);
 HttpRequestHandler withTelemetry = TelemetryHandler.decorate(withAuth, config);
 
 HttpServer server = HttpServer.builder()
-        .listener(...)
+        .listener(HttpListener.builder().port(8080).build())
         .handler(withTelemetry)
         .build();
 ```
@@ -147,10 +246,10 @@ separate factory interface layer.
 
 ## Mail, FTP, and other protocols
 
-Same model: **`SmtpServer`**, **`ImapServer`**, etc. own listeners and accept
-handler implementations or staged reply handlers on the client side. Complex
-stacks (mailbox + local delivery + SMTP) are wired in one Java `main` or test
-harness — see hopf’s `LocalDeliveryServer` composition notes.
+Same model over time: protocol `*Server` owns listeners; application logic lives
+in handler implementations or staged reply handlers on the client side. SMTP
+(`SimpleRelayHandler`, `LocalDeliveryHandler`) is the reference split; DNS and
+HTTP are catching up.
 
 ---
 
@@ -161,11 +260,10 @@ most protocols (`Http`, `Smtp`, `Dns`, …). **Exceptions:**
 
 | Name | Rule |
 |------|------|
-| **WebDAV** | Tradename — use `WebDAVRequestHandler`, `WebDAV*` types, not `Webdav*` |
+| **WebDAV** | Tradename — `WebDAVRequestHandler`, `WebDAV*`, not `Webdav*` |
 | **WebSocket** | One word — `WebSocketClient`, `WebSocketRequestHandler`, … |
 
-Interim types from package migration (`ServletServer`, `WebdavServer`) are
-**temporary**; documentation and new code should target handler composition.
+Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 
 ---
 
@@ -176,11 +274,9 @@ Interim types from package migration (`ServletServer`, `WebdavServer`) are
 | `gumdroprc.xml` + `ComponentRegistry` | Java composition (this document) |
 | `<service class="…ServletServer">` | `HttpServer` + `ServletRequestHandler` |
 | `<service class="…WebDAVService">` | `HttpServer` + `WebDAVRequestHandler` |
-| `HttpRequestHandlerFactory` for routing | Handler or small router object on `HttpServer` |
-| Subclass `*Server` for app logic | Implement handler interfaces |
-
-During the transition branch, legacy XML may still exist in `etc/` for
-regression tests, but it is **not** documented as supported for new deployments.
+| `HttpRequestHandlerFactory` for routing | `HttpRequestRouter` / handler on `HttpServer` |
+| `DnsServer` with implicit upstream | `DnsServer` + `UpstreamRelayHandler` |
+| Subclass `*Server` for app logic | Handler interfaces + composition |
 
 ---
 
@@ -190,5 +286,18 @@ regression tests, but it is **not** documented as supported for new deployments.
 |----------|----------|
 | Plan and sequencing | [GUMDROP-3-PLAN.md](GUMDROP-3-PLAN.md) §C.3–C.5 |
 | Naming rules | [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md) |
-| Web docs | [web/configuration.html](../web/configuration.html) (composition) |
-| Examples | `examples/*` — Java `main` entry points (being migrated) |
+| Web docs | [web/configuration.html](../web/configuration.html) |
+| Examples | `examples/*` — Java `main` entry points |
+
+---
+
+## Implementation status (C.3)
+
+| Item | Status |
+|------|--------|
+| `HttpServer.builder()`, `HttpListener.builder()` | **Done** |
+| `HttpRequestRouter`, `HttpRequestHandlers`, default 404 | **Done** |
+| `ServletRequestHandler`, `WebDAVRequestHandler` | Planned |
+| `DnsServer.builder()`, `DnsQueryHandler`, default empty answers | **Done** |
+| `UpstreamRelayHandler`, `AuthoritativeZoneHandler`, `ZoneFile` | **Done** |
+| `Runtime` replaces `Gumdrop.getInstance()` | Planned (§C.4) |
