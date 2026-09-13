@@ -68,12 +68,12 @@ final class DoQStreamHandler implements ProtocolHandler {
     /** Too many outstanding queries. RFC 9250 section 4.3.5 */
     static final long DOQ_EXCESSIVE_LOAD = 0x4;
 
-    private final DnsServer service;
+    private final org.bluezoo.gumdrop.dns.server.DnsServer service;
     private Endpoint endpoint;
     private final ByteArrayOutputStream accumulator =
             new ByteArrayOutputStream(512);
 
-    DoQStreamHandler(DnsServer service) {
+    DoQStreamHandler(org.bluezoo.gumdrop.dns.server.DnsServer service) {
         this.service = service;
     }
 

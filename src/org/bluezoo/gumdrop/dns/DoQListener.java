@@ -76,7 +76,7 @@ public class DoQListener extends TcpListener
     private static final int DEFAULT_PORT = 853;
 
     private int port = DEFAULT_PORT;
-    private DnsServer service;
+    private org.bluezoo.gumdrop.dns.server.DnsServer service;
 
     private Path certFile;
     private Path keyFile;
@@ -113,7 +113,7 @@ public class DoQListener extends TcpListener
      *
      * @param service the owning service
      */
-    void setService(DnsServer service) {
+    public void setService(org.bluezoo.gumdrop.dns.server.DnsServer service) {
         this.service = service;
     }
 
@@ -122,7 +122,7 @@ public class DoQListener extends TcpListener
      *
      * @return the owning service
      */
-    public DnsServer getService() {
+    public org.bluezoo.gumdrop.dns.server.DnsServer getService() {
         return service;
     }
 

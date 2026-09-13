@@ -74,7 +74,7 @@ public class MdnsListener extends Listener {
     private static final int MULTICAST_TTL = 255;
 
     private int port = DEFAULT_PORT;
-    private MdnsServer service;
+    private org.bluezoo.gumdrop.mdns.server.MdnsServer service;
     private UdpTransportFactory transportFactory;
     private UdpEndpoint endpoint;
     private InetAddress group;
@@ -105,7 +105,7 @@ public class MdnsListener extends Listener {
      *
      * @param service the owning service
      */
-    void setService(MdnsServer service) {
+    public void setService(org.bluezoo.gumdrop.mdns.server.MdnsServer service) {
         this.service = service;
     }
 
@@ -114,7 +114,7 @@ public class MdnsListener extends Listener {
      *
      * @return the owning service
      */
-    public MdnsServer getService() {
+    public org.bluezoo.gumdrop.mdns.server.MdnsServer getService() {
         return service;
     }
 
@@ -129,7 +129,7 @@ public class MdnsListener extends Listener {
      *
      * @return true if bound
      */
-    boolean isBound() {
+    public boolean isBound() {
         return endpoint != null;
     }
 
@@ -257,7 +257,7 @@ public class MdnsListener extends Listener {
      *
      * @param data the serialised message
      */
-    void sendToGroup(ByteBuffer data) {
+    public void sendToGroup(ByteBuffer data) {
         endpoint.sendTo(data, groupAddress);
     }
 
@@ -268,7 +268,7 @@ public class MdnsListener extends Listener {
      * @param data the serialised message
      * @param destination the target address
      */
-    void sendTo(ByteBuffer data, InetSocketAddress destination) {
+    public void sendTo(ByteBuffer data, InetSocketAddress destination) {
         endpoint.sendTo(data, destination);
     }
 
@@ -281,7 +281,7 @@ public class MdnsListener extends Listener {
      * @param callback the callback to run
      * @return a handle allowing cancellation
      */
-    TimerHandleWrapper scheduleTimer(long delayMs, Runnable callback) {
+    public TimerHandleWrapper scheduleTimer(long delayMs, Runnable callback) {
         return new TimerHandleWrapper(endpoint.scheduleTimer(delayMs, callback));
     }
 
@@ -289,14 +289,14 @@ public class MdnsListener extends Listener {
      * Thin wrapper so callers in this package don't need to import
      * {@code org.bluezoo.gumdrop.TimerHandle} directly.
      */
-    static final class TimerHandleWrapper {
+    public static final class TimerHandleWrapper {
         private final org.bluezoo.gumdrop.TimerHandle delegate;
 
-        TimerHandleWrapper(org.bluezoo.gumdrop.TimerHandle delegate) {
+        public TimerHandleWrapper(org.bluezoo.gumdrop.TimerHandle delegate) {
             this.delegate = delegate;
         }
 
-        void cancel() {
+        public void cancel() {
             delegate.cancel();
         }
     }

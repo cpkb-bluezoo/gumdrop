@@ -56,7 +56,7 @@ public class DnsListener extends UdpListener {
     private static final int DEFAULT_PORT = 53;
 
     private int port = DEFAULT_PORT;
-    private DnsServer service;
+    private org.bluezoo.gumdrop.dns.server.DnsServer service;
 
     @Override
     public int getPort() {
@@ -83,7 +83,7 @@ public class DnsListener extends UdpListener {
      *
      * @param service the owning service
      */
-    void setService(DnsServer service) {
+    public void setService(org.bluezoo.gumdrop.dns.server.DnsServer service) {
         this.service = service;
     }
 
@@ -92,7 +92,7 @@ public class DnsListener extends UdpListener {
      *
      * @return the owning service
      */
-    public DnsServer getService() {
+    public org.bluezoo.gumdrop.dns.server.DnsServer getService() {
         return service;
     }
 
@@ -102,7 +102,7 @@ public class DnsListener extends UdpListener {
      * @param data        the serialised response
      * @param destination the target address
      */
-    void sendTo(ByteBuffer data, InetSocketAddress destination) {
+    public void sendTo(ByteBuffer data, InetSocketAddress destination) {
         getEndpoint().sendTo(data, destination);
     }
 
@@ -113,7 +113,7 @@ public class DnsListener extends UdpListener {
      *
      * @return the SelectorLoop, or null if unbound
      */
-    SelectorLoop getSelectorLoop() {
+    public SelectorLoop getSelectorLoop() {
         Endpoint ep = getEndpoint();
         return (ep != null) ? ep.getSelectorLoop() : null;
     }

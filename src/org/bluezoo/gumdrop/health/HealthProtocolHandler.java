@@ -50,7 +50,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HealthListener
  */
-final class HealthProtocolHandler implements ProtocolHandler {
+public final class HealthProtocolHandler implements ProtocolHandler {
 
     /** Bound on the buffered request so a stalled client cannot grow it. */
     private static final int MAX_REQUEST_BYTES = 8192;

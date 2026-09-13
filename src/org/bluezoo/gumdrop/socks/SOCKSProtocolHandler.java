@@ -78,7 +78,7 @@ import static org.bluezoo.gumdrop.socks.SocksConstants.*;
  * @see <a href="https://www.openssh.com/txt/socks4.protocol">SOCKS4 protocol</a>
  * @see <a href="https://www.openssh.com/txt/socks4a.protocol">SOCKS4a protocol</a>
  */
-class SocksProtocolHandler implements ProtocolHandler {
+public class SocksProtocolHandler implements ProtocolHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(SocksProtocolHandler.class.getName());
@@ -101,7 +101,7 @@ class SocksProtocolHandler implements ProtocolHandler {
     }
 
     private final SocksListener listener;
-    private final SocksServer service;
+    private final org.bluezoo.gumdrop.socks.server.SocksServer service;
 
     private Endpoint endpoint;
     private State state = State.VERSION_DETECT;
@@ -119,16 +119,17 @@ class SocksProtocolHandler implements ProtocolHandler {
     private SocksUdpRelay udpRelay;
     private SocksBindRelay bindRelay;
 
-    SocksProtocolHandler(SocksListener listener, SocksServer service) {
+    public SocksProtocolHandler(SocksListener listener,
+                                org.bluezoo.gumdrop.socks.server.SocksServer service) {
         this.listener = listener;
         this.service = service;
     }
 
-    void setConnectHandler(ConnectHandler handler) {
+    public void setConnectHandler(ConnectHandler handler) {
         this.connectHandler = handler;
     }
 
-    void setBindHandler(BindHandler handler) {
+    public void setBindHandler(BindHandler handler) {
         this.bindHandler = handler;
     }
 

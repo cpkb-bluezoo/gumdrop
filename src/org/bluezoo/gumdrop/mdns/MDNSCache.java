@@ -62,7 +62,7 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MdnsServer
  */
-final class MdnsCache {
+public final class MdnsCache {
 
     // RFC 6762 section 5.2: active refresh schedule, as fractions of
     // the record's original TTL. The final entry (1.0) is expiry, not
@@ -78,7 +78,7 @@ final class MdnsCache {
      * listener's transport thread. Implemented by {@link MdnsServer}
      * so this class stays independently testable.
      */
-    interface Refresher {
+    public interface Refresher {
         void sendRefreshQuery(String name, DnsType type);
         MdnsListener.TimerHandleWrapper scheduleTimer(long delayMs, Runnable task);
     }
@@ -118,7 +118,7 @@ final class MdnsCache {
     private final Map<Key, List<CachedRecord>> entries = new LinkedHashMap<Key, List<CachedRecord>>();
     private final Refresher refresher;
 
-    MdnsCache(Refresher refresher) {
+    public MdnsCache(Refresher refresher) {
         this.refresher = refresher;
     }
 
@@ -130,7 +130,7 @@ final class MdnsCache {
      * @param type the record type
      * @return the cached records (a snapshot; safe to retain)
      */
-    List<DnsResourceRecord> lookup(String name, DnsType type) {
+    public List<DnsResourceRecord> lookup(String name, DnsType type) {
         List<CachedRecord> cached = entries.get(new Key(name, type));
         if (cached == null || cached.isEmpty()) {
             return Collections.emptyList();
@@ -153,7 +153,7 @@ final class MdnsCache {
      *                or a probe's authority section observed from
      *                another host)
      */
-    void addAll(List<DnsResourceRecord> records) {
+    public void addAll(List<DnsResourceRecord> records) {
         Map<Key, List<DnsResourceRecord>> groups =
                 new LinkedHashMap<Key, List<DnsResourceRecord>>();
         List<DnsResourceRecord> goodbyes = new ArrayList<DnsResourceRecord>();
@@ -302,7 +302,7 @@ final class MdnsCache {
     }
 
     /** Cancels every pending timer and clears the cache. Called on service stop. */
-    void clear() {
+    public void clear() {
         for (List<CachedRecord> cached : entries.values()) {
             for (CachedRecord cr : cached) {
                 cancelTimer(cr);

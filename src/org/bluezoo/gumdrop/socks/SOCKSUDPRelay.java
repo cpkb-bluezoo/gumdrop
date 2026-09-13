@@ -79,7 +79,7 @@ class SocksUdpRelay {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
     private final Endpoint tcpControlEndpoint;
-    private final SocksServer service;
+    private final org.bluezoo.gumdrop.socks.server.SocksServer service;
     private final SocksServerMetrics metrics;
     private final long idleTimeoutMs;
     private final InetAddress expectedClientAddress;
@@ -105,7 +105,8 @@ class SocksUdpRelay {
      *        the TCP connection's remote address if DST.ADDR was
      *        0.0.0.0)
      */
-    SocksUdpRelay(Endpoint tcpEndpoint, SocksServer service,
+    SocksUdpRelay(Endpoint tcpEndpoint,
+                  org.bluezoo.gumdrop.socks.server.SocksServer service,
                   SocksServerMetrics metrics, long idleTimeoutMs,
                   InetAddress expectedClientAddress) {
         this.tcpControlEndpoint = tcpEndpoint;

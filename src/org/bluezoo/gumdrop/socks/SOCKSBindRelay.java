@@ -77,7 +77,7 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
     }
 
     private final Endpoint controlEndpoint;
-    private final SocksServer service;
+    private final org.bluezoo.gumdrop.socks.server.SocksServer service;
     private final long idleTimeoutMs;
     private final InetAddress expectedPeerAddress;
     private final Callback callback;
@@ -97,7 +97,8 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
      *        request's DST.ADDR, or null if any peer is accepted
      * @param callback the protocol handler callback
      */
-    SocksBindRelay(Endpoint controlEndpoint, SocksServer service,
+    SocksBindRelay(Endpoint controlEndpoint,
+                   org.bluezoo.gumdrop.socks.server.SocksServer service,
                    long idleTimeoutMs,
                    InetAddress expectedPeerAddress,
                    Callback callback) {

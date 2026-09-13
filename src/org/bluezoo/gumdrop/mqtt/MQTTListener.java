@@ -54,7 +54,7 @@ public class MqttListener extends TcpListener {
     private int defaultKeepAlive = 60;
     private Realm realm;
 
-    private MqttServer service;
+    private org.bluezoo.gumdrop.mqtt.server.MqttServer service;
     private MqttServerMetrics metrics;
 
     @Override
@@ -116,11 +116,11 @@ public class MqttListener extends TcpListener {
         this.realm = realm;
     }
 
-    MqttServer getService() {
+    public org.bluezoo.gumdrop.mqtt.server.MqttServer getService() {
         return service;
     }
 
-    void setService(MqttServer service) {
+    public void setService(org.bluezoo.gumdrop.mqtt.server.MqttServer service) {
         this.service = service;
     }
 

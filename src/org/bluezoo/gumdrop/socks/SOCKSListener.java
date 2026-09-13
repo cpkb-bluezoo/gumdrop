@@ -56,7 +56,7 @@ public class SocksListener extends TcpListener {
     private Realm realm;
     private GssapiServer gssapiServer;
 
-    private SocksServer service;
+    private org.bluezoo.gumdrop.socks.server.SocksServer service;
     private SocksServerMetrics metrics;
 
     @Override
@@ -151,11 +151,11 @@ public class SocksListener extends TcpListener {
         this.gssapiServer = new GssapiServer(keytabPath, servicePrincipal);
     }
 
-    SocksServer getService() {
+    public org.bluezoo.gumdrop.socks.server.SocksServer getService() {
         return service;
     }
 
-    void setService(SocksServer service) {
+    public void setService(org.bluezoo.gumdrop.socks.server.SocksServer service) {
         this.service = service;
     }
 

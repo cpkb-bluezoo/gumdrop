@@ -60,7 +60,7 @@ class SocksRelay {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
     private final Endpoint clientEndpoint;
-    private final SocksServer service;
+    private final org.bluezoo.gumdrop.socks.server.SocksServer service;
     private final SocksServerMetrics metrics;
     private final long idleTimeoutMs;
 
@@ -76,7 +76,8 @@ class SocksRelay {
     private boolean clientReadPaused;
     private boolean upstreamReadPaused;
 
-    SocksRelay(Endpoint clientEndpoint, SocksServer service,
+    SocksRelay(Endpoint clientEndpoint,
+               org.bluezoo.gumdrop.socks.server.SocksServer service,
                SocksServerMetrics metrics, long idleTimeoutMs) {
         this.clientEndpoint = clientEndpoint;
         this.service = service;

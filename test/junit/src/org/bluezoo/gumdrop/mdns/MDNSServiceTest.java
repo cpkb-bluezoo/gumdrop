@@ -519,7 +519,7 @@ public class MDNSServiceTest {
         }
 
         @Override
-        boolean isBound() {
+        public boolean isBound() {
             // start() above never creates a real endpoint; tell
             // MdnsServer the (fake) bind succeeded anyway so it
             // proceeds to probing.
@@ -527,17 +527,17 @@ public class MDNSServiceTest {
         }
 
         @Override
-        void sendToGroup(ByteBuffer data) {
+        public void sendToGroup(ByteBuffer data) {
             sentToGroup.add(data.duplicate());
         }
 
         @Override
-        void sendTo(ByteBuffer data, InetSocketAddress destination) {
+        public void sendTo(ByteBuffer data, InetSocketAddress destination) {
             sentUnicast.put(destination, data.duplicate());
         }
 
         @Override
-        TimerHandleWrapper scheduleTimer(long delayMs, Runnable callback) {
+        public TimerHandleWrapper scheduleTimer(long delayMs, Runnable callback) {
             pendingTask = callback;
             return new TimerHandleWrapper(new TimerHandle() {
                 @Override public void cancel() { }

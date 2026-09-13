@@ -70,7 +70,7 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MdnsServer
  */
-final class DnssdAdvertiser {
+public final class DnssdAdvertiser {
 
     /** RFC 6763 section 9: the meta-query name used to browse all advertised service types. */
     static final String DNS_SD_META_QUERY_NAME = "_services._dns-sd._udp.local";
@@ -120,7 +120,7 @@ final class DnssdAdvertiser {
      *                             resolver)
      * @return the generated records, empty if nothing was eligible
      */
-    static List<DnsResourceRecord> buildRecords(List<Server> servers, String hostLabel,
+    public static List<DnsResourceRecord> buildRecords(List<Server> servers, String hostLabel,
                                                  int ttl, Set<String> excludedDescriptions) {
         List<DnsResourceRecord> records = new ArrayList<DnsResourceRecord>();
         Set<String> serviceTypesAdvertised = new LinkedHashSet<String>();

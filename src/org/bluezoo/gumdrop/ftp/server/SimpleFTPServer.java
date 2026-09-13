@@ -1,0 +1,112 @@
+/*
+ * SimpleFTPServer.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.ftp.server;
+
+import org.bluezoo.gumdrop.ftp.FtpListener;
+import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
+import org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler;
+
+import java.nio.file.Path;
+import java.text.MessageFormat;
+import java.util.ResourceBundle;
+import java.util.logging.Logger;
+
+import org.bluezoo.gumdrop.TcpListener;
+import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
+import org.bluezoo.gumdrop.ftp.FtpServer;
+
+/**
+ * FTP service for basic file-based access with optional realm
+ * authentication.
+ *
+ * <p>This service provides a simple FTP server that serves files from a
+ * configured root directory. When a {@link org.bluezoo.gumdrop.auth.Realm}
+ * is set, users are authenticated against it; otherwise any non-empty
+ * password is accepted.
+ *
+ * <h2>Configuration Example</h2>
+ * <pre>{@code
+ * <service class="org.bluezoo.gumdrop.ftp.file.SimpleFTPServer">
+ *   <property name="root-directory">/var/ftp</property>
+ *   <property name="read-only">false</property>
+ *   <property name="realm" ref="#ftpRealm"/>
+ *   <listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/>
+ * </service>
+ * }</pre>
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see FtpServer
+ * @see SimpleFTPHandler
+ */
+public class SimpleFTPServer extends FtpServer {
+
+    private static final Logger LOGGER =
+            Logger.getLogger(SimpleFTPServer.class.getName());
+    private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
+
+    private Path rootDirectory;
+    private boolean readOnly = false;
+
+    private BasicFTPFileSystem fileSystem;
+
+    // ── Configuration ──
+
+    public Path getRootDirectory() {
+        return rootDirectory;
+    }
+
+    public void setRootDirectory(Path rootDirectory) {
+        this.rootDirectory = rootDirectory;
+    }
+
+    public void setRootDirectory(String rootDirectory) {
+        this.rootDirectory = Path.of(rootDirectory);
+    }
+
+    public boolean isReadOnly() {
+        return readOnly;
+    }
+
+    public void setReadOnly(boolean readOnly) {
+        this.readOnly = readOnly;
+    }
+
+    // ── FtpServer hooks ──
+
+    @Override
+    protected void initService() {
+        if (rootDirectory == null) {
+            throw new IllegalStateException(
+                    "rootDirectory must be configured");
+        }
+        fileSystem = new BasicFTPFileSystem(rootDirectory, readOnly);
+        LOGGER.info(MessageFormat.format(
+                L10N.getString("info.simple_ftp_service_initialised"),
+                rootDirectory, readOnly, getRealm() != null));
+    }
+
+    @Override
+    public FtpConnectionHandler createHandler(TcpListener endpoint) {
+        return new SimpleFTPHandler(fileSystem, getRealm());
+    }
+
+}

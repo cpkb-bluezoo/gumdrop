@@ -50,7 +50,7 @@ public class DoTListener extends TcpListener {
     private static final int DEFAULT_PORT = 853;
 
     private int port = DEFAULT_PORT;
-    private DnsServer service;
+    private org.bluezoo.gumdrop.dns.server.DnsServer service;
 
     /**
      * Creates a new DoT listener. TLS is enabled by default.
@@ -83,7 +83,7 @@ public class DoTListener extends TcpListener {
      *
      * @param service the owning service
      */
-    void setService(DnsServer service) {
+    public void setService(org.bluezoo.gumdrop.dns.server.DnsServer service) {
         this.service = service;
     }
 
@@ -92,7 +92,7 @@ public class DoTListener extends TcpListener {
      *
      * @return the owning service
      */
-    public DnsServer getService() {
+    public org.bluezoo.gumdrop.dns.server.DnsServer getService() {
         return service;
     }
 

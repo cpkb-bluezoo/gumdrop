@@ -103,8 +103,10 @@ SOCKS/AMQP/DNS/mDNS/WebDAV internals, MIME/LDAP/JSP/RESP/OTLP/auth types
 (`scripts/c16-internal-rename.py`). Deprecated `@Deprecated` `*Service` shims
 remain for XML compat. **C.2.1** HTTP facade re-exports done (`HttpServer`,
 `HttpClient` at protocol root). **C.2.2** mail protocols done (`smtp/server/SmtpServer`,
-`imap/server/ImapServer`, `pop3/server/Pop3Server` + root re-exports). Next:
-**C.2.3+** remaining protocols.
+`imap/server/ImapServer`, `pop3/server/Pop3Server` + root re-exports). **C.2.3**
+remaining protocols done (FTP, DNS, MQTT, SOCKS, mDNS, health — `*/server/*Server`
+implementations + root re-exports; `scripts/c23-remaining-package-move.py`). Next:
+**C.2.4+** servlet / WebDAV / WebSocket.
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
@@ -155,6 +157,17 @@ root re-export; `HttpClient` root re-export delegating to `http/client/`.
 Handler interfaces (`HttpRequestHandler`, `HttpResponseHandler`, …) stay at
 protocol root or in `client/` — not re-exported via `extends`, which breaks
 Java assignability.
+
+**C.2.2 (mail, done):** `SmtpServer`, `ImapServer`, `Pop3Server` in
+`smtp/server/`, `imap/server/`, `pop3/server/` with root re-exports and
+`*Client` re-exports (`scripts/c22-mail-package-move.py`).
+
+**C.2.3 (remaining protocols, done):** FTP (`FtpServer`, file-server variants),
+DNS (`DnsServer`), MQTT (`MqttServer`, `DefaultMQTTServer`), SOCKS
+(`SocksServer`, `DefaultSOCKSServer`), mDNS (`MdnsServer`), health
+(`HealthServer`) — implementations in `{protocol}/server/` with root
+re-exports; listeners and cross-package helpers publicised where needed
+(`scripts/c23-remaining-package-move.py`).
 
 ### C.3 Handler-first API (no fat server bases)
 

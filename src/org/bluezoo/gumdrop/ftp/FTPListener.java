@@ -96,7 +96,7 @@ public class FtpListener extends TcpListener {
     private Realm realm;
 
     // Back-reference to the owning service (null when used standalone)
-    private FtpServer service;
+    private org.bluezoo.gumdrop.ftp.server.FtpServer service;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
     private FtpServerMetrics metrics;
@@ -279,7 +279,7 @@ public class FtpListener extends TcpListener {
      *
      * @param service the owning service
      */
-    void setService(FtpServer service) {
+    public void setService(org.bluezoo.gumdrop.ftp.server.FtpServer service) {
         this.service = service;
     }
 
@@ -288,7 +288,7 @@ public class FtpListener extends TcpListener {
      *
      * @return the owning service
      */
-    public FtpServer getService() {
+    public org.bluezoo.gumdrop.ftp.server.FtpServer getService() {
         return service;
     }
 

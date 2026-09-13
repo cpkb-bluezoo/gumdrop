@@ -61,11 +61,11 @@ final class DoTProtocolHandler implements ProtocolHandler {
     // RFC 1035 section 4.2.2: max DNS message size is 65535 octets
     private static final int MAX_DNS_MESSAGE_SIZE = 65535;
 
-    private final DnsServer service;
+    private final org.bluezoo.gumdrop.dns.server.DnsServer service;
     private Endpoint endpoint;
     private ByteBuffer accumulator;
 
-    DoTProtocolHandler(DnsServer service) {
+    DoTProtocolHandler(org.bluezoo.gumdrop.dns.server.DnsServer service) {
         this.service = service;
         this.accumulator = ByteBuffer.allocate(4096);
         this.accumulator.flip();

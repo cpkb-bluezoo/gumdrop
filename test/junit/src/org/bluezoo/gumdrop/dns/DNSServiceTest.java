@@ -638,7 +638,7 @@ public class DNSServiceTest {
         InetSocketAddress lastDest;
 
         @Override
-        void sendTo(ByteBuffer data, InetSocketAddress destination) {
+        public void sendTo(ByteBuffer data, InetSocketAddress destination) {
             lastSent = data.duplicate();
             lastDest = destination;
         }
