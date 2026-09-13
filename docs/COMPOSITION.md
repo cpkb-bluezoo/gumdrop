@@ -17,8 +17,8 @@ not XML configuration files or reflective dependency injection.
    logic.
 2. **One entry type per protocol** — e.g. `HttpServer` owns listeners and a
    single handler (or router/decorator chain). Servlet and WebDAV stacks attach
-   as **`ServletRequestHandler`** (planned) and **`WebDAVRequestHandler`**
-   (done) on `HttpServer.builder()`.
+   as **`ServletRequestHandler`** and **`WebDAVRequestHandler`**
+   (both done) on `HttpServer.builder()`.
 3. **Default servers do nothing (application layer)** — a composed server with
    no handler wired must not silently pick up relay, upstream, or mailbox
    behaviour. “Do nothing” is protocol-specific (see [Default behaviour](#default-behaviour)).
@@ -175,22 +175,27 @@ Legacy `HttpRequestHandlerFactory` code can bridge via
 
 ---
 
-## Servlet container *(planned — C.3 step 2)*
+## Servlet container
 
-Target: **`ServletRequestHandler`** on `HttpServer`, not a separate
-`ServletServer` type. The handler is constructed with a **`Container`**
-that owns servlet lifecycle (context init, class loading, deployment):
+**`ServletRequestHandler`** on `HttpServer`, not a separate `ServletServer` type.
+The handler is constructed with a **`Container`** that owns servlet lifecycle
+(worker pool, async timeouts, context init, authentication wiring):
 
 ```java
-Container container = /* … */;
+Container container = new Container();
+container.addContext(new Context(container, "/app", appRoot));
 
 HttpServer server = HttpServer.builder()
         .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
-        .handler(new ServletRequestHandler(container))   // planned
+        .router(new ServletRequestHandler(container))
         .build();
 ```
 
-Until `ServletRequestHandler` lands, use `ServletServer` (interim).
+`ServletRequestHandler` implements {@link HttpServerServiceHook}; composed
+servers call {@link Container#start()} / {@link Container#destroy()} automatically.
+
+`ServletServer` remains for XML configuration; new code should compose
+`ServletRequestHandler` on `HttpServer.builder()` as above.
 
 ---
 
@@ -269,7 +274,7 @@ mbox.addListener(new SmtpListener());
 Wrap handlers instead of subclassing servers or factories:
 
 ```java
-HttpRequestHandler app = new ServletRequestHandler(container);  // planned
+HttpRequestHandler app = new ServletRequestHandler(container);
 HttpRequestHandler withAuth = BasicAuthHandler.decorate(app, realm);
 HttpRequestHandler withTelemetry = TelemetryHandler.decorate(withAuth, config);
 
@@ -338,7 +343,7 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 | `HttpServer.builder()`, `secureEndpoint()`, `HttpTlsConfig` | **Done** |
 | `HttpListener.builder()`, `Http3Listener.builder()` | **Done** |
 | `HttpRequestRouter`, `HttpRequestHandlers`, default 404 | **Done** |
-| `ServletRequestHandler`, `WebDAVRequestHandler` | Servlet planned; **WebDAV done** |
+| `ServletRequestHandler`, `WebDAVRequestHandler` | **Done** |
 | `DnsServer.builder()`, `DnsQueryHandler`, default empty answers | **Done** |
 | `UpstreamRelayHandler`, `AuthoritativeZoneHandler`, `ZoneFile` | **Done** |
 | `Runtime` replaces `Gumdrop.getInstance()` | Planned (§C.4) |

@@ -203,7 +203,7 @@ public class RequestResponseHeaderIndexTest {
         private final HttpResponseState stubState;
 
         StubServletHandler(HttpResponseState stubState) {
-            super(null, null, 8192);
+            super(new Container(), 8192);
             this.stubState = stubState;
         }
 

@@ -21,10 +21,12 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpServerServiceHook;
 import org.bluezoo.gumdrop.http.Headers;
 
 /**
@@ -34,9 +36,11 @@ import org.bluezoo.gumdrop.http.Headers;
  */
 final class ComposedHttpServer extends HttpServer {
 
+    private final HttpRequestRouter router;
     private final HttpRequestHandlerFactory handlerFactory;
 
     ComposedHttpServer(final HttpRequestRouter router) {
+        this.router = router;
         this.handlerFactory = new HttpRequestHandlerFactory() {
             @Override
             public HttpRequestHandler createHandler(HttpResponseState state,
@@ -52,8 +56,30 @@ final class ComposedHttpServer extends HttpServer {
     }
 
     @Override
+    protected void initService() {
+        if (router instanceof HttpServerServiceHook) {
+            ((HttpServerServiceHook) router).initService();
+        }
+    }
+
+    @Override
+    protected void destroyService() {
+        if (router instanceof HttpServerServiceHook) {
+            ((HttpServerServiceHook) router).destroyService();
+        }
+    }
+
+    @Override
     protected HttpRequestHandlerFactory getHandlerFactory() {
         return handlerFactory;
+    }
+
+    @Override
+    protected HttpAuthenticationProvider getAuthenticationProvider() {
+        if (router instanceof HttpServerServiceHook) {
+            return ((HttpServerServiceHook) router).getAuthenticationProvider();
+        }
+        return null;
     }
 
 }

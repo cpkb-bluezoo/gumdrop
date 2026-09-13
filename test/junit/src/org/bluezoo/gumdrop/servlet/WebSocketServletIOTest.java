@@ -443,7 +443,7 @@ public class WebSocketServletIOTest {
         private final HttpResponseState stubState;
 
         StubServletHandler(ServletServer service, HttpResponseState stubState) {
-            super(service, service.getContainer(), 8192);
+            super(service.getContainer(), 8192);
             this.stubState = stubState;
         }
 

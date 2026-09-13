@@ -152,7 +152,6 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     File root;
     private ContainerClassLoader containerClassLoader;
     private ContextClassLoader contextClassLoader;
-    org.bluezoo.gumdrop.servlet.server.ServletServer service;
     byte[] digest; // MD5 digest of web.xml
 
     // ── Resource lookup caches (issue #137) ──
@@ -563,15 +562,15 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     @Override public ThreadPoolExecutor getWorkerThreadPool() {
-        return service.getWorkerThreadPool();
+        return container.getWorkerThreadPool();
     }
 
     @Override public String getWorkerKeepAlive() {
-        return service.getWorkerKeepAlive();
+        return container.getWorkerKeepAlive();
     }
 
     @Override public void setWorkerKeepAlive(String val) {
-        service.setWorkerKeepAlive(val);
+        container.setWorkerKeepAlive(val);
     }
 
     @Override public HitStatistics getHitStatistics() {
@@ -1565,10 +1564,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         }
 
         // Configure authentication provider if authentication is configured
-        if (getAuthMethod() != null && service != null) {
+        if (getAuthMethod() != null && container != null) {
             ServletAuthenticationProvider authProvider =
                     new ServletAuthenticationProvider(this);
-            service.setAuthenticationProvider(authProvider);
+            container.setAuthenticationProvider(authProvider);
         }
 
         // Register with cluster (or re-register with new UUID after reload)

@@ -105,7 +105,7 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.1.0** | Convention + inventory | CONTRIBUTING, this doc, guard test *(done)* |
 | **C.1.1** | Core lifecycle names | `Server` contract; `Gumdrop` server registry *(done)* |
 | **C.1.2** | HTTP stack | `HttpServer`, `HttpClient`, handlers, listeners, metrics; `http/server/` facade *(done)* |
-| **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `WebDAVRequestHandler` **done**; `ServletRequestHandler` planned *(interim: `ServletServer`, `WebdavServer`)* |
+| **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `ServletRequestHandler`, `WebDAVRequestHandler` **done** *(interim: `ServletServer`, `WebdavServer`)* |
 | **C.1.4** | Mail protocols | SMTP, IMAP, POP3 servers, clients, client reply handlers *(done)* |
 | **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, transport types *(done)* |
 | **C.1.6** | Internal / package-private | Lexers, protocol handlers, HPACK/QPACK, MIME/LDAP/JSP/RESP/OTLP *(done)* |

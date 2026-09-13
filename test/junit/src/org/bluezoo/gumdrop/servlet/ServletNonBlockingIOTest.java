@@ -177,7 +177,7 @@ public class ServletNonBlockingIOTest {
     public void testHandlerRequestBodyContentNotifiesReadListener() throws Exception {
         StubHTTPResponseState state = new StubHTTPResponseState();
         ServletServer service = new ServletServer();
-        ServletHandler handler = new ServletHandler(service, service.getContainer(), 8192);
+        ServletHandler handler = new ServletHandler(service.getContainer(), 8192);
         Headers h = new Headers();
         h.add(":method", "POST");
         h.add(":path", "/upload");
@@ -313,7 +313,7 @@ public class ServletNonBlockingIOTest {
         private final HttpResponseState stubState;
 
         StubServletHandler(ServletServer service, HttpResponseState stubState) {
-            super(service, service.getContainer(), 8192);
+            super(service.getContainer(), 8192);
             this.stubState = stubState;
         }
 

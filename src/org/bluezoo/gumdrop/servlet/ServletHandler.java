@@ -58,7 +58,6 @@ public class ServletHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ServletHandler.class.getName());
 
-    private final org.bluezoo.gumdrop.servlet.server.ServletServer service;
     private final Container container;
     private final int bufferSize;
 
@@ -91,19 +90,13 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     private boolean bodyStarted;
     private volatile boolean writePossibleScheduled;
 
-    public ServletHandler(
-            org.bluezoo.gumdrop.servlet.server.ServletServer service,
-            Container container, int bufferSize) {
-        this.service = service;
+    public ServletHandler(Container container, int bufferSize) {
         this.container = container;
         this.bufferSize = bufferSize;
     }
 
-    /**
-     * Returns the servlet service.
-     */
-    org.bluezoo.gumdrop.servlet.server.ServletServer getService() {
-        return service;
+    Container getContainer() {
+        return container;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -169,7 +162,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             response = new Response(this, request, bufferSize);
 
             // Dispatch to worker thread for servlet execution
-            service.serviceRequest(this);
+            container.serviceRequest(this);
 
         } catch (IOException e) {
             String message = ServletServer.L10N.getString("error.create_pipe");
@@ -235,10 +228,6 @@ public class ServletHandler extends DefaultHttpRequestHandler {
         return response;
     }
 
-    Container getContainer() {
-        return container;
-    }
-
     /**
      * Returns request trailer fields, or empty map if none.
      */
@@ -270,7 +259,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
      * connection's I/O thread.
      */
     void dispatchWorkerTask(Runnable task, Runnable onRejected) {
-        service.executeWorker(task, onRejected);
+        container.executeWorker(task, onRejected);
     }
 
     boolean isResponseWritable() {
@@ -525,7 +514,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
     /**
      * Sheds this request with a 503 Service Unavailable response.
      *
-     * <p>Called by {@link ServletServer#serviceRequest} on the SelectorLoop
+     * <p>Called by {@link Container#serviceRequest} on the SelectorLoop
      * thread when the worker pool and its bounded queue are both saturated,
      * providing backpressure instead of unbounded queueing.
      */

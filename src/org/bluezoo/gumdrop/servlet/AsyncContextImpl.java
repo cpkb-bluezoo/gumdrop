@@ -54,7 +54,7 @@ class AsyncContextImpl implements AsyncContext {
     private final Response response;
     private final ServletRequest originalRequest;
     private final ServletResponse originalResponse;
-    private final org.bluezoo.gumdrop.servlet.server.ServletServer service;
+    private final Container container;
     private final List<AsyncListener> listeners = new ArrayList<>();
     
     private long timeout = DEFAULT_TIMEOUT;
@@ -73,7 +73,7 @@ class AsyncContextImpl implements AsyncContext {
         this.response = response;
         this.originalRequest = originalRequest;
         this.originalResponse = originalResponse;
-        this.service = handler.getService();
+        this.container = handler.getContainer();
         
         // Schedule initial timeout
         scheduleTimeout();
@@ -120,7 +120,7 @@ class AsyncContextImpl implements AsyncContext {
             ServletServer.L10N.getString("async.dispatching_path"), path));
         
         // Submit dispatch to worker thread pool
-        service.getWorkerThreadPool().submit(new Runnable() {
+        container.getWorkerThreadPool().submit(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -184,7 +184,7 @@ class AsyncContextImpl implements AsyncContext {
         }
         
         // Run the task in the worker thread pool
-        service.getWorkerThreadPool().submit(new Runnable() {
+        container.getWorkerThreadPool().submit(new Runnable() {
             @Override
             public void run() {
                 try {
@@ -248,7 +248,7 @@ class AsyncContextImpl implements AsyncContext {
             return;
         }
         
-        AsyncTimeoutScheduler scheduler = service.getAsyncTimeoutScheduler();
+        AsyncTimeoutScheduler scheduler = container.getAsyncTimeoutScheduler();
         if (scheduler != null) {
             timeoutHandle = scheduler.schedule(timeout, new AsyncTimeoutCallback() {
                 @Override
