@@ -42,6 +42,7 @@ import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
+import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;

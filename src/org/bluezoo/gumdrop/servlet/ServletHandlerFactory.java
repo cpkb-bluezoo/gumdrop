@@ -22,9 +22,9 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
 
 import java.util.Set;
 

@@ -30,7 +30,7 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFileParser;
 import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
-import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
 import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;

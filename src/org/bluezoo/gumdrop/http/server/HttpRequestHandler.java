@@ -1,0 +1,225 @@
+/*
+ * HttpRequestHandler.java
+ * Copyright (C) 2025 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.http.server;
+
+import org.bluezoo.gumdrop.http.Capsule;
+import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpStatus;
+
+import java.nio.ByteBuffer;
+
+/**
+ * Handler for HTTP request events on a single stream.
+ *
+ * <p>This interface provides an event-driven API for handling HTTP requests.
+ * Each instance handles exactly one request/response exchange (one stream).
+ * Implementations receive request events and use the provided
+ * {@link HttpResponseState} to send the response.
+ *
+ * <h2>Event Sequence</h2>
+ *
+ * <p>For a request with body and trailers:
+ * <pre>
+ * headers()              // initial request headers (:method, :path, etc.)
+ * headers()              // continuation headers (if needed)
+ * startRequestBody()
+ * requestBodyContent()   // first DATA frame
+ * requestBodyContent()   // subsequent DATA frames
+ * endRequestBody()
+ * headers()              // trailer headers
+ * requestComplete()      // stream closed from client
+ * </pre>
+ *
+ * <p>For a request without body (GET, HEAD, etc.):
+ * <pre>
+ * headers()              // request headers with END_STREAM
+ * requestComplete()
+ * </pre>
+ *
+ * <p>The {@code headers()} method may be called multiple times:
+ * <ul>
+ *   <li>Before {@code startRequestBody()} - request headers</li>
+ *   <li>After {@code endRequestBody()} - trailer headers</li>
+ * </ul>
+ *
+ * <h2>Response Sending</h2>
+ *
+ * <p>The handler can send the response at any point using the
+ * {@link HttpResponseState} provided to each callback. Common patterns:
+ * <ul>
+ *   <li>Respond immediately in {@code headers()} for simple requests</li>
+ *   <li>Accumulate body data and respond in {@code endRequestBody()}</li>
+ *   <li>Stream response body while receiving request body</li>
+ * </ul>
+ *
+ * <h2>Example Implementation</h2>
+ *
+ * <pre>{@code
+ * public class HelloHandler extends DefaultHttpRequestHandler {
+ *     
+ *     @Override
+ *     public void headers(HttpResponseState state, Headers headers) {
+ *         if ("GET".equals(headers.getMethod())) {
+ *             Headers response = new Headers();
+ *             response.status(HttpStatus.OK);
+ *             response.add("content-type", "text/plain");
+ *             state.headers(response);
+ *             state.startResponseBody();
+ *             state.responseBodyContent(ByteBuffer.wrap("Hello, World!".getBytes()));
+ *             state.endResponseBody();
+ *             state.complete();
+ *         }
+ *     }
+ * }
+ * }</pre>
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see DefaultHttpRequestHandler
+ * @see HttpResponseState
+ * @see HttpRequestHandlerFactory
+ */
+public interface HttpRequestHandler {
+
+    /**
+     * Headers received.
+     *
+     * <p>Called when HTTP headers are received. This may be called multiple
+     * times for the same request:
+     * <ul>
+     *   <li>Initial request headers (always includes :method, :path, :scheme,
+     *       :authority pseudo-headers regardless of HTTP version)</li>
+     *   <li>Continuation headers (if header block spans multiple frames)</li>
+     *   <li>Trailer headers (after {@link #endRequestBody})</li>
+     * </ul>
+     *
+     * <p>The position in the event sequence indicates the header type:
+     * headers before {@code startRequestBody()} are request headers;
+     * headers after {@code endRequestBody()} are trailers.
+     *
+     * @param state the response state for sending the response
+     * @param headers the headers (pseudo-headers normalized for all HTTP versions)
+     */
+    void headers(HttpResponseState state, Headers headers);
+
+    /**
+     * Request body is starting.
+     *
+     * <p>Called before the first {@link #requestBodyContent} if the request
+     * has a body. Not called for requests without a body (GET, HEAD, etc.).
+     *
+     * @param state the response state
+     */
+    void startRequestBody(HttpResponseState state);
+
+    /**
+     * Request body data received.
+     *
+     * <p>Called for each chunk of request body data. May be called multiple
+     * times. The buffer is only valid during this callback - if the data
+     * is needed later, it must be copied.
+     *
+     * @param state the response state
+     * @param data the body data (position and limit define valid range)
+     */
+    void requestBodyContent(HttpResponseState state, ByteBuffer data);
+
+    /**
+     * Request body complete.
+     *
+     * <p>Called after the last {@link #requestBodyContent} when all body
+     * data has been received. Trailer headers (if any) will follow via
+     * {@link #headers} before {@link #requestComplete}.
+     *
+     * @param state the response state
+     */
+    void endRequestBody(HttpResponseState state);
+
+    /**
+     * Request stream closed from client side.
+     *
+     * <p>This is the final callback for this stream. No more events will
+     * be delivered. The handler should complete its response if not
+     * already done.
+     *
+     * @param state the response state
+     */
+    void requestComplete(HttpResponseState state);
+
+    /**
+     * The request failed due to a transport or protocol-level error
+     * before {@link #requestComplete} could be delivered normally --
+     * e.g. the underlying connection was reset, or closed by the peer
+     * with an error (see {@code QuicConnectionCloseException} for the
+     * HTTP/3 case). This is the final callback for this stream; no more
+     * events will be delivered, and any response already sent through
+     * {@code state} is final.
+     *
+     * <p>Default implementation does nothing, so existing implementations
+     * are unaffected by this method's addition; override to react to
+     * abnormal termination the way {@link
+     * org.bluezoo.gumdrop.http.client.HttpResponseHandler#failed} already
+     * lets client code do for the client side.
+     *
+     * @param state the response state
+     * @param cause the error
+     */
+    default void failed(HttpResponseState state, Exception cause) {
+        // Default: do nothing
+    }
+
+    /**
+     * Returns whether this request accepts HTTP Datagrams (RFC 9297).
+     * Default {@code false}: an HTTP/3 Datagram with no known semantics
+     * aborts the request stream with {@code H3_DATAGRAM_ERROR}.
+     *
+     * @return true if {@link #datagramReceived} should be called
+     */
+    default boolean wantsDatagrams() {
+        return false;
+    }
+
+    /**
+     * An HTTP Datagram associated with this request (QUIC DATAGRAM
+     * demuxed by quarter-stream-ID, or a DATAGRAM capsule). Only called
+     * when {@link #wantsDatagrams()} is true.
+     *
+     * @param state the response state
+     * @param data the datagram payload; valid only during this call
+     */
+    default void datagramReceived(HttpResponseState state, ByteBuffer data) {
+        // Default: do nothing
+    }
+
+    /**
+     * A Capsule Protocol capsule other than DATAGRAM (RFC 9297
+     * section 3.2). Unknown types should usually be ignored.
+     *
+     * @param state the response state
+     * @param type the Capsule Type
+     * @param value the Capsule Value; valid only during this call
+     */
+    default void capsuleReceived(HttpResponseState state, long type, ByteBuffer value) {
+        // Default: do nothing
+    }
+
+}
+

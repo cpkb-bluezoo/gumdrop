@@ -47,10 +47,10 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
-import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
-import org.bluezoo.gumdrop.http.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
@@ -2111,7 +2111,7 @@ public class HTTP3ProductionEndToEndTest {
      * issues a GET and a POST immediately from {@link
      * QuicEngine.EarlyDataHandler#earlyDataReady}, both via real
      * {@link H3Request} objects -- the same class application code gets
-     * back from {@link org.bluezoo.gumdrop.http.client.HttpClient#request},
+     * back from {@link org.bluezoo.gumdrop.http.HttpClient#request},
      * wired up exactly the way {@code HttpClient.connectH3} wires it
      * (idempotent {@code connectionAccepted}, {@code runDeferredRequests}
      * once established). Both requests complete successfully, but only

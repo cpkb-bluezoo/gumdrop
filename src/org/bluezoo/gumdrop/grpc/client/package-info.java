@@ -34,6 +34,6 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.grpc
- * @see org.bluezoo.gumdrop.http.client.HttpClient
+ * @see org.bluezoo.gumdrop.http.HttpClient
  */
 package org.bluezoo.gumdrop.grpc.client;

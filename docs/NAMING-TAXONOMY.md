@@ -101,7 +101,9 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.1.4** | Mail protocols | SMTP, IMAP, POP3 servers, clients, client reply handlers *(done)* |
 | **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, transport types *(done)* |
 | **C.1.6** | Internal / package-private | Lexers, protocol handlers, HPACK/QPACK, MIME/LDAP/JSP/RESP/OTLP *(done)* |
-| **C.2.1** | HTTP facade re-exports | `http/server/HttpServer` + root `HttpServer`; root `HttpClient` *(done)* |
+| **C.2.1** | HTTP facade layout | `HttpServer` and `HttpClient` at protocol root *(done)* |
+| **C.2.5** | HTTP server SPI in `http/server/` | handlers, listeners, auth, metrics, `Stream` — symmetric to `http/client/` *(done)* |
+| **C.2.6** | `HttpResponseState` in `http/server/` | server outbound response API; not client-facing *(done)* |
 | **C.2.2** | Mail facade layout | SMTP/IMAP/POP3 `server/` facades + root `*Server`/`*Client` re-exports *(done)* |
 | **C.2.3** | Remaining protocol `server/` facades | FTP, DNS, MQTT, SOCKS, mDNS, health + root re-exports *(done)* |
 | **C.2.4** | Servlet / WebDAV / WebSocket `server/` facades | `ServletServer`, `WebdavServer`, `WebSocketServer` *(done)* |

@@ -28,12 +28,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpListener;
-import org.bluezoo.gumdrop.http.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpListener;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
-import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.websocket.client.WebSocketClient;

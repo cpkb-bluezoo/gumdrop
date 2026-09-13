@@ -119,7 +119,7 @@ class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
      * @param listener the listener, or null to disable
      */
     @Override
-    protected void setAltSvcListener(AltSvcListener listener) {
+    public void setAltSvcListener(AltSvcListener listener) {
         super.setAltSvcListener(listener);
     }
 

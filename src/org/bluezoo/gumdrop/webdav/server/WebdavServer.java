@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.webdav.server;
 import org.bluezoo.gumdrop.webdav.DeadPropertyStore;
 import org.bluezoo.gumdrop.webdav.FileHandlerFactory;
 
-import org.bluezoo.gumdrop.http.server.HttpServer;
+import org.bluezoo.gumdrop.http.HttpServer;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -34,7 +34,7 @@ import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 
 /**
  * WebDAV protocol server — filesystem HTTP with optional RFC 4918 authoring.

@@ -25,7 +25,7 @@ import java.util.Set;
 
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
-import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
+import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 
 /**
  * HTTP authentication provider for servlet applications.

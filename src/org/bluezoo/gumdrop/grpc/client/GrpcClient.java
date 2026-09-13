@@ -32,7 +32,7 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelAdapter;
 import org.bluezoo.gumdrop.grpc.proto.ProtoParseException;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
-import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParseException;

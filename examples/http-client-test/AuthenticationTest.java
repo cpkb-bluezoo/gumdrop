@@ -20,7 +20,7 @@
  */
 
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
-import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
 

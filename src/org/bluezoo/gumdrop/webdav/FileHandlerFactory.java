@@ -21,9 +21,9 @@
 
 package org.bluezoo.gumdrop.webdav;
 
-import org.bluezoo.gumdrop.http.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.Headers;
 
 import java.nio.file.Path;

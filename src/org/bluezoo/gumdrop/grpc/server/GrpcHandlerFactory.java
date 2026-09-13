@@ -25,9 +25,9 @@ import java.util.Set;
 
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
-import org.bluezoo.gumdrop.http.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.Headers;
 
 /**

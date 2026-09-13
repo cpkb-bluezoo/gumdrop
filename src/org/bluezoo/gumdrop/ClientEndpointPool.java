@@ -79,7 +79,7 @@ import java.util.logging.Logger;
  *
  * <h4>HttpClient Integration</h4>
  *
- * <p>{@link org.bluezoo.gumdrop.http.client.HttpClient} accepts a
+ * <p>{@link org.bluezoo.gumdrop.http.HttpClient} accepts a
  * pool via {@code setConnectionPool(ClientEndpointPool)}. For other
  * clients (SMTP, LDAP, Redis), pooling can be managed at the
  * application layer by acquiring/releasing endpoints around client
@@ -88,7 +88,7 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Endpoint
  * @see ClientEndpoint
- * @see org.bluezoo.gumdrop.http.client.HttpClient#setConnectionPool
+ * @see org.bluezoo.gumdrop.http.HttpClient#setConnectionPool
  */
 public class ClientEndpointPool {
 

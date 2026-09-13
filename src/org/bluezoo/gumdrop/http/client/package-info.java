@@ -24,7 +24,7 @@
  * automatic transport negotiation (DNS HTTPS-record discovery, cached
  * Alt-Svc, ALPN) choosing between them.
  *
- * <p>{@link org.bluezoo.gumdrop.http.client.HttpClient} is the facade
+ * <p>{@link org.bluezoo.gumdrop.http.HttpClient} is the facade
  * applications use to make requests; {@link
  * org.bluezoo.gumdrop.http.client.HttpRequest} represents one request,
  * {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler} the
@@ -40,7 +40,7 @@
  * cancellation, and Basic/Bearer/Digest/OAuth authentication.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.http.client.HttpClient
+ * @see org.bluezoo.gumdrop.http.HttpClient
  * @see org.bluezoo.gumdrop.http.client.HttpResponseHandler
  * @see org.bluezoo.gumdrop.http.h3
  */

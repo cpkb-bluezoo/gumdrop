@@ -28,7 +28,7 @@ import org.bluezoo.gumdrop.servlet.RequestHandler;
 import org.bluezoo.gumdrop.servlet.ServletHandler;
 import org.bluezoo.gumdrop.servlet.ServletHandlerFactory;
 
-import org.bluezoo.gumdrop.http.server.HttpServer;
+import org.bluezoo.gumdrop.http.HttpServer;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -47,8 +47,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
-import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.servlet.jndi.Resource;
 import org.bluezoo.gumdrop.util.MessageFormatter;
 

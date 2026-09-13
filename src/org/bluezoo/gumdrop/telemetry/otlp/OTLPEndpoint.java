@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.telemetry.otlp;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
-import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 

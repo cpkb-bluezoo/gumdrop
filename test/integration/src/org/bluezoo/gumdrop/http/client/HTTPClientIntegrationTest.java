@@ -32,6 +32,7 @@ import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.junit.BeforeClass;
 import org.junit.Rule;

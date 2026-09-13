@@ -10,13 +10,13 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HttpResponseState;
-import org.bluezoo.gumdrop.http.HttpListener;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpListener;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ClientEndpoint;

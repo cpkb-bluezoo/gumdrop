@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * An HTTP/3 request that sends via {@link Http3ClientHandler}.
  *
  * <p>Implements the {@link HttpRequest} interface so that application code
- * using {@link org.bluezoo.gumdrop.http.client.HttpClient} works
+ * using {@link org.bluezoo.gumdrop.http.HttpClient} works
  * identically regardless of whether the underlying transport is
  * HTTP/1.1, HTTP/2, or HTTP/3.
  *

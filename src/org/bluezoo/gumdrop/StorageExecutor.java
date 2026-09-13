@@ -233,7 +233,7 @@ public final class StorageExecutor {
      * {@link #submit(Endpoint, Callable, Callback)}. The {@code loopDispatcher}
      * must marshal the supplied {@link Runnable} onto the thread that owns the
      * caller's connection state (its SelectorLoop thread) — for HTTP this is
-     * {@link org.bluezoo.gumdrop.http.HttpResponseState#execute
+     * {@link org.bluezoo.gumdrop.http.server.HttpResponseState#execute
      * HttpResponseState.execute}. The success/failure {@link Callback} is always
      * invoked through that dispatcher, so it may safely touch connection state.
      *

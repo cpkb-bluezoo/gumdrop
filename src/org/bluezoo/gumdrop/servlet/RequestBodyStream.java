@@ -42,7 +42,7 @@ import java.util.ArrayDeque;
  * <p>{@link #offer(byte[])} never blocks: when the buffered byte count
  * exceeds a high-water mark it returns {@code true} so the caller can
  * apply backpressure via {@link
- * org.bluezoo.gumdrop.http.HttpResponseState#pauseRequestBody()} instead.
+ * org.bluezoo.gumdrop.http.server.HttpResponseState#pauseRequestBody()} instead.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

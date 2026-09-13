@@ -8,7 +8,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
 import org.junit.Test;

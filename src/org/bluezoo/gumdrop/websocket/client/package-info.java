@@ -25,7 +25,7 @@
  * <p>{@link org.bluezoo.gumdrop.websocket.client.WebSocketClient} is the
  * high-level facade for connecting to WebSocket servers, with the same
  * automatic transport negotiation as {@link
- * org.bluezoo.gumdrop.http.client.HttpClient}. It uses the same {@link
+ * org.bluezoo.gumdrop.http.HttpClient}. It uses the same {@link
  * org.bluezoo.gumdrop.websocket.WebSocketEventHandler} interface as the
  * server side, so application code can be reused in both roles.
  *

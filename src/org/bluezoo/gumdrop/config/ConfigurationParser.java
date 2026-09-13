@@ -93,12 +93,26 @@ public class ConfigurationParser extends DefaultHandler {
     private static final Map<String, String> LEGACY_CLASS_ALIASES;
     static {
         Map<String, String> map = new LinkedHashMap<String, String>();
+        map.put("org.bluezoo.gumdrop.http.HTTPResponseState",
+                "org.bluezoo.gumdrop.http.server.HttpResponseState");
+        map.put("org.bluezoo.gumdrop.http.HttpResponseState",
+                "org.bluezoo.gumdrop.http.server.HttpResponseState");
         map.put("org.bluezoo.gumdrop.http.HTTPListener",
-                "org.bluezoo.gumdrop.http.HttpListener");
+                "org.bluezoo.gumdrop.http.server.HttpListener");
+        map.put("org.bluezoo.gumdrop.http.HttpListener",
+                "org.bluezoo.gumdrop.http.server.HttpListener");
         map.put("org.bluezoo.gumdrop.http.h3.HTTP3Listener",
                 "org.bluezoo.gumdrop.http.h3.Http3Listener");
         map.put("org.bluezoo.gumdrop.http.client.HTTPClient",
-                "org.bluezoo.gumdrop.http.client.HttpClient");
+                "org.bluezoo.gumdrop.http.HttpClient");
+        map.put("org.bluezoo.gumdrop.http.client.HttpClient",
+                "org.bluezoo.gumdrop.http.HttpClient");
+        map.put("org.bluezoo.gumdrop.http.HTTPClient",
+                "org.bluezoo.gumdrop.http.HttpClient");
+        map.put("org.bluezoo.gumdrop.http.HTTPService",
+                "org.bluezoo.gumdrop.http.HttpServer");
+        map.put("org.bluezoo.gumdrop.http.HTTPServer",
+                "org.bluezoo.gumdrop.http.HttpServer");
         map.put("org.bluezoo.gumdrop.http.HttpServer",
                 "org.bluezoo.gumdrop.http.HttpServer");
         map.put("org.bluezoo.gumdrop.servlet.ServletServer",

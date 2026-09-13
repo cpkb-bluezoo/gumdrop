@@ -22,10 +22,10 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.IOException;

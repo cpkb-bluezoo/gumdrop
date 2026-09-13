@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.ClientHandler;
+import org.bluezoo.gumdrop.http.HttpClient;
 
 /**
  * Handler interface for HTTP client connection lifecycle events.

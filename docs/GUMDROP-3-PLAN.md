@@ -102,7 +102,9 @@ facades (C.1.1–C.1.5) plus internal renames: mail/FTP lexers, HPACK/QPACK,
 SOCKS/AMQP/DNS/mDNS/WebDAV internals, MIME/LDAP/JSP/RESP/OTLP/auth types
 (`scripts/c16-internal-rename.py`). Deprecated `@Deprecated` `*Service` shims
 remain for XML compat. **C.2.1** HTTP facade re-exports done (`HttpServer`,
-`HttpClient` at protocol root). **C.2.2** mail protocols done (`smtp/server/SmtpServer`,
+`HttpClient` at protocol root). **C.2.5** HTTP server SPI done (`http/server/`
+handlers, listeners, auth, metrics, `Stream`; `scripts/c25-http-server-spi-move.py`).
+**C.2.2** mail protocols done (`smtp/server/SmtpServer`,
 `imap/server/ImapServer`, `pop3/server/Pop3Server` + root re-exports). **C.2.3**
 remaining protocols done (FTP, DNS, MQTT, SOCKS, mDNS, health — `*/server/*Server`
 implementations + root re-exports; `scripts/c23-remaining-package-move.py`). **C.2.4**
@@ -116,7 +118,7 @@ servlet / WebDAV / WebSocket done (`servlet/server/ServletServer`,
 | `Service` interface | Retire or narrow | Lifecycle moves to `Runtime` + optional `Server`/`Client` facades |
 | `HTTPServer`, `AMQPClient` | `HttpServer`, `AmqpClient` | **CamelCase acronyms** throughout (hopf precedent) |
 | `HttpRequestHandler` | `http.server.HttpRequestHandler` | Handler interfaces live under role subpackages |
-| `HttpClient` | `http.client.HttpClient` | Client facades mirror server naming |
+| `HttpClient` | `http.HttpClient` | Client facade at protocol root; SPI in `http/client/` |
 | `smtp/client/handler/ServerEhloReplyHandler` | Rename to client-side reply handlers | “Server*” in client packages is confusing |
 
 **Name churn:** expect a **mass rename** across `src/`, tests, examples, web
@@ -131,7 +133,7 @@ one **flag day** 3.0.0 beta; document breaking changes in CHANGELOG.
 http/
   (shared)          — constants, shared types, algorithms only; avoid heavy
                       materialisation; keep this layer small
-  server/             — HttpServer, HttpListener, HttpRequestHandler, staged
+  server/             — HttpListener, HttpRequestHandler, staged handlers
                       server handlers, server-side adapters
   client/             — HttpClient, HttpResponseHandler, client adapters
   h1/, h2/, h2/hpack/, h3/, h3/qpack/, doh/  — version/codec subpackages
@@ -154,11 +156,25 @@ Should `HttpServer` / `HttpClient` live at:
 protocol root; implementation detail in `server/` / `client/` subpackages.
 See [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md).
 
-**C.2.1 (HTTP, done):** `HttpServer` implementation in `http/server/` with
-root re-export; `HttpClient` root re-export delegating to `http/client/`.
-Handler interfaces (`HttpRequestHandler`, `HttpResponseHandler`, …) stay at
-protocol root or in `client/` — not re-exported via `extends`, which breaks
-Java assignability.
+**C.2.1 (HTTP facades, done):** `HttpServer` and `HttpClient` live at the
+protocol root (canonical implementations). Handler interfaces must **not**
+be re-exported with `extends` — it breaks Java assignability.
+
+**C.2.5 (HTTP server SPI, done):** Server-side handler interfaces, factories,
+listeners, auth providers, metrics, and the h1/h2 `Stream` implementation live in
+`http/server/` (canonical types), mirroring `http/client/`. Shared codec/transport
+types (`Headers`, `HttpStatus`, `h2/`, `h3/`, `hpack/`, `qpack/`) remain at
+`http/` or version subpackages; server handler SPI (`HttpResponseState`,
+`HttpRequestHandler`, …) lives in `http/server/`. `ConfigurationParser` maps legacy
+`org.bluezoo.gumdrop.http.HttpListener` XML class names to
+`org.bluezoo.gumdrop.http.server.HttpListener`. Legacy XML class names
+`HTTPService` and `HTTPServer` map to `org.bluezoo.gumdrop.http.HttpServer`
+via `ConfigurationParser` (no deprecated shim type).
+
+**C.2.6 (HttpResponseState, done):** `HttpResponseState` moved from the protocol
+root into `http/server/` — it is server handler SPI (outbound response API), not
+client-facing and not shared codec. `Stream` and `H3Stream` still implement it;
+legacy XML FQCNs map via `ConfigurationParser`.
 
 **C.2.2 (mail, done):** `SmtpServer`, `ImapServer`, `Pop3Server` in
 `smtp/server/`, `imap/server/`, `pop3/server/` with root re-exports and

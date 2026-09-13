@@ -1,6 +1,10 @@
 /**
- * HTTP server-side facades: {@link org.bluezoo.gumdrop.http.server.HttpServer}
- * and related wiring. Primary entry types are re-exported at
- * {@link org.bluezoo.gumdrop.http} for ergonomics (§C.2 Option 2).
+ * HTTP server-side SPI: listeners, request handlers, response state,
+ * authentication, and metrics. Application facades {@link org.bluezoo.gumdrop.http.HttpServer}
+ * and {@link org.bluezoo.gumdrop.http.HttpClient} live in the protocol root package.
+ *
+ * <p>Shared codec types ({@link org.bluezoo.gumdrop.http.Headers},
+ * {@link org.bluezoo.gumdrop.http.HttpStatus}, {@link org.bluezoo.gumdrop.http.HttpVersion})
+ * remain in {@link org.bluezoo.gumdrop.http}.
  */
 package org.bluezoo.gumdrop.http.server;

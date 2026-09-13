@@ -29,7 +29,7 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.HttpListener;
+import org.bluezoo.gumdrop.http.server.HttpListener;
 import org.bluezoo.gumdrop.smtp.SmtpListener;
 
 import java.io.File;

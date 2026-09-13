@@ -271,7 +271,7 @@ public class HttpClientProtocolHandler
      *
      * @param trace the trace to propagate, or null to disable
      */
-    void setTraceContext(Trace trace) {
+    public void setTraceContext(Trace trace) {
         this.traceContext = trace;
     }
 
@@ -280,7 +280,7 @@ public class HttpClientProtocolHandler
      *
      * @param listener the listener, or null to disable
      */
-    protected void setAltSvcListener(AltSvcListener listener) {
+    public void setAltSvcListener(AltSvcListener listener) {
         this.altSvcListener = listener;
     }
 

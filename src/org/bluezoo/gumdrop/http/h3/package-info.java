@@ -30,7 +30,7 @@
  * connection; each request is a {@link
  * org.bluezoo.gumdrop.http.h3.H3Stream}, itself the QUIC stream's
  * protocol handler, implementing {@link
- * org.bluezoo.gumdrop.http.HttpResponseState} so request handlers work
+ * org.bluezoo.gumdrop.http.server.HttpResponseState} so request handlers work
  * identically to HTTP/1.1 and HTTP/2. On the client side, {@link
  * org.bluezoo.gumdrop.http.h3.Http3ClientHandler} owns the connection's
  * control stream and SETTINGS exchange, and {@link
