@@ -35,9 +35,12 @@
 
 <p>
 Gumdrop provides a comprehensive HTTP implementation supporting HTTP/3,
-HTTP/2, and HTTP/1.x. The HTTP layer serves as the foundation for
-higher-level services including the <a href="servlet.html">servlet
-container</a> and <a href="webdav.html">file server</a>.
+HTTP/2, and HTTP/1.x. Applications compose an <code>HttpServer</code> with
+listeners and an <code>HttpRequestHandler</code> — see
+<a href="configuration.html">Application composition</a>.
+Higher-level stacks attach as handlers: <a href="servlet.html">servlet
+container</a> (<code>ServletRequestHandler</code>),
+<a href="webdav.html">WebDAV</a> (<code>WebDAVRequestHandler</code>).
 </p>
 
 <h3>Contents</h3>
@@ -141,11 +144,16 @@ management, stream multiplexing, and congestion control, while HTTP/3 framing
 
 <p>
 From the application&rsquo;s perspective, HTTP/3 is transparent. The same
-<code>HttpRequestHandlerFactory</code> and <code>HttpRequestHandler</code>
-interfaces are used regardless of whether the request arrived over HTTP/3,
-HTTP/2, or HTTP/1.1. The only visible difference is the HTTP version
-reported by <code>HttpResponseState.getVersion()</code>.
+<code>HttpRequestHandler</code> interface is used regardless of whether the
+request arrived over HTTP/3, HTTP/2, or HTTP/1.1. The only visible difference
+is the HTTP version reported by
+<code>HttpResponseState.getVersion()</code>.
 </p>
+
+<p><em>Legacy code may still reference <code>HttpRequestHandlerFactory</code>;
+Gumdrop 3 targets a single handler (or decorator chain) on
+<code>HttpServer</code> — see <a href="configuration.html">Application
+composition</a>.</em></p>
 
 <h4>Configuration</h4>
 
@@ -367,18 +375,21 @@ allowing handlers to focus on application logic while the framework handles
 framing, header compression, flow control, and connection management.
 </p>
 
-<h4>Core Interfaces</h4>
+<h4>Core interfaces</h4>
 
 <p>
-The server handler API consists of three main interfaces:
+The server handler API centres on two interfaces (Gumdrop 3); a factory
+layer exists in 2.x code but is being removed:
 </p>
 
 <ul>
-<li><b>HttpRequestHandlerFactory</b> - creates handlers for incoming requests,
-enabling routing based on path, method, or other headers</li>
-<li><b>HttpRequestHandler</b> - receives request events (headers, body chunks,
-completion) for a single stream</li>
-<li><b>HttpResponseState</b> - provided to handlers for sending responses</li>
+<li><b>HttpRequestHandler</b> — receives request events (headers, body chunks,
+completion) for a single stream; implement this or compose
+<code>ServletRequestHandler</code> / <code>WebDAVRequestHandler</code></li>
+<li><b>HttpResponseState</b> — provided to handlers for sending responses
+(<code>org.bluezoo.gumdrop.http.server</code>)</li>
+<li><b>HttpRequestHandlerFactory</b> — <em>legacy</em>; routing belongs in the
+handler or a small router object on <code>HttpServer</code></li>
 </ul>
 
 <h4>Event Sequence</h4>
@@ -739,13 +750,17 @@ but disabled by default for security; set <code>trace-method-enabled</code> to
 <code>true</code> to enable it (RFC 9110 section 9.3.8).
 </p>
 
-<h3 id="configuration">Configuration</h3>
+<h3 id="configuration">Legacy XML configuration</h3>
 
-<h4>HttpServer Properties</h4>
+<p><em>Gumdrop 3 uses <a href="configuration.html">Java composition</a>. The
+following describes Gumdrop 2.x <code>HttpServer</code> / service properties
+for migration reference.</em></p>
+
+<h4>HttpServer properties</h4>
 
 <p>
-HTTP services (ServletServer, WebdavServer, etc.) support the following
-service-level properties:
+Legacy HTTP services (<code>ServletServer</code>, <code>WebdavServer</code>, …)
+supported the following service-level properties:
 </p>
 
 <ul>

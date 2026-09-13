@@ -1,5 +1,10 @@
 # Container & Cloud Deployment
 
+> **Gumdrop 3:** new deployments use **Java composition**, not `gumdroprc` XML.
+> See [COMPOSITION.md](COMPOSITION.md) and [web/configuration.html](../web/configuration.html).
+> The sections below describe the **2.x container image** until the Docker
+> entrypoint is migrated to a composition-based `main`.
+
 This guide covers running Gumdrop in ephemeral cloud containers (Docker /
 Kubernetes): the operational knobs for per-instance robustness and clean
 lifecycle, plus the horizontal-scaling constraints you must design around.

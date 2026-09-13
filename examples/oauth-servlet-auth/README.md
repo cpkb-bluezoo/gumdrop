@@ -15,6 +15,9 @@ The `OAuthRealm` validates OAuth 2.0 access tokens by performing token introspec
 
 ## Configuration
 
+> **Gumdrop 3** uses Java composition (`HttpServer` + `ServletRequestHandler`), not
+> `server.xml` below. See [docs/COMPOSITION.md](../../docs/COMPOSITION.md).
+
 ### 1. OAuth Properties File (`oauth.properties`)
 
 ```properties

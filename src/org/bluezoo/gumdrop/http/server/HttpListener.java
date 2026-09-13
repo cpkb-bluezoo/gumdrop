@@ -431,4 +431,49 @@ public class HttpListener extends TcpListener {
         }
     }
 
+    /**
+     * Creates a builder for a TCP HTTP listener.
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /**
+     * Builds an {@link HttpListener} for use with {@link org.bluezoo.gumdrop.http.HttpServer#builder()}.
+     */
+    public static final class Builder {
+
+        private int port = -1;
+        private String addresses;
+        private boolean secure;
+
+        private Builder() {
+        }
+
+        public Builder port(int port) {
+            this.port = port;
+            return this;
+        }
+
+        public Builder addresses(String addresses) {
+            this.addresses = addresses;
+            return this;
+        }
+
+        public Builder secure(boolean secure) {
+            this.secure = secure;
+            return this;
+        }
+
+        public HttpListener build() {
+            HttpListener listener = new HttpListener();
+            listener.setPort(port);
+            if (addresses != null) {
+                listener.setAddresses(addresses);
+            }
+            listener.setSecure(secure);
+            return listener;
+        }
+    }
+
 }

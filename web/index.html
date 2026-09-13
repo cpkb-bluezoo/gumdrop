@@ -86,8 +86,9 @@ client with automatic connection recovery and SelectorLoop affinity</li>
 client with SelectorLoop affinity for server integration</li>
 <li><a href="grpc.html"><strong>gRPC Client &amp; Server</strong></a> - gRPC over
 HTTP/2 with event-oriented protobuf, no generated code</li>
-<li><a href="configuration.html"><strong>Configuration</strong></a> -
-dependency injection framework, property syntax, and example configurations</li>
+<li><a href="configuration.html"><strong>Application composition</strong></a> —
+Java <code>Runtime</code>, listeners, and handlers (canonical Gumdrop 3 setup;
+no XML <code>gumdroprc</code>)</li>
 </ul>
 
 <h3>Architecture</h3>
@@ -527,8 +528,10 @@ Endpoints track timestamps for creation, last activity, and connection establish
 
 <p>
 Gumdrop uses a lightweight dependency injection framework to wire together its
-components from an XML configuration file. See the
-<a href="configuration.html">Configuration</a> documentation for full details
+Gumdrop 3 wires applications in Java — see
+<a href="configuration.html">Application composition</a> and
+<a href="../docs/COMPOSITION.md">docs/COMPOSITION.md</a>. Legacy
+<code>gumdroprc</code> XML is not supported in 3.0.
 on component declarations, property syntax (<code>value</code>,
 <code>path</code>, and <code>ref</code> attributes), type conversion,
 collections, services and listeners, and example configurations.

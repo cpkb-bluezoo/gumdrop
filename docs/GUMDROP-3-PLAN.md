@@ -27,9 +27,9 @@ Design goals:
 - **Unified endpoint model** — transport (`Endpoint`) + protocol adapter
   (`ProtocolHandler` and protocol-specific adapters) + application handlers,
   symmetric for listen and dial paths.
-- **Composition over reflection** — explicit builder/configuration APIs; XML
-  (`gumdroprc`) desugars into builders via a **closed registry**, not
-  reflective DI.
+- **Composition over reflection** — explicit builder/composition APIs in Java;
+  **no `gumdroprc` XML** in Gumdrop 3.0 while the handler-first API stabilises
+  (see [COMPOSITION.md](COMPOSITION.md)).
 - **Explicit runtime** — no process-wide singleton; a `Runtime` (name TBD)
   owns reactor loops, timers, executors, and listener registration.
 
@@ -100,17 +100,29 @@ gravity.
 **Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.6** complete — public
 facades (C.1.1–C.1.5) plus internal renames: mail/FTP lexers, HPACK/QPACK,
 SOCKS/AMQP/DNS/mDNS/WebDAV internals, MIME/LDAP/JSP/RESP/OTLP/auth types
-(`scripts/c16-internal-rename.py`). Deprecated `@Deprecated` `*Service` shims
-remain for XML compat. **C.2.1** HTTP facade re-exports done (`HttpServer`,
-`HttpClient` at protocol root). **C.2.5** HTTP server SPI done (`http/server/`
+(`scripts/c16-internal-rename.py`). Interim `*Service` / `ServletServer` /
+`WebdavServer` types remain in code during C.2; **end state is handler composition
+only** (§C.3). **C.2.1** HTTP facades done (`HttpServer`, `HttpClient` at protocol root). **C.2.5** HTTP server SPI done (`http/server/`
 handlers, listeners, auth, metrics, `Stream`; `scripts/c25-http-server-spi-move.py`).
 **C.2.2** mail protocols done (`smtp/server/SmtpServer`,
 `imap/server/ImapServer`, `pop3/server/Pop3Server` + root re-exports). **C.2.3**
 remaining protocols done (FTP, DNS, MQTT, SOCKS, mDNS, health — `*/server/*Server`
 implementations + root re-exports; `scripts/c23-remaining-package-move.py`). **C.2.4**
-servlet / WebDAV / WebSocket done (`servlet/server/ServletServer`,
-`webdav/server/WebdavServer`, `websocket/server/WebSocketServer` + root re-exports;
-`scripts/c24-http-app-package-move.py`).
+servlet / WebDAV / WebSocket package moves done (`servlet/server/ServletServer`,
+`webdav/server/WebdavServer`, … — **interim**; target is `ServletRequestHandler` /
+`WebDAVRequestHandler` on `HttpServer`; `scripts/c24-http-app-package-move.py`).
+
+#### Naming exceptions (tradenames)
+
+Most acronyms use camelCase (`Http`, `Smtp`, `Dns`). **Documented exceptions:**
+
+| Name | Spelling | Example target type |
+|------|----------|---------------------|
+| WebDAV | **WebDAV** (tradename) | `WebDAVRequestHandler`, not `WebdavRequestHandler` |
+| WebSocket | one word | `WebSocketClient` |
+
+The interim rename `WebDAVService` → `WebdavServer` was over-eager; public API
+and docs should converge on **WebDAV** for user-visible names.
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
@@ -194,21 +206,39 @@ WebDAV helpers publicised where cross-package wiring requires it
 
 ### C.3 Handler-first API (no fat server bases)
 
-**Principle:** default server behaviour is “do nothing” or stock handlers, not
+**Principle:** applications implement **handler interfaces** and compose servers
+in Java. Default server behaviour is stock handlers or explicit wiring — not
 abstract classes you must extend.
 
 | Anti-pattern | Target |
 |--------------|--------|
-| Subclass `HttpServer` / `WebdavServer` / `ServletServer` for app logic | Compose `HttpServer` with `HttpRequestHandlerFactory` / decorators |
-| Override methods on protocol base classes | Implement staged handler interfaces or wrap factories |
-| Client already OK (`HttpClient` works without subclassing) | Extend that pattern to all protocols |
+| Subclass `HttpServer`, `ServletServer`, `WebdavServer`, … for app logic | **`HttpServer` + `HttpRequestHandler`** (e.g. `ServletRequestHandler`, `WebDAVRequestHandler`) |
+| `HttpRequestHandlerFactory` as public SPI | **Handler or router** on `HttpServer`; factory collapses to optional internal adapter during migration |
+| Override methods on protocol base classes | Staged handler interfaces + **decorators** for cross-cutting concerns |
+| Client already OK (`HttpClient` without subclassing) | Same pattern for all protocols |
+
+**HTTP end state:** only **`HttpServer`** at the protocol root. No
+`ServletServer`, no `WebDAVServer` / `WebdavServer` — servlet and WebDAV are
+**`ServletRequestHandler`** and **`WebDAVRequestHandler`** implementing
+`HttpRequestHandler`.
 
 **Keep and promote:** staged handler interfaces (SMTP, IMAP, POP3, FTP, etc.)
-as the **primary implementer API** — this is a Gumdrop strength.
+as the **primary implementer API**.
 
-**Add:** factory **decorators** for cross-cutting concerns (auth, telemetry,
-rate limits) instead of subclassing `*Service` — hopf’s `BasicAuthFactory`
-pattern.
+**Cross-cutting:** auth, telemetry, rate limits — **handler decorators** (hopf
+`BasicAuthFactory` idea, applied to handlers not factories).
+
+**Migration steps (C.3):**
+
+1. Introduce `HttpServer.builder()` accepting `HttpRequestHandler` (internal
+   factory adapter until factory type is removed).
+2. Introduce `ServletRequestHandler`, `WebDAVRequestHandler`; deprecate
+   `ServletServer`, `WebdavServer`.
+3. Remove public `HttpRequestHandlerFactory`; routing lives in handler or a
+   small composed router object.
+4. Update all examples and `web/` docs to [COMPOSITION.md](COMPOSITION.md).
+
+See [COMPOSITION.md](COMPOSITION.md) for canonical patterns.
 
 ### C.4 Runtime replaces `Gumdrop.getInstance()`
 
@@ -227,7 +257,7 @@ Runtime rt = Runtime.start(config);
 
 HttpServer server = HttpServer.builder()
     .listener(HttpListener.builder().port(443).tls(credentials).build())
-    .handlerFactory(myFactory)
+    .handler(new ServletRequestHandler(container))
     .build();
 server.start(rt);
 
@@ -255,30 +285,43 @@ global singleton.
 offer a **test/single-client shortcut** (embedded minimal runtime) but not a
 hidden global singleton in library code.
 
-### C.5 Retire reflection DI; composition + closed registry
+### C.5 Remove XML configuration; composition only
 
-**Remove:**
+**Remove (3.0):**
 
+- `gumdroprc` XML configuration as a supported deployment path
 - `ComponentRegistry`, reflective setter injection, `<component class="…">`
-  arbitrary class loading.
+  arbitrary class loading
+- `ConfigurationParser` as the primary way to start applications
+- Documentation and examples that teach XML-first setup
 
 **Replace with:**
 
-- **Builder APIs** per protocol (`HttpServer.builder()`, `SmtpClient.builder()`).
-- **Composition** type that applies bindings and starts `Runtime` (hopf
-  `Composition` + `CompositionRegistry`).
-- **XML** (optional): parses to builder calls; handler names resolve through a
-  **closed** `Map<String, HandlerFactory>` registered at startup — no
-  `Class.forName` for application code.
-- Complex wiring (mailbox + SMTP + runtime refs) stays in Java composition
-  code, as hopf documents for `LocalDeliveryServer`-style stacks.
+- **Java composition** — explicit `Runtime`, listeners, handlers (see
+  [COMPOSITION.md](COMPOSITION.md))
+- **Builder APIs** per protocol (`HttpServer.builder()`, `SmtpClient.builder()`, …)
+- **`main` or test harness** wiring for complex stacks (mailbox + SMTP, etc.)
+  as hopf documents
+
+**Not planned for 3.0:** maintaining XML in parallel while composition APIs
+change. A future declarative format is **out of scope** until there is a solid
+design; do not track XML through handler-first refactors.
+
+**Documentation obligation:** `web/configuration.html`, protocol pages
+(`http.html`, `servlet.html`, `webdav.html`, …), `examples/*`, and
+`docs/CONTAINER-DEPLOYMENT.md` must show composition as the **only** canonical
+path.
 
 ### C.6 Listener / Server architecture
 
 **Keep:** `Listener` as transport endpoint (addresses, port, TLS, limits).
 
-**Rename:** `*Service` → `*Server` for the application tier that owns listeners
-and handler factories (Gumdrop 1.x naming restored with 2.x architecture).
+**HTTP application tier:** **`HttpServer`** owns listeners and one
+`HttpRequestHandler` (or decorator chain). Servlet and WebDAV are handlers, not
+separate server types (§C.3).
+
+**Other protocols:** `*Server` facades (SMTP, IMAP, …) own listeners and
+handlers; same handler-first rules apply over time.
 
 **Clarify:** `Server` is not a lifecycle interface for arbitrary apps — it is
 “this process’s configured listeners + handlers for protocol X”. Optional
@@ -440,7 +483,7 @@ consistent” public API:
 - [ ] Add **P2P / mesh** guide: one `Runtime`, two endpoints, same handler
   patterns — target audience for “new protocol in Gumdrop”.
 - [ ] Pair examples: `examples/*-server` and `examples/*-client` for each
-  major protocol; composition example replacing XML-only configs.
+  major protocol; **Java composition** entry points (see [COMPOSITION.md](COMPOSITION.md)).
 - [ ] **FRAMEWORK-COMPARISON.md** — update hopf ↔ gumdrop mapping as 3.0
   lands.
 
@@ -457,8 +500,8 @@ consistent” public API:
 
 - [x] Rename **allowlists** / package scans when enforcing style tests
   (`Gumdrop3NamingConventionTest`, `gumdrop3-legacy-type-renames.properties`).
-- [ ] Integration configs: migrate from XML components to Java composition
-  builders in tests first (proves API before docs).
+- [ ] Integration tests: wire servers via Java composition builders (proves API
+  before further doc churn).
 - [ ] Keep **NoThreadSleepGuard** and async test rules (CONTRIBUTING) during
   refactors.
 
@@ -469,12 +512,12 @@ consistent” public API:
 - [ ] Umbrella **`gumdrop.jar`** vs selective deps documented for embedders
   (P2P app may depend only on `gumdrop-core` + `gumdrop-http` + `gumdrop-quic`).
 
-### Configuration files
+### Configuration
 
-- [ ] **`gumdroprc` schema version** bump for 3.0: document mapping from
-  `<service class="…">` to composition entries.
-- [ ] Environment placeholder syntax retained; drop `#id` component graphs if
-  composition is builder-only.
+- [x] **Drop `gumdroprc` from 3.0 documentation** — [COMPOSITION.md](COMPOSITION.md)
+  and [web/configuration.html](../web/configuration.html) are composition-first.
+- [ ] Remove `ComponentRegistry` / `ConfigurationParser` from runtime startup path.
+- [ ] Migrate `examples/*` and remaining `web/*.html` XML snippets to composition.
 
 ---
 
@@ -494,7 +537,7 @@ consistent” public API:
 - [x] Define naming convention RFC (camelCase acronyms) in CONTRIBUTING +
   [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md); guard test
   (`Gumdrop3NamingConventionTest`).
-- [ ] Closed `HandlerFactory` registry + one XML→builder proof (`examples/composition`).
+- [ ] Introduce `HttpServer.builder()` + handler composition ([COMPOSITION.md](COMPOSITION.md)).
 - [ ] Extract **jprotobuf** codec jar; fix grpc/telemetry dependency direction (§E.1).
 
 ### Phase 2 — Servlet + modular container (3.0 beta)
@@ -509,7 +552,9 @@ consistent” public API:
   [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md) slices C.1.1–C.1.6.
 - [ ] Protocol package moves (`server/`, `client/`).
 - [ ] Mass type renames (`HttpServer`, `AmqpClient`, …).
-- [ ] Remove reflection DI; XML via registry only.
+- [ ] Handler-first HTTP: `ServletRequestHandler`, `WebDAVRequestHandler`; remove
+  `ServletServer` / `WebdavServer` from public API.
+- [ ] Remove reflection DI and XML configuration code paths.
 - [ ] Remove `Gumdrop.getInstance()` (or hard-deprecate with runtime-only path).
 
 ### Phase 4 — Polish (3.0 GA)
@@ -526,15 +571,17 @@ consistent” public API:
 2. **`Runtime` naming** — `Runtime`, `GumdropRuntime`, or `EventRuntime`?
 3. **3.0 breaking change budget** — single rename flag day vs phased deprecations
    across 3.0 alphas?
-4. **`gumdroprc` in 3.0** — supported via registry, or Java-only composition
-   for 3.0 GA with XML returning in 3.1?
-5. **Servlet module optional?** — embedders who never serve HTTP may omit
+4. ~~**`gumdroprc` in 3.0**~~ — **Resolved: removed.** Java composition only;
+   see [COMPOSITION.md](COMPOSITION.md). No parallel XML tracking during C.3.
+5. **WebDAV naming** — converge public API on **WebDAV** (tradename); rename
+   interim `Webdav*` types when handler migration lands.
+6. **Servlet module optional?** — embedders who never serve HTTP may omit
    servlet jar entirely (already directionally true with modular build).
-6. **Legacy protocol tier** — which listeners remain in 3.0 default build vs
+7. **Legacy protocol tier** — which listeners remain in 3.0 default build vs
    `optional` modules (e.g. FTP, Telnet-era patterns)?
-7. **jprotobuf repo** — separate repository vs published jar from monorepo (§E.1)?
-8. **OTel API strategy** — native-only vs optional bridge vs OTel-primary (§E.2)?
-9. **`GlobalOpenTelemetry`** — support global static registration or Runtime-only?
+8. **jprotobuf repo** — separate repository vs published jar from monorepo (§E.1)?
+9. **OTel API strategy** — native-only vs optional bridge vs OTel-primary (§E.2)?
+10. **`GlobalOpenTelemetry`** — support global static registration or Runtime-only?
 
 ---
 

@@ -695,8 +695,17 @@ class Stream implements HttpResponseState {
                 if (handler != null) {
                     handler.headers(this, headers);
                     capsuleMode = Capsule.capsuleProtocolEnabled(headers);
+                } else if (responseState == ResponseState.INITIAL) {
+                    // Factory returned null without sending a response via state.
+                    try {
+                        sendError(404);
+                    } catch (ProtocolException e) {
+                        LOGGER.warning(MessageFormat.format(
+                                L10N.getString("warn.default_404_failed"), e.getMessage()));
+                    }
                 }
-                // If handler is null, factory may have sent a response (401, 404, etc.)
+                // If handler is null and a response was already sent via state,
+                // the factory handled rejection (401, etc.).
             } else {
                 // No factory configured - send 404 Not Found
                 try {

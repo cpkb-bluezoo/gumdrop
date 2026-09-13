@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -37,14 +38,20 @@ import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpListener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
+import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 
 /**
  * Abstract base for HTTP protocol servers.
  *
  * <p>An {@code HttpServer} defines the application logic for handling
- * HTTP requests: the {@link HttpRequestHandlerFactory} that creates
- * handlers for each stream, and an optional
+ * HTTP requests: a {@link HttpRequestRouter} (or legacy
+ * {@link HttpRequestHandlerFactory} in subclasses) that selects a
+ * handler for each stream, and an optional
  * {@link HttpAuthenticationProvider} for authenticating requests.
+ *
+ * <p>New applications should use {@link #builder()} rather than
+ * subclassing {@code HttpServer} or configuring XML services.
  *
  * <p>A server owns one or more transport listeners:
  * <ul>
@@ -66,23 +73,32 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
  * <p>During {@link #stop()}, the server stops listeners first, then
  * calls {@link #destroyService()} for subclass-specific teardown.
  *
- * <h2>Configuration Example</h2>
+ * <h2>Composition Example</h2>
  * <pre>{@code
- * <service class="org.bluezoo.gumdrop.servlet.ServletServer">
- *   <listener class="org.bluezoo.gumdrop.http.server.HttpListener"
- *           port="8080"/>
- *   <listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"
- *           port="8443" cert-file="/etc/cert.pem" key-file="/etc/key.pem"/>
- * </service>
+ * HttpServer server = HttpServer.builder()
+ *         .listener(HttpListener.builder().port(8080).build())
+ *         .handler(new MyHandler())
+ *         .build();
+ * gumdrop.addServer(server);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Server
  * @see HttpListener
  * @see Http3Listener
+ * @see HttpRequestRouter
  * @see HttpRequestHandlerFactory
  */
 public abstract class HttpServer implements Server {
+
+    /**
+     * Creates a builder for a composed {@code HttpServer}.
+     *
+     * @return a new builder
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
 
     private static final Logger LOGGER =
             Logger.getLogger(HttpServer.class.getName());
@@ -375,6 +391,114 @@ public abstract class HttpServer implements Server {
             sb.append("\"; ma=86400");
         }
         return sb.toString();
+    }
+
+    /**
+     * Builds a concrete {@link HttpServer} from listeners and a request router.
+     */
+    public static final class Builder {
+
+        private final List<HttpListener> tcpListeners = new ArrayList<HttpListener>();
+        private final List<Http3Listener> quicListeners = new ArrayList<Http3Listener>();
+        private HttpRequestRouter router;
+        private Realm realm;
+        private boolean addSecurityHeaders = true;
+
+        private Builder() {
+        }
+
+        /**
+         * Adds a TCP (HTTP/1.1 + HTTP/2) listener.
+         */
+        public Builder listener(HttpListener listener) {
+            if (listener == null) {
+                throw new NullPointerException("listener");
+            }
+            tcpListeners.add(listener);
+            return this;
+        }
+
+        /**
+         * Adds a QUIC (HTTP/3) listener.
+         */
+        public Builder listener(Http3Listener listener) {
+            if (listener == null) {
+                throw new NullPointerException("listener");
+            }
+            quicListeners.add(listener);
+            return this;
+        }
+
+        /**
+         * Uses a stateless handler shared across concurrent requests.
+         *
+         * <p>For handlers that store per-request state, use
+         * {@link #handlerPerRequest(Supplier)} instead.
+         */
+        public Builder handler(HttpRequestHandler handler) {
+            return router(HttpRequestHandlers.fixed(handler));
+        }
+
+        /**
+         * Creates a fresh handler instance for each request.
+         */
+        public Builder handlerPerRequest(Supplier<HttpRequestHandler> supplier) {
+            return router(HttpRequestHandlers.perRequest(supplier));
+        }
+
+        /**
+         * Sets the request router directly (path-based routing, decorators, etc.).
+         */
+        public Builder router(HttpRequestRouter router) {
+            if (router == null) {
+                throw new NullPointerException("router");
+            }
+            this.router = router;
+            return this;
+        }
+
+        /**
+         * Sets the authentication realm for this server.
+         */
+        public Builder realm(Realm realm) {
+            this.realm = realm;
+            return this;
+        }
+
+        /**
+         * Sets whether default security response headers are added.
+         */
+        public Builder addSecurityHeaders(boolean addSecurityHeaders) {
+            this.addSecurityHeaders = addSecurityHeaders;
+            return this;
+        }
+
+        /**
+         * Builds the server. At least one listener and a handler or router
+         * must be configured.
+         */
+        public HttpServer build() {
+            if (router == null) {
+                throw new IllegalStateException(
+                        "handler, handlerPerRequest, or router is required");
+            }
+            if (tcpListeners.isEmpty() && quicListeners.isEmpty()) {
+                throw new IllegalStateException(
+                        "at least one listener is required");
+            }
+            ComposedHttpServer server = new ComposedHttpServer(router);
+            for (int i = 0; i < tcpListeners.size(); i++) {
+                server.addListener(tcpListeners.get(i));
+            }
+            for (int i = 0; i < quicListeners.size(); i++) {
+                server.addListener(quicListeners.get(i));
+            }
+            if (realm != null) {
+                server.setRealm(realm);
+            }
+            server.setAddSecurityHeaders(addSecurityHeaders);
+            return server;
+        }
     }
 
 }

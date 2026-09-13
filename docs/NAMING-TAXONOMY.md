@@ -29,25 +29,33 @@ Treat each protocol acronym as one word with **only the first letter capitalised
 | `SOCKS` | `Socks` |
 | `MDNS` | `Mdns` |
 | `GRPC` | `Grpc` |
-| `WEBDAV` | `Webdav` |
+| `WEBDAV` | **WebDAV** *(tradename — see below)* |
 | `TLS` / `QUIC` / `UDP` / `TCP` | `Tls` / `Quic` / `Udp` / `Tcp` |
 
-Examples: `HttpServer` → `HttpServer`, `AMQPClient` → `AmqpClient`,
-`DnsMessage` → `DnsMessage`, `Http3Listener` → `Http3Listener`.
+Examples: `HttpServer`, `SmtpClient`, `DnsMessage`, `Http3Listener`.
+**WebDAV** keeps its tradename spelling in public types (`WebDAVRequestHandler`).
+
+### 1.1 Tradenames and exceptions
+
+| Name | Rule |
+|------|------|
+| **WebDAV** | Use **WebDAV**, not `Webdav`, in public API and documentation (RFC 4918 tradename). Interim `WebdavServer` from C.2.4 is deprecated; target is `WebDAVRequestHandler` on `HttpServer`. |
+| **WebSocket** | One word: `WebSocketClient`, not `WebSocketClient` from `WEBSOCKET`. |
 
 ### 2. Application tier: `*Server`, not `*Service`
 
 Types that own listeners plus handler wiring are **`{Protocol}Server`** facades
-(e.g. `HttpServer`, `SmtpServer`, `ServletServer`). They are **not** lifecycle
-`Service` implementations in the J2EE sense.
+for **transport protocols** (e.g. `HttpServer`, `SmtpServer`), or — for HTTP
+application stacks — a single **`HttpServer`** composed with a
+**`{Feature}RequestHandler`** (e.g. `ServletRequestHandler`, `WebDAVRequestHandler`).
+There is no `ServletServer` or `WebDAVServer` in the end state.
 
 The top-level `org.bluezoo.gumdrop.Service` interface is **retired** (see
 §C.4 in the plan); lifecycle moves to `Runtime` plus optional `start(rt)` on
 facades.
 
-XML configuration will eventually use `<server>` (or composition builders) instead
-of `<service class="…">`; until then, legacy XML class names remain valid during
-migration.
+**Gumdrop 3.0:** applications are wired in **Java composition** only — no
+`gumdroprc` XML. See [COMPOSITION.md](COMPOSITION.md).
 
 ### 3. Client facades: `*Client`
 
@@ -97,7 +105,7 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.1.0** | Convention + inventory | CONTRIBUTING, this doc, guard test *(done)* |
 | **C.1.1** | Core lifecycle names | `Server` contract; `Gumdrop` server registry *(done)* |
 | **C.1.2** | HTTP stack | `HttpServer`, `HttpClient`, handlers, listeners, metrics; `http/server/` facade *(done)* |
-| **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `ServletServer`, `WebdavServer`, `WebSocketServer` *(done)* |
+| **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | Interim `ServletServer`, `WebdavServer` — target `ServletRequestHandler`, `WebDAVRequestHandler` *(in progress)* |
 | **C.1.4** | Mail protocols | SMTP, IMAP, POP3 servers, clients, client reply handlers *(done)* |
 | **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, transport types *(done)* |
 | **C.1.6** | Internal / package-private | Lexers, protocol handlers, HPACK/QPACK, MIME/LDAP/JSP/RESP/OTLP *(done)* |
@@ -106,7 +114,9 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.2.6** | `HttpResponseState` in `http/server/` | server outbound response API; not client-facing *(done)* |
 | **C.2.2** | Mail facade layout | SMTP/IMAP/POP3 `server/` facades + root `*Server`/`*Client` re-exports *(done)* |
 | **C.2.3** | Remaining protocol `server/` facades | FTP, DNS, MQTT, SOCKS, mDNS, health + root re-exports *(done)* |
-| **C.2.4** | Servlet / WebDAV / WebSocket `server/` facades | `ServletServer`, `WebdavServer`, `WebSocketServer` *(done)* |
+| **C.2.4** | Servlet / WebDAV / WebSocket package moves | Interim `*/server/*Server` facades — superseded by handler composition *(C.3)* |
+| **C.3** | Handler-first HTTP | `HttpServer` + `HttpRequestHandler`; drop `HttpRequestHandlerFactory` public SPI |
+| **C.5** | Remove XML configuration | Java composition only; see [COMPOSITION.md](COMPOSITION.md) |
 
 After **C.1.2**, begin **C.2** package moves (`http/server/`, `http/client/`) in
 the same HTTP slice where practical.
@@ -119,9 +129,9 @@ the same HTTP slice where practical.
 |--------------|--------------|
 | `org.bluezoo.gumdrop.Service` | Deprecated; extends `Server` — use `Server` / `Gumdrop#addServer` |
 | `HttpServer` | `HttpServer` |
-| `ServletServer` | `ServletServer` |
-| `WebdavServer` | `WebdavServer` |
-| `WebSocketServer` | `WebSocketServer` *(WebSocket is one word)* |
+| `ServletServer` | **`ServletRequestHandler`** on `HttpServer` *(interim: `ServletServer`)* |
+| `WebDAVService` / `WebdavServer` | **`WebDAVRequestHandler`** on `HttpServer` *(interim: `WebdavServer`)* |
+| `WebSocketServer` | `WebSocketRequestHandler` or dedicated listener stack *(TBD)* |
 | `SmtpServer` | `SmtpServer` |
 | `ImapServer` | `ImapServer` |
 | `Pop3Server` | `Pop3Server` |

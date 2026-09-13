@@ -44,7 +44,8 @@ configuration, and features of the servlet container.
 <li><a href="#architecture">Architecture</a></li>
 <li><a href="#async">Asynchronous Processing</a></li>
 <li><a href="#features">HTTP and Servlet Features</a></li>
-<li><a href="#configuration">Configuration</a></li>
+<li><a href="#composition">Composition (Gumdrop 3)</a></li>
+<li><a href="#configuration">Legacy XML configuration</a></li>
 <li><a href="#clustering">Cluster Session Replication</a></li>
 <li><a href="#hot-deploy">Hot Deployment</a></li>
 <li><a href="#deployment-descriptors">Deployment Descriptors</a></li>
@@ -487,14 +488,43 @@ This is particularly useful for servlets mapped with wildcards that need
 to determine which specific resource was requested.
 </p>
 
-<h3 id="configuration">Container and Context Configuration</h3>
+<h3 id="composition">Composition (Gumdrop 3)</h3>
+
+<p>
+The servlet container is a <strong><code>ServletRequestHandler</code></strong>
+wired into <code>HttpServer</code>, not a separate
+<code>ServletServer</code> type:
+</p>
+
+<pre>
+Container container = Container.builder()
+    .context(Context.builder().path("").root(Path.of("web")).build())
+    .build();
+
+HttpServer server = HttpServer.builder()
+    .listener(HttpListener.builder().port(8080).build())
+    .listener(Http3Listener.builder().port(8443).tls(credentials).build())
+    .handler(new ServletRequestHandler(container))
+    .build();
+</pre>
+
+<p>
+See <a href="configuration.html">Application composition</a> and
+<a href="../docs/COMPOSITION.md">docs/COMPOSITION.md</a>.
+</p>
+
+<h3 id="configuration">Legacy XML configuration</h3>
+
+<p><em>Gumdrop 2.x used <code>gumdroprc</code> XML; this is removed in 3.0.
+The following documents interim <code>ServletServer</code> properties for
+migration reference only.</em></p>
 
 <h4>Service Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.servlet.ServletServer</code> is the HTTP
+<code>org.bluezoo.gumdrop.servlet.ServletServer</code> was the HTTP
 application service for the servlet container. Container properties,
-contexts, and listeners are all configured directly on the
+contexts, and listeners were configured on the
 <code>&lt;service&gt;</code> element:
 </p>
 

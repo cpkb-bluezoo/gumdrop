@@ -34,16 +34,52 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-The <code>WebdavServer</code> is a complete, production-ready HTTP file
+Gumdrop 3 serves static files and WebDAV through an
+<code>HttpServer</code> composed with a
+<strong><code>WebDAVRequestHandler</code></strong> (WebDAV is a tradename —
+use <strong>WebDAV</strong>, not <code>Webdav</code>, in public API names).
+The interim <code>WebdavServer</code> type from the package migration is
+deprecated; see <a href="#composition">composition</a> below.
+</p>
+
+<p>
+Because the handler runs on the shared <a href="http.html">HTTP</a> stack,
+any combination of HTTP/3, HTTP/2, and HTTP/1.1 listeners can be attached to
+the same <code>HttpServer</code>.
+</p>
+
+<h3 id="composition">Composition (Gumdrop 3)</h3>
+
+<pre>
+HttpServer server = HttpServer.builder()
+    .listener(HttpListener.builder().port(8080).build())
+    .handler(WebDAVRequestHandler.builder()
+        .rootPath(Path.of("/var/www/html"))
+        .welcomeFile("index.html")
+        .allowWrite(false)
+        .webdavEnabled(true)
+        .build())
+    .build();
+</pre>
+
+<p>
+See <a href="configuration.html">Application composition</a> and
+<a href="../docs/COMPOSITION.md">docs/COMPOSITION.md</a>.
+</p>
+
+<p><em>The sections below describe Gumdrop 2.x XML properties for reference
+during migration; new code should use composition only.</em></p>
+
+<p>
+The legacy <code>WebdavServer</code> service is a complete, production-ready HTTP file
 service built on the Gumdrop framework. It serves static files from a
 filesystem directory with high performance, and optionally provides full
-WebDAV (RFC 2518) distributed authoring support. Because it is an
-<a href="http.html">HTTP service</a>, it can be configured with any
-combination of HTTP/3, HTTP/2, and HTTP/1.1 listeners.
+WebDAV (RFC 2518) distributed authoring support.
 </p>
 
 <h3>Contents</h3>
 <ul>
+<li><a href="#composition">Composition (Gumdrop 3)</a></li>
 <li><a href="#file-server">File Server</a></li>
 <li><a href="#webdav">WebDAV Support</a></li>
 <li><a href="#webdav-methods">WebDAV Methods</a></li>
