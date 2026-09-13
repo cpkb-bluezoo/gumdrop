@@ -88,7 +88,7 @@
  * <h2>DNS-SD auto-advertisement</h2>
  *
  * <p>Enabled by default once a hostname is successfully announced. It
- * reads {@code Gumdrop.getInstance().getServices()} at that point, so
+ * reads {@code Gumdrop.getInstance().getServers()} at that point, so
  * <strong>the {@code mdns} service must be declared last</strong> in
  * {@code gumdroprc.xml} &mdash; services start in document order, and
  * any service started after {@code mdns} won't have its listener ports

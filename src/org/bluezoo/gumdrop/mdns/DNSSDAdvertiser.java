@@ -30,7 +30,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.bluezoo.gumdrop.Listener;
-import org.bluezoo.gumdrop.Service;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
 
 /**
@@ -38,13 +38,13 @@ import org.bluezoo.gumdrop.dns.DNSResourceRecord;
  * services, so they show up in Bonjour/Avahi/{@code dns-sd -B} browsers
  * on the local network.
  *
- * <p>Takes the list of {@link Service}s to advertise as a plain
- * parameter rather than reading {@code Gumdrop.getInstance().getServices()}
- * itself, so it's independently unit-testable against fake services
+ * <p>Takes the list of {@link Server}s to advertise as a plain
+ * parameter rather than reading {@code Gumdrop.getInstance().getServers()}
+ * itself, so it's independently unit-testable against fake servers
  * without needing a running {@code Gumdrop} instance &mdash; the same
  * reasoning behind {@link MDNSCache} taking its scheduling capability
  * through a small interface instead of reaching into {@link MDNSListener}
- * directly. {@link MDNSService} is what supplies the real service list.
+ * directly. {@link MDNSService} is what supplies the real server list.
  *
  * <p>Only {@link Listener#getDescription()} values with a well-known,
  * long-established DNS-SD service type are advertised (see {@link
@@ -104,8 +104,8 @@ final class DNSSDAdvertiser {
      * across the given services, plus the section 9 meta-query PTRs for
      * each distinct service type advertised.
      *
-     * @param services the services to advertise (typically {@code
-     *                 Gumdrop.getInstance().getServices()})
+     * @param servers the protocol servers to advertise (typically {@code
+     *                 Gumdrop.getInstance().getServers()})
      * @param hostLabel the mDNS host label actually claimed after
      *                  probing, without the {@code .local} suffix (e.g.
      *                  {@code "gumdrop"} or, after a rename, {@code
@@ -120,15 +120,15 @@ final class DNSSDAdvertiser {
      *                             resolver)
      * @return the generated records, empty if nothing was eligible
      */
-    static List<DNSResourceRecord> buildRecords(List<Service> services, String hostLabel,
+    static List<DNSResourceRecord> buildRecords(List<Server> servers, String hostLabel,
                                                  int ttl, Set<String> excludedDescriptions) {
         List<DNSResourceRecord> records = new ArrayList<DNSResourceRecord>();
         Set<String> serviceTypesAdvertised = new LinkedHashSet<String>();
         String hostTarget = hostLabel + ".local";
 
-        for (int s = 0; s < services.size(); s++) {
+        for (int s = 0; s < servers.size(); s++) {
             @SuppressWarnings("rawtypes")
-            List listeners = services.get(s).getListeners();
+            List listeners = servers.get(s).getListeners();
             for (int l = 0; l < listeners.size(); l++) {
                 Object item = listeners.get(l);
                 if (!(item instanceof Listener)) {

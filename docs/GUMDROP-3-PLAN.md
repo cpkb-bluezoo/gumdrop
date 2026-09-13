@@ -97,6 +97,12 @@ gravity.
 
 ### C.1 Naming and taxonomy
 
+**Status (branch `v3-taxonomy`):** slice **C.1.0** complete; **C.1.1** complete — see
+[Server.java](../src/org/bluezoo/gumdrop/Server.java), deprecated
+[Service.java](../src/org/bluezoo/gumdrop/Service.java),
+`Gumdrop#addServer` / `#getServers`, `ParseResult#getServers`. Next slice:
+**C.1.2** HTTP vertical rename.
+
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
 | `HTTPService`, `SMTPService` | `HttpServer`, `SmtpServer` | “Server” = collection of listeners + app wiring; not a `Service` lifecycle contract |
@@ -137,9 +143,9 @@ Should `HttpServer` / `HttpClient` live at:
 - **Option 2:** also re-export at `org.bluezoo.gumdrop.http.HttpServer` /
   `.HttpClient` for ergonomics?
 
-**Recommendation:** Option 2 for main entry types only (facades + primary
-handler interfaces), with implementation detail in subpackages — similar to
-hopf’s umbrella crate re-exports.
+**Decision (2026-09-13): Option 2** — main entry types re-exported at the
+protocol root; implementation detail in `server/` / `client/` subpackages.
+See [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md).
 
 ### C.3 Handler-first API (no fat server bases)
 
@@ -404,7 +410,8 @@ consistent” public API:
 
 ### Testing during migration
 
-- [ ] Rename **allowlists** / package scans when enforcing style tests.
+- [x] Rename **allowlists** / package scans when enforcing style tests
+  (`Gumdrop3NamingConventionTest`, `gumdrop3-legacy-type-renames.properties`).
 - [ ] Integration configs: migrate from XML components to Java composition
   builders in tests first (proves API before docs).
 - [ ] Keep **NoThreadSleepGuard** and async test rules (CONTRIBUTING) during
@@ -431,14 +438,17 @@ consistent” public API:
 ### Phase 0 — Planning (current)
 
 - [x] Capture vision and workstreams (this document).
-- [ ] Resolve open questions (facade re-exports, exact `Runtime` name).
+- [x] Resolve facade re-exports (§C.2 — Option 2).
+- [ ] Resolve exact `Runtime` name.
 - [ ] Servlet 6.1 gap analysis document or checklist issue.
 
 ### Phase 1 — Foundation (3.0 alpha)
 
 - [ ] TLS stack production-ready (workstream A).
 - [ ] Introduce `Runtime` parallel to singleton (both work briefly).
-- [ ] Define naming convention RFC (camelCase acronyms) in CONTRIBUTING.
+- [x] Define naming convention RFC (camelCase acronyms) in CONTRIBUTING +
+  [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md); guard test
+  (`Gumdrop3NamingConventionTest`).
 - [ ] Closed `HandlerFactory` registry + one XML→builder proof (`examples/composition`).
 - [ ] Extract **jprotobuf** codec jar; fix grpc/telemetry dependency direction (§E.1).
 
@@ -450,7 +460,8 @@ consistent” public API:
 
 ### Phase 3 — Role-agnostic migration (3.0 RC)
 
-- [ ] Rename `*Service` → `*Server` (application tier).
+- [ ] Rename `*Service` → `*Server` (application tier) — see
+  [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md) slices C.1.1–C.1.6.
 - [ ] Protocol package moves (`server/`, `client/`).
 - [ ] Mass type renames (`HttpServer`, `AmqpClient`, …).
 - [ ] Remove reflection DI; XML via registry only.
@@ -466,7 +477,7 @@ consistent” public API:
 
 ## Open questions (discussion)
 
-1. **Top-level facade re-exports** — Option 1 vs 2 in §C.2?
+1. ~~**Top-level facade re-exports** — Option 1 vs 2 in §C.2?~~ **Resolved: Option 2.**
 2. **`Runtime` naming** — `Runtime`, `GumdropRuntime`, or `EventRuntime`?
 3. **3.0 breaking change budget** — single rename flag day vs phased deprecations
    across 3.0 alphas?
@@ -489,10 +500,11 @@ consistent” public API:
 | This plan | Draft |
 | CHANGELOG 3.0.0 section | Draft (TLS/modularity) |
 | TLS cert compression #445 | Spec refined |
-| Role-agnostic refactor | Not started |
+| Role-agnostic refactor | C.1.1 core lifecycle *(branch `v3-taxonomy`)* |
 | Servlet 6.1 | Not started |
 | Runtime introduction | Not started |
 | Telemetry / jprotobuf spin-off | Not started |
 | OTel API strategy decision | Open (§E.2) |
+| Facade re-exports (§C.2) | Option 2 decided |
 
-*Last updated: 2026-09-12*
+*Last updated: 2026-09-13*

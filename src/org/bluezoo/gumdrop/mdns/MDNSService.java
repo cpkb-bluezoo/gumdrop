@@ -202,11 +202,11 @@ public class MDNSService implements Service {
      * Sets whether to auto-advertise gumdrop's own configured services
      * as DNS-SD (RFC 6763) records once announced. Default true.
      *
-     * <p>Uses {@code Gumdrop.getInstance().getServices()} at
-     * announce-time, so it only sees services that have already
-     * started -- declare the {@code mdns} service <strong>last</strong>
-     * in {@code gumdroprc.xml} (services start in document order) so
-     * every other configured service's listeners are already bound and
+     * <p>Uses {@code Gumdrop.getInstance().getServers()} at
+     * announce-time, so it only sees protocol servers that have already
+     * started -- declare the {@code mdns} server <strong>last</strong>
+     * in {@code gumdroprc.xml} (servers start in document order) so
+     * every other configured server's listeners are already bound and
      * assigned real ports by the time this runs.
      *
      * @param advertiseServices true to auto-advertise
@@ -463,7 +463,7 @@ public class MDNSService implements Service {
             String hostLabel = currentName.substring(
                     0, currentName.length() - ".local".length());
             records.addAll(DNSSDAdvertiser.buildRecords(
-                    Gumdrop.getInstance().getServices(), hostLabel,
+                    Gumdrop.getInstance().getServers(), hostLabel,
                     RECORD_TTL, excludedDescriptions));
         }
         currentRecords = records;

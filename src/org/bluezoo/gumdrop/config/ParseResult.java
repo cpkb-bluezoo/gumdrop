@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.config;
 
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.Service;
 import org.bluezoo.gumdrop.TCPListener;
 
@@ -59,17 +60,26 @@ public class ParseResult {
     }
     
     /**
-     * Returns all service components.
+     * Returns all application-tier protocol {@link Server} components
+     * declared as {@code <service>} elements in gumdroprc XML.
      *
-     * @return collection of all Service instances
+     * @return collection of all Server instances
      */
+    public Collection<Server> getServers() {
+        return registry.getComponentsOfType(Server.class);
+    }
+
+    /**
+     * @deprecated use {@link #getServers()}
+     */
+    @Deprecated
     public Collection<Service> getServices() {
         return registry.getComponentsOfType(Service.class);
     }
 
     /**
      * Returns all standalone endpoint server components (not owned by
-     * a service).
+     * a protocol server).
      *
      * @return collection of all TCPListener instances
      */
@@ -98,4 +108,3 @@ public class ParseResult {
         return registry.getComponentsOfType(type);
     }
 }
-

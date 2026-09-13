@@ -636,6 +636,7 @@
       <fileset dir='${test}/junit/src'>
         <include name='**/*.eml'/>
       </fileset>
+      <fileset dir='${test}/junit/resources'/>
     </copy>
   </target>
 

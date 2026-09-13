@@ -540,6 +540,30 @@ and uses the same concepts. When adding new features consider if they
 require a new span within the current trace. When implementing, if there are
 any error conditions ensure that they are logged into the trace.
 
+## Gumdrop 3 naming conventions
+
+Gumdrop 3 renames public types for **role clarity** and **consistent camelCase
+acronyms** (hopf precedent). Full migration tables and slice order live in
+[docs/NAMING-TAXONOMY.md](docs/NAMING-TAXONOMY.md).
+
+**New public types** in `src/org/bluezoo/gumdrop` must follow these rules:
+
+1. **Acronyms** — only the first letter capitalised per word:
+   `HttpServer`, `SmtpClient`, `DnsMessage`, `Pop3Server` (not `HTTPService`,
+   `SMTPClient`, …).
+2. **Application tier** — listener + handler wiring uses `*Server`, not
+   `*Service` (`HttpServer`, `SmtpServer`). Do not add new `*Service` types.
+3. **Client reply handlers** — in `{protocol}.client` packages, never prefix
+   with `Server` for remote-side replies (`EhloReplyHandler`, not
+   `ServerEhloReplyHandler`).
+4. **Handlers and facades** — server SPIs use `*RequestHandler` / staged server
+   handlers; dial facades use `*Client`.
+
+During migration, legacy names remain in the tree. Any **new** public type that
+still uses a legacy pattern must be listed in
+`test/junit/resources/gumdrop3-legacy-type-renames.properties` with its target
+name; `Gumdrop3NamingConventionTest` enforces this inventory.
+
 ## Summary
 
 The goal of these standards is to produce code that is:

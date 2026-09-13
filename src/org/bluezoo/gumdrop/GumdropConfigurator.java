@@ -33,7 +33,7 @@ import java.io.File;
  * delegate to external DI frameworks such as Guice, Spring, or CDI.
  *
  * <p>The contract is simple: read the configuration source, create and
- * wire all components, then add {@link Service} and {@link TCPListener}
+ * wire all components, then add {@link Server} and {@link TCPListener}
  * instances to the supplied {@link Gumdrop} instance.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -46,7 +46,7 @@ public interface GumdropConfigurator {
      *
      * <p>Implementations should create and wire all components defined
      * in the configuration, then register them with the Gumdrop instance
-     * via {@link Gumdrop#addService(Service)} and
+     * via {@link Gumdrop#addServer(Server)} and
      * {@link Gumdrop#addListener(TCPListener)}.
      *
      * @param gumdrop the Gumdrop instance to configure

@@ -57,8 +57,8 @@ import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
  *
  * // Or configure programmatically
  * Gumdrop gumdrop = Gumdrop.getInstance();
- * gumdrop.addService(myServletService);
- * gumdrop.addService(mySmtpService);
+ * gumdrop.addServer(myServletServer);
+ * gumdrop.addServer(mySmtpServer);
  *
  * // Start processing
  * gumdrop.start();
@@ -114,8 +114,8 @@ public class Gumdrop {
     // getInstance(File) below is safe once construction has completed.
     private static volatile Gumdrop instance;
 
-    // Services (own and manage their listeners)
-    private final List<Service> services;
+    // Application-tier protocol servers (own and manage their listeners)
+    private final List<Server> servers;
 
     // Server listeners (controls AcceptSelectorLoop lifecycle)
     private final List<TCPListener> serverListeners;
@@ -151,7 +151,7 @@ public class Gumdrop {
     private volatile boolean ready;
 
     // Guards the decision-and-flag step of checkAutoShutdown() (checking
-    // activeClients/services/serverListeners are empty and publishing
+    // activeClients/servers/serverListeners are empty and publishing
     // pendingAsyncShutdown) so it is atomic with start()'s own read of
     // pendingAsyncShutdown/started (issue #426): without this, a client's
     // disconnect could be judged "nothing left running" and decide to tear
@@ -278,7 +278,7 @@ public class Gumdrop {
             throw new IllegalArgumentException("workerCount must be at least 1");
         }
 
-        this.services = Collections.synchronizedList(new ArrayList<Service>());
+        this.servers = Collections.synchronizedList(new ArrayList<Server>());
         this.serverListeners =
                 Collections.synchronizedList(new ArrayList<TCPListener>());
         this.activeHandlers = Collections.newSetFromMap(new ConcurrentHashMap<ChannelHandler, Boolean>());
@@ -303,39 +303,39 @@ public class Gumdrop {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Service management
+    // Server registry (application-tier protocol servers)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Adds a service to be managed by Gumdrop.
+     * Adds a protocol server to be managed by Gumdrop.
      *
-     * <p>If Gumdrop has already been started, the service is started
+     * <p>If Gumdrop has already been started, the server is started
      * immediately and its TCP listeners are registered with the accept
-     * loop. Otherwise, the service is queued and will be started when
+     * loop. Otherwise, the server is queued and will be started when
      * {@link #start()} is called.
      *
-     * @param service the service to add
+     * @param server the server to add
      */
-    public void addService(Service service) {
-        services.add(service);
+    public void addServer(Server server) {
+        servers.add(server);
 
         if (started) {
-            service.start();
-            registerServiceListeners(service);
+            server.start();
+            registerServerListeners(server);
         }
     }
 
     /**
-     * Removes a service from Gumdrop and stops it.
+     * Removes a protocol server from Gumdrop and stops it.
      *
-     * @param service the service to remove
+     * @param server the server to remove
      */
-    public void removeService(Service service) {
-        services.remove(service);
-        unregisterServiceListeners(service);
-        service.stop();
+    public void removeServer(Server server) {
+        servers.remove(server);
+        unregisterServerListeners(server);
+        server.stop();
 
-        if (services.isEmpty() && serverListeners.isEmpty()
+        if (servers.isEmpty() && serverListeners.isEmpty()
                 && acceptLoopRunning) {
             acceptLoop.shutdown();
             acceptLoopRunning = false;
@@ -345,22 +345,52 @@ public class Gumdrop {
     }
 
     /**
-     * Returns the collection of services managed by this Gumdrop
-     * instance.
+     * Returns the protocol servers managed by this Gumdrop instance.
      *
-     * @return unmodifiable view of the services
+     * @return unmodifiable view of the servers
      */
-    public List<Service> getServices() {
-        return Collections.unmodifiableList(services);
+    public List<Server> getServers() {
+        return Collections.unmodifiableList(servers);
     }
 
     /**
-     * Registers a service's TCP listeners with the accept loop.
+     * @deprecated use {@link #addServer(Server)}
+     */
+    @Deprecated
+    public void addService(Service service) {
+        addServer(service);
+    }
+
+    /**
+     * @deprecated use {@link #removeServer(Server)}
+     */
+    @Deprecated
+    public void removeService(Service service) {
+        removeServer(service);
+    }
+
+    /**
+     * @deprecated use {@link #getServers()}
+     */
+    @Deprecated
+    public List<Service> getServices() {
+        List<Service> legacy = new ArrayList<Service>(servers.size());
+        for (int i = 0; i < servers.size(); i++) {
+            Server server = servers.get(i);
+            if (server instanceof Service) {
+                legacy.add((Service) server);
+            }
+        }
+        return Collections.unmodifiableList(legacy);
+    }
+
+    /**
+     * Registers a server's TCP listeners with the accept loop.
      * Listeners that manage their own I/O (e.g. QUIC) are tracked
      * but not registered for TCP accept.
      */
-    private void registerServiceListeners(Service service) {
-        List<?> listeners = service.getListeners();
+    private void registerServerListeners(Server server) {
+        List<?> listeners = server.getListeners();
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
             if (listener instanceof TCPListener) {
@@ -375,10 +405,10 @@ public class Gumdrop {
     }
 
     /**
-     * Unregisters a service's TCP listeners from the accept loop.
+     * Unregisters a server's TCP listeners from the accept loop.
      */
-    private void unregisterServiceListeners(Service service) {
-        List<?> listeners = service.getListeners();
+    private void unregisterServerListeners(Server server) {
+        List<?> listeners = server.getListeners();
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
             if (listener instanceof TCPListener) {
@@ -415,9 +445,9 @@ public class Gumdrop {
     /**
      * Adds a standalone endpoint server to be managed by Gumdrop.
      *
-     * <p>For endpoints that are part of a {@link Service}, use
-     * {@link #addService(Service)} instead. This method is for
-     * standalone endpoints not owned by any service.
+     * <p>For endpoints that are part of a {@link Server}, use
+     * {@link #addServer(Server)} instead. This method is for
+     * standalone endpoints not owned by any protocol server.
      *
      * <p>If Gumdrop has already been started, the server is registered
      * immediately and begins accepting connections. Otherwise, it will
@@ -587,7 +617,7 @@ public class Gumdrop {
      * Deregisters an active client connection.
      *
      * <p>Called when a client connection closes, fails, or is explicitly
-     * closed. If no services, listeners, or clients remain, triggers
+     * closed. If no protocol servers, listeners, or clients remain, triggers
      * automatic shutdown.
      *
      * @param client the client endpoint to deregister
@@ -641,7 +671,7 @@ public class Gumdrop {
         draining = false;
 
         // Snapshot the standalone listeners added via addListener() before
-        // start(). registerServiceListeners() below appends service-owned
+        // start(). registerServerListeners() below appends server-owned
         // listeners to serverListeners, so we capture the standalone ones now
         // to register them exactly once (and avoid double-registering the
         // service listeners, which register themselves).
@@ -702,11 +732,11 @@ public class Gumdrop {
             loop.start();
         }
 
-        // Start all registered services and collect their TCP listeners
-        for (int i = 0; i < services.size(); i++) {
-            Service service = services.get(i);
-            service.start();
-            registerServiceListeners(service);
+        // Start all registered protocol servers and collect their TCP listeners
+        for (int i = 0; i < servers.size(); i++) {
+            Server server = servers.get(i);
+            server.start();
+            registerServerListeners(server);
         }
 
         // Standalone listeners that don't use the TCP accept loop (e.g.
@@ -733,8 +763,8 @@ public class Gumdrop {
             ensureAcceptLoop();
             // Register standalone listeners added before start(). Listeners
             // added after start() are registered directly by addListener(),
-            // and service-owned listeners were registered by
-            // registerServiceListeners() above.
+            // and protocol-server-owned listeners were registered by
+            // registerServerListeners() above.
             for (TCPListener listener : standaloneListeners) {
                 if (listener.requiresTcpAccept()) {
                     acceptLoop.registerListener(listener);
@@ -778,7 +808,7 @@ public class Gumdrop {
      * <p>Shutdown occurs when Gumdrop has been started and no first-class
      * lifecycle participants remain:
      * <ul>
-     *   <li>No services are registered</li>
+     *   <li>No protocol servers are registered</li>
      *   <li>No server listeners are registered</li>
      *   <li>No active client connections exist</li>
      * </ul>
@@ -801,7 +831,7 @@ public class Gumdrop {
             if (!started) {
                 return;
             }
-            if (!(services.isEmpty() && serverListeners.isEmpty()
+            if (!(servers.isEmpty() && serverListeners.isEmpty()
                     && activeClients.isEmpty())) {
                 return;
             }
@@ -911,7 +941,7 @@ public class Gumdrop {
      *   <li><b>Drain</b> — wait up to {@link #getDrainTimeoutMs()} for the
      *       currently-open connections to finish naturally while the worker
      *       loops keep running.</li>
-     *   <li><b>Force stop</b> — stop services, clear state, and shut down the
+     *   <li><b>Force stop</b> — stop protocol servers, clear state, and shut down the
      *       worker loops, scheduled timer, storage pool, and configurator.</li>
      * </ol>
      *
@@ -951,12 +981,12 @@ public class Gumdrop {
         }
 
         // ── Phase 3: force stop ──
-        // Stop all services (services stop their own listeners)
-        for (int i = 0; i < services.size(); i++) {
-            Service service = services.get(i);
-            service.stop();
+        // Stop all protocol servers (servers stop their own listeners)
+        for (int i = 0; i < servers.size(); i++) {
+            Server server = servers.get(i);
+            server.stop();
         }
-        services.clear();
+        servers.clear();
 
         // Stop any standalone server listeners
         for (TCPListener server :

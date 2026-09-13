@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.bluezoo.gumdrop.Listener;
-import org.bluezoo.gumdrop.Service;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.dns.DNSResourceRecord;
 import org.bluezoo.gumdrop.dns.DNSType;
 
@@ -39,9 +39,9 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link DNSSDAdvertiser}, exercised against fake
- * {@link Service}/{@link Listener} implementations rather than a real
+ * {@link Server}/{@link Listener} implementations rather than a real
  * {@code Gumdrop} instance -- the point of {@link DNSSDAdvertiser}
- * taking its service list as a plain parameter.
+ * taking its server list as a plain parameter.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -49,8 +49,8 @@ public class DNSSDAdvertiserTest {
 
     private static final Set<String> NO_EXCLUSIONS = Collections.<String>emptySet();
 
-    private static List<DNSResourceRecord> build(List<Service> services) {
-        return DNSSDAdvertiser.buildRecords(services, "gumdrop", 4500, NO_EXCLUSIONS);
+    private static List<DNSResourceRecord> build(List<Server> servers) {
+        return DNSSDAdvertiser.buildRecords(servers, "gumdrop", 4500, NO_EXCLUSIONS);
     }
 
     private static List<DNSResourceRecord> ofType(List<DNSResourceRecord> records, DNSType type) {
@@ -65,9 +65,9 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testAdvertisesKnownServiceType() {
-        Service service = new FakeService(
+        Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(service));
+        List<DNSResourceRecord> records = build(Collections.singletonList(server));
 
         List<DNSResourceRecord> ptrs = ofType(records, DNSType.PTR);
         List<DNSResourceRecord> srvs = ofType(records, DNSType.SRV);
@@ -95,37 +95,37 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testUnknownDescriptionIsSkippedNotErrored() {
-        Service service = new FakeService(
+        Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("health", 9090)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(service));
+        List<DNSResourceRecord> records = build(Collections.singletonList(server));
         assertTrue(records.isEmpty());
     }
 
     @Test
     public void testExcludedDescriptionIsSkipped() {
-        Service service = new FakeService(
+        Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
         Set<String> excluded = new HashSet<String>(Arrays.asList("http"));
 
         List<DNSResourceRecord> records = DNSSDAdvertiser.buildRecords(
-                Collections.singletonList(service), "gumdrop", 4500, excluded);
+                Collections.singletonList(server), "gumdrop", 4500, excluded);
 
         assertTrue(records.isEmpty());
     }
 
     @Test
     public void testNonPositivePortIsSkipped() {
-        Service service = new FakeService(
+        Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", -1)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(service));
+        List<DNSResourceRecord> records = build(Collections.singletonList(server));
         assertTrue(records.isEmpty());
     }
 
     @Test
     public void testPtrRecordsAreSharedNotCacheFlushed() {
-        Service service = new FakeService(
+        Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(service));
+        List<DNSResourceRecord> records = build(Collections.singletonList(server));
 
         for (DNSResourceRecord rr : ofType(records, DNSType.PTR)) {
             assertFalse("PTR records must never carry cache-flush", rr.isCacheFlush());
@@ -134,9 +134,9 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testSrvAndTxtRecordsAreCacheFlushed() {
-        Service service = new FakeService(
+        Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(service));
+        List<DNSResourceRecord> records = build(Collections.singletonList(server));
 
         for (DNSResourceRecord rr : ofType(records, DNSType.SRV)) {
             assertTrue(rr.isCacheFlush());
@@ -148,10 +148,10 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testTwoServiceTypesEachGetTheirOwnMetaPtr() {
-        Service service = new FakeService(Arrays.<Listener>asList(
+        Server server = new FakeServer(Arrays.<Listener>asList(
                 new FakeListener("http", 8080),
                 new FakeListener("imap", 143)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(service));
+        List<DNSResourceRecord> records = build(Collections.singletonList(server));
 
         List<DNSResourceRecord> metaPtrs = new ArrayList<DNSResourceRecord>();
         for (DNSResourceRecord rr : ofType(records, DNSType.PTR)) {
@@ -164,9 +164,9 @@ public class DNSSDAdvertiserTest {
 
     @Test
     public void testTxtRecordHasSingleEmptyStringNotZeroLength() {
-        Service service = new FakeService(
+        Server server = new FakeServer(
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
-        List<DNSResourceRecord> records = build(Collections.singletonList(service));
+        List<DNSResourceRecord> records = build(Collections.singletonList(server));
 
         DNSResourceRecord txt = ofType(records, DNSType.TXT).get(0);
         // RFC 6763 section 6.1: RDATA must not be zero-length.
@@ -182,10 +182,10 @@ public class DNSSDAdvertiserTest {
         return null;
     }
 
-    private static final class FakeService implements Service {
+    private static final class FakeServer implements Server {
         private final List<Listener> listeners;
 
-        FakeService(List<Listener> listeners) {
+        FakeServer(List<Listener> listeners) {
             this.listeners = listeners;
         }
 

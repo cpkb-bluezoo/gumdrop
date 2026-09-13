@@ -176,12 +176,12 @@ public abstract class AbstractServerIntegrationTest {
         registry = result.getRegistry();
 
         // A configuration may declare standalone listeners (top-level
-        // <component> endpoints) and/or services that own their listeners.
+        // <component> endpoints) and/or protocol servers that own listeners.
         Collection<TCPListener> standaloneListeners = result.getListeners();
-        Collection<Service> configuredServices = result.getServices();
+        Collection<Server> configuredServers = result.getServers();
 
         // Verify we have something to start
-        if (standaloneListeners.isEmpty() && configuredServices.isEmpty()) {
+        if (standaloneListeners.isEmpty() && configuredServers.isEmpty()) {
             String msg = "No servers configured in: " + configFile;
             testContext.logEvent("CONFIG_ERROR", msg);
             throw new IllegalStateException(msg);
@@ -190,13 +190,13 @@ public abstract class AbstractServerIntegrationTest {
         // Set worker count for testing before getting the singleton
         System.setProperty("gumdrop.workers", "2");
         
-        // Get the Gumdrop singleton and add standalone listeners and services.
+        // Get the Gumdrop singleton and add standalone listeners and servers.
         gumdrop = Gumdrop.getInstance();
         for (TCPListener server : standaloneListeners) {
             gumdrop.addListener(server);
         }
-        for (Service service : configuredServices) {
-            gumdrop.addService(service);
+        for (Server server : configuredServers) {
+            gumdrop.addServer(server);
         }
         
         try {

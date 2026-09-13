@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.config;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfigurator;
-import org.bluezoo.gumdrop.Service;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TCPListener;
 
 import java.io.File;
@@ -48,8 +48,8 @@ public class DefaultConfigurator implements GumdropConfigurator {
         ParseResult result = new ConfigurationParser().parse(configFile);
         this.registry = result.getRegistry();
 
-        for (Service service : result.getServices()) {
-            gumdrop.addService(service);
+        for (Server server : result.getServers()) {
+            gumdrop.addServer(server);
         }
         for (TCPListener listener : result.getListeners()) {
             gumdrop.addListener(listener);

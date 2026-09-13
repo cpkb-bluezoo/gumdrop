@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.config;
 
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.Service;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
@@ -296,7 +297,7 @@ public class ConfigurationParser extends DefaultHandler {
         // <listener> must appear inside a <service>
         ComponentDefinition parentComponent = getParentComponent();
         if (parentComponent == null
-                || !Service.class.isAssignableFrom(
+                || !Server.class.isAssignableFrom(
                         parentComponent.getComponentClass())) {
             throw new SAXParseException(
                     "<listener> must be inside a <service> element at line "
@@ -385,7 +386,7 @@ public class ConfigurationParser extends DefaultHandler {
         // <context> must appear inside a <service>
         ComponentDefinition parentComponent = getParentComponent();
         if (parentComponent == null
-                || !Service.class.isAssignableFrom(
+                || !Server.class.isAssignableFrom(
                         parentComponent.getComponentClass())) {
             throw new SAXParseException(
                     "<context> must be inside a <service> element at line "
