@@ -156,7 +156,7 @@ of the TCP-based <code>HttpListener</code> and can coexist with it:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
   &lt;!-- HTTP/1.1 and HTTP/2 over TCP --&gt;
   &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
@@ -744,7 +744,7 @@ but disabled by default for security; set <code>trace-method-enabled</code> to
 <h4>HTTPService Properties</h4>
 
 <p>
-HTTP services (ServletService, WebDAVService, etc.) support the following
+HTTP services (ServletServer, WebdavServer, etc.) support the following
 service-level properties:
 </p>
 
@@ -755,7 +755,7 @@ service-level properties:
 application has already set them. Set to <code>false</code> to disable.
 Example:
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
   &lt;property name="add-security-headers" value="false"/&gt;
   ...
 &lt;/service&gt;
@@ -825,7 +825,7 @@ so that clients can discover and migrate to HTTP/3:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
   &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;

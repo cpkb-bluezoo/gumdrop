@@ -176,7 +176,7 @@ public class ServletNonBlockingIOTest {
     @Test
     public void testHandlerRequestBodyContentNotifiesReadListener() throws Exception {
         StubHTTPResponseState state = new StubHTTPResponseState();
-        ServletService service = new ServletService();
+        ServletServer service = new ServletServer();
         ServletHandler handler = new ServletHandler(service, service.getContainer(), 8192);
         Headers h = new Headers();
         h.add(":method", "POST");
@@ -210,7 +210,7 @@ public class ServletNonBlockingIOTest {
                 received.set(data);
             }
         };
-        ServletService service = new ServletService();
+        ServletServer service = new ServletServer();
         StubServletHandler handler = new StubServletHandler(service, state);
         Request request = new Request(handler, 128, "GET", "/t", new Headers(),
                 new RequestBodyStream());
@@ -235,7 +235,7 @@ public class ServletNonBlockingIOTest {
     @Test
     public void testWriteListenerRequiresAsync() throws Exception {
         StubHTTPResponseState state = new StubHTTPResponseState();
-        ServletService service = new ServletService();
+        ServletServer service = new ServletServer();
         StubServletHandler handler = new StubServletHandler(service, state);
         Request request = new Request(handler, 8192, "GET", "/t", new Headers(),
                 new RequestBodyStream());
@@ -256,7 +256,7 @@ public class ServletNonBlockingIOTest {
     @Test
     public void testWriteListenerIsReadyReflectsTransportBackpressure() throws Exception {
         BackpressureState state = new BackpressureState(5 * 1024 * 1024);
-        ServletService service = new ServletService();
+        ServletServer service = new ServletServer();
         StubServletHandler handler = new StubServletHandler(service, state);
         Request request = new Request(handler, 8192, "GET", "/t", new Headers(),
                 new RequestBodyStream());
@@ -291,7 +291,7 @@ public class ServletNonBlockingIOTest {
 
     private static Request newRequest(StubHTTPResponseState state, RequestBodyStream body)
             throws Exception {
-        ServletService service = new ServletService();
+        ServletServer service = new ServletServer();
         StubServletHandler handler = new StubServletHandler(service, state);
         return new Request(handler, 8192, "GET", "/test", new Headers(), body);
     }
@@ -312,7 +312,7 @@ public class ServletNonBlockingIOTest {
     private static final class StubServletHandler extends ServletHandler {
         private final HttpResponseState stubState;
 
-        StubServletHandler(ServletService service, HttpResponseState stubState) {
+        StubServletHandler(ServletServer service, HttpResponseState stubState) {
             super(service, service.getContainer(), 8192);
             this.stubState = stubState;
         }

@@ -53,9 +53,9 @@ class RequestHandler implements Runnable {
                     .withZone(ZoneId.systemDefault());
 
     final ServletHandler handler;
-    final ServletService service;
+    final ServletServer service;
 
-    RequestHandler(ServletHandler handler, ServletService service) {
+    RequestHandler(ServletHandler handler, ServletServer service) {
         this.handler = handler;
         this.service = service;
     }

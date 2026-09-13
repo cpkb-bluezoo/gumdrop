@@ -35,10 +35,10 @@ import java.util.Set;
  */
 class ServletHandlerFactory implements HttpRequestHandlerFactory {
 
-    private final ServletService service;
+    private final ServletServer service;
     private final Container container;
 
-    ServletHandlerFactory(ServletService service, Container container) {
+    ServletHandlerFactory(ServletServer service, Container container) {
         this.service = service;
         this.container = container;
     }

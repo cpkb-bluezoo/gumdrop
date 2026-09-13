@@ -191,7 +191,7 @@ secure domains on a single IP address and port.
 </p>
 
 <pre>
-&lt;service id="https" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="https" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
         &lt;property name="port"&gt;443&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
@@ -301,7 +301,7 @@ on both:
 </p>
 
 <pre>
-&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
     &lt;property name="container" ref="#mainContainer"/&gt;
 
     &lt;!-- HTTPS on TCP --&gt;

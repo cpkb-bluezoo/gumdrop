@@ -299,7 +299,7 @@ public class FileSecurityTest {
 
     @Test
     public void testServiceRootValidation() throws Exception {
-        WebDAVService service = new WebDAVService();
+        WebdavServer service = new WebdavServer();
         
         // Valid directory should work
         service.setRootPath(tempRootDir);

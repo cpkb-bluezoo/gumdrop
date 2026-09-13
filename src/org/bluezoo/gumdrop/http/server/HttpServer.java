@@ -68,7 +68,7 @@ import org.bluezoo.gumdrop.http.h3.Http3Listener;
  *
  * <h2>Configuration Example</h2>
  * <pre>{@code
- * <service class="org.bluezoo.gumdrop.servlet.ServletService">
+ * <service class="org.bluezoo.gumdrop.servlet.ServletServer">
  *   <listener class="org.bluezoo.gumdrop.http.HttpListener"
  *           port="8080"/>
  *   <listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"

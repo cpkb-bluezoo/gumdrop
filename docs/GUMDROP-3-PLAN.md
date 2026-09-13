@@ -97,12 +97,14 @@ gravity.
 
 ### C.1 Naming and taxonomy
 
-**Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.2** complete — see
+**Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.3** complete — see
 [Server.java](../src/org/bluezoo/gumdrop/Server.java), deprecated
 [Service.java](../src/org/bluezoo/gumdrop/Service.java),
 [HttpServer.java](../src/org/bluezoo/gumdrop/http/server/HttpServer.java),
-`HttpClient`, `Gumdrop#addServer` / `#getServers`. Next slice:
-**C.1.3** Servlet / WebDAV / WebSocket on HTTP.
+[ServletServer.java](../src/org/bluezoo/gumdrop/servlet/ServletServer.java),
+[WebdavServer.java](../src/org/bluezoo/gumdrop/webdav/WebdavServer.java),
+[WebSocketServer.java](../src/org/bluezoo/gumdrop/websocket/WebSocketServer.java).
+Next slice: **C.1.4** mail protocols.
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
@@ -155,7 +157,7 @@ abstract classes you must extend.
 
 | Anti-pattern | Target |
 |--------------|--------|
-| Subclass `HTTPService` / `WebDAVService` / `ServletService` for app logic | Compose `HttpServer` with `HttpRequestHandlerFactory` / decorators |
+| Subclass `HTTPService` / `WebdavServer` / `ServletServer` for app logic | Compose `HttpServer` with `HttpRequestHandlerFactory` / decorators |
 | Override methods on protocol base classes | Implement staged handler interfaces or wrap factories |
 | Client already OK (`HttpClient` works without subclassing) | Extend that pattern to all protocols |
 
@@ -501,7 +503,7 @@ consistent” public API:
 | This plan | Draft |
 | CHANGELOG 3.0.0 section | Draft (TLS/modularity) |
 | TLS cert compression #445 | Spec refined |
-| Role-agnostic refactor | C.1.2 HTTP stack *(branch `v3-taxonomy`)* |
+| Role-agnostic refactor | C.1.3 Servlet/WebDAV/WebSocket *(branch `v3-taxonomy`)* |
 | Servlet 6.1 | Not started |
 | Runtime introduction | Not started |
 | Telemetry / jprotobuf spin-off | Not started |

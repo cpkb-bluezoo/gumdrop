@@ -152,7 +152,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     File root;
     private ContainerClassLoader containerClassLoader;
     private ContextClassLoader contextClassLoader;
-    ServletService service;
+    ServletServer service;
     byte[] digest; // MD5 digest of web.xml
 
     // ── Resource lookup caches (issue #137) ──

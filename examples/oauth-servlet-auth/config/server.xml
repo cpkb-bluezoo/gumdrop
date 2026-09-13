@@ -14,7 +14,7 @@
            configFile="config/oauth.properties"/>
     
     <!-- HTTPS servlet container with OAuth authentication -->
-    <service id="api" class="org.bluezoo.gumdrop.servlet.ServletService">
+    <service id="api" class="org.bluezoo.gumdrop.servlet.ServletServer">
         <!-- Reference the OAuth realm -->
         <property name="realm" ref="#oauth"/>
         
@@ -39,7 +39,7 @@
     </service>
     
     <!-- Optional: HTTP redirect service (redirects to HTTPS) -->
-    <service id="redirect" class="org.bluezoo.gumdrop.servlet.ServletService">
+    <service id="redirect" class="org.bluezoo.gumdrop.servlet.ServletServer">
         <container class="org.bluezoo.gumdrop.servlet.Container">
             <context>
                 <property name="contextPath">/</property>

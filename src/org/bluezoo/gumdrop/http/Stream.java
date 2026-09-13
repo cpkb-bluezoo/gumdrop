@@ -630,7 +630,7 @@ class Stream implements HttpResponseState {
         }
         // RFC 9110 section 11: HTTP authentication. Only checked on the
         // first HEADERS frame that will create a handler (handler == null)
-        // — a service (e.g. WebDAVService) that configures a Realm expects
+        // — a service (e.g. WebdavServer) that configures a Realm expects
         // this to gate every request, but the provider was previously
         // stored on the connection and never actually consulted here, so
         // no HTTP/1.1 or HTTP/2 request was ever rejected regardless of

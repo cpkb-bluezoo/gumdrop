@@ -95,7 +95,7 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.1.0** | Convention + inventory | CONTRIBUTING, this doc, guard test *(done)* |
 | **C.1.1** | Core lifecycle names | `Server` contract; `Gumdrop` server registry *(done)* |
 | **C.1.2** | HTTP stack | `HttpServer`, `HttpClient`, handlers, listeners, metrics; `http/server/` facade *(done)* |
-| **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `ServletService`, `WebDAVService`, `WebSocketService` |
+| **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `ServletServer`, `WebdavServer`, `WebSocketServer` *(done)* |
 | **C.1.4** | Mail protocols | SMTP, IMAP, POP3 servers, clients, **client reply handler renames** |
 | **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, … |
 | **C.1.6** | Internal / package-private | Lexers, protocol handlers, HPACK/QPACK (can follow public API) |
@@ -111,9 +111,9 @@ the same HTTP slice where practical.
 |--------------|--------------|
 | `org.bluezoo.gumdrop.Service` | Deprecated; extends `Server` — use `Server` / `Gumdrop#addServer` |
 | `HTTPService` | `HttpServer` |
-| `ServletService` | `ServletServer` |
-| `WebDAVService` | `WebdavServer` |
-| `WebSocketService` | `WebSocketServer` *(WebSocket is one word)* |
+| `ServletServer` | `ServletServer` |
+| `WebdavServer` | `WebdavServer` |
+| `WebSocketServer` | `WebSocketServer` *(WebSocket is one word)* |
 | `SMTPService` | `SmtpServer` |
 | `IMAPService` | `ImapServer` |
 | `POP3Service` | `Pop3Server` |

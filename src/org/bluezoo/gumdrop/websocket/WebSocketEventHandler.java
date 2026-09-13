@@ -27,15 +27,15 @@ import java.nio.ByteBuffer;
  * Handler for WebSocket lifecycle events (RFC 6455).
  *
  * <p>Implement this interface to receive WebSocket events. When used
- * with {@link WebSocketService}, implement
- * {@link WebSocketService#createConnectionHandler} to return instances
+ * with {@link WebSocketServer}, implement
+ * {@link WebSocketServer#createConnectionHandler} to return instances
  * of this handler. Alternatively, an HTTP request handler can upgrade
  * manually via
  * {@link org.bluezoo.gumdrop.http.HttpResponseState#upgradeToWebSocket}.
  *
- * <p>Example usage with {@code WebSocketService}:
+ * <p>Example usage with {@code WebSocketServer}:
  * <pre>
- * public class EchoService extends WebSocketService {
+ * public class EchoService extends WebSocketServer {
  *
  *     &#64;Override
  *     protected WebSocketEventHandler createConnectionHandler(
@@ -56,7 +56,7 @@ import java.nio.ByteBuffer;
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketSession
  * @see DefaultWebSocketEventHandler
- * @see WebSocketService
+ * @see WebSocketServer
  */
 public interface WebSocketEventHandler {
 

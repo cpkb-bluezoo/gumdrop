@@ -177,7 +177,7 @@ class ServletWebConnection implements WebConnection {
             if (outputStream.hasWriteListener()) {
                 scheduleWritePossibleNotification();
                 throw new IllegalStateException(
-                        ServletService.L10N.getString("err.write_not_ready"));
+                        ServletServer.L10N.getString("err.write_not_ready"));
             }
             awaitResponseWritable();
         }

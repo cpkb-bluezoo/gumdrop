@@ -41,7 +41,7 @@ import static org.junit.Assert.*;
 /**
  * Regression tests for issue #115: an {@link HttpAuthenticationProvider}
  * configured on a service (e.g. via {@code HTTPService.setRealm}, which
- * {@code WebDAVService} inherits) was stored on {@code
+ * {@code WebdavServer} inherits) was stored on {@code
  * HttpProtocolHandler}/{@code Stream} but never actually consulted, so no
  * HTTP/1.1 or HTTP/2 request was ever rejected for missing or invalid
  * credentials regardless of configuration.

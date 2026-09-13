@@ -41,7 +41,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 
 /**
- * Integration tests for {@link WebSocketListener} + {@link WebSocketService}
+ * Integration tests for {@link WebSocketListener} + {@link WebSocketServer}
  * with real network connections.
  *
  * <p>Written to close the test-coverage gap noted while root-causing issue

@@ -78,7 +78,7 @@ of concerns:
 </p>
 
 <ul>
-<li><b>WebSocketService</b> &ndash; the application-level service that creates
+<li><b>WebSocketServer</b> &ndash; the application-level service that creates
 handlers for incoming connections. It implements the <code>Service</code>
 interface and knows nothing about HTTP.</li>
 <li><b>WebSocketListener</b> &ndash; a transport listener that extends
@@ -97,7 +97,7 @@ used for sending messages and closing the connection.</li>
 <h3 id="service">WebSocket Service</h3>
 
 <p>
-To create a WebSocket server, extend <code>WebSocketService</code> and
+To create a WebSocket server, extend <code>WebSocketServer</code> and
 implement the <code>createConnectionHandler</code> method. This method is called
 for each incoming WebSocket connection and must return a
 <code>WebSocketEventHandler</code> (or <code>null</code> to reject the
@@ -105,7 +105,7 @@ connection).
 </p>
 
 <pre>
-public class EchoService extends WebSocketService {
+public class EchoService extends WebSocketServer {
 
     @Override
     protected WebSocketEventHandler createConnectionHandler(
@@ -427,7 +427,7 @@ service:
 </p>
 
 <pre>
-public class NostrRelayService extends WebSocketService {
+public class NostrRelayService extends WebSocketServer {
 
     private final NostrEventStore store = new NostrEventStore();
     private final SubscriptionManager subscriptions =
@@ -484,7 +484,7 @@ Push server-side metrics to browser clients in real time:
 </p>
 
 <pre>
-public class DashboardService extends WebSocketService {
+public class DashboardService extends WebSocketServer {
 
     private final Set&lt;WebSocketSession&gt; sessions =
             Collections.synchronizedSet(new HashSet&lt;WebSocketSession&gt;());
@@ -689,7 +689,7 @@ public class MyHandler extends DefaultHttpRequestHandler {
 <p>
 This approach is useful when a single HTTP service needs to handle both regular
 HTTP traffic and WebSocket connections on the same port. For dedicated WebSocket
-services, the <code>WebSocketService</code> / <code>WebSocketListener</code>
+services, the <code>WebSocketServer</code> / <code>WebSocketListener</code>
 model described above is preferred because the HTTP upgrade is handled
 automatically.
 </p>
@@ -697,10 +697,10 @@ automatically.
 <h3 id="servlet">Servlet Container Integration</h3>
 
 <p>
-The <a href="servlet.html">servlet container</a> (<code>ServletService</code>)
+The <a href="servlet.html">servlet container</a> (<code>ServletServer</code>)
 provides its own WebSocket upgrade path via the standard
 <code>HttpServletRequest.upgrade()</code> mechanism. Both the standalone
-<code>WebSocketService</code> and the servlet container converge on the same
+<code>WebSocketServer</code> and the servlet container converge on the same
 <code>WebSocketEventHandler</code> interface and share the same internal
 WebSocket frame engine (<code>WebSocketConnection</code>). This means the
 underlying protocol handling is identical regardless of how the upgrade was
@@ -712,7 +712,7 @@ For applications using the servlet container, WebSocket support is available
 through the standard Java WebSocket API (JSR 356) or by calling
 <code>HttpServletRequest.upgrade()</code> directly. For applications that do
 not need the servlet programming model, the standalone
-<code>WebSocketService</code> provides a simpler, more direct API.
+<code>WebSocketServer</code> provides a simpler, more direct API.
 </p>
 
 <hr/>

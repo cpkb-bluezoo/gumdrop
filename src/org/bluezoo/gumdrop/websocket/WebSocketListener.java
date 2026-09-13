@@ -41,13 +41,13 @@ import org.bluezoo.gumdrop.http.Headers;
  * <p>Extends {@link HttpListener} and encapsulates the HTTP-to-WebSocket
  * upgrade handshake. Every incoming HTTP request is automatically checked
  * for a valid WebSocket upgrade; if valid, the connection is upgraded and
- * handed off to the owning {@link WebSocketService}'s handler. Non-WebSocket
+ * handed off to the owning {@link WebSocketServer}'s handler. Non-WebSocket
  * requests receive a 400 Bad Request response.
  *
  * <p>The HTTP protocol machinery (request parsing, upgrade negotiation,
  * frame switching) is handled entirely within this listener and the
  * underlying {@link org.bluezoo.gumdrop.http.HttpProtocolHandler}. The
- * {@link WebSocketService} never sees HTTP types.
+ * {@link WebSocketServer} never sees HTTP types.
  *
  * <h2>Configuration</h2>
  *
@@ -64,7 +64,7 @@ import org.bluezoo.gumdrop.http.Headers;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
- * @see WebSocketService
+ * @see WebSocketServer
  * @see HttpListener
  */
 public class WebSocketListener extends HttpListener {
@@ -72,7 +72,7 @@ public class WebSocketListener extends HttpListener {
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketListener.class.getName());
 
-    private WebSocketService service;
+    private WebSocketServer service;
     private WebSocketServerMetrics wsMetrics;
 
     // RFC 6455 §9 — supported extensions (default includes permessage-deflate)
@@ -80,12 +80,12 @@ public class WebSocketListener extends HttpListener {
     private boolean deflateEnabled = true;
 
     /**
-     * Sets the owning service. Called by {@link WebSocketService} during
+     * Sets the owning service. Called by {@link WebSocketServer} during
      * wiring.
      *
      * @param service the owning service
      */
-    void setService(WebSocketService service) {
+    void setService(WebSocketServer service) {
         this.service = service;
     }
 
@@ -94,7 +94,7 @@ public class WebSocketListener extends HttpListener {
      *
      * @return the owning service
      */
-    public WebSocketService getService() {
+    public WebSocketServer getService() {
         return service;
     }
 

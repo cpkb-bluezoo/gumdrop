@@ -64,7 +64,7 @@ import org.bluezoo.gumdrop.quic.QuicConnection;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220</a>
- * @see WebSocketService
+ * @see WebSocketServer
  * @see Http3Listener
  */
 public class Http3WebSocketListener extends Http3Listener {
@@ -72,19 +72,19 @@ public class Http3WebSocketListener extends Http3Listener {
     private static final Logger LOGGER =
             Logger.getLogger(Http3WebSocketListener.class.getName());
 
-    private WebSocketService service;
+    private WebSocketServer service;
     private WebSocketServerMetrics wsMetrics;
 
     private List<WebSocketExtension> supportedExtensions = new ArrayList<>();
     private boolean deflateEnabled = true;
 
     /**
-     * Sets the owning service. Called by {@link WebSocketService} during
+     * Sets the owning service. Called by {@link WebSocketServer} during
      * wiring.
      *
      * @param service the owning service
      */
-    void setService(WebSocketService service) {
+    void setService(WebSocketServer service) {
         this.service = service;
     }
 
@@ -93,7 +93,7 @@ public class Http3WebSocketListener extends Http3Listener {
      *
      * @return the owning service
      */
-    public WebSocketService getService() {
+    public WebSocketServer getService() {
         return service;
     }
 

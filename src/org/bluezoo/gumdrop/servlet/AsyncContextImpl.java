@@ -54,7 +54,7 @@ class AsyncContextImpl implements AsyncContext {
     private final Response response;
     private final ServletRequest originalRequest;
     private final ServletResponse originalResponse;
-    private final ServletService service;
+    private final ServletServer service;
     private final List<AsyncListener> listeners = new ArrayList<>();
     
     private long timeout = DEFAULT_TIMEOUT;
@@ -107,7 +107,7 @@ class AsyncContextImpl implements AsyncContext {
     @Override
     public void dispatch(ServletContext context, String path) {
         if (completed) {
-            throw new IllegalStateException(ServletService.L10N.getString("async.already_completed"));
+            throw new IllegalStateException(ServletServer.L10N.getString("async.already_completed"));
         }
         if (dispatching) {
             throw new IllegalStateException("Already dispatching");
@@ -117,7 +117,7 @@ class AsyncContextImpl implements AsyncContext {
         cancelTimeout();
         
         LOGGER.fine(MessageFormat.format(
-            ServletService.L10N.getString("async.dispatching_path"), path));
+            ServletServer.L10N.getString("async.dispatching_path"), path));
         
         // Submit dispatch to worker thread pool
         service.getWorkerThreadPool().submit(new Runnable() {
@@ -141,11 +141,11 @@ class AsyncContextImpl implements AsyncContext {
                         complete();
                     }
                 } catch (Exception e) {
-                    LOGGER.log(Level.SEVERE, ServletService.L10N.getString("async.error_dispatch"), e);
+                    LOGGER.log(Level.SEVERE, ServletServer.L10N.getString("async.error_dispatch"), e);
                     try {
                         notifyError(e);
                     } catch (Exception ex) {
-                        LOGGER.log(Level.SEVERE, ServletService.L10N.getString("async.error_listener"), ex);
+                        LOGGER.log(Level.SEVERE, ServletServer.L10N.getString("async.error_listener"), ex);
                     }
                 }
             }
@@ -161,7 +161,7 @@ class AsyncContextImpl implements AsyncContext {
         completed = true;
         cancelTimeout();
         
-        LOGGER.fine(ServletService.L10N.getString("async.completing"));
+        LOGGER.fine(ServletServer.L10N.getString("async.completing"));
         
         try {
             // Notify listeners
@@ -171,16 +171,16 @@ class AsyncContextImpl implements AsyncContext {
             response.flushBuffer();
             response.endResponse();
             
-            LOGGER.fine(ServletService.L10N.getString("async.completed"));
+            LOGGER.fine(ServletServer.L10N.getString("async.completed"));
         } catch (IOException e) {
-            LOGGER.log(Level.SEVERE, ServletService.L10N.getString("async.error_flush"), e);
+            LOGGER.log(Level.SEVERE, ServletServer.L10N.getString("async.error_flush"), e);
         }
     }
 
     @Override
     public void start(Runnable run) {
         if (completed) {
-            throw new IllegalStateException(ServletService.L10N.getString("async.already_completed"));
+            throw new IllegalStateException(ServletServer.L10N.getString("async.already_completed"));
         }
         
         // Run the task in the worker thread pool
@@ -190,11 +190,11 @@ class AsyncContextImpl implements AsyncContext {
                 try {
                     run.run();
                 } catch (Exception e) {
-                    LOGGER.log(Level.SEVERE, ServletService.L10N.getString("async.error_task"), e);
+                    LOGGER.log(Level.SEVERE, ServletServer.L10N.getString("async.error_task"), e);
                     try {
                         notifyError(e);
                     } catch (Exception ex) {
-                        LOGGER.log(Level.SEVERE, ServletService.L10N.getString("async.error_listener"), ex);
+                        LOGGER.log(Level.SEVERE, ServletServer.L10N.getString("async.error_listener"), ex);
                     }
                 }
             }
@@ -225,7 +225,7 @@ class AsyncContextImpl implements AsyncContext {
     public void setTimeout(long timeout) {
         this.timeout = timeout;
         LOGGER.fine(MessageFormat.format(
-            ServletService.L10N.getString("async.set_timeout"), timeout));
+            ServletServer.L10N.getString("async.set_timeout"), timeout));
         
         // Reschedule timeout with new value
         cancelTimeout();
@@ -258,7 +258,7 @@ class AsyncContextImpl implements AsyncContext {
             });
             
             LOGGER.fine(MessageFormat.format(
-                ServletService.L10N.getString("async.scheduled_timeout"), timeout));
+                ServletServer.L10N.getString("async.scheduled_timeout"), timeout));
         }
     }
 
@@ -266,7 +266,7 @@ class AsyncContextImpl implements AsyncContext {
         if (timeoutHandle != null) {
             timeoutHandle.cancel();
             timeoutHandle = null;
-            LOGGER.fine(ServletService.L10N.getString("async.cancelled_timeout"));
+            LOGGER.fine(ServletServer.L10N.getString("async.cancelled_timeout"));
         }
     }
 
@@ -276,7 +276,7 @@ class AsyncContextImpl implements AsyncContext {
         }
         
         LOGGER.fine(MessageFormat.format(
-            ServletService.L10N.getString("async.timeout"), timeout));
+            ServletServer.L10N.getString("async.timeout"), timeout));
         
         try {
             // Notify listeners - they may handle the timeout
@@ -284,14 +284,14 @@ class AsyncContextImpl implements AsyncContext {
             
             if (!handled) {
                 // No listener handled the timeout, complete with error
-                LOGGER.warning(ServletService.L10N.getString("async.timeout_no_handler"));
+                LOGGER.warning(ServletServer.L10N.getString("async.timeout_no_handler"));
                 if (!response.isCommitted()) {
-                    response.sendError(500, ServletService.L10N.getString("async.timeout_error"));
+                    response.sendError(500, ServletServer.L10N.getString("async.timeout_error"));
                 }
                 complete();
             }
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, ServletService.L10N.getString("async.error_timeout"), e);
+            LOGGER.log(Level.SEVERE, ServletServer.L10N.getString("async.error_timeout"), e);
             complete();
         }
     }
@@ -308,7 +308,7 @@ class AsyncContextImpl implements AsyncContext {
                     listener.onComplete(event);
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, ServletService.L10N.getString("async.error_listener"), e);
+                LOGGER.log(Level.WARNING, ServletServer.L10N.getString("async.error_listener"), e);
             }
         }
     }
@@ -328,7 +328,7 @@ class AsyncContextImpl implements AsyncContext {
                 // If any listener handles the timeout (doesn't throw), consider it handled
                 handled = true;
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, ServletService.L10N.getString("async.error_listener"), e);
+                LOGGER.log(Level.WARNING, ServletServer.L10N.getString("async.error_listener"), e);
             }
         }
         return handled;
@@ -346,7 +346,7 @@ class AsyncContextImpl implements AsyncContext {
                     listener.onError(event);
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, ServletService.L10N.getString("async.error_listener"), e);
+                LOGGER.log(Level.WARNING, ServletServer.L10N.getString("async.error_listener"), e);
             }
         }
     }
@@ -358,7 +358,7 @@ class AsyncContextImpl implements AsyncContext {
                     listener.onStartAsync(event);
                 }
             } catch (Exception e) {
-                LOGGER.log(Level.WARNING, ServletService.L10N.getString("async.error_listener"), e);
+                LOGGER.log(Level.WARNING, ServletServer.L10N.getString("async.error_listener"), e);
             }
         }
     }

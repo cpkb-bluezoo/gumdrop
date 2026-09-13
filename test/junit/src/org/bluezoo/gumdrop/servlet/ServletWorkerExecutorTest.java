@@ -22,7 +22,7 @@ public class ServletWorkerExecutorTest {
 
     @Test
     public void testWorkerTaskRunsOnVirtualThread() throws Exception {
-        ServletService service = new ServletService();
+        ServletServer service = new ServletServer();
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicBoolean virtual = new AtomicBoolean();
         service.executeWorker(new Runnable() {
@@ -38,7 +38,7 @@ public class ServletWorkerExecutorTest {
 
     @Test
     public void testWorkerThreadNaming() throws Exception {
-        ServletService service = new ServletService();
+        ServletServer service = new ServletServer();
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicBoolean named = new AtomicBoolean();
         service.executeWorker(new Runnable() {

@@ -96,7 +96,7 @@ For a pure async microservice without servlets:
 ```xml
 <?xml version='1.0' standalone='yes'?>
 <gumdrop>
-	<service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
+	<service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer">
 		<property name="container" ref="#mainContainer"/>
 		<property name="hot-deploy" value="true"/>
 		<context path="" root="myservice.war" distributable="true"/>

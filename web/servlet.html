@@ -492,7 +492,7 @@ to determine which specific resource was requested.
 <h4>Service Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.servlet.ServletService</code> is the HTTP
+<code>org.bluezoo.gumdrop.servlet.ServletServer</code> is the HTTP
 application service for the servlet container. Container properties,
 contexts, and listeners are all configured directly on the
 <code>&lt;service&gt;</code> element:
@@ -534,7 +534,7 @@ HTTP/3 for servlet applications:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
   &lt;context path="" root="web"/&gt;
   &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
@@ -576,7 +576,7 @@ inside the <code>&lt;service&gt;</code>:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
   &lt;context path="" root="web"/&gt;
   &lt;context path="/app" root="myapp.war" distributable="true"/&gt;
   &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
@@ -604,7 +604,7 @@ application <code>login-config</code> elements:
   &lt;property name="href"&gt;myRealm.xml&lt;/property&gt;
 &lt;/realm&gt;
 
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
   &lt;property name="realms"&gt;
     &lt;map&gt;
       &lt;entry key="myRealm" ref="#myRealm"/&gt;

@@ -101,6 +101,12 @@ public class ConfigurationParser extends DefaultHandler {
                 "org.bluezoo.gumdrop.http.client.HttpClient");
         map.put("org.bluezoo.gumdrop.http.HTTPService",
                 "org.bluezoo.gumdrop.http.HttpServer");
+        map.put("org.bluezoo.gumdrop.servlet.ServletService",
+                "org.bluezoo.gumdrop.servlet.ServletServer");
+        map.put("org.bluezoo.gumdrop.webdav.WebDAVService",
+                "org.bluezoo.gumdrop.webdav.WebdavServer");
+        map.put("org.bluezoo.gumdrop.websocket.WebSocketService",
+                "org.bluezoo.gumdrop.websocket.WebSocketServer");
         LEGACY_CLASS_ALIASES = map;
     }
 

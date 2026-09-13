@@ -369,7 +369,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **Strict allowlist for replicated session deserialization**: 
   `SessionSerializer` now validates deserialized cluster-session
-  class names against a strict allowlist in `Container`/`ServletService`
+  class names against a strict allowlist in `Container`/`ServletServer`
   instead of deserializing arbitrary classes, closing an insecure
   deserialization vector in cluster session replication.
 
@@ -643,9 +643,9 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 - **Removed `<container>` element from gumdroprc** (breaking): The standalone
   `<container>` configuration element has been removed. Container properties
   (`hot-deploy`, `realms`, `resources`, cluster settings) are now set directly
-  on the `<service>` element for `ServletService`. The `<context>` element is
+  on the `<service>` element for `ServletServer`. The `<context>` element is
   now a direct child of `<service>`, following the same pattern as `<listener>`.
-  `ServletService` creates its `Container` internally.
+  `ServletServer` creates its `Container` internally.
 
   Before:
   ```xml
@@ -653,7 +653,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
       <property name="hot-deploy" value="true"/>
       <context path="" root="../web"/>
   </container>
-  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
+  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer">
       <property name="container" ref="#mainContainer"/>
       <listener class="org.bluezoo.gumdrop.http.HttpListener">
           <property name="port" value="8080"/>
@@ -663,7 +663,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
   After:
   ```xml
-  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
+  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer">
       <property name="hot-deploy" value="true"/>
       <context path="" root="../web"/>
       <listener class="org.bluezoo.gumdrop.http.HttpListener">
@@ -704,7 +704,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 ### Added
 
-- **WebDAV (RFC 2518) support for file server**: The `WebDAVService` (formerly
+- **WebDAV (RFC 2518) support for file server**: The `WebdavServer` (formerly
   `FileHTTPServer`) supports distributed authoring via WebDAV when enabled with
   the `webdavEnabled` property.
   Full implementation includes:

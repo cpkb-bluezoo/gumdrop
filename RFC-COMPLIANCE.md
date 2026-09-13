@@ -1898,7 +1898,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Sec-WebSocket-Version: 13 | §4.2.1 | **Compliant** | Exact match required |
 | Sec-WebSocket-Accept calculation | §4.2.2 | **Compliant** | GUID + SHA-1 + Base64 |
 | 101 Switching Protocols response | §4.2.2 | **Compliant** | Via HttpResponseState.upgradeToWebSocket() |
-| Sec-WebSocket-Protocol negotiation | §4.2.2 | **Compliant** | Via WebSocketService.selectSubprotocol() |
+| Sec-WebSocket-Protocol negotiation | §4.2.2 | **Compliant** | Via WebSocketServer.selectSubprotocol() |
 | Sec-WebSocket-Extensions | §9.1 | **Compliant** | Extension negotiation framework; permessage-deflate (RFC 7692) |
 
 ### Opening Handshake — Client (§4.1)

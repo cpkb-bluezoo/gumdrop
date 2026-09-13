@@ -16,6 +16,7 @@ public final class Gumdrop3NamingRules {
 
     private static final String[][] ACRONYM_PREFIXES = {
             {"WEBDAV", "Webdav"},
+            {"WebDAV", "Webdav"},
             {"HTTP3", "Http3"},
             {"HTTP2", "Http2"},
             {"HTTP", "Http"},

@@ -76,7 +76,7 @@ a <code>&lt;listener&gt;</code>:
 
 <pre>
 &lt;gumdrop&gt;
-    &lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+    &lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
         &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
             &lt;property name="port" value="8080"/&gt;
         &lt;/listener&gt;
@@ -327,7 +327,7 @@ connections on multiple ports and protocols simultaneously:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
+&lt;service id="web" class="org.bluezoo.gumdrop.webdav.WebdavServer"&gt;
     &lt;property name="root-path" path="web"/&gt;
 
     &lt;!-- HTTP --&gt;

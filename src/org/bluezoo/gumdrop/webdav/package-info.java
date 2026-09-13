@@ -22,8 +22,8 @@
 /**
  * Static file serving and WebDAV (RFC 4918).
  *
- * <p>{@link org.bluezoo.gumdrop.webdav.WebDAVService} is an {@link
- * org.bluezoo.gumdrop.http.HTTPService} that serves files from a
+ * <p>{@link org.bluezoo.gumdrop.webdav.WebdavServer} is an {@link
+ * org.bluezoo.gumdrop.http.HttpServer} that serves files from a
  * filesystem root directory, and optionally supports RFC 4918's
  * distributed authoring methods: PROPFIND, PROPPATCH, MKCOL, COPY,
  * MOVE, LOCK, and UNLOCK.

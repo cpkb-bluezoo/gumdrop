@@ -58,7 +58,7 @@ class ServletHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ServletHandler.class.getName());
 
-    private final ServletService service;
+    private final ServletServer service;
     private final Container container;
     private final int bufferSize;
 
@@ -91,7 +91,7 @@ class ServletHandler extends DefaultHttpRequestHandler {
     private boolean bodyStarted;
     private volatile boolean writePossibleScheduled;
 
-    ServletHandler(ServletService service, Container container, int bufferSize) {
+    ServletHandler(ServletServer service, Container container, int bufferSize) {
         this.service = service;
         this.container = container;
         this.bufferSize = bufferSize;
@@ -100,7 +100,7 @@ class ServletHandler extends DefaultHttpRequestHandler {
     /**
      * Returns the servlet service.
      */
-    ServletService getService() {
+    ServletServer getService() {
         return service;
     }
 
@@ -170,7 +170,7 @@ class ServletHandler extends DefaultHttpRequestHandler {
             service.serviceRequest(this);
 
         } catch (IOException e) {
-            String message = ServletService.L10N.getString("error.create_pipe");
+            String message = ServletServer.L10N.getString("error.create_pipe");
             LOGGER.log(Level.SEVERE, message, e);
             sendError(HttpStatus.INTERNAL_SERVER_ERROR);
         }
@@ -338,7 +338,7 @@ class ServletHandler extends DefaultHttpRequestHandler {
             if (response != null && response.isNonBlockingWrite()) {
                 scheduleWritePossibleNotification();
                 throw new IllegalStateException(
-                        ServletService.L10N.getString("err.write_not_ready"));
+                        ServletServer.L10N.getString("err.write_not_ready"));
             }
             awaitWritable();
         }
@@ -523,7 +523,7 @@ class ServletHandler extends DefaultHttpRequestHandler {
     /**
      * Sheds this request with a 503 Service Unavailable response.
      *
-     * <p>Called by {@link ServletService#serviceRequest} on the SelectorLoop
+     * <p>Called by {@link ServletServer#serviceRequest} on the SelectorLoop
      * thread when the worker pool and its bounded queue are both saturated,
      * providing backpressure instead of unbounded queueing.
      */

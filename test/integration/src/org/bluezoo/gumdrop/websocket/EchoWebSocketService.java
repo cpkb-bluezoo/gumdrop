@@ -35,7 +35,7 @@ import org.bluezoo.gumdrop.http.Headers;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class EchoWebSocketService extends WebSocketService {
+public class EchoWebSocketService extends WebSocketServer {
 
     /** Handlers for every connection accepted so far, in connection order. */
     public final CopyOnWriteArrayList<EchoHandler> handlers = new CopyOnWriteArrayList<>();

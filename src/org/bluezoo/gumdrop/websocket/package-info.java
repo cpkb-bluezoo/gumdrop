@@ -30,13 +30,13 @@
  * <h2>Service API</h2>
  *
  * <p>The primary entry point for building WebSocket applications is
- * {@link org.bluezoo.gumdrop.websocket.WebSocketService}. Extend this
+ * {@link org.bluezoo.gumdrop.websocket.WebSocketServer}. Extend this
  * abstract class and implement
- * {@link org.bluezoo.gumdrop.websocket.WebSocketService#createConnectionHandler
+ * {@link org.bluezoo.gumdrop.websocket.WebSocketServer#createConnectionHandler
  * createConnectionHandler} to receive WebSocket connections:
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketService} -
+ *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketServer} -
  *       Abstract service base class (extends
  *       {@link org.bluezoo.gumdrop.http.HTTPService})</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketEventHandler} -
@@ -83,6 +83,6 @@
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455 - WebSocket</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220 - WebSocket over HTTP/3</a>
- * @see org.bluezoo.gumdrop.websocket.WebSocketService
+ * @see org.bluezoo.gumdrop.websocket.WebSocketServer
  */
 package org.bluezoo.gumdrop.websocket;

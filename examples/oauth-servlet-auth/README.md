@@ -60,7 +60,7 @@ oauth.scope.mapping.readonly=read
     <realm id="oauth" factory="#oauthRealmFactory"/>
     
     <!-- Servlet service with OAuth authentication -->
-    <service id="api" class="org.bluezoo.gumdrop.servlet.ServletService">
+    <service id="api" class="org.bluezoo.gumdrop.servlet.ServletServer">
         <property name="realm" ref="#oauth"/>
         
         <container class="org.bluezoo.gumdrop.servlet.Container">

@@ -176,7 +176,7 @@ To enable telemetry for a server, reference the configuration:
     &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
 &lt;/service&gt;
 
-&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
         &lt;property name="port"&gt;8080&lt;/property&gt;
@@ -926,7 +926,7 @@ For authenticated endpoints, use the <code>headers</code> property:
 &lt;/service&gt;
 
 &lt;!-- HTTP servlet service with telemetry --&gt;
-&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;property name="web-app" ref="#webapp"/&gt;
     &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;

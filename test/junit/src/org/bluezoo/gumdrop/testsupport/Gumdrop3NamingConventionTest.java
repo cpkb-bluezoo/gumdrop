@@ -50,6 +50,7 @@ public class Gumdrop3NamingConventionTest {
     @Test
     public void testSuggestGumdrop3NameExamples() {
         assertEquals("HttpServer", Gumdrop3NamingRules.suggestGumdrop3Name("HTTPService"));
+        assertEquals("WebdavServer", Gumdrop3NamingRules.suggestGumdrop3Name("WebDAVService"));
         assertEquals("HttpClient", Gumdrop3NamingRules.suggestGumdrop3Name("HTTPClient"));
         assertEquals("SmtpServer", Gumdrop3NamingRules.suggestGumdrop3Name("SMTPService"));
         assertEquals("EhloReplyHandler",
