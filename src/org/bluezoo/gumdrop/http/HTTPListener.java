@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TcpTransportFactory;

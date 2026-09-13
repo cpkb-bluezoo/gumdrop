@@ -21,6 +21,20 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+
+import org.bluezoo.gumdrop.http.Capsule;
+import org.bluezoo.gumdrop.http.Header;
+import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpConnectionLike;
+import org.bluezoo.gumdrop.http.HttpConstants;
+import org.bluezoo.gumdrop.http.HttpDateCache;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpUtils;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.http.PriorityParams;
+import org.bluezoo.gumdrop.http.Rfc9218NonIncrementalSlots;
+
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.net.SocketAddress;
@@ -124,7 +138,7 @@ import org.bluezoo.gumdrop.util.IntObjectHashMap;
  * @see HttpLineLexer
  * @see HttpConnectionLike
  */
-public final class HttpProtocolHandler
+public  class HttpProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<HttpLineLexer.Token>,
                    H2FrameHandler, HttpConnectionLike {
 

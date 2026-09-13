@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
  * @see HttpResponseHandler
  * @see HttpStatus
  */
-public final class HttpResponse {
+public  class HttpResponse {
 
     private final HttpStatus status;
     private final String redirectLocation;

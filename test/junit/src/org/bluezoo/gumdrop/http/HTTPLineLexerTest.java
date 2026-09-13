@@ -42,7 +42,7 @@ import static org.junit.Assert.*;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class HTTPLineLexerTest {
+public class HttpLineLexerTest {
 
     static class Event {
         final HttpLineLexer.Token type;

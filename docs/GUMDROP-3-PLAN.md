@@ -101,7 +101,9 @@ gravity.
 facades (C.1.1–C.1.5) plus internal renames: mail/FTP lexers, HPACK/QPACK,
 SOCKS/AMQP/DNS/mDNS/WebDAV internals, MIME/LDAP/JSP/RESP/OTLP/auth types
 (`scripts/c16-internal-rename.py`). Deprecated `@Deprecated` `*Service` shims
-remain for XML compat. Next: **C.2** package moves (`http/server/`, …).
+remain for XML compat. **C.2.1** HTTP facade re-exports done (`HttpServer`,
+`HttpClient` at protocol root). Next: **C.2.2+** move remaining protocol
+implementations into `server/` / `client/` subpackages.
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
@@ -146,6 +148,12 @@ Should `HttpServer` / `HttpClient` live at:
 **Decision (2026-09-13): Option 2** — main entry types re-exported at the
 protocol root; implementation detail in `server/` / `client/` subpackages.
 See [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md).
+
+**C.2.1 (HTTP, done):** `HttpServer` implementation in `http/server/` with
+root re-export; `HttpClient` root re-export delegating to `http/client/`.
+Handler interfaces (`HttpRequestHandler`, `HttpResponseHandler`, …) stay at
+protocol root or in `client/` — not re-exported via `extends`, which breaks
+Java assignability.
 
 ### C.3 Handler-first API (no fat server bases)
 

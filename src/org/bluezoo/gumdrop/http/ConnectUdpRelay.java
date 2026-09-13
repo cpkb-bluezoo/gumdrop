@@ -21,6 +21,12 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+
+import org.bluezoo.gumdrop.http.Capsule;
+import org.bluezoo.gumdrop.http.HttpDatagramContext;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
