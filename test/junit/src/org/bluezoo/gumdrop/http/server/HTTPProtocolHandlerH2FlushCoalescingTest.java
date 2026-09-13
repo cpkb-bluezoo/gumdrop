@@ -115,7 +115,7 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
 
     @Before
     public void setUp() {
-        HttpListener listener = new HttpListener();
+        Http2Listener listener = new Http2Listener();
         listener.setHandlerFactory((state, headers) -> new SynchronousGetHandler());
 
         connection = new HttpProtocolHandler(listener);
@@ -130,7 +130,7 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
     }
 
     private ByteBuffer encodeGetHeaders(String path) throws Exception {
-        Encoder encoder = new Encoder(4096, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+        Encoder encoder = new Encoder(4096, Http2Listener.DEFAULT_MAX_HEADER_LIST_SIZE);
         Headers request = new Headers();
         request.add(new Header(":method", "GET"));
         request.add(new Header(":scheme", "https"));

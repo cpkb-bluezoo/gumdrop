@@ -42,6 +42,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.UdpEndpoint;
 import org.bluezoo.gumdrop.UdpTransportFactory;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * UDP multicast transport listener for multicast DNS (RFC 6762).
@@ -93,6 +94,41 @@ public class MdnsListener extends Listener {
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public MdnsListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public MdnsListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public MdnsListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public MdnsListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public MdnsListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     @Override
     public String getDescription() {

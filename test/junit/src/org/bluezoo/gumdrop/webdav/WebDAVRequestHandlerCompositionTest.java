@@ -16,12 +16,13 @@ import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
-import org.bluezoo.gumdrop.http.server.HttpListener;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -34,7 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Workstream C.3 — {@link WebDAVRequestHandler} on {@link HttpServer#builder()}.
+ * Workstream C.3 — {@link WebDAVRequestHandler} on {@link HttpServer#compose()}.
  */
 public class WebDAVRequestHandlerCompositionTest {
 
@@ -61,15 +62,14 @@ public class WebDAVRequestHandlerCompositionTest {
             gumdrop = Gumdrop.getInstance();
         }
 
-        server = HttpServer.builder()
-                .listener(HttpListener.builder()
+        server = HttpServer.compose()
+                .listener(new Http2Listener()
                         .port(testPort)
-                        .addresses(TEST_HOST)
-                        .build())
+                        .addresses(InetAddress.ofLiteral(TEST_HOST)))
                 .router(WebDAVRequestHandler.builder()
                         .rootPath(root)
                         .build())
-                .build();
+                .server();
 
         gumdrop.addServer(server);
         gumdrop.start();

@@ -448,7 +448,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   for it, and raise a new `WebSocketMessageTooBigException`.
 
 - **No configurable maximum HTTP request body size**:
-  `HttpListener`, `HttpProtocolHandler`, and `Stream` now support an
+  `Http2Listener`, `HttpProtocolHandler`, and `Stream` now support an
   enforceable maximum body size.
 
 - **gRPC bodies buffered fully in memory instead of streamed**: 

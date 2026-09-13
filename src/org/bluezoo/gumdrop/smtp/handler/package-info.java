@@ -20,7 +20,12 @@
  */
 
 /**
- * Staged handler and state interfaces for the SMTP server (RFC 5321).
+ * Staged handler and state interfaces for the SMTP <strong>server</strong> (RFC 5321).
+ *
+ * <p>{@link org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider} mints a
+ * fresh pipeline per accepted connection; {@link ClientConnected} is the entry
+ * stage. Stateless protocols (HTTP, DNS) do not use
+ * {@link org.bluezoo.gumdrop.ServerSessionProvider}.
  *
  * <p>Handler interfaces are what an application implements: {@link
  * ClientConnected} (new connection), {@link HelloHandler} (HELO/EHLO,

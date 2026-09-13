@@ -24,12 +24,18 @@ package org.bluezoo.gumdrop.smtp.handler;
 import org.bluezoo.gumdrop.Endpoint;
 
 /**
- * Entry point handler for new SMTP client connections.
- * 
- * <p>This interface is the starting point for the staged SMTP server handler
- * pattern. Implement this interface and register it with the SMTP server to
- * receive new client connections.
- * 
+ * Entry point handler for new inbound SMTP sessions (server point of view).
+ *
+ * <p>This interface is the first stage of the staged SMTP <strong>server</strong>
+ * handler pipeline. {@link org.bluezoo.gumdrop.smtp.server.SmtpServer} and
+ * {@link org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider} mint a fresh
+ * implementation per accepted control connection via
+ * {@link org.bluezoo.gumdrop.ServerSessionProvider#openSession}.
+ *
+ * <p>The name {@code ClientConnected} is historical (remote client connected to
+ * our server). Prefer thinking in terms of <em>inbound session opened</em>.
+ * Stateless protocols (HTTP, DNS) do not use {@link ServerSessionProvider}.
+ *
  * <p>The staged handler pattern guides implementers through the SMTP protocol
  * by providing type-safe state interfaces at each step. This makes it impossible
  * to perform out-of-order operations - you can only call methods that are valid
@@ -59,6 +65,8 @@ import org.bluezoo.gumdrop.Endpoint;
  * }</pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider
+ * @see org.bluezoo.gumdrop.ServerSessionProvider
  * @see ConnectedState
  * @see HelloHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.2">RFC 5321 §4.2</a> (initial connection)

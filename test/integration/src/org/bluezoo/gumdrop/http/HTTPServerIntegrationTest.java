@@ -29,10 +29,10 @@ import java.io.File;
 import static org.junit.Assert.*;
 
 /**
- * Integration test for raw HttpListener.
+ * Integration test for raw Http2Listener.
  *
- * <p>Tests a raw HttpListener instance (not subclassed) with real network connections.
- * A raw HttpListener should:
+ * <p>Tests a raw Http2Listener instance (not subclassed) with real network connections.
+ * A raw Http2Listener should:
  * <ul>
  *   <li>Accept connections and respond to valid HTTP requests</li>
  *   <li>Return 404 for any resources (it has nothing to serve)</li>

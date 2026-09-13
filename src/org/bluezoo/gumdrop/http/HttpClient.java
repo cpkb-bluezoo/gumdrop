@@ -364,10 +364,12 @@ public class HttpClient implements AltSvcListener {
      *
      * @param username the username
      * @param password the password
+     * @return this client
      */
-    public void credentials(String username, String password) {
+    public HttpClient credentials(String username, String password) {
         this.username = username;
         this.password = password;
+        return this;
     }
 
     /**
@@ -569,6 +571,129 @@ public class HttpClient implements AltSvcListener {
      */
     public void setConnectionPool(ClientEndpointPool pool) {
         this.connectionPool = pool;
+    }
+
+    /**
+     * Sets whether this client uses TLS. Returns {@code this} for fluent
+     * configuration.
+     */
+    public HttpClient secure(boolean secure) {
+        setSecure(secure);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient clientCredentials(ServerCredentials clientCredentials) {
+        setClientCredentials(clientCredentials);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient trustManager(X509TrustManager trustManager) {
+        setTrustManager(trustManager);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient trace(Trace trace) {
+        setTrace(trace);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient keystoreFile(Path path) {
+        setKeystoreFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient keystorePass(String password) {
+        setKeystorePass(password);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient keystoreFormat(String format) {
+        setKeystoreFormat(format);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient h2Enabled(boolean enabled) {
+        setH2Enabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient h2cUpgradeEnabled(boolean enabled) {
+        setH2cUpgradeEnabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient h2WithPriorKnowledge(boolean enabled) {
+        setH2WithPriorKnowledge(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient h3Enabled(boolean enabled) {
+        setH3Enabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient altSvcEnabled(boolean enabled) {
+        setAltSvcEnabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient dnsHttpsRecordEnabled(boolean enabled) {
+        setDnsHttpsRecordEnabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient earlyDataEnabled(boolean enabled) {
+        setEarlyDataEnabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient certFile(Path path) {
+        setCertFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient keyFile(Path path) {
+        setKeyFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient verifyPeer(boolean verify) {
+        setVerifyPeer(verify);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient blockPrivateAddresses(boolean block) {
+        setBlockPrivateAddresses(block);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient idleTimeoutMs(long ms) {
+        setIdleTimeoutMs(ms);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient connectionPool(ClientEndpointPool pool) {
+        setConnectionPool(pool);
+        return this;
     }
 
     // ═══════════════════════════════════════════════════════════════════

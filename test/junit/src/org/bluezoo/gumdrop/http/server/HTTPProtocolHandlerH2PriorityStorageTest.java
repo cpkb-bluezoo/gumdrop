@@ -46,13 +46,13 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
 
     @Test
     public void testUnsetStreamReturnsDefaultPriority() {
-        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new Http2Listener());
         assertEquals(PriorityParams.DEFAULT, connection.h2PriorityOf(1));
     }
 
     @Test
     public void testPriorityHeaderIsStoredAndRetrievable() {
-        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new Http2Listener());
         Headers headers = new Headers();
         headers.add(new Header(PriorityParams.PRIORITY_HEADER, "u=1"));
 
@@ -64,7 +64,7 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
 
     @Test
     public void testDifferentStreamsTrackIndependentPriorities() {
-        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new Http2Listener());
         Headers urgent = new Headers();
         urgent.add(new Header(PriorityParams.PRIORITY_HEADER, "u=0"));
         Headers background = new Headers();
@@ -83,7 +83,7 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
         // RFC 9218 section 4.1: an incoming Priority header (fromUpdate =
         // false) sets the stream's initial priority only; it must not
         // override a value already recorded for that stream.
-        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new Http2Listener());
         Headers first = new Headers();
         first.add(new Header(PriorityParams.PRIORITY_HEADER, "u=2"));
         Headers second = new Headers();
@@ -100,7 +100,7 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
     public void testPriorityUpdateFrameOverridesAnExistingPriority() {
         // RFC 9218 section 7.1: a PRIORITY_UPDATE frame (fromUpdate =
         // true) always takes effect, unlike a Priority header.
-        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new Http2Listener());
         Headers initial = new Headers();
         initial.add(new Header(PriorityParams.PRIORITY_HEADER, "u=2"));
         connection.applyRfc9218Priority(1, initial);

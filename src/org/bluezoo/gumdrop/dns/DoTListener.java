@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.dns;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
+import java.net.InetAddress;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * TCP/TLS transport listener for DNS-over-TLS (DoT) queries.
@@ -72,6 +74,41 @@ public class DoTListener extends TcpListener {
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public DoTListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public DoTListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public DoTListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public DoTListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public DoTListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     @Override
     public String getDescription() {

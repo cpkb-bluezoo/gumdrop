@@ -87,7 +87,7 @@ public class ConfigurationParser extends DefaultHandler {
 
     /**
      * Legacy Gumdrop 2.x class names from {@code gumdroprc} XML. Case-only
-     * renames ({@code HTTPListener} → {@code HttpListener}) cannot use
+     * renames ({@code HTTPListener} → {@code Http2Listener}) cannot use
      * deprecated sibling types on case-insensitive file systems.
      */
     private static final Map<String, String> LEGACY_CLASS_ALIASES;
@@ -98,9 +98,11 @@ public class ConfigurationParser extends DefaultHandler {
         map.put("org.bluezoo.gumdrop.http.HttpResponseState",
                 "org.bluezoo.gumdrop.http.server.HttpResponseState");
         map.put("org.bluezoo.gumdrop.http.HTTPListener",
-                "org.bluezoo.gumdrop.http.server.HttpListener");
+                "org.bluezoo.gumdrop.http.server.Http2Listener");
         map.put("org.bluezoo.gumdrop.http.HttpListener",
                 "org.bluezoo.gumdrop.http.server.HttpListener");
+        map.put("org.bluezoo.gumdrop.http.server.Http2Listener",
+                "org.bluezoo.gumdrop.http.server.Http2Listener");
         map.put("org.bluezoo.gumdrop.http.h3.HTTP3Listener",
                 "org.bluezoo.gumdrop.http.h3.Http3Listener");
         map.put("org.bluezoo.gumdrop.http.client.HTTPClient",

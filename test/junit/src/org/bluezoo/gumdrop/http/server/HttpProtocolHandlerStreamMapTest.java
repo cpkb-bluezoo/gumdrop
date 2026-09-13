@@ -51,7 +51,7 @@ public class HttpProtocolHandlerStreamMapTest {
 
     @Test
     public void testCompletedHttp1StreamEvictedImmediatelyOnNextRequest() {
-        HttpListener listener = new HttpListener();
+        Http2Listener listener = new Http2Listener();
         HttpProtocolHandler connection = new HttpProtocolHandler(listener);
         // Default state (REQUEST_LINE) and version (HTTP_1_0) are already
         // the plain, sequential HTTP/1.x case this fix targets.
@@ -72,7 +72,7 @@ public class HttpProtocolHandlerStreamMapTest {
 
     @Test
     public void testFirstStreamOnFreshConnectionIsNotAffectedByEviction() {
-        HttpListener listener = new HttpListener();
+        Http2Listener listener = new Http2Listener();
         HttpProtocolHandler connection = new HttpProtocolHandler(listener);
 
         Stream first = connection.getStream(1);

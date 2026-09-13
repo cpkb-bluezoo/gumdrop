@@ -23,6 +23,8 @@ package org.bluezoo.gumdrop.health;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
+import java.net.InetAddress;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * Plaintext TCP listener that serves liveness/readiness probes via
@@ -56,6 +58,41 @@ public class HealthListener extends TcpListener {
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public HealthListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public HealthListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public HealthListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public HealthListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public HealthListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     @Override
     protected ProtocolHandler createHandler() {

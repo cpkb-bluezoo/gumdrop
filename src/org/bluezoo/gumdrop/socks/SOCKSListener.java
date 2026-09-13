@@ -31,6 +31,8 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
+import java.net.InetAddress;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * TCP transport listener for SOCKS proxy connections.
@@ -94,6 +96,41 @@ public class SocksListener extends TcpListener {
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public SocksListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public SocksListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public SocksListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public SocksListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public SocksListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     /**
      * Returns the authentication realm for this listener.

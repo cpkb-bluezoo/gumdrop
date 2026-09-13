@@ -29,7 +29,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
-import org.bluezoo.gumdrop.http.server.HttpListener;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.ByteArrayOutputStream;
@@ -49,7 +49,7 @@ import java.util.logging.Logger;
  * 
  * <p>This class implements a minimal OTLP/HTTP endpoint that receives
  * telemetry data (traces, logs, metrics) and stores the raw requests 
- * for verification in tests. It runs as a Gumdrop HttpListener subclass.
+ * for verification in tests. It runs as a Gumdrop Http2Listener subclass.
  * 
  * <p>Usage:
  * <pre>
@@ -326,7 +326,7 @@ public class MockOTLPCollector {
     /**
      * Custom HTTP server that handles OTLP requests.
      */
-    static class OTLPCollectorServer extends HttpListener {
+    static class OTLPCollectorServer extends Http2Listener {
 
         OTLPCollectorServer(MockOTLPCollector collector) {
             setHandlerFactory(new OTLPHandlerFactory(collector));

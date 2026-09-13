@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.dns;
 
 import java.net.InetSocketAddress;
+import java.net.InetAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.util.logging.Level;
@@ -32,6 +33,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * UDP transport listener for DNS queries.
@@ -178,10 +180,51 @@ public class DnsListener extends UdpListener {
         }
     }
 
+    /**
+     * Sets the UDP port. Returns {@code this} for fluent configuration.
+     */
+    public DnsListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public DnsListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public DnsListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public DnsListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public DnsListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
+
+    /**
+     * @deprecated use {@code new DnsListener().port(...)} fluent configuration.
+     */
+    @Deprecated
     public static Builder builder() {
         return new Builder();
     }
 
+    /**
+     * @deprecated use fluent methods on {@link DnsListener} instead.
+     */
+    @Deprecated
     public static final class Builder {
         private int port = DEFAULT_PORT;
 

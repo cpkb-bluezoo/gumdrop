@@ -23,109 +23,75 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import java.nio.file.Path;
 
 /**
- * Server TLS identity for HTTP listeners (TCP HTTPS and QUIC HTTP/3).
- *
- * <p>Use the same {@code HttpTlsConfig} on {@link HttpListener} and
- * {@link org.bluezoo.gumdrop.http.h3.Http3Listener}, or pass it to
- * {@link org.bluezoo.gumdrop.http.HttpServer.Builder#secureEndpoint(int, HttpTlsConfig)}
- * to wire both transports on one port.
- *
- * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HttpListener.Builder#tls(HttpTlsConfig)
- * @see org.bluezoo.gumdrop.http.h3.Http3Listener.Builder#tls(HttpTlsConfig)
+ * @deprecated use {@link TlsConfig} for all secure listeners (HTTP, SMTP,
+ * DNS-over-TLS, …).
  */
+@Deprecated
 public final class HttpTlsConfig {
 
-    private final Path certFile;
-    private final Path keyFile;
-    private final Path keystoreFile;
-    private final String keystorePass;
-    private final String keystoreFormat;
-    private final ServerCredentials serverCredentials;
+    private final TlsConfig config;
 
-    private HttpTlsConfig(Path certFile, Path keyFile,
-                          Path keystoreFile, String keystorePass,
-                          String keystoreFormat,
-                          ServerCredentials serverCredentials) {
-        this.certFile = certFile;
-        this.keyFile = keyFile;
-        this.keystoreFile = keystoreFile;
-        this.keystorePass = keystorePass;
-        this.keystoreFormat = keystoreFormat;
-        this.serverCredentials = serverCredentials;
+    private HttpTlsConfig(TlsConfig config) {
+        this.config = config;
+    }
+
+    public TlsConfig unwrap() {
+        return config;
     }
 
     /**
-     * TLS identity from PEM certificate chain and private key files.
+     * @deprecated use {@link TlsConfig#pem(Path, Path)}.
      */
+    @Deprecated
     public static HttpTlsConfig pem(Path certFile, Path keyFile) {
-        if (certFile == null || keyFile == null) {
-            throw new NullPointerException("certFile and keyFile are required");
-        }
-        return new HttpTlsConfig(certFile, keyFile, null, null, null, null);
+        return new HttpTlsConfig(TlsConfig.pem(certFile, keyFile));
     }
 
     /**
-     * TLS identity from PEM certificate chain and private key paths.
+     * @deprecated use {@link TlsConfig#pem(String, String)}.
      */
+    @Deprecated
     public static HttpTlsConfig pem(String certFile, String keyFile) {
-        return pem(Path.of(certFile), Path.of(keyFile));
+        return new HttpTlsConfig(TlsConfig.pem(certFile, keyFile));
     }
 
     /**
-     * TLS identity from a PKCS#12 or JKS keystore (default format PKCS12).
+     * @deprecated use {@link TlsConfig#keystore(Path, String)}.
      */
+    @Deprecated
     public static HttpTlsConfig keystore(Path keystoreFile, String keystorePass) {
-        return keystore(keystoreFile, keystorePass, "PKCS12");
+        return new HttpTlsConfig(TlsConfig.keystore(keystoreFile, keystorePass));
     }
 
     /**
-     * TLS identity from a keystore with an explicit format.
+     * @deprecated use {@link TlsConfig#keystore(Path, String, String)}.
      */
+    @Deprecated
     public static HttpTlsConfig keystore(Path keystoreFile, String keystorePass,
                                          String keystoreFormat) {
-        if (keystoreFile == null || keystorePass == null) {
-            throw new NullPointerException("keystoreFile and keystorePass are required");
-        }
-        return new HttpTlsConfig(null, null, keystoreFile, keystorePass,
-                keystoreFormat, null);
+        return new HttpTlsConfig(
+                TlsConfig.keystore(keystoreFile, keystorePass, keystoreFormat));
     }
 
     /**
-     * TLS identity from loaded {@link ServerCredentials}.
+     * @deprecated use {@link TlsConfig#credentials(ServerCredentials)}.
      */
+    @Deprecated
     public static HttpTlsConfig credentials(ServerCredentials serverCredentials) {
-        if (serverCredentials == null) {
-            throw new NullPointerException("serverCredentials");
-        }
-        return new HttpTlsConfig(null, null, null, null, null, serverCredentials);
+        return new HttpTlsConfig(TlsConfig.credentials(serverCredentials));
     }
 
     /**
-     * Applies this configuration to a listener before {@link Listener#start()}.
+     * @deprecated use {@link TlsConfig#applyTo(Listener)}.
      */
+    @Deprecated
     public void applyTo(Listener listener) {
-        if (listener == null) {
-            throw new NullPointerException("listener");
-        }
-        if (serverCredentials != null) {
-            listener.setServerCredentials(serverCredentials);
-        } else if (certFile != null && keyFile != null) {
-            listener.setCertFile(certFile);
-            listener.setKeyFile(keyFile);
-        } else if (keystoreFile != null && keystorePass != null) {
-            listener.setKeystoreFile(keystoreFile);
-            listener.setKeystorePass(keystorePass);
-            if (keystoreFormat != null) {
-                listener.setKeystoreFormat(keystoreFormat);
-            }
-        } else {
-            throw new IllegalStateException("incomplete TLS configuration");
-        }
+        config.applyTo(listener);
     }
 
 }

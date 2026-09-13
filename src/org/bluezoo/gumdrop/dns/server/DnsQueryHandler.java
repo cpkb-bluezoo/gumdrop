@@ -14,6 +14,11 @@ import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 /**
  * Application logic for a {@link DnsServer} — resolves or declines DNS queries.
  *
+ * <p>DNS is <strong>stateless</strong> at the application layer: each query is
+ * handled independently. Compose {@link DnsServer} with a {@code DnsQueryHandler},
+ * not {@link org.bluezoo.gumdrop.ServerSessionProvider}. Stateful protocols
+ * (SMTP, FTP, …) use session providers instead — see {@code docs/COMPOSITION.md}.
+ *
  * <p>The {@link DnsServer} protocol shell (listeners, validation, cookies,
  * MQTYPE merging) delegates to a handler after parsing each query. Stock
  * implementations include {@link EmptyDnsQueryHandler},
@@ -21,6 +26,7 @@ import org.bluezoo.gumdrop.dns.DnsQueryCallback;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DnsQueryHandlers
+ * @see org.bluezoo.gumdrop.ServerSessionProvider
  */
 public interface DnsQueryHandler {
 

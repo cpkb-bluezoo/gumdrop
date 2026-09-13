@@ -27,6 +27,8 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
+import java.net.InetAddress;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * TCP transport listener for FTP control connections.
@@ -123,6 +125,41 @@ public class FtpListener extends TcpListener {
         this.port = port;
         this.portExplicitlySet = true;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public FtpListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public FtpListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public FtpListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public FtpListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public FtpListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     public void setHandlerFactory(FtpConnectionHandlerFactory factory) {
         this.handlerFactory = factory;

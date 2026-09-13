@@ -145,7 +145,7 @@ one **flag day** 3.0.0 beta; document breaking changes in CHANGELOG.
 http/
   (shared)          — constants, shared types, algorithms only; avoid heavy
                       materialisation; keep this layer small
-  server/             — HttpListener, HttpRequestHandler, staged handlers
+  server/             — Http2Listener, HttpRequestHandler, staged handlers
                       server handlers, server-side adapters
   client/             — HttpClient, HttpResponseHandler, client adapters
   h1/, h2/, h2/hpack/, h3/, h3/qpack/, doh/  — version/codec subpackages
@@ -230,7 +230,7 @@ as the **primary implementer API**.
 
 **Migration steps (C.3):**
 
-1. Introduce `HttpServer.builder()` accepting `HttpRequestHandler` (internal
+1. Introduce `HttpServer.compose()` accepting `HttpRequestHandler` (internal
    factory adapter until factory type is removed).
 2. Introduce `ServletRequestHandler`, `WebDAVRequestHandler`; deprecate
    `ServletServer`, `WebdavServer`.
@@ -252,18 +252,18 @@ registry.
 ```java
 RuntimeConfig config = RuntimeConfig.builder()
     .workerThreads(4)
-    .build();
+    .server();
 Runtime rt = Runtime.start(config);
 
-HttpServer server = HttpServer.builder()
-    .listener(HttpListener.builder().port(443).tls(credentials).build())
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(443).tls(credentials))
     .handler(new ServletRequestHandler(container))
-    .build();
+    .server();
 server.start(rt);
 
 HttpClient client = HttpClient.builder()
     .host("example.com")
-    .build();
+    .server();
 client.connect(rt, myHandler);
 ```
 
@@ -299,7 +299,7 @@ hidden global singleton in library code.
 
 - **Java composition** — explicit `Runtime`, listeners, handlers (see
   [COMPOSITION.md](COMPOSITION.md))
-- **Builder APIs** per protocol (`HttpServer.builder()`, `SmtpClient.builder()`, …)
+- **Builder APIs** per protocol (`HttpServer.compose()`, `SmtpClient.builder()`, …)
 - **`main` or test harness** wiring for complex stacks (mailbox + SMTP, etc.)
   as hopf documents
 
@@ -537,7 +537,7 @@ consistent” public API:
 - [x] Define naming convention RFC (camelCase acronyms) in CONTRIBUTING +
   [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md); guard test
   (`Gumdrop3NamingConventionTest`).
-- [ ] Introduce `HttpServer.builder()` + handler composition ([COMPOSITION.md](COMPOSITION.md)).
+- [ ] Introduce `HttpServer.compose()` + handler composition ([COMPOSITION.md](COMPOSITION.md)).
 - [ ] Extract **jprotobuf** codec jar; fix grpc/telemetry dependency direction (§E.1).
 
 ### Phase 2 — Servlet + modular container (3.0 beta)

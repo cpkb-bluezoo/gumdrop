@@ -1,24 +1,24 @@
 # HTTP echo server (Gumdrop 3 composition)
 
-Minimal Gumdrop 3 HTTP server using `HttpServer.builder()` — no XML or
+Minimal Gumdrop 3 HTTP server using `HttpServer.compose()` — no XML or
 `gumdroprc`.
 
 **Default:** HTTPS (HTTP/2 + HTTP/1.1) and HTTP/3 on the same port, shared TLS:
 
 ```java
-HttpServer server = HttpServer.builder()
-        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+HttpServer server = HttpServer.compose()
+        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
         .handler(new EchoHandler())
-        .build();
+        .server();
 ```
 
 **Legacy plaintext** (dev / backward compatibility only):
 
 ```java
-HttpServer server = HttpServer.builder()
+HttpServer server = HttpServer.compose()
         .plaintextListener(8080)
         .handler(new EchoHandler())
-        .build();
+        .server();
 ```
 
 Run:

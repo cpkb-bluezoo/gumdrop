@@ -33,14 +33,15 @@ import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
-import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.DefaultHttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
-import org.bluezoo.gumdrop.http.server.HttpListener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
 import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
+import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * Abstract base for HTTP protocol servers.
@@ -51,12 +52,12 @@ import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
  * handler for each stream, and an optional
  * {@link HttpAuthenticationProvider} for authenticating requests.
  *
- * <p>New applications should use {@link #builder()} rather than
+ * <p>New applications should use {@link #compose()} rather than
  * subclassing {@code HttpServer} or configuring XML services.
  *
  * <p>A server owns one or more transport listeners:
  * <ul>
- *   <li>{@link HttpListener} for HTTP/1.1 and HTTP/2 over TCP</li>
+ *   <li>{@link Http2Listener} for HTTP/2 over TCP (HTTP/1.1 fallback)</li>
  *   <li>{@link Http3Listener} for HTTP/3 over QUIC</li>
  * </ul>
  *
@@ -76,21 +77,21 @@ import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
  *
  * <h2>Composition Example</h2>
  * <pre>{@code
- * HttpServer server = HttpServer.builder()
- *         .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+ * HttpServer server = HttpServer.compose()
+ *         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
  *         .handler(new MyHandler())
- *         .build();
+ *         .server();
  * gumdrop.addServer(server);
  * }</pre>
  *
- * <p>{@link Builder#secureEndpoint(int, HttpTlsConfig)} wires HTTPS (TCP:
+ * <p>{@link Composer#secureEndpoint(int, TlsConfig)} wires HTTPS (TCP:
  * HTTP/2 + HTTP/1.1) and HTTP/3 (QUIC) on the same port, with {@code Alt-Svc}
  * on TCP responses. Plaintext HTTP/1.1 is a legacy fallback — add
- * {@link Builder#plaintextListener(int)} only when you need it.
+ * {@link Composer#plaintextListener(int)} only when you need it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Server
- * @see HttpListener
+ * @see Http2Listener
  * @see Http3Listener
  * @see HttpRequestRouter
  * @see HttpRequestHandlerFactory
@@ -98,12 +99,20 @@ import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 public abstract class HttpServer implements Server {
 
     /**
-     * Creates a builder for a composed {@code HttpServer}.
+     * Starts fluent composition of a concrete {@link HttpServer}.
      *
-     * @return a new builder
+     * @return a new composer
      */
-    public static Builder builder() {
-        return new Builder();
+    public static Composer compose() {
+        return new Composer();
+    }
+
+    /**
+     * @deprecated use {@link #compose()}.
+     */
+    @Deprecated
+    public static Composer builder() {
+        return compose();
     }
 
     private static final Logger LOGGER =
@@ -159,11 +168,11 @@ public abstract class HttpServer implements Server {
     // ── Listener management ──
 
     /**
-     * Adds a TCP (HTTP/1.1 + HTTP/2) listener to this server.
+     * Adds a TCP (HTTP/2 + HTTP/1.1 fallback) listener to this server.
      *
      * @param endpoint the TCP listener
      */
-    public void addListener(HttpListener endpoint) {
+    public void addListener(Http2Listener endpoint) {
         listeners.add(endpoint);
     }
 
@@ -183,7 +192,7 @@ public abstract class HttpServer implements Server {
      */
     /**
      * Sets the listeners from a configuration list. Each item must be
-     * an {@link HttpListener} or {@link Http3Listener}.
+     * an {@link Http2Listener} or {@link Http3Listener}.
      *
      * @param list the list of listener endpoints
      */
@@ -192,8 +201,8 @@ public abstract class HttpServer implements Server {
             Object item = list.get(i);
             if (item instanceof Http3Listener) {
                 addListener((Http3Listener) item);
-            } else if (item instanceof HttpListener) {
-                addListener((HttpListener) item);
+            } else if (item instanceof Http2Listener) {
+                addListener((Http2Listener) item);
             }
         }
     }
@@ -312,8 +321,8 @@ public abstract class HttpServer implements Server {
                               HttpRequestRouter router,
                               HttpAuthenticationProvider authProvider,
                               String altSvc) {
-        if (listener instanceof HttpListener) {
-            HttpListener tcp = (HttpListener) listener;
+        if (listener instanceof Http2Listener) {
+            Http2Listener tcp = (Http2Listener) listener;
             tcp.setRequestRouter(router);
             tcp.setAuthenticationProvider(authProvider);
             tcp.setAddSecurityHeaders(addSecurityHeaders);
@@ -380,7 +389,7 @@ public abstract class HttpServer implements Server {
 
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
-            if (listener instanceof HttpListener) {
+            if (listener instanceof Http2Listener) {
                 hasTcp = true;
             } else if (listener instanceof Http3Listener) {
                 Http3Listener h3 = (Http3Listener) listener;
@@ -408,23 +417,23 @@ public abstract class HttpServer implements Server {
     }
 
     /**
-     * Builds a concrete {@link HttpServer} from listeners and a request router.
+     * Fluent composition of listeners and a shared request router.
      */
-    public static final class Builder {
+    public static final class Composer {
 
-        private final List<HttpListener> tcpListeners = new ArrayList<HttpListener>();
+        private final List<Http2Listener> tcpListeners = new ArrayList<Http2Listener>();
         private final List<Http3Listener> quicListeners = new ArrayList<Http3Listener>();
         private HttpRequestRouter router;
         private Realm realm;
         private boolean addSecurityHeaders = true;
 
-        private Builder() {
+        private Composer() {
         }
 
         /**
-         * Adds a TCP (HTTP/1.1 + HTTP/2) listener.
+         * Adds a TCP (HTTP/2 + HTTP/1.1 fallback) listener.
          */
-        public Builder listener(HttpListener listener) {
+        public Composer listener(Http2Listener listener) {
             if (listener == null) {
                 throw new NullPointerException("listener");
             }
@@ -435,7 +444,7 @@ public abstract class HttpServer implements Server {
         /**
          * Adds a QUIC (HTTP/3) listener.
          */
-        public Builder listener(Http3Listener listener) {
+        public Composer listener(Http3Listener listener) {
             if (listener == null) {
                 throw new NullPointerException("listener");
             }
@@ -446,59 +455,48 @@ public abstract class HttpServer implements Server {
         /**
          * Wires the default secure HTTP endpoint: HTTPS on TCP (HTTP/2 +
          * HTTP/1.1) and HTTP/3 on QUIC, same port, shared TLS material.
-         *
-         * <p>TCP responses include {@code Alt-Svc} advertising the HTTP/3
-         * endpoint. This is the recommended composition entry point for new
-         * applications.
-         *
-         * @param port the TCP and UDP port (typically 443)
-         * @param tls server certificate and private key
          */
-        public Builder secureEndpoint(int port, HttpTlsConfig tls) {
+        public Composer secureEndpoint(int port, TlsConfig tls) {
             if (tls == null) {
                 throw new NullPointerException("tls");
             }
-            listener(HttpListener.builder()
+            listener(new Http2Listener()
                     .port(port)
                     .secure(true)
-                    .tls(tls)
-                    .build());
-            listener(Http3Listener.builder()
+                    .tls(tls));
+            listener(new Http3Listener()
                     .port(port)
-                    .tls(tls)
-                    .build());
+                    .tls(tls));
             return this;
         }
 
         /**
-         * Adds a cleartext HTTP/1.1 (+ optional HTTP/2 cleartext upgrade)
-         * listener. Legacy fallback only — prefer {@link #secureEndpoint(int, HttpTlsConfig)}.
+         * @deprecated use {@link #secureEndpoint(int, TlsConfig)}.
          */
-        public Builder plaintextListener(int port) {
-            return listener(HttpListener.builder().port(port).build());
+        @Deprecated
+        public Composer secureEndpoint(int port, HttpTlsConfig tls) {
+            if (tls == null) {
+                throw new NullPointerException("tls");
+            }
+            return secureEndpoint(port, tls.unwrap());
         }
 
         /**
-         * Uses a stateless handler shared across concurrent requests.
-         *
-         * <p>For handlers that store per-request state, use
-         * {@link #handlerPerRequest(Supplier)} instead.
+         * Adds a cleartext HTTP/1.1 listener. Legacy fallback only.
          */
-        public Builder handler(HttpRequestHandler handler) {
+        public Composer plaintextListener(int port) {
+            return listener(new Http2Listener().port(port));
+        }
+
+        public Composer handler(HttpRequestHandler handler) {
             return router(HttpRequestHandlers.fixed(handler));
         }
 
-        /**
-         * Creates a fresh handler instance for each request.
-         */
-        public Builder handlerPerRequest(Supplier<HttpRequestHandler> supplier) {
+        public Composer handlerPerRequest(Supplier<HttpRequestHandler> supplier) {
             return router(HttpRequestHandlers.perRequest(supplier));
         }
 
-        /**
-         * Sets the request router directly (path-based routing, decorators, etc.).
-         */
-        public Builder router(HttpRequestRouter router) {
+        public Composer router(HttpRequestRouter router) {
             if (router == null) {
                 throw new NullPointerException("router");
             }
@@ -506,30 +504,20 @@ public abstract class HttpServer implements Server {
             return this;
         }
 
-        /**
-         * Sets the authentication realm for this server.
-         */
-        public Builder realm(Realm realm) {
+        public Composer realm(Realm realm) {
             this.realm = realm;
             return this;
         }
 
-        /**
-         * Sets whether default security response headers are added.
-         */
-        public Builder addSecurityHeaders(boolean addSecurityHeaders) {
+        public Composer addSecurityHeaders(boolean addSecurityHeaders) {
             this.addSecurityHeaders = addSecurityHeaders;
             return this;
         }
 
         /**
-         * Builds the server. At least one listener must be configured.
-         *
-         * <p>When no handler or router is set, {@link HttpRequestHandlers#notFound()}
-         * is used — the server speaks HTTP but returns {@code 404} for every
-         * mapped request.
+         * Creates the composed server. At least one listener must be configured.
          */
-        public HttpServer build() {
+        public HttpServer server() {
             if (router == null) {
                 router = HttpRequestHandlers.notFound();
             }
@@ -549,6 +537,14 @@ public abstract class HttpServer implements Server {
             }
             server.setAddSecurityHeaders(addSecurityHeaders);
             return server;
+        }
+
+        /**
+         * @deprecated use {@link #server()}.
+         */
+        @Deprecated
+        public HttpServer build() {
+            return server();
         }
     }
 

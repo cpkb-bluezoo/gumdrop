@@ -40,16 +40,16 @@ import java.util.logging.Logger;
  * Filesystem HTTP handler with optional RFC 4918 WebDAV authoring.
  *
  * <p>Install on {@link org.bluezoo.gumdrop.http.HttpServer} via
- * {@link org.bluezoo.gumdrop.http.HttpServer.Builder#router(HttpRequestRouter)}:
+ * {@link org.bluezoo.gumdrop.http.HttpServer.Composer#router(HttpRequestRouter)}:
  *
  * <pre>{@code
- * HttpServer server = HttpServer.builder()
- *         .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+ * HttpServer server = HttpServer.compose()
+ *         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
  *         .router(WebDAVRequestHandler.builder()
  *                 .rootPath(Path.of("/var/www/html"))
  *                 .webdavEnabled(true)
  *                 .build())
- *         .build();
+ *         .server();
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

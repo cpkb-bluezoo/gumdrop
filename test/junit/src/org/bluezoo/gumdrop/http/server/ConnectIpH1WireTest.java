@@ -103,7 +103,7 @@ public class ConnectIpH1WireTest {
         loop = new SelectorLoop(0);
         loop.start();
 
-        HttpListener listener = new HttpListener();
+        Http2Listener listener = new Http2Listener();
         ConnectIpPolicy permissive = new ConnectIpPolicy() {
             @Override
             public boolean isRequestAllowed(ConnectIpTarget target) {

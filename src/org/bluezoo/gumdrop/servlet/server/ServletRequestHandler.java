@@ -27,10 +27,10 @@ import org.bluezoo.gumdrop.servlet.ServletHandler;
  * Container container = new Container();
  * container.addContext(new Context(container, "/app", appRoot));
  *
- * HttpServer server = HttpServer.builder()
- *         .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+ * HttpServer server = HttpServer.compose()
+ *         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
  *         .router(new ServletRequestHandler(container))
- *         .build();
+ *         .server();
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

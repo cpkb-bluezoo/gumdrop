@@ -97,8 +97,8 @@ import org.bluezoo.gumdrop.dns.DnsType;
  *
  * <p>Example usage:
  * <pre><code>
- * DnsResolver resolver = new DnsResolver();
- * resolver.addServer("8.8.8.8");
+ * DnsResolver resolver = new DnsResolver()
+ *         .server(InetAddress.ofLiteral("8.8.8.8"));
  * resolver.open();
  *
  * resolver.queryTXT("_dmarc.example.com", new DnsQueryCallback() {
@@ -321,6 +321,74 @@ public class DnsResolver {
      */
     public void setTimeoutMs(long timeoutMs) {
         this.timeoutMs = timeoutMs;
+    }
+
+    /**
+     * Adds a DNS server by address on the default port (53). Returns
+     * {@code this} for fluent configuration.
+     *
+     * @param address the server address
+     * @return this resolver
+     */
+    public DnsResolver server(InetAddress address) {
+        addServer(address, DEFAULT_PORT);
+        return this;
+    }
+
+    /**
+     * Adds a DNS server by address and port. Returns {@code this} for
+     * fluent configuration.
+     *
+     * @param address the server address
+     * @param port the port number
+     * @return this resolver
+     */
+    public DnsResolver server(InetAddress address, int port) {
+        addServer(address, port);
+        return this;
+    }
+
+    /**
+     * Replaces the configured server list with the given addresses
+     * (default port 53). Returns {@code this} for fluent configuration.
+     *
+     * @param addresses the server addresses
+     * @return this resolver
+     */
+    public DnsResolver servers(InetAddress... addresses) {
+        servers.clear();
+        if (addresses != null) {
+            for (int i = 0; i < addresses.length; i++) {
+                if (addresses[i] == null) {
+                    throw new NullPointerException("address");
+                }
+                addServer(addresses[i], DEFAULT_PORT);
+            }
+        }
+        return this;
+    }
+
+    /**
+     * Sets the query timeout. Returns {@code this} for fluent configuration.
+     *
+     * @param timeoutMs the timeout in milliseconds
+     * @return this resolver
+     */
+    public DnsResolver timeoutMs(long timeoutMs) {
+        setTimeoutMs(timeoutMs);
+        return this;
+    }
+
+    /**
+     * Enables or disables DNSSEC validation. Returns {@code this} for
+     * fluent configuration.
+     *
+     * @param enabled true to enable DNSSEC
+     * @return this resolver
+     */
+    public DnsResolver dnssecEnabled(boolean enabled) {
+        setDnssecEnabled(enabled);
+        return this;
     }
 
     /**

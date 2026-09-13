@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HttpListener;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
@@ -52,7 +52,7 @@ import static org.junit.Assert.*;
  * facade with {@link WebSocketClient#setH2WithPriorKnowledge(boolean)}.
  *
  * <p>Companion to {@link HTTP2WebSocketClientIntegrationTest} (TLS+ALPN);
- * this drives a real {@link HttpListener} with no TLS at all, proving
+ * this drives a real {@link Http2Listener} with no TLS at all, proving
  * WebSocket-over-h2 works over the cleartext prior-knowledge path too --
  * the only h2c mechanism this project supports for WebSocket (the older
  * HTTP/1.1-{@code Upgrade}-header h2c bootstrap is deprecated by RFC 9113
@@ -78,13 +78,13 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
             .build();
 
     private static Gumdrop gumdrop;
-    private static HttpListener listener;
+    private static Http2Listener listener;
 
     @BeforeClass
     public static void startServer() throws Exception {
         System.setProperty("gumdrop.workers", "2");
 
-        listener = new HttpListener();
+        listener = new Http2Listener();
         listener.setPort(PORT);
         listener.setAddresses(TEST_HOST);
         // No setSecure/keystore at all -- plain cleartext TCP.

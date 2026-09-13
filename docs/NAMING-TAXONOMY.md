@@ -66,8 +66,20 @@ Dial-side entry types use the same acronym rules: `HttpClient`, `SmtpClient`,
 
 | Role | Package (target, §C.2) | Name pattern |
 |------|------------------------|--------------|
-| Server request handling | `{protocol}.server` | `{Protocol}RequestHandler`, staged server handlers |
-| Client response / reply | `{protocol}.client` | `{Stage}ReplyHandler` — **never** `Server*` |
+| **Stateless** server (HTTP, DNS) | `{protocol}.server` | `{Protocol}RequestHandler`, `{Protocol}QueryHandler` |
+| **Stateful** server session minting | `{protocol}.server` | `{Protocol}ServerSessionProvider` extends `ServerSessionProvider` |
+| **Stateful** server staged handlers | `{protocol}.server.handler` or `{protocol}.handler` | `{Stage}Handler` + `{Stage}State` |
+| **Stateful** client session minting | `{protocol}.client` | `{Protocol}ClientSessionProvider` extends `ClientSessionProvider` |
+| Client response / reply | `{protocol}.client.handler` | `{Stage}ReplyHandler` — **never** `Server*` |
+
+**Stateless protocols do not use `ServerSessionProvider` or
+`ClientSessionProvider`.** HTTP composes with `HttpRequestRouter` /
+`HttpRequestHandler`; DNS with `DnsQueryHandler`.
+
+**Stateful protocols** compose a session provider on the server (one pipeline
+per accepted connection) and a client session provider (bootstrap handler per
+dial). SMTP is the reference implementation (`SmtpServerSessionProvider`,
+`SmtpClientSessionProvider`); FTP is planned next.
 
 The `smtp.client.handler.ServerEhloReplyHandler` pattern is **legacy**: the
 handler runs on the **client** and receives the **remote server's** reply. Rename
@@ -76,8 +88,24 @@ to `EhloReplyHandler` (package context supplies protocol). Similarly
 
 ### 5. Listeners and transport
 
-Keep `{Protocol}Listener` with camelCase acronyms: `HttpListener`, `SmtpListener`,
-`DnsListener`.
+Keep `{Protocol}Listener` with camelCase acronyms: `Http2Listener`, `Http3Listener`,
+`SmtpListener`, `DnsListener`.
+
+Server TLS identity uses shared {@link org.bluezoo.gumdrop.tls.TlsConfig} on all
+secure listeners ({@code listener.tls(tls)}). {@code HttpTlsConfig} and
+{@code HttpListener} are deprecated aliases.
+
+Configure listeners fluently ({@code new SmtpListener().port(25).bindWildcard().tls(tls)});
+all protocol listeners support {@code port()}, {@code bindWildcard()},
+{@code addresses(InetAddress...)}, {@code secure()}, and {@code tls()}. Nested
+listener {@code Builder} types are deprecated. Multi-listener servers use
+{@code compose()} ending in {@code server()} ({@link org.bluezoo.gumdrop.http.HttpServer},
+{@link org.bluezoo.gumdrop.dns.server.DnsServer},
+{@link org.bluezoo.gumdrop.smtp.server.SmtpServer}); {@code builder()} and
+{@code build()} remain as deprecated aliases. Stateful clients (e.g.
+{@link org.bluezoo.gumdrop.smtp.client.SmtpClient}) use fluent instance methods
+before {@code connect()}; {@link org.bluezoo.gumdrop.dns.client.DnsResolver} uses
+{@code server(InetAddress)} before {@code open()}.
 
 ### 6. Metrics
 
@@ -116,6 +144,7 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.2.3** | Remaining protocol `server/` facades | FTP, DNS, MQTT, SOCKS, mDNS, health + root re-exports *(done)* |
 | **C.2.4** | Servlet / WebDAV / WebSocket package moves | Interim `*/server/*Server` facades — superseded by handler composition *(C.3)* |
 | **C.3** | Handler-first HTTP | `HttpServer` + `HttpRequestHandler`; drop `HttpRequestHandlerFactory` public SPI |
+| **C.3.1** | Session providers (stateful) | `ServerSessionProvider`, `ClientSessionProvider`; SMTP done; FTP next |
 | **C.5** | Remove XML configuration | Java composition only; see [COMPOSITION.md](COMPOSITION.md) |
 
 After **C.1.2**, begin **C.2** package moves (`http/server/`, `http/client/`) in

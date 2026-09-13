@@ -208,6 +208,36 @@ public class MqttClient {
         this.willRetain = retain;
     }
 
+    /** @return this client */
+    public MqttClient secure(boolean secure) {
+        setSecure(secure);
+        return this;
+    }
+
+    /** @return this client */
+    public MqttClient clientCredentials(ServerCredentials clientCredentials) {
+        setClientCredentials(clientCredentials);
+        return this;
+    }
+
+    /** @return this client */
+    public MqttClient trustManager(X509TrustManager trustManager) {
+        setTrustManager(trustManager);
+        return this;
+    }
+
+    /** @return this client */
+    public MqttClient keystoreFile(Path path) {
+        setKeystoreFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public MqttClient keystorePass(String pass) {
+        setKeystorePass(pass);
+        return this;
+    }
+
     // ── Connection ──
 
     /**

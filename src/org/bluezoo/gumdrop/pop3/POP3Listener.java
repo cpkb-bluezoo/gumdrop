@@ -30,6 +30,8 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
+import java.net.InetAddress;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 /**
  * TCP transport listener for POP3 connections.
  * This endpoint supports both standard POP3 (port 110) and POP3S (port 995),
@@ -113,6 +115,41 @@ public class Pop3Listener extends TcpListener {
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public Pop3Listener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public Pop3Listener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     /**
      * Returns the authentication realm.

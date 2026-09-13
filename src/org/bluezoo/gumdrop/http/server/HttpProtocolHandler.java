@@ -218,7 +218,7 @@ public  class HttpProtocolHandler
 
     private Endpoint endpoint;
 
-    private final HttpListener server;
+    private final Http2Listener server;
     private final int framePadding;
     private final int serverMaxConcurrentStreams;
     private final int serverMaxHeaderListSize;
@@ -283,7 +283,7 @@ public  class HttpProtocolHandler
     int initialWindowSize = DEFAULT_INITIAL_WINDOW_SIZE;
     int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
     int maxHeaderListSize = DEFAULT_MAX_HEADER_LIST_SIZE;
-    long maxRequestBodySize = HttpListener.DEFAULT_MAX_REQUEST_BODY_SIZE;
+    long maxRequestBodySize = Http2Listener.DEFAULT_MAX_REQUEST_BODY_SIZE;
 
     Decoder hpackDecoder;
     Encoder hpackEncoder;
@@ -368,8 +368,8 @@ public  class HttpProtocolHandler
      *
      * @param server the HTTP server configuration
      */
-    public HttpProtocolHandler(HttpListener server) {
-        this(server, 0, 100, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+    public HttpProtocolHandler(Http2Listener server) {
+        this(server, 0, 100, Http2Listener.DEFAULT_MAX_HEADER_LIST_SIZE);
     }
 
     /**
@@ -378,8 +378,8 @@ public  class HttpProtocolHandler
      * @param server the HTTP server endpoint configuration
      * @param framePadding HTTP/2 frame padding (0-255)
      */
-    public HttpProtocolHandler(HttpListener server, int framePadding) {
-        this(server, framePadding, 100, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+    public HttpProtocolHandler(Http2Listener server, int framePadding) {
+        this(server, framePadding, 100, Http2Listener.DEFAULT_MAX_HEADER_LIST_SIZE);
     }
 
     /**
@@ -390,7 +390,7 @@ public  class HttpProtocolHandler
      * @param framePadding HTTP/2 frame padding (0-255)
      * @param serverMaxConcurrentStreams max concurrent streams to advertise
      */
-    public HttpProtocolHandler(HttpListener server, int framePadding,
+    public HttpProtocolHandler(Http2Listener server, int framePadding,
             int serverMaxConcurrentStreams) {
         this(server, framePadding, serverMaxConcurrentStreams,
                 server.getMaxHeaderListSize());
@@ -399,7 +399,7 @@ public  class HttpProtocolHandler
     /**
      * Creates a new HTTP endpoint handler with HTTP/2 limits.
      */
-    public HttpProtocolHandler(HttpListener server, int framePadding,
+    public HttpProtocolHandler(Http2Listener server, int framePadding,
             int serverMaxConcurrentStreams, int serverMaxHeaderListSize) {
         this.server = server;
         this.framePadding = framePadding;
@@ -1399,7 +1399,7 @@ public  class HttpProtocolHandler
         return server != null ? server.getMetrics() : null;
     }
 
-    HttpListener getListener() {
+    Http2Listener getListener() {
         return server;
     }
 

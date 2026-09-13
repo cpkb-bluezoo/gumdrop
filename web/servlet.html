@@ -498,14 +498,14 @@ wired into <code>HttpServer</code>, not a separate
 
 <pre>
 Container container = Container.builder()
-    .context(Context.builder().path("").root(Path.of("web")).build())
-    .build();
+    .context(Context.builder().path("").root(Path.of("web")).server())
+    .server();
 
-HttpServer server = HttpServer.builder()
-    .listener(HttpListener.builder().port(8080).build())
-    .listener(Http3Listener.builder().port(8443).tls(credentials).build())
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(8080))
+    .listener(new Http3Listener().port(8443).tls(credentials))
     .handler(new ServletRequestHandler(container))
-    .build();
+    .server();
 </pre>
 
 <p>

@@ -191,7 +191,7 @@
     </copy>
   </target>
 
-  <target name='build-mailbox-module' depends='build-mime-module'>
+  <target name='build-mailbox-module' depends='build-core-main,build-mime-module'>
     <mkdir dir='${build.mailbox}'/>
     <javac srcdir='${src}' destdir='${build.mailbox}' debug='true'
            release='${java.release.version}' sourcepath=''

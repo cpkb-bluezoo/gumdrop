@@ -97,7 +97,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
 
     @Before
     public void setUp() {
-        HttpListener listener = new HttpListener();
+        Http2Listener listener = new Http2Listener();
         connection = new HttpProtocolHandler(listener);
         connection.version = HttpVersion.HTTP_1_1;
         endpoint = new CapturingEndpoint();

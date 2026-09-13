@@ -24,7 +24,7 @@ MOVE_FILES = [
     "HttpLineLexer.java",
     "HttpProtocolHandler.java",
     "HttpServerMetrics.java",
-    "HttpListener.java",
+    "Http2Listener.java",
     "ConnectIpRequestHandler.java",
     "ConnectUdpRequestHandler.java",
     "ConnectUdpRelay.java",

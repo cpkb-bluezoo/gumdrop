@@ -489,7 +489,7 @@ Set the handler factory on the service:
 HttpServer service = new HttpServer();
 service.setHandlerFactory(new MyFactory());
 
-HttpListener listener = new HttpListener();
+Http2Listener listener = new Http2Listener();
 listener.setPort(8080);
 service.addListener(listener);
 service.start();
@@ -778,7 +778,7 @@ Example:
 </li>
 </ul>
 
-<h4>HttpListener Properties</h4>
+<h4>Http2Listener Properties</h4>
 
 <p>
 <code>HttpListener</code> is the TCP listener for HTTP/1.1 and HTTP/2. It

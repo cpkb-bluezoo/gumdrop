@@ -28,6 +28,8 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
+import java.net.InetAddress;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * TCP transport listener for MQTT connections.
@@ -91,6 +93,41 @@ public class MqttListener extends TcpListener {
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public MqttListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public MqttListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public MqttListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public MqttListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public MqttListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     public int getMaxPacketSize() {
         return maxPacketSize;

@@ -34,6 +34,8 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.quota.QuotaManager;
+import java.net.InetAddress;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * TCP transport listener for IMAP connections.
@@ -131,6 +133,41 @@ public class ImapListener extends TcpListener {
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public ImapListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public ImapListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public ImapListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public ImapListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public ImapListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     /**
      * Returns the authentication realm.

@@ -38,9 +38,9 @@ public class DnsServerCompositionTest {
 
     @Test
     public void testBuilderWithoutHandlerReturnsEmpty() throws Exception {
-        DnsServer server = DnsServer.builder()
+        DnsServer server = DnsServer.compose()
                 .listener(new DnsListener())
-                .build();
+                .server();
         DnsMessage query = DnsMessage.createQuery(2, "example.com.", DnsType.A);
         DnsMessage response = syncProcessQuery(server, query);
         assertEquals(DnsMessage.RCODE_NOERROR, response.getRcode());
@@ -49,13 +49,13 @@ public class DnsServerCompositionTest {
 
     @Test
     public void testBuilderWithUpstreamRelayHandler() throws Exception {
-        DnsServer server = DnsServer.builder()
-                .listener(DnsListener.builder().port(5353).build())
+        DnsServer server = DnsServer.compose()
+                .listener(new DnsListener().port(5353))
                 .handler(UpstreamRelayHandler.builder()
                         .upstreamServers("127.0.0.1:1")
                         .cacheEnabled(false)
                         .build())
-                .build();
+                .server();
         server.start();
         try {
             DnsMessage query = DnsMessage.createQuery(3, "example.com.", DnsType.A);
@@ -77,10 +77,10 @@ public class DnsServerCompositionTest {
                 + "www IN A 192.0.2.1\n");
         try {
             ZoneFile loaded = ZoneFile.load(zone);
-            DnsServer server = DnsServer.builder()
+            DnsServer server = DnsServer.compose()
                     .listener(new DnsListener())
                     .handler(new AuthoritativeZoneHandler(loaded))
-                    .build();
+                    .server();
 
             DnsMessage query = DnsMessage.createQuery(4, "www.example.com.",
                     DnsType.A);
@@ -102,7 +102,7 @@ public class DnsServerCompositionTest {
 
     @Test
     public void testFromFunctionHandler() throws Exception {
-        DnsServer server = DnsServer.builder()
+        DnsServer server = DnsServer.compose()
                 .listener(new DnsListener())
                 .handler(DnsQueryHandlers.fromFunction(query -> {
                     DnsQuestion q = query.getQuestions().get(0);
@@ -113,7 +113,7 @@ public class DnsServerCompositionTest {
                     }
                     return null;
                 }))
-                .build();
+                .server();
 
         DnsMessage hit = DnsMessage.createQuery(6, "local.test.", DnsType.A);
         assertFalse(syncProcessQuery(server, hit).getAnswers().isEmpty());

@@ -13,13 +13,14 @@ import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpListener;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.Headers;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.net.InetAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -50,18 +51,17 @@ public class HttpServerRouterIntegrationTest {
             gumdrop = Gumdrop.getInstance();
         }
 
-        server = HttpServer.builder()
-                .listener(HttpListener.builder()
+        server = HttpServer.compose()
+                .listener(new Http2Listener()
                         .port(testPort)
-                        .addresses(TEST_HOST)
-                        .build())
+                        .addresses(InetAddress.ofLiteral(TEST_HOST)))
                 .router((state, headers) -> {
                     if ("/api".equals(headers.getPath())) {
                         return new OkHandler();
                     }
                     return null;
                 })
-                .build();
+                .server();
 
         gumdrop.addServer(server);
         gumdrop.start();

@@ -28,7 +28,8 @@
  * org.bluezoo.gumdrop.http.server.HttpResponseState} are shared by all three
  * server versions, so request handlers are written once.
  *
- * <p>Server-side SPI ({@link org.bluezoo.gumdrop.http.server.HttpListener},
+ * <p>Server-side SPI ({@link org.bluezoo.gumdrop.http.server.Http2Listener},
+ * {@link org.bluezoo.gumdrop.http.h3.Http3Listener},
  * {@link org.bluezoo.gumdrop.http.server.HttpRequestHandler},
  * {@link org.bluezoo.gumdrop.http.server.HttpProtocolHandler}, …) lives in
  * {@link org.bluezoo.gumdrop.http.server}. {@link HttpServer} and
@@ -59,6 +60,7 @@
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see org.bluezoo.gumdrop.http.server.Http2Listener
  * @see org.bluezoo.gumdrop.http.server.HttpListener
  * @see org.bluezoo.gumdrop.http.server.HttpProtocolHandler
  * @see org.bluezoo.gumdrop.http.h3

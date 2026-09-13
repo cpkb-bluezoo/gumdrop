@@ -28,7 +28,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpListener;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.http.Headers;
 /**
  * TCP transport listener for WebSocket connections.
  *
- * <p>Extends {@link HttpListener} and encapsulates the HTTP-to-WebSocket
+ * <p>Extends {@link Http2Listener} and encapsulates the HTTP-to-WebSocket
  * upgrade handshake. Every incoming HTTP request is automatically checked
  * for a valid WebSocket upgrade; if valid, the connection is upgraded and
  * handed off to the owning {@link WebSocketServer}'s handler. Non-WebSocket
@@ -59,15 +59,15 @@ import org.bluezoo.gumdrop.http.Headers;
  * </service>
  * }</pre>
  *
- * <p>All properties inherited from {@link HttpListener} are available
+ * <p>All properties inherited from {@link Http2Listener} are available
  * (port, secure, keystore-file, keystore-pass, etc.).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketServer
- * @see HttpListener
+ * @see Http2Listener
  */
-public class WebSocketListener extends HttpListener {
+public class WebSocketListener extends Http2Listener {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketListener.class.getName());

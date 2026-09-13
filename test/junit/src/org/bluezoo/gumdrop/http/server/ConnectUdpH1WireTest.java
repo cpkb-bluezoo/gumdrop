@@ -102,7 +102,7 @@ public class ConnectUdpH1WireTest {
         loop = new SelectorLoop(0);
         loop.start();
 
-        HttpListener listener = new HttpListener();
+        Http2Listener listener = new Http2Listener();
         ConnectUdpPolicy permissive = new ConnectUdpPolicy() {
             @Override
             public boolean isTargetAllowed(InetAddress address, int port) {

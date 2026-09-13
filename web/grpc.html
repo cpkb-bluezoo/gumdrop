@@ -386,7 +386,7 @@ HttpServer service = new HttpServer() {
         return new GrpcHandlerFactory(protoFile, grpcService);
     }
 };
-HttpListener listener = new HttpListener();
+Http2Listener listener = new Http2Listener();
 listener.setPort(50051);
 listener.setSecure(true);
 listener.setKeystoreFile("keystore.p12");

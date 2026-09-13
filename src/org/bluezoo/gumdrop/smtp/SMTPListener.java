@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 
 /**
@@ -118,6 +119,41 @@ public class SmtpListener extends TcpListener {
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public SmtpListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public SmtpListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public SmtpListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public SmtpListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public SmtpListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     /**
      * Returns the maximum message size in bytes.
@@ -327,7 +363,7 @@ public class SmtpListener extends TcpListener {
      * Creates a new SmtpProtocolHandler for a newly accepted connection.
      *
      * <p>If an {@link SmtpServer} is set, the handler is obtained from
-     * the service's {@link SmtpServer#createHandler(org.bluezoo.gumdrop.TcpListener)}
+     * the service's {@link SmtpServer#openSession(org.bluezoo.gumdrop.TcpListener)}
      * method.
      *
      * @return a new SMTP endpoint handler
@@ -337,7 +373,7 @@ public class SmtpListener extends TcpListener {
         ClientConnected handler = null;
         if (service != null) {
             try {
-                handler = service.createHandler(this);
+                handler = service.openSession(this);
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,

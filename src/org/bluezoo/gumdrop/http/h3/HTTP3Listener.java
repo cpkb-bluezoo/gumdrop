@@ -38,19 +38,22 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
+import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * QUIC transport listener for HTTP/3 connections.
  *
- * <p>This is the HTTP/3 equivalent of
- * {@link org.bluezoo.gumdrop.http.HttpListener}. It creates a
+ * <p>Pair with {@link Http2Listener} for the recommended production stack
+ * (HTTPS + HTTP/3 on the same port). It creates a
  * {@link QuicTransportFactory} with ALPN "h3" (RFC 9114 section 3.1),
  * binds to the configured UDP port, and installs an
  * {@link Http3ServerHandler} on each new QUIC connection to dispatch
@@ -122,6 +125,48 @@ public class Http3Listener extends TcpListener
      */
     public void setPort(int port) {
         this.port = port;
+    }
+
+    /**
+     * Sets the UDP port. Returns {@code this} for fluent configuration.
+     */
+    public Http3Listener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public Http3Listener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public Http3Listener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public Http3Listener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+
+    @Override
+    public Http3Listener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
+    /**
+     * Sets whether RFC 9000 Retry-based address validation is required.
+     * Default {@code true}.
+     */
+    public Http3Listener requireRetry(boolean requireRetry) {
+        setRequireRetry(requireRetry);
+        return this;
     }
 
     /**
@@ -402,21 +447,22 @@ public class Http3Listener extends TcpListener
     }
 
     /**
-     * Creates a builder for a QUIC HTTP/3 listener.
+     * @deprecated use {@code new Http3Listener().port(...)} fluent configuration.
      */
+    @Deprecated
     public static Builder builder() {
         return new Builder();
     }
 
     /**
-     * Builds an {@link Http3Listener} for use with
-     * {@link org.bluezoo.gumdrop.http.HttpServer#builder()}.
+     * @deprecated use fluent methods on {@link Http3Listener} instead.
      */
+    @Deprecated
     public static final class Builder {
 
         private int port = -1;
         private String addresses;
-        private org.bluezoo.gumdrop.http.server.HttpTlsConfig tls;
+        private TlsConfig tls;
         private boolean requireRetry = true;
 
         private Builder() {
@@ -438,12 +484,23 @@ public class Http3Listener extends TcpListener
          * <p>HTTP/3 requires TLS 1.3 over QUIC; this configuration is
          * mandatory for production listeners.
          */
-        public Builder tls(org.bluezoo.gumdrop.http.server.HttpTlsConfig tls) {
+        public Builder tls(TlsConfig tls) {
             if (tls == null) {
                 throw new NullPointerException("tls");
             }
             this.tls = tls;
             return this;
+        }
+
+        /**
+         * @deprecated use {@link #tls(TlsConfig)}.
+         */
+        @Deprecated
+        public Builder tls(HttpTlsConfig tls) {
+            if (tls == null) {
+                throw new NullPointerException("tls");
+            }
+            return tls(tls.unwrap());
         }
 
         /**

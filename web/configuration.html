@@ -75,12 +75,12 @@ those interim types are replaced by handler composition.
 <h3 id="http">HTTP server</h3>
 
 <pre>
-Runtime rt = Runtime.start(RuntimeConfig.builder().build());
+Runtime rt = Runtime.start(RuntimeConfig.builder().server());
 
-HttpServer server = HttpServer.builder()
-    .listener(HttpListener.builder().port(8080).build())
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(8080))
     .handler(new MyRequestHandler())
-    .build();
+    .server();
 
 rt.addServer(server);
 server.start(rt);
@@ -100,13 +100,13 @@ The servlet stack is a <code>ServletRequestHandler</code> on
 
 <pre>
 Container container = Container.builder()
-    .context(Context.builder().path("").root(Path.of("web")).build())
-    .build();
+    .context(Context.builder().path("").root(Path.of("web")).server())
+    .server();
 
-HttpServer server = HttpServer.builder()
-    .listener(HttpListener.builder().port(8080).build())
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(8080))
     .handler(new ServletRequestHandler(container))
-    .build();
+    .server();
 </pre>
 
 <p>
@@ -123,15 +123,15 @@ Static files and WebDAV (RFC 4918) use <code>WebDAVRequestHandler</code>
 </p>
 
 <pre>
-HttpServer server = HttpServer.builder()
-    .listener(HttpListener.builder().port(8080).build())
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(8080))
     .handler(WebDAVRequestHandler.builder()
         .rootPath(Path.of("/var/www/html"))
         .welcomeFile("index.html")
         .allowWrite(false)
         .webdavEnabled(true)
-        .build())
-    .build();
+        .server())
+    .server();
 </pre>
 
 <p>

@@ -40,6 +40,7 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * QUIC transport listener for DNS-over-QUIC (DoQ) queries.
@@ -102,6 +103,41 @@ public class DoQListener extends TcpListener
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public DoQListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public DoQListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public DoQListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public DoQListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public DoQListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     @Override
     public String getDescription() {

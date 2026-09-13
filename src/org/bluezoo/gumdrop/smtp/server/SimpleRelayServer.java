@@ -174,7 +174,7 @@ public class SimpleRelayServer extends SmtpServer {
     }
 
     @Override
-    public ClientConnected createHandler(TcpListener endpoint) {
+    public ClientConnected openSession(TcpListener endpoint) {
         return new SimpleRelayHandler(dnsResolver, hostname);
     }
 

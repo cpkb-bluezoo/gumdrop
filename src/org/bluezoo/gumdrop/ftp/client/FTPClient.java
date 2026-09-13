@@ -247,6 +247,43 @@ public class FtpClient {
         this.keystoreFormat = format;
     }
 
+
+    /** @return this client */
+    public FtpClient secure(boolean secure) {
+        setSecure(secure);
+        return this;
+    }
+
+    /** @return this client */
+    public FtpClient clientCredentials(ServerCredentials clientCredentials) {
+        setClientCredentials(clientCredentials);
+        return this;
+    }
+
+    /** @return this client */
+    public FtpClient trustManager(X509TrustManager trustManager) {
+        setTrustManager(trustManager);
+        return this;
+    }
+
+    /** @return this client */
+    public FtpClient keystoreFile(Path path) {
+        setKeystoreFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public FtpClient keystorePass(String password) {
+        setKeystorePass(password);
+        return this;
+    }
+
+    /** @return this client */
+    public FtpClient keystoreFormat(String format) {
+        setKeystoreFormat(format);
+        return this;
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════

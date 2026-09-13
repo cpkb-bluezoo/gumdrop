@@ -28,7 +28,7 @@ import org.bluezoo.gumdrop.http.server.HttpServerServiceHook;
 /**
  * Concrete {@link HttpServer} assembled from listeners and a request router.
  *
- * <p>Created via {@link HttpServer#builder()}; not intended for subclassing.
+ * <p>Created via {@link HttpServer#compose()}; not intended for subclassing.
  */
 final class ComposedHttpServer extends HttpServer {
 

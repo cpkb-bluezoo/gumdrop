@@ -51,15 +51,15 @@ the same <code>HttpServer</code>.
 <h3 id="composition">Composition (Gumdrop 3)</h3>
 
 <pre>
-HttpServer server = HttpServer.builder()
-    .listener(HttpListener.builder().port(8080).build())
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(8080))
     .handler(WebDAVRequestHandler.builder()
         .rootPath(Path.of("/var/www/html"))
         .welcomeFile("index.html")
         .allowWrite(false)
         .webdavEnabled(true)
-        .build())
-    .build();
+        .server())
+    .server();
 </pre>
 
 <p>

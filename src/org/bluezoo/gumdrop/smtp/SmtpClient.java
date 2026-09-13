@@ -40,4 +40,16 @@ public class SmtpClient extends org.bluezoo.gumdrop.smtp.client.SmtpClient {
     public SmtpClient(SelectorLoop selectorLoop, String socketPath) {
         super(selectorLoop, socketPath);
     }
+
+    public SmtpClient() {
+        super();
+    }
+
+    /**
+     * @see org.bluezoo.gumdrop.smtp.client.SmtpClient#builder()
+     */
+    @Deprecated
+    public static org.bluezoo.gumdrop.smtp.client.SmtpClient.Builder builder() {
+        return org.bluezoo.gumdrop.smtp.client.SmtpClient.builder();
+    }
 }

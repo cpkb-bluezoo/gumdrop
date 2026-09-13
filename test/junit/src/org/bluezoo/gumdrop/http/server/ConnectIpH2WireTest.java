@@ -119,7 +119,7 @@ public class ConnectIpH2WireTest {
         loop = new SelectorLoop(0);
         loop.start();
 
-        HttpListener listener = new HttpListener();
+        Http2Listener listener = new Http2Listener();
         ConnectIpPolicy permissive = new ConnectIpPolicy() {
             @Override
             public boolean isRequestAllowed(ConnectIpTarget target) {
@@ -153,7 +153,7 @@ public class ConnectIpH2WireTest {
     }
 
     private ByteBuffer encodeConnectIpHeaders(String target, String ipProto) throws Exception {
-        Encoder encoder = new Encoder(4096, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+        Encoder encoder = new Encoder(4096, Http2Listener.DEFAULT_MAX_HEADER_LIST_SIZE);
         Headers request = new Headers();
         request.add(new Header(":method", "CONNECT"));
         request.add(new Header(":protocol", "connect-ip"));

@@ -11,4 +11,22 @@ package org.bluezoo.gumdrop.smtp;
  * @see org.bluezoo.gumdrop.smtp.server.SmtpServer
  * @see docs/NAMING-TAXONOMY.md
  */
-public abstract class SmtpServer extends org.bluezoo.gumdrop.smtp.server.SmtpServer {}
+public abstract class SmtpServer extends org.bluezoo.gumdrop.smtp.server.SmtpServer {
+
+    /**
+     * @see org.bluezoo.gumdrop.smtp.server.SmtpServer#compose()
+     */
+    public static org.bluezoo.gumdrop.smtp.server.SmtpServer.Composer compose() {
+        return org.bluezoo.gumdrop.smtp.server.SmtpServer.compose();
+    }
+
+    /**
+     * @deprecated use {@link #compose()}.
+     * @see org.bluezoo.gumdrop.smtp.server.SmtpServer#builder()
+     */
+    @Deprecated
+    public static org.bluezoo.gumdrop.smtp.server.SmtpServer.Composer builder() {
+        return compose();
+    }
+
+}

@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpListener;
+import org.bluezoo.gumdrop.http.Http2Listener;
 import org.bluezoo.gumdrop.http.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
@@ -53,7 +53,7 @@ import static org.junit.Assert.*;
  * WebSocket-over-HTTP/2 integration test (RFC 8441) for the public
  * {@link WebSocketClient} facade.
  *
- * <p>Drives a real {@link HttpListener} server (TLS, keystore-based, ALPN
+ * <p>Drives a real {@link Http2Listener} server (TLS, keystore-based, ALPN
  * offering "h2") whose request handler accepts an Extended CONNECT upgrade
  * via {@link HttpResponseState#upgradeToWebSocket} and echoes text/binary
  * messages back, proving the client-side Extended-CONNECT-over-h2 path
@@ -78,7 +78,7 @@ public class HTTP2WebSocketClientIntegrationTest {
             .build();
 
     private static Gumdrop gumdrop;
-    private static HttpListener listener;
+    private static Http2Listener listener;
 
     @BeforeClass
     public static void startServer() throws Exception {
@@ -98,7 +98,7 @@ public class HTTP2WebSocketClientIntegrationTest {
 
         System.setProperty("gumdrop.workers", "2");
 
-        listener = new HttpListener();
+        listener = new Http2Listener();
         listener.setPort(PORT);
         listener.setAddresses(TEST_HOST);
         listener.setSecure(true);

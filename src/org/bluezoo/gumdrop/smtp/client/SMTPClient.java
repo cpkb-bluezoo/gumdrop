@@ -26,6 +26,7 @@ import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 import javax.net.ssl.X509TrustManager;
 
@@ -50,7 +51,17 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * servers. It internally creates a {@link TcpTransportFactory},
  * {@link ClientEndpoint}, and {@link SmtpClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
- * {@link RemoteGreeting} handler.
+ * {@link RemoteGreeting} handler (or a {@link SmtpClientSessionProvider}
+ * from fluent configuration or {@link #builder()}).
+ *
+ * <h4>Composition (recommended)</h4>
+ * <pre>{@code
+ * SmtpClient client = new SmtpClient()
+ *         .host("smtp.example.com")
+ *         .port(587)
+ *         .sessionPerConnection(() -> new MyRemoteGreeting());
+ * client.connect();
+ * }</pre>
  *
  * <h4>Plaintext with STARTTLS (submission)</h4>
  * <pre>{@code
@@ -91,11 +102,11 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  */
 public class SmtpClient {
 
-    private final String host;
-    private final InetAddress hostAddress;
-    private final int port;
-    private final String socketPath;
-    private final SelectorLoop selectorLoop;
+    private String host;
+    private InetAddress hostAddress;
+    private int port;
+    private String socketPath;
+    private SelectorLoop selectorLoop;
 
     private boolean secure;
     private ServerCredentials clientCredentials;
@@ -104,10 +115,22 @@ public class SmtpClient {
     private String keystorePass;
     private String keystoreFormat;
     private DnsResolver daneResolver;
+    private SmtpClientSessionProvider sessionProvider;
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private SmtpClientProtocolHandler endpointHandler;
+
+    /**
+     * Creates an SMTP client for fluent configuration before {@link #connect()}.
+     */
+    public SmtpClient() {
+        this.selectorLoop = null;
+        this.host = null;
+        this.hostAddress = null;
+        this.port = 25;
+        this.socketPath = null;
+    }
 
     /**
      * Creates an SMTP client for the given hostname and port.
@@ -294,6 +317,172 @@ public class SmtpClient {
         this.keystoreFormat = format;
     }
 
+    /**
+     * Sets the remote hostname. Resolved via {@link DnsResolver} at
+     * {@link #connect()}.
+     *
+     * @param host the remote hostname
+     * @return this client
+     */
+    public SmtpClient host(String host) {
+        this.host = host;
+        this.hostAddress = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    /**
+     * Sets the remote host address (no DNS lookup at connect).
+     *
+     * @param hostAddress the remote address
+     * @return this client
+     */
+    public SmtpClient host(InetAddress hostAddress) {
+        if (hostAddress == null) {
+            throw new NullPointerException("hostAddress");
+        }
+        this.hostAddress = hostAddress;
+        this.host = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    /**
+     * Sets the remote port.
+     *
+     * @param port the port number
+     * @return this client
+     */
+    public SmtpClient port(int port) {
+        this.port = port;
+        return this;
+    }
+
+    /**
+     * Sets the UNIX domain socket path (mutually exclusive with host).
+     *
+     * @param socketPath the socket path
+     * @return this client
+     */
+    public SmtpClient socketPath(String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.socketPath = socketPath;
+        this.host = null;
+        this.hostAddress = null;
+        return this;
+    }
+
+    /**
+     * Sets the selector loop for this client.
+     *
+     * @param selectorLoop the loop, or null for a Gumdrop worker
+     * @return this client
+     */
+    public SmtpClient selectorLoop(SelectorLoop selectorLoop) {
+        this.selectorLoop = selectorLoop;
+        return this;
+    }
+
+    /**
+     * Sets the session provider used by {@link #connect()}.
+     *
+     * @param provider the session provider
+     * @return this client
+     */
+    public SmtpClient sessionProvider(SmtpClientSessionProvider provider) {
+        setSessionProvider(provider);
+        return this;
+    }
+
+    /**
+     * Supplies a fresh bootstrap handler for each {@link #connect()}.
+     *
+     * @param supplier handler factory
+     * @return this client
+     */
+    public SmtpClient sessionPerConnection(Supplier<RemoteGreeting> supplier) {
+        return sessionProvider(SmtpClientSessionProviders.perSession(supplier));
+    }
+
+    /**
+     * Sets whether this client uses implicit TLS (SMTPS).
+     *
+     * @param secure true for implicit TLS
+     * @return this client
+     */
+    public SmtpClient secure(boolean secure) {
+        setSecure(secure);
+        return this;
+    }
+
+    /**
+     * Sets client TLS credentials.
+     *
+     * @param clientCredentials the credentials
+     * @return this client
+     */
+    public SmtpClient clientCredentials(ServerCredentials clientCredentials) {
+        setClientCredentials(clientCredentials);
+        return this;
+    }
+
+    /**
+     * Sets a custom trust manager.
+     *
+     * @param trustManager the trust manager
+     * @return this client
+     */
+    public SmtpClient trustManager(X509TrustManager trustManager) {
+        setTrustManager(trustManager);
+        return this;
+    }
+
+    /**
+     * Sets the keystore file for client certificate authentication.
+     *
+     * @param path the keystore path
+     * @return this client
+     */
+    public SmtpClient keystoreFile(Path path) {
+        setKeystoreFile(path);
+        return this;
+    }
+
+    /**
+     * Sets the keystore password.
+     *
+     * @param password the password
+     * @return this client
+     */
+    public SmtpClient keystorePass(String password) {
+        setKeystorePass(password);
+        return this;
+    }
+
+    /**
+     * Sets the keystore format.
+     *
+     * @param format the format
+     * @return this client
+     */
+    public SmtpClient keystoreFormat(String format) {
+        setKeystoreFormat(format);
+        return this;
+    }
+
+    /**
+     * Enables opportunistic DANE authentication via the given resolver.
+     *
+     * @param resolver the resolver, or null to disable
+     * @return this client
+     */
+    public SmtpClient daneResolver(DnsResolver resolver) {
+        setDaneResolver(resolver);
+        return this;
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════
@@ -314,6 +503,47 @@ public class SmtpClient {
         } else {
             doConnect(handler);
         }
+    }
+
+    /**
+     * Connects using a {@link SmtpClientSessionProvider} (composition SPI for
+     * stateful outbound sessions).
+     *
+     * @param provider supplies the bootstrap {@link RemoteGreeting} handler
+     * @see ClientSessionProvider
+     */
+    public void connect(SmtpClientSessionProvider provider) {
+        connect(provider.openSession());
+    }
+
+    /**
+     * Connects using the {@link SmtpClientSessionProvider} configured on
+     * this client (via {@link Builder#sessionProvider} or
+     * {@link Builder#sessionPerConnection}).
+     *
+     * @throws IllegalStateException if no session provider was configured
+     */
+    public void connect() {
+        if (sessionProvider == null) {
+            throw new IllegalStateException(
+                    "sessionProvider is required; use .sessionProvider(...)"
+                            + " or connect(RemoteGreeting)");
+        }
+        connect(sessionProvider);
+    }
+
+    /**
+     * Returns the configured session provider, or {@code null}.
+     */
+    public SmtpClientSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    /**
+     * Sets the session provider used by {@link #connect()}.
+     */
+    public void setSessionProvider(SmtpClientSessionProvider sessionProvider) {
+        this.sessionProvider = sessionProvider;
     }
 
     /**
@@ -360,6 +590,10 @@ public class SmtpClient {
      *                lifecycle events
      */
     private void doConnect(RemoteGreeting handler) {
+        if (socketPath == null && host == null && hostAddress == null) {
+            throw new IllegalStateException(
+                    "host, host address, or socketPath is required");
+        }
         transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
@@ -432,4 +666,168 @@ public class SmtpClient {
             clientEndpoint.close();
         }
     }
+
+    /**
+     * @deprecated use {@code new SmtpClient().host(...).port(...)} fluent
+     * configuration instead.
+     */
+    @Deprecated
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /**
+     * @deprecated use fluent methods on {@link SmtpClient} instead.
+     */
+    @Deprecated
+    public static final class Builder {
+
+        private SelectorLoop selectorLoop;
+        private String host;
+        private InetAddress hostAddress;
+        private int port = 25;
+        private String socketPath;
+        private SmtpClientSessionProvider sessionProvider;
+        private boolean secure;
+        private ServerCredentials clientCredentials;
+        private X509TrustManager trustManager;
+        private Path keystoreFile;
+        private String keystorePass;
+        private String keystoreFormat;
+        private DnsResolver daneResolver;
+
+        private Builder() {
+        }
+
+        public Builder selectorLoop(SelectorLoop selectorLoop) {
+            this.selectorLoop = selectorLoop;
+            return this;
+        }
+
+        public Builder host(String host) {
+            this.host = host;
+            this.hostAddress = null;
+            this.socketPath = null;
+            return this;
+        }
+
+        public Builder host(InetAddress hostAddress) {
+            this.hostAddress = hostAddress;
+            this.host = null;
+            this.socketPath = null;
+            return this;
+        }
+
+        public Builder port(int port) {
+            this.port = port;
+            return this;
+        }
+
+        public Builder socketPath(String socketPath) {
+            this.socketPath = socketPath;
+            this.host = null;
+            this.hostAddress = null;
+            return this;
+        }
+
+        public Builder sessionProvider(SmtpClientSessionProvider provider) {
+            if (provider == null) {
+                throw new NullPointerException("provider");
+            }
+            this.sessionProvider = provider;
+            return this;
+        }
+
+        /**
+         * Supplies a fresh bootstrap handler for each {@link #connect()}.
+         */
+        public Builder sessionPerConnection(Supplier<RemoteGreeting> supplier) {
+            return sessionProvider(
+                    SmtpClientSessionProviders.perSession(supplier));
+        }
+
+        public Builder secure(boolean secure) {
+            this.secure = secure;
+            return this;
+        }
+
+        public Builder clientCredentials(ServerCredentials clientCredentials) {
+            this.clientCredentials = clientCredentials;
+            return this;
+        }
+
+        public Builder trustManager(X509TrustManager trustManager) {
+            this.trustManager = trustManager;
+            return this;
+        }
+
+        public Builder keystoreFile(Path keystoreFile) {
+            this.keystoreFile = keystoreFile;
+            return this;
+        }
+
+        public Builder keystorePass(String keystorePass) {
+            this.keystorePass = keystorePass;
+            return this;
+        }
+
+        public Builder keystoreFormat(String keystoreFormat) {
+            this.keystoreFormat = keystoreFormat;
+            return this;
+        }
+
+        public Builder daneResolver(DnsResolver daneResolver) {
+            this.daneResolver = daneResolver;
+            return this;
+        }
+
+        /**
+         * Builds the client. A session provider and host (or socket path) are
+         * required.
+         */
+        public SmtpClient build() {
+            if (sessionProvider == null) {
+                throw new IllegalStateException("sessionProvider is required");
+            }
+            final SmtpClient client;
+            if (socketPath != null) {
+                client = (selectorLoop != null)
+                        ? new SmtpClient(selectorLoop, socketPath)
+                        : new SmtpClient(socketPath);
+            } else if (host != null) {
+                client = (selectorLoop != null)
+                        ? new SmtpClient(selectorLoop, host, port)
+                        : new SmtpClient(host, port);
+            } else if (hostAddress != null) {
+                client = (selectorLoop != null)
+                        ? new SmtpClient(selectorLoop, hostAddress, port)
+                        : new SmtpClient(hostAddress, port);
+            } else {
+                throw new IllegalStateException(
+                        "host, host address, or socketPath is required");
+            }
+            client.setSessionProvider(sessionProvider);
+            client.setSecure(secure);
+            if (clientCredentials != null) {
+                client.setClientCredentials(clientCredentials);
+            }
+            if (trustManager != null) {
+                client.setTrustManager(trustManager);
+            }
+            if (keystoreFile != null) {
+                client.setKeystoreFile(keystoreFile);
+            }
+            if (keystorePass != null) {
+                client.setKeystorePass(keystorePass);
+            }
+            if (keystoreFormat != null) {
+                client.setKeystoreFormat(keystoreFormat);
+            }
+            if (daneResolver != null) {
+                client.setDaneResolver(daneResolver);
+            }
+            return client;
+        }
+    }
+
 }

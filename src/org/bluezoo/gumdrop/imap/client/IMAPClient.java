@@ -281,6 +281,43 @@ public class ImapClient {
         }
     }
 
+
+    /** @return this client */
+    public ImapClient secure(boolean secure) {
+        setSecure(secure);
+        return this;
+    }
+
+    /** @return this client */
+    public ImapClient clientCredentials(ServerCredentials clientCredentials) {
+        setClientCredentials(clientCredentials);
+        return this;
+    }
+
+    /** @return this client */
+    public ImapClient trustManager(X509TrustManager trustManager) {
+        setTrustManager(trustManager);
+        return this;
+    }
+
+    /** @return this client */
+    public ImapClient keystoreFile(Path path) {
+        setKeystoreFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public ImapClient keystorePass(String password) {
+        setKeystorePass(password);
+        return this;
+    }
+
+    /** @return this client */
+    public ImapClient keystoreFormat(String format) {
+        setKeystoreFormat(format);
+        return this;
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════

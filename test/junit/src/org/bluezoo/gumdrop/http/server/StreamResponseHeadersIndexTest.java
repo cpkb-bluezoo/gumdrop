@@ -61,7 +61,7 @@ public class StreamResponseHeadersIndexTest {
 
     @Test
     public void testHeadersIndexNotRebuiltPerContainsNameCall() throws Exception {
-        HttpListener listener = new HttpListener();
+        Http2Listener listener = new Http2Listener();
         // Default true, but explicit so this test keeps exercising the
         // X-Frame-Options/X-Content-Type-Options branch even if that
         // default ever changes.

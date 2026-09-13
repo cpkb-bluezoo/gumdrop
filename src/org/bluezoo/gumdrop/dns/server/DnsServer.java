@@ -171,8 +171,21 @@ public class DnsServer implements Server {
     public DnsServer() {
     }
 
-    public static Builder builder() {
-        return new Builder();
+    /**
+     * Starts fluent composition of a concrete {@link DnsServer}.
+     *
+     * @return a new composer
+     */
+    public static Composer compose() {
+        return new Composer();
+    }
+
+    /**
+     * @deprecated use {@link #compose()}.
+     */
+    @Deprecated
+    public static Composer builder() {
+        return compose();
     }
 
     /**
@@ -1017,37 +1030,40 @@ public class DnsServer implements Server {
     }
 
     /**
-     * Builds a {@link DnsServer} with listeners and an optional handler.
+     * Fluent composition of listeners and an optional query handler.
      */
-    public static final class Builder {
+    public static final class Composer {
 
         private final List<Listener> listeners = new ArrayList<Listener>();
         private DnsQueryHandler handler;
 
-        private Builder() {
+        private Composer() {
         }
 
-        public Builder listener(DnsListener listener) {
+        public Composer listener(DnsListener listener) {
             listeners.add(listener);
             return this;
         }
 
-        public Builder listener(DoTListener listener) {
+        public Composer listener(DoTListener listener) {
             listeners.add(listener);
             return this;
         }
 
-        public Builder listener(DoQListener listener) {
+        public Composer listener(DoQListener listener) {
             listeners.add(listener);
             return this;
         }
 
-        public Builder handler(DnsQueryHandler handler) {
+        public Composer handler(DnsQueryHandler handler) {
             this.handler = handler;
             return this;
         }
 
-        public DnsServer build() {
+        /**
+         * Creates the composed server. At least one listener is required.
+         */
+        public DnsServer server() {
             if (listeners.isEmpty()) {
                 throw new IllegalStateException("at least one listener is required");
             }
@@ -1059,6 +1075,14 @@ public class DnsServer implements Server {
                 server.listeners.add(listeners.get(i));
             }
             return server;
+        }
+
+        /**
+         * @deprecated use {@link #server()}.
+         */
+        @Deprecated
+        public DnsServer build() {
+            return server();
         }
     }
 

@@ -123,7 +123,7 @@ public class ConnectUdpH2WireTest {
         loop = new SelectorLoop(0);
         loop.start();
 
-        HttpListener listener = new HttpListener();
+        Http2Listener listener = new Http2Listener();
         ConnectUdpPolicy permissive = new ConnectUdpPolicy() {
             @Override
             public boolean isTargetAllowed(InetAddress address, int port) {
@@ -149,7 +149,7 @@ public class ConnectUdpH2WireTest {
     }
 
     private ByteBuffer encodeConnectUdpHeaders(String targetHost, int targetPort) throws Exception {
-        Encoder encoder = new Encoder(4096, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+        Encoder encoder = new Encoder(4096, Http2Listener.DEFAULT_MAX_HEADER_LIST_SIZE);
         Headers request = new Headers();
         request.add(new Header(":method", "CONNECT"));
         request.add(new Header(":protocol", "connect-udp"));

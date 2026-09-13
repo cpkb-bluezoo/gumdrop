@@ -1100,7 +1100,7 @@ class Stream implements HttpResponseState {
 
         // Add default security headers if enabled and not already set
         if (connection instanceof HttpProtocolHandler) {
-            HttpListener listener =
+            Http2Listener listener =
                     ((HttpProtocolHandler) connection).getListener();
             if (listener != null && listener.getAddSecurityHeaders()) {
                 if (!hasXFrameOptions) {
@@ -1437,7 +1437,7 @@ class Stream implements HttpResponseState {
             // Resolve WebSocket metrics from the listener (if available)
             WebSocketServerMetrics wsMetrics = null;
             if (connection instanceof HttpProtocolHandler) {
-                HttpListener listener =
+                Http2Listener listener =
                         ((HttpProtocolHandler) connection).getListener();
                 if (listener instanceof WebSocketListener) {
                     wsMetrics = ((WebSocketListener) listener)

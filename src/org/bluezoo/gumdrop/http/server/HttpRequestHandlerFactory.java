@@ -34,7 +34,7 @@ import java.util.Set;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HttpRequestHandler
- * @see HttpListener#setRequestRouter
+ * @see Http2Listener#setRequestRouter
  */
 @Deprecated
 public interface HttpRequestHandlerFactory {

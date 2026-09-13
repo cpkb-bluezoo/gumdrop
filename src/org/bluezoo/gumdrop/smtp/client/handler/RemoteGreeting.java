@@ -27,10 +27,13 @@ import org.bluezoo.gumdrop.ClientHandler;
  * Handler interface for receiving the initial SMTP server greeting.
  * RFC 5321 §4.2 (220 greeting / 421 service unavailable).
  *
- * <p>This is the entry point for SMTP client handlers. When connecting to an
- * SMTP server, the handler passed to {@code SmtpClient.connect()} must implement
- * this interface to receive the server's initial greeting and begin the session.
- * 
+ * <p>This is the bootstrap stage of the staged SMTP <strong>client</strong>
+ * handler pipeline. Compose outbound sessions with
+ * {@link org.bluezoo.gumdrop.smtp.client.SmtpClientSessionProvider} or pass an
+ * implementation directly to {@link org.bluezoo.gumdrop.smtp.client.SmtpClient#connect}.
+ * Stateless clients (HTTP, DNS) do not use
+ * {@link org.bluezoo.gumdrop.ClientSessionProvider}.
+ *
  * <p>After receiving the greeting, the handler should issue either EHLO (for
  * Extended SMTP) or HELO (for basic SMTP) to establish the session. The
  * {@code esmtp} parameter indicates whether the server advertised ESMTP support
@@ -57,6 +60,8 @@ import org.bluezoo.gumdrop.ClientHandler;
  * }</pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see org.bluezoo.gumdrop.smtp.client.SmtpClientSessionProvider
+ * @see org.bluezoo.gumdrop.ClientSessionProvider
  * @see ClientHelloState
  * @see ClientHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>

@@ -273,7 +273,7 @@ Add the service to Gumdrop and configure a listener. See
 <pre>
 Gumdrop gumdrop = Gumdrop.getInstance();
 XmlEchoService service = new XmlEchoService();
-HttpListener listener = new HttpListener();
+Http2Listener listener = new Http2Listener();
 listener.setPort(9090);
 service.addListener(listener);
 gumdrop.addService(service);

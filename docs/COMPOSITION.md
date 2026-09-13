@@ -18,7 +18,7 @@ not XML configuration files or reflective dependency injection.
 2. **One entry type per protocol** — e.g. `HttpServer` owns listeners and a
    single handler (or router/decorator chain). Servlet and WebDAV stacks attach
    as **`ServletRequestHandler`** and **`WebDAVRequestHandler`**
-   (both done) on `HttpServer.builder()`.
+   (both done) on `HttpServer.compose()`.
 3. **Default servers do nothing (application layer)** — a composed server with
    no handler wired must not silently pick up relay, upstream, or mailbox
    behaviour. “Do nothing” is protocol-specific (see [Default behaviour](#default-behaviour)).
@@ -44,12 +44,70 @@ implicit upstream relay or similar.
 |----------|----------------------|-------------------------|
 | **HTTP** | **404 Not Found** for standard methods on any path | **501 Not Implemented** (HTTP layer) |
 | **DNS** | **Empty answer** (NOERROR, zero RRs) — no upstream, no cache side effects | Appropriate REFUSED / NOTIMP where applicable |
-| **SMTP** *(today)* | `SmtpServer` requires `createHandler()` — no silent relay | Staged handler rejects at SMTP layer |
+| **SMTP** *(today)* | `SmtpServer` requires `openSession()` — no silent relay | Staged handler rejects at SMTP layer |
 
 **Previously:** `DnsServer` always forwarded to upstream resolvers
 (`useSystemResolvers=true` by default). **Now split:** default `DnsServer` uses
 `DnsQueryHandlers.empty()`; **`UpstreamRelayHandler`** is an explicit one-line
 composable stock implementation (like **`SimpleRelayHandler`** for SMTP).
+
+---
+
+## Stateful vs stateless composition
+
+Gumdrop uses **two composition models**, depending on whether the protocol
+maintains session state across many exchanges on one connection.
+
+| | **Stateless** | **Stateful (session-based)** |
+|---|---|---|
+| **Examples** | HTTP, DNS | SMTP, FTP, IMAP, POP3, … |
+| **Unit of work** | One request / one query | One control connection, many phases |
+| **Server compose with** | Handler or router | **`ServerSessionProvider`** |
+| **Client compose with** | Per-request / per-query API | **`ClientSessionProvider`** |
+| **Per-event API** | `HttpRequestHandler`, `DnsQueryHandler` | Staged `{Stage}Handler` + `{Stage}State` |
+| **Per connection** | Fresh handler per stream (HTTP) or shared handler (DNS) | Fresh **session pipeline** per accept / dial |
+
+**Stateless protocols do not implement `ServerSessionProvider` or
+`ClientSessionProvider`.** HTTP's deprecated `HttpRequestHandlerFactory` was
+request **routing**, not session minting — do not conflate the two.
+
+### Stateful server (SMTP reference)
+
+```java
+SmtpServer server = SmtpServer.compose()
+        .listener(new SmtpListener().port(2525).bindWildcard())
+        .sessionPerConnection(() -> new SimpleRelayHandler(...))
+        .server();
+gumdrop.addServer(server);
+```
+
+Each accept calls {@link org.bluezoo.gumdrop.ServerSessionProvider#openSession},
+which returns the first stage of a **connection-private** staged handler pipeline
+({@link org.bluezoo.gumdrop.smtp.handler.ClientConnected}, then {@code HelloHandler},
+{@code MailFromHandler}, …).
+
+Legacy {@code SimpleRelayServer} / {@code LocalDeliveryServer} subclasses remain
+for XML configuration; new code should use {@link SmtpServer#compose()} as above.
+
+### Stateful client (SMTP reference)
+
+```java
+SmtpClient client = new SmtpClient()
+        .host("smtp.example.com")
+        .port(587)
+        .sessionPerConnection(() -> new MyRemoteGreeting());
+client.connect();
+```
+
+{@link org.bluezoo.gumdrop.ClientSessionProvider#openSession} supplies the
+bootstrap handler ({@link org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting}).
+Passing {@code connect(RemoteGreeting)} directly remains supported for one-off use.
+
+### FTP (planned)
+
+FTP will adopt the same pattern ({@code FtpServerSessionProvider}, staged server
+handlers, {@code FtpClientSessionProvider}) when its monolithic
+{@code FtpConnectionHandler} is split — after SMTP shape is stable.
 
 ---
 
@@ -64,7 +122,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
-import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.Headers;
 
 import java.nio.file.Path;
@@ -73,11 +131,11 @@ public final class EchoMain {
     public static void main(String[] args) throws Exception {
         Gumdrop gumdrop = Gumdrop.getInstance();
 
-        HttpServer server = HttpServer.builder()
-                .secureEndpoint(443, HttpTlsConfig.pem(
+        HttpServer server = HttpServer.compose()
+                .secureEndpoint(443, TlsConfig.pem(
                         Path.of("cert.pem"), Path.of("key.pem")))
                 .handler(new EchoHandler())
-                .build();
+                .server();
 
         gumdrop.addServer(server);
         gumdrop.start();
@@ -106,19 +164,19 @@ public final class EchoMain {
 
 | Transport | Listener | Protocols |
 |-----------|----------|-----------|
-| TCP (TLS) | `HttpListener` | HTTP/2, HTTP/1.1 |
+| TCP (TLS) | `Http2Listener` | HTTP/2, HTTP/1.1 |
 | UDP (QUIC) | `Http3Listener` | HTTP/3 |
 
 TCP responses include **`Alt-Svc`** so clients can upgrade to HTTP/3.
-The same `HttpTlsConfig` (PEM, keystore, or `ServerCredentials`) is applied
+The same `TlsConfig` (PEM, keystore, or `ServerCredentials`) is applied
 to both listeners.
 
 Keystore form:
 
 ```java
-HttpTlsConfig tls = HttpTlsConfig.keystore(
+TlsConfig tls = TlsConfig.keystore(
         Path.of("server.p12"), "changeit");
-HttpServer.builder().secureEndpoint(443, tls) …
+HttpServer.compose().secureEndpoint(443, tls) …
 ```
 
 ### Legacy plaintext fallback
@@ -126,16 +184,35 @@ HttpServer.builder().secureEndpoint(443, tls) …
 Cleartext HTTP/1.1 on a separate port (not the default pattern):
 
 ```java
-HttpServer server = HttpServer.builder()
-        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+HttpServer server = HttpServer.compose()
+        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
         .plaintextListener(8080)   // legacy / dev only
         .handler(new EchoHandler())
-        .build();
+        .server();
 ```
 
-Advanced: wire listeners individually with
-`HttpListener.builder()` / `Http3Listener.builder()` when ports or TLS
-material differ per transport.
+Advanced: wire listeners individually when ports or TLS material differ:
+
+```java
+TlsConfig tls = TlsConfig.pem(Path.of("cert.pem"), Path.of("key.pem"));
+
+Http2Listener h2 = new Http2Listener()
+        .port(443)
+        .bindWildcard()
+        .secure(true)
+        .tls(tls);
+
+Http3Listener h3 = new Http3Listener()
+        .port(443)
+        .bindWildcard()
+        .tls(tls);
+
+HttpServer server = HttpServer.compose()
+        .listener(h2)
+        .listener(h3)
+        .handler(new EchoHandler())
+        .server();
+```
 
 ### Handler-less HTTP server
 
@@ -144,18 +221,18 @@ Omitting `.handler()` / `.router()` installs the default
 every request **404**.
 
 ```java
-HttpServer empty = HttpServer.builder()
-        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
-        .build();
+HttpServer empty = HttpServer.compose()
+        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
+        .server();
 ```
 
 ### Per-request handlers and routing
 
 ```java
-HttpServer server = HttpServer.builder()
-        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+HttpServer server = HttpServer.compose()
+        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
         .handlerPerRequest(MyHandler::new)   // fresh instance per request
-        .build();
+        .server();
 
 HttpRequestRouter router = (state, headers) -> {
     if (headers.getPath().startsWith("/api/")) {
@@ -164,10 +241,10 @@ HttpRequestRouter router = (state, headers) -> {
     return null;   // → 404
 };
 
-HttpServer routed = HttpServer.builder()
-        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+HttpServer routed = HttpServer.compose()
+        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
         .router(router)
-        .build();
+        .server();
 ```
 
 Legacy {@link HttpRequestHandlerFactory} implementations can migrate with
@@ -186,34 +263,34 @@ The handler is constructed with a **`Container`** that owns servlet lifecycle
 Container container = new Container();
 container.addContext(new Context(container, "/app", appRoot));
 
-HttpServer server = HttpServer.builder()
-        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+HttpServer server = HttpServer.compose()
+        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
         .router(new ServletRequestHandler(container))
-        .build();
+        .server();
 ```
 
 `ServletRequestHandler` implements {@link HttpServerServiceHook}; composed
 servers call {@link Container#start()} / {@link Container#destroy()} automatically.
 
 `ServletServer` remains for XML configuration; new code should compose
-`ServletRequestHandler` on `HttpServer.builder()` as above.
+`ServletRequestHandler` on `HttpServer.compose()` as above.
 
 ---
 
 ## File server and WebDAV
 
 ```java
-HttpServer server = HttpServer.builder()
-        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+HttpServer server = HttpServer.compose()
+        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
         .router(WebDAVRequestHandler.builder()
                 .rootPath(Path.of("/var/www/html"))
                 .webdavEnabled(true)
-                .build())
-        .build();
+                .server())
+        .server();
 ```
 
 `WebdavServer` remains for XML configuration; new code should compose
-`WebDAVRequestHandler` on `HttpServer.builder()` as above.
+`WebDAVRequestHandler` on `HttpServer.compose()` as above.
 
 ---
 
@@ -231,42 +308,44 @@ Composition (target API):
 
 ```java
 // Default: speaks DNS, returns empty results
-DnsServer dns = DnsServer.builder()
-        .listener(DnsListener.builder().port(53).build())
-        .build();
+DnsServer dns = DnsServer.compose()
+        .listener(new DnsListener().port(53).bindWildcard())
+        .server();
 
 // One-line relay (replaces implicit upstream default)
-DnsServer relay = DnsServer.builder()
-        .listener(DnsListener.builder().port(53).build())
+DnsServer relay = DnsServer.compose()
+        .listener(new DnsListener().port(53).bindWildcard())
         .handler(new UpstreamRelayHandler(
                 UpstreamRelayHandler.builder()
                         .servers("8.8.8.8", "1.1.1.1")
                         .cacheEnabled(true)
                         .build()))
-        .build();
+        .server();
 
 // Authoritative zone from file
-DnsServer auth = DnsServer.builder()
-        .listener(DnsListener.builder().port(53).build())
+DnsServer auth = DnsServer.compose()
+        .listener(new DnsListener().port(53).bindWildcard())
         .handler(new AuthoritativeZoneHandler(
                 ZoneFile.load(Path.of("/etc/named/example.com.zone"))))
-        .build();
+        .server();
 ```
 
-Same pattern as SMTP:
+Same pattern as SMTP (stateful — session provider, not query handler):
 
 ```java
-// MX relay — stock handler, explicit wiring
+// MX relay — stock handler pipeline, explicit wiring
 SmtpServer relay = new SimpleRelayServer();
 relay.addListener(new SmtpListener());
 relay.setHostname("relay.example.com");
-// → createHandler() returns new SimpleRelayHandler(...)
+// → openSession() returns new SimpleRelayHandler(...) per connection
 
-// Local mailbox delivery — different stock handler
+// Local mailbox delivery — different stock pipeline
 SmtpServer mbox = new LocalDeliveryServer();
 mbox.addListener(new SmtpListener());
-// → createHandler() returns new LocalDeliveryHandler(...)
+// → openSession() returns new LocalDeliveryHandler(...)
 ```
+
+*(The DNS examples above use stateless `DnsQueryHandler` — no session provider.)*
 
 ---
 
@@ -279,10 +358,10 @@ HttpRequestHandler app = new ServletRequestHandler(container);
 HttpRequestHandler withAuth = BasicAuthHandler.decorate(app, realm);
 HttpRequestHandler withTelemetry = TelemetryHandler.decorate(withAuth, config);
 
-HttpServer server = HttpServer.builder()
-        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+HttpServer server = HttpServer.compose()
+        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
         .handler(withTelemetry)
-        .build();
+        .server();
 ```
 
 Hopf’s `BasicAuthFactory`-style pattern becomes **handler decorators**, not a
@@ -290,12 +369,14 @@ separate factory interface layer.
 
 ---
 
-## Mail, FTP, and other protocols
+## Mail, FTP, and other stateful protocols
 
-Same model over time: protocol `*Server` owns listeners; application logic lives
-in handler implementations or staged reply handlers on the client side. SMTP
-(`SimpleRelayHandler`, `LocalDeliveryHandler`) is the reference split; DNS and
-HTTP are catching up.
+**SMTP** is the reference for session-based composition: {@code SmtpServer}
+implements {@code SmtpServerSessionProvider}; the client uses
+{@code SmtpClientSessionProvider} / staged {@code *ReplyHandler} interfaces.
+**FTP** will follow after its server SPI is restaged. **IMAP** and **POP3**
+already use staged server handlers and will gain explicit session-provider
+interfaces in a later slice.
 
 ---
 
@@ -321,6 +402,7 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 | `<service class="…ServletServer">` | `HttpServer` + `ServletRequestHandler` |
 | `<service class="…WebDAVService">` | `HttpServer` + `WebDAVRequestHandler` |
 | `HttpRequestHandlerFactory` for routing | `HttpRequestRouter` / handler on `HttpServer` |
+| `SmtpServer#createHandler()` | `SmtpServer#openSession()` / `SmtpServerSessionProvider` |
 | `DnsServer` with implicit upstream | `DnsServer` + `UpstreamRelayHandler` |
 | Subclass `*Server` for app logic | Handler interfaces + composition |
 
@@ -341,10 +423,13 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 
 | Item | Status |
 |------|--------|
-| `HttpServer.builder()`, `secureEndpoint()`, `HttpTlsConfig` | **Done** |
-| `HttpListener.builder()`, `Http3Listener.builder()` | **Done** |
+| `HttpServer.compose()`, `secureEndpoint()`, `TlsConfig` | **Done** |
+| Fluent listeners (`SmtpListener`, `FtpListener`, …) | **Done** |
+| `Http2Listener.builder()`, `Http3Listener.builder()` | **Deprecated** |
 | `HttpRequestRouter`, `HttpRequestHandlers`, default 404 | **Done** |
 | `ServletRequestHandler`, `WebDAVRequestHandler` | **Done** |
-| `DnsServer.builder()`, `DnsQueryHandler`, default empty answers | **Done** |
+| `DnsServer.compose()`, `DnsQueryHandler`, default empty answers | **Done** |
+| `SmtpServer.compose()`, fluent `SmtpClient`, `DnsResolver.server()` | **Done** |
 | `UpstreamRelayHandler`, `AuthoritativeZoneHandler`, `ZoneFile` | **Done** |
+| `ServerSessionProvider`, `ClientSessionProvider`; SMTP session SPI | **Done** (SMTP); FTP planned |
 | `Runtime` replaces `Gumdrop.getInstance()` | Planned (§C.4) |

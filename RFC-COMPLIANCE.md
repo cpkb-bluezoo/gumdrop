@@ -590,7 +590,7 @@ practices.
 | Pipelining: respond in order | 9.3.2 | Compliant | Sequential state machine ensures order |
 | Connection: close echoed in response | 9.6 | Compliant | Added in `sendResponseHeaders()` |
 | Graceful shutdown via Connection: close | 9.6 | Compliant | `maxRequestsPerConnection` triggers `closeConnection` after configured limit |
-| Idle connection timeout | 9.8 | Compliant | Configurable `idleTimeoutMs` in `HttpListener`; timer resets on each `receive()` |
+| Idle connection timeout | 9.8 | Compliant | Configurable `idleTimeoutMs` in `Http2Listener`; timer resets on each `receive()` |
 
 ---
 
@@ -679,7 +679,7 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| ALPN negotiation with "h2" | 3.2 | Compliant | `HttpListener.configureTransportFactory()` sets ALPN |
+| ALPN negotiation with "h2" | 3.2 | Compliant | `Http2Listener.configureTransportFactory()` sets ALPN |
 | h2c cleartext upgrade | 3.1 | Compliant | `completeH2cUpgrade()` — deprecated by RFC 9113, intentionally retained |
 | Prior knowledge (cleartext) | 3.3 | Compliant | PRI preface parsed in `processRequestLine()` |
 | Client connection preface (24-octet magic) | 3.4 | Compliant | Validated in `receivePri()` and `receiveFrameData()` |
@@ -775,7 +775,7 @@ practices.
 | TLS 1.2+ required for h2 | 9.2 | Compliant | Listeners pin `TlsVersion.TLS_1_2` or `TLS_1_3`; only AEAD suites offered |
 | TLS 1.3 RECOMMENDED | 9.2 | Compliant | Default TCP TLS version is TLS 1.3 |
 | TLS 1.2 cipher suite blocklist (server) | 9.2.2 | Compliant | `isBlockedH2CipherSuite()` in `securityEstablished()`; GOAWAY INADEQUATE_SECURITY |
-| ALPN configured in HttpListener | 3.2 | Compliant | `setApplicationProtocols("h2", "http/1.1")` |
+| ALPN configured in Http2Listener | 3.2 | Compliant | `setApplicationProtocols("h2", "http/1.1")` |
 | Idle connection timeout (server) | 9.1 | Compliant | Graceful GOAWAY for HTTP/2; configurable via `idleTimeoutMs` |
 
 ## HTTP/2 Client — RFC 9113

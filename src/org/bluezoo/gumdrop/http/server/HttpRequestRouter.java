@@ -28,6 +28,12 @@ import java.util.Set;
 /**
  * Selects an {@link HttpRequestHandler} for each incoming HTTP request.
  *
+ * <p>HTTP is <strong>stateless</strong> at the application layer (one handler
+ * per request stream). Compose {@link org.bluezoo.gumdrop.http.HttpServer} with
+ * a router or handler, not {@link org.bluezoo.gumdrop.ServerSessionProvider}.
+ * Stateful protocols (SMTP, FTP, …) mint a per-connection staged handler
+ * pipeline instead — see {@code docs/COMPOSITION.md}.
+ *
  * <p>This is the Gumdrop 3 composition entry point for HTTP application
  * logic. An {@link org.bluezoo.gumdrop.http.HttpServer} built via
  * {@link org.bluezoo.gumdrop.http.HttpServer#builder()} accepts a router

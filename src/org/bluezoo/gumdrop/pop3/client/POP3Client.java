@@ -277,6 +277,43 @@ public class Pop3Client {
         this.keystoreFormat = format;
     }
 
+
+    /** @return this client */
+    public Pop3Client secure(boolean secure) {
+        setSecure(secure);
+        return this;
+    }
+
+    /** @return this client */
+    public Pop3Client clientCredentials(ServerCredentials clientCredentials) {
+        setClientCredentials(clientCredentials);
+        return this;
+    }
+
+    /** @return this client */
+    public Pop3Client trustManager(X509TrustManager trustManager) {
+        setTrustManager(trustManager);
+        return this;
+    }
+
+    /** @return this client */
+    public Pop3Client keystoreFile(Path path) {
+        setKeystoreFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public Pop3Client keystorePass(String password) {
+        setKeystorePass(password);
+        return this;
+    }
+
+    /** @return this client */
+    public Pop3Client keystoreFormat(String format) {
+        setKeystoreFormat(format);
+        return this;
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════

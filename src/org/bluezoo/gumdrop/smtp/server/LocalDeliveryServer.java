@@ -98,7 +98,7 @@ public class LocalDeliveryServer extends SmtpServer {
     }
 
     @Override
-    public ClientConnected createHandler(TcpListener endpoint) {
+    public ClientConnected openSession(TcpListener endpoint) {
         if (getMailboxFactory() == null) {
             throw new IllegalStateException(
                     L10N.getString("err.mailbox_factory_not_configured"));

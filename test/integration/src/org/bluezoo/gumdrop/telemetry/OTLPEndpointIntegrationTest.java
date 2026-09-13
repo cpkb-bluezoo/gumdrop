@@ -16,7 +16,7 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
-import org.bluezoo.gumdrop.http.server.HttpListener;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ClientEndpoint;
@@ -53,7 +53,7 @@ public class OTLPEndpointIntegrationTest {
     private static final Logger LOGGER = Logger.getLogger(OTLPEndpointIntegrationTest.class.getName());
 
     private Gumdrop gumdrop;
-    private HttpListener server;
+    private Http2Listener server;
     private TestHandler lastHandler;
 
     @Before
@@ -61,7 +61,7 @@ public class OTLPEndpointIntegrationTest {
         Logger.getLogger("").setLevel(Level.FINE);
         
         // Create test server
-        server = new HttpListener();
+        server = new Http2Listener();
         server.setPort(TEST_PORT);
         server.setAddresses("::1");
         server.setHandlerFactory(new HttpRequestHandlerFactory() {

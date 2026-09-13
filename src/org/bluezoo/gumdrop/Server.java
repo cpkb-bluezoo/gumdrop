@@ -25,7 +25,7 @@ import java.util.List;
 
 /**
  * A protocol server owns one or more transport {@link Listener}s and the
- * application wiring (handler factories, authentication, routing) for each.
+ * application wiring (handlers, session providers, authentication) for each.
  *
  * <p>Servers are the primary application-tier configuration entity in Gumdrop 3.
  * Each server defines <em>what</em> to do with connections or requests, while
@@ -44,12 +44,17 @@ import java.util.List;
  * e.g., FTP data connections or cluster multicast endpoints).
  * {@link #getListeners()} returns all current listeners of both kinds.
  *
- * <p>Concrete types follow {@code {Protocol}Server} naming ({@code HttpServer},
- * {@code SmtpServer}, …). The legacy {@link Service} name is deprecated.
+ * <p>Stateful protocol servers ({@code SmtpServer}, {@code FtpServer}, …)
+ * compose application logic via {@link ServerSessionProvider}. Stateless
+ * servers ({@link org.bluezoo.gumdrop.http.HttpServer},
+ * {@link org.bluezoo.gumdrop.dns.server.DnsServer}) compose request or query
+ * handlers instead — see {@code docs/COMPOSITION.md}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see Gumdrop#addServer(Server)
- * @see docs/NAMING-TAXONOMY.md
+ * @see ServerSessionProvider
+ * @see ClientSessionProvider
+ * @see docs/COMPOSITION.md
+ * @see Service
  */
 public interface Server {
 

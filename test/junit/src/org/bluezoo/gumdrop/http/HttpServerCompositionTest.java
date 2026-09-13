@@ -15,7 +15,7 @@ import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpListener;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.Headers;
 import org.junit.After;
@@ -23,6 +23,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
@@ -33,7 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Workstream C.3 — {@link HttpServer#builder()} composition API.
+ * Workstream C.3 — {@link HttpServer#compose()} composition API.
  */
 public class HttpServerCompositionTest {
 
@@ -55,13 +56,12 @@ public class HttpServerCompositionTest {
             gumdrop = Gumdrop.getInstance();
         }
 
-        server = HttpServer.builder()
-                .listener(HttpListener.builder()
+        server = HttpServer.compose()
+                .listener(new Http2Listener()
                         .port(testPort)
-                        .addresses(TEST_HOST)
-                        .build())
+                        .addresses(InetAddress.ofLiteral(TEST_HOST)))
                 .handlerPerRequest(HelloHandler::new)
-                .build();
+                .server();
 
         gumdrop.addServer(server);
         gumdrop.start();

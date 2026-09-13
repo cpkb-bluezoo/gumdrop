@@ -46,6 +46,7 @@ import org.bluezoo.gumdrop.ratelimit.AuthenticationRateLimiter;
 import org.bluezoo.gumdrop.ratelimit.ConnectionRateLimiter;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
 import org.bluezoo.gumdrop.tls.TlsVersion;
@@ -212,6 +213,21 @@ public abstract class Listener {
 
     public void setSecure(boolean flag) {
         secure = flag;
+    }
+
+    /**
+     * Applies server TLS identity from a {@link TlsConfig} before
+     * {@link #start()}. Returns {@code this} for fluent configuration.
+     *
+     * @param tls the TLS identity configuration
+     * @return this listener
+     */
+    public Listener tls(TlsConfig tls) {
+        if (tls == null) {
+            throw new NullPointerException("tls");
+        }
+        tls.applyTo(this);
+        return this;
     }
 
     public void setKeystoreFile(Path file) {
@@ -425,6 +441,57 @@ public abstract class Listener {
      */
     public void setWildcard(boolean wildcard) {
         this.wildcard = wildcard;
+    }
+
+    /**
+     * Binds the wildcard address ({@code 0.0.0.0} / {@code ::}, dual-stack
+     * where the platform supports it). Clears any explicit address list.
+     *
+     * @return this listener
+     */
+    public Listener bindWildcard() {
+        wildcard = true;
+        addresses = null;
+        return this;
+    }
+
+    /**
+     * Replaces the bind address set with the given literals. Clears wildcard
+     * mode. Pass no addresses to revert to the default (all local NICs).
+     *
+     * <p>Use {@link InetAddress#ofLiteral(String)} for configured literals;
+     * do not pass hostnames here.
+     *
+     * @param addrs the addresses to bind
+     * @return this listener
+     */
+    public Listener addresses(InetAddress... addrs) {
+        wildcard = false;
+        if (addrs == null || addrs.length == 0) {
+            addresses = null;
+            return this;
+        }
+        LinkedHashSet<InetAddress> set = new LinkedHashSet<InetAddress>();
+        for (int i = 0; i < addrs.length; i++) {
+            if (addrs[i] == null) {
+                throw new NullPointerException("address");
+            }
+            set.add(addrs[i]);
+        }
+        addresses = set;
+        return this;
+    }
+
+    /**
+     * Enables or disables TLS for this listener. Returns {@code this} for
+     * fluent configuration.
+     *
+     * @param flag true for TLS
+     * @return this listener
+     */
+    public Listener secure(boolean flag) {
+        secure = flag;
+        return this;
     }
 
     /**
