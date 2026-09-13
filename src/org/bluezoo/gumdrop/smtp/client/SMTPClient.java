@@ -1,5 +1,5 @@
 /*
- * SMTPClient.java
+ * SmtpClient.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.dns.DNSSECAwareQueryCallback;
 import org.bluezoo.gumdrop.dns.DNSSECStatus;
 import org.bluezoo.gumdrop.dns.DNSType;
 import org.bluezoo.gumdrop.dns.client.DNSResolver;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
+import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -48,15 +48,15 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <p>This class provides a simple, concrete API for connecting to SMTP
  * servers. It internally creates a {@link TCPTransportFactory},
- * {@link ClientEndpoint}, and {@link SMTPClientProtocolHandler}, wiring
+ * {@link ClientEndpoint}, and {@link SmtpClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
- * {@link ServerGreeting} handler.
+ * {@link RemoteGreeting} handler.
  *
  * <h4>Plaintext with STARTTLS (submission)</h4>
  * <pre>{@code
- * SMTPClient client = new SMTPClient(selectorLoop, "smtp.example.com", 587);
+ * SmtpClient client = new SmtpClient(selectorLoop, "smtp.example.com", 587);
  * client.setClientCredentials(clientCredentials);
- * client.connect(new ServerGreeting() {
+ * client.connect(new RemoteGreeting() {
  *     public void handleGreeting(ClientHelloState hello,
  *                                String message, boolean esmtp) {
  *         hello.ehlo("myhostname", ehloHandler);
@@ -67,7 +67,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <h4>Implicit TLS (SMTPS)</h4>
  * <pre>{@code
- * SMTPClient client = new SMTPClient("smtp.example.com", 465);
+ * SmtpClient client = new SmtpClient("smtp.example.com", 465);
  * client.setSecure(true);
  * client.setClientCredentials(clientCredentials);
  * client.connect(greetingHandler);
@@ -75,21 +75,21 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <h4>Opportunistic DANE (RFC 7672)</h4>
  * <pre>{@code
- * SMTPClient client = new SMTPClient("mail.example.com", 25);
+ * SmtpClient client = new SmtpClient("mail.example.com", 25);
  * client.setDaneResolver(myResolver); // a DNSSEC-enabled DNSResolver
  * client.connect(greetingHandler);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerGreeting
- * @see SMTPClientProtocolHandler
+ * @see RemoteGreeting
+ * @see SmtpClientProtocolHandler
  * @see org.bluezoo.gumdrop.dns.DANETrustManager
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> (Implicit TLS, SMTPS port 465)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7672">RFC 7672</a> (SMTP DANE)
  */
-public class SMTPClient {
+public class SmtpClient {
 
     private final String host;
     private final InetAddress hostAddress;
@@ -107,7 +107,7 @@ public class SMTPClient {
 
     private TCPTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
-    private SMTPClientProtocolHandler endpointHandler;
+    private SmtpClientProtocolHandler endpointHandler;
 
     /**
      * Creates an SMTP client for the given hostname and port.
@@ -119,7 +119,7 @@ public class SMTPClient {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public SMTPClient(String host, int port) {
+    public SmtpClient(String host, int port) {
         this(null, host, port);
     }
 
@@ -133,7 +133,7 @@ public class SMTPClient {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public SMTPClient(SelectorLoop selectorLoop, String host,
+    public SmtpClient(SelectorLoop selectorLoop, String host,
                       int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
@@ -148,7 +148,7 @@ public class SMTPClient {
      * @param host the remote host address
      * @param port the remote port
      */
-    public SMTPClient(InetAddress host, int port) {
+    public SmtpClient(InetAddress host, int port) {
         this(null, host, port);
     }
 
@@ -160,7 +160,7 @@ public class SMTPClient {
      * @param host the remote host address
      * @param port the remote port
      */
-    public SMTPClient(SelectorLoop selectorLoop, InetAddress host,
+    public SmtpClient(SelectorLoop selectorLoop, InetAddress host,
                       int port) {
         this.selectorLoop = selectorLoop;
         this.host = null;
@@ -178,7 +178,7 @@ public class SMTPClient {
      *
      * @param socketPath the UNIX domain socket path
      */
-    public SMTPClient(String socketPath) {
+    public SmtpClient(String socketPath) {
         this(null, socketPath);
     }
 
@@ -189,7 +189,7 @@ public class SMTPClient {
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param socketPath the UNIX domain socket path
      */
-    public SMTPClient(SelectorLoop selectorLoop, String socketPath) {
+    public SmtpClient(SelectorLoop selectorLoop, String socketPath) {
         if (socketPath == null) {
             throw new NullPointerException("socketPath");
         }
@@ -308,7 +308,7 @@ public class SMTPClient {
      * @param handler the handler to receive the server greeting and
      *                lifecycle events
      */
-    public void connect(final ServerGreeting handler) {
+    public void connect(final RemoteGreeting handler) {
         if (daneResolver != null && host != null) {
             lookupDane(handler);
         } else {
@@ -324,7 +324,7 @@ public class SMTPClient {
      * error -- it just means DANE does not apply, so the connection
      * proceeds with whatever trust manager was already configured.
      */
-    private void lookupDane(final ServerGreeting handler) {
+    private void lookupDane(final RemoteGreeting handler) {
         String tlsaName = "_" + port + "._tcp." + host;
         daneResolver.queryTLSA(tlsaName, new DNSSECAwareQueryCallback() {
             @Override
@@ -359,7 +359,7 @@ public class SMTPClient {
      * @param handler the handler to receive the server greeting and
      *                lifecycle events
      */
-    private void doConnect(ServerGreeting handler) {
+    private void doConnect(RemoteGreeting handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
@@ -379,7 +379,7 @@ public class SMTPClient {
         }
         transportFactory.start();
 
-        endpointHandler = new SMTPClientProtocolHandler(handler);
+        endpointHandler = new SmtpClientProtocolHandler(handler);
         endpointHandler.setSecure(secure);
 
         try {

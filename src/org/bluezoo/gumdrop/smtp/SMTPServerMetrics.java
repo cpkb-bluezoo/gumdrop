@@ -1,5 +1,5 @@
 /*
- * SMTPServerMetrics.java
+ * SmtpServerMetrics.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  */
-public class SMTPServerMetrics {
+public class SmtpServerMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.smtp";
 
@@ -78,7 +78,7 @@ public class SMTPServerMetrics {
      *
      * @param config the telemetry configuration
      */
-    public SMTPServerMetrics(TelemetryConfig config) {
+    public SmtpServerMetrics(TelemetryConfig config) {
         Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         // Connection counters

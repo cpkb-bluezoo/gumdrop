@@ -1,5 +1,5 @@
 /*
- * POP3ProtocolHandler.java
+ * Pop3ProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -128,17 +128,17 @@ import org.bluezoo.util.ByteArrays;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see POP3ServerLexer
- * @see POP3Listener
+ * @see Pop3Listener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
-public final class POP3ProtocolHandler
+public final class Pop3ProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<POP3ServerLexer.Token>,
                    ConnectedState, AuthenticateState, MailboxStatusState,
                    ListState, RetrieveState, MarkDeletedState, ResetState,
                    TopState, UidlState, UpdateState, MessageListingCacheHost {
 
     private static final Logger LOGGER =
-            Logger.getLogger(POP3ProtocolHandler.class.getName());
+            Logger.getLogger(Pop3ProtocolHandler.class.getName());
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N");
 
@@ -184,7 +184,7 @@ public final class POP3ProtocolHandler
     // Transport reference (set in connected())
     private Endpoint endpoint;
 
-    private final POP3Listener server;
+    private final Pop3Listener server;
     private final long connectionTimeMillis;
     private final String apopTimestamp;
 
@@ -244,7 +244,7 @@ public final class POP3ProtocolHandler
      *
      * @param server the POP3 server configuration
      */
-    public POP3ProtocolHandler(POP3Listener server) {
+    public Pop3ProtocolHandler(Pop3Listener server) {
         this.server = server;
         this.connectionTimeMillis = System.currentTimeMillis();
         this.lastActivityTime = connectionTimeMillis;
@@ -650,7 +650,7 @@ public final class POP3ProtocolHandler
     // ── Greeting (RFC 1939 section 4) ──
 
     private void sendGreetingWithHandler() {
-        POP3Service service = server.getService();
+        Pop3Server service = server.getService();
         if (service != null) {
             clientConnected = service.createHandler(server);
         }

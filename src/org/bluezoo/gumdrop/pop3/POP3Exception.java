@@ -1,5 +1,5 @@
 /*
- * POP3Exception.java
+ * Pop3Exception.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,7 +28,7 @@ import java.io.IOException;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class POP3Exception extends IOException {
+public class Pop3Exception extends IOException {
 
     private static final long serialVersionUID = 1L;
 
@@ -37,7 +37,7 @@ public class POP3Exception extends IOException {
      * 
      * @param message the error message
      */
-    public POP3Exception(String message) {
+    public Pop3Exception(String message) {
         super(message);
     }
 
@@ -47,7 +47,7 @@ public class POP3Exception extends IOException {
      * @param message the error message
      * @param cause the underlying cause
      */
-    public POP3Exception(String message, Throwable cause) {
+    public Pop3Exception(String message, Throwable cause) {
         super(message, cause);
     }
 

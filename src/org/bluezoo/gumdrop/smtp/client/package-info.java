@@ -23,13 +23,13 @@
  * Non-blocking SMTP client (RFC 5321) for sending outbound email, with
  * STARTTLS, SASL authentication, and transparent BDAT (CHUNKING) support.
  *
- * <p>{@link org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler}
+ * <p>{@link org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler}
  * drives the protocol exchange, using BDAT instead of dot-stuffed DATA
  * transparently whenever the server advertises CHUNKING support. The
  * protocol flow is modeled as a sequence of state interfaces (package
  * {@link org.bluezoo.gumdrop.smtp.client.handler}) so only the commands
  * legal at each point can be issued: {@link
- * org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting} is the entry
+ * org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting} is the entry
  * point, through {@link
  * org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState} (post
  * EHLO/HELO), {@link
@@ -40,7 +40,7 @@
  * re-issue EHLO per RFC 5321 section 4.1.1.1, receiving a fresh state.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler
+ * @see org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler
  * @see org.bluezoo.gumdrop.smtp
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)

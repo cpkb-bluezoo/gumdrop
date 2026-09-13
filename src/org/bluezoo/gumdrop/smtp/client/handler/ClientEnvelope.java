@@ -28,7 +28,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * RFC 5321 §4.1.1.3 (RCPT TO envelope building, no recipients yet).
  *
  * <p>This interface is provided to the handler in
- * {@link ServerMailFromReplyHandler#handleMailFromOk} and represents the
+ * {@link MailFromReplyHandler#handleMailFromOk} and represents the
  * envelope state before any recipients have been added.
  * 
  * <p>At this stage, the handler must add at least one recipient with
@@ -37,15 +37,15 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * (see {@link ClientEnvelopeReady}).
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerMailFromReplyHandler#handleMailFromOk
+ * @see MailFromReplyHandler#handleMailFromOk
  * @see ClientEnvelopeReady
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ClientEnvelope extends ClientEnvelopeState {
 
     // Inherits from ClientEnvelopeState:
-    // - rcptTo(EmailAddress, ServerRcptToReplyHandler)
-    // - rset(ServerRsetReplyHandler)
+    // - rcptTo(EmailAddress, RcptToReplyHandler)
+    // - rset(RsetReplyHandler)
     // - quit()
     // - hasAcceptedRecipients() - always returns false at this stage
 

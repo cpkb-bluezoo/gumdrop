@@ -1,5 +1,5 @@
 /*
- * SMTPConnectionMetadata.java
+ * SmtpConnectionMetadata.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -53,7 +53,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8689">RFC 8689 - REQUIRETLS</a>
  * @see org.bluezoo.gumdrop.smtp.handler.ClientConnected
  */
-public interface SMTPConnectionMetadata {
+public interface SmtpConnectionMetadata {
 
     /**
      * Returns the client's remote socket address.

@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.dns.DNSType;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.TCPTransportFactory;
-import org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler;
+import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.*;
 
 /**
@@ -81,14 +81,14 @@ import org.bluezoo.gumdrop.smtp.client.handler.*;
  *
  * <h4>Configuration</h4>
  * <pre>{@code
- * <service class="org.bluezoo.gumdrop.smtp.SimpleRelayService">
- *   <listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/>
+ * <service class="org.bluezoo.gumdrop.smtp.SimpleRelayServer">
+ *   <listener class="org.bluezoo.gumdrop.smtp.SmtpListener" port="25"/>
  * </service>
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-3.7">RFC 5321 §3.7</a> (mail relay)
- * @see SimpleRelayService
+ * @see SimpleRelayServer
  */
 public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         MailFromHandler, RecipientHandler, MessageDataHandler {
@@ -170,7 +170,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public SMTPPipeline getPipeline() {
+    public SmtpPipeline getPipeline() {
         pipeline = new MessageBufferPipeline();
         return pipeline;
     }
@@ -354,7 +354,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
     /**
      * Pipeline that buffers message content to memory.
      */
-    private static class MessageBufferPipeline implements SMTPPipeline {
+    private static class MessageBufferPipeline implements SmtpPipeline {
 
         private final ByteArrayOutputStream buffer;
         private final BufferChannel channel;
@@ -556,8 +556,8 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 TCPTransportFactory factory = new TCPTransportFactory();
                 factory.start();
                 DeliveryHandler handler = new DeliveryHandler(domainRecipients);
-                SMTPClientProtocolHandler endpointHandler =
-                        new SMTPClientProtocolHandler(handler);
+                SmtpClientProtocolHandler endpointHandler =
+                        new SmtpClientProtocolHandler(handler);
                 ClientEndpoint endpoint = new ClientEndpoint(
                         factory, host, 25);
                 endpoint.connect(endpointHandler);
@@ -573,10 +573,10 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         /**
          * SMTP client handler for delivery.
          */
-        private class DeliveryHandler implements ServerGreeting, ServerEhloReplyHandler,
-                ServerHeloReplyHandler, ServerStarttlsReplyHandler,
-                ServerMailFromReplyHandler, ServerRcptToReplyHandler,
-                ServerDataReplyHandler, ServerMessageReplyHandler {
+        private class DeliveryHandler implements RemoteGreeting, EhloReplyHandler,
+                HeloReplyHandler, StarttlsReplyHandler,
+                MailFromReplyHandler, RcptToReplyHandler,
+                DataReplyHandler, MessageReplyHandler {
 
             private final List<EmailAddress> domainRecipients;
             private int recipientIndex;
@@ -619,7 +619,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 // Security upgrade completed
             }
 
-            // ServerReplyHandler
+            // ReplyHandler
 
             @Override
             public void handleServiceClosing(String message) {
@@ -633,7 +633,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 }
             }
 
-            // ServerGreeting
+            // RemoteGreeting
 
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
@@ -652,7 +652,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 }
             }
 
-            // ServerEhloReplyHandler
+            // EhloReplyHandler
 
             @Override
             public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
@@ -710,7 +710,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 hello.helo(localHostname, this);
             }
 
-            // ServerStarttlsReplyHandler
+            // StarttlsReplyHandler
 
             @Override
             public void handleTlsEstablished(ClientPostTls postTls) {
@@ -740,17 +740,17 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 session.mailFrom(sender, DeliveryHandler.this);
             }
 
-            // ServerHeloReplyHandler
+            // HeloReplyHandler
 
             @Override
             public void handleHelo(ClientSession session) {
                 session.mailFrom(sender, this);
             }
 
-            // handleTemporaryFailure for EHLO/HELO is in ServerEhloReplyHandler section
+            // handleTemporaryFailure for EHLO/HELO is in EhloReplyHandler section
             // handlePermanentFailure is shared with other interfaces
 
-            // ServerMailFromReplyHandler
+            // MailFromReplyHandler
 
             @Override
             public void handleMailFromOk(ClientEnvelope envelope) {
@@ -759,10 +759,10 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
             }
 
             // Note: handleTemporaryFailure(ClientSession) and handlePermanentFailure(String)
-            // are shared between ServerMailFromReplyHandler and ServerMessageReplyHandler
-            // and are defined in the ServerMessageReplyHandler section below
+            // are shared between MailFromReplyHandler and MessageReplyHandler
+            // and are defined in the MessageReplyHandler section below
 
-            // ServerRcptToReplyHandler
+            // RcptToReplyHandler
 
             @Override
             public void handleRcptToOk(ClientEnvelopeReady envelope) {
@@ -807,7 +807,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 }
             }
 
-            // ServerDataReplyHandler
+            // DataReplyHandler
 
             @Override
             public void handleReadyForData(ClientMessageData data) {
@@ -835,7 +835,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                 deliverNext();
             }
 
-            // ServerMessageReplyHandler
+            // MessageReplyHandler
 
             @Override
             public void handleMessageAccepted(String queueId, ClientSession session) {

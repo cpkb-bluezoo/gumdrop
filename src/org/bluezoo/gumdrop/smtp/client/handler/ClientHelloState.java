@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * RFC 5321 §4.1.1.1 (EHLO/HELO).
  *
  * <p>This interface is provided to the handler in
- * {@link ServerGreeting#handleGreeting} and allows the handler to initiate
+ * {@link RemoteGreeting#handleGreeting} and allows the handler to initiate
  * the SMTP session with either EHLO or HELO.
  * 
  * <p>Use EHLO for Extended SMTP (recommended for modern servers) or HELO
@@ -35,7 +35,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * advertised ESMTP support.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerGreeting#handleGreeting
+ * @see RemoteGreeting#handleGreeting
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public interface ClientHelloState {
@@ -49,7 +49,7 @@ public interface ClientHelloState {
      * @param hostname the client's hostname to announce
      * @param callback receives the server's response
      */
-    void ehlo(String hostname, ServerEhloReplyHandler callback);
+    void ehlo(String hostname, EhloReplyHandler callback);
 
     /**
      * Sends a HELO command to initiate a basic SMTP session.
@@ -60,7 +60,7 @@ public interface ClientHelloState {
      * @param hostname the client's hostname to announce
      * @param callback receives the server's response
      */
-    void helo(String hostname, ServerHeloReplyHandler callback);
+    void helo(String hostname, HeloReplyHandler callback);
 
     /**
      * Closes the connection without establishing a session.

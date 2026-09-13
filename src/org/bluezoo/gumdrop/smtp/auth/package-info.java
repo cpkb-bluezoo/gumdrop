@@ -24,7 +24,7 @@
  * email authentication for the SMTP server.
  *
  * <p>{@link org.bluezoo.gumdrop.smtp.auth.AuthPipeline} implements
- * {@link org.bluezoo.gumdrop.smtp.SMTPPipeline}: returned from a
+ * {@link org.bluezoo.gumdrop.smtp.SmtpPipeline}: returned from a
  * handler's {@code getPipeline()}, it runs the SPF check on MAIL FROM
  * (after a DNS lookup), hashes the message body from the raw bytes as
  * they stream past for DKIM signature verification, and evaluates DMARC
@@ -43,7 +43,7 @@
  * callback receives, for the handler to act on.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.SMTPPipeline
+ * @see org.bluezoo.gumdrop.smtp.SmtpPipeline
  * @see org.bluezoo.gumdrop.smtp.auth.AuthPipeline
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>

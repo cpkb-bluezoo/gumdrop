@@ -35,7 +35,7 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for {@link IMAPServerLexer}, verifying the outer {@code
  * KEYWORD [SP TEXT] CRLF} shape independent of {@link
- * IMAPProtocolHandler}'s literal-detection/business logic — this lexer
+ * ImapProtocolHandler}'s literal-detection/business logic — this lexer
  * itself knows nothing about IMAP literals at all (see its class Javadoc),
  * so its own behaviour is identical to the POP3/FTP/SMTP server lexers.
  *
@@ -117,7 +117,7 @@ public class IMAPServerLexerTest {
     public void testTrailingLiteralSpecPreservedVerbatimInText() {
         // The lexer has no concept of literals; a trailing "{n}" is just
         // more TEXT content, exactly like any other bytes — detecting and
-        // acting on it is entirely IMAPProtocolHandler's job.
+        // acting on it is entirely ImapProtocolHandler's job.
         RecordingHandler handler = new RecordingHandler();
         IMAPServerLexer lexer = new IMAPServerLexer(handler, 1024);
         lexer.feed(bytesOf("a1 LOGIN {5}\r\n"));
@@ -190,7 +190,7 @@ public class IMAPServerLexerTest {
 
     @Test
     public void testResumeAfterEnterRawWithoutLeadingSpace() {
-        // Simulates what IMAPProtocolHandler sees right after a literal's
+        // Simulates what ImapProtocolHandler sees right after a literal's
         // raw octets complete with no separating space before the next
         // content (e.g. a literal immediately followed by ")" closing a
         // list): enterRaw resumes in structured-token mode, so the next
@@ -203,7 +203,7 @@ public class IMAPServerLexerTest {
                     window.get(copy);
                     events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
                     // simulate a lexer-driven raw escape mid-line, exactly
-                    // as IMAPProtocolHandler's CRLF handling would trigger
+                    // as ImapProtocolHandler's CRLF handling would trigger
                     // one for a literal — here just proving that once
                     // resumed, consume() runs again rather than text mode.
                     return false;

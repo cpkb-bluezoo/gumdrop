@@ -26,52 +26,52 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link POP3Listener} configuration properties.
+ * Unit tests for {@link Pop3Listener} configuration properties.
  */
 public class POP3ListenerTest {
 
     @Test
     public void testDefaultExpireDays() {
-        POP3Listener listener = new POP3Listener();
+        Pop3Listener listener = new Pop3Listener();
         assertEquals(-1, listener.getExpireDays());
     }
 
     @Test
     public void testSetExpireDays() {
-        POP3Listener listener = new POP3Listener();
+        Pop3Listener listener = new Pop3Listener();
         listener.setExpireDays(30);
         assertEquals(30, listener.getExpireDays());
     }
 
     @Test
     public void testSetExpireNever() {
-        POP3Listener listener = new POP3Listener();
+        Pop3Listener listener = new Pop3Listener();
         listener.setExpireDays(Integer.MAX_VALUE);
         assertEquals(Integer.MAX_VALUE, listener.getExpireDays());
     }
 
     @Test
     public void testDefaultLoginDelay() {
-        POP3Listener listener = new POP3Listener();
+        Pop3Listener listener = new Pop3Listener();
         assertEquals(0, listener.getLoginDelayMs());
     }
 
     @Test
     public void testSetLoginDelay() {
-        POP3Listener listener = new POP3Listener();
+        Pop3Listener listener = new Pop3Listener();
         listener.setLoginDelayMs(5000);
         assertEquals(5000, listener.getLoginDelayMs());
     }
 
     @Test
     public void testDefaultPipelining() {
-        POP3Listener listener = new POP3Listener();
+        Pop3Listener listener = new Pop3Listener();
         assertFalse(listener.isEnablePipelining());
     }
 
     @Test
     public void testSetPipelining() {
-        POP3Listener listener = new POP3Listener();
+        Pop3Listener listener = new Pop3Listener();
         listener.setEnablePipelining(true);
         assertTrue(listener.isEnablePipelining());
     }

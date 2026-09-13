@@ -1,5 +1,5 @@
 /*
- * SMTPListener.java
+ * SmtpListener.java
  * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -53,10 +53,10 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 - Implicit TLS (port 465)</a>
  */
-public class SMTPListener extends TCPListener {
+public class SmtpListener extends TCPListener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(SMTPListener.class.getName());
+            Logger.getLogger(SmtpListener.class.getName());
 
     /**
      * The default SMTP port (standard mail transfer).
@@ -90,10 +90,10 @@ public class SMTPListener extends TCPListener {
     protected GSSAPIServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
-    private SMTPService service;
+    private SmtpServer service;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
-    private SMTPServerMetrics metrics;
+    private SmtpServerMetrics metrics;
 
     /**
      * Returns a short description of this endpoint.
@@ -282,7 +282,7 @@ public class SMTPListener extends TCPListener {
             port = secure ? SMTPS_DEFAULT_PORT : SMTP_DEFAULT_PORT;
         }
         if (isMetricsEnabled()) {
-            metrics = new SMTPServerMetrics(getTelemetryConfig());
+            metrics = new SmtpServerMetrics(getTelemetryConfig());
         }
     }
 
@@ -292,7 +292,7 @@ public class SMTPListener extends TCPListener {
      *
      * @return the SMTP server metrics
      */
-    public SMTPServerMetrics getMetrics() {
+    public SmtpServerMetrics getMetrics() {
         return metrics;
     }
 
@@ -305,12 +305,12 @@ public class SMTPListener extends TCPListener {
     }
 
     /**
-     * Sets the owning service. Called by {@link SMTPService} during
+     * Sets the owning service. Called by {@link SmtpServer} during
      * wiring.
      *
      * @param service the owning service
      */
-    void setService(SMTPService service) {
+    void setService(SmtpServer service) {
         this.service = service;
     }
 
@@ -319,15 +319,15 @@ public class SMTPListener extends TCPListener {
      *
      * @return the owning service
      */
-    public SMTPService getService() {
+    public SmtpServer getService() {
         return service;
     }
 
     /**
-     * Creates a new SMTPProtocolHandler for a newly accepted connection.
+     * Creates a new SmtpProtocolHandler for a newly accepted connection.
      *
-     * <p>If an {@link SMTPService} is set, the handler is obtained from
-     * the service's {@link SMTPService#createHandler(org.bluezoo.gumdrop.TCPListener)}
+     * <p>If an {@link SmtpServer} is set, the handler is obtained from
+     * the service's {@link SmtpServer#createHandler(org.bluezoo.gumdrop.TCPListener)}
      * method.
      *
      * @return a new SMTP endpoint handler
@@ -346,7 +346,7 @@ public class SMTPListener extends TCPListener {
                 }
             }
         }
-        return new SMTPProtocolHandler(this, handler);
+        return new SmtpProtocolHandler(this, handler);
     }
 
     /**

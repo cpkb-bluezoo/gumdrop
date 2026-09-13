@@ -111,12 +111,12 @@ public class IMAPFetchBatchingTest {
                     content.getBytes(StandardCharsets.US_ASCII));
         }
 
-        IMAPListener listener = new IMAPListener();
+        ImapListener listener = new ImapListener();
         listener.setRealm(new AcceptingRealm("editor", "editor"));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
         listener.setAllowPlaintextLogin(true);
 
-        IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
+        ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
         handler.connected(endpoint);
 

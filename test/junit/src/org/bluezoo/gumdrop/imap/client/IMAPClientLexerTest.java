@@ -35,7 +35,7 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for {@link IMAPClientLexer}, verifying the outer {@code
  * KEYWORD [SP TEXT] CRLF} shape independent of {@link
- * IMAPClientProtocolHandler}'s response dispatch — this lexer knows
+ * ImapClientProtocolHandler}'s response dispatch — this lexer knows
  * nothing about IMAP literals at all (see its class Javadoc).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -123,7 +123,7 @@ public class IMAPClientLexerTest {
     @Test
     public void testTrailingLiteralSpecPreservedVerbatim() {
         // The lexer has no concept of literals; a trailing "{n}" is just
-        // more content — IMAPClientProtocolHandler detects and acts on it
+        // more content — ImapClientProtocolHandler detects and acts on it
         // after the line is fully dispatched.
         RecordingHandler handler = new RecordingHandler();
         IMAPClientLexer lexer = new IMAPClientLexer(handler, Integer.MAX_VALUE);

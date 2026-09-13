@@ -32,10 +32,10 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.Assert.*;
 
 /**
- * Integration test for raw SMTPListener.
+ * Integration test for raw SmtpListener.
  *
- * <p>Tests a raw SMTPListener instance (not subclassed) with real network connections.
- * A raw SMTPListener without a handler should:
+ * <p>Tests a raw SmtpListener instance (not subclassed) with real network connections.
+ * A raw SmtpListener without a handler should:
  * <ul>
  *   <li>Accept connections and send SMTP greeting (220)</li>
  *   <li>Accept HELO/EHLO commands and respond with capabilities</li>

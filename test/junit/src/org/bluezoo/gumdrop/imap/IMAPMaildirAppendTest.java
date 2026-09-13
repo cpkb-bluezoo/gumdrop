@@ -50,7 +50,7 @@ import java.util.Set;
  * (scalability review finding #130 / follow-up architectural review): a
  * Maildir-backed mailbox is the only implementation of
  * {@code openAsyncAppend}, so it is the only path that exercises
- * {@code IMAPProtocolHandler.finishAppendViaWriter}, which chains off the
+ * {@code ImapProtocolHandler.finishAppendViaWriter}, which chains off the
  * writer's own async completion handlers instead of blocking a
  * StorageExecutor thread on a latch waiting for a different thread pool.
  *
@@ -91,12 +91,12 @@ public class IMAPMaildirAppendTest {
         Files.createDirectories(userDir.resolve("new"));
         Files.createDirectories(userDir.resolve("tmp"));
 
-        IMAPListener listener = new IMAPListener();
+        ImapListener listener = new ImapListener();
         listener.setRealm(new AcceptingRealm("editor", "editor"));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
         listener.setAllowPlaintextLogin(true);
 
-        IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
+        ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
         handler.connected(endpoint);
 

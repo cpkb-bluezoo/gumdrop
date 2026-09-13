@@ -32,7 +32,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * the RFC requirement that EHLO must be re-sent after STARTTLS.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerStarttlsReplyHandler#handleTlsEstablished
+ * @see StarttlsReplyHandler#handleTlsEstablished
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a>
  */
 public interface ClientPostTls {
@@ -47,7 +47,7 @@ public interface ClientPostTls {
      * @param hostname the client's hostname to announce
      * @param callback receives the server's response
      */
-    void ehlo(String hostname, ServerEhloReplyHandler callback);
+    void ehlo(String hostname, EhloReplyHandler callback);
 
     /**
      * Closes the connection.

@@ -34,7 +34,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link SMTPServerLexer}, verifying exact token content
- * independent of {@link SMTPProtocolHandler}'s business logic.
+ * independent of {@link SmtpProtocolHandler}'s business logic.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

@@ -30,27 +30,27 @@
  * <p>These interfaces define callbacks your handler receives for server
  * responses:
  * <ul>
- *   <li>{@link ServerGreeting} - Entry point for new connections</li>
- *   <li>{@link ServerCapabilityReplyHandler} - Receives CAPABILITY response</li>
- *   <li>{@link ServerLoginReplyHandler} - Receives LOGIN response</li>
- *   <li>{@link ServerAuthReplyHandler} - Receives AUTHENTICATE responses</li>
- *   <li>{@link ServerAuthAbortHandler} - Receives AUTH abort response</li>
- *   <li>{@link ServerStarttlsReplyHandler} - Receives STARTTLS response</li>
- *   <li>{@link ServerSelectReplyHandler} - Receives SELECT/EXAMINE response</li>
- *   <li>{@link ServerListReplyHandler} - Receives LIST/LSUB responses</li>
- *   <li>{@link ServerStatusReplyHandler} - Receives STATUS response</li>
- *   <li>{@link ServerMailboxReplyHandler} - Receives mailbox management responses</li>
- *   <li>{@link ServerNamespaceReplyHandler} - Receives NAMESPACE response</li>
- *   <li>{@link ServerAppendReplyHandler} - Receives APPEND response</li>
- *   <li>{@link ServerIdleEventHandler} - Receives IDLE events</li>
- *   <li>{@link ServerCloseReplyHandler} - Receives CLOSE/UNSELECT response</li>
- *   <li>{@link ServerExpungeReplyHandler} - Receives EXPUNGE response</li>
- *   <li>{@link ServerSearchReplyHandler} - Receives SEARCH response</li>
- *   <li>{@link ServerFetchReplyHandler} - Receives FETCH response</li>
- *   <li>{@link ServerStoreReplyHandler} - Receives STORE response</li>
- *   <li>{@link ServerCopyReplyHandler} - Receives COPY/MOVE response</li>
- *   <li>{@link ServerNoopReplyHandler} - Receives NOOP response</li>
- *   <li>{@link ServerReplyHandler} - Base reply handler interface</li>
+ *   <li>{@link RemoteGreeting} - Entry point for new connections</li>
+ *   <li>{@link CapabilityReplyHandler} - Receives CAPABILITY response</li>
+ *   <li>{@link LoginReplyHandler} - Receives LOGIN response</li>
+ *   <li>{@link AuthReplyHandler} - Receives AUTHENTICATE responses</li>
+ *   <li>{@link AuthAbortHandler} - Receives AUTH abort response</li>
+ *   <li>{@link StarttlsReplyHandler} - Receives STARTTLS response</li>
+ *   <li>{@link SelectReplyHandler} - Receives SELECT/EXAMINE response</li>
+ *   <li>{@link ListReplyHandler} - Receives LIST/LSUB responses</li>
+ *   <li>{@link StatusReplyHandler} - Receives STATUS response</li>
+ *   <li>{@link MailboxReplyHandler} - Receives mailbox management responses</li>
+ *   <li>{@link NamespaceReplyHandler} - Receives NAMESPACE response</li>
+ *   <li>{@link AppendReplyHandler} - Receives APPEND response</li>
+ *   <li>{@link IdleEventHandler} - Receives IDLE events</li>
+ *   <li>{@link CloseReplyHandler} - Receives CLOSE/UNSELECT response</li>
+ *   <li>{@link ExpungeReplyHandler} - Receives EXPUNGE response</li>
+ *   <li>{@link SearchReplyHandler} - Receives SEARCH response</li>
+ *   <li>{@link FetchReplyHandler} - Receives FETCH response</li>
+ *   <li>{@link StoreReplyHandler} - Receives STORE response</li>
+ *   <li>{@link CopyReplyHandler} - Receives COPY/MOVE response</li>
+ *   <li>{@link NoopReplyHandler} - Receives NOOP response</li>
+ *   <li>{@link ReplyHandler} - Base reply handler interface</li>
  * </ul>
  *
  * <h2>Client State Interfaces</h2>
@@ -79,6 +79,6 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.imap.client
- * @see org.bluezoo.gumdrop.imap.client.IMAPClientProtocolHandler
+ * @see org.bluezoo.gumdrop.imap.client.ImapClientProtocolHandler
  */
 package org.bluezoo.gumdrop.imap.client.handler;

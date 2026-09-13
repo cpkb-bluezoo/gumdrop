@@ -59,8 +59,8 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 /**
  * AMQP client facade with automatic reconnect and topology recovery.
  *
- * <p>Mirrors {@link org.bluezoo.gumdrop.smtp.client.SMTPClient} for
- * connection setup (host/port/TLS), but where {@code SMTPClient} hands
+ * <p>Mirrors {@link org.bluezoo.gumdrop.smtp.client.SmtpClient} for
+ * connection setup (host/port/TLS), but where {@code SmtpClient} hands
  * the caller a raw, single-connection protocol handler, this hides the
  * entire low-level handshake (protocol header, {@code connection.start}/
  * {@code start-ok}, {@code tune}/{@code tune-ok}, {@code open}/

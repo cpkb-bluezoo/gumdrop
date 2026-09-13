@@ -28,7 +28,7 @@ package org.bluezoo.gumdrop.imap.client.handler;
  */
 public interface ClientAuthExchange {
 
-    void respond(byte[] response, ServerAuthReplyHandler callback);
+    void respond(byte[] response, AuthReplyHandler callback);
 
-    void abort(ServerAuthAbortHandler callback);
+    void abort(AuthAbortHandler callback);
 }

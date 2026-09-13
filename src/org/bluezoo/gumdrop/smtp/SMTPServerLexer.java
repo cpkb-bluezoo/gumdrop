@@ -29,7 +29,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  *
  * <p>Structurally identical to {@link org.bluezoo.gumdrop.pop3.POP3ServerLexer}
  * and {@link org.bluezoo.gumdrop.ftp.FTPServerLexer} — the lexer only
- * recognises the lexical shape; {@code SMTPProtocolHandler} decides how to
+ * recognises the lexical shape; {@code SmtpProtocolHandler} decides how to
  * interpret {@code KEYWORD} (a command verb, or — while an AUTH continuation
  * exchange is in progress — raw continuation data) and which charset to
  * decode {@code TEXT} with (ASCII, or UTF-8 for SMTPUTF8/RFC 6531), based on
@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  *
  * <p>DATA (RFC 5321 section 4.5.2, dot-stuffed) and BDAT (RFC 3030,
  * fixed-length binary) message content is <strong>not</strong> handled by
- * this lexer at all: {@code SMTPProtocolHandler.receive()} checks state
+ * this lexer at all: {@code SmtpProtocolHandler.receive()} checks state
  * before ever calling {@link #feed}, exactly as it did before this lexer
  * existed, routing DATA/BDAT content directly to the existing (unchanged)
  * {@code processDataBuffer}/{@code handleBdatContent} state machines. Those
@@ -48,7 +48,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * equivalent reasoning for POP3 client's {@code DotUnstuffer} handoff).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SMTPProtocolHandler
+ * @see SmtpProtocolHandler
  */
 final class SMTPServerLexer extends ByteStreamLexer<SMTPServerLexer.Token> {
 
@@ -64,7 +64,7 @@ final class SMTPServerLexer extends ByteStreamLexer<SMTPServerLexer.Token> {
      * Tells the lexer to stop tokenising and hand control of the
      * connection's raw bytes to the DATA (RFC 5321 §4.5.2) / BDAT
      * (RFC 3030) content state machines, which {@code
-     * SMTPProtocolHandler.receive()} drives directly once {@code state}
+     * SmtpProtocolHandler.receive()} drives directly once {@code state}
      * has transitioned to {@code DATA} or {@code BDAT}. Wraps the base
      * class's {@code protected final requestStop()} for the parser to
      * call from outside this package.

@@ -241,13 +241,13 @@ HTTP client handlers).
 ClientEndpoint client = new ClientEndpoint(factory, "proxy", 1080);
 client.connect(new SOCKSClientHandler(
     "smtp.example.com", 587,
-    new SMTPClientProtocolHandler(callback)));
+    new SmtpClientProtocolHandler(callback)));
 
 // With SOCKS5 username/password
 SOCKSClientConfig config = new SOCKSClientConfig("user", "pass");
 client.connect(new SOCKSClientHandler(
     "smtp.example.com", 587, config,
-    new SMTPClientProtocolHandler(callback)));
+    new SmtpClientProtocolHandler(callback)));
 </pre>
 
 <p>

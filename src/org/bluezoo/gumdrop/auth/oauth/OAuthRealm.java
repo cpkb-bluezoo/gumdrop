@@ -124,7 +124,7 @@ import javax.crypto.spec.SecretKeySpec;
  * <realm id="oauth" class="org.bluezoo.gumdrop.auth.oauth.OAuthRealm"
  *        configFile="oauth.properties"/>
  * 
- * <server class="org.bluezoo.gumdrop.imap.IMAPListener"
+ * <server class="org.bluezoo.gumdrop.imap.ImapListener"
  *         port="993" secure="true"
  *         realm="#oauth"/>
  * }</pre>

@@ -36,7 +36,7 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for {@link POP3ServerLexer}, verifying exact token content
  * (including the free-form TEXT chunking properties relied on by {@link
- * POP3ProtocolHandler} to reconstruct args and SASL continuation lines
+ * Pop3ProtocolHandler} to reconstruct args and SASL continuation lines
  * with embedded whitespace preserved verbatim) independent of the full
  * protocol handler's business logic.
  *
@@ -141,7 +141,7 @@ public class POP3ServerLexerTest {
         POP3ServerLexer lexer = new POP3ServerLexer(handler, 512);
         // A base64 SASL response contains no spaces, so it lexes as a
         // single KEYWORD token spanning the whole line — the parser
-        // (POP3ProtocolHandler), tracking its own authState, treats this
+        // (Pop3ProtocolHandler), tracking its own authState, treats this
         // as the raw continuation data rather than a command verb.
         lexer.feed(bytesOf("QUJDRA==\r\n"));
         assertEquals(2, handler.events.size());

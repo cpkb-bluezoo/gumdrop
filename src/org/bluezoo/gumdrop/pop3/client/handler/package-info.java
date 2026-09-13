@@ -30,23 +30,23 @@
  * <p>These interfaces define callbacks your handler receives for server
  * responses:
  * <ul>
- *   <li>{@link ServerGreeting} - Entry point for new connections</li>
- *   <li>{@link ServerCapaReplyHandler} - Receives CAPA response</li>
- *   <li>{@link ServerUserReplyHandler} - Receives USER response</li>
- *   <li>{@link ServerPassReplyHandler} - Receives PASS response</li>
- *   <li>{@link ServerApopReplyHandler} - Receives APOP response</li>
- *   <li>{@link ServerStlsReplyHandler} - Receives STLS response</li>
- *   <li>{@link ServerAuthReplyHandler} - Receives AUTH responses</li>
- *   <li>{@link ServerAuthAbortHandler} - Receives AUTH abort response</li>
- *   <li>{@link ServerStatReplyHandler} - Receives STAT response</li>
- *   <li>{@link ServerListReplyHandler} - Receives LIST response</li>
- *   <li>{@link ServerRetrReplyHandler} - Receives RETR content (streamed)</li>
- *   <li>{@link ServerDeleReplyHandler} - Receives DELE response</li>
- *   <li>{@link ServerRsetReplyHandler} - Receives RSET response</li>
- *   <li>{@link ServerTopReplyHandler} - Receives TOP content (streamed)</li>
- *   <li>{@link ServerUidlReplyHandler} - Receives UIDL response</li>
- *   <li>{@link ServerNoopReplyHandler} - Receives NOOP response</li>
- *   <li>{@link ServerReplyHandler} - Base reply handler interface</li>
+ *   <li>{@link RemoteGreeting} - Entry point for new connections</li>
+ *   <li>{@link CapaReplyHandler} - Receives CAPA response</li>
+ *   <li>{@link UserReplyHandler} - Receives USER response</li>
+ *   <li>{@link PassReplyHandler} - Receives PASS response</li>
+ *   <li>{@link ApopReplyHandler} - Receives APOP response</li>
+ *   <li>{@link StlsReplyHandler} - Receives STLS response</li>
+ *   <li>{@link AuthReplyHandler} - Receives AUTH responses</li>
+ *   <li>{@link AuthAbortHandler} - Receives AUTH abort response</li>
+ *   <li>{@link StatReplyHandler} - Receives STAT response</li>
+ *   <li>{@link ListReplyHandler} - Receives LIST response</li>
+ *   <li>{@link RetrReplyHandler} - Receives RETR content (streamed)</li>
+ *   <li>{@link DeleReplyHandler} - Receives DELE response</li>
+ *   <li>{@link RsetReplyHandler} - Receives RSET response</li>
+ *   <li>{@link TopReplyHandler} - Receives TOP content (streamed)</li>
+ *   <li>{@link UidlReplyHandler} - Receives UIDL response</li>
+ *   <li>{@link NoopReplyHandler} - Receives NOOP response</li>
+ *   <li>{@link ReplyHandler} - Base reply handler interface</li>
  * </ul>
  *
  * <h2>Client State Interfaces</h2>
@@ -65,6 +65,6 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.pop3.client
- * @see org.bluezoo.gumdrop.pop3.client.POP3ClientProtocolHandler
+ * @see org.bluezoo.gumdrop.pop3.client.Pop3ClientProtocolHandler
  */
 package org.bluezoo.gumdrop.pop3.client.handler;

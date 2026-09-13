@@ -42,9 +42,9 @@ package org.bluezoo.gumdrop.pop3.client.handler;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerPassReplyHandler#handleAuthenticated
- * @see ServerApopReplyHandler#handleAuthenticated
- * @see ServerAuthReplyHandler#handleAuthSuccess
+ * @see PassReplyHandler#handleAuthenticated
+ * @see ApopReplyHandler#handleAuthenticated
+ * @see AuthReplyHandler#handleAuthSuccess
  */
 public interface ClientTransactionState {
 
@@ -53,18 +53,18 @@ public interface ClientTransactionState {
      *
      * @param callback receives the message count and total size
      */
-    void stat(ServerStatReplyHandler callback);
+    void stat(StatReplyHandler callback);
 
     /**
      * Sends a LIST command to list all messages.
      *
      * <p>The handler receives entries one at a time via
-     * {@link ServerListReplyHandler#handleListEntry}, followed by
-     * {@link ServerListReplyHandler#handleListComplete}.
+     * {@link ListReplyHandler#handleListEntry}, followed by
+     * {@link ListReplyHandler#handleListComplete}.
      *
      * @param callback receives the listing entries
      */
-    void list(ServerListReplyHandler callback);
+    void list(ListReplyHandler callback);
 
     /**
      * Sends a LIST command for a specific message.
@@ -72,21 +72,21 @@ public interface ClientTransactionState {
      * @param messageNumber the message number (1-based)
      * @param callback receives the listing
      */
-    void list(int messageNumber, ServerListReplyHandler callback);
+    void list(int messageNumber, ListReplyHandler callback);
 
     /**
      * Sends a RETR command to retrieve a message.
      *
      * <p>Message content is delivered as chunks of ByteBuffer via
-     * {@link ServerRetrReplyHandler#handleMessageContent}, with
+     * {@link RetrReplyHandler#handleMessageContent}, with
      * dot-unstuffing handled transparently. The handler receives
-     * {@link ServerRetrReplyHandler#handleMessageComplete} when the
+     * {@link RetrReplyHandler#handleMessageComplete} when the
      * entire message has been delivered.
      *
      * @param messageNumber the message number (1-based)
      * @param callback receives the message content
      */
-    void retr(int messageNumber, ServerRetrReplyHandler callback);
+    void retr(int messageNumber, RetrReplyHandler callback);
 
     /**
      * Sends a DELE command to mark a message for deletion.
@@ -96,20 +96,20 @@ public interface ClientTransactionState {
      * @param messageNumber the message number (1-based)
      * @param callback receives the server's response
      */
-    void dele(int messageNumber, ServerDeleReplyHandler callback);
+    void dele(int messageNumber, DeleReplyHandler callback);
 
     /**
      * Sends a RSET command to unmark all messages marked for deletion.
      *
      * @param callback receives the server's response
      */
-    void rset(ServerRsetReplyHandler callback);
+    void rset(RsetReplyHandler callback);
 
     /**
      * Sends a TOP command to retrieve message headers and body lines.
      *
      * <p>Content is delivered as chunks of ByteBuffer via
-     * {@link ServerTopReplyHandler#handleTopContent}, with
+     * {@link TopReplyHandler#handleTopContent}, with
      * dot-unstuffing handled transparently.
      *
      * @param messageNumber the message number (1-based)
@@ -117,18 +117,18 @@ public interface ClientTransactionState {
      * @param callback receives the content
      */
     void top(int messageNumber, int lines,
-             ServerTopReplyHandler callback);
+             TopReplyHandler callback);
 
     /**
      * Sends a UIDL command to list unique IDs for all messages.
      *
      * <p>The handler receives entries one at a time via
-     * {@link ServerUidlReplyHandler#handleUidEntry}, followed by
-     * {@link ServerUidlReplyHandler#handleUidComplete}.
+     * {@link UidlReplyHandler#handleUidEntry}, followed by
+     * {@link UidlReplyHandler#handleUidComplete}.
      *
      * @param callback receives the unique ID entries
      */
-    void uidl(ServerUidlReplyHandler callback);
+    void uidl(UidlReplyHandler callback);
 
     /**
      * Sends a UIDL command for a specific message.
@@ -136,7 +136,7 @@ public interface ClientTransactionState {
      * @param messageNumber the message number (1-based)
      * @param callback receives the unique ID
      */
-    void uidl(int messageNumber, ServerUidlReplyHandler callback);
+    void uidl(int messageNumber, UidlReplyHandler callback);
 
     /**
      * Sends a NOOP command.
@@ -146,7 +146,7 @@ public interface ClientTransactionState {
      *
      * @param callback receives the server's response
      */
-    void noop(ServerNoopReplyHandler callback);
+    void noop(NoopReplyHandler callback);
 
     /**
      * Sends a QUIT command to commit deletions and close the connection.

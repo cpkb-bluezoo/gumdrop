@@ -196,7 +196,7 @@ dynamic — are stopped on shutdown.
 When the <code>AcceptSelectorLoop</code> accepts an incoming connection on
 a listener, it calls the listener's <code>createHandler()</code> factory to
 obtain a <code>ProtocolHandler</code>. Protocol-specific listeners (e.g.,
-<code>SMTPListener</code>, <code>FTPListener</code>) typically delegate to
+<code>SmtpListener</code>, <code>FTPListener</code>) typically delegate to
 their owning service's <code>createHandler(Listener)</code> so that handler
 selection can vary by listener (e.g., different policies for submission
 vs. relay ports).
@@ -376,11 +376,11 @@ servlet applications with full Servlet API support, clustering, and deployment</
 with read-only option), <code>RoleBasedFTPService</code> (role-based access control
 with quota management), and <code>AnonymousFTPService</code> (anonymous read-only
 public distribution)</li>
-<li><b>SMTP</b> &ndash; <code>LocalDeliveryService</code> for mailbox delivery,
-<code>SimpleRelayService</code> for MX forwarding</li>
-<li><b>IMAP</b> &ndash; <code>DefaultIMAPService</code> accepts all operations
+<li><b>SMTP</b> &ndash; <code>LocalDeliveryServer</code> for mailbox delivery,
+<code>SimpleRelayServer</code> for MX forwarding</li>
+<li><b>IMAP</b> &ndash; <code>DefaultIMAPServer</code> accepts all operations
 using the configured Realm and MailboxFactory</li>
-<li><b>POP3</b> &ndash; <code>DefaultPOP3Service</code> accepts all operations
+<li><b>POP3</b> &ndash; <code>DefaultPOP3Server</code> accepts all operations
 using the configured Realm and MailboxFactory</li>
 <li><b>DNS</b> &ndash; <code>DNSService</code> provides a DNS proxy with caching
 and custom resolution; subclass for custom name resolution logic</li>
@@ -442,8 +442,8 @@ To enable TLS, configure the keystore on any listener:
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.smtp.SMTPService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="465" secure="true"&gt;
+&lt;service class="org.bluezoo.gumdrop.smtp.SmtpServer"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener" port="465" secure="true"&gt;
         &lt;property name="keystore-file" path="keystore.p12"/&gt;
         &lt;property name="keystore-pass" value="secret"/&gt;
     &lt;/listener&gt;
@@ -469,14 +469,14 @@ clients) and a UNIX socket (for local tools or reverse proxies):
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.smtp.LocalDeliveryService"&gt;
+&lt;service class="org.bluezoo.gumdrop.smtp.LocalDeliveryServer"&gt;
     &lt;property name="mailbox-factory" ref="#mbox"/&gt;
     &lt;property name="local-domain" value="example.com"/&gt;
     &lt;!-- TCP listener for remote clients --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
               name="tcp" port="25"/&gt;
     &lt;!-- UNIX domain socket for local delivery --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
               name="unix" path="/var/run/smtp.sock"/&gt;
 &lt;/service&gt;
 </pre>
@@ -507,8 +507,8 @@ Timeouts can be configured with time unit suffixes (<code>ms</code>, <code>s</co
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.imap.IMAPService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener"&gt;
+&lt;service class="org.bluezoo.gumdrop.imap.ImapServer"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.imap.ImapListener"&gt;
         &lt;property name="idle-timeout" value="30m"/&gt;
         &lt;property name="read-timeout" value="60s"/&gt;
         &lt;property name="connection-timeout" value="2m"/&gt;

@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * {@link ClientEnvelope} (before any recipients accepted) and
  * {@link ClientEnvelopeReady} (after recipients accepted).
  * 
- * <p>This interface is passed to {@link ServerRcptToReplyHandler} failure
+ * <p>This interface is passed to {@link RcptToReplyHandler} failure
  * handlers where the caller may or may not have accepted recipients, and
  * can check via {@link #hasAcceptedRecipients()}.
  * 
@@ -48,7 +48,7 @@ public interface ClientEnvelopeState {
      * @param recipient the envelope recipient address
      * @param callback receives the server's response
      */
-    void rcptTo(EmailAddress recipient, ServerRcptToReplyHandler callback);
+    void rcptTo(EmailAddress recipient, RcptToReplyHandler callback);
 
     /**
      * RFC 3461 §4.1–4.2 — adds a recipient with DSN parameters.
@@ -59,7 +59,7 @@ public interface ClientEnvelopeState {
      * @param callback receives the server's response
      */
     void rcptTo(EmailAddress recipient, String notify, String orcpt,
-                ServerRcptToReplyHandler callback);
+                RcptToReplyHandler callback);
 
     /**
      * Aborts the current mail transaction.
@@ -68,7 +68,7 @@ public interface ClientEnvelopeState {
      * 
      * @param callback receives the server's response
      */
-    void rset(ServerRsetReplyHandler callback);
+    void rset(RsetReplyHandler callback);
 
     /**
      * Closes the connection.

@@ -765,9 +765,9 @@ listener.
     &lt;property name="user-filter"&gt;(mail={0})&lt;/property&gt;
 &lt;/realm&gt;
 
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SMTPService"&gt;
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SmtpServer"&gt;
     &lt;property name="realm" ref="#ldapRealm"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"&gt;
         &lt;property name="port"&gt;587&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
         &lt;property name="keystore-file"&gt;/etc/gumdrop/keystore.p12&lt;/property&gt;

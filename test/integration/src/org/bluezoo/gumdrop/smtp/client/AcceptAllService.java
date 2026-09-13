@@ -27,8 +27,8 @@ import org.bluezoo.gumdrop.TCPListener;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.DeliveryRequirements;
-import org.bluezoo.gumdrop.smtp.SMTPPipeline;
-import org.bluezoo.gumdrop.smtp.SMTPService;
+import org.bluezoo.gumdrop.smtp.SmtpPipeline;
+import org.bluezoo.gumdrop.smtp.SmtpServer;
 import org.bluezoo.gumdrop.smtp.handler.*;
 
 import java.io.ByteArrayOutputStream;
@@ -59,7 +59,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class AcceptAllService extends SMTPService {
+public class AcceptAllService extends SmtpServer {
 
     private static final Logger logger =
             Logger.getLogger(AcceptAllService.class.getName());
@@ -217,7 +217,7 @@ public class AcceptAllService extends SMTPService {
         // ── MailFromHandler ──
 
         @Override
-        public SMTPPipeline getPipeline() {
+        public SmtpPipeline getPipeline() {
             return null;
         }
 

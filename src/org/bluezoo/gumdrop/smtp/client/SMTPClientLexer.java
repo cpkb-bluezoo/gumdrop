@@ -42,11 +42,11 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  *
  * <p>SMTP client responses never carry raw binary content — DATA/BDAT
  * content is written by the client, not received — so this lexer never
- * enters a raw escape and {@link SMTPClientProtocolHandler} never needs
+ * enters a raw escape and {@link SmtpClientProtocolHandler} never needs
  * to call {@code requestStop()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SMTPClientProtocolHandler
+ * @see SmtpClientProtocolHandler
  */
 final class SMTPClientLexer extends ByteStreamLexer<SMTPClientLexer.Token> {
 

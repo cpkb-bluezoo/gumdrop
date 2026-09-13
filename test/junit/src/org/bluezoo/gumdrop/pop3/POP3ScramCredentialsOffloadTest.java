@@ -59,7 +59,7 @@ import javax.crypto.spec.SecretKeySpec;
  * both SCRAM round trips (client-first and client-final). See {@code
  * org.bluezoo.gumdrop.imap.IMAPScramCredentialsOffloadTest} for the full
  * background -- this is the POP3 counterpart, exercising {@code
- * POP3ProtocolHandler}'s own SCRAM call sites.
+ * Pop3ProtocolHandler}'s own SCRAM call sites.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -110,7 +110,7 @@ public class POP3ScramCredentialsOffloadTest {
         listener.setRealm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
 
-        POP3ProtocolHandler handler = new POP3ProtocolHandler(listener);
+        Pop3ProtocolHandler handler = new Pop3ProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
         handler.connected(endpoint);
 
@@ -291,6 +291,6 @@ public class POP3ScramCredentialsOffloadTest {
         }
     }
 
-    private static final class TestPOP3Listener extends POP3Listener {
+    private static final class TestPOP3Listener extends Pop3Listener {
     }
 }

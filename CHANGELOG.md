@@ -353,8 +353,8 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   application. Fixed with strict path confinement and regression tests.
 
 - **IMAP/POP3 SCRAM-SHA-256 proof verification broken**:
-  Server-side SCRAM proof verification in `SASLUtils`, `IMAPProtocolHandler`,
-  and `POP3ProtocolHandler` did not properly verify the client proof,
+  Server-side SCRAM proof verification in `SASLUtils`, `ImapProtocolHandler`,
+  and `Pop3ProtocolHandler` did not properly verify the client proof,
   potentially allowing authentication bypass.
 
 - **`WEB-INF`/`META-INF` bypass in `DefaultServlet` path checks**:
@@ -364,8 +364,8 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **IMAP/POP3/SMTP DIGEST-MD5 response verification broken**:
   the same class of flaw as the SCRAM issue above, affecting DIGEST-MD5
-  response verification in `SASLUtils`, `IMAPProtocolHandler`,
-  `POP3ProtocolHandler`, and `SMTPProtocolHandler`.
+  response verification in `SASLUtils`, `ImapProtocolHandler`,
+  `Pop3ProtocolHandler`, and `SmtpProtocolHandler`.
 
 - **Strict allowlist for replicated session deserialization**: 
   `SessionSerializer` now validates deserialized cluster-session
@@ -388,7 +388,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   configured.
 
 - **SMTP auth state derived from XCLIENT LOGIN assertion**: 
-  `SMTPProtocolHandler` no longer trusts an
+  `SmtpProtocolHandler` no longer trusts an
   XCLIENT-asserted `LOGIN` value as proof of authenticated state.
 
 - **JWT validation failure fell back to an insecure path**: 
@@ -430,8 +430,8 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   nonce/request-binding checks.
 
 - **IMAP/SMTP OAUTHBEARER authentication not bound to token subject**: 
-  `IMAPProtocolHandler` and
-  `SMTPProtocolHandler` accepted an OAUTHBEARER token without binding the
+  `ImapProtocolHandler` and
+  `SmtpProtocolHandler` accepted an OAUTHBEARER token without binding the
   authenticated identity to the token's subject claim.
 
 - **JWT validation missing required `exp` claim check; array `aud` claims
@@ -487,7 +487,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   overflow-driven memory/logic issues.
 
 - **IMAP command literal size not enforced on every literal-accepting
-  command**: `IMAPProtocolHandler` now enforces
+  command**: `ImapProtocolHandler` now enforces
   `maxLiteralSize` consistently.
 
 - **Resolved SOCKS destination addresses not validated against the
@@ -510,8 +510,8 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   replay/timestamp validation unconditionally.
 
 - **Timing-unsafe MAC/digest comparisons**: 
-  `HttpAuthenticationProvider`, `IMAPProtocolHandler`,
-  `POP3ProtocolHandler`, and `DKIMValidator` now use constant-time
+  `HttpAuthenticationProvider`, `ImapProtocolHandler`,
+  `Pop3ProtocolHandler`, and `DKIMValidator` now use constant-time
   comparison for credential/digest checks.
 
 - **No HTTP/1.1 header-count limit**:

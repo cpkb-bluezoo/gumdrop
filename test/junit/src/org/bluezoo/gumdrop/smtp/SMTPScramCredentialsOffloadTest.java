@@ -55,7 +55,7 @@ import javax.crypto.spec.SecretKeySpec;
  * both SCRAM round trips (client-first and client-final). See {@code
  * org.bluezoo.gumdrop.imap.IMAPScramCredentialsOffloadTest} for the full
  * background -- this is the SMTP counterpart, exercising {@code
- * SMTPProtocolHandler}'s own SCRAM call sites.
+ * SmtpProtocolHandler}'s own SCRAM call sites.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -93,10 +93,10 @@ public class SMTPScramCredentialsOffloadTest {
 
     @Test(timeout = 20000)
     public void scramCredentialDerivationRunsOffSelectorLoopThread() throws Exception {
-        SMTPListener listener = new SMTPListener();
+        SmtpListener listener = new SmtpListener();
         listener.setRealm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
 
-        SMTPProtocolHandler handler = new SMTPProtocolHandler(listener, null);
+        SmtpProtocolHandler handler = new SmtpProtocolHandler(listener, null);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(25);
         endpoint.setSecure(true);
         handler.connected(endpoint);

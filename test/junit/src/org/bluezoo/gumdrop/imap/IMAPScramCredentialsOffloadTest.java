@@ -117,11 +117,11 @@ public class IMAPScramCredentialsOffloadTest {
         Files.createDirectories(userDir.resolve("new"));
         Files.createDirectories(userDir.resolve("tmp"));
 
-        IMAPListener listener = new IMAPListener();
+        ImapListener listener = new ImapListener();
         listener.setRealm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
 
-        IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
+        ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
         handler.connected(endpoint);
 

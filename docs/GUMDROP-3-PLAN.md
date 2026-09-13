@@ -97,18 +97,15 @@ gravity.
 
 ### C.1 Naming and taxonomy
 
-**Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.3** complete — see
-[Server.java](../src/org/bluezoo/gumdrop/Server.java), deprecated
-[Service.java](../src/org/bluezoo/gumdrop/Service.java),
-[HttpServer.java](../src/org/bluezoo/gumdrop/http/server/HttpServer.java),
-[ServletServer.java](../src/org/bluezoo/gumdrop/servlet/ServletServer.java),
-[WebdavServer.java](../src/org/bluezoo/gumdrop/webdav/WebdavServer.java),
-[WebSocketServer.java](../src/org/bluezoo/gumdrop/websocket/WebSocketServer.java).
-Next slice: **C.1.4** mail protocols.
+**Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.4** complete — see
+[SmtpServer.java](../src/org/bluezoo/gumdrop/smtp/SmtpServer.java),
+[ImapServer.java](../src/org/bluezoo/gumdrop/imap/ImapServer.java),
+[Pop3Server.java](../src/org/bluezoo/gumdrop/pop3/Pop3Server.java),
+mail client {@code ReplyHandler} renames. Next slice: **C.1.5** remaining protocols.
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
-| `HTTPService`, `SMTPService` | `HttpServer`, `SmtpServer` | “Server” = collection of listeners + app wiring; not a `Service` lifecycle contract |
+| `HTTPService`, `SmtpServer` | `HttpServer`, `SmtpServer` | “Server” = collection of listeners + app wiring; not a `Service` lifecycle contract |
 | `Service` interface | Retire or narrow | Lifecycle moves to `Runtime` + optional `Server`/`Client` facades |
 | `HTTPServer`, `AMQPClient` | `HttpServer`, `AmqpClient` | **CamelCase acronyms** throughout (hopf precedent) |
 | `HttpRequestHandler` | `http.server.HttpRequestHandler` | Handler interfaces live under role subpackages |
@@ -229,7 +226,7 @@ hidden global singleton in library code.
   **closed** `Map<String, HandlerFactory>` registered at startup — no
   `Class.forName` for application code.
 - Complex wiring (mailbox + SMTP + runtime refs) stays in Java composition
-  code, as hopf documents for `LocalDeliveryService`-style stacks.
+  code, as hopf documents for `LocalDeliveryServer`-style stacks.
 
 ### C.6 Listener / Server architecture
 
@@ -503,7 +500,7 @@ consistent” public API:
 | This plan | Draft |
 | CHANGELOG 3.0.0 section | Draft (TLS/modularity) |
 | TLS cert compression #445 | Spec refined |
-| Role-agnostic refactor | C.1.3 Servlet/WebDAV/WebSocket *(branch `v3-taxonomy`)* |
+| Role-agnostic refactor | C.1.4 mail protocols *(branch `v3-taxonomy`)* |
 | Servlet 6.1 | Not started |
 | Runtime introduction | Not started |
 | Telemetry / jprotobuf spin-off | Not started |

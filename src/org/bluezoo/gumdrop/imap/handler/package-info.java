@@ -34,11 +34,11 @@
  * this mailbox exist, is access permitted) without touching protocol
  * mechanics: tags, CAPABILITY, NOOP, LOGOUT, STARTTLS, IDLE, and the
  * LOGIN/AUTHENTICATE exchange itself are all handled automatically by
- * {@code IMAPProtocolHandler}, which hands the application only the
+ * {@code ImapProtocolHandler}, which hands the application only the
  * verified {@code Principal} once authentication succeeds.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientConnected
- * @see org.bluezoo.gumdrop.imap.IMAPProtocolHandler
+ * @see org.bluezoo.gumdrop.imap.ImapProtocolHandler
  */
 package org.bluezoo.gumdrop.imap.handler;

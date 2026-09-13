@@ -58,14 +58,14 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
  * factory.start();
  *
  * ClientEndpoint client = new ClientEndpoint(factory, "smtp.example.com", 465);
- * client.connect(new SMTPClientProtocolHandler(callback));
+ * client.connect(new SmtpClientProtocolHandler(callback));
  * }</pre>
  *
  * <h4>Server Integration</h4>
  * <pre>{@code
  * SelectorLoop myLoop = endpoint.getSelectorLoop();
  * ClientEndpoint client = new ClientEndpoint(factory, myLoop, "smtp.example.com", 587);
- * client.connect(new SMTPClientProtocolHandler(callback));
+ * client.connect(new SmtpClientProtocolHandler(callback));
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

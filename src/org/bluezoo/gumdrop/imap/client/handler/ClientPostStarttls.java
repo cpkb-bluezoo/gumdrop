@@ -28,11 +28,11 @@ package org.bluezoo.gumdrop.imap.client.handler;
  */
 public interface ClientPostStarttls {
 
-    void capability(ServerCapabilityReplyHandler callback);
+    void capability(CapabilityReplyHandler callback);
 
-    void login(String username, String password, ServerLoginReplyHandler callback);
+    void login(String username, String password, LoginReplyHandler callback);
 
-    void authenticate(String mechanism, byte[] initialResponse, ServerAuthReplyHandler callback);
+    void authenticate(String mechanism, byte[] initialResponse, AuthReplyHandler callback);
 
     void logout();
 }

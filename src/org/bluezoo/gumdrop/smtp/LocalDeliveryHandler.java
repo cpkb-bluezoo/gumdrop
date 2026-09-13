@@ -190,7 +190,7 @@ public class LocalDeliveryHandler
     // ═══════════════════════════════════════════════════════════════════════
 
     @Override
-    public SMTPPipeline getPipeline() {
+    public SmtpPipeline getPipeline() {
         return null;  // No pipeline needed
     }
 

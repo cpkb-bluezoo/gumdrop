@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * the SASL continuation prefix {@code +}) or, while receiving a CAPA/LIST/
  * UIDL multi-line data block, the first field of a data line (including
  * the lone {@code .} terminator). Either way, the lexer only recognises
- * the lexical shape; {@link POP3ClientProtocolHandler} decides which
+ * the lexical shape; {@link Pop3ClientProtocolHandler} decides which
  * interpretation applies based on the current connection state, exactly
  * as {@link org.bluezoo.gumdrop.pop3.POP3ServerLexer} does for command
  * verbs on the server side.
@@ -42,13 +42,13 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * processes it correctly in constant memory across arbitrary chunk
  * boundaries. Rather than reimplement that as a {@code RAW_UNTIL} escape
  * (which would need a second, separate unstuffing pass over whatever this
- * lexer delivered), {@link POP3ClientProtocolHandler#receive(java.nio.ByteBuffer)}
+ * lexer delivered), {@link Pop3ClientProtocolHandler#receive(java.nio.ByteBuffer)}
  * keeps driving {@code DotUnstuffer} directly, exactly as it did before
  * this lexer existed. This lexer only needs to know when to get out of
  * the way: see {@link #stopForHandoff()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see POP3ClientProtocolHandler
+ * @see Pop3ClientProtocolHandler
  */
 final class POP3ClientLexer extends ByteStreamLexer<POP3ClientLexer.Token> {
 
@@ -92,7 +92,7 @@ final class POP3ClientLexer extends ByteStreamLexer<POP3ClientLexer.Token> {
      * Requests that this lexer stop immediately after the CRLF token
      * currently being dispatched, leaving the buffer position right after
      * it. Thin package-visible wrapper around {@link ByteStreamLexer#requestStop()}
-     * so {@link POP3ClientProtocolHandler} — a separate object from this
+     * so {@link Pop3ClientProtocolHandler} — a separate object from this
      * lexer — can call it from within the CRLF token dispatch (the same
      * "nested call during token dispatch" pattern used elsewhere for
      * {@code enterRaw}/{@code enterRawUntil}) when the response just

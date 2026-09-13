@@ -47,7 +47,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link IMAPProtocolHandler}'s streaming-lexer conversion
+ * Unit tests for {@link ImapProtocolHandler}'s streaming-lexer conversion
  * (issue #85): command recognition/dispatch, the outer tag/command/args
  * assembly, RFC 7888 general-purpose literals (including chained
  * literals spliced back into the reassembled command, and the
@@ -62,14 +62,14 @@ import static org.junit.Assert.*;
  */
 public class IMAPProtocolHandlerTest {
 
-    private IMAPProtocolHandler handler;
+    private ImapProtocolHandler handler;
     private StubEndpoint endpoint;
-    private IMAPListener listener;
+    private ImapListener listener;
 
     @Before
     public void setUp() {
-        listener = new IMAPListener();
-        handler = new IMAPProtocolHandler(listener);
+        listener = new ImapListener();
+        handler = new ImapProtocolHandler(listener);
         endpoint = new StubEndpoint();
     }
 
@@ -268,8 +268,8 @@ public class IMAPProtocolHandlerTest {
     @Test
     public void testCommandWithArgsSlicedAtEveryChunkSize() {
         for (int chunkSize = 1; chunkSize <= 16; chunkSize++) {
-            listener = new IMAPListener();
-            handler = new IMAPProtocolHandler(listener);
+            listener = new ImapListener();
+            handler = new ImapProtocolHandler(listener);
             endpoint = new StubEndpoint();
 
             connect();
@@ -390,9 +390,9 @@ public class IMAPProtocolHandlerTest {
 
     @Test
     public void testLiteralTooLargeRejectedAndResyncs() {
-        listener = new IMAPListener();
+        listener = new ImapListener();
         listener.setMaxLiteralSize(10);
-        handler = new IMAPProtocolHandler(listener);
+        handler = new ImapProtocolHandler(listener);
         endpoint = new StubEndpoint();
 
         connect();
@@ -407,9 +407,9 @@ public class IMAPProtocolHandlerTest {
     @Test
     public void testLiteralSlicedAtEveryChunkSize() {
         for (int chunkSize = 1; chunkSize <= 24; chunkSize++) {
-            listener = new IMAPListener();
+            listener = new ImapListener();
             listener.setAllowPlaintextLogin(true);
-            handler = new IMAPProtocolHandler(listener);
+            handler = new ImapProtocolHandler(listener);
             endpoint = new StubEndpoint();
 
             connect();

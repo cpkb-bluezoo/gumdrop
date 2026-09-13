@@ -31,12 +31,12 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.imap.client.IMAPClient} -
+ *   <li>{@link org.bluezoo.gumdrop.imap.client.ImapClient} -
  *       High-level facade for connecting to IMAP servers</li>
- *   <li>{@link org.bluezoo.gumdrop.imap.client.IMAPClientProtocolHandler} -
+ *   <li>{@link org.bluezoo.gumdrop.imap.client.ImapClientProtocolHandler} -
  *       Handles IMAP protocol exchanges with tagged command tracking and
  *       literal byte-counting</li>
- *   <li>{@link org.bluezoo.gumdrop.imap.client.handler.ServerGreeting} -
+ *   <li>{@link org.bluezoo.gumdrop.imap.client.handler.RemoteGreeting} -
  *       Entry point callback interface for receiving the initial greeting</li>
  *   <li>{@link org.bluezoo.gumdrop.imap.client.handler.ClientNotAuthenticatedState} -
  *       State interface for NOT AUTHENTICATED commands</li>
@@ -75,7 +75,7 @@
  * issued -- compile-time safety against protocol violations.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.imap.client.IMAPClient
+ * @see org.bluezoo.gumdrop.imap.client.ImapClient
  * @see org.bluezoo.gumdrop.imap
  */
 package org.bluezoo.gumdrop.imap.client;

@@ -40,8 +40,8 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * again, allowing multiple messages to be sent over a single connection.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerEhloReplyHandler#handleEhlo
- * @see ServerHeloReplyHandler#handleHelo
+ * @see EhloReplyHandler#handleEhlo
+ * @see HeloReplyHandler#handleHelo
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a>
@@ -54,7 +54,7 @@ public interface ClientSession {
      * @param sender the envelope sender address
      * @param callback receives the server's response
      */
-    void mailFrom(EmailAddress sender, ServerMailFromReplyHandler callback);
+    void mailFrom(EmailAddress sender, MailFromReplyHandler callback);
 
     /**
      * Begins a mail transaction with sender and message size hint.
@@ -67,7 +67,7 @@ public interface ClientSession {
      * @param size the estimated message size in bytes
      * @param callback receives the server's response
      */
-    void mailFrom(EmailAddress sender, long size, ServerMailFromReplyHandler callback);
+    void mailFrom(EmailAddress sender, long size, MailFromReplyHandler callback);
 
     /**
      * RFC 6152 / RFC 3030 / RFC 6531 / RFC 3461 / RFC 8689 / RFC 6710 /
@@ -80,7 +80,7 @@ public interface ClientSession {
      * @param callback receives the server's response
      */
     void mailFrom(EmailAddress sender, long size, MailFromParams params,
-                  ServerMailFromReplyHandler callback);
+                  MailFromReplyHandler callback);
 
     /**
      * Upgrades the connection to TLS.
@@ -91,7 +91,7 @@ public interface ClientSession {
      * 
      * @param callback receives the server's response
      */
-    void starttls(ServerStarttlsReplyHandler callback);
+    void starttls(StarttlsReplyHandler callback);
 
     /**
      * Initiates SASL authentication.
@@ -105,7 +105,7 @@ public interface ClientSession {
      *                        (may be null for mechanisms like LOGIN)
      * @param callback receives the server's response
      */
-    void auth(String mechanism, byte[] initialResponse, ServerAuthReplyHandler callback);
+    void auth(String mechanism, byte[] initialResponse, AuthReplyHandler callback);
 
     /**
      * RFC 5321 §4.1.1.3 — RCPT TO command with DSN parameters (RFC 3461).
@@ -116,7 +116,7 @@ public interface ClientSession {
      * @param callback receives the server's response
      */
     void rcptTo(EmailAddress recipient, String notify, String orcpt,
-                ServerRcptToReplyHandler callback);
+                RcptToReplyHandler callback);
 
     /**
      * RFC 5321 §4.1.1.6 — VRFY command.
@@ -124,7 +124,7 @@ public interface ClientSession {
      * @param user the user string to verify
      * @param callback receives the server's response
      */
-    void vrfy(String user, ServerReplyHandler callback);
+    void vrfy(String user, ReplyHandler callback);
 
     /**
      * RFC 5321 §4.1.1.7 — EXPN command.
@@ -132,7 +132,7 @@ public interface ClientSession {
      * @param mailingList the mailing list name to expand
      * @param callback receives the server's response
      */
-    void expn(String mailingList, ServerReplyHandler callback);
+    void expn(String mailingList, ReplyHandler callback);
 
     /**
      * Closes the connection gracefully.

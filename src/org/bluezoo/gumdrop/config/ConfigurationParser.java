@@ -107,6 +107,26 @@ public class ConfigurationParser extends DefaultHandler {
                 "org.bluezoo.gumdrop.webdav.WebdavServer");
         map.put("org.bluezoo.gumdrop.websocket.WebSocketService",
                 "org.bluezoo.gumdrop.websocket.WebSocketServer");
+        map.put("org.bluezoo.gumdrop.smtp.SMTPService",
+                "org.bluezoo.gumdrop.smtp.SmtpServer");
+        map.put("org.bluezoo.gumdrop.smtp.SMTPListener",
+                "org.bluezoo.gumdrop.smtp.SmtpListener");
+        map.put("org.bluezoo.gumdrop.smtp.LocalDeliveryService",
+                "org.bluezoo.gumdrop.smtp.LocalDeliveryServer");
+        map.put("org.bluezoo.gumdrop.smtp.SimpleRelayService",
+                "org.bluezoo.gumdrop.smtp.SimpleRelayServer");
+        map.put("org.bluezoo.gumdrop.imap.IMAPService",
+                "org.bluezoo.gumdrop.imap.ImapServer");
+        map.put("org.bluezoo.gumdrop.imap.IMAPListener",
+                "org.bluezoo.gumdrop.imap.ImapListener");
+        map.put("org.bluezoo.gumdrop.imap.DefaultIMAPService",
+                "org.bluezoo.gumdrop.imap.DefaultIMAPServer");
+        map.put("org.bluezoo.gumdrop.pop3.POP3Service",
+                "org.bluezoo.gumdrop.pop3.Pop3Server");
+        map.put("org.bluezoo.gumdrop.pop3.POP3Listener",
+                "org.bluezoo.gumdrop.pop3.Pop3Listener");
+        map.put("org.bluezoo.gumdrop.pop3.DefaultPOP3Service",
+                "org.bluezoo.gumdrop.pop3.DefaultPOP3Server");
         LEGACY_CLASS_ALIASES = map;
     }
 

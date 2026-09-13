@@ -22,10 +22,10 @@
 /**
  * IMAP4rev2 (RFC 9051) server for mailbox access.
  *
- * <p>{@link org.bluezoo.gumdrop.imap.IMAPService} is the abstract base
+ * <p>{@link org.bluezoo.gumdrop.imap.ImapServer} is the abstract base
  * for IMAP application services; {@link
- * org.bluezoo.gumdrop.imap.IMAPListener} is the TCP transport listener;
- * {@link org.bluezoo.gumdrop.imap.IMAPProtocolHandler} handles the
+ * org.bluezoo.gumdrop.imap.ImapListener} is the TCP transport listener;
+ * {@link org.bluezoo.gumdrop.imap.ImapProtocolHandler} handles the
  * protocol logic. Unlike SMTP and POP3's simpler sequential state
  * machines, IMAP's NOT_AUTHENTICATED/AUTHENTICATED/SELECTED/LOGOUT
  * states are each a dedicated state object (package {@link

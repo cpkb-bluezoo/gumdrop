@@ -30,11 +30,11 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.pop3.client.POP3Client} -
+ *   <li>{@link org.bluezoo.gumdrop.pop3.client.Pop3Client} -
  *       High-level facade for connecting to POP3 servers</li>
- *   <li>{@link org.bluezoo.gumdrop.pop3.client.POP3ClientProtocolHandler} -
+ *   <li>{@link org.bluezoo.gumdrop.pop3.client.Pop3ClientProtocolHandler} -
  *       Handles POP3 protocol exchanges with transparent dot-unstuffing</li>
- *   <li>{@link org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting} -
+ *   <li>{@link org.bluezoo.gumdrop.pop3.client.handler.RemoteGreeting} -
  *       Entry point callback interface for receiving the initial greeting</li>
  *   <li>{@link org.bluezoo.gumdrop.pop3.client.handler.ClientAuthorizationState} -
  *       State interface for AUTHORIZATION commands (CAPA, USER, APOP, AUTH, STLS)</li>
@@ -62,7 +62,7 @@
  * issued -- compile-time safety against protocol violations.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.pop3.client.POP3Client
+ * @see org.bluezoo.gumdrop.pop3.client.Pop3Client
  * @see org.bluezoo.gumdrop.pop3
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2449">RFC 2449 — POP3 Extension Mechanism</a>

@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * <p>This lexer knows nothing about IMAP literals ({@code {nnn}} /
  * {@code {nnn+}}, RFC 9051 section 4.3, RFC 7888) at all — the {@code
  * "{" number ["+"] "}" CRLF} production only ever appears immediately
- * before a CRLF, so {@link IMAPProtocolHandler} detects it by inspecting
+ * before a CRLF, so {@link ImapProtocolHandler} detects it by inspecting
  * the just-accumulated text when the {@code CRLF} token arrives, and (for
  * literals it doesn't hand off wholesale to a command's own business logic,
  * e.g. APPEND's message body) calls {@link #enterRaw(long)} from within
@@ -50,14 +50,14 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * chained literal, or a real terminating {@code CRLF}, in the continuation
  * text at all). This lexer does not need to do anything special about
  * that itself — the resumed bytes are ordinary {@code KEYWORD}/{@code SP}
- * tokens like any other, and {@link IMAPProtocolHandler} knows (from its
+ * tokens like any other, and {@link ImapProtocolHandler} knows (from its
  * own {@code freshCommand} tracking, not from anything this class exposes)
  * whether a given {@code KEYWORD} is genuinely a fresh command's tag or
  * just leftover text after a literal resume that happened not to be
  * preceded by a space, and routes it accordingly.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see IMAPProtocolHandler
+ * @see ImapProtocolHandler
  */
 final class IMAPServerLexer extends ByteStreamLexer<IMAPServerLexer.Token> {
 

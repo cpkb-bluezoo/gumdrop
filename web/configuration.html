@@ -451,11 +451,11 @@ features described above:
     &lt;/component&gt;
 
     &lt;!-- IMAP service with implicit TLS --&gt;
-    &lt;service id="imaps" class="org.bluezoo.gumdrop.imap.IMAPService"&gt;
+    &lt;service id="imaps" class="org.bluezoo.gumdrop.imap.ImapServer"&gt;
         &lt;property name="realm" ref="#myRealm"/&gt;
         &lt;property name="mailbox-factory" ref="#maildir"/&gt;
         &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-        &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener" port="993" secure="true"&gt;
+        &lt;listener class="org.bluezoo.gumdrop.imap.ImapListener" port="993" secure="true"&gt;
             &lt;property name="keystore-file" path="keystore.p12"/&gt;
             &lt;property name="keystore-pass" value="secret"/&gt;
         &lt;/listener&gt;

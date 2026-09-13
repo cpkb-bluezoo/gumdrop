@@ -30,7 +30,7 @@ import org.junit.Test;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.HttpListener;
-import org.bluezoo.gumdrop.smtp.SMTPListener;
+import org.bluezoo.gumdrop.smtp.SmtpListener;
 
 import java.io.File;
 import java.io.BufferedReader;
@@ -73,7 +73,7 @@ public class TelemetryIntegrationTest {
     private OTLPExporter exporter;
     private Gumdrop gumdrop;
     private HttpListener httpServer;
-    private SMTPListener smtpServer;
+    private SmtpListener smtpServer;
 
     private Logger rootLogger;
     private Level originalLogLevel;
@@ -121,7 +121,7 @@ public class TelemetryIntegrationTest {
         httpServer.setTelemetryConfig(telemetryConfig);
 
         // Create SMTP server with telemetry enabled
-        smtpServer = new SMTPListener();
+        smtpServer = new SmtpListener();
         smtpServer.setPort(SMTP_PORT);
         smtpServer.setAddresses("::1");
         smtpServer.setTelemetryConfig(telemetryConfig);

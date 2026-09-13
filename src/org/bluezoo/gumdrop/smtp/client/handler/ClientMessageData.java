@@ -28,7 +28,7 @@ import java.nio.ByteBuffer;
  * RFC 5321 §4.1.1.4 (DATA content). RFC 3030 (BDAT).
  *
  * <p>This interface is provided to the handler in
- * {@link ServerDataReplyHandler#handleReadyForData} when the connection
+ * {@link DataReplyHandler#handleReadyForData} when the connection
  * is ready to accept message content.
  * 
  * <p>The handler should:
@@ -49,7 +49,7 @@ import java.nio.ByteBuffer;
  * differences are handled automatically by the connection.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerDataReplyHandler#handleReadyForData
+ * @see DataReplyHandler#handleReadyForData
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3030">RFC 3030</a>
  */
@@ -89,7 +89,7 @@ public interface ClientMessageData {
      * 
      * @param callback receives the server's response
      */
-    void endMessage(ServerMessageReplyHandler callback);
+    void endMessage(MessageReplyHandler callback);
 
 }
 

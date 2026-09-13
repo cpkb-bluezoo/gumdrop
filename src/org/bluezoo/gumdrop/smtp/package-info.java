@@ -22,18 +22,18 @@
 /**
  * SMTP (RFC 5321) server for receiving and relaying email.
  *
- * <p>{@link org.bluezoo.gumdrop.smtp.SMTPService} is the abstract base
+ * <p>{@link org.bluezoo.gumdrop.smtp.SmtpServer} is the abstract base
  * for SMTP application services, owning configuration and creating
- * per-connection handlers; {@link org.bluezoo.gumdrop.smtp.SMTPListener}
+ * per-connection handlers; {@link org.bluezoo.gumdrop.smtp.SmtpListener}
  * is the TCP transport listener; {@link
- * org.bluezoo.gumdrop.smtp.SMTPProtocolHandler} handles one session and
+ * org.bluezoo.gumdrop.smtp.SmtpProtocolHandler} handles one session and
  * its command processing. The protocol flow is modeled as a sequence of
  * stages ({@link org.bluezoo.gumdrop.smtp.handler}): each stage hands
  * the application a handler interface exposing only the commands legal
  * at that point, and a state interface to accept or reject them, so
  * out-of-order responses aren't possible to write.
  *
- * <p>{@link org.bluezoo.gumdrop.smtp.SMTPPipeline} lets message content
+ * <p>{@link org.bluezoo.gumdrop.smtp.SmtpPipeline} lets message content
  * be processed as it streams in, without buffering the whole message --
  * {@link org.bluezoo.gumdrop.smtp.auth.AuthPipeline} (SPF/DKIM/DMARC) is
  * one such pipeline, obtained from a handler's {@code getPipeline()}.

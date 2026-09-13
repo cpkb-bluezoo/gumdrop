@@ -37,7 +37,7 @@ import java.util.List;
  * Simple synchronous SMTP client helper for integration testing.
  *
  * <p>This class provides a synchronous, blocking interface for testing SMTP
- * servers. It is NOT suitable for production use - use {@link SMTPClient} for
+ * servers. It is NOT suitable for production use - use {@link SmtpClient} for
  * that. This helper is designed for test clarity and simplicity.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -1096,7 +1096,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | RFC 9051 Section | Status | Notes |
 |-------------|---------|--------|-------|
-| CAPABILITY | 6.1.1 | Compliant | `handleCapability()`, capability string built in `IMAPListener.getCapabilities()` |
+| CAPABILITY | 6.1.1 | Compliant | `handleCapability()`, capability string built in `ImapListener.getCapabilities()` |
 | NOOP | 6.1.2 | Compliant | `handleNoop()`, sends mailbox updates if selected |
 | LOGOUT | 6.1.3 | Compliant | `handleLogout()`, sends BYE then OK |
 
@@ -1187,7 +1187,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | RFC | Status | Notes |
 |-------------|---------|--------|-------|
-| Plaintext (port 143) | RFC 9051 | Compliant | `IMAPClient` with default port |
+| Plaintext (port 143) | RFC 9051 | Compliant | `ImapClient` with default port |
 | Implicit TLS (IMAPS, port 993) | RFC 8314 §3.3 | Compliant | `setSecure(true)` |
 | STARTTLS upgrade | RFC 9051 §6.2.1 | Compliant | `starttls()` sends STARTTLS, handler upgrades |
 | Server greeting parsing (OK/PREAUTH/BYE) | RFC 9051 §7.1 | Compliant | `dispatchGreeting()` |
@@ -1334,7 +1334,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | RFC Section | Status | Notes |
 |---|---|---|---|
-| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `POP3Listener` secure mode |
+| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `Pop3Listener` secure mode |
 | STLS before authentication | 2595 §4 | Compliant | STLS only in AUTHORIZATION state |
 | SASL TLS-only mechanism gating | 5034 | Compliant | `mech.requiresTLS()` check in CAPA and AUTH |
 | Login delay after failed auth | — | Compliant | `enforceLoginDelay()` with configurable delay |
@@ -1349,7 +1349,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 |---|---|---|---|
 | Parse server greeting (+OK / -ERR) | 1939 §4 | Compliant | `dispatchGreeting()` |
 | Extract APOP timestamp from greeting | 1939 §7 | Compliant | `parseApopTimestamp()` |
-| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `POP3Client.setSecure(true)` |
+| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `Pop3Client.setSecure(true)` |
 | STLS upgrade (STARTTLS) | 2595 §4 | Compliant | `stls()` → `endpoint.startTLS()` |
 
 ### Authentication

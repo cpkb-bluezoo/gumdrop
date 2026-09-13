@@ -22,10 +22,10 @@
 /**
  * POP3 (RFC 1939) server for mailbox retrieval.
  *
- * <p>{@link org.bluezoo.gumdrop.pop3.POP3Service} is the abstract base
+ * <p>{@link org.bluezoo.gumdrop.pop3.Pop3Server} is the abstract base
  * for POP3 application services; {@link
- * org.bluezoo.gumdrop.pop3.POP3Listener} is the TCP transport listener;
- * {@link org.bluezoo.gumdrop.pop3.POP3ProtocolHandler} implements the
+ * org.bluezoo.gumdrop.pop3.Pop3Listener} is the TCP transport listener;
+ * {@link org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler} implements the
  * three-state protocol (AUTHORIZATION, TRANSACTION, UPDATE) directly.
  * Mailbox storage is pluggable via {@link
  * org.bluezoo.gumdrop.mailbox.Mailbox}/{@link
@@ -40,8 +40,8 @@
  * either implicit TLS (POP3S, port 995) or STARTTLS via STLS.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.pop3.POP3Listener
- * @see org.bluezoo.gumdrop.pop3.POP3ProtocolHandler
+ * @see org.bluezoo.gumdrop.pop3.Pop3Listener
+ * @see org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler
  * @see org.bluezoo.gumdrop.mailbox.Mailbox
  * @see org.bluezoo.gumdrop.auth.Realm
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 - POP3</a>

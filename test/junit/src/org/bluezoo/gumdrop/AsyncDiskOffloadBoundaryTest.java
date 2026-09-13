@@ -30,11 +30,11 @@ import org.bluezoo.gumdrop.http.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.imap.IMAPListener;
-import org.bluezoo.gumdrop.imap.IMAPProtocolHandler;
+import org.bluezoo.gumdrop.imap.ImapListener;
+import org.bluezoo.gumdrop.imap.ImapProtocolHandler;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
-import org.bluezoo.gumdrop.pop3.POP3Listener;
-import org.bluezoo.gumdrop.pop3.POP3ProtocolHandler;
+import org.bluezoo.gumdrop.pop3.Pop3Listener;
+import org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
@@ -203,12 +203,12 @@ public class AsyncDiskOffloadBoundaryTest {
                         .resolve("1000.1.localhost,S=" + msg.length()),
                 msg.getBytes(StandardCharsets.US_ASCII));
 
-        IMAPListener listener = new IMAPListener();
+        ImapListener listener = new ImapListener();
         listener.setRealm(new AcceptingRealm("editor", "editor"));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
         listener.setAllowPlaintextLogin(true);
 
-        IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
+        ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
 
         final AtomicReference<String> workThread =
@@ -269,11 +269,11 @@ public class AsyncDiskOffloadBoundaryTest {
                         .resolve("1000.1.localhost,S=" + msg.length()),
                 msg.getBytes(StandardCharsets.US_ASCII));
 
-        POP3Listener listener = new POP3Listener();
+        Pop3Listener listener = new Pop3Listener();
         listener.setRealm(new AcceptingRealm("editor", "editor"));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
 
-        POP3ProtocolHandler handler = new POP3ProtocolHandler(listener);
+        Pop3ProtocolHandler handler = new Pop3ProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
 
         final AtomicReference<String> workThread =

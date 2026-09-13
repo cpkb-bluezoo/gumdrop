@@ -495,7 +495,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
             // No live Gumdrop (e.g. a unit test exercising this manager
             // directly): fall back to running inline rather than losing
             // the write, mirroring the equivalent fallback in
-            // IMAPProtocolHandler.submitStorage.
+            // ImapProtocolHandler.submitStorage.
             try {
                 op.call();
                 callback.completed(null);

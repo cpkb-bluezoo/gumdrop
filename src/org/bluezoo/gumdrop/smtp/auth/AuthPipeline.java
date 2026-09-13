@@ -33,13 +33,13 @@ import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.mime.MIMEParseException;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
-import org.bluezoo.gumdrop.smtp.SMTPPipeline;
+import org.bluezoo.gumdrop.smtp.SmtpPipeline;
 
 /**
  * Authentication pipeline for SPF, DKIM, and DMARC checks.
  * Integrates RFC 7208 (SPF), RFC 6376 (DKIM), RFC 7489 (DMARC).
  *
- * <p>AuthPipeline implements {@link SMTPPipeline} to integrate with
+ * <p>AuthPipeline implements {@link SmtpPipeline} to integrate with
  * SMTPConnection. Configure it with callbacks for the checks you want,
  * then associate it with the connection.
  *
@@ -69,14 +69,14 @@ import org.bluezoo.gumdrop.smtp.SMTPPipeline;
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SMTPPipeline
+ * @see SmtpPipeline
  * @see DMARCValidator
  * @see DMARCMessageHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
-public class AuthPipeline implements SMTPPipeline {
+public class AuthPipeline implements SmtpPipeline {
 
     private static final Logger LOGGER = Logger.getLogger(AuthPipeline.class.getName());
 
@@ -121,7 +121,7 @@ public class AuthPipeline implements SMTPPipeline {
         this.dkimValidator = new DKIMValidator(resolver);
     }
 
-    // -- SMTPPipeline implementation --
+    // -- SmtpPipeline implementation --
 
     @Override
     public void mailFrom(EmailAddress sender) {

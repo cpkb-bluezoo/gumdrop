@@ -550,7 +550,7 @@ acronyms** (hopf precedent). Full migration tables and slice order live in
 
 1. **Acronyms** — only the first letter capitalised per word:
    `HttpServer`, `SmtpClient`, `DnsMessage`, `Pop3Server` (not `HTTPService`,
-   `SMTPClient`, …).
+   `SmtpClient`, …).
 2. **Application tier** — listener + handler wiring uses `*Server`, not
    `*Service` (`HttpServer`, `SmtpServer`). Do not add new `*Service` types.
 3. **Client reply handlers** — in `{protocol}.client` packages, never prefix

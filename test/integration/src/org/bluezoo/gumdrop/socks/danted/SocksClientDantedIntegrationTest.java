@@ -28,7 +28,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
-import org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler;
+import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelope;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeReady;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState;
@@ -333,7 +333,7 @@ public class SocksClientDantedIntegrationTest {
                 factory, selectorLoop, DantedTestSupport.PROXY_HOST, proxyPort);
         client.connect(new SOCKSClientHandler(
                 DantedTestSupport.DEST_HOST, DantedTestSupport.DEST_PORT, config,
-                new SMTPClientProtocolHandler(greeting)));
+                new SmtpClientProtocolHandler(greeting)));
     }
 
     private void fail(AtomicReference<Exception> error, CountDownLatch doneLatch, String message) {

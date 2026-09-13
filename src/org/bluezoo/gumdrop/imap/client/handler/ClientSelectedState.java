@@ -28,29 +28,29 @@ package org.bluezoo.gumdrop.imap.client.handler;
  */
 public interface ClientSelectedState extends ClientAuthenticatedState {
 
-    void close(ServerCloseReplyHandler callback);
+    void close(CloseReplyHandler callback);
 
-    void unselect(ServerCloseReplyHandler callback);
+    void unselect(CloseReplyHandler callback);
 
-    void expunge(ServerExpungeReplyHandler callback);
+    void expunge(ExpungeReplyHandler callback);
 
-    void search(String criteria, ServerSearchReplyHandler callback);
+    void search(String criteria, SearchReplyHandler callback);
 
-    void uidSearch(String criteria, ServerSearchReplyHandler callback);
+    void uidSearch(String criteria, SearchReplyHandler callback);
 
-    void fetch(String sequenceSet, String dataItems, ServerFetchReplyHandler callback);
+    void fetch(String sequenceSet, String dataItems, FetchReplyHandler callback);
 
-    void uidFetch(String sequenceSet, String dataItems, ServerFetchReplyHandler callback);
+    void uidFetch(String sequenceSet, String dataItems, FetchReplyHandler callback);
 
-    void store(String sequenceSet, String action, String[] flags, ServerStoreReplyHandler callback);
+    void store(String sequenceSet, String action, String[] flags, StoreReplyHandler callback);
 
-    void uidStore(String sequenceSet, String action, String[] flags, ServerStoreReplyHandler callback);
+    void uidStore(String sequenceSet, String action, String[] flags, StoreReplyHandler callback);
 
-    void copy(String sequenceSet, String mailbox, ServerCopyReplyHandler callback);
+    void copy(String sequenceSet, String mailbox, CopyReplyHandler callback);
 
-    void uidCopy(String sequenceSet, String mailbox, ServerCopyReplyHandler callback);
+    void uidCopy(String sequenceSet, String mailbox, CopyReplyHandler callback);
 
-    void move(String sequenceSet, String mailbox, ServerCopyReplyHandler callback);
+    void move(String sequenceSet, String mailbox, CopyReplyHandler callback);
 
-    void uidMove(String sequenceSet, String mailbox, ServerCopyReplyHandler callback);
+    void uidMove(String sequenceSet, String mailbox, CopyReplyHandler callback);
 }

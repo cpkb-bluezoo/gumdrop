@@ -39,7 +39,7 @@ package org.bluezoo.gumdrop.pop3.client.handler;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerGreeting#handleGreeting
+ * @see RemoteGreeting#handleGreeting
  */
 public interface ClientAuthorizationState {
 
@@ -51,7 +51,7 @@ public interface ClientAuthorizationState {
      *
      * @param callback receives the server's capability response
      */
-    void capa(ServerCapaReplyHandler callback);
+    void capa(CapaReplyHandler callback);
 
     /**
      * Sends a USER command to begin USER/PASS authentication.
@@ -62,7 +62,7 @@ public interface ClientAuthorizationState {
      * @param username the username to authenticate
      * @param callback receives the server's response
      */
-    void user(String username, ServerUserReplyHandler callback);
+    void user(String username, UserReplyHandler callback);
 
     /**
      * Sends an APOP command for digest-based authentication.
@@ -76,7 +76,7 @@ public interface ClientAuthorizationState {
      * @param callback receives the server's response
      */
     void apop(String username, String digest,
-              ServerApopReplyHandler callback);
+              ApopReplyHandler callback);
 
     /**
      * Initiates SASL authentication.
@@ -90,7 +90,7 @@ public interface ClientAuthorizationState {
      * @param callback receives the server's response
      */
     void auth(String mechanism, byte[] initialResponse,
-              ServerAuthReplyHandler callback);
+              AuthReplyHandler callback);
 
     /**
      * Sends a STLS command to upgrade the connection to TLS.
@@ -102,7 +102,7 @@ public interface ClientAuthorizationState {
      *
      * @param callback receives the server's response
      */
-    void stls(ServerStlsReplyHandler callback);
+    void stls(StlsReplyHandler callback);
 
     /**
      * Closes the connection gracefully.

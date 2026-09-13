@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * ClientEndpoint}, and {@link FTPClientProtocolHandler}, wiring them
  * together and forwarding lifecycle events to the caller's {@link
  * ServerGreeting} handler. Mirrors {@code
- * org.bluezoo.gumdrop.smtp.client.SMTPClient}.
+ * org.bluezoo.gumdrop.smtp.client.SmtpClient}.
  *
  * <h4>Plaintext with AUTH TLS (explicit FTPS)</h4>
  * <pre>{@code

@@ -1,5 +1,5 @@
 /*
- * POP3ServerMetrics.java
+ * Pop3ServerMetrics.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -48,7 +48,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class POP3ServerMetrics {
+public class Pop3ServerMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.pop3";
 
@@ -80,7 +80,7 @@ public class POP3ServerMetrics {
      *
      * @param config the telemetry configuration
      */
-    public POP3ServerMetrics(TelemetryConfig config) {
+    public Pop3ServerMetrics(TelemetryConfig config) {
         Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         // Connection counters

@@ -46,45 +46,45 @@ import org.bluezoo.gumdrop.imap.client.handler.ClientNotAuthenticatedState;
 import org.bluezoo.gumdrop.imap.client.handler.ClientPostStarttls;
 import org.bluezoo.gumdrop.imap.client.handler.ClientSelectedState;
 import org.bluezoo.gumdrop.imap.client.handler.MailboxEventListener;
-import org.bluezoo.gumdrop.imap.client.handler.ServerAppendReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerAuthAbortHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerAuthReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerCapabilityReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerCloseReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerCopyReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerExpungeReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerFetchReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerGreeting;
-import org.bluezoo.gumdrop.imap.client.handler.ServerIdleEventHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerListReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerLoginReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerMailboxReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerNamespaceReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerNoopReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerQuotaReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerSearchReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerSelectReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerStarttlsReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerStatusReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerStoreReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.AppendReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.AuthAbortHandler;
+import org.bluezoo.gumdrop.imap.client.handler.AuthReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.CapabilityReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.CloseReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.CopyReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.ExpungeReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.FetchReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.imap.client.handler.IdleEventHandler;
+import org.bluezoo.gumdrop.imap.client.handler.ListReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.LoginReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.MailboxReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.NamespaceReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.NoopReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.QuotaReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.SearchReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.SelectReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.StarttlsReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.StatusReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.StoreReplyHandler;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link IMAPClientProtocolHandler}.
+ * Unit tests for {@link ImapClientProtocolHandler}.
  */
 public class IMAPClientProtocolHandlerTest {
 
-    private IMAPClientProtocolHandler handler;
+    private ImapClientProtocolHandler handler;
     private RecordingGreetingHandler greetingHandler;
     private StubEndpoint endpoint;
 
     @Before
     public void setUp() {
         greetingHandler = new RecordingGreetingHandler();
-        handler = new IMAPClientProtocolHandler(greetingHandler);
+        handler = new ImapClientProtocolHandler(greetingHandler);
         endpoint = new StubEndpoint();
         handler.connected(endpoint);
     }
@@ -1304,7 +1304,7 @@ public class IMAPClientProtocolHandlerTest {
     @Test
     public void testNullHandlerThrows() {
         try {
-            new IMAPClientProtocolHandler(null);
+            new ImapClientProtocolHandler(null);
             fail("Expected NullPointerException");
         } catch (NullPointerException expected) {
             // expected
@@ -1454,7 +1454,7 @@ public class IMAPClientProtocolHandlerTest {
     // ═══════════════════════════════════════════════════════════════════
 
     static class RecordingGreetingHandler
-            implements ServerGreeting {
+            implements RemoteGreeting {
         boolean greetingReceived;
         String greetingMessage;
         List<String> preAuthCapabilities;
@@ -1500,7 +1500,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingCapabilityHandler
-            implements ServerCapabilityReplyHandler {
+            implements CapabilityReplyHandler {
         boolean received;
         List<String> capabilities;
         boolean errorReceived;
@@ -1527,7 +1527,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingLoginHandler
-            implements ServerLoginReplyHandler {
+            implements LoginReplyHandler {
         boolean authenticated;
         ClientAuthenticatedState session;
         List<String> capabilities;
@@ -1556,7 +1556,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingAuthHandler
-            implements ServerAuthReplyHandler {
+            implements AuthReplyHandler {
         boolean authSuccess;
         ClientAuthenticatedState session;
         List<String> capabilities;
@@ -1606,7 +1606,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingAuthAbortHandler
-            implements ServerAuthAbortHandler {
+            implements AuthAbortHandler {
         boolean aborted;
 
         @Override
@@ -1620,7 +1620,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingStarttlsHandler
-            implements ServerStarttlsReplyHandler {
+            implements StarttlsReplyHandler {
         boolean tlsEstablished;
         ClientPostStarttls postTls;
         boolean tlsUnavailable;
@@ -1649,7 +1649,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingSelectHandler
-            implements ServerSelectReplyHandler {
+            implements SelectReplyHandler {
         boolean selected;
         ClientSelectedState selectedState;
         MailboxInfo mailboxInfo;
@@ -1682,7 +1682,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingListHandler
-            implements ServerListReplyHandler {
+            implements ListReplyHandler {
         List<ListEntry> entries = new ArrayList<ListEntry>();
         boolean listComplete;
         boolean errorReceived;
@@ -1715,7 +1715,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingStatusHandler
-            implements ServerStatusReplyHandler {
+            implements StatusReplyHandler {
         boolean received;
         String mailbox;
         int messages;
@@ -1751,7 +1751,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingMailboxHandler
-            implements ServerMailboxReplyHandler {
+            implements MailboxReplyHandler {
         boolean ok;
         boolean no;
         String noMessage;
@@ -1773,7 +1773,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingNamespaceHandler
-            implements ServerNamespaceReplyHandler {
+            implements NamespaceReplyHandler {
         boolean received;
         String personal;
         String personalDelimiter;
@@ -1800,7 +1800,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingQuotaHandler
-            implements ServerQuotaReplyHandler {
+            implements QuotaReplyHandler {
         boolean complete;
         boolean errorReceived;
         String errorMessage;
@@ -1853,7 +1853,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingSearchHandler
-            implements ServerSearchReplyHandler {
+            implements SearchReplyHandler {
         boolean received;
         long[] results;
         boolean errorReceived;
@@ -1881,7 +1881,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingFetchHandler
-            implements ServerFetchReplyHandler {
+            implements FetchReplyHandler {
         List<FetchResponse> fetchResponses =
                 new ArrayList<FetchResponse>();
         boolean literalBeginReceived;
@@ -1953,7 +1953,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingStoreHandler
-            implements ServerStoreReplyHandler {
+            implements StoreReplyHandler {
         List<StoreResponse> responses =
                 new ArrayList<StoreResponse>();
         boolean storeComplete;
@@ -1985,7 +1985,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingCopyHandler
-            implements ServerCopyReplyHandler {
+            implements CopyReplyHandler {
         boolean complete;
         long uidValidity;
         String sourceUids;
@@ -2015,7 +2015,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingExpungeHandler
-            implements ServerExpungeReplyHandler {
+            implements ExpungeReplyHandler {
         List<Integer> expunged = new ArrayList<Integer>();
         boolean complete;
         boolean errorReceived;
@@ -2042,7 +2042,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingCloseHandler
-            implements ServerCloseReplyHandler {
+            implements CloseReplyHandler {
         boolean closed;
         ClientAuthenticatedState session;
 
@@ -2058,7 +2058,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingAppendHandler
-            implements ServerAppendReplyHandler {
+            implements AppendReplyHandler {
         boolean readyForData;
         ClientAppendState appendState;
         boolean appendComplete;
@@ -2101,7 +2101,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingIdleHandler
-            implements ServerIdleEventHandler {
+            implements IdleEventHandler {
         boolean idleStarted;
         ClientIdleState idleState;
         List<Integer> existsCounts = new ArrayList<Integer>();
@@ -2152,7 +2152,7 @@ public class IMAPClientProtocolHandlerTest {
     }
 
     static class RecordingNoopHandler
-            implements ServerNoopReplyHandler {
+            implements NoopReplyHandler {
         boolean ok;
 
         @Override

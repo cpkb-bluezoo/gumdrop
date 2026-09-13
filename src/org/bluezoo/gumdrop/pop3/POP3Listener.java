@@ -1,5 +1,5 @@
 /*
- * POP3Listener.java
+ * Pop3Listener.java
  * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -51,10 +51,10 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6816">RFC 6816 - UTF-8</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 - TLS</a>
  */
-public class POP3Listener extends TCPListener {
+public class Pop3Listener extends TCPListener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(POP3Listener.class.getName());
+            Logger.getLogger(Pop3Listener.class.getName());
 
     /**
      * The default POP3 port (cleartext or with STARTTLS).
@@ -84,10 +84,10 @@ public class POP3Listener extends TCPListener {
     protected GSSAPIServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
-    private POP3Service service;
+    private Pop3Server service;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
-    private POP3ServerMetrics metrics;
+    private Pop3ServerMetrics metrics;
 
     /**
      * Returns a short description of this endpoint.
@@ -341,11 +341,11 @@ public class POP3Listener extends TCPListener {
         }
 
         if (mailboxFactory == null) {
-            LOGGER.warning(POP3ProtocolHandler.L10N.getString("warn.no_mailbox_factory"));
+            LOGGER.warning(Pop3ProtocolHandler.L10N.getString("warn.no_mailbox_factory"));
         }
 
         if (isMetricsEnabled()) {
-            metrics = new POP3ServerMetrics(getTelemetryConfig());
+            metrics = new Pop3ServerMetrics(getTelemetryConfig());
         }
     }
 
@@ -355,7 +355,7 @@ public class POP3Listener extends TCPListener {
      *
      * @return the POP3 server metrics
      */
-    public POP3ServerMetrics getMetrics() {
+    public Pop3ServerMetrics getMetrics() {
         return metrics;
     }
 
@@ -368,12 +368,12 @@ public class POP3Listener extends TCPListener {
     }
 
     /**
-     * Sets the owning service. Called by {@link POP3Service} during
+     * Sets the owning service. Called by {@link Pop3Server} during
      * wiring.
      *
      * @param service the owning service
      */
-    void setService(POP3Service service) {
+    void setService(Pop3Server service) {
         this.service = service;
     }
 
@@ -382,19 +382,19 @@ public class POP3Listener extends TCPListener {
      *
      * @return the owning service
      */
-    public POP3Service getService() {
+    public Pop3Server getService() {
         return service;
     }
 
     /**
-     * Creates a new POP3ProtocolHandler for a newly accepted
+     * Creates a new Pop3ProtocolHandler for a newly accepted
      * connection.
      *
      * @return a new POP3 endpoint handler
      */
     @Override
     protected ProtocolHandler createHandler() {
-        return new POP3ProtocolHandler(this);
+        return new Pop3ProtocolHandler(this);
     }
 
     /**

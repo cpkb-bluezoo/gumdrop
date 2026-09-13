@@ -1,5 +1,5 @@
 /*
- * SMTPProtocolHandler.java
+ * SmtpProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -140,18 +140,18 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see SMTPServerLexer
- * @see SMTPListener
+ * @see SmtpListener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
  */
-public final class SMTPProtocolHandler
+public final class SmtpProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<SMTPServerLexer.Token>,
                    ConnectedState, HelloState, AuthenticateState,
                    MailFromState, RecipientState, MessageStartState, MessageEndState,
-                   ResetState, SMTPConnectionMetadata {
+                   ResetState, SmtpConnectionMetadata {
 
     private static final Logger LOGGER =
-            Logger.getLogger(SMTPProtocolHandler.class.getName());
+            Logger.getLogger(SmtpProtocolHandler.class.getName());
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
@@ -190,7 +190,7 @@ public final class SMTPProtocolHandler
 
     private Endpoint endpoint;
 
-    private final SMTPListener server;
+    private final SmtpListener server;
     private final ClientConnected connectedHandler;
     private final long connectionTimeMillis;
     private final List<EmailAddress> recipients;
@@ -216,7 +216,7 @@ public final class SMTPProtocolHandler
     private MailFromHandler mailFromHandler;
     private RecipientHandler recipientHandler;
     private MessageDataHandler messageHandler;
-    private SMTPPipeline currentPipeline;
+    private SmtpPipeline currentPipeline;
 
     private SMTPState state = SMTPState.INITIAL;
     private String heloName;
@@ -275,7 +275,7 @@ public final class SMTPProtocolHandler
 
     private EmailAddress pendingRecipient;
 
-    public SMTPProtocolHandler(SMTPListener server, ClientConnected handler) {
+    public SmtpProtocolHandler(SmtpListener server, ClientConnected handler) {
         this.server = server;
         this.connectedHandler = handler;
         this.connectionTimeMillis = System.currentTimeMillis();
@@ -293,7 +293,7 @@ public final class SMTPProtocolHandler
     public void connected(Endpoint ep) {
         this.endpoint = ep;
         initConnectionTrace();
-        SMTPServerMetrics metrics = getServerMetrics();
+        SmtpServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.connectionOpened();
         }
@@ -343,7 +343,7 @@ public final class SMTPProtocolHandler
     @Override
     public void disconnected() {
         try {
-            SMTPServerMetrics metrics = getServerMetrics();
+            SmtpServerMetrics metrics = getServerMetrics();
             if (metrics != null) {
                 double durationMs = System.currentTimeMillis() - connectionTimeMillis;
                 metrics.connectionClosed(durationMs);
@@ -706,7 +706,7 @@ public final class SMTPProtocolHandler
         return realm;
     }
 
-    private SMTPServerMetrics getServerMetrics() {
+    private SmtpServerMetrics getServerMetrics() {
         return server != null ? server.getMetrics() : null;
     }
 
@@ -1177,7 +1177,7 @@ public final class SMTPProtocolHandler
                             return;
                         }
                         addSessionEvent("DATA complete");
-                        SMTPServerMetrics metrics = getServerMetrics();
+                        SmtpServerMetrics metrics = getServerMetrics();
                         if (metrics != null) {
                             metrics.messageReceived(messageSize, recipientCount);
                         }
@@ -1253,7 +1253,7 @@ public final class SMTPProtocolHandler
                 reply(554, dataTransferRejectionMessage);
                 return;
             }
-            SMTPServerMetrics metrics = getServerMetrics();
+            SmtpServerMetrics metrics = getServerMetrics();
             if (metrics != null) {
                 metrics.messageReceived(messageSize, recipientCount);
             }
@@ -1441,7 +1441,7 @@ public final class SMTPProtocolHandler
             starttlsUsed = true;
             addSessionAttribute("smtp.starttls", true);
             addSessionEvent("STARTTLS");
-            SMTPServerMetrics metrics = getServerMetrics();
+            SmtpServerMetrics metrics = getServerMetrics();
             if (metrics != null) {
                 metrics.starttlsUpgraded();
             }
@@ -2076,7 +2076,7 @@ public final class SMTPProtocolHandler
                                             }
                                         };
                                         helloHandler.authenticated(
-                                                SMTPProtocolHandler.this, principal);
+                                                SmtpProtocolHandler.this, principal);
                                     } else {
                                         authenticated = true;
                                         recordAuthenticationSuccess(loginUsername, "LOGIN");
@@ -2348,7 +2348,7 @@ public final class SMTPProtocolHandler
                     return username;
                 }
             };
-            helloHandler.authenticated(SMTPProtocolHandler.this, principal);
+            helloHandler.authenticated(SmtpProtocolHandler.this, principal);
         } else {
             authenticated = true;
             recordAuthenticationSuccess(username, mechanism);
@@ -2357,7 +2357,7 @@ public final class SMTPProtocolHandler
     }
 
     private void notifyAuthenticationFailure(String username, String mechanism) throws IOException {
-        SMTPServerMetrics metrics = getServerMetrics();
+        SmtpServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.authAttempt(mechanism);
             metrics.authFailure(mechanism);
@@ -3226,22 +3226,22 @@ public final class SMTPProtocolHandler
 
         @Override
         public void rejectMessageStorageFull(RecipientHandler handler) {
-            SMTPProtocolHandler.this.rejectMessageStorageFull(handler);
+            SmtpProtocolHandler.this.rejectMessageStorageFull(handler);
         }
 
         @Override
         public void rejectMessageProcessingError(RecipientHandler handler) {
-            SMTPProtocolHandler.this.rejectMessageProcessingError(handler);
+            SmtpProtocolHandler.this.rejectMessageProcessingError(handler);
         }
 
         @Override
         public void rejectMessage(String message, MailFromHandler handler) {
-            SMTPProtocolHandler.this.rejectMessage(message, handler);
+            SmtpProtocolHandler.this.rejectMessage(message, handler);
         }
 
         @Override
         public void serverShuttingDown() {
-            SMTPProtocolHandler.this.serverShuttingDown();
+            SmtpProtocolHandler.this.serverShuttingDown();
         }
     }
 
@@ -3391,7 +3391,7 @@ public final class SMTPProtocolHandler
     @Override
     public void reject(HelloHandler handler) {
         this.helloHandler = handler;
-        SMTPServerMetrics metrics = getServerMetrics();
+        SmtpServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.authAttempt(authMechanism);
             metrics.authFailure(authMechanism);
@@ -3406,7 +3406,7 @@ public final class SMTPProtocolHandler
 
     @Override
     public void rejectAndClose() {
-        SMTPServerMetrics metrics = getServerMetrics();
+        SmtpServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.authAttempt(authMechanism);
             metrics.authFailure(authMechanism);
@@ -3740,7 +3740,7 @@ public final class SMTPProtocolHandler
         }
     }
 
-    // ── SMTPConnectionMetadata implementation (RFC 5321 / RFC 3461 / RFC 8689) ──
+    // ── SmtpConnectionMetadata implementation (RFC 5321 / RFC 3461 / RFC 8689) ──
 
     @Override
     public InetSocketAddress getClientAddress() {
@@ -3844,7 +3844,7 @@ public final class SMTPProtocolHandler
         addSessionAttribute("smtp.auth_user", username);
         addSessionAttribute("smtp.auth_mechanism", mechanism);
         addSessionEvent("AUTH success: " + mechanism);
-        SMTPServerMetrics metrics = getServerMetrics();
+        SmtpServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.authAttempt(mechanism);
             metrics.authSuccess(mechanism);

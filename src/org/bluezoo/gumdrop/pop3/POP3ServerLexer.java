@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * operates in structured/text token modes.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see POP3ProtocolHandler
+ * @see Pop3ProtocolHandler
  */
 final class POP3ServerLexer extends ByteStreamLexer<POP3ServerLexer.Token> {
 

@@ -69,7 +69,7 @@ import org.bluezoo.gumdrop.auth.SASLUtils;
  * {@code ClientHandshake} → {@code ServerTuneHandler} → {@code ClientTuned}
  * → {@code ServerOpenHandler} → {@code ClientConnection} →
  * {@code ServerChannelOpenHandler} → {@code ClientChannel}), mirroring
- * {@link org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler}.
+ * {@link org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler}.
  *
  * <p>Frame parsing uses the streaming, push-based {@link AMQPFrameParser}:
  * no method here ever assumes a complete frame, let alone a complete

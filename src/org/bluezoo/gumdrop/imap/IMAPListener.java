@@ -1,5 +1,5 @@
 /*
- * IMAPListener.java
+ * ImapListener.java
  * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -56,10 +56,10 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6851">RFC 6851 - MOVE</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9208">RFC 9208 - QUOTA</a>
  */
-public class IMAPListener extends TCPListener {
+public class ImapListener extends TCPListener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(IMAPListener.class.getName());
+            Logger.getLogger(ImapListener.class.getName());
 
     /**
      * The default IMAP port (cleartext or with STARTTLS).
@@ -102,10 +102,10 @@ public class IMAPListener extends TCPListener {
     protected GSSAPIServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
-    private IMAPService service;
+    private ImapServer service;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
-    private IMAPServerMetrics metrics;
+    private ImapServerMetrics metrics;
 
     /**
      * Returns a short description of this endpoint.
@@ -493,15 +493,15 @@ public class IMAPListener extends TCPListener {
         }
 
         if (mailboxFactory == null) {
-            LOGGER.warning(IMAPProtocolHandler.L10N.getString("warn.no_mailbox_factory"));
+            LOGGER.warning(ImapProtocolHandler.L10N.getString("warn.no_mailbox_factory"));
         }
 
         if (realm == null) {
-            LOGGER.warning(IMAPProtocolHandler.L10N.getString("warn.no_realm_configured"));
+            LOGGER.warning(ImapProtocolHandler.L10N.getString("warn.no_realm_configured"));
         }
 
         if (isMetricsEnabled()) {
-            metrics = new IMAPServerMetrics(getTelemetryConfig());
+            metrics = new ImapServerMetrics(getTelemetryConfig());
         }
     }
 
@@ -511,7 +511,7 @@ public class IMAPListener extends TCPListener {
      *
      * @return the IMAP server metrics
      */
-    public IMAPServerMetrics getMetrics() {
+    public ImapServerMetrics getMetrics() {
         return metrics;
     }
 
@@ -524,12 +524,12 @@ public class IMAPListener extends TCPListener {
     }
 
     /**
-     * Sets the owning service. Called by {@link IMAPService} during
+     * Sets the owning service. Called by {@link ImapServer} during
      * wiring.
      *
      * @param service the owning service
      */
-    void setService(IMAPService service) {
+    void setService(ImapServer service) {
         this.service = service;
     }
 
@@ -538,22 +538,22 @@ public class IMAPListener extends TCPListener {
      *
      * @return the owning service
      */
-    public IMAPService getService() {
+    public ImapServer getService() {
         return service;
     }
 
     /**
-     * Creates a new IMAPProtocolHandler for a newly accepted
+     * Creates a new ImapProtocolHandler for a newly accepted
      * connection.
      *
-     * <p>If an {@link IMAPService} is set, the handler is obtained
+     * <p>If an {@link ImapServer} is set, the handler is obtained
      * from the service.
      *
      * @return a new IMAP endpoint handler
      */
     @Override
     protected ProtocolHandler createHandler() {
-        return new IMAPProtocolHandler(this);
+        return new ImapProtocolHandler(this);
     }
 
     /**

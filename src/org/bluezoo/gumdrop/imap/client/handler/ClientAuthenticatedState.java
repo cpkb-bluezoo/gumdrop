@@ -28,38 +28,38 @@ package org.bluezoo.gumdrop.imap.client.handler;
  */
 public interface ClientAuthenticatedState {
 
-    void select(String mailbox, ServerSelectReplyHandler callback);
+    void select(String mailbox, SelectReplyHandler callback);
 
-    void examine(String mailbox, ServerSelectReplyHandler callback);
+    void examine(String mailbox, SelectReplyHandler callback);
 
-    void create(String mailbox, ServerMailboxReplyHandler callback);
+    void create(String mailbox, MailboxReplyHandler callback);
 
-    void delete(String mailbox, ServerMailboxReplyHandler callback);
+    void delete(String mailbox, MailboxReplyHandler callback);
 
-    void rename(String from, String to, ServerMailboxReplyHandler callback);
+    void rename(String from, String to, MailboxReplyHandler callback);
 
-    void subscribe(String mailbox, ServerMailboxReplyHandler callback);
+    void subscribe(String mailbox, MailboxReplyHandler callback);
 
-    void unsubscribe(String mailbox, ServerMailboxReplyHandler callback);
+    void unsubscribe(String mailbox, MailboxReplyHandler callback);
 
-    void list(String reference, String pattern, ServerListReplyHandler callback);
+    void list(String reference, String pattern, ListReplyHandler callback);
 
-    void lsub(String reference, String pattern, ServerListReplyHandler callback);
+    void lsub(String reference, String pattern, ListReplyHandler callback);
 
-    void status(String mailbox, String[] items, ServerStatusReplyHandler callback);
+    void status(String mailbox, String[] items, StatusReplyHandler callback);
 
-    void namespace(ServerNamespaceReplyHandler callback);
+    void namespace(NamespaceReplyHandler callback);
 
-    void append(String mailbox, String[] flags, String date, long size, ServerAppendReplyHandler callback);
+    void append(String mailbox, String[] flags, String date, long size, AppendReplyHandler callback);
 
-    void idle(ServerIdleEventHandler callback);
+    void idle(IdleEventHandler callback);
 
-    void noop(ServerNoopReplyHandler callback);
+    void noop(NoopReplyHandler callback);
 
     // RFC 9208 — QUOTA commands
-    void getQuota(String quotaRoot, ServerQuotaReplyHandler callback);
+    void getQuota(String quotaRoot, QuotaReplyHandler callback);
 
-    void getQuotaRoot(String mailbox, ServerQuotaReplyHandler callback);
+    void getQuotaRoot(String mailbox, QuotaReplyHandler callback);
 
     void logout();
 }

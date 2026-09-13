@@ -28,7 +28,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * {@code KEYWORD [SP TEXT] CRLF}, structurally identical to {@code
  * IMAPServerLexer} — this lexer, too, knows nothing about IMAP literals.
  *
- * <p>Unlike the server side, {@link IMAPClientProtocolHandler} does not
+ * <p>Unlike the server side, {@link ImapClientProtocolHandler} does not
  * need to distinguish {@code KEYWORD} from {@code TEXT} at all: a
  * response line's leading word (a tag, {@code "*"}, or {@code "+"}) and
  * everything after it are simply concatenated back into one string and
@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * marker ({@code {nnn}}, RFC 9051 section 4.3) always appears at the very
  * end of a complete, self-contained line (never embedded mid-line the way
  * a command's literal can be on the server side), so once {@link
- * IMAPClientProtocolHandler} has fully dispatched that line and — as a
+ * ImapClientProtocolHandler} has fully dispatched that line and — as a
  * side effect of doing so — set up a raw-content read (mirroring the
  * pre-existing {@link LiteralTracker}), it calls {@link #enterRaw(long)}
  * after the fact, the same "check state after dispatch" pattern used for
@@ -50,7 +50,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * would have picked it up.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see IMAPClientProtocolHandler
+ * @see ImapClientProtocolHandler
  */
 final class IMAPClientLexer extends ByteStreamLexer<IMAPClientLexer.Token> {
 

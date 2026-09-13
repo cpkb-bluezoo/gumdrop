@@ -1,5 +1,5 @@
 /*
- * IMAPProtocolHandler.java
+ * ImapProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -108,7 +108,7 @@ import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageWriter;
 import org.bluezoo.gumdrop.mailbox.BufferedAsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Flag;
-import org.bluezoo.gumdrop.mailbox.IMAPMessageDescriptor;
+import org.bluezoo.gumdrop.mailbox.ImapMessageDescriptor;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
@@ -170,14 +170,14 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
  * @see IMAPServerLexer
- * @see IMAPListener
+ * @see ImapListener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
-public final class IMAPProtocolHandler
+public final class ImapProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<IMAPServerLexer.Token> {
 
     private static final Logger LOGGER =
-            Logger.getLogger(IMAPProtocolHandler.class.getName());
+            Logger.getLogger(ImapProtocolHandler.class.getName());
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");
 
@@ -211,7 +211,7 @@ public final class IMAPProtocolHandler
     // Transport reference (set in connected())
     private Endpoint endpoint;
 
-    private final IMAPListener server;
+    private final ImapListener server;
 
     // Handler instances
     private ClientConnected clientConnected;
@@ -337,7 +337,7 @@ public final class IMAPProtocolHandler
      *
      * @param server the IMAP server configuration
      */
-    public IMAPProtocolHandler(IMAPListener server) {
+    public ImapProtocolHandler(ImapListener server) {
         this.server = server;
         ByteStreamLexer.checkTokenCap(server.getMaxLineLength(), server.getMaxNetInSize());
         this.lexer = new IMAPServerLexer(this, server.getMaxLineLength());
@@ -928,7 +928,7 @@ public final class IMAPProtocolHandler
 
     // RFC 9051 section 7.1 — server greeting (OK, PREAUTH, or BYE)
     private void sendGreeting() throws IOException {
-        IMAPService service = server.getService();
+        ImapServer service = server.getService();
         if (service != null) {
             clientConnected = service.createHandler(server);
         }
@@ -5075,9 +5075,9 @@ public final class IMAPProtocolHandler
             String upper = item.toUpperCase(Locale.ENGLISH);
             if (upper.equals("ENVELOPE")) {
                 MessageDescriptor desc = mailbox.getMessage(msgNum);
-                if (desc instanceof IMAPMessageDescriptor) {
-                    IMAPMessageDescriptor.Envelope env =
-                            ((IMAPMessageDescriptor) desc).getEnvelope();
+                if (desc instanceof ImapMessageDescriptor) {
+                    ImapMessageDescriptor.Envelope env =
+                            ((ImapMessageDescriptor) desc).getEnvelope();
                     if (env != null) {
                         continue;
                     }
@@ -5575,10 +5575,10 @@ public final class IMAPProtocolHandler
             Mailbox mailbox, int msgNum, byte[] contentBytes)
             throws IOException {
         MessageDescriptor desc = mailbox.getMessage(msgNum);
-        if (desc instanceof IMAPMessageDescriptor) {
-            IMAPMessageDescriptor imapDesc =
-                    (IMAPMessageDescriptor) desc;
-            IMAPMessageDescriptor.Envelope env =
+        if (desc instanceof ImapMessageDescriptor) {
+            ImapMessageDescriptor imapDesc =
+                    (ImapMessageDescriptor) desc;
+            ImapMessageDescriptor.Envelope env =
                     imapDesc.getEnvelope();
             if (env != null) {
                 out.write("ENVELOPE ".getBytes(US_ASCII));
@@ -5603,10 +5603,10 @@ public final class IMAPProtocolHandler
             Mailbox mailbox, int msgNum, boolean extensible)
             throws IOException {
         MessageDescriptor desc = mailbox.getMessage(msgNum);
-        if (desc instanceof IMAPMessageDescriptor) {
-            IMAPMessageDescriptor imapDesc =
-                    (IMAPMessageDescriptor) desc;
-            IMAPMessageDescriptor.BodyStructure bs =
+        if (desc instanceof ImapMessageDescriptor) {
+            ImapMessageDescriptor imapDesc =
+                    (ImapMessageDescriptor) desc;
+            ImapMessageDescriptor.BodyStructure bs =
                     imapDesc.getBodyStructure();
             if (bs != null) {
                 String name = extensible ? "BODYSTRUCTURE" : "BODY";
@@ -6076,9 +6076,9 @@ public final class IMAPProtocolHandler
     private OffsetDateTime resolveInternalDate(Mailbox mailbox,
             int msgNum) throws IOException {
         MessageDescriptor desc = mailbox.getMessage(msgNum);
-        if (desc instanceof IMAPMessageDescriptor) {
+        if (desc instanceof ImapMessageDescriptor) {
             OffsetDateTime date =
-                    ((IMAPMessageDescriptor) desc).getInternalDate();
+                    ((ImapMessageDescriptor) desc).getInternalDate();
             if (date != null) {
                 return date;
             }
@@ -6400,7 +6400,7 @@ public final class IMAPProtocolHandler
     }
 
     private String formatEnvelopeFromDescriptor(
-            IMAPMessageDescriptor.Envelope env) {
+            ImapMessageDescriptor.Envelope env) {
         StringBuilder sb = new StringBuilder();
         sb.append('(');
         appendNilOrQuoted(sb, env.getDate() != null
@@ -6532,7 +6532,7 @@ public final class IMAPProtocolHandler
     }
 
     private void appendAddressList(StringBuilder sb,
-            IMAPMessageDescriptor.Address[] addrs) {
+            ImapMessageDescriptor.Address[] addrs) {
         if (addrs == null || addrs.length == 0) {
             sb.append("NIL");
             return;
@@ -6603,7 +6603,7 @@ public final class IMAPProtocolHandler
     }
 
     private String formatBodyStructureFromDescriptor(
-            IMAPMessageDescriptor.BodyStructure bs,
+            ImapMessageDescriptor.BodyStructure bs,
             boolean extensible) {
         StringBuilder sb = new StringBuilder();
         formatBodyStructurePart(sb, bs, extensible);
@@ -6611,9 +6611,9 @@ public final class IMAPProtocolHandler
     }
 
     private void formatBodyStructurePart(StringBuilder sb,
-            IMAPMessageDescriptor.BodyStructure bs,
+            ImapMessageDescriptor.BodyStructure bs,
             boolean extensible) {
-        IMAPMessageDescriptor.BodyStructure[] parts = bs.getParts();
+        ImapMessageDescriptor.BodyStructure[] parts = bs.getParts();
         if (parts != null && parts.length > 0) {
             sb.append('(');
             for (int i = 0; i < parts.length; i++) {

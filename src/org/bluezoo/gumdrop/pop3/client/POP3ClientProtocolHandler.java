@@ -1,5 +1,5 @@
 /*
- * POP3ClientProtocolHandler.java
+ * Pop3ClientProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -41,23 +41,23 @@ import org.bluezoo.gumdrop.pop3.client.handler.ClientAuthorizationState;
 import org.bluezoo.gumdrop.pop3.client.handler.ClientPasswordState;
 import org.bluezoo.gumdrop.pop3.client.handler.ClientPostStls;
 import org.bluezoo.gumdrop.pop3.client.handler.ClientTransactionState;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerApopReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerAuthAbortHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerAuthReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerCapaReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerDeleReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerListReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerNoopReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerPassReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerRetrReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerRsetReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerStatReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerStlsReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerTopReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerUidlReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerUserReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.ApopReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.AuthAbortHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.AuthReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.CapaReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.DeleReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.pop3.client.handler.ListReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.NoopReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.PassReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.ReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.RetrReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.RsetReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.StatReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.StlsReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.TopReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.UidlReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.handler.UserReplyHandler;
 
 /**
  * POP3 client protocol handler (RFC 1939).
@@ -87,11 +87,11 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerUserReplyHandler;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see ServerGreeting
+ * @see RemoteGreeting
  * @see POP3ClientLexer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
-public final class POP3ClientProtocolHandler
+public final class Pop3ClientProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<POP3ClientLexer.Token>,
         DotUnstuffer.Callback,
         ClientAuthorizationState, ClientPasswordState,
@@ -99,13 +99,13 @@ public final class POP3ClientProtocolHandler
         ClientAuthExchange {
 
     private static final Logger LOGGER =
-            Logger.getLogger(POP3ClientProtocolHandler.class.getName());
+            Logger.getLogger(Pop3ClientProtocolHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.pop3.L10N");
 
     private static final String CRLF = "\r\n";
 
-    private final ServerGreeting handler;
+    private final RemoteGreeting handler;
 
     private Endpoint endpoint;
     private POP3State state = POP3State.DISCONNECTED;
@@ -149,7 +149,7 @@ public final class POP3ClientProtocolHandler
      *
      * @param handler the server greeting handler
      */
-    public POP3ClientProtocolHandler(ServerGreeting handler) {
+    public Pop3ClientProtocolHandler(RemoteGreeting handler) {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
@@ -213,9 +213,9 @@ public final class POP3ClientProtocolHandler
 
         handler.onSecurityEstablished(info);
 
-        if (currentCallback instanceof ServerStlsReplyHandler) {
-            ServerStlsReplyHandler callback =
-                    (ServerStlsReplyHandler) currentCallback;
+        if (currentCallback instanceof StlsReplyHandler) {
+            StlsReplyHandler callback =
+                    (StlsReplyHandler) currentCallback;
             currentCallback = null;
             state = POP3State.AUTHORIZATION;
             callback.handleTlsEstablished(this);
@@ -381,8 +381,8 @@ public final class POP3ClientProtocolHandler
     @Override
     public void content(ByteBuffer data) {
         if (state == POP3State.RETR_DATA) {
-            ServerRetrReplyHandler retrCallback =
-                    (ServerRetrReplyHandler) currentCallback;
+            RetrReplyHandler retrCallback =
+                    (RetrReplyHandler) currentCallback;
             retrCallback.handleMessageContent(data);
             if (retrCallback.wantsPause()) {
                 retrCallback.setResumeCallback(
@@ -390,8 +390,8 @@ public final class POP3ClientProtocolHandler
                 endpoint.pauseRead();
             }
         } else if (state == POP3State.TOP_DATA) {
-            ServerTopReplyHandler topCallback =
-                    (ServerTopReplyHandler) currentCallback;
+            TopReplyHandler topCallback =
+                    (TopReplyHandler) currentCallback;
             topCallback.handleTopContent(data);
             if (topCallback.wantsPause()) {
                 topCallback.setResumeCallback(
@@ -406,14 +406,14 @@ public final class POP3ClientProtocolHandler
         dotUnstufferActive = false;
 
         if (state == POP3State.RETR_DATA) {
-            ServerRetrReplyHandler callback =
-                    (ServerRetrReplyHandler) currentCallback;
+            RetrReplyHandler callback =
+                    (RetrReplyHandler) currentCallback;
             currentCallback = null;
             state = POP3State.TRANSACTION;
             callback.handleMessageComplete(this);
         } else if (state == POP3State.TOP_DATA) {
-            ServerTopReplyHandler callback =
-                    (ServerTopReplyHandler) currentCallback;
+            TopReplyHandler callback =
+                    (TopReplyHandler) currentCallback;
             currentCallback = null;
             state = POP3State.TRANSACTION;
             callback.handleTopComplete(this);
@@ -452,7 +452,7 @@ public final class POP3ClientProtocolHandler
 
     // RFC 2449 section 5 — CAPA command
     @Override
-    public void capa(ServerCapaReplyHandler callback) {
+    public void capa(CapaReplyHandler callback) {
         this.currentCallback = callback;
         capaLines.clear();
         sendCommand("CAPA", POP3State.CAPA_SENT);
@@ -460,7 +460,7 @@ public final class POP3ClientProtocolHandler
 
     // RFC 1939 section 7 — USER command
     @Override
-    public void user(String username, ServerUserReplyHandler callback) {
+    public void user(String username, UserReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("USER " + username, POP3State.USER_SENT);
     }
@@ -468,7 +468,7 @@ public final class POP3ClientProtocolHandler
     // RFC 1939 section 7 — APOP command
     @Override
     public void apop(String username, String digest,
-                     ServerApopReplyHandler callback) {
+                     ApopReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("APOP " + username + " " + digest,
                 POP3State.APOP_SENT);
@@ -477,7 +477,7 @@ public final class POP3ClientProtocolHandler
     // RFC 5034 section 4 — AUTH command with optional initial response
     @Override
     public void auth(String mechanism, byte[] initialResponse,
-                     ServerAuthReplyHandler callback) {
+                     AuthReplyHandler callback) {
         this.currentCallback = callback;
 
         StringBuilder cmd = new StringBuilder("AUTH ");
@@ -492,7 +492,7 @@ public final class POP3ClientProtocolHandler
 
     // RFC 2595 section 4 — STLS command
     @Override
-    public void stls(ServerStlsReplyHandler callback) {
+    public void stls(StlsReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("STLS", POP3State.STLS_SENT);
     }
@@ -501,7 +501,7 @@ public final class POP3ClientProtocolHandler
 
     // RFC 1939 section 7 — PASS command
     @Override
-    public void pass(String password, ServerPassReplyHandler callback) {
+    public void pass(String password, PassReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("PASS " + password, POP3State.PASS_SENT);
     }
@@ -510,14 +510,14 @@ public final class POP3ClientProtocolHandler
 
     // RFC 1939 section 5 — STAT command
     @Override
-    public void stat(ServerStatReplyHandler callback) {
+    public void stat(StatReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("STAT", POP3State.STAT_SENT);
     }
 
     // RFC 1939 section 5 — LIST command (all messages)
     @Override
-    public void list(ServerListReplyHandler callback) {
+    public void list(ListReplyHandler callback) {
         this.currentCallback = callback;
         this.multiLineList = true;
         sendCommand("LIST", POP3State.LIST_SENT);
@@ -526,7 +526,7 @@ public final class POP3ClientProtocolHandler
     // RFC 1939 section 5 — LIST command (single message)
     @Override
     public void list(int messageNumber,
-                     ServerListReplyHandler callback) {
+                     ListReplyHandler callback) {
         this.currentCallback = callback;
         this.multiLineList = false;
         sendCommand("LIST " + messageNumber, POP3State.LIST_SENT);
@@ -535,7 +535,7 @@ public final class POP3ClientProtocolHandler
     // RFC 1939 section 5 — RETR command
     @Override
     public void retr(int messageNumber,
-                     ServerRetrReplyHandler callback) {
+                     RetrReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("RETR " + messageNumber, POP3State.RETR_SENT);
     }
@@ -543,14 +543,14 @@ public final class POP3ClientProtocolHandler
     // RFC 1939 section 5 — DELE command
     @Override
     public void dele(int messageNumber,
-                     ServerDeleReplyHandler callback) {
+                     DeleReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("DELE " + messageNumber, POP3State.DELE_SENT);
     }
 
     // RFC 1939 section 5 — RSET command
     @Override
-    public void rset(ServerRsetReplyHandler callback) {
+    public void rset(RsetReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("RSET", POP3State.RSET_SENT);
     }
@@ -558,7 +558,7 @@ public final class POP3ClientProtocolHandler
     // RFC 1939 section 7 — TOP command
     @Override
     public void top(int messageNumber, int lines,
-                    ServerTopReplyHandler callback) {
+                    TopReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("TOP " + messageNumber + " " + lines,
                 POP3State.TOP_SENT);
@@ -566,7 +566,7 @@ public final class POP3ClientProtocolHandler
 
     // RFC 1939 section 7 — UIDL command (all messages)
     @Override
-    public void uidl(ServerUidlReplyHandler callback) {
+    public void uidl(UidlReplyHandler callback) {
         this.currentCallback = callback;
         this.multiLineList = true;
         sendCommand("UIDL", POP3State.UIDL_SENT);
@@ -575,7 +575,7 @@ public final class POP3ClientProtocolHandler
     // RFC 1939 section 7 — UIDL command (single message)
     @Override
     public void uidl(int messageNumber,
-                     ServerUidlReplyHandler callback) {
+                     UidlReplyHandler callback) {
         this.currentCallback = callback;
         this.multiLineList = false;
         sendCommand("UIDL " + messageNumber, POP3State.UIDL_SENT);
@@ -583,7 +583,7 @@ public final class POP3ClientProtocolHandler
 
     // RFC 1939 section 5 — NOOP command
     @Override
-    public void noop(ServerNoopReplyHandler callback) {
+    public void noop(NoopReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("NOOP", POP3State.NOOP_SENT);
     }
@@ -599,7 +599,7 @@ public final class POP3ClientProtocolHandler
     // RFC 5034 section 4 — send SASL response to server challenge
     @Override
     public void respond(byte[] response,
-                        ServerAuthReplyHandler callback) {
+                        AuthReplyHandler callback) {
         this.currentCallback = callback;
         String encoded = Base64.getEncoder().encodeToString(response);
         sendRawLine(encoded, POP3State.AUTH_SENT);
@@ -607,7 +607,7 @@ public final class POP3ClientProtocolHandler
 
     // RFC 5034 section 4 — abort SASL exchange with "*"
     @Override
-    public void abort(ServerAuthAbortHandler callback) {
+    public void abort(AuthAbortHandler callback) {
         this.currentCallback = callback;
         sendRawLine("*", POP3State.AUTH_ABORT_SENT);
     }
@@ -761,8 +761,8 @@ public final class POP3ClientProtocolHandler
             capaLines.clear();
             resetCapabilities();
         } else {
-            ServerCapaReplyHandler callback =
-                    (ServerCapaReplyHandler) currentCallback;
+            CapaReplyHandler callback =
+                    (CapaReplyHandler) currentCallback;
             currentCallback = null;
             state = POP3State.AUTHORIZATION;
             callback.handleError(this, response.getMessage());
@@ -773,8 +773,8 @@ public final class POP3ClientProtocolHandler
         if (".".equals(line)) {
             parseCapabilities(capaLines);
 
-            ServerCapaReplyHandler callback =
-                    (ServerCapaReplyHandler) currentCallback;
+            CapaReplyHandler callback =
+                    (CapaReplyHandler) currentCallback;
             currentCallback = null;
             state = POP3State.AUTHORIZATION;
             callback.handleCapabilities(this, capaStls,
@@ -825,8 +825,8 @@ public final class POP3ClientProtocolHandler
     // ── USER ──
 
     private void dispatchUserReply(POP3Response response) {
-        ServerUserReplyHandler callback =
-                (ServerUserReplyHandler) currentCallback;
+        UserReplyHandler callback =
+                (UserReplyHandler) currentCallback;
         currentCallback = null;
 
         if (response.isOk()) {
@@ -841,8 +841,8 @@ public final class POP3ClientProtocolHandler
     // ── PASS ──
 
     private void dispatchPassReply(POP3Response response) {
-        ServerPassReplyHandler callback =
-                (ServerPassReplyHandler) currentCallback;
+        PassReplyHandler callback =
+                (PassReplyHandler) currentCallback;
         currentCallback = null;
 
         if (response.isOk()) {
@@ -857,8 +857,8 @@ public final class POP3ClientProtocolHandler
     // ── APOP ──
 
     private void dispatchApopReply(POP3Response response) {
-        ServerApopReplyHandler callback =
-                (ServerApopReplyHandler) currentCallback;
+        ApopReplyHandler callback =
+                (ApopReplyHandler) currentCallback;
         currentCallback = null;
 
         if (response.isOk()) {
@@ -877,15 +877,15 @@ public final class POP3ClientProtocolHandler
             try {
                 endpoint.startTLS();
             } catch (IOException e) {
-                ServerStlsReplyHandler callback =
-                        (ServerStlsReplyHandler) currentCallback;
+                StlsReplyHandler callback =
+                        (StlsReplyHandler) currentCallback;
                 currentCallback = null;
                 state = POP3State.AUTHORIZATION;
                 callback.handleTlsUnavailable(this);
             }
         } else {
-            ServerStlsReplyHandler callback =
-                    (ServerStlsReplyHandler) currentCallback;
+            StlsReplyHandler callback =
+                    (StlsReplyHandler) currentCallback;
             currentCallback = null;
             state = POP3State.AUTHORIZATION;
             callback.handleTlsUnavailable(this);
@@ -895,8 +895,8 @@ public final class POP3ClientProtocolHandler
     // ── AUTH ──
 
     private void dispatchAuthReply(POP3Response response) {
-        ServerAuthReplyHandler callback =
-                (ServerAuthReplyHandler) currentCallback;
+        AuthReplyHandler callback =
+                (AuthReplyHandler) currentCallback;
 
         if (response.isOk()) {
             currentCallback = null;
@@ -921,8 +921,8 @@ public final class POP3ClientProtocolHandler
     // ── AUTH abort ──
 
     private void dispatchAuthAbortReply(POP3Response response) {
-        ServerAuthAbortHandler callback =
-                (ServerAuthAbortHandler) currentCallback;
+        AuthAbortHandler callback =
+                (AuthAbortHandler) currentCallback;
         currentCallback = null;
         state = POP3State.AUTHORIZATION;
         callback.handleAborted(this);
@@ -931,8 +931,8 @@ public final class POP3ClientProtocolHandler
     // ── STAT ──
 
     private void dispatchStatReply(POP3Response response) {
-        ServerStatReplyHandler callback =
-                (ServerStatReplyHandler) currentCallback;
+        StatReplyHandler callback =
+                (StatReplyHandler) currentCallback;
         currentCallback = null;
         state = POP3State.TRANSACTION;
 
@@ -961,8 +961,8 @@ public final class POP3ClientProtocolHandler
     // ── LIST ──
 
     private void dispatchListReply(POP3Response response) {
-        ServerListReplyHandler callback =
-                (ServerListReplyHandler) currentCallback;
+        ListReplyHandler callback =
+                (ListReplyHandler) currentCallback;
 
         if (response.isOk()) {
             if (multiLineList) {
@@ -988,20 +988,20 @@ public final class POP3ClientProtocolHandler
 
     private void handleListDataLine(String line) {
         if (".".equals(line)) {
-            ServerListReplyHandler callback =
-                    (ServerListReplyHandler) currentCallback;
+            ListReplyHandler callback =
+                    (ListReplyHandler) currentCallback;
             currentCallback = null;
             state = POP3State.TRANSACTION;
             callback.handleListComplete(this);
         } else {
-            ServerListReplyHandler callback =
-                    (ServerListReplyHandler) currentCallback;
+            ListReplyHandler callback =
+                    (ListReplyHandler) currentCallback;
             parseListEntryMulti(line, callback);
         }
     }
 
     private void parseListEntry(String msg,
-                                ServerListReplyHandler callback) {
+                                ListReplyHandler callback) {
         try {
             int spaceIdx = msg.indexOf(' ');
             if (spaceIdx > 0) {
@@ -1020,7 +1020,7 @@ public final class POP3ClientProtocolHandler
     }
 
     private void parseListEntryMulti(String line,
-                                     ServerListReplyHandler callback) {
+                                     ListReplyHandler callback) {
         try {
             int spaceIdx = line.indexOf(' ');
             if (spaceIdx > 0) {
@@ -1039,8 +1039,8 @@ public final class POP3ClientProtocolHandler
     // ── UIDL ──
 
     private void dispatchUidlReply(POP3Response response) {
-        ServerUidlReplyHandler callback =
-                (ServerUidlReplyHandler) currentCallback;
+        UidlReplyHandler callback =
+                (UidlReplyHandler) currentCallback;
 
         if (response.isOk()) {
             if (multiLineList) {
@@ -1066,20 +1066,20 @@ public final class POP3ClientProtocolHandler
 
     private void handleUidlDataLine(String line) {
         if (".".equals(line)) {
-            ServerUidlReplyHandler callback =
-                    (ServerUidlReplyHandler) currentCallback;
+            UidlReplyHandler callback =
+                    (UidlReplyHandler) currentCallback;
             currentCallback = null;
             state = POP3State.TRANSACTION;
             callback.handleUidComplete(this);
         } else {
-            ServerUidlReplyHandler callback =
-                    (ServerUidlReplyHandler) currentCallback;
+            UidlReplyHandler callback =
+                    (UidlReplyHandler) currentCallback;
             parseUidlEntryMulti(line, callback);
         }
     }
 
     private void parseUidlEntry(String msg,
-                                ServerUidlReplyHandler callback) {
+                                UidlReplyHandler callback) {
         int spaceIdx = msg.indexOf(' ');
         if (spaceIdx > 0) {
             try {
@@ -1097,7 +1097,7 @@ public final class POP3ClientProtocolHandler
     }
 
     private void parseUidlEntryMulti(String line,
-                                     ServerUidlReplyHandler callback) {
+                                     UidlReplyHandler callback) {
         int spaceIdx = line.indexOf(' ');
         if (spaceIdx > 0) {
             try {
@@ -1115,8 +1115,8 @@ public final class POP3ClientProtocolHandler
     // ── RETR ──
 
     private void dispatchRetrReply(POP3Response response) {
-        ServerRetrReplyHandler callback =
-                (ServerRetrReplyHandler) currentCallback;
+        RetrReplyHandler callback =
+                (RetrReplyHandler) currentCallback;
 
         if (response.isOk()) {
             state = POP3State.RETR_DATA;
@@ -1140,8 +1140,8 @@ public final class POP3ClientProtocolHandler
     // ── TOP ──
 
     private void dispatchTopReply(POP3Response response) {
-        ServerTopReplyHandler callback =
-                (ServerTopReplyHandler) currentCallback;
+        TopReplyHandler callback =
+                (TopReplyHandler) currentCallback;
 
         if (response.isOk()) {
             state = POP3State.TOP_DATA;
@@ -1165,8 +1165,8 @@ public final class POP3ClientProtocolHandler
     // ── DELE ──
 
     private void dispatchDeleReply(POP3Response response) {
-        ServerDeleReplyHandler callback =
-                (ServerDeleReplyHandler) currentCallback;
+        DeleReplyHandler callback =
+                (DeleReplyHandler) currentCallback;
         currentCallback = null;
         state = POP3State.TRANSACTION;
 
@@ -1188,8 +1188,8 @@ public final class POP3ClientProtocolHandler
     // ── RSET ──
 
     private void dispatchRsetReply(POP3Response response) {
-        ServerRsetReplyHandler callback =
-                (ServerRsetReplyHandler) currentCallback;
+        RsetReplyHandler callback =
+                (RsetReplyHandler) currentCallback;
         currentCallback = null;
         state = POP3State.TRANSACTION;
         callback.handleResetOk(this);
@@ -1198,8 +1198,8 @@ public final class POP3ClientProtocolHandler
     // ── NOOP ──
 
     private void dispatchNoopReply(POP3Response response) {
-        ServerNoopReplyHandler callback =
-                (ServerNoopReplyHandler) currentCallback;
+        NoopReplyHandler callback =
+                (NoopReplyHandler) currentCallback;
         currentCallback = null;
         state = POP3State.TRANSACTION;
         callback.handleOk(this);

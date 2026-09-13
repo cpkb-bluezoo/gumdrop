@@ -27,7 +27,7 @@
  * STARTTLS, AUTH), {@link MailFromHandler} (MAIL FROM), {@link
  * RecipientHandler} (RCPT TO, DATA/BDAT), {@link MessageDataHandler}
  * (message completion). State interfaces are handed to those callbacks
- * by {@link org.bluezoo.gumdrop.smtp.SMTPProtocolHandler} to accept or
+ * by {@link org.bluezoo.gumdrop.smtp.SmtpProtocolHandler} to accept or
  * reject each step: {@link ConnectedState}, {@link HelloState}, {@link
  * AuthenticateState}, {@link MailFromState}, {@link RecipientState},
  * {@link MessageStartState}, {@link MessageEndState}, {@link ResetState}.
@@ -38,7 +38,7 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.smtp
- * @see org.bluezoo.gumdrop.smtp.SMTPProtocolHandler
+ * @see org.bluezoo.gumdrop.smtp.SmtpProtocolHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a> (SASL AUTH)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)

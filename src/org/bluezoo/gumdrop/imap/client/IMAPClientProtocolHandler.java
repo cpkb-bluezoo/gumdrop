@@ -1,5 +1,5 @@
 /*
- * IMAPClientProtocolHandler.java
+ * ImapClientProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -44,27 +44,27 @@ import org.bluezoo.gumdrop.imap.client.handler.ClientNotAuthenticatedState;
 import org.bluezoo.gumdrop.imap.client.handler.ClientPostStarttls;
 import org.bluezoo.gumdrop.imap.client.handler.ClientSelectedState;
 import org.bluezoo.gumdrop.imap.client.handler.MailboxEventListener;
-import org.bluezoo.gumdrop.imap.client.handler.ServerAppendReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerAuthAbortHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerAuthReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerCapabilityReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerCloseReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerCopyReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerExpungeReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerFetchReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerGreeting;
-import org.bluezoo.gumdrop.imap.client.handler.ServerIdleEventHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerListReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerLoginReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerMailboxReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerNamespaceReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerQuotaReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerNoopReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerSearchReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerSelectReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerStarttlsReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerStatusReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ServerStoreReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.AppendReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.AuthAbortHandler;
+import org.bluezoo.gumdrop.imap.client.handler.AuthReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.CapabilityReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.CloseReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.CopyReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.ExpungeReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.FetchReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.imap.client.handler.IdleEventHandler;
+import org.bluezoo.gumdrop.imap.client.handler.ListReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.LoginReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.MailboxReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.NamespaceReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.QuotaReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.NoopReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.SearchReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.SelectReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.StarttlsReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.StatusReplyHandler;
+import org.bluezoo.gumdrop.imap.client.handler.StoreReplyHandler;
 
 /**
  * IMAP4rev2 client protocol handler (RFC 9051).
@@ -94,10 +94,10 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerStoreReplyHandler;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see ServerGreeting
+ * @see RemoteGreeting
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
-public final class IMAPClientProtocolHandler
+public final class ImapClientProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<IMAPClientLexer.Token>,
         LiteralTracker.Callback,
         ClientNotAuthenticatedState, ClientPostStarttls,
@@ -107,13 +107,13 @@ public final class IMAPClientProtocolHandler
 
     private static final Logger LOGGER =
             Logger.getLogger(
-                    IMAPClientProtocolHandler.class.getName());
+                    ImapClientProtocolHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.imap.L10N");
 
     private static final String CRLF = "\r\n";
 
-    private final ServerGreeting handler;
+    private final RemoteGreeting handler;
     private final IMAPTagGenerator tagGenerator;
 
     private Endpoint endpoint;
@@ -156,7 +156,7 @@ public final class IMAPClientProtocolHandler
     private LiteralTracker literalTracker;
 
     // IDLE event handler (separate from currentCallback for clarity)
-    private ServerIdleEventHandler idleEventHandler;
+    private IdleEventHandler idleEventHandler;
 
     // STORE accumulation
     // (responses streamed as they arrive)
@@ -184,7 +184,7 @@ public final class IMAPClientProtocolHandler
      *
      * @param handler the server greeting handler
      */
-    public IMAPClientProtocolHandler(ServerGreeting handler) {
+    public ImapClientProtocolHandler(RemoteGreeting handler) {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
@@ -247,9 +247,9 @@ public final class IMAPClientProtocolHandler
 
         handler.onSecurityEstablished(info);
 
-        if (currentCallback instanceof ServerStarttlsReplyHandler) {
-            ServerStarttlsReplyHandler callback =
-                    (ServerStarttlsReplyHandler) currentCallback;
+        if (currentCallback instanceof StarttlsReplyHandler) {
+            StarttlsReplyHandler callback =
+                    (StarttlsReplyHandler) currentCallback;
             currentCallback = null;
             state = IMAPState.NOT_AUTHENTICATED;
             callback.handleTlsEstablished(this);
@@ -322,9 +322,9 @@ public final class IMAPClientProtocolHandler
 
     @Override
     public void literalContent(ByteBuffer data) {
-        if (currentCallback instanceof ServerFetchReplyHandler) {
-            ServerFetchReplyHandler fetchHandler =
-                    (ServerFetchReplyHandler) currentCallback;
+        if (currentCallback instanceof FetchReplyHandler) {
+            FetchReplyHandler fetchHandler =
+                    (FetchReplyHandler) currentCallback;
             fetchHandler.handleFetchLiteralContent(data);
             if (fetchHandler.wantsPause()) {
                 fetchHandler.setResumeCallback(
@@ -336,8 +336,8 @@ public final class IMAPClientProtocolHandler
 
     @Override
     public void literalComplete() {
-        if (currentCallback instanceof ServerFetchReplyHandler) {
-            ((ServerFetchReplyHandler) currentCallback)
+        if (currentCallback instanceof FetchReplyHandler) {
+            ((FetchReplyHandler) currentCallback)
                     .handleFetchLiteralEnd(fetchMessageNumber);
         }
         state = IMAPState.FETCH_SENT;
@@ -368,7 +368,7 @@ public final class IMAPClientProtocolHandler
 
     // RFC 9051 section 6.1.1 — CAPABILITY command
     @Override
-    public void capability(ServerCapabilityReplyHandler callback) {
+    public void capability(CapabilityReplyHandler callback) {
         this.currentCallback = callback;
         capabilities.clear();
         sendTaggedCommand("CAPABILITY", IMAPState.CAPABILITY_SENT);
@@ -377,7 +377,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.2.3 — LOGIN command
     @Override
     public void login(String username, String password,
-                      ServerLoginReplyHandler callback) {
+                      LoginReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("LOGIN " + quoteString(username) + " "
                 + quoteString(password), IMAPState.LOGIN_SENT);
@@ -386,7 +386,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.2.2 — AUTHENTICATE, RFC 4959 initial response
     @Override
     public void authenticate(String mechanism, byte[] initialResponse,
-                             ServerAuthReplyHandler callback) {
+                             AuthReplyHandler callback) {
         this.currentCallback = callback;
         StringBuilder cmd = new StringBuilder("AUTHENTICATE ");
         cmd.append(mechanism);
@@ -400,7 +400,7 @@ public final class IMAPClientProtocolHandler
 
     // RFC 9051 section 6.2.1 — STARTTLS command
     @Override
-    public void starttls(ServerStarttlsReplyHandler callback) {
+    public void starttls(StarttlsReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("STARTTLS", IMAPState.STARTTLS_SENT);
     }
@@ -418,14 +418,14 @@ public final class IMAPClientProtocolHandler
 
     @Override
     public void respond(byte[] response,
-                        ServerAuthReplyHandler callback) {
+                        AuthReplyHandler callback) {
         this.currentCallback = callback;
         String encoded = Base64.getEncoder().encodeToString(response);
         sendRawLine(encoded, IMAPState.AUTHENTICATE_SENT);
     }
 
     @Override
-    public void abort(ServerAuthAbortHandler callback) {
+    public void abort(AuthAbortHandler callback) {
         this.currentCallback = callback;
         sendRawLine("*", IMAPState.AUTH_ABORT_SENT);
     }
@@ -435,7 +435,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.1 — SELECT command
     @Override
     public void select(String mailbox,
-                       ServerSelectReplyHandler callback) {
+                       SelectReplyHandler callback) {
         this.currentCallback = callback;
         pendingMailboxInfo = new MailboxInfo();
         sendTaggedCommand("SELECT " + quoteString(mailbox),
@@ -445,7 +445,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.2 — EXAMINE command
     @Override
     public void examine(String mailbox,
-                        ServerSelectReplyHandler callback) {
+                        SelectReplyHandler callback) {
         this.currentCallback = callback;
         pendingMailboxInfo = new MailboxInfo();
         sendTaggedCommand("EXAMINE " + quoteString(mailbox),
@@ -455,7 +455,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.3 — CREATE command
     @Override
     public void create(String mailbox,
-                       ServerMailboxReplyHandler callback) {
+                       MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("CREATE " + quoteString(mailbox),
                 IMAPState.CREATE_SENT);
@@ -464,7 +464,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.4 — DELETE command
     @Override
     public void delete(String mailbox,
-                       ServerMailboxReplyHandler callback) {
+                       MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("DELETE " + quoteString(mailbox),
                 IMAPState.DELETE_SENT);
@@ -473,7 +473,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.5 — RENAME command
     @Override
     public void rename(String from, String to,
-                       ServerMailboxReplyHandler callback) {
+                       MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("RENAME " + quoteString(from) + " "
                 + quoteString(to), IMAPState.RENAME_SENT);
@@ -482,7 +482,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.6 — SUBSCRIBE command
     @Override
     public void subscribe(String mailbox,
-                          ServerMailboxReplyHandler callback) {
+                          MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("SUBSCRIBE " + quoteString(mailbox),
                 IMAPState.SUBSCRIBE_SENT);
@@ -491,7 +491,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.7 — UNSUBSCRIBE command
     @Override
     public void unsubscribe(String mailbox,
-                            ServerMailboxReplyHandler callback) {
+                            MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("UNSUBSCRIBE " + quoteString(mailbox),
                 IMAPState.UNSUBSCRIBE_SENT);
@@ -500,7 +500,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.8 — LIST command
     @Override
     public void list(String reference, String pattern,
-                     ServerListReplyHandler callback) {
+                     ListReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("LIST " + quoteString(reference) + " "
                 + quoteString(pattern), IMAPState.LIST_SENT);
@@ -509,7 +509,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.9 — LSUB command (deprecated)
     @Override
     public void lsub(String reference, String pattern,
-                     ServerListReplyHandler callback) {
+                     ListReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("LSUB " + quoteString(reference) + " "
                 + quoteString(pattern), IMAPState.LSUB_SENT);
@@ -518,7 +518,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.11 — STATUS command
     @Override
     public void status(String mailbox, String[] items,
-                       ServerStatusReplyHandler callback) {
+                       StatusReplyHandler callback) {
         this.currentCallback = callback;
         resetStatusData();
         StringBuilder cmd = new StringBuilder("STATUS ");
@@ -536,7 +536,7 @@ public final class IMAPClientProtocolHandler
 
     // RFC 2342 — NAMESPACE command
     @Override
-    public void namespace(ServerNamespaceReplyHandler callback) {
+    public void namespace(NamespaceReplyHandler callback) {
         this.currentCallback = callback;
         namespacePersonal = null;
         namespacePersonalDelimiter = null;
@@ -546,7 +546,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9208 — GETQUOTA command
     @Override
     public void getQuota(String quotaRoot,
-                         ServerQuotaReplyHandler callback) {
+                         QuotaReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("GETQUOTA " + quoteString(quotaRoot),
                 IMAPState.GETQUOTA_SENT);
@@ -555,7 +555,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9208 — GETQUOTAROOT command
     @Override
     public void getQuotaRoot(String mailbox,
-                             ServerQuotaReplyHandler callback) {
+                             QuotaReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("GETQUOTAROOT " + quoteString(mailbox),
                 IMAPState.GETQUOTAROOT_SENT);
@@ -564,7 +564,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.3.12 — APPEND command
     @Override
     public void append(String mailbox, String[] flags, String date,
-                       long size, ServerAppendReplyHandler callback) {
+                       long size, AppendReplyHandler callback) {
         this.currentCallback = callback;
         StringBuilder cmd = new StringBuilder("APPEND ");
         cmd.append(quoteString(mailbox));
@@ -587,7 +587,7 @@ public final class IMAPClientProtocolHandler
 
     // RFC 2177 — IDLE command
     @Override
-    public void idle(ServerIdleEventHandler callback) {
+    public void idle(IdleEventHandler callback) {
         this.currentCallback = callback;
         this.idleEventHandler = callback;
         sendTaggedCommand("IDLE", IMAPState.IDLE_SENT);
@@ -595,7 +595,7 @@ public final class IMAPClientProtocolHandler
 
     // RFC 9051 section 6.1.2 — NOOP command
     @Override
-    public void noop(ServerNoopReplyHandler callback) {
+    public void noop(NoopReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("NOOP", IMAPState.NOOP_SENT);
     }
@@ -604,21 +604,21 @@ public final class IMAPClientProtocolHandler
 
     // RFC 9051 section 6.4.1 — CLOSE command
     @Override
-    public void close(ServerCloseReplyHandler callback) {
+    public void close(CloseReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("CLOSE", IMAPState.CLOSE_SENT);
     }
 
     // RFC 9051 section 6.4.2 — UNSELECT command
     @Override
-    public void unselect(ServerCloseReplyHandler callback) {
+    public void unselect(CloseReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("UNSELECT", IMAPState.UNSELECT_SENT);
     }
 
     // RFC 9051 section 6.4.3 — EXPUNGE command
     @Override
-    public void expunge(ServerExpungeReplyHandler callback) {
+    public void expunge(ExpungeReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("EXPUNGE", IMAPState.EXPUNGE_SENT);
     }
@@ -626,7 +626,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.4.4 — SEARCH command
     @Override
     public void search(String criteria,
-                       ServerSearchReplyHandler callback) {
+                       SearchReplyHandler callback) {
         this.currentCallback = callback;
         searchResults.clear();
         sendTaggedCommand("SEARCH " + criteria,
@@ -635,7 +635,7 @@ public final class IMAPClientProtocolHandler
 
     @Override
     public void uidSearch(String criteria,
-                          ServerSearchReplyHandler callback) {
+                          SearchReplyHandler callback) {
         this.currentCallback = callback;
         searchResults.clear();
         sendTaggedCommand("UID SEARCH " + criteria,
@@ -645,7 +645,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.4.5 — FETCH command
     @Override
     public void fetch(String sequenceSet, String dataItems,
-                      ServerFetchReplyHandler callback) {
+                      FetchReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("FETCH " + sequenceSet + " " + dataItems,
                 IMAPState.FETCH_SENT);
@@ -653,7 +653,7 @@ public final class IMAPClientProtocolHandler
 
     @Override
     public void uidFetch(String sequenceSet, String dataItems,
-                         ServerFetchReplyHandler callback) {
+                         FetchReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("UID FETCH " + sequenceSet + " " + dataItems,
                 IMAPState.FETCH_SENT);
@@ -663,7 +663,7 @@ public final class IMAPClientProtocolHandler
     @Override
     public void store(String sequenceSet, String action,
                       String[] flags,
-                      ServerStoreReplyHandler callback) {
+                      StoreReplyHandler callback) {
         this.currentCallback = callback;
         StringBuilder cmd = new StringBuilder("STORE ");
         cmd.append(sequenceSet).append(' ').append(action).append(" (");
@@ -680,7 +680,7 @@ public final class IMAPClientProtocolHandler
     @Override
     public void uidStore(String sequenceSet, String action,
                          String[] flags,
-                         ServerStoreReplyHandler callback) {
+                         StoreReplyHandler callback) {
         this.currentCallback = callback;
         StringBuilder cmd = new StringBuilder("UID STORE ");
         cmd.append(sequenceSet).append(' ').append(action).append(" (");
@@ -697,7 +697,7 @@ public final class IMAPClientProtocolHandler
     // RFC 9051 section 6.4.7 — COPY command
     @Override
     public void copy(String sequenceSet, String mailbox,
-                     ServerCopyReplyHandler callback) {
+                     CopyReplyHandler callback) {
         this.currentCallback = callback;
         resetCopyData();
         sendTaggedCommand("COPY " + sequenceSet + " "
@@ -706,7 +706,7 @@ public final class IMAPClientProtocolHandler
 
     @Override
     public void uidCopy(String sequenceSet, String mailbox,
-                        ServerCopyReplyHandler callback) {
+                        CopyReplyHandler callback) {
         this.currentCallback = callback;
         resetCopyData();
         sendTaggedCommand("UID COPY " + sequenceSet + " "
@@ -716,7 +716,7 @@ public final class IMAPClientProtocolHandler
     // RFC 6851 — MOVE command
     @Override
     public void move(String sequenceSet, String mailbox,
-                     ServerCopyReplyHandler callback) {
+                     CopyReplyHandler callback) {
         this.currentCallback = callback;
         resetCopyData();
         sendTaggedCommand("MOVE " + sequenceSet + " "
@@ -725,7 +725,7 @@ public final class IMAPClientProtocolHandler
 
     @Override
     public void uidMove(String sequenceSet, String mailbox,
-                        ServerCopyReplyHandler callback) {
+                        CopyReplyHandler callback) {
         this.currentCallback = callback;
         resetCopyData();
         sendTaggedCommand("UID MOVE " + sequenceSet + " "
@@ -853,8 +853,8 @@ public final class IMAPClientProtocolHandler
     private void dispatchContinuation(IMAPResponse response) {
         switch (state) {
             case AUTHENTICATE_SENT: {
-                ServerAuthReplyHandler callback =
-                        (ServerAuthReplyHandler) currentCallback;
+                AuthReplyHandler callback =
+                        (AuthReplyHandler) currentCallback;
                 String challengeData = response.getMessage();
                 byte[] challenge;
                 if (challengeData == null
@@ -869,15 +869,15 @@ public final class IMAPClientProtocolHandler
             }
             case APPEND_SENT: {
                 state = IMAPState.APPEND_DATA;
-                ServerAppendReplyHandler callback =
-                        (ServerAppendReplyHandler) currentCallback;
+                AppendReplyHandler callback =
+                        (AppendReplyHandler) currentCallback;
                 callback.handleReadyForData(this);
                 break;
             }
             case IDLE_SENT: {
                 state = IMAPState.IDLE_ACTIVE;
-                ServerIdleEventHandler callback =
-                        (ServerIdleEventHandler) currentCallback;
+                IdleEventHandler callback =
+                        (IdleEventHandler) currentCallback;
                 callback.handleIdleStarted(this);
                 break;
             }
@@ -1095,8 +1095,8 @@ public final class IMAPClientProtocolHandler
         if (upper.startsWith("EXPUNGE")) {
             if (state == IMAPState.EXPUNGE_SENT
                     && currentCallback
-                    instanceof ServerExpungeReplyHandler) {
-                ((ServerExpungeReplyHandler) currentCallback)
+                    instanceof ExpungeReplyHandler) {
+                ((ExpungeReplyHandler) currentCallback)
                         .handleExpunged(number);
             } else if (state == IMAPState.IDLE_ACTIVE
                     && idleEventHandler != null) {
@@ -1119,10 +1119,10 @@ public final class IMAPClientProtocolHandler
                                    String rawLine) {
         if (state == IMAPState.STORE_SENT
                 && currentCallback
-                instanceof ServerStoreReplyHandler) {
+                instanceof StoreReplyHandler) {
             String[] flags = parseFetchFlags(data);
             if (flags != null) {
-                ((ServerStoreReplyHandler) currentCallback)
+                ((StoreReplyHandler) currentCallback)
                         .handleStoreResponse(messageNumber, flags);
             }
             return;
@@ -1138,7 +1138,7 @@ public final class IMAPClientProtocolHandler
             return;
         }
 
-        if (!(currentCallback instanceof ServerFetchReplyHandler)) {
+        if (!(currentCallback instanceof FetchReplyHandler)) {
             if (mailboxEventListener != null) {
                 String[] flags = parseFetchFlags(data);
                 if (flags != null) {
@@ -1149,8 +1149,8 @@ public final class IMAPClientProtocolHandler
             return;
         }
 
-        ServerFetchReplyHandler callback =
-                (ServerFetchReplyHandler) currentCallback;
+        FetchReplyHandler callback =
+                (FetchReplyHandler) currentCallback;
         fetchMessageNumber = messageNumber;
         fetchData = new FetchData();
         parseFetchData(data, fetchData);
@@ -1287,11 +1287,11 @@ public final class IMAPClientProtocolHandler
     // ── LIST/LSUB parsing ──
 
     private void dispatchListLine(String msg) {
-        if (!(currentCallback instanceof ServerListReplyHandler)) {
+        if (!(currentCallback instanceof ListReplyHandler)) {
             return;
         }
-        ServerListReplyHandler callback =
-                (ServerListReplyHandler) currentCallback;
+        ListReplyHandler callback =
+                (ListReplyHandler) currentCallback;
 
         // Format: LIST (\Attributes) "delimiter" "name"
         String data = msg.substring(msg.indexOf(' ') + 1);
@@ -1410,11 +1410,11 @@ public final class IMAPClientProtocolHandler
     private void dispatchQuotaLine(String data) {
         // Format: quotaroot (resource usage limit ...)
         // e.g.  "" (STORAGE 10 512)
-        if (!(currentCallback instanceof ServerQuotaReplyHandler)) {
+        if (!(currentCallback instanceof QuotaReplyHandler)) {
             return;
         }
-        ServerQuotaReplyHandler cb =
-                (ServerQuotaReplyHandler) currentCallback;
+        QuotaReplyHandler cb =
+                (QuotaReplyHandler) currentCallback;
         int parenStart = data.indexOf('(');
         if (parenStart < 0) {
             return;
@@ -1436,11 +1436,11 @@ public final class IMAPClientProtocolHandler
     private void dispatchQuotaRootLine(String data) {
         // Format: mailbox quotaroot1 quotaroot2 ...
         // e.g.  INBOX ""
-        if (!(currentCallback instanceof ServerQuotaReplyHandler)) {
+        if (!(currentCallback instanceof QuotaReplyHandler)) {
             return;
         }
-        ServerQuotaReplyHandler cb =
-                (ServerQuotaReplyHandler) currentCallback;
+        QuotaReplyHandler cb =
+                (QuotaReplyHandler) currentCallback;
         String[] parts = splitQuotedArgs(data);
         if (parts.length >= 1) {
             String mailbox = unquote(parts[0]);
@@ -1584,8 +1584,8 @@ public final class IMAPClientProtocolHandler
     // ── Tagged completion handlers ──
 
     private void dispatchCapabilityComplete(IMAPResponse response) {
-        ServerCapabilityReplyHandler callback =
-                (ServerCapabilityReplyHandler) currentCallback;
+        CapabilityReplyHandler callback =
+                (CapabilityReplyHandler) currentCallback;
         currentCallback = null;
         state = restoreBaseState();
 
@@ -1598,8 +1598,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchLoginComplete(IMAPResponse response) {
-        ServerLoginReplyHandler callback =
-                (ServerLoginReplyHandler) currentCallback;
+        LoginReplyHandler callback =
+                (LoginReplyHandler) currentCallback;
         currentCallback = null;
 
         if (response.isOk()) {
@@ -1622,8 +1622,8 @@ public final class IMAPClientProtocolHandler
 
     private void dispatchAuthenticateComplete(
             IMAPResponse response) {
-        ServerAuthReplyHandler callback =
-                (ServerAuthReplyHandler) currentCallback;
+        AuthReplyHandler callback =
+                (AuthReplyHandler) currentCallback;
         currentCallback = null;
 
         if (response.isOk()) {
@@ -1645,8 +1645,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchAuthAbortComplete(IMAPResponse response) {
-        ServerAuthAbortHandler callback =
-                (ServerAuthAbortHandler) currentCallback;
+        AuthAbortHandler callback =
+                (AuthAbortHandler) currentCallback;
         currentCallback = null;
         state = IMAPState.NOT_AUTHENTICATED;
         callback.handleAborted(this);
@@ -1657,21 +1657,21 @@ public final class IMAPClientProtocolHandler
             try {
                 endpoint.startTLS();
             } catch (IOException e) {
-                ServerStarttlsReplyHandler callback =
-                        (ServerStarttlsReplyHandler) currentCallback;
+                StarttlsReplyHandler callback =
+                        (StarttlsReplyHandler) currentCallback;
                 currentCallback = null;
                 state = IMAPState.NOT_AUTHENTICATED;
                 callback.handlePermanentFailure(e.getMessage());
             }
         } else if (response.isBad()) {
-            ServerStarttlsReplyHandler callback =
-                    (ServerStarttlsReplyHandler) currentCallback;
+            StarttlsReplyHandler callback =
+                    (StarttlsReplyHandler) currentCallback;
             currentCallback = null;
             state = IMAPState.ERROR;
             callback.handlePermanentFailure(response.getMessage());
         } else {
-            ServerStarttlsReplyHandler callback =
-                    (ServerStarttlsReplyHandler) currentCallback;
+            StarttlsReplyHandler callback =
+                    (StarttlsReplyHandler) currentCallback;
             currentCallback = null;
             state = IMAPState.NOT_AUTHENTICATED;
             callback.handleTlsUnavailable(this);
@@ -1679,8 +1679,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchSelectComplete(IMAPResponse response) {
-        ServerSelectReplyHandler callback =
-                (ServerSelectReplyHandler) currentCallback;
+        SelectReplyHandler callback =
+                (SelectReplyHandler) currentCallback;
         currentCallback = null;
         MailboxInfo info = pendingMailboxInfo;
         pendingMailboxInfo = null;
@@ -1704,8 +1704,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchMailboxComplete(IMAPResponse response) {
-        ServerMailboxReplyHandler callback =
-                (ServerMailboxReplyHandler) currentCallback;
+        MailboxReplyHandler callback =
+                (MailboxReplyHandler) currentCallback;
         currentCallback = null;
         state = restoreBaseState();
 
@@ -1717,8 +1717,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchListComplete(IMAPResponse response) {
-        ServerListReplyHandler callback =
-                (ServerListReplyHandler) currentCallback;
+        ListReplyHandler callback =
+                (ListReplyHandler) currentCallback;
         currentCallback = null;
         state = restoreBaseState();
 
@@ -1730,8 +1730,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchStatusComplete(IMAPResponse response) {
-        ServerStatusReplyHandler callback =
-                (ServerStatusReplyHandler) currentCallback;
+        StatusReplyHandler callback =
+                (StatusReplyHandler) currentCallback;
         currentCallback = null;
         state = restoreBaseState();
 
@@ -1745,8 +1745,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchNamespaceComplete(IMAPResponse response) {
-        ServerNamespaceReplyHandler callback =
-                (ServerNamespaceReplyHandler) currentCallback;
+        NamespaceReplyHandler callback =
+                (NamespaceReplyHandler) currentCallback;
         currentCallback = null;
         state = restoreBaseState();
 
@@ -1760,8 +1760,8 @@ public final class IMAPClientProtocolHandler
 
     // RFC 9208 — GETQUOTA / GETQUOTAROOT completion
     private void dispatchQuotaComplete(IMAPResponse response) {
-        ServerQuotaReplyHandler callback =
-                (ServerQuotaReplyHandler) currentCallback;
+        QuotaReplyHandler callback =
+                (QuotaReplyHandler) currentCallback;
         currentCallback = null;
         state = restoreBaseState();
 
@@ -1773,8 +1773,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchAppendComplete(IMAPResponse response) {
-        ServerAppendReplyHandler callback =
-                (ServerAppendReplyHandler) currentCallback;
+        AppendReplyHandler callback =
+                (AppendReplyHandler) currentCallback;
         currentCallback = null;
         state = restoreBaseState();
 
@@ -1802,7 +1802,7 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchIdleComplete(IMAPResponse response) {
-        ServerIdleEventHandler callback = idleEventHandler;
+        IdleEventHandler callback = idleEventHandler;
         currentCallback = null;
         idleEventHandler = null;
         state = restoreBaseState();
@@ -1813,16 +1813,16 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchCloseComplete(IMAPResponse response) {
-        ServerCloseReplyHandler callback =
-                (ServerCloseReplyHandler) currentCallback;
+        CloseReplyHandler callback =
+                (CloseReplyHandler) currentCallback;
         currentCallback = null;
         state = IMAPState.AUTHENTICATED;
         callback.handleClosed(this);
     }
 
     private void dispatchExpungeComplete(IMAPResponse response) {
-        ServerExpungeReplyHandler callback =
-                (ServerExpungeReplyHandler) currentCallback;
+        ExpungeReplyHandler callback =
+                (ExpungeReplyHandler) currentCallback;
         currentCallback = null;
         state = IMAPState.SELECTED;
 
@@ -1834,8 +1834,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchSearchComplete(IMAPResponse response) {
-        ServerSearchReplyHandler callback =
-                (ServerSearchReplyHandler) currentCallback;
+        SearchReplyHandler callback =
+                (SearchReplyHandler) currentCallback;
         currentCallback = null;
         state = IMAPState.SELECTED;
 
@@ -1853,8 +1853,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchFetchComplete(IMAPResponse response) {
-        ServerFetchReplyHandler callback =
-                (ServerFetchReplyHandler) currentCallback;
+        FetchReplyHandler callback =
+                (FetchReplyHandler) currentCallback;
         currentCallback = null;
         state = IMAPState.SELECTED;
 
@@ -1866,8 +1866,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchStoreComplete(IMAPResponse response) {
-        ServerStoreReplyHandler callback =
-                (ServerStoreReplyHandler) currentCallback;
+        StoreReplyHandler callback =
+                (StoreReplyHandler) currentCallback;
         currentCallback = null;
         state = IMAPState.SELECTED;
 
@@ -1879,8 +1879,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchCopyComplete(IMAPResponse response) {
-        ServerCopyReplyHandler callback =
-                (ServerCopyReplyHandler) currentCallback;
+        CopyReplyHandler callback =
+                (CopyReplyHandler) currentCallback;
         currentCallback = null;
         state = restoreBaseState();
 
@@ -1908,8 +1908,8 @@ public final class IMAPClientProtocolHandler
     }
 
     private void dispatchNoopComplete(IMAPResponse response) {
-        ServerNoopReplyHandler callback =
-                (ServerNoopReplyHandler) currentCallback;
+        NoopReplyHandler callback =
+                (NoopReplyHandler) currentCallback;
         currentCallback = null;
         state = restoreBaseState();
         callback.handleOk(this);
@@ -1925,9 +1925,9 @@ public final class IMAPClientProtocolHandler
     private void fireServiceClosing(String message) {
         if (currentCallback
                 instanceof org.bluezoo.gumdrop.imap.client.handler
-                .ServerReplyHandler) {
+                .ReplyHandler) {
             ((org.bluezoo.gumdrop.imap.client.handler
-                    .ServerReplyHandler) currentCallback)
+                    .ReplyHandler) currentCallback)
                     .handleServiceClosing(message);
         }
     }

@@ -194,7 +194,7 @@ from server-side failures.
 
 <p>
 Declares the message retention policy. Configured via
-<code>setExpireDays(int)</code> on <code>POP3Listener</code>:
+<code>setExpireDays(int)</code> on <code>Pop3Listener</code>:
 <code>0</code> means messages may be expired immediately, a positive value is
 the minimum retention in days, and <code>Integer.MAX_VALUE</code> advertises
 <code>EXPIRE NEVER</code>. Set to <code>-1</code> to suppress the capability.
@@ -317,10 +317,10 @@ been downloaded.
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>POP3Listener Properties</h4>
+<h4>Pop3Listener Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.pop3.POP3Listener</code> (transport configuration):
+<code>org.bluezoo.gumdrop.pop3.Pop3Listener</code> (transport configuration):
 </p>
 
 <ul>
@@ -330,10 +330,10 @@ been downloaded.
 <li><code>keystore-pass</code> - keystore password</li>
 </ul>
 
-<h4>DefaultPOP3Service Properties</h4>
+<h4>DefaultPOP3Server Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.pop3.DefaultPOP3Service</code> (service logic):
+<code>org.bluezoo.gumdrop.pop3.DefaultPOP3Server</code> (service logic):
 </p>
 
 <ul>
@@ -366,12 +366,12 @@ been downloaded.
 &lt;/mailbox-factory&gt;
 
 &lt;!-- POP3 service (port 110 with STLS) --&gt;
-&lt;service id="pop3" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Service"&gt;
+&lt;service id="pop3" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Server"&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
     &lt;property name="mailbox-factory" ref="#mbox"/&gt;
     &lt;property name="enable-apop"&gt;true&lt;/property&gt;
     &lt;property name="login-delay"&gt;3000&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.pop3.POP3Listener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.pop3.Pop3Listener"&gt;
         &lt;property name="port"&gt;110&lt;/property&gt;
         &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
         &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
@@ -379,10 +379,10 @@ been downloaded.
 &lt;/service&gt;
 
 &lt;!-- POP3S service (port 995 with implicit TLS) --&gt;
-&lt;service id="pop3s" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Service"&gt;
+&lt;service id="pop3s" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Server"&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
     &lt;property name="mailbox-factory" ref="#mbox"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.pop3.POP3Listener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.pop3.Pop3Listener"&gt;
         &lt;property name="port"&gt;995&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
         &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;

@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * RFC 4954 §4 (SASL continuation).
  *
  * <p>This interface is provided to the handler in
- * {@link ServerAuthReplyHandler#handleChallenge} when the server sends a
+ * {@link AuthReplyHandler#handleChallenge} when the server sends a
  * SASL challenge (334 response). The handler computes the appropriate
  * response based on the SASL mechanism and continues the exchange.
  * 
@@ -34,7 +34,7 @@ package org.bluezoo.gumdrop.smtp.client.handler;
  * handler works with raw bytes.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerAuthReplyHandler#handleChallenge
+ * @see AuthReplyHandler#handleChallenge
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a>
  */
 public interface ClientAuthExchange {
@@ -49,7 +49,7 @@ public interface ClientAuthExchange {
      * @param response the response bytes (will be base64 encoded)
      * @param callback receives the server's next response
      */
-    void respond(byte[] response, ServerAuthReplyHandler callback);
+    void respond(byte[] response, AuthReplyHandler callback);
 
     /**
      * Aborts the authentication exchange.
@@ -60,7 +60,7 @@ public interface ClientAuthExchange {
      * 
      * @param callback receives the abort confirmation
      */
-    void abort(ServerAuthAbortHandler callback);
+    void abort(AuthAbortHandler callback);
 
 }
 

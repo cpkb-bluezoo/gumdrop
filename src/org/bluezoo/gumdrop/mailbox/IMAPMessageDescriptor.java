@@ -1,5 +1,5 @@
 /*
- * IMAPMessageDescriptor.java
+ * ImapMessageDescriptor.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,7 +36,7 @@ import java.util.Set;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MessageDescriptor
  */
-public interface IMAPMessageDescriptor extends MessageDescriptor {
+public interface ImapMessageDescriptor extends MessageDescriptor {
 
     /**
      * Returns the IMAP UID for this message.

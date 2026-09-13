@@ -1,5 +1,5 @@
 /*
- * SMTPClientProtocolHandler.java
+ * SmtpClientProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -46,18 +46,18 @@ import org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientPostTls;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientSession;
 import org.bluezoo.gumdrop.smtp.client.handler.MailFromParams;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerAuthAbortHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerAuthReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerDataReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerEhloReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerHeloReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerMailFromReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerMessageReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerRcptToReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerRsetReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.AuthAbortHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.AuthReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.DataReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.EhloReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.smtp.client.handler.HeloReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.MailFromReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.MessageReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.RcptToReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.ReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.RsetReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.StarttlsReplyHandler;
 
 /**
  * SMTP client protocol handler implementing RFC 5321 (SMTP).
@@ -84,7 +84,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
  * <h4>Usage</h4>
  * <pre>{@code
  * ClientEndpoint client = new ClientEndpoint(factory, "smtp.example.com", 587);
- * client.connect(new SMTPClientProtocolHandler(new ServerGreeting() {
+ * client.connect(new SmtpClientProtocolHandler(new RemoteGreeting() {
  *     public void handleGreeting(ClientHelloState hello, String msg, boolean esmtp) {
  *         hello.ehlo("myhostname", ehloHandler);
  *     }
@@ -94,25 +94,25 @@ import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see ServerGreeting
+ * @see RemoteGreeting
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207 - STARTTLS</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954 - AUTH</a>
  */
-public final class SMTPClientProtocolHandler
+public final class SmtpClientProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<SMTPClientLexer.Token>,
         WritableByteChannel, ClientHelloState, ClientSession,
         ClientPostTls, ClientAuthExchange, ClientEnvelope,
         ClientEnvelopeReady, ClientMessageData {
 
     private static final Logger LOGGER =
-            Logger.getLogger(SMTPClientProtocolHandler.class.getName());
+            Logger.getLogger(SmtpClientProtocolHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
 
     private static final String CRLF = "\r\n";
 
-    private final ServerGreeting handler;
+    private final RemoteGreeting handler;
     private final DotStuffer dotStuffer;
 
     private Endpoint endpoint;
@@ -168,7 +168,7 @@ public final class SMTPClientProtocolHandler
      *
      * @param handler the server greeting handler
      */
-    public SMTPClientProtocolHandler(ServerGreeting handler) {
+    public SmtpClientProtocolHandler(RemoteGreeting handler) {
         if (handler == null) {
             throw new NullPointerException("handler");
         }
@@ -241,9 +241,9 @@ public final class SMTPClientProtocolHandler
             LOGGER.fine("TLS established: " + info.getCipherSuite());
         }
 
-        if (currentCallback instanceof ServerStarttlsReplyHandler) {
-            ServerStarttlsReplyHandler callback =
-                    (ServerStarttlsReplyHandler) currentCallback;
+        if (currentCallback instanceof StarttlsReplyHandler) {
+            StarttlsReplyHandler callback =
+                    (StarttlsReplyHandler) currentCallback;
             currentCallback = null;
             state = SMTPState.CONNECTED;
             callback.handleTlsEstablished(this);
@@ -252,7 +252,7 @@ public final class SMTPClientProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        handleError(new SMTPException("Connection error", cause));
+        handleError(new SmtpException("Connection error", cause));
     }
 
     // ── ByteStreamLexer.Handler implementation (issue #85) ──
@@ -361,7 +361,7 @@ public final class SMTPClientProtocolHandler
 
         try {
             if (error != null) {
-                throw new SMTPException(error);
+                throw new SmtpException(error);
             }
 
             if (code == 421) {
@@ -387,10 +387,10 @@ public final class SMTPClientProtocolHandler
                     dispatchResponse(code, singleLine);
                 }
             }
-        } catch (SMTPException e) {
+        } catch (SmtpException e) {
             handleError(e);
         } catch (Exception e) {
-            handleError(new SMTPException(
+            handleError(new SmtpException(
                     "Failed to parse SMTP response", e));
         }
     }
@@ -445,7 +445,7 @@ public final class SMTPClientProtocolHandler
     /** RFC 5321 §4.1.1.1 — EHLO command with extension negotiation. */
     @Override
     public void ehlo(String hostname,
-                     ServerEhloReplyHandler callback) {
+                     EhloReplyHandler callback) {
         this.currentCallback = callback;
         resetEhloCapabilities();
         sendCommand("EHLO " + hostname, SMTPState.EHLO_SENT);
@@ -454,7 +454,7 @@ public final class SMTPClientProtocolHandler
     /** RFC 5321 §4.1.1.1 — HELO command (non-extended). */
     @Override
     public void helo(String hostname,
-                     ServerHeloReplyHandler callback) {
+                     HeloReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("HELO " + hostname, SMTPState.HELO_SENT);
     }
@@ -464,14 +464,14 @@ public final class SMTPClientProtocolHandler
     /** RFC 5321 §4.1.1.2 — MAIL FROM command. */
     @Override
     public void mailFrom(EmailAddress sender,
-                         ServerMailFromReplyHandler callback) {
+                         MailFromReplyHandler callback) {
         mailFrom(sender, 0, callback);
     }
 
     /** RFC 5321 §4.1.1.2 — MAIL FROM with SIZE parameter (RFC 1870). */
     @Override
     public void mailFrom(EmailAddress sender, long size,
-                         ServerMailFromReplyHandler callback) {
+                         MailFromReplyHandler callback) {
         mailFrom(sender, size, null, callback);
     }
 
@@ -484,7 +484,7 @@ public final class SMTPClientProtocolHandler
     @Override
     public void mailFrom(EmailAddress sender, long size,
                          MailFromParams params,
-                         ServerMailFromReplyHandler callback) {
+                         MailFromReplyHandler callback) {
         this.currentCallback = callback;
         this.acceptedRecipients = 0;
 
@@ -532,7 +532,7 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 3207 §4 — STARTTLS command. */
     @Override
-    public void starttls(ServerStarttlsReplyHandler callback) {
+    public void starttls(StarttlsReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("STARTTLS", SMTPState.STARTTLS_SENT);
     }
@@ -540,7 +540,7 @@ public final class SMTPClientProtocolHandler
     /** RFC 4954 — AUTH command with optional initial-response. */
     @Override
     public void auth(String mechanism, byte[] initialResponse,
-                     ServerAuthReplyHandler callback) {
+                     AuthReplyHandler callback) {
         this.currentCallback = callback;
 
         StringBuilder cmd = new StringBuilder("AUTH ");
@@ -557,14 +557,14 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 5321 §4.1.1.6 — VRFY command. */
     @Override
-    public void vrfy(String user, ServerReplyHandler callback) {
+    public void vrfy(String user, ReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("VRFY " + user, SMTPState.VRFY_SENT);
     }
 
     /** RFC 5321 §4.1.1.7 — EXPN command. */
     @Override
-    public void expn(String mailingList, ServerReplyHandler callback) {
+    public void expn(String mailingList, ReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("EXPN " + mailingList, SMTPState.EXPN_SENT);
     }
@@ -615,7 +615,7 @@ public final class SMTPClientProtocolHandler
     /** RFC 4954 §4 — send base64-encoded SASL response. */
     @Override
     public void respond(byte[] response,
-                        ServerAuthReplyHandler callback) {
+                        AuthReplyHandler callback) {
         this.currentCallback = callback;
         String encoded = Base64.getEncoder().encodeToString(response);
         sendRawLine(encoded, SMTPState.AUTH_SENT);
@@ -623,7 +623,7 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 4954 §4 — abort AUTH exchange with "*". */
     @Override
-    public void abort(ServerAuthAbortHandler callback) {
+    public void abort(AuthAbortHandler callback) {
         this.currentCallback = callback;
         sendRawLine("*", SMTPState.AUTH_ABORT_SENT);
     }
@@ -633,7 +633,7 @@ public final class SMTPClientProtocolHandler
     /** RFC 5321 §4.1.1.3 — RCPT TO command. */
     @Override
     public void rcptTo(EmailAddress recipient,
-                       ServerRcptToReplyHandler callback) {
+                       RcptToReplyHandler callback) {
         rcptTo(recipient, null, null, callback);
     }
 
@@ -643,7 +643,7 @@ public final class SMTPClientProtocolHandler
      */
     @Override
     public void rcptTo(EmailAddress recipient, String notify, String orcpt,
-                       ServerRcptToReplyHandler callback) {
+                       RcptToReplyHandler callback) {
         this.currentCallback = callback;
         StringBuilder cmd = new StringBuilder("RCPT TO:<");
         cmd.append(recipient.getEnvelopeAddress());
@@ -661,7 +661,7 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 5321 §4.1.1.5 — RSET command. */
     @Override
-    public void rset(ServerRsetReplyHandler callback) {
+    public void rset(RsetReplyHandler callback) {
         this.currentCallback = callback;
         sendCommand("RSET", SMTPState.RSET_SENT);
     }
@@ -675,7 +675,7 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 5321 §4.1.1.4 — DATA command; RFC 3030 — automatic BDAT. */
     @Override
-    public void data(ServerDataReplyHandler callback) {
+    public void data(DataReplyHandler callback) {
         if (acceptedRecipients == 0) {
             throw new IllegalStateException(
                     L10N.getString("err.no_accepted_recipients"));
@@ -713,7 +713,7 @@ public final class SMTPClientProtocolHandler
             try {
                 dotStuffer.processChunk(content, this);
             } catch (IOException e) {
-                handleError(new SMTPException(
+                handleError(new SmtpException(
                         "Failed to write message content", e));
             }
         }
@@ -726,7 +726,7 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 5321 §4.1.1.4 — end DATA (CRLF.CRLF); RFC 3030 — BDAT 0 LAST. */
     @Override
-    public void endMessage(ServerMessageReplyHandler callback) {
+    public void endMessage(MessageReplyHandler callback) {
         if (state != SMTPState.DATA_MODE) {
             throw new IllegalStateException(
                     L10N.getString("err.not_in_data_mode"));
@@ -742,7 +742,7 @@ public final class SMTPClientProtocolHandler
                 dotStuffer.endMessage(this);
                 state = SMTPState.DATA_END_SENT;
             } catch (IOException e) {
-                handleError(new SMTPException(
+                handleError(new SmtpException(
                         "Failed to end message", e));
             }
         }
@@ -758,7 +758,7 @@ public final class SMTPClientProtocolHandler
 
     private void sendCommand(String command, SMTPState newState) {
         if (!isConnected()) {
-            handler.onError(new SMTPException("Not connected"));
+            handler.onError(new SmtpException("Not connected"));
             return;
         }
         rejectCrlf(command);
@@ -781,7 +781,7 @@ public final class SMTPClientProtocolHandler
 
     private void sendRawLine(String line, SMTPState newState) {
         if (!isConnected()) {
-            handler.onError(new SMTPException("Not connected"));
+            handler.onError(new SmtpException("Not connected"));
             return;
         }
         rejectCrlf(line);
@@ -812,8 +812,8 @@ public final class SMTPClientProtocolHandler
     private void handle421ServiceClosing(String message) {
         state = SMTPState.CLOSED;
 
-        if (currentCallback instanceof ServerReplyHandler) {
-            ((ServerReplyHandler) currentCallback)
+        if (currentCallback instanceof ReplyHandler) {
+            ((ReplyHandler) currentCallback)
                     .handleServiceClosing(message);
         } else {
             handler.handleServiceUnavailable("421 " + message);
@@ -929,8 +929,8 @@ public final class SMTPClientProtocolHandler
     /** RFC 5321 §4.1.1.1 — 250 multi-line EHLO reply or 502 not supported. */
     private void dispatchEhloReply(int code,
                                    List<String> messages) {
-        ServerEhloReplyHandler callback =
-                (ServerEhloReplyHandler) currentCallback;
+        EhloReplyHandler callback =
+                (EhloReplyHandler) currentCallback;
         currentCallback = null;
 
         if (code == 250) {
@@ -955,8 +955,8 @@ public final class SMTPClientProtocolHandler
     }
 
     private void dispatchHeloReply(int code, String message) {
-        ServerHeloReplyHandler callback =
-                (ServerHeloReplyHandler) currentCallback;
+        HeloReplyHandler callback =
+                (HeloReplyHandler) currentCallback;
         currentCallback = null;
 
         if (code == 250) {
@@ -971,8 +971,8 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 3207 §4 — 220 ready for TLS, 454 unavailable, 502 not recognized. */
     private void dispatchStarttlsReply(int code, String message) {
-        ServerStarttlsReplyHandler callback =
-                (ServerStarttlsReplyHandler) currentCallback;
+        StarttlsReplyHandler callback =
+                (StarttlsReplyHandler) currentCallback;
 
         if (code == 220) {
             try {
@@ -996,8 +996,8 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 4954 — 235 success, 334 challenge, 454/504/535 failure. */
     private void dispatchAuthReply(int code, String message) {
-        ServerAuthReplyHandler callback =
-                (ServerAuthReplyHandler) currentCallback;
+        AuthReplyHandler callback =
+                (AuthReplyHandler) currentCallback;
         currentCallback = null;
 
         if (code == 235) {
@@ -1024,8 +1024,8 @@ public final class SMTPClientProtocolHandler
 
     private void dispatchAuthAbortReply(int code,
                                         String message) {
-        ServerAuthAbortHandler callback =
-                (ServerAuthAbortHandler) currentCallback;
+        AuthAbortHandler callback =
+                (AuthAbortHandler) currentCallback;
         currentCallback = null;
         state = SMTPState.CONNECTED;
         callback.handleAborted(this);
@@ -1033,8 +1033,8 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 5321 §4.1.1.2 — 250 sender OK, 4xx/5xx rejection. */
     private void dispatchMailFromReply(int code, String message) {
-        ServerMailFromReplyHandler callback =
-                (ServerMailFromReplyHandler) currentCallback;
+        MailFromReplyHandler callback =
+                (MailFromReplyHandler) currentCallback;
         currentCallback = null;
 
         if (code == 250) {
@@ -1051,8 +1051,8 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 5321 §4.1.1.3 — 250/251/252 accepted, 4xx/5xx rejected. */
     private void dispatchRcptToReply(int code, String message) {
-        ServerRcptToReplyHandler callback =
-                (ServerRcptToReplyHandler) currentCallback;
+        RcptToReplyHandler callback =
+                (RcptToReplyHandler) currentCallback;
         currentCallback = null;
 
         if (code == 250 || code == 251 || code == 252) {
@@ -1074,8 +1074,8 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 5321 §4.1.1.4 — 354 start mail input. */
     private void dispatchDataReply(int code, String message) {
-        ServerDataReplyHandler callback =
-                (ServerDataReplyHandler) currentCallback;
+        DataReplyHandler callback =
+                (DataReplyHandler) currentCallback;
         currentCallback = null;
 
         if (code == 354) {
@@ -1101,9 +1101,9 @@ public final class SMTPClientProtocolHandler
             state = SMTPState.CONNECTED;
             useBdat = false;
             if (currentCallback
-                    instanceof ServerMessageReplyHandler) {
-                ServerMessageReplyHandler callback =
-                        (ServerMessageReplyHandler) currentCallback;
+                    instanceof MessageReplyHandler) {
+                MessageReplyHandler callback =
+                        (MessageReplyHandler) currentCallback;
                 currentCallback = null;
                 callback.handleTemporaryFailure(this);
             }
@@ -1111,9 +1111,9 @@ public final class SMTPClientProtocolHandler
             state = SMTPState.CONNECTED;
             useBdat = false;
             if (currentCallback
-                    instanceof ServerMessageReplyHandler) {
-                ServerMessageReplyHandler callback =
-                        (ServerMessageReplyHandler) currentCallback;
+                    instanceof MessageReplyHandler) {
+                MessageReplyHandler callback =
+                        (MessageReplyHandler) currentCallback;
                 currentCallback = null;
                 callback.handlePermanentFailure(message, this);
             }
@@ -1122,8 +1122,8 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 5321 §3.3 — 250 message accepted for delivery. */
     private void dispatchMessageReply(int code, String message) {
-        ServerMessageReplyHandler callback =
-                (ServerMessageReplyHandler) currentCallback;
+        MessageReplyHandler callback =
+                (MessageReplyHandler) currentCallback;
         currentCallback = null;
         useBdat = false;
 
@@ -1141,8 +1141,8 @@ public final class SMTPClientProtocolHandler
     }
 
     private void dispatchRsetReply(int code, String message) {
-        ServerRsetReplyHandler callback =
-                (ServerRsetReplyHandler) currentCallback;
+        RsetReplyHandler callback =
+                (RsetReplyHandler) currentCallback;
         currentCallback = null;
         state = SMTPState.CONNECTED;
         acceptedRecipients = 0;
@@ -1151,8 +1151,8 @@ public final class SMTPClientProtocolHandler
 
     /** RFC 5321 §4.1.1.6–7 — dispatch VRFY / EXPN reply. */
     private void dispatchVrfyExpnReply(int code, String message) {
-        ServerReplyHandler callback =
-                (ServerReplyHandler) currentCallback;
+        ReplyHandler callback =
+                (ReplyHandler) currentCallback;
         currentCallback = null;
         state = SMTPState.CONNECTED;
         callback.handleReply(code, message, this);
@@ -1299,7 +1299,7 @@ public final class SMTPClientProtocolHandler
 
     // ── Error handling ──
 
-    private void handleError(SMTPException error) {
+    private void handleError(SmtpException error) {
         if (LOGGER.isLoggable(Level.WARNING)) {
             LOGGER.warning(MessageFormat.format(
                     L10N.getString("client.warn.smtp_error"),

@@ -223,7 +223,7 @@ public final class FTPClientProtocolHandler
     // ── ByteStreamLexer.Handler implementation (issue #85) ──
 
     // RFC 959 §4.2: CODE [SEP TEXT] CRLF, identical grammar to SMTP (RFC
-    // 5321 §4.2) — see SMTPClientProtocolHandler.token() for the mirrored
+    // 5321 §4.2) — see SmtpClientProtocolHandler.token() for the mirrored
     // implementation this is based on.
     @Override
     public boolean token(FTPClientLexer.Token type, ByteBuffer window) {

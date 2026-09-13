@@ -72,7 +72,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link POP3ProtocolHandler}.
+ * Unit tests for {@link Pop3ProtocolHandler}.
  *
  * <p>Tests the POP3 server state machine by simulating client commands
  * through a stub Endpoint and verifying the responses sent back. Uses
@@ -81,7 +81,7 @@ import static org.junit.Assert.*;
  */
 public class POP3ProtocolHandlerTest {
 
-    private POP3ProtocolHandler handler;
+    private Pop3ProtocolHandler handler;
     private StubEndpoint endpoint;
     private TestPOP3Listener listener;
     private StubRealm realm;
@@ -99,7 +99,7 @@ public class POP3ProtocolHandlerTest {
         listener.setEnableUTF8(true);
         listener.setEnablePipelining(false);
 
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         endpoint = new StubEndpoint();
     }
 
@@ -179,7 +179,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testPlaintextGreetingWithAPOP() {
         listener.setEnableAPOP(true);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         String response = lastResponse();
         assertTrue(response.startsWith("+OK"));
@@ -240,7 +240,7 @@ public class POP3ProtocolHandlerTest {
             listener.setEnableAPOP(false);
             listener.setEnableUTF8(true);
             listener.setEnablePipelining(false);
-            handler = new POP3ProtocolHandler(listener);
+            handler = new Pop3ProtocolHandler(listener);
             endpoint = new StubEndpoint();
 
             connectPlaintext();
@@ -365,7 +365,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAExcludesUTF8WhenDisabled() {
         listener.setEnableUTF8(false);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -393,7 +393,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAIncludesSTLSWhenAvailable() {
         listener.starttlsAvailable = true;
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -404,7 +404,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAExcludesSTLSWhenSecure() {
         listener.starttlsAvailable = true;
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectSecure();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -442,7 +442,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAIncludesExpireWhenConfigured() {
         listener.setExpireDays(7);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -454,7 +454,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAIncludesExpireNever() {
         listener.setExpireDays(Integer.MAX_VALUE);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -482,7 +482,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAIncludesLoginDelay() {
         listener.setLoginDelayMs(5000);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -581,7 +581,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testPASSWithNoRealm() {
         listener.setRealm(null);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("USER testuser");
@@ -604,7 +604,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testAPOPRequiresArguments() {
         listener.setEnableAPOP(true);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("APOP onlyuser");
@@ -626,7 +626,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testSTLSWhenAlreadySecure() {
         listener.starttlsAvailable = true;
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectSecure();
         endpoint.sentData.clear();
         sendCommand("STLS");
@@ -637,7 +637,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testSTLSSuccess() {
         listener.starttlsAvailable = true;
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("STLS");
@@ -663,7 +663,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testUTF8Disabled() {
         listener.setEnableUTF8(false);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("UTF8");
@@ -1341,7 +1341,7 @@ public class POP3ProtocolHandlerTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // ConnectedState handler tests (via POP3Service)
+    // ConnectedState handler tests (via Pop3Server)
     // ═══════════════════════════════════════════════════════════════════
 
     @Test
@@ -1635,7 +1635,7 @@ public class POP3ProtocolHandlerTest {
     // Stub implementations
     // ═══════════════════════════════════════════════════════════════════
 
-    static class TestPOP3Listener extends POP3Listener {
+    static class TestPOP3Listener extends Pop3Listener {
         boolean starttlsAvailable = false;
         ClientConnected clientHandler;
 
@@ -1645,7 +1645,7 @@ public class POP3ProtocolHandlerTest {
         }
 
         @Override
-        public POP3Service getService() {
+        public Pop3Server getService() {
             if (clientHandler == null) {
                 return null;
             }
@@ -1653,7 +1653,7 @@ public class POP3ProtocolHandlerTest {
         }
     }
 
-    static class TestPOP3Service extends POP3Service {
+    static class TestPOP3Service extends Pop3Server {
         private final ClientConnected handler;
 
         TestPOP3Service(ClientConnected handler) {

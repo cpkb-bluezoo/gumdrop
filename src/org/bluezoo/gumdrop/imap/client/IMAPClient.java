@@ -1,5 +1,5 @@
 /*
- * IMAPClient.java
+ * ImapClient.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,16 +34,16 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPTransportFactory;
 import org.bluezoo.gumdrop.imap.client.handler.MailboxEventListener;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
-import org.bluezoo.gumdrop.imap.client.handler.ServerGreeting;
+import org.bluezoo.gumdrop.imap.client.handler.RemoteGreeting;
 
 /**
  * High-level IMAP4rev2 client facade (RFC 9051).
  *
  * <p>This class provides a simple, concrete API for connecting to IMAP
  * servers. It internally creates a {@link TCPTransportFactory},
- * {@link ClientEndpoint}, and {@link IMAPClientProtocolHandler}, wiring
+ * {@link ClientEndpoint}, and {@link ImapClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
- * {@link ServerGreeting} handler.
+ * {@link RemoteGreeting} handler.
  *
  * <p>Supports plaintext (port 143) with STARTTLS upgrade
  * (RFC 9051 section 6.2.1) and implicit TLS/IMAPS (port 993,
@@ -51,9 +51,9 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerGreeting;
  *
  * <h4>Plaintext with STARTTLS</h4>
  * <pre>{@code
- * IMAPClient client = new IMAPClient(selectorLoop, "imap.example.com", 143);
+ * ImapClient client = new ImapClient(selectorLoop, "imap.example.com", 143);
  * client.setClientCredentials(clientCredentials);
- * client.connect(new ServerGreeting() {
+ * client.connect(new RemoteGreeting() {
  *     public void handleGreeting(ClientNotAuthenticatedState auth,
  *                                String greeting,
  *                                List<String> preAuthCapabilities) {
@@ -65,20 +65,20 @@ import org.bluezoo.gumdrop.imap.client.handler.ServerGreeting;
  *
  * <h4>Implicit TLS (IMAPS)</h4>
  * <pre>{@code
- * IMAPClient client = new IMAPClient("imap.example.com", 993);
+ * ImapClient client = new ImapClient("imap.example.com", 993);
  * client.setSecure(true);
  * client.setClientCredentials(clientCredentials);
  * client.connect(greetingHandler);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerGreeting
- * @see IMAPClientProtocolHandler
+ * @see RemoteGreeting
+ * @see ImapClientProtocolHandler
  */
-public class IMAPClient {
+public class ImapClient {
 
     private static final Logger LOGGER =
-            Logger.getLogger(IMAPClient.class.getName());
+            Logger.getLogger(ImapClient.class.getName());
 
     private final String host;
     private final InetAddress hostAddress;
@@ -96,7 +96,7 @@ public class IMAPClient {
 
     private TCPTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
-    private IMAPClientProtocolHandler endpointHandler;
+    private ImapClientProtocolHandler endpointHandler;
 
     /**
      * Creates an IMAP client for the given hostname and port.
@@ -108,7 +108,7 @@ public class IMAPClient {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public IMAPClient(String host, int port) {
+    public ImapClient(String host, int port) {
         this(null, host, port);
     }
 
@@ -122,7 +122,7 @@ public class IMAPClient {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public IMAPClient(SelectorLoop selectorLoop, String host,
+    public ImapClient(SelectorLoop selectorLoop, String host,
                       int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
@@ -137,7 +137,7 @@ public class IMAPClient {
      * @param host the remote host address
      * @param port the remote port
      */
-    public IMAPClient(InetAddress host, int port) {
+    public ImapClient(InetAddress host, int port) {
         this(null, host, port);
     }
 
@@ -149,7 +149,7 @@ public class IMAPClient {
      * @param host the remote host address
      * @param port the remote port
      */
-    public IMAPClient(SelectorLoop selectorLoop, InetAddress host,
+    public ImapClient(SelectorLoop selectorLoop, InetAddress host,
                       int port) {
         this.selectorLoop = selectorLoop;
         this.host = null;
@@ -167,7 +167,7 @@ public class IMAPClient {
      *
      * @param socketPath the UNIX domain socket path
      */
-    public IMAPClient(String socketPath) {
+    public ImapClient(String socketPath) {
         this(null, socketPath);
     }
 
@@ -178,7 +178,7 @@ public class IMAPClient {
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param socketPath the UNIX domain socket path
      */
-    public IMAPClient(SelectorLoop selectorLoop, String socketPath) {
+    public ImapClient(SelectorLoop selectorLoop, String socketPath) {
         if (socketPath == null) {
             throw new NullPointerException("socketPath");
         }
@@ -295,7 +295,7 @@ public class IMAPClient {
      * @param handler the handler to receive the server greeting and
      *                lifecycle events
      */
-    public void connect(ServerGreeting handler) {
+    public void connect(RemoteGreeting handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
@@ -315,7 +315,7 @@ public class IMAPClient {
         }
         transportFactory.start();
 
-        endpointHandler = new IMAPClientProtocolHandler(handler);
+        endpointHandler = new ImapClientProtocolHandler(handler);
         endpointHandler.setSecure(secure);
         if (mailboxEventListener != null) {
             endpointHandler.setMailboxEventListener(

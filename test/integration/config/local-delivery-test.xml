@@ -13,11 +13,11 @@
   </mailbox-factory>
 
   <!-- SMTP local delivery service -->
-  <service id="smtpService" class="org.bluezoo.gumdrop.smtp.LocalDeliveryService">
+  <service id="smtpService" class="org.bluezoo.gumdrop.smtp.LocalDeliveryServer">
     <property name="mailboxFactory" ref="mailboxFactory"/>
     <property name="localDomain">testlocal.example</property>
     <property name="hostname">localhost</property>
-    <listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+    <listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
               port="12698" addresses="::1"/>
   </service>
 

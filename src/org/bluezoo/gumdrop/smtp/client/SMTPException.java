@@ -1,5 +1,5 @@
 /*
- * SMTPException.java
+ * SmtpException.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -37,10 +37,10 @@ package org.bluezoo.gumdrop.smtp.client;
  * not through this exception.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting
+ * @see org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
-public class SMTPException extends Exception {
+public class SmtpException extends Exception {
 
     private static final long serialVersionUID = 1L;
 
@@ -49,7 +49,7 @@ public class SMTPException extends Exception {
      * 
      * @param message error description
      */
-    public SMTPException(String message) {
+    public SmtpException(String message) {
         super(message);
     }
     
@@ -59,7 +59,7 @@ public class SMTPException extends Exception {
      * @param message error description
      * @param cause underlying cause
      */
-    public SMTPException(String message, Throwable cause) {
+    public SmtpException(String message, Throwable cause) {
         super(message, cause);
     }
 }

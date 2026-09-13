@@ -1,5 +1,5 @@
 /*
- * POP3Client.java
+ * Pop3Client.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.TCPTransportFactory;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
+import org.bluezoo.gumdrop.pop3.client.handler.RemoteGreeting;
 
 /**
  * High-level POP3 client facade (RFC 1939).
@@ -45,18 +45,18 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
  *
  * <p>This class provides a simple, concrete API for connecting to POP3
  * servers. It internally creates a {@link TCPTransportFactory},
- * {@link ClientEndpoint}, and {@link POP3ClientProtocolHandler}, wiring
+ * {@link ClientEndpoint}, and {@link Pop3ClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
- * {@link ServerGreeting} handler.
+ * {@link RemoteGreeting} handler.
  *
  * <h4>Plaintext with STLS</h4>
  * <pre>{@code
- * POP3Client client = new POP3Client(selectorLoop, "pop.example.com", 110);
+ * Pop3Client client = new Pop3Client(selectorLoop, "pop.example.com", 110);
  * client.setClientCredentials(clientCredentials); // Makes TLS available for STLS
- * client.connect(new ServerGreeting() {
+ * client.connect(new RemoteGreeting() {
  *     public void handleGreeting(ClientAuthorizationState auth,
  *                                String message, String apopTimestamp) {
- *         auth.capa(new ServerCapaReplyHandler() {
+ *         auth.capa(new CapaReplyHandler() {
  *             public void handleCapabilities(ClientAuthorizationState auth,
  *                     boolean stls, List&lt;String&gt; saslMechanisms,
  *                     boolean top, boolean uidl, boolean user,
@@ -80,22 +80,22 @@ import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
  *
  * <h4>Implicit TLS (POP3S)</h4>
  * <pre>{@code
- * POP3Client client = new POP3Client("pop.example.com", 995);
+ * Pop3Client client = new Pop3Client("pop.example.com", 995);
  * client.setSecure(true);
  * client.setClientCredentials(clientCredentials);
  * client.connect(greetingHandler);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerGreeting
- * @see POP3ClientProtocolHandler
+ * @see RemoteGreeting
+ * @see Pop3ClientProtocolHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 — Implicit TLS</a>
  */
-public class POP3Client {
+public class Pop3Client {
 
     private static final Logger LOGGER =
-            Logger.getLogger(POP3Client.class.getName());
+            Logger.getLogger(Pop3Client.class.getName());
 
     private final String host;
     private final InetAddress hostAddress;
@@ -112,7 +112,7 @@ public class POP3Client {
 
     private TCPTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
-    private POP3ClientProtocolHandler endpointHandler;
+    private Pop3ClientProtocolHandler endpointHandler;
 
     /**
      * Creates a POP3 client for the given hostname and port.
@@ -124,7 +124,7 @@ public class POP3Client {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public POP3Client(String host, int port) {
+    public Pop3Client(String host, int port) {
         this(null, host, port);
     }
 
@@ -138,7 +138,7 @@ public class POP3Client {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public POP3Client(SelectorLoop selectorLoop, String host, int port) {
+    public Pop3Client(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
         this.hostAddress = null;
@@ -152,7 +152,7 @@ public class POP3Client {
      * @param host the remote host address
      * @param port the remote port
      */
-    public POP3Client(InetAddress host, int port) {
+    public Pop3Client(InetAddress host, int port) {
         this(null, host, port);
     }
 
@@ -164,7 +164,7 @@ public class POP3Client {
      * @param host the remote host address
      * @param port the remote port
      */
-    public POP3Client(SelectorLoop selectorLoop, InetAddress host,
+    public Pop3Client(SelectorLoop selectorLoop, InetAddress host,
                       int port) {
         this.selectorLoop = selectorLoop;
         this.host = null;
@@ -182,7 +182,7 @@ public class POP3Client {
      *
      * @param socketPath the UNIX domain socket path
      */
-    public POP3Client(String socketPath) {
+    public Pop3Client(String socketPath) {
         this(null, socketPath);
     }
 
@@ -193,7 +193,7 @@ public class POP3Client {
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param socketPath the UNIX domain socket path
      */
-    public POP3Client(SelectorLoop selectorLoop, String socketPath) {
+    public Pop3Client(SelectorLoop selectorLoop, String socketPath) {
         if (socketPath == null) {
             throw new NullPointerException("socketPath");
         }
@@ -291,7 +291,7 @@ public class POP3Client {
      * @param handler the handler to receive the server greeting and
      *                lifecycle events
      */
-    public void connect(ServerGreeting handler) {
+    public void connect(RemoteGreeting handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
@@ -311,7 +311,7 @@ public class POP3Client {
         }
         transportFactory.start();
 
-        endpointHandler = new POP3ClientProtocolHandler(handler);
+        endpointHandler = new Pop3ClientProtocolHandler(handler);
         endpointHandler.setSecure(secure);
 
         try {

@@ -25,11 +25,11 @@ package org.bluezoo.gumdrop.pop3.client.handler;
  * Operations available after a USER command has been accepted.
  *
  * <p>This interface is provided to the handler in
- * {@link ServerUserReplyHandler#handleUserAccepted} and allows the
+ * {@link UserReplyHandler#handleUserAccepted} and allows the
  * handler to complete authentication by sending the PASS command.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerUserReplyHandler#handleUserAccepted
+ * @see UserReplyHandler#handleUserAccepted
  */
 public interface ClientPasswordState {
 
@@ -43,7 +43,7 @@ public interface ClientPasswordState {
      * @param password the password
      * @param callback receives the server's response
      */
-    void pass(String password, ServerPassReplyHandler callback);
+    void pass(String password, PassReplyHandler callback);
 
     /**
      * Closes the connection without completing authentication.

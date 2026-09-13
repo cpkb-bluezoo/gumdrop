@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.smtp.handler;
 
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.DeliveryRequirements;
-import org.bluezoo.gumdrop.smtp.SMTPPipeline;
+import org.bluezoo.gumdrop.smtp.SmtpPipeline;
 
 /**
  * Handler for MAIL FROM commands.
@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.smtp.SMTPPipeline;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MailFromState
- * @see SMTPPipeline
+ * @see SmtpPipeline
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.1.1.2">RFC 5321 §4.1.1.2</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6531">RFC 6531</a> (SMTPUTF8)
  */
@@ -51,11 +51,11 @@ public interface MailFromHandler {
      * <p>The returned pipeline (if non-null) receives notifications as the
      * transaction progresses:
      * <ul>
-     *   <li>{@link SMTPPipeline#mailFrom} when MAIL FROM is accepted</li>
-     *   <li>{@link SMTPPipeline#rcptTo} when each RCPT TO is accepted</li>
-     *   <li>{@link SMTPPipeline#getMessageChannel} at message transfer start</li>
-     *   <li>{@link SMTPPipeline#endData} when message transfer completes</li>
-     *   <li>{@link SMTPPipeline#reset} on RSET or transaction end</li>
+     *   <li>{@link SmtpPipeline#mailFrom} when MAIL FROM is accepted</li>
+     *   <li>{@link SmtpPipeline#rcptTo} when each RCPT TO is accepted</li>
+     *   <li>{@link SmtpPipeline#getMessageChannel} at message transfer start</li>
+     *   <li>{@link SmtpPipeline#endData} when message transfer completes</li>
+     *   <li>{@link SmtpPipeline#reset} on RSET or transaction end</li>
      * </ul>
      * 
      * <p>This is typically used to create an {@link org.bluezoo.gumdrop.smtp.auth.AuthPipeline}
@@ -63,7 +63,7 @@ public interface MailFromHandler {
      * 
      * @return the pipeline for this transaction, or null
      */
-    SMTPPipeline getPipeline();
+    SmtpPipeline getPipeline();
 
     /**
      * Called when client sends MAIL FROM.

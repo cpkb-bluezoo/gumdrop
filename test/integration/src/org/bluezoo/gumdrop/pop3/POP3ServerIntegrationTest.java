@@ -52,9 +52,9 @@ import java.util.logging.Logger;
 import static org.junit.Assert.*;
 
 /**
- * Integration test for POP3Listener with real mailbox stores.
+ * Integration test for Pop3Listener with real mailbox stores.
  *
- * <p>Tests POP3Listener instances with both mbox and Maildir mailbox backends
+ * <p>Tests Pop3Listener instances with both mbox and Maildir mailbox backends
  * using real network connections. Each mailbox contains 2 test messages:
  * <ul>
  *   <li>Message 1: "Welcome to Gumdrop!"</li>
@@ -80,8 +80,8 @@ public class POP3ServerIntegrationTest {
         .build();
     
     private Gumdrop gumdrop;
-    private POP3Listener mboxServer;
-    private POP3Listener maildirServer;
+    private Pop3Listener mboxServer;
+    private Pop3Listener maildirServer;
 
     /** Private temporary copies of the read-only fixtures (deleted in teardown). */
     private Path mboxRoot;
@@ -107,7 +107,7 @@ public class POP3ServerIntegrationTest {
         TestRealm realm = new TestRealm();
         
         // Create mbox server
-        mboxServer = new POP3Listener();
+        mboxServer = new Pop3Listener();
         mboxServer.setPort(MBOX_PORT);
         mboxServer.setAddresses("::1");
         mboxServer.setEnableAPOP(false);
@@ -115,7 +115,7 @@ public class POP3ServerIntegrationTest {
         mboxServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
         
         // Create Maildir server
-        maildirServer = new POP3Listener();
+        maildirServer = new Pop3Listener();
         maildirServer.setPort(MAILDIR_PORT);
         maildirServer.setAddresses("::1");
         maildirServer.setEnableAPOP(false);

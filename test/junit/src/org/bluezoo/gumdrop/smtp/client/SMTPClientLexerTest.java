@@ -35,7 +35,7 @@ import static org.junit.Assert.*;
 /**
  * Unit tests for {@link SMTPClientLexer}, verifying exact token content
  * for the {@code CODE [SEP TEXT] CRLF} reply grammar, independent of
- * {@link SMTPClientProtocolHandler}'s business logic — in particular the
+ * {@link SmtpClientProtocolHandler}'s business logic — in particular the
  * per-line {@code sawCode} tracking reset (see
  * {@link SMTPClientLexer#resetForNextLine()}), which a fixed-width-prefix
  * grammar needs but the command lexers' scan-for-space grammars do not.

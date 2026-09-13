@@ -33,7 +33,7 @@ import org.bluezoo.gumdrop.auth.Realm;
  * TCP transport listener for MQTT connections.
  *
  * <p>Supports MQTT on port 1883 (plaintext) and port 8883 (TLS), following
- * the same pattern as {@code SMTPListener} and {@code IMAPListener}.
+ * the same pattern as {@code SmtpListener} and {@code ImapListener}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html">MQTT 3.1.1</a>

@@ -22,20 +22,20 @@
 package org.bluezoo.gumdrop.smtp.postfix;
 
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
-import org.bluezoo.gumdrop.smtp.client.SMTPClient;
+import org.bluezoo.gumdrop.smtp.client.SmtpClient;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelope;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeReady;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientPostTls;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientSession;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerDataReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerEhloReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerMailFromReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerMessageReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerRcptToReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerStarttlsReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.DataReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.EhloReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.smtp.client.handler.MailFromReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.MessageReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.RcptToReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.StarttlsReplyHandler;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -105,32 +105,32 @@ public class PostfixSmtpIntegrationTest {
 
     @Test
     public void testSimpleDeliveryNegotiatesChunking() throws Exception {
-        SMTPClient client = new SMTPClient(PostfixTestSupport.HOST, PostfixTestSupport.PORT);
+        SmtpClient client = new SmtpClient(PostfixTestSupport.HOST, PostfixTestSupport.PORT);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
         String subject = "gumdrop-postfix-simple-" + System.nanoTime();
         String body = "Subject: " + subject + "\r\n\r\nplain body over BDAT chunking\r\n";
 
-        client.connect(new ServerGreeting() {
+        client.connect(new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
-                hello.ehlo("gumdrop-test", new ServerEhloReplyHandler() {
+                hello.ehlo("gumdrop-test", new EhloReplyHandler() {
                     @Override
                     public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
                             List<String> authMethods, boolean pipelining) {
-                        session.mailFrom(email(senderAddress()), new ServerMailFromReplyHandler() {
+                        session.mailFrom(email(senderAddress()), new MailFromReplyHandler() {
                             @Override
                             public void handleMailFromOk(ClientEnvelope envelope) {
-                                envelope.rcptTo(email(recipientAddress()), new ServerRcptToReplyHandler() {
+                                envelope.rcptTo(email(recipientAddress()), new RcptToReplyHandler() {
                                     @Override
                                     public void handleRcptToOk(ClientEnvelopeReady ready) {
-                                        ready.data(new ServerDataReplyHandler() {
+                                        ready.data(new DataReplyHandler() {
                                             @Override
                                             public void handleReadyForData(ClientMessageData data) {
                                                 data.writeContent(ByteBuffer.wrap(
                                                         body.getBytes(StandardCharsets.US_ASCII)));
-                                                data.endMessage(new ServerMessageReplyHandler() {
+                                                data.endMessage(new MessageReplyHandler() {
                                                     @Override
                                                     public void handleMessageAccepted(String queueId, ClientSession s) {
                                                         s.quit();
@@ -261,7 +261,7 @@ public class PostfixSmtpIntegrationTest {
 
     @Test
     public void testLargeMessageDeliveredAcrossMultipleChunkWrites() throws Exception {
-        SMTPClient client = new SMTPClient(PostfixTestSupport.HOST, PostfixTestSupport.PORT);
+        SmtpClient client = new SmtpClient(PostfixTestSupport.HOST, PostfixTestSupport.PORT);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
@@ -280,10 +280,10 @@ public class PostfixSmtpIntegrationTest {
         String fullMessage = bodyBuilder.toString();
         byte[] messageBytes = fullMessage.getBytes(StandardCharsets.US_ASCII);
 
-        client.connect(new ServerGreeting() {
+        client.connect(new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
-                hello.ehlo("gumdrop-test", new ServerEhloReplyHandler() {
+                hello.ehlo("gumdrop-test", new EhloReplyHandler() {
                     @Override
                     public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
                             List<String> authMethods, boolean pipelining) {
@@ -371,7 +371,7 @@ public class PostfixSmtpIntegrationTest {
             @Override
             public void run() {
                 if (offset[0] >= content.length) {
-                    data.endMessage(new ServerMessageReplyHandler() {
+                    data.endMessage(new MessageReplyHandler() {
                         @Override
                         public void handleMessageAccepted(String queueId, ClientSession s) {
                             s.quit();
@@ -416,7 +416,7 @@ public class PostfixSmtpIntegrationTest {
         X509Certificate serverCert = PostfixTestSupport.loadServerCertificate();
         X509TrustManager trustManager = pinningTrustManager(serverCert);
 
-        SMTPClient client = new SMTPClient(PostfixTestSupport.HOST, PostfixTestSupport.PORT);
+        SmtpClient client = new SmtpClient(PostfixTestSupport.HOST, PostfixTestSupport.PORT);
         client.setTrustManager(trustManager);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
@@ -425,19 +425,19 @@ public class PostfixSmtpIntegrationTest {
         String subject = "gumdrop-postfix-tls-" + System.nanoTime();
         String body = "Subject: " + subject + "\r\n\r\ndelivered over starttls\r\n";
 
-        client.connect(new ServerGreeting() {
+        client.connect(new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
-                hello.ehlo("gumdrop-test", new ServerEhloReplyHandler() {
+                hello.ehlo("gumdrop-test", new EhloReplyHandler() {
                     @Override
                     public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
                             List<String> authMethods, boolean pipelining) {
                         assertTrue("postfix test image should advertise STARTTLS", starttls);
-                        session.starttls(new ServerStarttlsReplyHandler() {
+                        session.starttls(new StarttlsReplyHandler() {
                             @Override
                             public void handleTlsEstablished(ClientPostTls postTls) {
                                 tlsEstablished.set(true);
-                                postTls.ehlo("gumdrop-test", new ServerEhloReplyHandler() {
+                                postTls.ehlo("gumdrop-test", new EhloReplyHandler() {
                                     @Override
                                     public void handleEhlo(ClientSession session2, boolean starttls2, long maxSize2,
                                             List<String> authMethods2, boolean pipelining2) {
@@ -453,7 +453,7 @@ public class PostfixSmtpIntegrationTest {
                                                                             @Override
                                                                             public void accept(ClientMessageData data) {
                                                                                 data.writeContent(ByteBuffer.wrap(body.getBytes(StandardCharsets.US_ASCII)));
-                                                                                data.endMessage(new ServerMessageReplyHandler() {
+                                                                                data.endMessage(new MessageReplyHandler() {
                                                                                     @Override
                                                                                     public void handleMessageAccepted(String queueId, ClientSession s) {
                                                                                         s.quit();
@@ -587,9 +587,9 @@ public class PostfixSmtpIntegrationTest {
         void accept(ClientMessageData data);
     }
 
-    private ServerMailFromReplyHandler simpleMailFromHandler(AtomicReference<Exception> error,
+    private MailFromReplyHandler simpleMailFromHandler(AtomicReference<Exception> error,
             CountDownLatch doneLatch, MailFromOk onOk) {
-        return new ServerMailFromReplyHandler() {
+        return new MailFromReplyHandler() {
             @Override
             public void handleMailFromOk(ClientEnvelope envelope) {
                 onOk.accept(envelope);
@@ -612,9 +612,9 @@ public class PostfixSmtpIntegrationTest {
         };
     }
 
-    private ServerRcptToReplyHandler simpleRcptHandler(AtomicReference<Exception> error,
+    private RcptToReplyHandler simpleRcptHandler(AtomicReference<Exception> error,
             CountDownLatch doneLatch, RcptToOk onOk) {
-        return new ServerRcptToReplyHandler() {
+        return new RcptToReplyHandler() {
             @Override
             public void handleRcptToOk(ClientEnvelopeReady ready) {
                 onOk.accept(ready);
@@ -637,9 +637,9 @@ public class PostfixSmtpIntegrationTest {
         };
     }
 
-    private ServerDataReplyHandler simpleDataHandler(AtomicReference<Exception> error,
+    private DataReplyHandler simpleDataHandler(AtomicReference<Exception> error,
             CountDownLatch doneLatch, DataReady onReady) {
-        return new ServerDataReplyHandler() {
+        return new DataReplyHandler() {
             @Override
             public void handleReadyForData(ClientMessageData data) {
                 onReady.accept(data);

@@ -33,7 +33,7 @@ package org.bluezoo.gumdrop.pop3.client.handler;
  * re-issuing CAPA is not required.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServerStlsReplyHandler#handleTlsEstablished
+ * @see StlsReplyHandler#handleTlsEstablished
  */
 public interface ClientPostStls {
 
@@ -45,7 +45,7 @@ public interface ClientPostStls {
      *
      * @param callback receives the server's capability response
      */
-    void capa(ServerCapaReplyHandler callback);
+    void capa(CapaReplyHandler callback);
 
     /**
      * Sends a USER command to begin USER/PASS authentication.
@@ -53,7 +53,7 @@ public interface ClientPostStls {
      * @param username the username to authenticate
      * @param callback receives the server's response
      */
-    void user(String username, ServerUserReplyHandler callback);
+    void user(String username, UserReplyHandler callback);
 
     /**
      * Sends an APOP command for digest-based authentication.
@@ -63,7 +63,7 @@ public interface ClientPostStls {
      * @param callback receives the server's response
      */
     void apop(String username, String digest,
-              ServerApopReplyHandler callback);
+              ApopReplyHandler callback);
 
     /**
      * Initiates SASL authentication.
@@ -73,7 +73,7 @@ public interface ClientPostStls {
      * @param callback receives the server's response
      */
     void auth(String mechanism, byte[] initialResponse,
-              ServerAuthReplyHandler callback);
+              AuthReplyHandler callback);
 
     /**
      * Closes the connection.

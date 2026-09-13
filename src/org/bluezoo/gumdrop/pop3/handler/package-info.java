@@ -34,15 +34,15 @@
  * UidlState}, {@link UpdateState}.
  *
  * <p>USER/PASS, APOP, and SASL authentication mechanics, and CAPA/STLS/
- * NOOP/QUIT, are handled entirely by {@code POP3ProtocolHandler} using
+ * NOOP/QUIT, are handled entirely by {@code Pop3ProtocolHandler} using
  * the configured {@link org.bluezoo.gumdrop.auth.Realm}; the application
  * only sees the verified {@code Principal} at {@link
  * AuthorizationHandler#authenticate}. {@link DefaultPOP3Handler} and
- * {@link org.bluezoo.gumdrop.pop3.DefaultPOP3Service} provide a ready-to-use
+ * {@link org.bluezoo.gumdrop.pop3.DefaultPOP3Server} provide a ready-to-use
  * implementation backed directly by the configured {@code MailboxFactory}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.pop3.POP3ProtocolHandler
- * @see org.bluezoo.gumdrop.pop3.POP3Listener
+ * @see org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler
+ * @see org.bluezoo.gumdrop.pop3.Pop3Listener
  */
 package org.bluezoo.gumdrop.pop3.handler;

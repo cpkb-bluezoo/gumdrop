@@ -171,9 +171,9 @@ To enable telemetry for a server, reference the configuration:
 </p>
 
 <pre>
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayServer"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener" port="25"/&gt;
 &lt;/service&gt;
 
 &lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
@@ -919,10 +919,10 @@ For authenticated endpoints, use the <code>headers</code> property:
 &lt;/component&gt;
 
 &lt;!-- SMTP service with telemetry --&gt;
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
+&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayServer"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;property name="handler-factory" ref="#smtpHandler"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener" port="25"/&gt;
 &lt;/service&gt;
 
 &lt;!-- HTTP servlet service with telemetry --&gt;

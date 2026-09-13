@@ -28,13 +28,13 @@ package org.bluezoo.gumdrop.imap.client.handler;
  */
 public interface ClientNotAuthenticatedState {
 
-    void capability(ServerCapabilityReplyHandler callback);
+    void capability(CapabilityReplyHandler callback);
 
-    void login(String username, String password, ServerLoginReplyHandler callback);
+    void login(String username, String password, LoginReplyHandler callback);
 
-    void authenticate(String mechanism, byte[] initialResponse, ServerAuthReplyHandler callback);
+    void authenticate(String mechanism, byte[] initialResponse, AuthReplyHandler callback);
 
-    void starttls(ServerStarttlsReplyHandler callback);
+    void starttls(StarttlsReplyHandler callback);
 
     void logout();
 }

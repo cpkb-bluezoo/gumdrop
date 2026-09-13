@@ -74,13 +74,13 @@ import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
  * ClientEndpoint client = new ClientEndpoint(factory, "proxy", 1080);
  * client.connect(new SOCKSClientHandler(
  *     "smtp.example.com", 587,
- *     new SMTPClientProtocolHandler(callback)));
+ *     new SmtpClientProtocolHandler(callback)));
  *
  * // With authentication
  * SOCKSClientConfig config = new SOCKSClientConfig("user", "pass");
  * client.connect(new SOCKSClientHandler(
  *     "smtp.example.com", 587, config,
- *     new SMTPClientProtocolHandler(callback)));
+ *     new SmtpClientProtocolHandler(callback)));
  *
  * // BIND: proxy listens on our behalf; give the reported address to
  * // the remote peer (e.g. via an FTP PORT command) before it connects

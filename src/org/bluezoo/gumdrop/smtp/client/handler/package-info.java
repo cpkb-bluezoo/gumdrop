@@ -29,17 +29,17 @@
  * <h2>Server Reply Handler Interfaces</h2>
  * <p>These interfaces define callbacks your handler receives for server responses:
  * <ul>
- *   <li>{@link ServerGreeting} - Entry point for new connections</li>
- *   <li>{@link ServerEhloReplyHandler} - Receives EHLO response</li>
- *   <li>{@link ServerHeloReplyHandler} - Receives HELO response</li>
- *   <li>{@link ServerStarttlsReplyHandler} - Receives STARTTLS response</li>
- *   <li>{@link ServerAuthReplyHandler} - Receives AUTH responses</li>
- *   <li>{@link ServerMailFromReplyHandler} - Receives MAIL FROM response</li>
- *   <li>{@link ServerRcptToReplyHandler} - Receives RCPT TO response</li>
- *   <li>{@link ServerDataReplyHandler} - Receives DATA/BDAT response</li>
- *   <li>{@link ServerMessageReplyHandler} - Receives message completion response</li>
- *   <li>{@link ServerRsetReplyHandler} - Receives RSET response</li>
- *   <li>{@link ServerReplyHandler} - Common reply handler methods</li>
+ *   <li>{@link RemoteGreeting} - Entry point for new connections</li>
+ *   <li>{@link EhloReplyHandler} - Receives EHLO response</li>
+ *   <li>{@link HeloReplyHandler} - Receives HELO response</li>
+ *   <li>{@link StarttlsReplyHandler} - Receives STARTTLS response</li>
+ *   <li>{@link AuthReplyHandler} - Receives AUTH responses</li>
+ *   <li>{@link MailFromReplyHandler} - Receives MAIL FROM response</li>
+ *   <li>{@link RcptToReplyHandler} - Receives RCPT TO response</li>
+ *   <li>{@link DataReplyHandler} - Receives DATA/BDAT response</li>
+ *   <li>{@link MessageReplyHandler} - Receives message completion response</li>
+ *   <li>{@link RsetReplyHandler} - Receives RSET response</li>
+ *   <li>{@link ReplyHandler} - Common reply handler methods</li>
  * </ul>
  *
  * <h2>Client State Interfaces</h2>
@@ -58,7 +58,7 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.smtp.client
- * @see org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler
+ * @see org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954</a>
