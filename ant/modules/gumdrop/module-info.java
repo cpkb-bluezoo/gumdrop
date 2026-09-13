@@ -100,7 +100,7 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.amqp.client;
     exports org.bluezoo.gumdrop.amqp.client.handler;
     exports org.bluezoo.gumdrop.mdns;
-    exports javax.servlet.jsp;
+    exports jakarta.servlet.jsp;
 
     uses org.bluezoo.gumdrop.GumdropConfigurator;
     uses org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;

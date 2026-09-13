@@ -34,7 +34,7 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-Gumdrop provides a complete, conformant Java Servlet 4.0 container as part
+Gumdrop provides a complete Jakarta Servlet 6.1 container as part
 of its multiserver framework. This document describes the architecture,
 configuration, and features of the servlet container.
 </p>
@@ -43,7 +43,7 @@ configuration, and features of the servlet container.
 <ul>
 <li><a href="#architecture">Architecture</a></li>
 <li><a href="#async">Asynchronous Processing</a></li>
-<li><a href="#servlet4">Servlet 4.0 Features</a></li>
+<li><a href="#features">HTTP and Servlet Features</a></li>
 <li><a href="#configuration">Configuration</a></li>
 <li><a href="#clustering">Cluster Session Replication</a></li>
 <li><a href="#hot-deploy">Hot Deployment</a></li>
@@ -88,36 +88,43 @@ above this number were impossible.
 Gumdrop was designed from the ground up to use non-blocking I/O via the
 then-new Java NIO Selector API. This architecture completely decouples
 the number of client connections from the number of servlet worker threads,
-which are drawn from a separate thread pool (ThreadPoolExecutorService) of
-configurable size.
+which are drawn from a separate bounded virtual-thread pool of configurable
+size.
 </p>
 
-<h4>Loose Coupling via Pipes</h4>
+<h4>Non-Blocking Request Body Bridge</h4>
 
 <p>
 The servlet specification requires that servlets read request body data
 from an <code>InputStream</code>, a blocking API that doesn't naturally
-fit an event-driven architecture. Gumdrop solves this with a pipe-based
-multiplexing approach:
+fit an event-driven architecture. Gumdrop bridges the two with a
+<code>RequestBodyStream</code> per request:
 </p>
 
 <ol>
-<li><b>I/O Worker Loops</b> - A small pool of SelectorLoop threads handle
-all network I/O for all connections. When request body data arrives, it
-is written to a pipe associated with that request.</li>
-<li><b>Servlet Worker Pool</b> - A separate thread pool services servlet
-requests. Each servlet thread reads request body data from the pipe's
-input stream, which blocks only until data is available.</li>
-<li><b>Asynchronous Support</b> - For Servlet 3.1+ asynchronous processing,
-servlets can register a <code>ReadListener</code> to be notified when data
-becomes available, avoiding blocking entirely.</li>
+<li><b>I/O worker loops</b> - A small pool of SelectorLoop threads handle
+all network I/O for all connections. When request body data arrives,
+<code>ServletHandler</code> calls <code>offer()</code> on the
+<code>RequestBodyStream</code>. This never blocks the SelectorLoop; when
+the buffered byte count reaches a high-water mark (256&nbsp;KB), delivery
+is paused via <code>pauseRequestBody()</code>.</li>
+<li><b>Servlet worker pool</b> - A separate bounded pool of virtual threads
+services servlet requests. Blocking reads on <code>RequestInputStream</code>
+park the virtual thread cheaply until data arrives; when the servlet drains
+the buffer below the low-water mark (64&nbsp;KB),
+<code>resumeRequestBody()</code> runs on the SelectorLoop thread. Pool size
+and queue capacity still bound concurrency; overload is shed with 503.</li>
+<li><b>Asynchronous support</b> - For Servlet 3.1+ asynchronous processing,
+servlets can register a <code>ReadListener</code>. Once registered, reads
+never block: <code>onDataAvailable()</code> is dispatched when data arrives,
+and <code>read()</code> throws if no data is ready.</li>
 </ol>
 
 <p>
-This design means that even with tens of thousands of concurrent connections,
-the server requires only a small number of threads: the I/O worker pool
-(defaulting to twice the number of processors) plus the servlet worker pool
-(configured separately). Both pools are independent of connection count.
+This design decouples connection count from carrier-thread use: a small I/O
+worker pool (defaulting to twice the number of processors) handles all
+network events, while servlet work runs on virtual threads whose pool size
+and queue are tuned separately.
 </p>
 
 <h4>Request Flow</h4>
@@ -162,12 +169,12 @@ re-dispatching the request:
 </p>
 
 <ul>
-<li><code>start(Runnable)</code> - Executes the runnable on a container-managed
-thread pool (<code>ASYNC_EXECUTOR</code>), not on the calling thread.</li>
+<li><code>start(Runnable)</code> - Executes the runnable on the servlet worker
+pool, not on the calling thread.</li>
 <li><code>complete()</code> - Flushes the response, notifies listeners, and
 ends the request/response cycle.</li>
-<li><code>dispatch()</code> - Re-invokes the servlet on a container thread,
-useful for completing processing after an async operation.</li>
+<li><code>dispatch()</code> - Re-invokes the servlet on a servlet worker
+pool thread, useful for completing processing after an async operation.</li>
 <li><code>dispatch(path)</code> - Forwards to a different servlet path for
 completion.</li>
 <li><code>setTimeout(long)</code> - Sets the timeout in milliseconds.</li>
@@ -183,12 +190,18 @@ integrating with the underlying SelectorLoop event system:
 
 <ul>
 <li><b>ReadListener</b> - The <code>onDataAvailable()</code> callback is
-triggered when data arrives on the pipe from the SelectorLoop. The
-<code>onAllDataRead()</code> callback fires when the request body is
-complete.</li>
+triggered when <code>RequestBodyStream</code> receives data on the
+SelectorLoop thread. Callbacks are marshalled onto the I/O thread via
+<code>dispatchContainerCallback()</code>. The <code>onAllDataRead()</code>
+callback fires when the request body is complete.</li>
 <li><b>WriteListener</b> - The <code>onWritePossible()</code> callback is
-triggered when the output buffer has capacity. The implementation checks
-the <code>ResponseOutputStream</code> buffer state to determine readiness.</li>
+triggered when the response is writable again. Readiness reflects both the
+local <code>ResponseOutputStream</code> buffer and transport backpressure
+(<code>pendingResponseBytes()</code> on the connection). Flushed response
+buffers are transferred to the transport without an extra copy; WebSocket
+<code>flush()</code> hands off its buffer the same way. Chunks and
+WebSocket outbound messages are sent via <code>state.execute()</code> on
+the SelectorLoop thread.</li>
 </ul>
 
 <pre>
@@ -274,20 +287,44 @@ Note that all filters in the filter chain must also have
 <code>async-supported=true</code> for the servlet to use async processing.
 </p>
 
-<h3 id="servlet4">Servlet 4.0 Features</h3>
+<h3 id="features">HTTP and Servlet Features</h3>
 
 <p>
-Gumdrop implements the Servlet 4.0 specification, providing modern HTTP features
-that leverage HTTP/3 and HTTP/2 capabilities. These features work transparently
+Gumdrop implements the Jakarta Servlet 6.1 specification on top of its
+HTTP/1.1, HTTP/2, and HTTP/3 stack. Modern HTTP features work transparently
 with Gumdrop&rsquo;s <a href="http.html#server-handler">HTTP Server Handler API</a>.
 </p>
 
-<h4>HTTP/2 Server Push (PushBuilder)</h4>
+<h4 id="servlet61">Servlet 6.0 and 6.1 APIs</h4>
+
+<p>
+Beyond the Servlet 4.0 baseline (server push, trailer fields, HTTP upgrade),
+the container exposes current-spec request and session APIs:
+</p>
+
+<ul>
+<li><code>getRequestId()</code>, <code>getProtocolRequestId()</code>, and
+<code>getServletConnection()</code> on every request</li>
+<li><code>sendRedirect(location, statusCode, clearBody)</code> for controlled
+redirect responses</li>
+<li>Error dispatch attributes <code>jakarta.servlet.error.method</code> and
+<code>jakarta.servlet.error.query_string</code></li>
+<li><code>jakarta.servlet.request.secure_protocol</code> on TLS/QUIC requests
+(from negotiated protocol, e.g. <code>TLSv1.3</code>)</li>
+<li><code>HttpSession.getAccessor()</code> for session access outside an active
+request (WebSocket handlers, async callbacks)</li>
+<li><code>read(ByteBuffer)</code> / <code>write(ByteBuffer)</code> on servlet
+streams</li>
+</ul>
+
+<h4>HTTP/2 Server Push (PushBuilder, deprecated)</h4>
 
 <p>
 Server push allows the server to proactively send resources to the client
 before they are explicitly requested. This is particularly effective for
 pushing CSS, JavaScript, or images that the server knows the client will need.
+<code>PushBuilder</code> remains supported but is deprecated since Servlet 6.0
+because HTTP/2 server push is rarely used in modern deployments.
 </p>
 
 <pre>
@@ -377,8 +414,17 @@ if (req.isTrailerFieldsReady()) {
 
 <p>
 Servlets can upgrade HTTP connections to WebSocket using the standard
-<code>HttpUpgradeHandler</code> API. Gumdrop bridges the Servlet API's
-blocking I/O model to its event-driven WebSocket implementation.
+<code>HttpUpgradeHandler</code> API. Incoming WebSocket messages are
+delivered through the same non-blocking <code>RequestBodyStream</code>
+bridge as HTTP request bodies, with the same pause/resume backpressure.
+<code>HttpUpgradeHandler.init()</code> is dispatched to the servlet worker
+pool so handler setup never blocks the SelectorLoop. The same pool runs
+<code>destroy()</code> when the WebSocket closes, after <code>init()</code>
+has started (so a handler may use <code>destroy()</code> to unblock an
+<code>init()</code> read loop). Outbound data written
+to the <code>WebConnection</code> output stream is marshalled onto the I/O
+thread via <code>state.execute()</code>, with write backpressure matching
+the HTTP response path.
 </p>
 
 <pre>
@@ -404,13 +450,12 @@ public class MyWebSocketHandler implements HttpUpgradeHandler {
     @Override
     public void init(WebConnection wc) {
         this.connection = wc;
-        // Connection is now upgraded - start handling WebSocket frames
-        // via the WebConnection's input/output streams
+        // Runs on a servlet worker thread: read/write loop here until close
     }
     
     @Override
     public void destroy() {
-        // Clean up resources
+        // Close the WebConnection to unblock any read in init()
     }
 }
 </pre>
@@ -468,9 +513,9 @@ blanket-allowed)</li>
 <li><code>accessLog</code> - path to access log file (W3C Extended Log Format)</li>
 <li><code>bufferSize</code> - I/O buffer size for request/response streams in bytes
 (default: 8192, minimum: 1024)</li>
-<li><code>workerCorePoolSize</code> - minimum servlet worker threads</li>
-<li><code>workerMaximumPoolSize</code> - maximum servlet worker threads</li>
-<li><code>workerKeepAlive</code> - idle timeout for excess workers</li>
+<li><code>workerCorePoolSize</code> - minimum servlet worker pool size (virtual threads)</li>
+<li><code>workerMaximumPoolSize</code> - maximum servlet worker pool size (virtual threads)</li>
+<li><code>workerKeepAlive</code> - idle timeout for excess pool workers</li>
 </ul>
 
 <p>
@@ -684,7 +729,9 @@ Session data is preserved across redeployments when possible.
 
 <p>
 Gumdrop supports the standard <code>web.xml</code> deployment descriptor
-format through Servlet 4.0, including:
+format through Jakarta Servlet 6.1 (<code>version="6.1"</code> with the
+<code>https://jakarta.ee/xml/ns/jakartaee</code> namespace, or earlier
+<code>javaee</code> schemas for backward compatibility), including:
 </p>
 
 <h4>Core Elements</h4>

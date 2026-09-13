@@ -35,13 +35,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
-import javax.servlet.ServletContext;
-import javax.servlet.http.HttpSession;
-import javax.servlet.http.HttpSessionAttributeListener;
-import javax.servlet.http.HttpSessionBindingEvent;
-import javax.servlet.http.HttpSessionBindingListener;
-import javax.servlet.http.HttpSessionContext;
-import javax.servlet.http.HttpSessionListener;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpSessionAttributeListener;
+import jakarta.servlet.http.HttpSessionBindingEvent;
+import jakarta.servlet.http.HttpSessionBindingListener;
+import jakarta.servlet.http.HttpSessionListener;
 
 /**
  * HTTP session implementation.
@@ -167,37 +166,13 @@ class Session implements HttpSession {
     }
 
     @Override
-    // Deprecated: HttpSession.getSessionContext() is deprecated by the
-    // Servlet API itself (always returns null since 2.1); implementing it
-    // at all requires referencing the deprecated HttpSessionContext type.
-    @SuppressWarnings("deprecation")
-    public HttpSessionContext getSessionContext() {
-        return null; // deprecated
-    }
-
-    @Override
     public synchronized Object getAttribute(String name) {
         return attributes.get(name);
     }
 
     @Override
-    @SuppressWarnings("deprecation")
-    public Object getValue(String name) {
-        return getAttribute(name);
-    }
-
-    @Override
     public synchronized Enumeration<String> getAttributeNames() {
         return new IteratorEnumeration<String>(attributes.keySet());
-    }
-
-    @Override
-    @SuppressWarnings("deprecation")
-    public synchronized String[] getValueNames() {
-        List<String> list = new ArrayList<>(attributes.keySet());
-        String[] ret = new String[list.size()];
-        list.toArray(ret);
-        return ret;
     }
 
     @Override
@@ -226,12 +201,6 @@ class Session implements HttpSession {
     }
 
     @Override
-    @SuppressWarnings("deprecation")
-    public void putValue(String name, Object value) {
-        setAttribute(name, value);
-    }
-
-    @Override
     public synchronized void removeAttribute(String name) {
         Object oldValue = attributes.remove(name);
         if (oldValue != null) {
@@ -251,25 +220,24 @@ class Session implements HttpSession {
     }
 
     @Override
-    @SuppressWarnings("deprecation")
-    public void removeValue(String name) {
-        removeAttribute(name);
-    }
-
-    @Override
     public void invalidate() {
         // Note: The actual removal from the session map is handled by
         // SessionManager, not directly by the session. This method notifies
         // listeners. The caller (usually Request) should call
         // sessionManager.removeSession(id) after this.
         for (HttpSessionListener l : context.getSessionListeners()) {
-            l.sessionDestroyed(new javax.servlet.http.HttpSessionEvent(this));
+            l.sessionDestroyed(new jakarta.servlet.http.HttpSessionEvent(this));
         }
     }
 
     @Override
     public boolean isNew() {
         return lastAccessedTime == creationTime;
+    }
+
+    @Override
+    public HttpSession.Accessor getAccessor() {
+        return callback -> callback.accept(this);
     }
 
     // -- Cluster replication support --

@@ -356,8 +356,8 @@ public class DeploymentDescriptorParserTest {
         parse(xml);
         
         FilterMapping mapping = descriptor.filterMappings.get(0);
-        assertTrue(mapping.dispatchers.contains(javax.servlet.DispatcherType.REQUEST));
-        assertTrue(mapping.dispatchers.contains(javax.servlet.DispatcherType.FORWARD));
+        assertTrue(mapping.dispatchers.contains(jakarta.servlet.DispatcherType.REQUEST));
+        assertTrue(mapping.dispatchers.contains(jakarta.servlet.DispatcherType.FORWARD));
     }
 
     @Test
@@ -436,6 +436,31 @@ public class DeploymentDescriptorParserTest {
         assertEquals("CUSTOM_SESSION", descriptor.sessionConfig.cookieConfig.getName());
         assertTrue(descriptor.sessionConfig.cookieConfig.isHttpOnly());
         assertTrue(descriptor.sessionConfig.cookieConfig.isSecure());
+    }
+
+    @Test
+    public void testParseSessionCookieConfig61() throws Exception {
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                "<web-app xmlns=\"https://jakarta.ee/xml/ns/jakartaee\" version=\"6.1\">\n" +
+                "  <session-config>\n" +
+                "    <cookie-config>\n" +
+                "      <same-site>None</same-site>\n" +
+                "      <partitioned/>\n" +
+                "      <attribute>\n" +
+                "        <name>Custom-Flag</name>\n" +
+                "        <value>on</value>\n" +
+                "      </attribute>\n" +
+                "    </cookie-config>\n" +
+                "  </session-config>\n" +
+                "</web-app>";
+
+        parse(xml);
+
+        CookieConfig cookieConfig = descriptor.sessionConfig.cookieConfig;
+        assertNotNull(cookieConfig);
+        assertEquals(CookieConfig.SameSite.None, cookieConfig.sameSite);
+        assertTrue(cookieConfig.partitioned);
+        assertEquals("on", cookieConfig.getAttribute("Custom-Flag"));
     }
 
     // ===== Welcome File List Tests =====
@@ -627,6 +652,24 @@ public class DeploymentDescriptorParserTest {
         assertEquals(1, descriptor.servletMappings.size());
         assertNotNull(descriptor.sessionConfig);
         assertEquals(1, descriptor.welcomeFiles.size());
+    }
+
+    @Test
+    public void testParseJakartaWebApp61() throws Exception {
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                "<web-app xmlns=\"https://jakarta.ee/xml/ns/jakartaee\"\n" +
+                "         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n" +
+                "         xsi:schemaLocation=\"https://jakarta.ee/xml/ns/jakartaee\n" +
+                "                             https://jakarta.ee/xml/ns/jakartaee/web-app_6_1.xsd\"\n" +
+                "         version=\"6.1\">\n" +
+                "  <display-name>Jakarta 6.1 App</display-name>\n" +
+                "</web-app>";
+
+        parse(xml);
+
+        assertEquals(6, descriptor.majorVersion);
+        assertEquals(1, descriptor.minorVersion);
+        assertEquals("Jakarta 6.1 App", descriptor.displayName);
     }
 
     // ===== Helper Methods =====

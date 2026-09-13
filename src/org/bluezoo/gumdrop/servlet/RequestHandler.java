@@ -30,9 +30,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.logging.Level;
 
-import javax.servlet.ServletRequestEvent;
-import javax.servlet.ServletRequestListener;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.ServletRequestEvent;
+import jakarta.servlet.ServletRequestListener;
+import jakarta.servlet.http.HttpSession;
 
 /**
  * The request handler retrieves a stream from the request
@@ -96,7 +96,7 @@ class RequestHandler implements Runnable {
 
             // Only complete the response if async was NOT started
             // If async was started, the AsyncContext.complete() will handle it
-            if (!request.isAsyncStarted()) {
+            if (!request.isAsyncStarted() && !request.isUpgraded()) {
                 // endResponse() is fire-and-forget: it schedules the
                 // network send on the connection's SelectorLoop and
                 // returns immediately instead of blocking this worker

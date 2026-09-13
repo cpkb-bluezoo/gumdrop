@@ -45,9 +45,9 @@ import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
 import javax.persistence.PersistenceContextType;
-import javax.servlet.DispatcherType;
-import javax.servlet.SessionTrackingMode;
-import javax.servlet.annotation.ServletSecurity;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.SessionTrackingMode;
+import jakarta.servlet.annotation.ServletSecurity;
 
 import org.bluezoo.gumdrop.servlet.jndi.AdministeredObject;
 import org.bluezoo.gumdrop.servlet.jndi.ConnectionFactory;
@@ -189,6 +189,8 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
         SECURE("secure"),
         MAX_AGE("max-age"),
         SAME_SITE("same-site"),
+        PARTITIONED("partitioned"),
+        COOKIE_ATTRIBUTE("attribute"),
 
         // 13. mime-mapping
         EXTENSION("extension"),
@@ -756,6 +758,18 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                     case SECURE:
                     case MAX_AGE:
                     case SAME_SITE:
+                    case PARTITIONED:
+                        pushText();
+                        break;
+                    case COOKIE_ATTRIBUTE:
+                        pushTarget(new CookieConfig.AttributePair());
+                        break;
+                }
+                break;
+            case COOKIE_ATTRIBUTE:
+                switch (state) {
+                    case NAME:
+                    case VALUE:
                         pushText();
                         break;
                 }
@@ -1604,6 +1618,25 @@ class DeploymentDescriptorParser extends DefaultHandler implements ErrorHandler 
                         break;
                     case SAME_SITE:
                         ((CookieConfig) peekTarget()).sameSite = CookieConfig.SameSite.valueOf(popText());
+                        break;
+                    case PARTITIONED:
+                        ((CookieConfig) peekTarget()).partitioned = popBoolean();
+                        break;
+                    case COOKIE_ATTRIBUTE:
+                        CookieConfig.AttributePair pair = (CookieConfig.AttributePair) popTarget();
+                        if (pair.name != null) {
+                            ((CookieConfig) peekTarget()).setAttribute(pair.name, pair.value);
+                        }
+                        break;
+                }
+                break;
+            case COOKIE_ATTRIBUTE:
+                switch (state) {
+                    case NAME:
+                        ((CookieConfig.AttributePair) peekTarget()).name = popText();
+                        break;
+                    case VALUE:
+                        ((CookieConfig.AttributePair) peekTarget()).value = popText();
                         break;
                 }
                 break;

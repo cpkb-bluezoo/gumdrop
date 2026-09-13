@@ -23,10 +23,10 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Headers;
 
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
-import javax.servlet.http.PushBuilder;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.PushBuilder;
 
 import java.util.Enumeration;
 import java.util.HashSet;
@@ -38,8 +38,11 @@ import java.util.Set;
  * <p>This allows servlets to push resources to clients before they are
  * requested, improving page load times for HTTP/2 connections.
  *
+ * @deprecated since Servlet 6.0; HTTP/2 server push is deprecated by the
+ *             IETF and may be removed in a future Servlet version
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@Deprecated
 class ServletPushBuilder implements PushBuilder {
 
     // Headers that must not be included in push requests (per Servlet 4.0 spec)

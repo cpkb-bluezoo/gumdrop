@@ -21,14 +21,14 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import javax.servlet.AsyncContext;
-import javax.servlet.RequestDispatcher;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
-import javax.servlet.http.Part;
+import jakarta.servlet.AsyncContext;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.Part;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -58,8 +58,9 @@ import java.util.logging.Logger;
  *   <li>/test/xml - XML content type response</li>
  *   <li>/test/filtered - Used for filter testing</li>
  *   <li>/test/params - Query and form parameters</li>
- *   <li>/test/info - Request information</li>
- * </ul>
+   *   <li>/test/info - Request information</li>
+   *   <li>/test/ws - WebSocket upgrade via {@link HttpUpgradeHandler}</li>
+   * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -136,9 +137,16 @@ public class TestServlet extends HttpServlet {
             handleParams(req, resp);
         } else if (pathInfo.equals("/info")) {
             handleInfo(req, resp);
+        } else if (pathInfo.equals("/ws")) {
+            handleWebSocketUpgrade(req, resp);
         } else {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND, "Unknown path: " + pathInfo);
         }
+    }
+
+    private void handleWebSocketUpgrade(HttpServletRequest request,
+            HttpServletResponse response) throws ServletException, IOException {
+        request.upgrade(EchoWebSocketHandler.class);
     }
 
     /**

@@ -98,6 +98,11 @@ public final class PersistenceUnitRef implements Injectable {
         unitName = config.unitName();
     }
 
+    public void init(jakarta.persistence.PersistenceUnit config) {
+        name = config.name();
+        unitName = config.unitName();
+    }
+
     // -- Injectable --
 
     @Override public String getLookupName() {

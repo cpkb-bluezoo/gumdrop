@@ -36,7 +36,7 @@ import java.nio.ByteBuffer;
 class ResponseOutputStream extends OutputStream {
 
     private final Response response;
-    private final ByteBuffer buf;
+    private ByteBuffer buf;
     private boolean closed;
 
     ResponseOutputStream(Response response, int bufferSize) {
@@ -82,8 +82,9 @@ class ResponseOutputStream extends OutputStream {
         }
         if (buf.position() > 0) {
             buf.flip();
-            response.writeBody(buf);
-            buf.clear();
+            ByteBuffer chunk = buf;
+            buf = ByteBuffer.allocate(chunk.capacity());
+            response.writeBody(chunk);
         }
     }
 

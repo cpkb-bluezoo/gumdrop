@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import javax.servlet.annotation.MultipartConfig;
+import jakarta.servlet.annotation.MultipartConfig;
 
 /**
  * A multipart-config element in a servlet deployment descriptor.

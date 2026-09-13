@@ -1,6 +1,6 @@
 # HTTP/2 Server Push Example
 
-This example demonstrates the **Servlet 4.0 HTTP/2 server push feature** implemented in Gumdrop server.
+This example demonstrates **HTTP/2 server push** (`PushBuilder`, introduced in Servlet 4.0, deprecated in 6.0) on Gumdrop's Jakarta Servlet 6.1 container.
 
 ## What is HTTP/2 Server Push?
 
@@ -139,9 +139,9 @@ if (!hasCachedVersion) {
 - Push promises are sent **immediately**, resources delivered **asynchronously**
 - Clients can send **RST_STREAM** to cancel unwanted pushes
 
-## Servlet 4.0 Compliance
+## PushBuilder API
 
-This implementation provides full **Servlet 4.0 server push support**:
+Gumdrop implements the full **PushBuilder** server push API:
 
 - ✅ `HttpServletRequest.newPushBuilder()`
 - ✅ `HttpServletResponse.getPushBuilder()` (delegates to request)
@@ -149,6 +149,8 @@ This implementation provides full **Servlet 4.0 server push support**:
 - ✅ HTTP/2 PUSH_PROMISE frame generation
 - ✅ Proper stream management and lifecycle
 - ✅ Error handling and fallback behaviour
+
+`PushBuilder` is deprecated since Servlet 6.0 but remains supported for HTTP/2 deployments that still use server push.
 
 ## Architecture
 

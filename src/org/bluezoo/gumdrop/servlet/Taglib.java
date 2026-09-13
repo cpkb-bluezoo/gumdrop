@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import javax.servlet.descriptor.TaglibDescriptor;
+import jakarta.servlet.descriptor.TaglibDescriptor;
 
 /**
  * A <code>taglib</code> deployment descriptor definition.

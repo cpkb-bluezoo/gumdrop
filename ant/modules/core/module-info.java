@@ -33,7 +33,7 @@ module org.bluezoo.gumdrop.core {
     exports org.bluezoo.gumdrop.telemetry.metrics;
     exports org.bluezoo.gumdrop.telemetry.protobuf;
     exports org.bluezoo.gumdrop.mailbox.spi;
-    exports javax.servlet.jsp;
+    exports jakarta.servlet.jsp;
 
     uses org.bluezoo.gumdrop.GumdropConfigurator;
     uses org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;

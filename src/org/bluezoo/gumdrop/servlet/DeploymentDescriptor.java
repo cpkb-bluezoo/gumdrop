@@ -50,15 +50,15 @@ import org.bluezoo.gumdrop.servlet.jndi.ServiceRef;
  * A deployment descriptor contains the definitions of various entities in
  * the web application, notably filter, servlets, and their mappings.
  *
- * This corresponds to the "javaee:web-commonType" in the servlet 4.0
- * specification.
+ * This corresponds to the Jakarta Servlet deployment descriptor model
+ * (through Servlet 6.1).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 abstract class DeploymentDescriptor implements Description {
 
-    int majorVersion = 2;
-    int minorVersion = 4;
+    int majorVersion = 6;
+    int minorVersion = 1;
     boolean metadataComplete;
 
     // Description

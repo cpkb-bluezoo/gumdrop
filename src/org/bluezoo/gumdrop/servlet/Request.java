@@ -51,8 +51,12 @@ import org.bluezoo.gumdrop.auth.Realm;
 import java.text.MessageFormat;
 import java.text.ParseException;
 import java.util.*;
-import javax.servlet.*;
-import javax.servlet.http.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import jakarta.servlet.*;
+import jakarta.servlet.http.*;
 
 /**
  * A single HTTP request, from the point of view of the servlet.
@@ -60,6 +64,8 @@ import javax.servlet.http.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class Request implements HttpServletRequest {
+
+    private static final AtomicLong REQUEST_SEQ = new AtomicLong();
 
     enum InputStreamState {
         NONE,
@@ -98,13 +104,19 @@ class Request implements HttpServletRequest {
     ServletPrincipal userPrincipal;
 
     AsyncContextImpl asyncContext;
+    private boolean upgraded;
     InputStreamState inputStreamState = InputStreamState.NONE;
     Collection<Part> parts;
+
+    private final String requestId;
+    final String connectionId;
+    final String protocolRequestId;
+    private transient ServletConnection servletConnection;
 
     Request(ServletHandler handler, int bufferSize, String method, String requestTarget, Headers headers,
             RequestBodyStream bodyStream) throws IOException {
         this.handler = handler;
-        in = new RequestInputStream(bodyStream);
+        in = new RequestInputStream(this, bodyStream);
         this.method = method;
         this.requestTarget = requestTarget;
         this.headers = headers;
@@ -115,6 +127,9 @@ class Request implements HttpServletRequest {
         
         HTTPResponseState state = handler.getState();
         this.secure = state.isSecure();
+        this.requestId = Long.toHexString(REQUEST_SEQ.incrementAndGet());
+        this.connectionId = state.getConnectionId();
+        this.protocolRequestId = state.getProtocolConnectionId();
 
         if (secure) {
             SecurityInfo secInfo = state.getSecurityInfo();
@@ -122,12 +137,13 @@ class Request implements HttpServletRequest {
                 Certificate[] certificates = secInfo.getPeerCertificates();
                 String cipherSuite = secInfo.getCipherSuite();
                 int keySize = secInfo.getKeySize();
-                populateTLSAttributes(certificates, cipherSuite, keySize);
+                populateTLSAttributes(certificates, cipherSuite, keySize, secInfo.getProtocol());
             }
         }
     }
 
-    private void populateTLSAttributes(Certificate[] certificates, String cipherSuite, int keySize) {
+    private void populateTLSAttributes(Certificate[] certificates, String cipherSuite,
+            int keySize, String secureProtocol) {
         if (certificates != null) {
             List<X509Certificate> x509 = new ArrayList<>();
             for (Certificate c : certificates) {
@@ -136,11 +152,14 @@ class Request implements HttpServletRequest {
                 }
             }
             X509Certificate[] array = x509.toArray(new X509Certificate[x509.size()]);
-            attributes.put("javax.servlet.request.X509Certificate", array);
+            attributes.put("jakarta.servlet.request.X509Certificate", array);
         }
-        attributes.put("javax.servlet.request.cipher_suite", cipherSuite);
+        attributes.put("jakarta.servlet.request.cipher_suite", cipherSuite);
         if (keySize > 0) {
-            attributes.put("javax.servlet.request.key_size", Integer.valueOf(keySize));
+            attributes.put("jakarta.servlet.request.key_size", Integer.valueOf(keySize));
+        }
+        if (secureProtocol != null) {
+            attributes.put("jakarta.servlet.request.secure_protocol", secureProtocol);
         }
     }
 
@@ -458,7 +477,6 @@ class Request implements HttpServletRequest {
         return Boolean.FALSE == sessionType;
     }
 
-    @Override
     @SuppressWarnings("deprecation")
     public boolean isRequestedSessionIdFromUrl() {
         return isRequestedSessionIdFromURL();
@@ -701,24 +719,58 @@ class Request implements HttpServletRequest {
      * @param upgradeHandler the upgrade handler to use
      * @throws ServletException if the upgrade fails
      */
-    private void performWebSocketUpgrade(HttpUpgradeHandler upgradeHandler) throws ServletException {
+    private void performWebSocketUpgrade(HttpUpgradeHandler upgradeHandler)
+            throws ServletException {
+        // Get negotiated subprotocol
+        String protocol = getHeader("Sec-WebSocket-Protocol");
+
+        // Create the WebConnection that will bridge to the servlet
+        final ServletWebConnection webConnection =
+                new ServletWebConnection(upgradeHandler, handler.getState(), handler);
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Exception> failure = new AtomicReference<Exception>();
+        handler.getState().execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // Perform the upgrade; WebConnectionEventHandler.opened()
+                    // calls upgradeHandler.init(webConnection) when the
+                    // connection is established.
+                    handler.getState().upgradeToWebSocket(
+                            protocol, webConnection.getEventHandler());
+                } catch (Exception e) {
+                    failure.set(e);
+                } finally {
+                    latch.countDown();
+                }
+            }
+        });
         try {
-            // Get negotiated subprotocol
-            String protocol = getHeader("Sec-WebSocket-Protocol");
-            
-            // Create the WebConnection that will bridge to the servlet
-            ServletWebConnection webConnection = new ServletWebConnection(upgradeHandler, 4096);
-            
-            // Get the HTTPResponseState and perform the upgrade
-            HTTPResponseState state = handler.getState();
-            state.upgradeToWebSocket(protocol, webConnection.getEventHandler());
-            
-            // Note: The WebConnectionEventHandler.opened() will call
-            // upgradeHandler.init(webConnection) when the connection is established
-            
-        } catch (IOException e) {
-            throw new ServletException("WebSocket upgrade failed: " + e.getMessage(), e);
+            if (!latch.await(30L, TimeUnit.SECONDS)) {
+                throw new ServletException("Timed out waiting for WebSocket upgrade");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ServletException("Interrupted waiting for WebSocket upgrade", e);
         }
+        Exception error = failure.get();
+        if (error != null) {
+            if (error instanceof ServletException) {
+                throw (ServletException) error;
+            }
+            throw new ServletException("WebSocket upgrade failed", error);
+        }
+
+        this.upgraded = true;
+        Response response = handler.getResponse();
+        if (response != null) {
+            response.markUpgraded();
+        }
+    }
+
+    boolean isUpgraded() {
+        return upgraded;
     }
 
     @Override public Map<String,String> getTrailerFields() {
@@ -1124,7 +1176,6 @@ class Request implements HttpServletRequest {
         return context.getRequestDispatcher(path);
     }
 
-    @Override
     @SuppressWarnings("deprecation")
     public String getRealPath(String path) {
         // Convert to absolute path
@@ -1250,6 +1301,7 @@ class Request implements HttpServletRequest {
      * @return a new PushBuilder instance, or null if server push is not supported
      * @since Servlet 4.0
      */
+    @Deprecated
     @Override
     public PushBuilder newPushBuilder() {
         // Check if server push is supported
@@ -1284,6 +1336,25 @@ class Request implements HttpServletRequest {
             }
         }
         return text;
+    }
+
+    @Override
+    public String getRequestId() {
+        return requestId;
+    }
+
+    @Override
+    public String getProtocolRequestId() {
+        return protocolRequestId;
+    }
+
+    @Override
+    public ServletConnection getServletConnection() {
+        ServletConnection conn = servletConnection;
+        if (conn == null) {
+            servletConnection = conn = new RequestServletConnection(this);
+        }
+        return conn;
     }
 
     // -- Debugging --

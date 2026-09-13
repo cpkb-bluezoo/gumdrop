@@ -28,7 +28,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-import javax.servlet.annotation.ServletSecurity;
+import jakarta.servlet.annotation.ServletSecurity;
 
 import org.bluezoo.gumdrop.servlet.ContextRequestDispatcher.ConstraintRequirement;
 import org.bluezoo.gumdrop.servlet.ContextRequestDispatcher.RoleTester;

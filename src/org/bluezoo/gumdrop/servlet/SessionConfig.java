@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.servlet;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
-import javax.servlet.SessionTrackingMode;
+import jakarta.servlet.SessionTrackingMode;
 
 /**
  * Definition of a session-config.

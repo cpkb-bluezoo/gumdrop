@@ -11,8 +11,10 @@
     <pathelement location='${lib}/${servlet.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${annotation.jar}'/>
+    <pathelement location='${lib}/${jakarta.annotation.jar}'/>
     <pathelement location='${lib}/${ejb.jar}'/>
     <pathelement location='${lib}/${persistence.jar}'/>
+    <pathelement location='${lib}/${jakarta.persistence.jar}'/>
     <pathelement location='${lib}/${jaxws.jar}'/>
   </path>
 
@@ -67,7 +69,7 @@
   <import file='compile-protocols.xml'/>
   <import file='compile-jpms.xml'/>
 
-  <!-- util + javax stubs (mime and the rest of core depend on this).
+  <!-- util + jakarta JSP stubs (mime and the rest of core depend on this).
        crypto/tls compile here too: util (TLSUtils/SniCredentialsResolver)
        depends on tls.ServerCredentials, and tls depends on crypto, a
        one-way dependency (neither crypto nor tls depends back on util),
@@ -92,12 +94,12 @@
       <include name='org/bluezoo/gumdrop/quic/packet/QuicAeadAlgorithm.java'/>
       <include name='org/bluezoo/gumdrop/quic/packet/package-info.java'/>
       <include name='org/bluezoo/util/**'/>
-      <include name='javax/**'/>
+      <include name='jakarta/**'/>
       <exclude name='module-info.java'/>
     </javac>
     <copy todir='${build.core}'>
       <fileset dir='${src}'>
-        <include name='javax/**'/>
+        <include name='jakarta/**'/>
         <include name='META-INF/**'/>
       </fileset>
     </copy>
@@ -129,7 +131,7 @@
            includeantruntime='false' createMissingPackageInfoClass='false'>
       <classpath refid='core.only.classpath'/>
       <include name='org/bluezoo/gumdrop/**'/>
-      <include name='javax/**'/>
+      <include name='jakarta/**'/>
       <exclude name='org/bluezoo/gumdrop/util/**'/>
       <exclude name='org/bluezoo/gumdrop/crypto/**'/>
       <exclude name='org/bluezoo/gumdrop/tls/**'/>
@@ -242,9 +244,9 @@
            includeantruntime='false' createMissingPackageInfoClass='false'>
       <classpath refid='servlet.compile.classpath'/>
       <include name='org/bluezoo/gumdrop/servlet/**'/>
-      <exclude name='javax/**'/>
+      <exclude name='jakarta/**'/>
     </javac>
-    <delete dir='${build.servlet.module}/javax' quiet='true'/>
+    <delete dir='${build.servlet.module}/jakarta' quiet='true'/>
     <copy todir='${build.servlet.module}'>
       <fileset dir='${src}' includes='org/bluezoo/gumdrop/servlet/**' excludes='**/*.java'/>
     </copy>

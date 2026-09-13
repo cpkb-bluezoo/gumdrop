@@ -333,7 +333,7 @@
         <text x="155" y="0" class="subtitle-text" opacity="0.4">•</text>
         <text x="165" y="0" class="protocol-text">WebSocket</text>
         <text x="225" y="0" class="subtitle-text" opacity="0.4">•</text>
-        <text x="235" y="0" class="protocol-text">Servlet 4.0</text>
+        <text x="235" y="0" class="protocol-text">Servlet 6.1</text>
       </g>
       <g class="fade-slide" style="animation-delay: 2s;">
         <text x="0" y="20" class="protocol-text">SMTP</text>

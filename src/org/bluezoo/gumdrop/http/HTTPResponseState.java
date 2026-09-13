@@ -164,6 +164,25 @@ public interface HTTPResponseState {
     String getScheme();
 
     /**
+     * Returns a container-scoped identifier for the underlying connection.
+     *
+     * @return the connection identifier
+     */
+    default String getConnectionId() {
+        return Integer.toHexString(System.identityHashCode(this));
+    }
+
+    /**
+     * Returns the protocol-specific stream or request identifier for this
+     * exchange, or an empty string when not applicable (e.g. HTTP/1.1).
+     *
+     * @return the protocol connection identifier, or {@code ""}
+     */
+    default String getProtocolConnectionId() {
+        return "";
+    }
+
+    /**
      * Returns the SelectorLoop that owns this connection's I/O.
      *
      * <p>Used by services that dispatch to worker threads (e.g. the servlet

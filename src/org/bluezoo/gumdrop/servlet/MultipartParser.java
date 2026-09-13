@@ -39,7 +39,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import javax.servlet.http.Part;
+import jakarta.servlet.http.Part;
 
 /**
  * Parses multipart/form-data request bodies using {@link MIMEParser}.

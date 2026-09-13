@@ -10,7 +10,7 @@
     <packaging>jar</packaging>
 
     <name>Gumdrop Servlet</name>
-    <description>Servlet 4.0 container for Gumdrop</description>
+    <description>Jakarta Servlet 6.1 container for Gumdrop</description>
     <url>https://github.com/cpkb-bluezoo/gumdrop</url>
 
     <dependencies>
@@ -30,9 +30,9 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
-            <version>4.0.1</version>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <version>6.1.0</version>
         </dependency>
     </dependencies>
 

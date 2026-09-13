@@ -19,13 +19,13 @@ import java.io.File;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import javax.servlet.Servlet;
-import javax.servlet.http.MappingMatch;
+import jakarta.servlet.Servlet;
+import jakarta.servlet.http.MappingMatch;
 
 import static org.junit.Assert.*;
 
 /**
- * Regression tests for issue #443: {@link javax.servlet.ServletContainerInitializer}
+ * Regression tests for issue #443: {@link jakarta.servlet.ServletContainerInitializer}
  * discovery and {@code onStartup} invocation during web application startup.
  */
 public class ServletContainerInitializerTest {
@@ -150,7 +150,7 @@ public class ServletContainerInitializerTest {
                 "WEB-INF/classes/META-INF/services");
         Files.createDirectories(servicesDir.toPath());
         File serviceFile = new File(servicesDir,
-                "javax.servlet.ServletContainerInitializer");
+                "jakarta.servlet.ServletContainerInitializer");
         String existing = serviceFile.exists()
                 ? new String(Files.readAllBytes(serviceFile.toPath()),
                         StandardCharsets.UTF_8)

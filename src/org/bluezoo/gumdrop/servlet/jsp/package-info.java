@@ -20,7 +20,10 @@
  */
 
 /**
- * JSP 2.3 compilation and execution, with Expression Language (EL) 3.0
+/**
+ * Jakarta Pages (JSP) 4.0 API compilation and execution on the
+ * {@code jakarta.servlet.jsp} namespace, with runtime support for JSP 2.3
+ * features and Expression Language (EL) 3.0.
  * and tag library (JSTL) support.
  *
  * <p>{@link org.bluezoo.gumdrop.servlet.jsp.JSPParser} parses a

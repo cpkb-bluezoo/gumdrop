@@ -31,7 +31,7 @@ import java.util.logging.Logger;
 import javax.annotation.Resource;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
-import javax.servlet.ServletException;
+import jakarta.servlet.ServletException;
 
 /**
  * Resource injection processor for Gumdrop servlet container.

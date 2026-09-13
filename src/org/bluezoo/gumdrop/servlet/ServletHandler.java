@@ -40,8 +40,6 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.servlet.ReadListener;
-
 /**
  * HTTP request handler for the servlet container.
  *
@@ -76,7 +74,6 @@ class ServletHandler extends DefaultHTTPRequestHandler {
 
     // Request state
     private AtomicBoolean requestFinished = new AtomicBoolean(false);
-    private ReadListener readListener;
     private Map<String, String> requestTrailerFields;
 
     // Response state
@@ -92,6 +89,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     // ensureBodyStarted()) rather than deferred to endResponse().
     private boolean headersSent;
     private boolean bodyStarted;
+    private volatile boolean writePossibleScheduled;
 
     ServletHandler(ServletService service, Container container, int bufferSize) {
         this.service = service;
@@ -193,14 +191,8 @@ class ServletHandler extends DefaultHTTPRequestHandler {
             state.pauseRequestBody();
         }
 
-        // Notify ReadListener if registered
-        if (readListener != null) {
-            try {
-                readListener.onDataAvailable();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error notifying ReadListener", e);
-                readListener.onError(e);
-            }
+        if (request != null) {
+            request.in.dispatchDataAvailable();
         }
     }
 
@@ -216,13 +208,8 @@ class ServletHandler extends DefaultHTTPRequestHandler {
             bodyStream.finish();
         }
 
-        // Notify ReadListener if registered
-        if (readListener != null) {
-            try {
-                readListener.onAllDataRead();
-            } catch (IOException e) {
-                LOGGER.log(Level.WARNING, "Error notifying ReadListener", e);
-            }
+        if (request != null) {
+            request.in.dispatchDataAvailable();
         }
     }
 
@@ -264,8 +251,29 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         return requestFinished.get();
     }
 
-    void setReadListener(ReadListener listener) {
-        this.readListener = listener;
+    /**
+     * Runs a ReadListener/WriteListener callback on the connection's I/O
+     * thread when available.
+     */
+    void dispatchContainerCallback(Runnable task) {
+        if (state != null) {
+            state.execute(task);
+        } else {
+            task.run();
+        }
+    }
+
+    /**
+     * Dispatches a task to the servlet worker pool. Called from the
+     * connection's I/O thread.
+     */
+    void dispatchWorkerTask(Runnable task, Runnable onRejected) {
+        service.executeWorker(task, onRejected);
+    }
+
+    boolean isResponseWritable() {
+        return state == null
+                || state.pendingResponseBytes() <= PENDING_RESPONSE_HIGH_WATERMARK;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -302,15 +310,36 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     private static final int PENDING_RESPONSE_HIGH_WATERMARK = 4 * 1024 * 1024;
 
     void writeBody(ByteBuffer buf) {
-        // Must deep copy - duplicate() shares the backing array which gets reused
-        int length = buf.remaining();
-        final ByteBuffer copy = ByteBuffer.allocate(length);
-        copy.put(buf);
-        copy.flip();
+        writeBody(buf, false);
+    }
+
+    /**
+     * Queues a response body chunk for sending on the connection's I/O thread.
+     *
+     * @param buf body bytes to send
+     * @param transferOwnership if true, {@code buf} is handed off to the
+     *     transport and must not be reused by the caller; if false, a copy
+     *     is made because the caller may still mutate or reuse the buffer
+     */
+    void writeBody(ByteBuffer buf, boolean transferOwnership) {
+        final int length = buf.remaining();
+        final ByteBuffer payload;
+        if (transferOwnership) {
+            payload = buf;
+        } else {
+            payload = ByteBuffer.allocate(length);
+            payload.put(buf);
+            payload.flip();
+        }
         contentLength += (long) length;
 
         ensureBodyStarted();
-        if (state.pendingResponseBytes() > PENDING_RESPONSE_HIGH_WATERMARK) {
+        if (!isResponseWritable()) {
+            if (response != null && response.isNonBlockingWrite()) {
+                scheduleWritePossibleNotification();
+                throw new IllegalStateException(
+                        ServletService.L10N.getString("err.write_not_ready"));
+            }
             awaitWritable();
         }
         // Fire-and-forget: state.execute() preserves submission order (it
@@ -319,10 +348,36 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         // or the final endResponse() completion, without the worker
         // thread needing to wait for each individual chunk in the normal
         // case.
+        final ByteBuffer chunk = payload;
         state.execute(new Runnable() {
             @Override
             public void run() {
-                state.responseBodyContent(copy);
+                state.responseBodyContent(chunk);
+            }
+        });
+    }
+
+    private void scheduleWritePossibleNotification() {
+        if (writePossibleScheduled || state == null
+                || response == null || !response.isNonBlockingWrite()) {
+            return;
+        }
+        writePossibleScheduled = true;
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.onWritable(new Runnable() {
+                    @Override
+                    public void run() {
+                        writePossibleScheduled = false;
+                        if (response != null && response.isNonBlockingWrite()) {
+                            response.notifyWritePossible();
+                            if (!isResponseWritable()) {
+                                scheduleWritePossibleNotification();
+                            }
+                        }
+                    }
+                });
             }
         });
     }

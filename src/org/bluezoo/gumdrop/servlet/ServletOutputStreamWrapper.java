@@ -23,19 +23,21 @@ package org.bluezoo.gumdrop.servlet;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.servlet.ServletOutputStream;
-import javax.servlet.WriteListener;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.WriteListener;
 
 /**
  * Servlet output stream wrapper with async write support.
  * 
  * <p>This implementation wraps a {@link ResponseOutputStream} and provides
  * non-blocking write support through the {@link WriteListener} interface.
- * The listener is notified when the underlying buffer has space for more data.
+ * {@link #isReady()} reflects both the local response buffer and transport
+ * backpressure from {@link ServletHandler#isResponseWritable()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -45,20 +47,16 @@ class ServletOutputStreamWrapper extends ServletOutputStream {
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
     private static final Logger LOGGER = Logger.getLogger(ServletOutputStreamWrapper.class.getName());
 
+    private final Response response;
     private final OutputStream out;
     private final ResponseOutputStream responseOut;
     private WriteListener writeListener;
-    private volatile boolean listenerNotified = false;
+    private volatile boolean listenerNotified = true;
     private volatile boolean closed = false;
 
-    /**
-     * Creates a new servlet output stream wrapper.
-     * 
-     * @param out the underlying output stream
-     */
-    ServletOutputStreamWrapper(OutputStream out) {
+    ServletOutputStreamWrapper(Response response, OutputStream out) {
+        this.response = response;
         this.out = out;
-        // Store reference to ResponseOutputStream for capacity checking
         if (out instanceof ResponseOutputStream) {
             this.responseOut = (ResponseOutputStream) out;
         } else {
@@ -69,33 +67,52 @@ class ServletOutputStreamWrapper extends ServletOutputStream {
     @Override
     public void write(int b) throws IOException {
         checkClosed();
+        checkWriteReady();
         out.write(b);
-        checkNotifyListener();
+        markNotReadyIfNeeded();
     }
 
     @Override
     public void write(byte[] b) throws IOException {
         checkClosed();
+        checkWriteReady();
         out.write(b, 0, b.length);
-        checkNotifyListener();
+        markNotReadyIfNeeded();
     }
 
     @Override
     public void write(byte[] b, int off, int len) throws IOException {
         checkClosed();
+        checkWriteReady();
         out.write(b, off, len);
-        checkNotifyListener();
+        markNotReadyIfNeeded();
+    }
+
+    @Override
+    public void write(ByteBuffer src) throws IOException {
+        checkClosed();
+        checkWriteReady();
+        if (!src.hasRemaining()) {
+            return;
+        }
+        if (src.hasArray()) {
+            write(src.array(), src.arrayOffset() + src.position(), src.remaining());
+            src.position(src.limit());
+        } else {
+            byte[] buf = new byte[src.remaining()];
+            src.get(buf);
+            write(buf, 0, buf.length);
+        }
+        markNotReadyIfNeeded();
     }
 
     @Override
     public void flush() throws IOException {
         checkClosed();
+        checkWriteReady();
         out.flush();
-        
-        // After flush, buffer is empty so we're ready for more data
-        if (writeListener != null && !listenerNotified) {
-            notifyWriteReady();
-        }
+        markNotReadyIfNeeded();
+        notifyWritePossibleIfReady();
     }
 
     @Override
@@ -106,64 +123,58 @@ class ServletOutputStreamWrapper extends ServletOutputStream {
         }
     }
 
-    /**
-     * Sets the write listener for non-blocking I/O.
-     * 
-     * <p>Once a listener is set, the container will call 
-     * {@link WriteListener#onWritePossible()} when the output buffer
-     * has space available for writing.
-     * 
-     * @param listener the write listener
-     * @throws IllegalStateException if a listener is already set
-     */
     @Override
     public void setWriteListener(WriteListener listener) {
         if (this.writeListener != null) {
-            throw new IllegalStateException("WriteListener already set");
+            throw new IllegalStateException(L10N.getString("err.write_listener_already_set"));
         }
         if (listener == null) {
-            throw new NullPointerException("WriteListener cannot be null");
+            throw new NullPointerException(L10N.getString("err.write_listener_null"));
         }
-        
+        if (response != null && !response.request.isAsyncStarted()) {
+            throw new IllegalStateException(L10N.getString("err.write_listener_async"));
+        }
+
         this.writeListener = listener;
         this.listenerNotified = false;
-        
-        // Initial callback - buffer is ready for writing
-        notifyWriteReady();
+        Runnable initial = new Runnable() {
+            @Override
+            public void run() {
+                notifyWritePossibleIfReady();
+            }
+        };
+        if (response != null) {
+            response.handler.dispatchContainerCallback(initial);
+        } else {
+            initial.run();
+        }
     }
 
-    /**
-     * Returns true if data can be written without blocking.
-     * 
-     * @return true if the output buffer has space
-     */
     @Override
     public boolean isReady() {
         if (closed) {
             return false;
         }
-        
-        // Check if the underlying buffer has capacity
-        if (responseOut != null) {
-            boolean ready = responseOut.hasCapacity();
-            
-            // If not ready and we have a listener, flag for notification
-            if (!ready && writeListener != null) {
-                listenerNotified = false;
-            }
-            
-            return ready;
+        if (responseOut != null && !responseOut.hasCapacity()) {
+            return false;
         }
-        
-        // For other output streams, assume always ready
-        return true;
+        if (response == null) {
+            return true;
+        }
+        return response.isResponseWritable();
     }
-    
-    /**
-     * Notifies the write listener that writing is possible.
-     */
-    private void notifyWriteReady() {
-        if (writeListener != null && !listenerNotified) {
+
+    boolean hasWriteListener() {
+        return writeListener != null;
+    }
+
+    void notifyWritePossible() {
+        listenerNotified = false;
+        notifyWritePossibleIfReady();
+    }
+
+    private void notifyWritePossibleIfReady() {
+        if (writeListener != null && isReady() && !listenerNotified) {
             listenerNotified = true;
             try {
                 writeListener.onWritePossible();
@@ -177,20 +188,19 @@ class ServletOutputStreamWrapper extends ServletOutputStream {
             }
         }
     }
-    
-    /**
-     * Checks if listener should be notified after a write operation.
-     */
-    private void checkNotifyListener() {
-        // After a successful write, if we still have capacity, notify listener
-        if (writeListener != null && isReady() && !listenerNotified) {
-            notifyWriteReady();
+
+    private void markNotReadyIfNeeded() {
+        if (writeListener != null && !isReady()) {
+            listenerNotified = false;
         }
     }
-    
-    /**
-     * Checks if the stream is closed and throws an exception if so.
-     */
+
+    private void checkWriteReady() {
+        if (writeListener != null && !isReady()) {
+            throw new IllegalStateException(L10N.getString("err.write_not_ready"));
+        }
+    }
+
     private void checkClosed() throws IOException {
         if (closed) {
             throw new IOException(L10N.getString("async.stream_closed"));

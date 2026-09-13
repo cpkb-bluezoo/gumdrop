@@ -4,7 +4,7 @@
 set -e
 
 GUMDROP_JAR="../../dist/server.jar"
-SERVLET_API_JAR="../../lib/javax.servlet-api-4.0.1.jar"
+SERVLET_API_JAR="../../lib/jakarta.servlet-api-4.0.1.jar"
 
 echo "JSP Code Generation Example - Build Script"
 echo "=========================================="

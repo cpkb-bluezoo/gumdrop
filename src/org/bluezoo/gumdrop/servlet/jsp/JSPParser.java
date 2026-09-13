@@ -36,7 +36,7 @@ import java.io.IOException;
  * </ul>
  * 
  * <p>Both parsers create the same internal representation, enabling uniform code generation
- * and compilation to {@code javax.servlet.http.HttpServlet} classes.
+ * and compilation to {@code jakarta.servlet.http.HttpServlet} classes.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */

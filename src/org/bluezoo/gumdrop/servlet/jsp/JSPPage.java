@@ -90,9 +90,9 @@ public class JSPPage {
      */
     private void addDefaultImports() {
         imports.add("java.lang.*");
-        imports.add("javax.servlet.*");
-        imports.add("javax.servlet.http.*");
-        imports.add("javax.servlet.jsp.*");
+        imports.add("jakarta.servlet.*");
+        imports.add("jakarta.servlet.http.*");
+        imports.add("jakarta.servlet.jsp.*");
     }
     
     /**

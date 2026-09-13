@@ -72,14 +72,14 @@ Add to your `web.xml` or use annotations:
 public class EchoWebSocketHandler implements HttpUpgradeHandler {
     @Override
     public void init(WebConnection webConnection) {
-        // Called when HTTP is upgraded to WebSocket
-        // Start background thread for WebSocket I/O
+        // Called on a servlet worker thread after upgrade completes.
+        // Run the read/write loop here (blocks until the connection closes).
     }
     
     @Override 
     public void destroy() {
-        // Called when WebSocket connection closes
-        // Cleanup resources
+        // Called when the WebSocket closes; closes the WebConnection to
+        // unblock any read still running in init().
     }
 }
 ```
@@ -119,8 +119,8 @@ Browser                 Gumdrop Server
    |-- WebSocket Upgrade --->| Request.upgrade()
    |<-- 101 Switching -------|   (validates & upgrades)
    |                         |
-   |<-- WebSocket Frames --->| EchoWebSocketHandler  
-   |    (bidirectional)      |   (handles messages)
+   |<-- WebSocket Frames --->| EchoWebSocketHandler
+   |    (bidirectional)      |   (worker-thread echo loop)
 ```
 
 ## Technical Details
@@ -137,10 +137,10 @@ Browser                 Gumdrop Server
 - Supports text and binary message types
 
 ### Performance Characteristics
-- Non-blocking I/O using background threads
-- Efficient frame processing with minimal allocations
-- Proper connection cleanup and resource management
-- Scalable for multiple concurrent WebSocket connections
+- Servlet worker virtual threads park cheaply on blocking reads
+- Container uses a non-blocking `RequestBodyStream` bridge on the I/O thread
+- Outbound writes are marshalled back to the SelectorLoop with backpressure
+- Scalable for many concurrent WebSocket connections without extra handler threads
 
 ## Extending the Example
 

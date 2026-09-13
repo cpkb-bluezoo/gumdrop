@@ -24,8 +24,8 @@ package org.bluezoo.gumdrop.servlet.jsp;
 import org.junit.Before;
 import org.junit.Test;
 
-import javax.servlet.jsp.JspWriter;
-import javax.servlet.jsp.PageContext;
+import jakarta.servlet.jsp.JspWriter;
+import jakarta.servlet.jsp.PageContext;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -692,17 +692,17 @@ public class ELEvaluatorTest {
         }
 
         // Stub implementations for unused abstract methods
-        @Override public void initialize(javax.servlet.Servlet servlet, 
-                javax.servlet.ServletRequest request, javax.servlet.ServletResponse response, 
+        @Override public void initialize(jakarta.servlet.Servlet servlet, 
+                jakarta.servlet.ServletRequest request, jakarta.servlet.ServletResponse response, 
                 String errorPageURL, boolean needsSession, int bufferSize, boolean autoFlush) {}
         @Override public void release() {}
-        @Override public javax.servlet.http.HttpSession getSession() { return null; }
+        @Override public jakarta.servlet.http.HttpSession getSession() { return null; }
         @Override public Object getPage() { return null; }
-        @Override public javax.servlet.ServletRequest getRequest() { return null; }
-        @Override public javax.servlet.ServletResponse getResponse() { return null; }
+        @Override public jakarta.servlet.ServletRequest getRequest() { return null; }
+        @Override public jakarta.servlet.ServletResponse getResponse() { return null; }
         @Override public Exception getException() { return null; }
-        @Override public javax.servlet.ServletConfig getServletConfig() { return null; }
-        @Override public javax.servlet.ServletContext getServletContext() { return null; }
+        @Override public jakarta.servlet.ServletConfig getServletConfig() { return null; }
+        @Override public jakarta.servlet.ServletContext getServletContext() { return null; }
         @Override public JspWriter getOut() { return null; }
         @Override public void handlePageException(Exception e) {}
         @Override public void handlePageException(Throwable t) {}

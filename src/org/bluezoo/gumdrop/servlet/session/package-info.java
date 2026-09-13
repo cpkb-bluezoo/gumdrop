@@ -44,7 +44,7 @@
  * telemetry is configured.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see javax.servlet.http.HttpSession
+ * @see jakarta.servlet.http.HttpSession
  * @see org.bluezoo.gumdrop.servlet.session.SessionManager
  */
 package org.bluezoo.gumdrop.servlet.session;

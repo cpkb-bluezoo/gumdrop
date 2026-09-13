@@ -38,6 +38,9 @@
         <url-pattern>/test/*</url-pattern>
     </servlet-mapping>
 
+    <!-- Servlet WebSocket upgrade endpoint -->
+    <!-- Handled by TestServlet at /test/ws (see handleWebSocketUpgrade) -->
+
     <!-- Session configuration -->
     <session-config>
         <session-timeout>30</session-timeout>

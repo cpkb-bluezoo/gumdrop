@@ -43,11 +43,11 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.servlet.Servlet;
-import javax.servlet.ServletOutputStream;
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
+import jakarta.servlet.Servlet;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 
 /**
  * An HTTP response.
@@ -143,7 +143,22 @@ class Response implements HttpServletResponse {
             buf.append(domain);
         }
         if (secure) {
-            buf.append("; secure");
+            buf.append("; Secure");
+        }
+        if (cookie.isHttpOnly()) {
+            buf.append("; HttpOnly");
+        }
+        Map<String,String> attrs = cookie.getAttributes();
+        if (attrs != null) {
+            for (Map.Entry<String,String> entry : attrs.entrySet()) {
+                buf.append("; ");
+                buf.append(entry.getKey());
+                String attrValue = entry.getValue();
+                if (attrValue != null && !attrValue.isEmpty()) {
+                    buf.append('=');
+                    buf.append(attrValue);
+                }
+            }
         }
         addHeader("Set-Cookie", buf.toString());
     }
@@ -366,11 +381,14 @@ class Response implements HttpServletResponse {
         }
         // Session management
         if (request.sessionId != null) {
-            // Add JSESSIONID cookie
             HttpSession session = context.getSessionManager().getSession(request.sessionId);
             if (session != null) {
-                Cookie cookie = new Cookie("JSESSIONID", request.sessionId);
-                cookie.setMaxAge(session.getMaxInactiveInterval());
+                CookieConfig cookieConfig = (CookieConfig) context.getSessionCookieConfig();
+                Cookie cookie = cookieConfig.createSessionCookie(
+                        request.sessionId, request.getContextPath());
+                if (cookieConfig.getMaxAge() == -1) {
+                    cookie.setMaxAge(session.getMaxInactiveInterval());
+                }
                 addCookie(cookie);
             }
         }
@@ -380,8 +398,23 @@ class Response implements HttpServletResponse {
 
     // Helper methods for handler interaction
 
-    void writeBody(ByteBuffer buf) {
-        handler.writeBody(buf);
+    void writeBody(ByteBuffer buf) throws IOException {
+        handler.writeBody(buf, true);
+    }
+
+    boolean isResponseWritable() {
+        return handler.isResponseWritable();
+    }
+
+    boolean isNonBlockingWrite() {
+        return outputStream instanceof ServletOutputStreamWrapper
+                && ((ServletOutputStreamWrapper) outputStream).hasWriteListener();
+    }
+
+    void notifyWritePossible() {
+        if (outputStream instanceof ServletOutputStreamWrapper) {
+            ((ServletOutputStreamWrapper) outputStream).notifyWritePossible();
+        }
     }
 
     private boolean isCloseConnection() {
@@ -424,13 +457,21 @@ class Response implements HttpServletResponse {
      * @param location the redirect URL (absolute or relative)
      */
     public void sendRedirect(String location) throws IOException {
+        sendRedirect(location, 302, true);
+    }
+
+    @Override
+    public void sendRedirect(String location, int sc, boolean clearBody) throws IOException {
         // Convert relative URIs to absolute
         URI uri = URI.create(location);
         if (!uri.isAbsolute()) {
             URI requestUri = request.getURI();
             uri = requestUri.resolve(uri);
         }
-        statusCode = 302;
+        if (clearBody && !committed) {
+            resetBuffer();
+        }
+        statusCode = sc;
         setHeader("Location", uri.toString());
         setContentLength(0);
         commit();
@@ -586,7 +627,7 @@ class Response implements HttpServletResponse {
         }
         if (outputStream == null) {
             out = new ResponseOutputStream(this, bufferSize);
-            outputStream = new ServletOutputStreamWrapper(out);
+            outputStream = new ServletOutputStreamWrapper(this, out);
         }
         return outputStream;
     }
@@ -622,6 +663,15 @@ class Response implements HttpServletResponse {
 
     public void setCharacterEncoding(String charset) {
         this.charset = charset;
+    }
+
+    @Override
+    public void setCharacterEncoding(Charset charset) {
+        if (charset == null) {
+            this.charset = null;
+        } else {
+            this.charset = charset.name();
+        }
     }
 
     public void setContentLength(int len) {
@@ -680,6 +730,15 @@ class Response implements HttpServletResponse {
 
     public boolean isCommitted() {
         return committed;
+    }
+
+    /**
+     * Marks the response complete after a WebSocket upgrade so the normal
+     * servlet response path does not commit a second HTTP response.
+     */
+    void markUpgraded() {
+        committed = true;
+        statusCode = 101;
     }
 
     public void reset() {
@@ -770,7 +829,7 @@ class Response implements HttpServletResponse {
      * @return a new PushBuilder instance, or null if server push is not supported
      * @since Servlet 4.0
      */
-    public javax.servlet.http.PushBuilder getPushBuilder() {
+    public jakarta.servlet.http.PushBuilder getPushBuilder() {
         return request.newPushBuilder();
     }
 

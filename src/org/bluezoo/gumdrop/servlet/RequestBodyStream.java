@@ -138,6 +138,18 @@ final class RequestBodyStream extends InputStream {
 
     @Override
     public int read(byte[] buf, int off, int len) throws IOException {
+        return readBytes(buf, off, len, true);
+    }
+
+    /**
+     * Reads without blocking. Returns {@code 0} when no data is
+     * currently available and the body has not ended.
+     */
+    int readNonBlocking(byte[] buf, int off, int len) throws IOException {
+        return readBytes(buf, off, len, false);
+    }
+
+    private int readBytes(byte[] buf, int off, int len, boolean block) throws IOException {
         if (buf == null) {
             throw new NullPointerException();
         }
@@ -158,6 +170,9 @@ final class RequestBodyStream extends InputStream {
                 }
                 if (eof || closed) {
                     return -1;
+                }
+                if (!block) {
+                    return 0;
                 }
                 try {
                     lock.wait();
@@ -182,8 +197,6 @@ final class RequestBodyStream extends InputStream {
                 toRun = resumeCallback;
             }
         }
-        // Run outside the lock: the callback marshals onto another thread
-        // and must not do so while holding this stream's monitor.
         if (toRun != null) {
             toRun.run();
         }
@@ -194,6 +207,13 @@ final class RequestBodyStream extends InputStream {
     public int available() {
         synchronized (lock) {
             return queuedBytes;
+        }
+    }
+
+    /** True once the request body has been fully received from the network. */
+    boolean isEof() {
+        synchronized (lock) {
+            return eof;
         }
     }
 

@@ -89,14 +89,14 @@ import javax.persistence.PersistenceContext;
 import javax.persistence.PersistenceContexts;
 import javax.persistence.PersistenceUnit;
 import javax.persistence.PersistenceUnits;
-import javax.servlet.*;
-import javax.servlet.annotation.HandlesTypes;
-import javax.servlet.annotation.MultipartConfig;
-import javax.servlet.annotation.ServletSecurity;
-import javax.servlet.annotation.WebFilter;
-import javax.servlet.annotation.WebListener;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.descriptor.JspConfigDescriptor;
+import jakarta.servlet.*;
+import jakarta.servlet.annotation.HandlesTypes;
+import jakarta.servlet.annotation.MultipartConfig;
+import jakarta.servlet.annotation.ServletSecurity;
+import jakarta.servlet.annotation.WebFilter;
+import jakarta.servlet.annotation.WebListener;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.descriptor.JspConfigDescriptor;
 import org.bluezoo.gumdrop.servlet.jsp.InMemoryJavaCompiler;
 import org.bluezoo.gumdrop.servlet.jsp.JSPCodeGenerator;
 import org.bluezoo.gumdrop.servlet.jsp.JSPDependencyTracker;
@@ -111,14 +111,14 @@ import javax.tools.JavaFileObject;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.ToolProvider;
 import java.net.URLClassLoader;
-import javax.servlet.descriptor.JspPropertyGroupDescriptor;
-import javax.servlet.http.HttpSession;
-import javax.servlet.http.HttpSessionActivationListener;
-import javax.servlet.http.HttpSessionAttributeListener;
-import javax.servlet.http.HttpSessionBindingListener;
-import javax.servlet.http.HttpSessionEvent;
-import javax.servlet.http.HttpSessionListener;
-import javax.servlet.http.MappingMatch;
+import jakarta.servlet.descriptor.JspPropertyGroupDescriptor;
+import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.HttpSessionActivationListener;
+import jakarta.servlet.http.HttpSessionAttributeListener;
+import jakarta.servlet.http.HttpSessionBindingListener;
+import jakarta.servlet.http.HttpSessionEvent;
+import jakarta.servlet.http.HttpSessionListener;
+import jakarta.servlet.http.MappingMatch;
 import javax.xml.ws.WebServiceRef;
 import javax.xml.ws.WebServiceRefs;
 
@@ -135,7 +135,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet");
 
     private static final String SCI_SERVICE =
-            "META-INF/services/javax.servlet.ServletContainerInitializer";
+            "META-INF/services/jakarta.servlet.ServletContainerInitializer";
 
     /**
      * Filename filter for JAR files.
@@ -630,7 +630,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             tmpDir.delete(); // delete file
             tmpDir.mkdirs(); // replace by directory
             tmpDir.deleteOnExit();
-            attributes.put("javax.servlet.context.tempdir", tmpDir);
+            attributes.put("jakarta.servlet.context.tempdir", tmpDir);
         } catch (IOException e) {
             RuntimeException e2 = new RuntimeException();
             e2.initCause(e);
@@ -1133,8 +1133,27 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         securityRole.roleName = roleName;
                         descriptor.addSecurityRole(securityRole);
                     }
+                } else if (annotation instanceof jakarta.annotation.security.DeclareRoles) {
+                    jakarta.annotation.security.DeclareRoles declareRoles =
+                            (jakarta.annotation.security.DeclareRoles) annotation;
+                    for (String roleName : declareRoles.value()) {
+                        SecurityRole securityRole = new SecurityRole();
+                        securityRole.roleName = roleName;
+                        descriptor.addSecurityRole(securityRole);
+                    }
                 } else if (annotation instanceof RunAs) {
                     RunAs runAs = (RunAs) annotation;
+                    ServletDef servletDef;
+                    if (target == null) {
+                        servletDef = new ServletDef();
+                        target = servletDef;
+                    } else {
+                        servletDef = (ServletDef) target;
+                    }
+                    servletDef.init(runAs);
+                } else if (annotation instanceof jakarta.annotation.security.RunAs) {
+                    jakarta.annotation.security.RunAs runAs =
+                            (jakarta.annotation.security.RunAs) annotation;
                     ServletDef servletDef;
                     if (target == null) {
                         servletDef = new ServletDef();
@@ -1153,14 +1172,32 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                     for (PersistenceContext persistenceContext : persistenceContexts.value()) {
                         initPersistenceContextRef(persistenceContext);
                     }
+                } else if (annotation instanceof jakarta.persistence.PersistenceContexts) {
+                    jakarta.persistence.PersistenceContexts persistenceContexts =
+                            (jakarta.persistence.PersistenceContexts) annotation;
+                    for (jakarta.persistence.PersistenceContext persistenceContext : persistenceContexts.value()) {
+                        initPersistenceContextRef(persistenceContext);
+                    }
                 } else if (annotation instanceof PersistenceUnits) {
                     PersistenceUnits persistenceUnits = (PersistenceUnits) annotation;
                     for (PersistenceUnit persistenceUnit : persistenceUnits.value()) {
                         initPersistenceUnitRef(persistenceUnit);
                     }
+                } else if (annotation instanceof jakarta.persistence.PersistenceUnits) {
+                    jakarta.persistence.PersistenceUnits persistenceUnits =
+                            (jakarta.persistence.PersistenceUnits) annotation;
+                    for (jakarta.persistence.PersistenceUnit persistenceUnit : persistenceUnits.value()) {
+                        initPersistenceUnitRef(persistenceUnit);
+                    }
                 } else if (annotation instanceof Resources) {
                     Resources resources = (Resources) annotation;
                     for (javax.annotation.Resource resource : resources.value()) {
+                        initResourceRef(resource);
+                    }
+                } else if (annotation instanceof jakarta.annotation.Resources) {
+                    jakarta.annotation.Resources resources =
+                            (jakarta.annotation.Resources) annotation;
+                    for (jakarta.annotation.Resource resource : resources.value()) {
                         initResourceRef(resource);
                     }
                 } else if (annotation instanceof WebServiceRefs) {
@@ -1181,12 +1218,26 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                         javax.annotation.Resource resource = (javax.annotation.Resource) annotation;
                         ResourceRef resourceRef = initResourceRef(resource);
                         addInjectionTarget(resourceRef, className, field.getName());
+                    } else if (annotation instanceof jakarta.annotation.Resource) {
+                        jakarta.annotation.Resource resource = (jakarta.annotation.Resource) annotation;
+                        ResourceRef resourceRef = initResourceRef(resource);
+                        addInjectionTarget(resourceRef, className, field.getName());
                     } else if (annotation instanceof PersistenceContext) {
                         PersistenceContext persistenceContext = (PersistenceContext) annotation;
                         PersistenceContextRef persistenceContextRef = initPersistenceContextRef(persistenceContext);
                         addInjectionTarget(persistenceContextRef, className, field.getName());
+                    } else if (annotation instanceof jakarta.persistence.PersistenceContext) {
+                        jakarta.persistence.PersistenceContext persistenceContext =
+                                (jakarta.persistence.PersistenceContext) annotation;
+                        PersistenceContextRef persistenceContextRef = initPersistenceContextRef(persistenceContext);
+                        addInjectionTarget(persistenceContextRef, className, field.getName());
                     } else if (annotation instanceof PersistenceUnit) {
                         PersistenceUnit persistenceUnit = (PersistenceUnit) annotation;
+                        PersistenceUnitRef persistenceUnitRef = initPersistenceUnitRef(persistenceUnit);
+                        addInjectionTarget(persistenceUnitRef, className, field.getName());
+                    } else if (annotation instanceof jakarta.persistence.PersistenceUnit) {
+                        jakarta.persistence.PersistenceUnit persistenceUnit =
+                                (jakarta.persistence.PersistenceUnit) annotation;
                         PersistenceUnitRef persistenceUnitRef = initPersistenceUnitRef(persistenceUnit);
                         addInjectionTarget(persistenceUnitRef, className, field.getName());
                     } else if (annotation instanceof WebServiceRef) {
@@ -1199,12 +1250,14 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             // method annotations
             for (Method method : t.getMethods()) {
                 for (Annotation annotation : method.getAnnotations()) {
-                    if (annotation instanceof PostConstruct) {
+                    if (annotation instanceof PostConstruct
+                            || annotation instanceof jakarta.annotation.PostConstruct) {
                         LifecycleCallback callback = new LifecycleCallback();
                         callback.className = className;
                         callback.methodName = method.getName();
                         addPostConstruct(callback);
-                    } else if (annotation instanceof PreDestroy) {
+                    } else if (annotation instanceof PreDestroy
+                            || annotation instanceof jakarta.annotation.PreDestroy) {
                         LifecycleCallback callback = new LifecycleCallback();
                         callback.className = className;
                         callback.methodName = method.getName();
@@ -1256,6 +1309,20 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return resourceRef;
     }
 
+    ResourceRef initResourceRef(jakarta.annotation.Resource config) {
+        String name = config.name();
+        for (ResourceRef resourceRef : resourceRefs) {
+            if (name.equals(resourceRef.getName())) {
+                resourceRef.init(config);
+                return resourceRef;
+            }
+        }
+        ResourceRef resourceRef = new ResourceRef();
+        resourceRef.init(config);
+        addResourceRef(resourceRef);
+        return resourceRef;
+    }
+
     PersistenceContextRef initPersistenceContextRef(PersistenceContext config) {
         String name = config.name();
         if (name != null) {
@@ -1273,6 +1340,22 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return persistenceContextRef;
     }
 
+    PersistenceContextRef initPersistenceContextRef(jakarta.persistence.PersistenceContext config) {
+        String name = config.name();
+        if (name != null) {
+            for (PersistenceContextRef persistenceContextRef : persistenceContextRefs) {
+                if (name.equals(persistenceContextRef.getName())) {
+                    persistenceContextRef.init(config);
+                    return persistenceContextRef;
+                }
+            }
+        }
+        PersistenceContextRef persistenceContextRef = new PersistenceContextRef();
+        persistenceContextRef.init(config);
+        addPersistenceContextRef(persistenceContextRef);
+        return persistenceContextRef;
+    }
+
     PersistenceUnitRef initPersistenceUnitRef(PersistenceUnit config) {
         String name = config.name();
         if (name != null) {
@@ -1284,6 +1367,22 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             }
         }
         // create
+        PersistenceUnitRef persistenceUnitRef = new PersistenceUnitRef();
+        persistenceUnitRef.init(config);
+        addPersistenceUnitRef(persistenceUnitRef);
+        return persistenceUnitRef;
+    }
+
+    PersistenceUnitRef initPersistenceUnitRef(jakarta.persistence.PersistenceUnit config) {
+        String name = config.name();
+        if (name != null) {
+            for (PersistenceUnitRef persistenceUnitRef : persistenceUnitRefs) {
+                if (name.equals(persistenceUnitRef.getName())) {
+                    persistenceUnitRef.init(config);
+                    return persistenceUnitRef;
+                }
+            }
+        }
         PersistenceUnitRef persistenceUnitRef = new PersistenceUnitRef();
         persistenceUnitRef.init(config);
         addPersistenceUnitRef(persistenceUnitRef);
@@ -1768,11 +1867,11 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     @Override public int getMajorVersion() {
-        return 4;
+        return 6;
     }
 
     @Override public int getMinorVersion() {
-        return 0;
+        return 1;
     }
 
     @Override public String getMimeType(String file) {
@@ -2409,27 +2508,27 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         return null;
     }
 
-    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
-    @Override public Servlet getServlet(String name) throws ServletException {
-        return null; // deprecated
+    @SuppressWarnings("deprecation")
+    public Servlet getServlet(String name) throws ServletException {
+        return null; // deprecated, removed from Servlet API 6.0
     }
 
-    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
-    @Override public Enumeration<Servlet> getServlets() {
-        return new IteratorEnumeration<Servlet>(); // deprecated
+    @SuppressWarnings("deprecation")
+    public Enumeration<Servlet> getServlets() {
+        return new IteratorEnumeration<Servlet>(); // deprecated, removed from Servlet API 6.0
     }
 
-    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
-    @Override public Enumeration<String> getServletNames() {
-        return new IteratorEnumeration<String>(); // deprecated
+    @SuppressWarnings("deprecation")
+    public Enumeration<String> getServletNames() {
+        return new IteratorEnumeration<String>(); // deprecated, removed from Servlet API 6.0
     }
 
     @Override public void log(String msg) {
         log(msg, null);
     }
 
-    @SuppressWarnings("deprecation") // mandated override of a deprecated ServletContext method
-    @Override public void log(Exception e, String msg) {
+    @SuppressWarnings("deprecation")
+    public void log(Exception e, String msg) {
         log(msg, e);
     }
 

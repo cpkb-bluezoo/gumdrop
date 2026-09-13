@@ -26,7 +26,7 @@ import org.junit.Test;
 import java.util.HashSet;
 import java.util.Set;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.bluezoo.gumdrop.auth.Realm;
 

@@ -22,20 +22,22 @@
 package org.bluezoo.gumdrop.servlet;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ResourceBundle;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import javax.servlet.ServletInputStream;
-import javax.servlet.ReadListener;
+import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.ReadListener;
 
 /**
  * ServletInputStream implementation for a request with async read support.
  *
  * <p>This implementation wraps a {@link RequestBodyStream} that receives
  * data from the HTTP connection layer. It supports the Servlet 3.1
- * non-blocking read API through {@link ReadListener}.
+ * non-blocking read API through {@link ReadListener}. Once a listener is
+ * registered, {@link #read()} methods never block and throw {@link
+ * IllegalStateException} when {@link #isReady()} would return {@code false}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -45,33 +47,111 @@ class RequestInputStream extends ServletInputStream {
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
     private static final Logger LOGGER = Logger.getLogger(RequestInputStream.class.getName());
 
+    private final Request request;
     private final RequestBodyStream in;
-    final AtomicBoolean finished = new AtomicBoolean(false);
+    private volatile boolean closed;
     ReadListener readListener;
-    private volatile boolean listenerRegistered = false;
-    private volatile boolean allDataReadNotified = false;
+    private volatile boolean listenerRegistered;
+    private volatile boolean allDataReadNotified;
 
-    RequestInputStream(RequestBodyStream in) {
+    RequestInputStream(Request request, RequestBodyStream in) {
+        this.request = request;
         this.in = in;
     }
 
     @Override 
     public int read() throws IOException {
-        return in.read();
+        if (listenerRegistered) {
+            byte[] one = new byte[1];
+            int n = readNonBlocking(one, 0, 1);
+            if (n < 0) {
+                afterRead();
+                return -1;
+            }
+            if (n == 0) {
+                throw notReady();
+            }
+            afterRead();
+            return one[0] & 0xFF;
+        }
+        int n = in.read();
+        afterRead();
+        return n;
     }
 
     @Override 
     public int read(byte[] buf) throws IOException {
-        return in.read(buf);
+        return read(buf, 0, buf.length);
     }
 
     @Override 
     public int read(byte[] buf, int off, int len) throws IOException {
-        return in.read(buf, off, len);
+        if (listenerRegistered) {
+            int n = readNonBlocking(buf, off, len);
+            if (n < 0) {
+                afterRead();
+                return -1;
+            }
+            if (n == 0 && len > 0) {
+                throw notReady();
+            }
+            afterRead();
+            return n;
+        }
+        int n = in.read(buf, off, len);
+        afterRead();
+        return n;
+    }
+
+    @Override
+    public int read(ByteBuffer dst) throws IOException {
+        if (!dst.hasRemaining()) {
+            return 0;
+        }
+        if (dst.hasArray()) {
+            int n = read(dst.array(), dst.arrayOffset() + dst.position(), dst.remaining());
+            if (n > 0) {
+                dst.position(dst.position() + n);
+            }
+            return n;
+        }
+        byte[] buf = new byte[Math.min(dst.remaining(), 8192)];
+        int n = read(buf, 0, buf.length);
+        if (n <= 0) {
+            return n;
+        }
+        dst.put(buf, 0, n);
+        return n;
     }
 
     @Override 
     public long skip(long n) throws IOException {
+        if (listenerRegistered) {
+            if (n <= 0) {
+                return 0;
+            }
+            if (isFinished()) {
+                return 0;
+            }
+            if (!isReady()) {
+                throw notReady();
+            }
+            byte[] buf = new byte[(int) Math.min(n, 8192)];
+            long skipped = 0;
+            while (skipped < n) {
+                int toRead = (int) Math.min(n - skipped, buf.length);
+                int r = readNonBlocking(buf, 0, toRead);
+                if (r < 0) {
+                    break;
+                }
+                if (r == 0) {
+                    throw notReady();
+                }
+                skipped += r;
+            }
+            afterRead();
+            return skipped;
+        }
         return in.skip(n);
     }
 
@@ -83,7 +163,7 @@ class RequestInputStream extends ServletInputStream {
     @Override 
     public void close() throws IOException {
         in.close();
-        finished.set(true);
+        closed = true;
     }
 
     @Override 
@@ -103,66 +183,96 @@ class RequestInputStream extends ServletInputStream {
 
     // -- Servlet 3.1 non-blocking read methods --
 
-    /**
-     * Sets the read listener for non-blocking I/O.
-     * 
-     * <p>Once a listener is set, the container will call:
-     * <ul>
-     * <li>{@link ReadListener#onDataAvailable()} when data is available to read</li>
-     * <li>{@link ReadListener#onAllDataRead()} when all request data has been read</li>
-     * <li>{@link ReadListener#onError(Throwable)} when an error occurs</li>
-     * </ul>
-     * 
-     * @param listener the read listener
-     * @throws IllegalStateException if a listener is already set or async is not started
-     */
     @Override 
     public void setReadListener(ReadListener listener) {
         if (this.readListener != null) {
-            throw new IllegalStateException("ReadListener already set");
+            throw new IllegalStateException(L10N.getString("err.read_listener_already_set"));
         }
         if (listener == null) {
-            throw new NullPointerException("ReadListener cannot be null");
+            throw new NullPointerException(L10N.getString("err.read_listener_null"));
         }
-        
+        if (request != null && !request.isAsyncStarted()) {
+            throw new IllegalStateException(L10N.getString("err.read_listener_async"));
+        }
+
         this.readListener = listener;
         this.listenerRegistered = true;
-        
-        // If data is already available, notify immediately
+
+        Runnable initial = new Runnable() {
+            @Override
+            public void run() {
+                dispatchReadState();
+            }
+        };
+        if (request != null) {
+            request.handler.dispatchContainerCallback(initial);
+        } else {
+            initial.run();
+        }
+    }
+
+    @Override
+    public boolean isReady() {
+        if (closed) {
+            return false;
+        }
+        return in.available() > 0;
+    }
+
+    @Override 
+    public boolean isFinished() {
+        if (closed) {
+            return true;
+        }
+        return in.isEof() && in.available() == 0;
+    }
+
+    /**
+     * Invoked from {@link ServletHandler} when request body data arrives
+     * on the connection's I/O thread.
+     */
+    void dispatchDataAvailable() {
+        if (!listenerRegistered) {
+            return;
+        }
+        dispatchReadState();
+    }
+
+    private void dispatchReadState() {
+        if (!listenerRegistered) {
+            return;
+        }
         if (isReady()) {
             notifyDataAvailable();
-        } else if (isFinished()) {
+        }
+        if (isFinished()) {
             notifyAllDataRead();
         }
     }
 
-    /**
-     * Returns true if data can be read without blocking.
-     * 
-     * @return true if data is available
-     */
-    @Override
-    public boolean isReady() {
-        if (finished.get()) {
-            return false; // stream is closed
-        }
-        return in.available() > 0; // available() will not block
+    private int readNonBlocking(byte[] buf, int off, int len) throws IOException {
+        return in.readNonBlocking(buf, off, len);
     }
 
-    /**
-     * Returns true if all request data has been read.
-     * 
-     * @return true if all data has been read
-     */
-    @Override 
-    public boolean isFinished() {
-        return finished.get();
+    private IllegalStateException notReady() {
+        return new IllegalStateException(L10N.getString("err.read_not_ready"));
     }
-    
-    /**
-     * Notifies the read listener that data is available.
-     * Called by the container when data arrives on the connection.
-     */
+
+    private void afterRead() throws IOException {
+        if (listenerRegistered && isFinished()) {
+            if (request != null) {
+                request.handler.dispatchContainerCallback(new Runnable() {
+                    @Override
+                    public void run() {
+                        notifyAllDataRead();
+                    }
+                });
+            } else {
+                notifyAllDataRead();
+            }
+        }
+    }
+
     void notifyDataAvailable() {
         if (readListener != null && listenerRegistered) {
             try {
@@ -173,11 +283,7 @@ class RequestInputStream extends ServletInputStream {
             }
         }
     }
-    
-    /**
-     * Notifies the read listener that all data has been read.
-     * Called by the container when the request body is complete.
-     */
+
     void notifyAllDataRead() {
         if (readListener != null && listenerRegistered && !allDataReadNotified) {
             allDataReadNotified = true;
@@ -189,12 +295,7 @@ class RequestInputStream extends ServletInputStream {
             }
         }
     }
-    
-    /**
-     * Notifies the read listener of an error.
-     * 
-     * @param t the error that occurred
-     */
+
     void notifyError(Throwable t) {
         if (readListener != null && listenerRegistered) {
             try {
@@ -204,12 +305,7 @@ class RequestInputStream extends ServletInputStream {
             }
         }
     }
-    
-    /**
-     * Returns true if a read listener has been registered.
-     * 
-     * @return true if a listener is registered
-     */
+
     boolean hasReadListener() {
         return listenerRegistered;
     }

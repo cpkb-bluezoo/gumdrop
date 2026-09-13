@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.servlet.manager;
 
 import java.io.IOException;
 import java.util.concurrent.ThreadPoolExecutor;
-import javax.servlet.ServletContext;
+import jakarta.servlet.ServletContext;
 import org.bluezoo.gumdrop.servlet.Description;
 import org.xml.sax.SAXException;
 

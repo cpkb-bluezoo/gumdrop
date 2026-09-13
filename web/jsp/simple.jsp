@@ -126,7 +126,7 @@
         <li>Loads and instantiates the servlet to handle your request</li>
     </ol>
     
-    <p>The generated servlet implements <code>javax.servlet.http.HttpServlet</code> and contains all your 
+    <p>The generated servlet implements <code>jakarta.servlet.http.HttpServlet</code> and contains all your 
        JSP code transformed into appropriate servlet methods.</p>
     
     <hr/>

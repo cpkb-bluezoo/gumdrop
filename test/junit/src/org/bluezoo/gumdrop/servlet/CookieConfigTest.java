@@ -24,7 +24,9 @@ package org.bluezoo.gumdrop.servlet;
 import org.junit.Before;
 import org.junit.Test;
 
-import javax.servlet.SessionCookieConfig;
+import jakarta.servlet.SessionCookieConfig;
+
+import jakarta.servlet.http.Cookie;
 
 import static org.junit.Assert.*;
 
@@ -87,6 +89,32 @@ public class CookieConfigTest {
     @Test
     public void testDefaultSameSite() {
         assertEquals(CookieConfig.SameSite.Lax, config.sameSite);
+    }
+
+    @Test
+    public void testDefaultPartitioned() {
+        assertFalse(config.partitioned);
+    }
+
+    @Test
+    public void testCreateSessionCookieAppliesConfig() {
+        config.setName("APPSESSION");
+        config.setPath("/app");
+        config.setHttpOnly(true);
+        config.setSecure(true);
+        config.sameSite = CookieConfig.SameSite.Strict;
+        config.partitioned = true;
+        config.setAttribute("Custom", "value");
+
+        Cookie cookie = config.createSessionCookie("sess-1", "/ctx");
+        assertEquals("APPSESSION", cookie.getName());
+        assertEquals("sess-1", cookie.getValue());
+        assertEquals("/app", cookie.getPath());
+        assertTrue(cookie.isHttpOnly());
+        assertTrue(cookie.getSecure());
+        assertEquals("Strict", cookie.getAttribute("SameSite"));
+        assertEquals("", cookie.getAttribute("Partitioned"));
+        assertEquals("value", cookie.getAttribute("Custom"));
     }
 
     // ===== Name Tests =====

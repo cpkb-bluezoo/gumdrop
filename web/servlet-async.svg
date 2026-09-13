@@ -44,7 +44,7 @@
   
   <!-- Arrow down -->
   <line x1="135" y1="130" x2="135" y2="150" stroke="#2d5a3d" stroke-width="2" marker-end="url(#arrowhead)"/>
-  <text x="145" y="145" font-family="Georgia, serif" font-size="10" fill="#5a5a5a">pipe</text>
+  <text x="145" y="145" font-family="Georgia, serif" font-size="10" fill="#5a5a5a">offer()</text>
   
   <!-- Worker Thread box -->
   <rect x="35" y="155" width="200" height="40" rx="4" fill="url(#boxGradient)" stroke="#5a8a6a" stroke-width="1"/>
@@ -72,10 +72,10 @@
   <text x="400" y="215" font-family="Georgia, serif" font-size="11" fill="#4a4a6a" text-anchor="middle">async work (DB, HTTP, etc.)</text>
   <text x="400" y="230" font-family="Consolas, monospace" font-size="10" fill="#6a6a8a" text-anchor="middle">ctx.start(runnable)</text>
   
-  <!-- ASYNC_EXECUTOR box -->
+  <!-- Servlet worker pool box -->
   <rect x="295" y="245" width="210" height="45" rx="4" fill="url(#boxGradient)" stroke="#5a8a6a" stroke-width="1"/>
-  <text x="400" y="265" font-family="Consolas, monospace" font-size="11" fill="#3a3a3a" text-anchor="middle">ASYNC_EXECUTOR</text>
-  <text x="400" y="280" font-family="Georgia, serif" font-size="10" fill="#5a5a5a" text-anchor="middle">(container thread pool)</text>
+  <text x="400" y="265" font-family="Georgia, serif" font-size="11" fill="#3a3a3a" text-anchor="middle">Servlet worker pool</text>
+  <text x="400" y="280" font-family="Georgia, serif" font-size="10" fill="#5a5a5a" text-anchor="middle">start() and dispatch()</text>
   
   <!-- Arrow from Phase 1 to Phase 2 -->
   <line x1="250" y1="125" x2="280" y2="107" stroke="#3d5a8a" stroke-width="2" marker-end="url(#arrowhead-blue)"/>
@@ -121,7 +121,7 @@
   <!-- Pipe integration note -->
   <rect x="35" y="415" width="330" height="45" rx="4" fill="#fff8f8" stroke="#aa8a8a" stroke-width="1"/>
   <text x="200" y="435" font-family="Georgia, serif" font-size="10" fill="#6a4a4a" text-anchor="middle">Callbacks triggered by SelectorLoop events</text>
-  <text x="200" y="450" font-family="Georgia, serif" font-size="10" fill="#6a4a4a" text-anchor="middle">via pipe data arrival or buffer availability</text>
+  <text x="200" y="450" font-family="Georgia, serif" font-size="10" fill="#6a4a4a" text-anchor="middle">via RequestBodyStream data or transport buffer availability</text>
   
   <!-- Error handling section -->
   <rect x="420" y="320" width="360" height="150" rx="8" fill="#fff0f0" stroke="#8a3a3a" stroke-width="2"/>
@@ -154,7 +154,7 @@
   <text x="65" y="564" font-family="Georgia, serif" font-size="10" fill="#3a3a3a">Worker thread: Released during async, reusable for other requests</text>
   
   <circle cx="420" cy="540" r="6" fill="#8a5a5a"/>
-  <text x="435" y="544" font-family="Georgia, serif" font-size="10" fill="#3a3a3a">Thread pool: ASYNC_EXECUTOR for start() and dispatch()</text>
+  <text x="435" y="544" font-family="Georgia, serif" font-size="10" fill="#3a3a3a">Servlet worker pool: start() and dispatch()</text>
   
   <circle cx="420" cy="560" r="6" fill="#8a8a5a"/>
   <text x="435" y="564" font-family="Georgia, serif" font-size="10" fill="#3a3a3a">Timeout: Configurable with automatic error handling</text>

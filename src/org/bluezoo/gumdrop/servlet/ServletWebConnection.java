@@ -21,20 +21,25 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.http.HTTPResponseState;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
-import javax.servlet.ServletInputStream;
-import javax.servlet.ServletOutputStream;
-import javax.servlet.http.HttpUpgradeHandler;
-import javax.servlet.http.WebConnection;
+import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.http.HttpUpgradeHandler;
+import jakarta.servlet.http.WebConnection;
 
 import java.io.IOException;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -42,9 +47,16 @@ import java.util.logging.Logger;
  * WebConnection implementation that bridges the servlet WebSocket API
  * with Gumdrop's WebSocket implementation.
  *
- * <p>This provides the decoded message payload model: incoming WebSocket
- * messages are delivered as complete messages to the servlet's InputStream,
- * and data written to the OutputStream is sent as WebSocket messages.
+ * <p>Incoming WebSocket messages are delivered through a non-blocking
+ * {@link RequestBodyStream} (replacing a pipe that could block the
+ * SelectorLoop thread when the servlet read side was slow). Backpressure
+ * is applied via {@link HTTPResponseState#pauseRequestBody()} when the
+ * buffer reaches its high-water mark. {@link HttpUpgradeHandler#init} and
+ * {@link HttpUpgradeHandler#destroy} are dispatched to the servlet worker pool
+ * so handler lifecycle never blocks the SelectorLoop thread. Outbound messages
+ * are sent on the connection's I/O thread with transport backpressure matching
+ * the HTTP response path; flushed output buffers are transferred without an
+ * extra servlet-layer copy.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -53,34 +65,55 @@ class ServletWebConnection implements WebConnection {
     private static final Logger LOGGER = Logger.getLogger(ServletWebConnection.class.getName());
 
     private final HttpUpgradeHandler upgradeHandler;
-    private final PipedInputStream pipeIn;
-    private final PipedOutputStream pipeOut;
+    private final HTTPResponseState state;
+    private final ServletHandler handler;
+    private final RequestBodyStream messageStream;
     private final WebSocketServletInputStream inputStream;
     private final WebSocketServletOutputStream outputStream;
     private final WebSocketEventHandler eventHandler;
 
     private volatile WebSocketSession session;
     private volatile boolean closed = false;
+    private volatile boolean writePossibleScheduled;
+    private final CountDownLatch upgradeInitStarted = new CountDownLatch(1);
+    private final AtomicBoolean upgradeDestroyDone = new AtomicBoolean();
+
+    private static final int PENDING_RESPONSE_HIGH_WATERMARK = 4 * 1024 * 1024;
+    private static final long PENDING_RESPONSE_WAIT_TIMEOUT_MS = 30000L;
 
     /**
      * Creates a new WebConnection for the given upgrade handler.
      *
      * @param upgradeHandler the servlet's upgrade handler
-     * @param bufferSize buffer size for the pipe
-     * @throws IOException if the pipe cannot be created
+     * @param state the HTTP response state for backpressure and callbacks
+     * @param handler the servlet handler for container callback dispatch
      */
-    ServletWebConnection(HttpUpgradeHandler upgradeHandler, int bufferSize) throws IOException {
+    ServletWebConnection(HttpUpgradeHandler upgradeHandler,
+            HTTPResponseState state, ServletHandler handler) {
         this.upgradeHandler = upgradeHandler;
+        this.state = state;
+        this.handler = handler;
 
-        // Create pipe for incoming WebSocket messages
-        this.pipeOut = new PipedOutputStream();
-        this.pipeIn = new PipedInputStream(pipeOut, bufferSize);
+        this.messageStream = new RequestBodyStream();
+        messageStream.setResumeCallback(new Runnable() {
+            @Override
+            public void run() {
+                // May be called from the worker thread (inside
+                // RequestBodyStream.read()); resumeRequestBody() must
+                // run on the SelectorLoop thread.
+                if (ServletWebConnection.this.state != null) {
+                    ServletWebConnection.this.state.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            ServletWebConnection.this.state.resumeRequestBody();
+                        }
+                    });
+                }
+            }
+        });
 
-        // Create servlet streams
-        this.inputStream = new WebSocketServletInputStream(pipeIn);
+        this.inputStream = new WebSocketServletInputStream(handler, messageStream);
         this.outputStream = new WebSocketServletOutputStream(this);
-
-        // Create event handler that delivers messages to the pipe
         this.eventHandler = new WebConnectionEventHandler();
     }
 
@@ -99,31 +132,214 @@ class ServletWebConnection implements WebConnection {
     }
 
     /**
-     * Writes a message to the WebSocket session.
+     * Sends buffered servlet output as a WebSocket message.
+     *
+     * <p>Called from the servlet worker thread. The send is marshalled onto
+     * the connection's I/O thread and respects transport backpressure.
      */
     void sendMessage(byte[] data) throws IOException {
-        if (session == null) {
-            throw new IOException("WebSocket session not established");
+        if (data.length == 0) {
+            return;
         }
-        if (!session.isOpen()) {
-            throw new IOException("WebSocket session is closed");
-        }
-        // Send as text if it looks like UTF-8 text, otherwise binary
-        // For simplicity, we send as text (most WebSocket usage is text-based)
-        session.sendText(new String(data, StandardCharsets.UTF_8));
+        sendMessage(ByteBuffer.wrap(data), false);
     }
 
     /**
-     * Writes binary data to the WebSocket session.
+     * Sends buffered servlet output as a WebSocket message.
+     *
+     * @param buf message bytes to send
+     * @param transferOwnership if true, {@code buf} is handed off to the
+     *     I/O thread and must not be reused by the caller; if false, a copy
+     *     is made because the caller may still mutate or reuse the buffer
      */
-    void sendBinaryMessage(ByteBuffer data) throws IOException {
+    void sendMessage(ByteBuffer buf, boolean transferOwnership) throws IOException {
         if (session == null) {
             throw new IOException("WebSocket session not established");
         }
         if (!session.isOpen()) {
             throw new IOException("WebSocket session is closed");
         }
-        session.sendBinary(data);
+        if (!buf.hasRemaining()) {
+            return;
+        }
+
+        final ByteBuffer payload;
+        if (transferOwnership) {
+            payload = buf;
+        } else {
+            payload = ByteBuffer.allocate(buf.remaining());
+            payload.put(buf.duplicate());
+            payload.flip();
+        }
+        final boolean asText = isUtf8Text(payload);
+
+        if (!isResponseWritable()) {
+            if (outputStream.hasWriteListener()) {
+                scheduleWritePossibleNotification();
+                throw new IllegalStateException(
+                        ServletService.L10N.getString("err.write_not_ready"));
+            }
+            awaitResponseWritable();
+        }
+
+        if (state == null) {
+            sendMessageDirect(payload, asText);
+            return;
+        }
+
+        final ByteBuffer message = payload;
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    sendMessageDirect(message, asText);
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING, "Error sending WebSocket message", e);
+                }
+                if (outputStream.hasWriteListener()) {
+                    dispatchContainerCallback(new Runnable() {
+                        @Override
+                        public void run() {
+                            outputStream.notifyWritePossible();
+                            if (!isResponseWritable()) {
+                                scheduleWritePossibleNotification();
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    boolean isResponseWritable() {
+        return state == null
+                || state.pendingResponseBytes() <= PENDING_RESPONSE_HIGH_WATERMARK;
+    }
+
+    void dispatchContainerCallback(Runnable task) {
+        if (handler != null) {
+            handler.dispatchContainerCallback(task);
+        } else if (state != null) {
+            state.execute(task);
+        } else {
+            task.run();
+        }
+    }
+
+    void notifyWritePossible() {
+        outputStream.notifyWritePossible();
+    }
+
+    private void sendMessageDirect(ByteBuffer data, boolean asText) throws IOException {
+        if (session == null || !session.isOpen()) {
+            throw new IOException("WebSocket session is closed");
+        }
+        if (asText) {
+            session.sendText(StandardCharsets.UTF_8.decode(data.duplicate()).toString());
+        } else {
+            session.sendBinary(data.duplicate());
+        }
+    }
+
+    private static boolean isUtf8Text(ByteBuffer data) {
+        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT);
+        try {
+            decoder.decode(data.duplicate());
+            return true;
+        } catch (CharacterCodingException e) {
+            return false;
+        }
+    }
+
+    private void awaitResponseWritable() throws IOException {
+        if (isResponseWritable() || state == null) {
+            return;
+        }
+        final CountDownLatch latch = new CountDownLatch(1);
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.onWritable(new Runnable() {
+                    @Override
+                    public void run() {
+                        latch.countDown();
+                    }
+                });
+            }
+        });
+        try {
+            if (!latch.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                state.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        state.onWritable(null);
+                        state.cancel();
+                    }
+                });
+                throw new IOException(
+                        "Timed out waiting for WebSocket write backpressure to clear");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(
+                    "Interrupted while waiting for WebSocket write backpressure", e);
+        }
+    }
+
+    private void scheduleWritePossibleNotification() {
+        if (writePossibleScheduled || state == null
+                || !outputStream.hasWriteListener()) {
+            return;
+        }
+        writePossibleScheduled = true;
+        state.execute(new Runnable() {
+            @Override
+            public void run() {
+                state.onWritable(new Runnable() {
+                    @Override
+                    public void run() {
+                        writePossibleScheduled = false;
+                        if (outputStream.hasWriteListener()) {
+                            dispatchContainerCallback(new Runnable() {
+                                @Override
+                                public void run() {
+                                    outputStream.notifyWritePossible();
+                                    if (!isResponseWritable()) {
+                                        scheduleWritePossibleNotification();
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    private void closeSessionOnIoThread() {
+        if (session == null || !session.isOpen()) {
+            return;
+        }
+        if (state != null) {
+            state.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        session.close();
+                    } catch (IOException e) {
+                        LOGGER.log(Level.FINE, "Error closing WebSocket session", e);
+                    }
+                }
+            });
+        } else {
+            try {
+                session.close();
+            } catch (IOException e) {
+                LOGGER.log(Level.FINE, "Error closing WebSocket session", e);
+            }
+        }
     }
 
     @Override
@@ -143,27 +359,11 @@ class ServletWebConnection implements WebConnection {
         }
         closed = true;
 
-        // Close the pipe
-        try {
-            pipeOut.close();
-        } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Error closing pipe output", e);
-        }
+        messageStream.finish();
+        inputStream.dispatchDataAvailable();
+        messageStream.close();
 
-        try {
-            pipeIn.close();
-        } catch (IOException e) {
-            LOGGER.log(Level.FINE, "Error closing pipe input", e);
-        }
-
-        // Close the WebSocket session
-        if (session != null && session.isOpen()) {
-            try {
-                session.close();
-            } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Error closing WebSocket session", e);
-            }
-        }
+        closeSessionOnIoThread();
     }
 
     /**
@@ -185,59 +385,40 @@ class ServletWebConnection implements WebConnection {
         @Override
         public void opened(WebSocketSession session) {
             sessionOpened(session);
-            // Initialize the upgrade handler on a worker thread
-            upgradeHandler.init(ServletWebConnection.this);
+            dispatchUpgradeInit();
         }
 
         @Override
         public void textMessageReceived(WebSocketSession session,
                                         String message) {
-            try {
-                byte[] data = message.getBytes(StandardCharsets.UTF_8);
-                pipeOut.write(data);
-                pipeOut.flush();
-            } catch (IOException e) {
-                if (!closed) {
-                    LOGGER.log(Level.WARNING, "Error writing message to pipe", e);
-                }
-            }
+            deliverMessage(message.getBytes(StandardCharsets.UTF_8));
         }
 
         @Override
         public void binaryMessageReceived(WebSocketSession session,
                                           ByteBuffer data) {
-            try {
-                byte[] bytes = new byte[data.remaining()];
-                data.get(bytes);
-                pipeOut.write(bytes);
-                pipeOut.flush();
-            } catch (IOException e) {
-                if (!closed) {
-                    LOGGER.log(Level.WARNING, "Error writing binary message to pipe", e);
-                }
-            }
+            byte[] bytes = new byte[data.remaining()];
+            data.get(bytes);
+            deliverMessage(bytes);
         }
 
         @Override
         public void closed(int code, String reason) {
-            try {
-                // Close pipe to signal EOF
-                pipeOut.close();
-            } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Error closing pipe on WebSocket close", e);
+            if (!closed) {
+                messageStream.finish();
+                inputStream.dispatchDataAvailable();
             }
 
-            // Destroy the upgrade handler
-            try {
-                upgradeHandler.destroy();
-            } catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Error destroying upgrade handler", e);
-            }
+            dispatchUpgradeDestroy();
         }
 
         @Override
         public void error(Throwable cause) {
             LOGGER.log(Level.WARNING, "WebSocket error", cause);
+            if (!closed) {
+                messageStream.fail(new IOException("WebSocket error", cause));
+                inputStream.dispatchDataAvailable();
+            }
             try {
                 close();
             } catch (IOException e) {
@@ -246,5 +427,103 @@ class ServletWebConnection implements WebConnection {
         }
     }
 
-}
+    private void deliverMessage(byte[] data) {
+        if (closed || data.length == 0) {
+            return;
+        }
+        if (messageStream.offer(data) && state != null) {
+            state.pauseRequestBody();
+        }
+        inputStream.dispatchDataAvailable();
+    }
 
+    private void dispatchUpgradeInit() {
+        Runnable initTask = new Runnable() {
+            @Override
+            public void run() {
+                upgradeInitStarted.countDown();
+                try {
+                    upgradeHandler.init(ServletWebConnection.this);
+                } catch (Exception e) {
+                    handleUpgradeInitFailure(e);
+                }
+            }
+        };
+        Runnable onRejected = new Runnable() {
+            @Override
+            public void run() {
+                upgradeInitStarted.countDown();
+                LOGGER.log(Level.WARNING,
+                        "Worker pool saturated; closing WebSocket upgrade");
+                try {
+                    close();
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, "Error closing rejected upgrade", e);
+                }
+            }
+        };
+        if (handler != null) {
+            handler.dispatchWorkerTask(initTask, onRejected);
+        } else {
+            initTask.run();
+        }
+    }
+
+    private void dispatchUpgradeDestroy() {
+        Runnable destroyTask = new Runnable() {
+            @Override
+            public void run() {
+                runUpgradeDestroy();
+            }
+        };
+        if (handler != null) {
+            handler.dispatchWorkerTask(destroyTask, null);
+        } else {
+            destroyTask.run();
+        }
+    }
+
+    private void runUpgradeDestroy() {
+        if (!upgradeDestroyDone.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            if (!upgradeInitStarted.await(PENDING_RESPONSE_WAIT_TIMEOUT_MS,
+                    TimeUnit.MILLISECONDS)) {
+                LOGGER.log(Level.WARNING,
+                        "Timed out waiting for upgrade handler init before destroy");
+                return;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.log(Level.FINE,
+                    "Interrupted waiting for upgrade handler init before destroy", e);
+            return;
+        }
+        try {
+            upgradeHandler.destroy();
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Error destroying upgrade handler", e);
+        }
+    }
+
+    private void handleUpgradeInitFailure(final Exception e) {
+        LOGGER.log(Level.WARNING, "Error initializing upgrade handler", e);
+        Runnable closeTask = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    close();
+                } catch (IOException ioe) {
+                    LOGGER.log(Level.FINE, "Error closing after upgrade init failure", ioe);
+                }
+            }
+        };
+        if (state != null) {
+            state.execute(closeTask);
+        } else {
+            closeTask.run();
+        }
+    }
+
+}

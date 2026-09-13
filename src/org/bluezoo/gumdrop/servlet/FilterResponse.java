@@ -23,9 +23,9 @@ package org.bluezoo.gumdrop.servlet;
 
 import java.io.IOException;
 
-import javax.servlet.http.Cookie;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpServletResponseWrapper;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponseWrapper;
 
 /**
  * Response wrapper to store the status code set on the underlying response.
@@ -61,7 +61,7 @@ class FilterResponse extends HttpServletResponseWrapper {
             return;
         }
         code = sc;
-        super.setStatus(sc, message);
+        super.setStatus(sc);
     }
 
     public void addCookie(Cookie cookie) {
@@ -111,6 +111,13 @@ class FilterResponse extends HttpServletResponseWrapper {
             return;
         }
         super.sendRedirect(location);
+    }
+
+    public void sendRedirect(String location, int sc, boolean clearBody) throws IOException {
+        if (ignoreHeaderMutators) {
+            return;
+        }
+        super.sendRedirect(location, sc, clearBody);
     }
 
     public void setDateHeader(String name, long date) {
