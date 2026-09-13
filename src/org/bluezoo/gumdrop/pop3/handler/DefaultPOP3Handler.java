@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.pop3.Pop3MessageListingCache;
  * to add custom policy logic.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.pop3.DefaultPOP3Server
+ * @see org.bluezoo.gumdrop.pop3.Pop3Server
  */
 public class DefaultPOP3Handler implements ClientConnected, AuthorizationHandler,
         TransactionHandler {

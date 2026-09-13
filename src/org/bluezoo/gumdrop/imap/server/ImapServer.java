@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.imap.ImapListener;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -38,15 +39,12 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 
 /**
- * Abstract base for IMAP protocol servers.
+ * IMAP protocol server — listeners, configuration, and session composition.
  *
- * <p>An {@code ImapServer} defines the application logic for handling
- * IMAP connections. It owns authentication, mailbox storage, and quota
- * configuration, and acts as the handler factory: subclasses override
- * {@link #createHandler(TcpListener)} to return the appropriate
- * {@link ClientConnected} handler for each new connection, receiving
- * the originating endpoint so that different policies can be applied
- * per listener.
+ * <p>Do not subclass for application logic. Use {@link #compose()} with an
+ * {@link ImapServerSessionProvider} (typically
+ * {@link MailboxStoreImapSessionProvider}) or configure listeners and properties
+ * directly on this type for legacy XML.
  *
  * <p>Service-level configuration is pushed into each listener during
  * {@link #start()} so that the existing endpoint handler code
@@ -54,7 +52,7 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  *
  * <h2>Configuration Example</h2>
  * <pre>{@code
- * <service class="com.example.MyImapService">
+ * <service class="org.bluezoo.gumdrop.imap.server.ImapServer">
  *   <property name="realm" ref="#myRealm"/>
  *   <property name="mailbox-factory" ref="#mboxStorage"/>
  *   <property name="quota-manager" ref="#quotas"/>
@@ -69,12 +67,13 @@ import org.bluezoo.gumdrop.quota.QuotaManager;
  * @see Server
  * @see ImapListener
  */
-public abstract class ImapServer implements Server {
+public class ImapServer implements Server, ImapServerSessionProvider {
 
     private static final Logger LOGGER =
             Logger.getLogger(ImapServer.class.getName());
 
     private final List<Listener> listeners = new ArrayList<Listener>();
+    private ImapServerSessionProvider sessionProvider;
 
     // ── Service-level configuration ──
 
@@ -137,6 +136,14 @@ public abstract class ImapServer implements Server {
     }
 
     public void setMailboxFactory(MailboxFactory factory) {
+        if (factory != null) {
+            ImapServerSessionProvider provider = sessionProvider;
+            if (provider instanceof MailboxStoreImapSessionProvider) {
+                ((MailboxStoreImapSessionProvider) provider).mailboxFactory(factory);
+            } else if (provider == null) {
+                sessionProvider = ImapServerSessionProviders.mailbox(factory);
+            }
+        }
         this.mailboxFactory = factory;
     }
 
@@ -223,20 +230,28 @@ public abstract class ImapServer implements Server {
     // ── Handler creation ──
 
     /**
-     * Creates a new handler for an incoming IMAP connection on the
-     * given endpoint.
+     * Opens the staged handler pipeline for an incoming IMAP connection on
+     * the given listener.
      *
-     * <p>Subclasses must implement this to provide connection-level
-     * IMAP behaviour (authentication, mailbox access, etc.).
-     * The {@code endpoint} parameter identifies which listener
-     * accepted the connection, allowing the service to apply
-     * different policies per listener.
-     *
-     * @param endpoint the endpoint that accepted the connection
-     * @return a handler for the new connection, or null for default
+     * @param listener the listener that accepted the connection
+     * @return the session pipeline entry handler, or {@code null} for default
      */
-    public abstract ClientConnected createHandler(
-            TcpListener endpoint);
+    @Override
+    public ClientConnected openSession(TcpListener listener) {
+        ImapServerSessionProvider provider = sessionProvider;
+        if (provider == null) {
+            return null;
+        }
+        return provider.openSession(listener);
+    }
+
+    /**
+     * @deprecated use {@link #openSession(TcpListener)}.
+     */
+    @Deprecated
+    public final ClientConnected createHandler(TcpListener endpoint) {
+        return openSession(endpoint);
+    }
 
     // ── Lifecycle ──
 
@@ -246,7 +261,10 @@ public abstract class ImapServer implements Server {
      * <p>The default implementation does nothing.
      */
     protected void initService() {
-        // Default: no-op
+        ImapServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.start();
+        }
     }
 
     /**
@@ -255,7 +273,22 @@ public abstract class ImapServer implements Server {
      * <p>The default implementation does nothing.
      */
     protected void destroyService() {
-        // Default: no-op
+        ImapServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.stop();
+        }
+    }
+
+    /**
+     * Returns the configured session provider, or {@code null} for protocol-only
+     * behaviour with no mailbox backing.
+     */
+    protected ImapServerSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    void setComposedSessionProvider(ImapServerSessionProvider provider) {
+        this.sessionProvider = provider;
     }
 
     @Override
@@ -267,6 +300,10 @@ public abstract class ImapServer implements Server {
             if (listener instanceof ImapListener) {
                 ImapListener ep = (ImapListener) listener;
                 wireEndpoint(ep);
+                ImapServerSessionProvider provider = getSessionProvider();
+                if (provider != null) {
+                    ep.setSessionProvider(provider);
+                }
                 ep.setService(this);
             }
             startListener(listener);
@@ -326,6 +363,184 @@ public abstract class ImapServer implements Server {
                 LOGGER.log(Level.WARNING,
                         "Error stopping listener: " + listener, e);
             }
+        }
+    }
+
+    /**
+     * Starts fluent composition of a concrete {@link ImapServer}.
+     */
+    public static Composer compose() {
+        return new Composer();
+    }
+
+    /**
+     * @deprecated use {@link #compose()}.
+     */
+    @Deprecated
+    public static Composer builder() {
+        return compose();
+    }
+
+    /**
+     * Fluent composition of listeners and an {@link ImapServerSessionProvider}.
+     */
+    public static final class Composer {
+
+        private final List<ImapListener> listeners = new ArrayList<ImapListener>();
+        private ImapServerSessionProvider sessionProvider;
+        private Realm realm;
+        private QuotaManager quotaManager;
+        private long loginTimeoutMs = 60000;
+        private long commandTimeoutMs = 300000;
+        private boolean enableIDLE = true;
+        private boolean enableNAMESPACE = true;
+        private boolean enableQUOTA = true;
+        private boolean enableMOVE = true;
+        private int maxLineLength = 8192;
+        private int maxLiteralSize = 25 * 1024 * 1024;
+        private boolean allowPlaintextLogin = false;
+
+        private Composer() {
+        }
+
+        public Composer listener(ImapListener listener) {
+            if (listener == null) {
+                throw new NullPointerException("listener");
+            }
+            listeners.add(listener);
+            return this;
+        }
+
+        public Composer sessionProvider(ImapServerSessionProvider provider) {
+            if (provider == null) {
+                throw new NullPointerException("provider");
+            }
+            this.sessionProvider = provider;
+            return this;
+        }
+
+        public Composer sessionPerConnection(Supplier<ClientConnected> supplier) {
+            return sessionProvider(ImapServerSessionProviders.perSession(supplier));
+        }
+
+        public Composer realm(Realm realm) {
+            this.realm = realm;
+            return this;
+        }
+
+        /**
+         * @deprecated configure {@link MailboxFactory} on
+         *             {@link ImapServerSessionProviders#mailbox(MailboxFactory)}
+         *             instead.
+         */
+        @Deprecated
+        public Composer mailboxFactory(MailboxFactory mailboxFactory) {
+            if (mailboxFactory == null) {
+                throw new NullPointerException("mailboxFactory");
+            }
+            if (sessionProvider == null) {
+                sessionProvider = ImapServerSessionProviders.mailbox(mailboxFactory);
+            } else if (sessionProvider instanceof MailboxStoreImapSessionProvider) {
+                ((MailboxStoreImapSessionProvider) sessionProvider)
+                        .mailboxFactory(mailboxFactory);
+            } else {
+                throw new IllegalStateException(
+                        "mailboxFactory belongs on"
+                                + " MailboxStoreImapSessionProvider, not on the"
+                                + " composer when a custom session provider is"
+                                + " set");
+            }
+            return this;
+        }
+
+        public Composer quotaManager(QuotaManager quotaManager) {
+            this.quotaManager = quotaManager;
+            return this;
+        }
+
+        public Composer loginTimeoutMs(long loginTimeoutMs) {
+            this.loginTimeoutMs = loginTimeoutMs;
+            return this;
+        }
+
+        public Composer commandTimeoutMs(long commandTimeoutMs) {
+            this.commandTimeoutMs = commandTimeoutMs;
+            return this;
+        }
+
+        public Composer enableIDLE(boolean enableIDLE) {
+            this.enableIDLE = enableIDLE;
+            return this;
+        }
+
+        public Composer enableNAMESPACE(boolean enableNAMESPACE) {
+            this.enableNAMESPACE = enableNAMESPACE;
+            return this;
+        }
+
+        public Composer enableQUOTA(boolean enableQUOTA) {
+            this.enableQUOTA = enableQUOTA;
+            return this;
+        }
+
+        public Composer enableMOVE(boolean enableMOVE) {
+            this.enableMOVE = enableMOVE;
+            return this;
+        }
+
+        public Composer maxLineLength(int maxLineLength) {
+            this.maxLineLength = maxLineLength;
+            return this;
+        }
+
+        public Composer maxLiteralSize(int maxLiteralSize) {
+            this.maxLiteralSize = maxLiteralSize;
+            return this;
+        }
+
+        public Composer allowPlaintextLogin(boolean allowPlaintextLogin) {
+            this.allowPlaintextLogin = allowPlaintextLogin;
+            return this;
+        }
+
+        public ImapServer server() {
+            ImapServerSessionProvider provider = sessionProvider;
+            if (provider == null && listeners.size() == 1) {
+                provider = listeners.get(0).getSessionProvider();
+            }
+            if (listeners.isEmpty()) {
+                throw new IllegalStateException(
+                        "at least one listener is required");
+            }
+            ImapServer server = new ImapServer();
+            server.setComposedSessionProvider(provider);
+            if (realm != null) {
+                server.setRealm(realm);
+            }
+            if (quotaManager != null) {
+                server.setQuotaManager(quotaManager);
+            }
+            server.setLoginTimeoutMs(loginTimeoutMs);
+            server.setCommandTimeoutMs(commandTimeoutMs);
+            server.setEnableIDLE(enableIDLE);
+            server.setEnableNAMESPACE(enableNAMESPACE);
+            server.setEnableQUOTA(enableQUOTA);
+            server.setEnableMOVE(enableMOVE);
+            server.setMaxLineLength(maxLineLength);
+            server.setMaxLiteralSize(maxLiteralSize);
+            server.setAllowPlaintextLogin(allowPlaintextLogin);
+            for (int i = 0; i < listeners.size(); i++) {
+                server.addListener(listeners.get(i));
+            }
+            return server;
+        }
+
+        /**
+         * @deprecated use {@link #server()}.
+         */
+        @Deprecated
+        public ImapServer build() {
+            return server();
         }
     }
 

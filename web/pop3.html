@@ -330,10 +330,10 @@ been downloaded.
 <li><code>keystore-pass</code> - keystore password</li>
 </ul>
 
-<h4>DefaultPOP3Server Properties</h4>
+<h4>Pop3Server Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.pop3.DefaultPOP3Server</code> (service logic):
+<code>org.bluezoo.gumdrop.pop3.Pop3Server</code> (service logic):
 </p>
 
 <ul>
@@ -366,7 +366,7 @@ been downloaded.
 &lt;/mailbox-factory&gt;
 
 &lt;!-- POP3 service (port 110 with STLS) --&gt;
-&lt;service id="pop3" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Server"&gt;
+&lt;service id="pop3" class="org.bluezoo.gumdrop.pop3.Pop3Server"&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
     &lt;property name="mailbox-factory" ref="#mbox"/&gt;
     &lt;property name="enable-apop"&gt;true&lt;/property&gt;
@@ -379,7 +379,7 @@ been downloaded.
 &lt;/service&gt;
 
 &lt;!-- POP3S service (port 995 with implicit TLS) --&gt;
-&lt;service id="pop3s" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Server"&gt;
+&lt;service id="pop3s" class="org.bluezoo.gumdrop.pop3.Pop3Server"&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
     &lt;property name="mailbox-factory" ref="#mbox"/&gt;
     &lt;listener class="org.bluezoo.gumdrop.pop3.Pop3Listener"&gt;

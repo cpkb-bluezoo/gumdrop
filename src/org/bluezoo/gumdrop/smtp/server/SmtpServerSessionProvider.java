@@ -18,6 +18,8 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  * org.bluezoo.gumdrop.smtp.handler.MailFromHandler}, …). Stock examples:
  * {@link org.bluezoo.gumdrop.smtp.SimpleRelayHandler},
  * {@link org.bluezoo.gumdrop.smtp.LocalDeliveryHandler}.
+ * Stock providers: {@link SimpleRelaySessionProvider},
+ * {@link LocalDeliverySessionProvider}; see {@link SmtpServerSessionProviders}.
  *
  * <p>{@link SmtpServer} implements this interface. Stateless protocols such as
  * HTTP and DNS compose with request/query handlers instead — they do not extend
@@ -29,4 +31,21 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  */
 public interface SmtpServerSessionProvider
         extends ServerSessionProvider<ClientConnected> {
+
+    /**
+     * Initialises shared resources before listeners accept connections.
+     *
+     * <p>Called from {@link SmtpServer#start()}. Default: no-op.
+     */
+    default void start() {
+    }
+
+    /**
+     * Releases resources after all listeners have stopped.
+     *
+     * <p>Called from {@link SmtpServer#stop()}. Default: no-op.
+     */
+    default void stop() {
+    }
+
 }

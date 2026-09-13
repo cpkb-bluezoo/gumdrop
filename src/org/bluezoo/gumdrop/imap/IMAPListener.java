@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -105,6 +106,8 @@ public class ImapListener extends TcpListener {
 
     // Back-reference to the owning service (null when used standalone)
     private org.bluezoo.gumdrop.imap.server.ImapServer service;
+
+    private org.bluezoo.gumdrop.imap.server.ImapServerSessionProvider sessionProvider;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
     private ImapServerMetrics metrics;
@@ -529,10 +532,6 @@ public class ImapListener extends TcpListener {
             setIdleTimeoutMs(30 * 60 * 1000); // 30 minutes
         }
 
-        if (mailboxFactory == null) {
-            LOGGER.warning(ImapProtocolHandler.L10N.getString("warn.no_mailbox_factory"));
-        }
-
         if (realm == null) {
             LOGGER.warning(ImapProtocolHandler.L10N.getString("warn.no_realm_configured"));
         }
@@ -577,6 +576,51 @@ public class ImapListener extends TcpListener {
      */
     public org.bluezoo.gumdrop.imap.server.ImapServer getService() {
         return service;
+    }
+
+    public void setSessionProvider(
+            org.bluezoo.gumdrop.imap.server.ImapServerSessionProvider sessionProvider) {
+        this.sessionProvider = sessionProvider;
+    }
+
+    public org.bluezoo.gumdrop.imap.server.ImapServerSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    public ImapListener sessionProvider(
+            org.bluezoo.gumdrop.imap.server.ImapServerSessionProvider sessionProvider) {
+        setSessionProvider(sessionProvider);
+        return this;
+    }
+
+    /**
+     * Opens the application handler pipeline for a new connection.
+     *
+     * @return the handler, or {@code null} for default protocol behaviour
+     */
+    public org.bluezoo.gumdrop.imap.handler.ClientConnected openApplicationSession() {
+        if (sessionProvider != null) {
+            try {
+                return sessionProvider.openSession(this);
+            } catch (Exception e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to create IMAP handler from session provider",
+                            e);
+                }
+            }
+        }
+        if (service != null) {
+            try {
+                return service.openSession(this);
+            } catch (Exception e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to create IMAP handler from service", e);
+                }
+            }
+        }
+        return null;
     }
 
     /**

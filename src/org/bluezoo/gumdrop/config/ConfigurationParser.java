@@ -132,17 +132,21 @@ public class ConfigurationParser extends DefaultHandler {
         map.put("org.bluezoo.gumdrop.smtp.SimpleRelayServer",
                 "org.bluezoo.gumdrop.smtp.SimpleRelayServer");
         map.put("org.bluezoo.gumdrop.imap.ImapServer",
-                "org.bluezoo.gumdrop.imap.ImapServer");
+                "org.bluezoo.gumdrop.imap.server.ImapServer");
         map.put("org.bluezoo.gumdrop.imap.IMAPListener",
                 "org.bluezoo.gumdrop.imap.ImapListener");
         map.put("org.bluezoo.gumdrop.imap.DefaultIMAPServer",
-                "org.bluezoo.gumdrop.imap.DefaultIMAPServer");
+                "org.bluezoo.gumdrop.imap.server.ImapServer");
+        map.put("org.bluezoo.gumdrop.imap.DefaultIMAPService",
+                "org.bluezoo.gumdrop.imap.server.ImapServer");
         map.put("org.bluezoo.gumdrop.pop3.Pop3Server",
-                "org.bluezoo.gumdrop.pop3.Pop3Server");
+                "org.bluezoo.gumdrop.pop3.server.Pop3Server");
         map.put("org.bluezoo.gumdrop.pop3.POP3Listener",
                 "org.bluezoo.gumdrop.pop3.Pop3Listener");
         map.put("org.bluezoo.gumdrop.pop3.DefaultPOP3Server",
-                "org.bluezoo.gumdrop.pop3.DefaultPOP3Server");
+                "org.bluezoo.gumdrop.pop3.server.Pop3Server");
+        map.put("org.bluezoo.gumdrop.pop3.DefaultPOP3Service",
+                "org.bluezoo.gumdrop.pop3.server.Pop3Server");
         map.put("org.bluezoo.gumdrop.ftp.FtpServer",
                 "org.bluezoo.gumdrop.ftp.FtpServer");
         map.put("org.bluezoo.gumdrop.ftp.FTPListener",

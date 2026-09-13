@@ -13,11 +13,25 @@ import java.util.function.Supplier;
 /**
  * Factory methods for {@link SmtpServerSessionProvider} implementations.
  *
- * @see SmtpServer#builder()
+ * @see SmtpServer#compose()
  */
 public final class SmtpServerSessionProviders {
 
     private SmtpServerSessionProviders() {
+    }
+
+    /**
+     * Returns a stock open-relay session provider (MX forwarding).
+     */
+    public static SimpleRelaySessionProvider relay() {
+        return new SimpleRelaySessionProvider();
+    }
+
+    /**
+     * Returns a stock local-mailbox delivery session provider.
+     */
+    public static LocalDeliverySessionProvider localDelivery() {
+        return new LocalDeliverySessionProvider();
     }
 
     /**

@@ -37,9 +37,10 @@
  * NOOP/QUIT, are handled entirely by {@code Pop3ProtocolHandler} using
  * the configured {@link org.bluezoo.gumdrop.auth.Realm}; the application
  * only sees the verified {@code Principal} at {@link
- * AuthorizationHandler#authenticate}. {@link DefaultPOP3Handler} and
- * {@link org.bluezoo.gumdrop.pop3.DefaultPOP3Server} provide a ready-to-use
- * implementation backed directly by the configured {@code MailboxFactory}.
+ * AuthorizationHandler#authenticate}. {@link DefaultPOP3Handler} with
+ * {@link org.bluezoo.gumdrop.pop3.server.MailboxStorePop3SessionProvider}
+ * provides a ready-to-use implementation backed by the configured
+ * {@code MailboxFactory}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler

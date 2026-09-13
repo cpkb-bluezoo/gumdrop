@@ -139,7 +139,7 @@ Connection is encrypted from the start (e.g., SMTPS port 465, IMAPS port 993):
 </p>
 
 <pre>
-&lt;service id="imaps" class="org.bluezoo.gumdrop.imap.DefaultIMAPServer"&gt;
+&lt;service id="imaps" class="org.bluezoo.gumdrop.imap.ImapServer"&gt;
     &lt;listener class="org.bluezoo.gumdrop.imap.ImapListener"&gt;
         &lt;property name="port"&gt;993&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
@@ -812,7 +812,7 @@ offending clients.
 </p>
 
 <pre>
-&lt;service id="imap" class="org.bluezoo.gumdrop.imap.DefaultIMAPServer"&gt;
+&lt;service id="imap" class="org.bluezoo.gumdrop.imap.ImapServer"&gt;
     &lt;property name="max-auth-failures"&gt;5&lt;/property&gt;
     &lt;property name="auth-lockout-time"&gt;5m&lt;/property&gt;
     &lt;listener class="org.bluezoo.gumdrop.imap.ImapListener" port="143"/&gt;

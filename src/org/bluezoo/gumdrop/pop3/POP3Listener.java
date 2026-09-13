@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.pop3;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
@@ -87,6 +88,8 @@ public class Pop3Listener extends TcpListener {
 
     // Back-reference to the owning service (null when used standalone)
     private org.bluezoo.gumdrop.pop3.server.Pop3Server service;
+
+    private org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider sessionProvider;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
     private Pop3ServerMetrics metrics;
@@ -377,10 +380,6 @@ public class Pop3Listener extends TcpListener {
             port = secure ? POP3S_DEFAULT_PORT : POP3_DEFAULT_PORT;
         }
 
-        if (mailboxFactory == null) {
-            LOGGER.warning(Pop3ProtocolHandler.L10N.getString("warn.no_mailbox_factory"));
-        }
-
         if (isMetricsEnabled()) {
             metrics = new Pop3ServerMetrics(getTelemetryConfig());
         }
@@ -421,6 +420,51 @@ public class Pop3Listener extends TcpListener {
      */
     public org.bluezoo.gumdrop.pop3.server.Pop3Server getService() {
         return service;
+    }
+
+    public void setSessionProvider(
+            org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider sessionProvider) {
+        this.sessionProvider = sessionProvider;
+    }
+
+    public org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    public Pop3Listener sessionProvider(
+            org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider sessionProvider) {
+        setSessionProvider(sessionProvider);
+        return this;
+    }
+
+    /**
+     * Opens the application handler pipeline for a new connection.
+     *
+     * @return the handler, or {@code null} for default protocol behaviour
+     */
+    public org.bluezoo.gumdrop.pop3.handler.ClientConnected openApplicationSession() {
+        if (sessionProvider != null) {
+            try {
+                return sessionProvider.openSession(this);
+            } catch (Exception e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to create POP3 handler from session provider",
+                            e);
+                }
+            }
+        }
+        if (service != null) {
+            try {
+                return service.openSession(this);
+            } catch (Exception e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to create POP3 handler from service", e);
+                }
+            }
+        }
+        return null;
     }
 
     /**

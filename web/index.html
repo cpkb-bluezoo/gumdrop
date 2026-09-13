@@ -379,10 +379,10 @@ with quota management), and <code>AnonymousFTPServer</code> (anonymous read-only
 public distribution)</li>
 <li><b>SMTP</b> &ndash; <code>LocalDeliveryServer</code> for mailbox delivery,
 <code>SimpleRelayServer</code> for MX forwarding</li>
-<li><b>IMAP</b> &ndash; <code>DefaultIMAPServer</code> accepts all operations
-using the configured Realm and MailboxFactory</li>
-<li><b>POP3</b> &ndash; <code>DefaultPOP3Server</code> accepts all operations
-using the configured Realm and MailboxFactory</li>
+<li><b>IMAP</b> &ndash; <code>ImapServer</code> with mailbox session provider
+accepts all operations using the configured Realm and MailboxFactory</li>
+<li><b>POP3</b> &ndash; <code>Pop3Server</code> with mailbox session provider
+accepts all operations using the configured Realm and MailboxFactory</li>
 <li><b>DNS</b> &ndash; <code>DnsServer</code> provides a DNS proxy with caching
 and custom resolution; subclass for custom name resolution logic</li>
 <li><b>MQTT</b> &ndash; <code>DefaultMQTTServer</code> provides a complete

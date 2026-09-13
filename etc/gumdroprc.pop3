@@ -14,7 +14,7 @@
 	<!-- POP3 service.
 	     Provides POP3 access to Maildir mailboxes.
 	     Users: bob/bob, alice/alice. -->
-	<service id="pop3" class="org.bluezoo.gumdrop.pop3.DefaultPOP3Service">
+	<service id="pop3" class="org.bluezoo.gumdrop.pop3.Pop3Server">
 		<property name="realm" ref="#mailRealm"/>
 		<property name="mailbox-factory" ref="#maildir"/>
 

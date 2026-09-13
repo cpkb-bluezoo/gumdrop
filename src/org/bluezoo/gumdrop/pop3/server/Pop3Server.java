@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.pop3.Pop3Listener;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -37,13 +38,12 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
 
 /**
- * Abstract base for POP3 protocol servers.
+ * POP3 protocol server — listeners, configuration, and session composition.
  *
- * <p>A {@code Pop3Server} defines the application logic for handling
- * POP3 connections. It owns authentication, mailbox storage, and
- * protocol configuration, and acts as the handler factory: subclasses
- * override {@link #createHandler(TcpListener)} to return the
- * appropriate {@link ClientConnected} handler for each new connection.
+ * <p>Do not subclass for application logic. Use {@link #compose()} with a
+ * {@link Pop3ServerSessionProvider} (typically
+ * {@link MailboxStorePop3SessionProvider}) or configure listeners and properties
+ * directly on this type for legacy XML.
  *
  * <p>Service-level configuration is pushed into each listener during
  * {@link #start()} so that the existing endpoint handler code
@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
  *
  * <h2>Configuration Example</h2>
  * <pre>{@code
- * <service class="com.example.MyPop3Service">
+ * <service class="org.bluezoo.gumdrop.pop3.server.Pop3Server">
  *   <property name="realm" ref="#myRealm"/>
  *   <property name="mailbox-factory" ref="#mboxStorage"/>
  *   <listener class="org.bluezoo.gumdrop.pop3.Pop3Listener"
@@ -65,12 +65,13 @@ import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
  * @see Server
  * @see Pop3Listener
  */
-public abstract class Pop3Server implements Server {
+public class Pop3Server implements Server, Pop3ServerSessionProvider {
 
     private static final Logger LOGGER =
             Logger.getLogger(Pop3Server.class.getName());
 
     private final List<Listener> listeners = new ArrayList<Listener>();
+    private Pop3ServerSessionProvider sessionProvider;
 
     // ── Service-level configuration ──
 
@@ -128,7 +129,35 @@ public abstract class Pop3Server implements Server {
     }
 
     public void setMailboxFactory(MailboxFactory factory) {
+        if (factory != null) {
+            Pop3ServerSessionProvider provider = sessionProvider;
+            if (provider instanceof MailboxStorePop3SessionProvider) {
+                ((MailboxStorePop3SessionProvider) provider).mailboxFactory(factory);
+            } else if (provider == null) {
+                sessionProvider = Pop3ServerSessionProviders.mailbox(factory);
+            }
+        }
         this.mailboxFactory = factory;
+    }
+
+    /**
+     * Returns the greeting message sent to clients when using a mailbox store
+     * session provider.
+     */
+    public String getGreeting() {
+        Pop3ServerSessionProvider provider = sessionProvider;
+        if (provider instanceof MailboxStorePop3SessionProvider) {
+            return ((MailboxStorePop3SessionProvider) provider).getGreeting();
+        }
+        return "POP3 server ready";
+    }
+
+    /**
+     * Sets the greeting message sent to clients when using a mailbox store
+     * session provider.
+     */
+    public void setGreeting(String greeting) {
+        ensureMailboxStoreProvider().greeting(greeting);
     }
 
     public long getLoginDelayMs() {
@@ -173,20 +202,22 @@ public abstract class Pop3Server implements Server {
 
     // ── Handler creation ──
 
+    @Override
+    public ClientConnected openSession(TcpListener listener) {
+        Pop3ServerSessionProvider provider = sessionProvider;
+        if (provider == null) {
+            return null;
+        }
+        return provider.openSession(listener);
+    }
+
     /**
-     * Creates a new handler for an incoming POP3 connection on the
-     * given endpoint.
-     *
-     * <p>Subclasses must implement this to provide connection-level
-     * POP3 behaviour (authentication, mailbox access, etc.).
-     * The {@code endpoint} parameter identifies which listener
-     * accepted the connection.
-     *
-     * @param endpoint the endpoint that accepted the connection
-     * @return a handler for the new connection, or null for default
+     * @deprecated use {@link #openSession(TcpListener)}.
      */
-    public abstract ClientConnected createHandler(
-            TcpListener endpoint);
+    @Deprecated
+    public final ClientConnected createHandler(TcpListener endpoint) {
+        return openSession(endpoint);
+    }
 
     // ── Lifecycle ──
 
@@ -196,7 +227,10 @@ public abstract class Pop3Server implements Server {
      * <p>The default implementation does nothing.
      */
     protected void initService() {
-        // Default: no-op
+        Pop3ServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.start();
+        }
     }
 
     /**
@@ -205,7 +239,36 @@ public abstract class Pop3Server implements Server {
      * <p>The default implementation does nothing.
      */
     protected void destroyService() {
-        // Default: no-op
+        Pop3ServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.stop();
+        }
+    }
+
+    protected Pop3ServerSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    void setComposedSessionProvider(Pop3ServerSessionProvider provider) {
+        this.sessionProvider = provider;
+    }
+
+    private MailboxStorePop3SessionProvider ensureMailboxStoreProvider() {
+        Pop3ServerSessionProvider provider = sessionProvider;
+        if (provider instanceof MailboxStorePop3SessionProvider) {
+            return (MailboxStorePop3SessionProvider) provider;
+        }
+        if (provider != null) {
+            throw new IllegalStateException(
+                    "greeting applies only with MailboxStorePop3SessionProvider");
+        }
+        MailboxStorePop3SessionProvider mailboxProvider =
+                new MailboxStorePop3SessionProvider();
+        if (mailboxFactory != null) {
+            mailboxProvider.mailboxFactory(mailboxFactory);
+        }
+        sessionProvider = mailboxProvider;
+        return mailboxProvider;
     }
 
     @Override
@@ -217,6 +280,10 @@ public abstract class Pop3Server implements Server {
             if (listener instanceof Pop3Listener) {
                 Pop3Listener ep = (Pop3Listener) listener;
                 wireEndpoint(ep);
+                Pop3ServerSessionProvider provider = getSessionProvider();
+                if (provider != null) {
+                    ep.setSessionProvider(provider);
+                }
                 ep.setService(this);
             }
             startListener(listener);
@@ -269,6 +336,136 @@ public abstract class Pop3Server implements Server {
                 LOGGER.log(Level.WARNING,
                         "Error stopping listener: " + listener, e);
             }
+        }
+    }
+
+    public static Composer compose() {
+        return new Composer();
+    }
+
+    @Deprecated
+    public static Composer builder() {
+        return compose();
+    }
+
+    public static final class Composer {
+
+        private final List<Pop3Listener> listeners = new ArrayList<Pop3Listener>();
+        private Pop3ServerSessionProvider sessionProvider;
+        private Realm realm;
+        private long loginDelayMs = 0;
+        private long transactionTimeoutMs = 600000;
+        private boolean enableAPOP = true;
+        private boolean enableUTF8 = true;
+        private boolean enablePipelining = false;
+
+        private Composer() {
+        }
+
+        public Composer listener(Pop3Listener listener) {
+            if (listener == null) {
+                throw new NullPointerException("listener");
+            }
+            listeners.add(listener);
+            return this;
+        }
+
+        public Composer sessionProvider(Pop3ServerSessionProvider provider) {
+            if (provider == null) {
+                throw new NullPointerException("provider");
+            }
+            this.sessionProvider = provider;
+            return this;
+        }
+
+        public Composer sessionPerConnection(
+                Supplier<org.bluezoo.gumdrop.pop3.handler.ClientConnected> supplier) {
+            return sessionProvider(Pop3ServerSessionProviders.perSession(supplier));
+        }
+
+        public Composer realm(Realm realm) {
+            this.realm = realm;
+            return this;
+        }
+
+        /**
+         * @deprecated configure {@link MailboxFactory} on
+         *             {@link Pop3ServerSessionProviders#mailbox(MailboxFactory)}
+         *             instead.
+         */
+        @Deprecated
+        public Composer mailboxFactory(MailboxFactory mailboxFactory) {
+            if (mailboxFactory == null) {
+                throw new NullPointerException("mailboxFactory");
+            }
+            if (sessionProvider == null) {
+                sessionProvider = Pop3ServerSessionProviders.mailbox(mailboxFactory);
+            } else if (sessionProvider instanceof MailboxStorePop3SessionProvider) {
+                ((MailboxStorePop3SessionProvider) sessionProvider)
+                        .mailboxFactory(mailboxFactory);
+            } else {
+                throw new IllegalStateException(
+                        "mailboxFactory belongs on"
+                                + " MailboxStorePop3SessionProvider, not on the"
+                                + " composer when a custom session provider is"
+                                + " set");
+            }
+            return this;
+        }
+
+        public Composer loginDelayMs(long loginDelayMs) {
+            this.loginDelayMs = loginDelayMs;
+            return this;
+        }
+
+        public Composer transactionTimeoutMs(long transactionTimeoutMs) {
+            this.transactionTimeoutMs = transactionTimeoutMs;
+            return this;
+        }
+
+        public Composer enableAPOP(boolean enableAPOP) {
+            this.enableAPOP = enableAPOP;
+            return this;
+        }
+
+        public Composer enableUTF8(boolean enableUTF8) {
+            this.enableUTF8 = enableUTF8;
+            return this;
+        }
+
+        public Composer enablePipelining(boolean enablePipelining) {
+            this.enablePipelining = enablePipelining;
+            return this;
+        }
+
+        public Pop3Server server() {
+            Pop3ServerSessionProvider provider = sessionProvider;
+            if (provider == null && listeners.size() == 1) {
+                provider = listeners.get(0).getSessionProvider();
+            }
+            if (listeners.isEmpty()) {
+                throw new IllegalStateException(
+                        "at least one listener is required");
+            }
+            Pop3Server server = new Pop3Server();
+            server.setComposedSessionProvider(provider);
+            if (realm != null) {
+                server.setRealm(realm);
+            }
+            server.setLoginDelayMs(loginDelayMs);
+            server.setTransactionTimeoutMs(transactionTimeoutMs);
+            server.setEnableAPOP(enableAPOP);
+            server.setEnableUTF8(enableUTF8);
+            server.setEnablePipelining(enablePipelining);
+            for (int i = 0; i < listeners.size(); i++) {
+                server.addListener(listeners.get(i));
+            }
+            return server;
+        }
+
+        @Deprecated
+        public Pop3Server build() {
+            return server();
         }
     }
 

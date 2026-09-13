@@ -1661,8 +1661,7 @@ public class POP3ProtocolHandlerTest {
         }
 
         @Override
-        public ClientConnected createHandler(
-                TcpListener endpoint) {
+        public ClientConnected openSession(TcpListener endpoint) {
             return handler;
         }
     }

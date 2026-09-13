@@ -93,6 +93,9 @@ public class SmtpListener extends TcpListener {
     // Back-reference to the owning service (null when used standalone)
     private org.bluezoo.gumdrop.smtp.server.SmtpServer service;
 
+    // Session pipeline for composed servers (null when using legacy service wiring)
+    private org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider sessionProvider;
+
     // Metrics for this endpoint (null if telemetry is not enabled)
     private SmtpServerMetrics metrics;
 
@@ -360,18 +363,62 @@ public class SmtpListener extends TcpListener {
     }
 
     /**
+     * Sets the session provider that mints handler pipelines for accepted
+     * connections. When set, {@link #createHandler()} uses
+     * {@link org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider#openSession}
+     * instead of {@link org.bluezoo.gumdrop.smtp.server.SmtpServer#openSession}.
+     *
+     * @param sessionProvider the session provider
+     */
+    public void setSessionProvider(
+            org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider sessionProvider) {
+        this.sessionProvider = sessionProvider;
+    }
+
+    /**
+     * Returns the configured session provider, or {@code null}.
+     */
+    public org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    /**
+     * Sets the session provider. Returns {@code this} for fluent configuration.
+     *
+     * @param sessionProvider the session provider
+     * @return this listener
+     */
+    public SmtpListener sessionProvider(
+            org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider sessionProvider) {
+        setSessionProvider(sessionProvider);
+        return this;
+    }
+
+    /**
      * Creates a new SmtpProtocolHandler for a newly accepted connection.
      *
-     * <p>If an {@link SmtpServer} is set, the handler is obtained from
-     * the service's {@link SmtpServer#openSession(org.bluezoo.gumdrop.TcpListener)}
-     * method.
+     * <p>If a {@link org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider}
+     * is set (composition path), the handler is obtained from
+     * {@link org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider#openSession}.
+     * Otherwise, if an {@link org.bluezoo.gumdrop.smtp.server.SmtpServer} is set,
+     * the handler comes from {@link org.bluezoo.gumdrop.smtp.server.SmtpServer#openSession}.
      *
      * @return a new SMTP endpoint handler
      */
     @Override
     protected ProtocolHandler createHandler() {
         ClientConnected handler = null;
-        if (service != null) {
+        if (sessionProvider != null) {
+            try {
+                handler = sessionProvider.openSession(this);
+            } catch (Exception e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to create SMTP handler from session provider,"
+                                    + " using default behaviour", e);
+                }
+            }
+        } else if (service != null) {
             try {
                 handler = service.openSession(this);
             } catch (Exception e) {

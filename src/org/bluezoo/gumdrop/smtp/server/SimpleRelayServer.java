@@ -21,28 +21,15 @@
 
 package org.bluezoo.gumdrop.smtp.server;
 
-import org.bluezoo.gumdrop.smtp.SimpleRelayHandler;
-import org.bluezoo.gumdrop.smtp.SmtpListener;
-
-import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.text.MessageFormat;
-import java.util.ResourceBundle;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 import org.bluezoo.gumdrop.TcpListener;
-import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 
 /**
  * SMTP service for MX-based mail relay.
  *
- * <p>This service creates {@link SimpleRelayHandler} instances that
- * accept mail for any domain and relay it via MX lookups. A shared
- * {@link DnsResolver} is initialised when the service starts and
- * closed when it stops.
+ * <p>Legacy XML entry point. New applications should compose
+ * {@link SimpleRelaySessionProvider} via {@link SmtpServer#compose()} instead
+ * of subclassing this type.
  *
  * <h2>Configuration Example</h2>
  * <pre>{@code
@@ -57,19 +44,13 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SmtpServer
- * @see SimpleRelayHandler
+ * @see SimpleRelaySessionProvider
+ * @see org.bluezoo.gumdrop.smtp.SimpleRelayHandler
  */
 public class SimpleRelayServer extends SmtpServer {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(SimpleRelayServer.class.getName());
-    private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
-
-    private DnsResolver dnsResolver;
-    private String hostname;
-    private String dnsServer;
-    private long dnsTimeout = 5000;
+    private final SimpleRelaySessionProvider sessionProvider =
+            new SimpleRelaySessionProvider();
 
     /**
      * Sets the local hostname used in EHLO.
@@ -77,7 +58,7 @@ public class SimpleRelayServer extends SmtpServer {
      * @param hostname the local hostname
      */
     public void setHostname(String hostname) {
-        this.hostname = hostname;
+        sessionProvider.hostname(hostname);
     }
 
     /**
@@ -86,7 +67,7 @@ public class SimpleRelayServer extends SmtpServer {
      * @return the local hostname
      */
     public String getHostname() {
-        return hostname;
+        return sessionProvider.getHostname();
     }
 
     /**
@@ -96,7 +77,7 @@ public class SimpleRelayServer extends SmtpServer {
      * @param dnsServer the DNS server address
      */
     public void setDnsServer(String dnsServer) {
-        this.dnsServer = dnsServer;
+        sessionProvider.dnsServer(dnsServer);
     }
 
     /**
@@ -105,7 +86,7 @@ public class SimpleRelayServer extends SmtpServer {
      * @return the DNS server address, or null for system resolvers
      */
     public String getDnsServer() {
-        return dnsServer;
+        return sessionProvider.getDnsServer();
     }
 
     /**
@@ -114,7 +95,7 @@ public class SimpleRelayServer extends SmtpServer {
      * @param dnsTimeout the timeout in milliseconds
      */
     public void setDnsTimeout(long dnsTimeout) {
-        this.dnsTimeout = dnsTimeout;
+        sessionProvider.timeoutMs(dnsTimeout);
     }
 
     /**
@@ -123,59 +104,17 @@ public class SimpleRelayServer extends SmtpServer {
      * @return the timeout in milliseconds
      */
     public long getDnsTimeout() {
-        return dnsTimeout;
+        return sessionProvider.getTimeoutMs();
     }
 
     @Override
-    protected void initService() {
-        if (hostname == null) {
-            try {
-                hostname = InetAddress.getLocalHost().getHostName();
-            } catch (UnknownHostException e) {
-                hostname = "localhost";
-            }
-        }
-
-        dnsResolver = new DnsResolver();
-        dnsResolver.setTimeoutMs(dnsTimeout);
-
-        if (dnsServer != null) {
-            try {
-                dnsResolver.addServer(dnsServer);
-            } catch (UnknownHostException e) {
-                LOGGER.log(Level.WARNING, "Invalid DNS server: " + dnsServer,
-                        e);
-            }
-        } else {
-            dnsResolver.useSystemResolvers();
-        }
-
-        try {
-            dnsResolver.open();
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE,
-                    L10N.getString("err.dns_resolver_init_failed"), e);
-            throw new RuntimeException(
-                    L10N.getString("err.dns_resolver_init_failed"), e);
-        }
-
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.simple_relay_service_initialized"), hostname));
-        }
-    }
-
-    @Override
-    protected void destroyService() {
-        if (dnsResolver != null) {
-            dnsResolver.close();
-            dnsResolver = null;
-        }
+    protected SmtpServerSessionProvider getSessionProvider() {
+        return sessionProvider;
     }
 
     @Override
     public ClientConnected openSession(TcpListener endpoint) {
-        return new SimpleRelayHandler(dnsResolver, hostname);
+        return sessionProvider.openSession(endpoint);
     }
 
 }

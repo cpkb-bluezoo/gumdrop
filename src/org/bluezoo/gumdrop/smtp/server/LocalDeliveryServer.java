@@ -21,22 +21,15 @@
 
 package org.bluezoo.gumdrop.smtp.server;
 
-import org.bluezoo.gumdrop.smtp.LocalDeliveryHandler;
-import org.bluezoo.gumdrop.smtp.SmtpListener;
-
-import java.util.ResourceBundle;
-
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 
 /**
  * SMTP service for local mailbox delivery.
  *
- * <p>This service creates {@link LocalDeliveryHandler} instances for
- * each incoming connection. It accepts mail for a configured local
- * domain and delivers messages to local mailboxes via the
- * {@link org.bluezoo.gumdrop.mailbox.MailboxFactory} configured on
- * the service.
+ * <p>Legacy XML entry point. New applications should compose
+ * {@link LocalDeliverySessionProvider} via {@link SmtpServer#compose()} instead
+ * of subclassing this type.
  *
  * <h2>Configuration Example</h2>
  * <pre>{@code
@@ -51,15 +44,13 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SmtpServer
- * @see LocalDeliveryHandler
+ * @see LocalDeliverySessionProvider
+ * @see org.bluezoo.gumdrop.smtp.LocalDeliveryHandler
  */
 public class LocalDeliveryServer extends SmtpServer {
 
-    private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
-
-    private String localDomain;
-    private String hostname = "localhost";
+    private final LocalDeliverySessionProvider sessionProvider =
+            new LocalDeliverySessionProvider();
 
     /**
      * Sets the local domain that this service accepts mail for.
@@ -67,7 +58,7 @@ public class LocalDeliveryServer extends SmtpServer {
      * @param localDomain the local domain name
      */
     public void setLocalDomain(String localDomain) {
-        this.localDomain = localDomain;
+        sessionProvider.localDomain(localDomain);
     }
 
     /**
@@ -76,7 +67,7 @@ public class LocalDeliveryServer extends SmtpServer {
      * @return the local domain name
      */
     public String getLocalDomain() {
-        return localDomain;
+        return sessionProvider.getLocalDomain();
     }
 
     /**
@@ -85,7 +76,7 @@ public class LocalDeliveryServer extends SmtpServer {
      * @param hostname the server hostname
      */
     public void setHostname(String hostname) {
-        this.hostname = hostname;
+        sessionProvider.hostname(hostname);
     }
 
     /**
@@ -94,21 +85,17 @@ public class LocalDeliveryServer extends SmtpServer {
      * @return the server hostname
      */
     public String getHostname() {
-        return hostname;
+        return sessionProvider.getHostname();
+    }
+
+    @Override
+    protected SmtpServerSessionProvider getSessionProvider() {
+        return sessionProvider;
     }
 
     @Override
     public ClientConnected openSession(TcpListener endpoint) {
-        if (getMailboxFactory() == null) {
-            throw new IllegalStateException(
-                    L10N.getString("err.mailbox_factory_not_configured"));
-        }
-        if (localDomain == null || localDomain.isEmpty()) {
-            throw new IllegalStateException(
-                    L10N.getString("err.local_domain_not_configured"));
-        }
-        return new LocalDeliveryHandler(getMailboxFactory(), localDomain,
-                hostname);
+        return sessionProvider.openSession(endpoint);
     }
 
 }

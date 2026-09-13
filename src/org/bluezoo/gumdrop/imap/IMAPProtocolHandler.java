@@ -928,10 +928,7 @@ public final class ImapProtocolHandler
 
     // RFC 9051 section 7.1 — server greeting (OK, PREAUTH, or BYE)
     private void sendGreeting() throws IOException {
-        org.bluezoo.gumdrop.imap.server.ImapServer service = server.getService();
-        if (service != null) {
-            clientConnected = service.createHandler(server);
-        }
+        clientConnected = server.openApplicationSession();
         if (clientConnected != null) {
             clientConnected.connected(new ConnectedStateImpl(), endpoint);
         } else {

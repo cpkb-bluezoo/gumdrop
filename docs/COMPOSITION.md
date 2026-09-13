@@ -45,6 +45,7 @@ implicit upstream relay or similar.
 | **HTTP** | **404 Not Found** for standard methods on any path | **501 Not Implemented** (HTTP layer) |
 | **DNS** | **Empty answer** (NOERROR, zero RRs) — no upstream, no cache side effects | Appropriate REFUSED / NOTIMP where applicable |
 | **SMTP** *(today)* | `SmtpServer` requires `openSession()` — no silent relay | Staged handler rejects at SMTP layer |
+| **IMAP** / **POP3** | Protocol stack and **CAPABILITY** / greeting work; no mailbox backing — SELECT/LIST/AUTH fail with protocol errors (e.g. nonexistent mailbox) | Staged handler / protocol layer |
 
 **Previously:** `DnsServer` always forwarded to upstream resolvers
 (`useSystemResolvers=true` by default). **Now split:** default `DnsServer` uses
@@ -76,7 +77,8 @@ request **routing**, not session minting — do not conflate the two.
 ```java
 SmtpServer server = SmtpServer.compose()
         .listener(new SmtpListener().port(2525).bindWildcard())
-        .sessionPerConnection(() -> new SimpleRelayHandler(...))
+        .sessionProvider(SmtpServerSessionProviders.relay()
+                .hostname("relay.example.com"))
         .server();
 gumdrop.addServer(server);
 ```
@@ -84,10 +86,15 @@ gumdrop.addServer(server);
 Each accept calls {@link org.bluezoo.gumdrop.ServerSessionProvider#openSession},
 which returns the first stage of a **connection-private** staged handler pipeline
 ({@link org.bluezoo.gumdrop.smtp.handler.ClientConnected}, then {@code HelloHandler},
-{@code MailFromHandler}, …).
+{@code MailFromHandler}, …). The session provider may also be set on the listener
+({@code new SmtpListener().sessionProvider(...)}); {@link SmtpServer#start()} wires
+it on the accept path.
 
-Legacy {@code SimpleRelayServer} / {@code LocalDeliveryServer} subclasses remain
-for XML configuration; new code should use {@link SmtpServer#compose()} as above.
+Stock providers: {@link org.bluezoo.gumdrop.smtp.server.SimpleRelaySessionProvider}
+(MX relay) and {@link org.bluezoo.gumdrop.smtp.server.LocalDeliverySessionProvider}
+(local mailbox delivery). Legacy {@code SimpleRelayServer} /
+{@code LocalDeliveryServer} subclasses delegate to these providers for XML
+configuration.
 
 ### Stateful client (SMTP reference)
 
@@ -333,19 +340,78 @@ DnsServer auth = DnsServer.compose()
 Same pattern as SMTP (stateful — session provider, not query handler):
 
 ```java
-// MX relay — stock handler pipeline, explicit wiring
-SmtpServer relay = new SimpleRelayServer();
-relay.addListener(new SmtpListener());
-relay.setHostname("relay.example.com");
-// → openSession() returns new SimpleRelayHandler(...) per connection
+// MX relay — stock session provider
+SmtpServer relay = SmtpServer.compose()
+        .listener(new SmtpListener().port(25).bindWildcard())
+        .sessionProvider(SmtpServerSessionProviders.relay()
+                .hostname("relay.example.com"))
+        .server();
 
-// Local mailbox delivery — different stock pipeline
-SmtpServer mbox = new LocalDeliveryServer();
-mbox.addListener(new SmtpListener());
-// → openSession() returns new LocalDeliveryHandler(...)
+// Local mailbox delivery
+SmtpServer mbox = SmtpServer.compose()
+        .listener(new SmtpListener().port(25).bindWildcard())
+        .mailboxFactory(maildirFactory)
+        .sessionProvider(SmtpServerSessionProviders.localDelivery()
+                .localDomain("example.com"))
+        .server();
 ```
 
 *(The DNS examples above use stateless `DnsQueryHandler` — no session provider.)*
+
+### IMAP and POP3 (mailbox protocols)
+
+Same session-provider model as SMTP. With **no** session provider, the transport
+and protocol stack run but there is no mailbox configuration — clients see normal
+CAPABILITIES / greeting and get protocol-level failures when they try to use
+mailboxes. Plug-and-go mailbox storage attaches via
+{@code MailboxStoreImapSessionProvider} / {@code MailboxStorePop3SessionProvider}
+(the {@link org.bluezoo.gumdrop.mailbox.MailboxFactory} is a property of the
+provider, not the server):
+
+```java
+ImapServer imap = ImapServer.compose()
+        .listener(new ImapListener().port(993).bindWildcard().secure(true).tls(tls))
+        .realm(realm)
+        .sessionProvider(ImapServerSessionProviders.mailbox(maildirFactory))
+        .server();
+
+// Empty default — CAPABILITIES only, no mailbox backing
+ImapServer empty = ImapServer.compose()
+        .listener(new ImapListener().port(143).bindWildcard())
+        .realm(realm)
+        .server();
+
+Pop3Server pop3 = Pop3Server.compose()
+        .listener(new Pop3Listener().port(995).bindWildcard().secure(true).tls(tls))
+        .realm(realm)
+        .sessionProvider(Pop3ServerSessionProviders.mailbox(maildirFactory)
+                .greeting("ready"))
+        .server();
+```
+
+Clients:
+
+```java
+ImapClient imap = new ImapClient()
+        .host("imap.example.com")
+        .port(993)
+        .secure(true)
+        .sessionPerConnection(() -> new MyRemoteGreeting());
+imap.connect();
+
+Pop3Client pop3 = new Pop3Client()
+        .host("pop.example.com")
+        .port(995)
+        .secure(true)
+        .sessionPerConnection(() -> new MyRemoteGreeting());
+pop3.connect();
+```
+
+Legacy XML may still declare {@code DefaultIMAPServer} / {@code DefaultPOP3Server};
+those names resolve to {@link org.bluezoo.gumdrop.imap.server.ImapServer} /
+{@link org.bluezoo.gumdrop.pop3.server.Pop3Server}. {@code setMailboxFactory()}
+installs a {@link MailboxStoreImapSessionProvider} /
+{@link MailboxStorePop3SessionProvider} automatically.
 
 ---
 
@@ -374,9 +440,9 @@ separate factory interface layer.
 **SMTP** is the reference for session-based composition: {@code SmtpServer}
 implements {@code SmtpServerSessionProvider}; the client uses
 {@code SmtpClientSessionProvider} / staged {@code *ReplyHandler} interfaces.
-**FTP** will follow after its server SPI is restaged. **IMAP** and **POP3**
-already use staged server handlers and will gain explicit session-provider
-interfaces in a later slice.
+**IMAP** and **POP3** use the same pattern ({@code ImapServerSessionProvider},
+{@code Pop3ServerSessionProvider}, and matching client providers).
+**FTP** will follow after its server SPI is restaged.
 
 ---
 
@@ -403,8 +469,10 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 | `<service class="…WebDAVService">` | `HttpServer` + `WebDAVRequestHandler` |
 | `HttpRequestHandlerFactory` for routing | `HttpRequestRouter` / handler on `HttpServer` |
 | `SmtpServer#createHandler()` | `SmtpServer#openSession()` / `SmtpServerSessionProvider` |
+| `ImapServer` / `Pop3Server` `createHandler()` | `openSession()` / `{Protocol}ServerSessionProvider` |
 | `DnsServer` with implicit upstream | `DnsServer` + `UpstreamRelayHandler` |
-| Subclass `*Server` for app logic | Handler interfaces + composition |
+| Subclass `*Server` for app logic | Handler interfaces + composition; use `{Protocol}Server#compose()` |
+| `DefaultIMAPServer` / `DefaultPOP3Server` | `ImapServer` / `Pop3Server` + session providers |
 
 ---
 
@@ -431,5 +499,8 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 | `DnsServer.compose()`, `DnsQueryHandler`, default empty answers | **Done** |
 | `SmtpServer.compose()`, fluent `SmtpClient`, `DnsResolver.server()` | **Done** |
 | `UpstreamRelayHandler`, `AuthoritativeZoneHandler`, `ZoneFile` | **Done** |
-| `ServerSessionProvider`, `ClientSessionProvider`; SMTP session SPI | **Done** (SMTP); FTP planned |
+| `SimpleRelaySessionProvider`, `LocalDeliverySessionProvider`, listener `.sessionProvider()` | **Done** |
+| `ImapServer.compose()`, `Pop3Server.compose()`, mailbox session providers | **Done** |
+| `ImapClient` / `Pop3Client` session providers | **Done** |
+| `ServerSessionProvider`, `ClientSessionProvider`; SMTP/IMAP/POP3 session SPI | **Done**; FTP planned |
 | `Runtime` replaces `Gumdrop.getInstance()` | Planned (§C.4) |

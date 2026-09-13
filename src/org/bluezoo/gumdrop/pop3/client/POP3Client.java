@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.pop3.client;
 
 import java.io.IOException;
+import java.util.function.Supplier;
 import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.logging.Level;
@@ -97,11 +98,11 @@ public class Pop3Client {
     private static final Logger LOGGER =
             Logger.getLogger(Pop3Client.class.getName());
 
-    private final String host;
-    private final InetAddress hostAddress;
-    private final int port;
-    private final String socketPath;
-    private final SelectorLoop selectorLoop;
+    private String host;
+    private InetAddress hostAddress;
+    private int port;
+    private String socketPath;
+    private SelectorLoop selectorLoop;
 
     private boolean secure;
     private ServerCredentials clientCredentials;
@@ -113,6 +114,20 @@ public class Pop3Client {
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private Pop3ClientProtocolHandler endpointHandler;
+
+    private Pop3ClientSessionProvider sessionProvider;
+
+
+    /**
+     * Creates a client for fluent configuration before {@link #connect()}.
+     */
+    public Pop3Client() {
+        this.selectorLoop = null;
+        this.host = null;
+        this.hostAddress = null;
+        this.port = 110;
+        this.socketPath = null;
+    }
 
     /**
      * Creates a POP3 client for the given hostname and port.
@@ -314,6 +329,53 @@ public class Pop3Client {
         return this;
     }
 
+
+    public Pop3Client host(String host) {
+        this.host = host;
+        this.hostAddress = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    public Pop3Client host(InetAddress hostAddress) {
+        if (hostAddress == null) {
+            throw new NullPointerException("hostAddress");
+        }
+        this.hostAddress = hostAddress;
+        this.host = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    public Pop3Client port(int port) {
+        this.port = port;
+        return this;
+    }
+
+    public Pop3Client socketPath(String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.socketPath = socketPath;
+        this.host = null;
+        this.hostAddress = null;
+        return this;
+    }
+
+    public Pop3Client selectorLoop(SelectorLoop selectorLoop) {
+        this.selectorLoop = selectorLoop;
+        return this;
+    }
+
+    public Pop3Client sessionProvider(Pop3ClientSessionProvider provider) {
+        setSessionProvider(provider);
+        return this;
+    }
+
+    public Pop3Client sessionPerConnection(Supplier<RemoteGreeting> supplier) {
+        return sessionProvider(Pop3ClientSessionProviders.perSession(supplier));
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════
@@ -329,6 +391,10 @@ public class Pop3Client {
      *                lifecycle events
      */
     public void connect(RemoteGreeting handler) {
+        if (socketPath == null && host == null && hostAddress == null) {
+            throw new IllegalStateException(
+                    "host, host address, or socketPath is required");
+        }
         transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
@@ -379,6 +445,33 @@ public class Pop3Client {
         } catch (IOException e) {
             handler.onError(e);
         }
+    }
+
+    /**
+     * Connects using a {@link Pop3ClientSessionProvider}.
+     */
+    public void connect(Pop3ClientSessionProvider provider) {
+        connect(provider.openSession());
+    }
+
+    /**
+     * Connects using the configured session provider.
+     */
+    public void connect() {
+        if (sessionProvider == null) {
+            throw new IllegalStateException(
+                    "sessionProvider is required; use .sessionProvider(...)"
+                            + " or connect(RemoteGreeting)");
+        }
+        connect(sessionProvider);
+    }
+
+    public Pop3ClientSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    public void setSessionProvider(Pop3ClientSessionProvider sessionProvider) {
+        this.sessionProvider = sessionProvider;
     }
 
     /**

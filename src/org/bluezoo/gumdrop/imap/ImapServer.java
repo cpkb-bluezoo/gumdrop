@@ -11,4 +11,4 @@ package org.bluezoo.gumdrop.imap;
  * @see org.bluezoo.gumdrop.imap.server.ImapServer
  * @see docs/NAMING-TAXONOMY.md
  */
-public abstract class ImapServer extends org.bluezoo.gumdrop.imap.server.ImapServer {}
+public class ImapServer extends org.bluezoo.gumdrop.imap.server.ImapServer {}

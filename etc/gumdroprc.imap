@@ -14,7 +14,7 @@
 	<!-- IMAP service.
 	     Provides IMAP4rev2 access to Maildir mailboxes.
 	     Users: bob/bob, alice/alice. -->
-	<service id="imap" class="org.bluezoo.gumdrop.imap.DefaultIMAPService">
+	<service id="imap" class="org.bluezoo.gumdrop.imap.ImapServer">
 		<property name="realm" ref="#mailRealm"/>
 		<property name="mailbox-factory" ref="#maildir"/>
 

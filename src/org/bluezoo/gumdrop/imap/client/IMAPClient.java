@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.imap.client;
 
 import java.io.IOException;
+import java.util.function.Supplier;
 import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.logging.Logger;
@@ -80,11 +81,11 @@ public class ImapClient {
     private static final Logger LOGGER =
             Logger.getLogger(ImapClient.class.getName());
 
-    private final String host;
-    private final InetAddress hostAddress;
-    private final int port;
-    private final String socketPath;
-    private final SelectorLoop selectorLoop;
+    private String host;
+    private InetAddress hostAddress;
+    private int port;
+    private String socketPath;
+    private SelectorLoop selectorLoop;
 
     private boolean secure;
     private ServerCredentials clientCredentials;
@@ -97,6 +98,20 @@ public class ImapClient {
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private ImapClientProtocolHandler endpointHandler;
+
+    private ImapClientSessionProvider sessionProvider;
+
+
+    /**
+     * Creates a client for fluent configuration before {@link #connect()}.
+     */
+    public ImapClient() {
+        this.selectorLoop = null;
+        this.host = null;
+        this.hostAddress = null;
+        this.port = 993;
+        this.socketPath = null;
+    }
 
     /**
      * Creates an IMAP client for the given hostname and port.
@@ -318,6 +333,53 @@ public class ImapClient {
         return this;
     }
 
+
+    public ImapClient host(String host) {
+        this.host = host;
+        this.hostAddress = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    public ImapClient host(InetAddress hostAddress) {
+        if (hostAddress == null) {
+            throw new NullPointerException("hostAddress");
+        }
+        this.hostAddress = hostAddress;
+        this.host = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    public ImapClient port(int port) {
+        this.port = port;
+        return this;
+    }
+
+    public ImapClient socketPath(String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.socketPath = socketPath;
+        this.host = null;
+        this.hostAddress = null;
+        return this;
+    }
+
+    public ImapClient selectorLoop(SelectorLoop selectorLoop) {
+        this.selectorLoop = selectorLoop;
+        return this;
+    }
+
+    public ImapClient sessionProvider(ImapClientSessionProvider provider) {
+        setSessionProvider(provider);
+        return this;
+    }
+
+    public ImapClient sessionPerConnection(Supplier<RemoteGreeting> supplier) {
+        return sessionProvider(ImapClientSessionProviders.perSession(supplier));
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════
@@ -333,6 +395,10 @@ public class ImapClient {
      *                lifecycle events
      */
     public void connect(RemoteGreeting handler) {
+        if (socketPath == null && host == null && hostAddress == null) {
+            throw new IllegalStateException(
+                    "host, host address, or socketPath is required");
+        }
         transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
@@ -387,6 +453,33 @@ public class ImapClient {
         } catch (IOException e) {
             handler.onError(e);
         }
+    }
+
+    /**
+     * Connects using a {@link ImapClientSessionProvider}.
+     */
+    public void connect(ImapClientSessionProvider provider) {
+        connect(provider.openSession());
+    }
+
+    /**
+     * Connects using the configured session provider.
+     */
+    public void connect() {
+        if (sessionProvider == null) {
+            throw new IllegalStateException(
+                    "sessionProvider is required; use .sessionProvider(...)"
+                            + " or connect(RemoteGreeting)");
+        }
+        connect(sessionProvider);
+    }
+
+    public ImapClientSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    public void setSessionProvider(ImapClientSessionProvider sessionProvider) {
+        this.sessionProvider = sessionProvider;
     }
 
     /**

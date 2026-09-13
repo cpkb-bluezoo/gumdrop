@@ -79,7 +79,8 @@ Dial-side entry types use the same acronym rules: `HttpClient`, `SmtpClient`,
 **Stateful protocols** compose a session provider on the server (one pipeline
 per accepted connection) and a client session provider (bootstrap handler per
 dial). SMTP is the reference implementation (`SmtpServerSessionProvider`,
-`SmtpClientSessionProvider`); FTP is planned next.
+`SmtpClientSessionProvider`); IMAP and POP3 use the same pattern;
+FTP is planned next.
 
 The `smtp.client.handler.ServerEhloReplyHandler` pattern is **legacy**: the
 handler runs on the **client** and receives the **remote server's** reply. Rename

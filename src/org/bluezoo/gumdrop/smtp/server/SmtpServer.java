@@ -216,7 +216,10 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
      * override to initialise application-level resources.
      */
     protected void initService() {
-        // Default: no-op
+        SmtpServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.start();
+        }
     }
 
     /**
@@ -225,7 +228,20 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
      * <p>The default implementation does nothing.
      */
     protected void destroyService() {
-        // Default: no-op
+        SmtpServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.stop();
+        }
+    }
+
+    /**
+     * Returns the session provider for composed servers, or {@code null}.
+     *
+     * <p>When non-null, {@link #start()} wires this provider onto each
+     * {@link SmtpListener} and calls {@link SmtpServerSessionProvider#start()}.
+     */
+    protected SmtpServerSessionProvider getSessionProvider() {
+        return null;
     }
 
     @Override
@@ -237,6 +253,10 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
             if (listener instanceof SmtpListener) {
                 SmtpListener ep = (SmtpListener) listener;
                 wireEndpoint(ep);
+                SmtpServerSessionProvider provider = getSessionProvider();
+                if (provider != null) {
+                    ep.setSessionProvider(provider);
+                }
                 ep.setService(this);
             }
             startListener(listener);
@@ -384,14 +404,20 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
          * provider are required.
          */
         public SmtpServer server() {
-            if (sessionProvider == null) {
-                throw new IllegalStateException("sessionProvider is required");
+            SmtpServerSessionProvider provider = sessionProvider;
+            if (provider == null && listeners.size() == 1) {
+                provider = listeners.get(0).getSessionProvider();
+            }
+            if (provider == null) {
+                throw new IllegalStateException(
+                        "sessionProvider is required on the composer or on"
+                                + " the sole listener");
             }
             if (listeners.isEmpty()) {
                 throw new IllegalStateException(
                         "at least one listener is required");
             }
-            ComposedSmtpServer server = new ComposedSmtpServer(sessionProvider);
+            ComposedSmtpServer server = new ComposedSmtpServer(provider);
             if (realm != null) {
                 server.setRealm(realm);
             }

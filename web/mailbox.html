@@ -258,7 +258,7 @@ servers:
 &lt;/mailbox-factory&gt;
 
 &lt;!-- IMAP service using Maildir --&gt;
-&lt;service class="org.bluezoo.gumdrop.imap.DefaultIMAPServer"&gt;
+&lt;service class="org.bluezoo.gumdrop.imap.ImapServer"&gt;
     &lt;property name="mailbox-factory" ref="#maildirFactory"/&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
     &lt;listener class="org.bluezoo.gumdrop.imap.ImapListener" port="143"/&gt;
@@ -267,7 +267,7 @@ servers:
 &lt;/service&gt;
 
 &lt;!-- POP3 service using mbox --&gt;
-&lt;service class="org.bluezoo.gumdrop.pop3.DefaultPOP3Server"&gt;
+&lt;service class="org.bluezoo.gumdrop.pop3.Pop3Server"&gt;
     &lt;property name="mailbox-factory" ref="#mboxFactory"/&gt;
     &lt;property name="realm" ref="#mailRealm"/&gt;
     &lt;listener class="org.bluezoo.gumdrop.pop3.Pop3Listener" port="110"/&gt;

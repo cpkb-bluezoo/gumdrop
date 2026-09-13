@@ -11,4 +11,4 @@ package org.bluezoo.gumdrop.pop3;
  * @see org.bluezoo.gumdrop.pop3.server.Pop3Server
  * @see docs/NAMING-TAXONOMY.md
  */
-public abstract class Pop3Server extends org.bluezoo.gumdrop.pop3.server.Pop3Server {}
+public class Pop3Server extends org.bluezoo.gumdrop.pop3.server.Pop3Server {}

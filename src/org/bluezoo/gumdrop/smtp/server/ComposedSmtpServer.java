@@ -11,7 +11,7 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 /**
  * Concrete {@link SmtpServer} assembled from listeners and a session provider.
  *
- * <p>Created via {@link SmtpServer#builder()}; not intended for subclassing.
+ * <p>Created via {@link SmtpServer#compose()}; not intended for subclassing.
  */
 final class ComposedSmtpServer extends SmtpServer {
 
@@ -27,6 +27,11 @@ final class ComposedSmtpServer extends SmtpServer {
     @Override
     public ClientConnected openSession(TcpListener listener) {
         return sessionProvider.openSession(listener);
+    }
+
+    @Override
+    protected SmtpServerSessionProvider getSessionProvider() {
+        return sessionProvider;
     }
 
 }
