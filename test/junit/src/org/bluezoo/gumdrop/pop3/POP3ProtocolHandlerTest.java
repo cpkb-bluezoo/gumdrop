@@ -1645,7 +1645,7 @@ public class POP3ProtocolHandlerTest {
         }
 
         @Override
-        public Pop3Server getService() {
+        public org.bluezoo.gumdrop.pop3.server.Pop3Server getService() {
             if (clientHandler == null) {
                 return null;
             }
@@ -1661,7 +1661,7 @@ public class POP3ProtocolHandlerTest {
         }
 
         @Override
-        protected ClientConnected createHandler(
+        public ClientConnected createHandler(
                 TcpListener endpoint) {
             return handler;
         }

@@ -102,7 +102,8 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, transport types *(done)* |
 | **C.1.6** | Internal / package-private | Lexers, protocol handlers, HPACK/QPACK, MIME/LDAP/JSP/RESP/OTLP *(done)* |
 | **C.2.1** | HTTP facade re-exports | `http/server/HttpServer` + root `HttpServer`; root `HttpClient` *(done)* |
-| **C.2.2+** | Protocol `server/` / `client/` moves | Mail, DNS, … (after package-private types are public or co-moved) |
+| **C.2.2** | Mail facade layout | SMTP/IMAP/POP3 `server/` facades + root `*Server`/`*Client` re-exports *(done)* |
+| **C.2.3+** | Remaining protocol `server/` / `client/` moves | FTP, DNS, MQTT, … |
 
 After **C.1.2**, begin **C.2** package moves (`http/server/`, `http/client/`) in
 the same HTTP slice where practical.

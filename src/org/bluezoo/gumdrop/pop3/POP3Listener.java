@@ -84,7 +84,7 @@ public class Pop3Listener extends TcpListener {
     protected GssapiServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
-    private Pop3Server service;
+    private org.bluezoo.gumdrop.pop3.server.Pop3Server service;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
     private Pop3ServerMetrics metrics;
@@ -373,7 +373,7 @@ public class Pop3Listener extends TcpListener {
      *
      * @param service the owning service
      */
-    void setService(Pop3Server service) {
+    public void setService(org.bluezoo.gumdrop.pop3.server.Pop3Server service) {
         this.service = service;
     }
 
@@ -382,7 +382,7 @@ public class Pop3Listener extends TcpListener {
      *
      * @return the owning service
      */
-    public Pop3Server getService() {
+    public org.bluezoo.gumdrop.pop3.server.Pop3Server getService() {
         return service;
     }
 

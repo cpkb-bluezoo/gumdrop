@@ -102,7 +102,7 @@ public class ImapListener extends TcpListener {
     protected GssapiServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
-    private ImapServer service;
+    private org.bluezoo.gumdrop.imap.server.ImapServer service;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
     private ImapServerMetrics metrics;
@@ -529,7 +529,7 @@ public class ImapListener extends TcpListener {
      *
      * @param service the owning service
      */
-    void setService(ImapServer service) {
+    public void setService(org.bluezoo.gumdrop.imap.server.ImapServer service) {
         this.service = service;
     }
 
@@ -538,7 +538,7 @@ public class ImapListener extends TcpListener {
      *
      * @return the owning service
      */
-    public ImapServer getService() {
+    public org.bluezoo.gumdrop.imap.server.ImapServer getService() {
         return service;
     }
 

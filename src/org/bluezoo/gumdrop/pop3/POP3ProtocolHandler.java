@@ -650,7 +650,7 @@ public final class Pop3ProtocolHandler
     // ── Greeting (RFC 1939 section 4) ──
 
     private void sendGreetingWithHandler() {
-        Pop3Server service = server.getService();
+        org.bluezoo.gumdrop.pop3.server.Pop3Server service = server.getService();
         if (service != null) {
             clientConnected = service.createHandler(server);
         }

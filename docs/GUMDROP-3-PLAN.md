@@ -102,8 +102,9 @@ facades (C.1.1–C.1.5) plus internal renames: mail/FTP lexers, HPACK/QPACK,
 SOCKS/AMQP/DNS/mDNS/WebDAV internals, MIME/LDAP/JSP/RESP/OTLP/auth types
 (`scripts/c16-internal-rename.py`). Deprecated `@Deprecated` `*Service` shims
 remain for XML compat. **C.2.1** HTTP facade re-exports done (`HttpServer`,
-`HttpClient` at protocol root). Next: **C.2.2+** move remaining protocol
-implementations into `server/` / `client/` subpackages.
+`HttpClient` at protocol root). **C.2.2** mail protocols done (`smtp/server/SmtpServer`,
+`imap/server/ImapServer`, `pop3/server/Pop3Server` + root re-exports). Next:
+**C.2.3+** remaining protocols.
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|

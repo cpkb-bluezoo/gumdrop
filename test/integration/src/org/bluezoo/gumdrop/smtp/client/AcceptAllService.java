@@ -76,7 +76,7 @@ public class AcceptAllService extends SmtpServer {
     private String expectedPassword = "testpass";
 
     @Override
-    protected ClientConnected createHandler(TcpListener endpoint) {
+    public ClientConnected createHandler(TcpListener endpoint) {
         return new AcceptAllHandler();
     }
 

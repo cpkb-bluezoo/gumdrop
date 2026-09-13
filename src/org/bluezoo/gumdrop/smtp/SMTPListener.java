@@ -90,7 +90,7 @@ public class SmtpListener extends TcpListener {
     protected GssapiServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
-    private SmtpServer service;
+    private org.bluezoo.gumdrop.smtp.server.SmtpServer service;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
     private SmtpServerMetrics metrics;
@@ -310,7 +310,7 @@ public class SmtpListener extends TcpListener {
      *
      * @param service the owning service
      */
-    void setService(SmtpServer service) {
+    public void setService(org.bluezoo.gumdrop.smtp.server.SmtpServer service) {
         this.service = service;
     }
 
@@ -319,7 +319,7 @@ public class SmtpListener extends TcpListener {
      *
      * @return the owning service
      */
-    public SmtpServer getService() {
+    public org.bluezoo.gumdrop.smtp.server.SmtpServer getService() {
         return service;
     }
 
