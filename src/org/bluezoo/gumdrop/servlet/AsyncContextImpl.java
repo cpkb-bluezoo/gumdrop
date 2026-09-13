@@ -54,7 +54,7 @@ class AsyncContextImpl implements AsyncContext {
     private final Response response;
     private final ServletRequest originalRequest;
     private final ServletResponse originalResponse;
-    private final ServletServer service;
+    private final org.bluezoo.gumdrop.servlet.server.ServletServer service;
     private final List<AsyncListener> listeners = new ArrayList<>();
     
     private long timeout = DEFAULT_TIMEOUT;

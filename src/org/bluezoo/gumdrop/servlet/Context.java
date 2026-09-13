@@ -132,7 +132,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
-    static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet");
+    public static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet");
 
     private static final String SCI_SERVICE =
             "META-INF/services/jakarta.servlet.ServletContainerInitializer";
@@ -152,7 +152,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     File root;
     private ContainerClassLoader containerClassLoader;
     private ContextClassLoader contextClassLoader;
-    ServletServer service;
+    org.bluezoo.gumdrop.servlet.server.ServletServer service;
     byte[] digest; // MD5 digest of web.xml
 
     // ── Resource lookup caches (issue #137) ──

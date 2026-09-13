@@ -72,7 +72,7 @@ public class WebSocketListener extends HttpListener {
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketListener.class.getName());
 
-    private WebSocketServer service;
+    private org.bluezoo.gumdrop.websocket.server.WebSocketServer service;
     private WebSocketServerMetrics wsMetrics;
 
     // RFC 6455 §9 — supported extensions (default includes permessage-deflate)
@@ -85,7 +85,7 @@ public class WebSocketListener extends HttpListener {
      *
      * @param service the owning service
      */
-    void setService(WebSocketServer service) {
+    public void setService(org.bluezoo.gumdrop.websocket.server.WebSocketServer service) {
         this.service = service;
     }
 
@@ -94,7 +94,7 @@ public class WebSocketListener extends HttpListener {
      *
      * @return the owning service
      */
-    public WebSocketServer getService() {
+    public org.bluezoo.gumdrop.websocket.server.WebSocketServer getService() {
         return service;
     }
 

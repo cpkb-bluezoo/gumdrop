@@ -196,7 +196,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
      * Initialize all contexts.
      * This is called by ServletServer.initService() after the service is configured.
      */
-    synchronized void initContexts() {
+    public synchronized void initContexts() {
         if (!started) {
             // Bootstrap JNDI
             String className = ServletInitialContextFactory.class.getName();
@@ -279,7 +279,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
     /**
      * Destroy all contexts
      */
-    synchronized void destroy() {
+    public synchronized void destroy() {
         if (started) {
             if (hotDeploymentThread != null) {
                 hotDeploymentThread.interrupt();

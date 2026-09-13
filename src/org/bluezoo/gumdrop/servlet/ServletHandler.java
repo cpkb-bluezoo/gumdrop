@@ -54,11 +54,11 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class ServletHandler extends DefaultHttpRequestHandler {
+public class ServletHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ServletHandler.class.getName());
 
-    private final ServletServer service;
+    private final org.bluezoo.gumdrop.servlet.server.ServletServer service;
     private final Container container;
     private final int bufferSize;
 
@@ -91,7 +91,9 @@ class ServletHandler extends DefaultHttpRequestHandler {
     private boolean bodyStarted;
     private volatile boolean writePossibleScheduled;
 
-    ServletHandler(ServletServer service, Container container, int bufferSize) {
+    public ServletHandler(
+            org.bluezoo.gumdrop.servlet.server.ServletServer service,
+            Container container, int bufferSize) {
         this.service = service;
         this.container = container;
         this.bufferSize = bufferSize;
@@ -100,7 +102,7 @@ class ServletHandler extends DefaultHttpRequestHandler {
     /**
      * Returns the servlet service.
      */
-    ServletServer getService() {
+    org.bluezoo.gumdrop.servlet.server.ServletServer getService() {
         return service;
     }
 
@@ -527,7 +529,7 @@ class ServletHandler extends DefaultHttpRequestHandler {
      * thread when the worker pool and its bounded queue are both saturated,
      * providing backpressure instead of unbounded queueing.
      */
-    void serviceUnavailable() {
+    public void serviceUnavailable() {
         sendError(HttpStatus.SERVICE_UNAVAILABLE);
     }
 

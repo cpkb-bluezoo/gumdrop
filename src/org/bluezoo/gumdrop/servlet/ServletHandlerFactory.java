@@ -33,12 +33,14 @@ import java.util.Set;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class ServletHandlerFactory implements HttpRequestHandlerFactory {
+public class ServletHandlerFactory implements HttpRequestHandlerFactory {
 
-    private final ServletServer service;
+    private final org.bluezoo.gumdrop.servlet.server.ServletServer service;
     private final Container container;
 
-    ServletHandlerFactory(ServletServer service, Container container) {
+    public ServletHandlerFactory(
+            org.bluezoo.gumdrop.servlet.server.ServletServer service,
+            Container container) {
         this.service = service;
         this.container = container;
     }

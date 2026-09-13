@@ -104,7 +104,7 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.2.1** | HTTP facade re-exports | `http/server/HttpServer` + root `HttpServer`; root `HttpClient` *(done)* |
 | **C.2.2** | Mail facade layout | SMTP/IMAP/POP3 `server/` facades + root `*Server`/`*Client` re-exports *(done)* |
 | **C.2.3** | Remaining protocol `server/` facades | FTP, DNS, MQTT, SOCKS, mDNS, health + root re-exports *(done)* |
-| **C.2.4+** | Servlet / WebDAV / WebSocket `server/` moves | … |
+| **C.2.4** | Servlet / WebDAV / WebSocket `server/` facades | `ServletServer`, `WebdavServer`, `WebSocketServer` *(done)* |
 
 After **C.1.2**, begin **C.2** package moves (`http/server/`, `http/client/`) in
 the same HTTP slice where practical.

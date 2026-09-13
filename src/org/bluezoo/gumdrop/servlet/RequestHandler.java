@@ -40,7 +40,7 @@ import jakarta.servlet.http.HttpSession;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class RequestHandler implements Runnable {
+public class RequestHandler implements Runnable {
 
     /**
      * Date format for common log format. Immutable and thread-safe; a single
@@ -53,9 +53,10 @@ class RequestHandler implements Runnable {
                     .withZone(ZoneId.systemDefault());
 
     final ServletHandler handler;
-    final ServletServer service;
+    final org.bluezoo.gumdrop.servlet.server.ServletServer service;
 
-    RequestHandler(ServletHandler handler, ServletServer service) {
+    public RequestHandler(ServletHandler handler,
+                          org.bluezoo.gumdrop.servlet.server.ServletServer service) {
         this.handler = handler;
         this.service = service;
     }

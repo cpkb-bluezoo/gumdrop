@@ -72,7 +72,7 @@ public class Http3WebSocketListener extends Http3Listener {
     private static final Logger LOGGER =
             Logger.getLogger(Http3WebSocketListener.class.getName());
 
-    private WebSocketServer service;
+    private org.bluezoo.gumdrop.websocket.server.WebSocketServer service;
     private WebSocketServerMetrics wsMetrics;
 
     private List<WebSocketExtension> supportedExtensions = new ArrayList<>();
@@ -84,7 +84,7 @@ public class Http3WebSocketListener extends Http3Listener {
      *
      * @param service the owning service
      */
-    void setService(WebSocketServer service) {
+    public void setService(org.bluezoo.gumdrop.websocket.server.WebSocketServer service) {
         this.service = service;
     }
 
@@ -93,7 +93,7 @@ public class Http3WebSocketListener extends Http3Listener {
      *
      * @return the owning service
      */
-    public WebSocketServer getService() {
+    public org.bluezoo.gumdrop.websocket.server.WebSocketServer getService() {
         return service;
     }
 

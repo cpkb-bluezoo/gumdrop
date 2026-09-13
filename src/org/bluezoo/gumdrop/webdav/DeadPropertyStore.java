@@ -62,7 +62,7 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918#section-4">RFC 4918 section 4</a>
  */
-final class DeadPropertyStore {
+public final class DeadPropertyStore {
 
     private static final Logger LOGGER =
             Logger.getLogger(DeadPropertyStore.class.getName());
@@ -87,7 +87,7 @@ final class DeadPropertyStore {
     static final String PROPS_ATTR_XML = "xml";
 
     /** Storage mode. */
-    enum Mode {
+    public enum Mode {
         /** Try xattr first, fall back to sidecar. */
         AUTO,
         /** Only use extended attributes. */
@@ -102,7 +102,7 @@ final class DeadPropertyStore {
     private boolean xattrSupported;
     private boolean xattrChecked;
 
-    DeadPropertyStore() {
+    public DeadPropertyStore() {
     }
 
     /**
@@ -110,7 +110,7 @@ final class DeadPropertyStore {
      *
      * @param mode the storage mode
      */
-    void setMode(Mode mode) {
+    public void setMode(Mode mode) {
         this.mode = mode;
     }
 
@@ -119,7 +119,7 @@ final class DeadPropertyStore {
      *
      * @return the storage mode
      */
-    Mode getMode() {
+    public Mode getMode() {
         return mode;
     }
 

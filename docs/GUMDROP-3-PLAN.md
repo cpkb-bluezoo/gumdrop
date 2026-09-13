@@ -105,8 +105,10 @@ remain for XML compat. **C.2.1** HTTP facade re-exports done (`HttpServer`,
 `HttpClient` at protocol root). **C.2.2** mail protocols done (`smtp/server/SmtpServer`,
 `imap/server/ImapServer`, `pop3/server/Pop3Server` + root re-exports). **C.2.3**
 remaining protocols done (FTP, DNS, MQTT, SOCKS, mDNS, health — `*/server/*Server`
-implementations + root re-exports; `scripts/c23-remaining-package-move.py`). Next:
-**C.2.4+** servlet / WebDAV / WebSocket.
+implementations + root re-exports; `scripts/c23-remaining-package-move.py`). **C.2.4**
+servlet / WebDAV / WebSocket done (`servlet/server/ServletServer`,
+`webdav/server/WebdavServer`, `websocket/server/WebSocketServer` + root re-exports;
+`scripts/c24-http-app-package-move.py`).
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
@@ -168,6 +170,11 @@ DNS (`DnsServer`), MQTT (`MqttServer`, `DefaultMQTTServer`), SOCKS
 (`HealthServer`) — implementations in `{protocol}/server/` with root
 re-exports; listeners and cross-package helpers publicised where needed
 (`scripts/c23-remaining-package-move.py`).
+
+**C.2.4 (HTTP application servers, done):** `ServletServer`, `WebdavServer`,
+`WebSocketServer` in `{protocol}/server/` with root re-exports; servlet and
+WebDAV helpers publicised where cross-package wiring requires it
+(`scripts/c24-http-app-package-move.py`).
 
 ### C.3 Handler-first API (no fat server bases)
 

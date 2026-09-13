@@ -39,7 +39,7 @@ import java.util.Map;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-class FileHandlerFactory implements HttpRequestHandlerFactory {
+public class FileHandlerFactory implements HttpRequestHandlerFactory {
 
     private final Path rootPath;
     private final boolean allowWrite;
@@ -61,7 +61,7 @@ class FileHandlerFactory implements HttpRequestHandlerFactory {
         this(rootPath, allowWrite, welcomeFile, webdavEnabled, null);
     }
 
-    FileHandlerFactory(Path rootPath, boolean allowWrite,
+    public FileHandlerFactory(Path rootPath, boolean allowWrite,
                        String welcomeFile, boolean webdavEnabled,
                        DeadPropertyStore deadPropertyStore) {
         this.rootPath = rootPath;
