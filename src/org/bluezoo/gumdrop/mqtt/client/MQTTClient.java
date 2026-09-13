@@ -32,11 +32,15 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.client.ClientDial;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.mqtt.codec.ConnectPacket;
 import org.bluezoo.gumdrop.mqtt.codec.MqttVersion;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
+import org.bluezoo.gumdrop.tls.ClientTlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -48,7 +52,9 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <h4>Usage</h4>
  * <pre>{@code
- * MqttClient client = new MqttClient("broker.example.com", 1883);
+ * MqttClient client = new MqttClient()
+ *         .host("broker.example.com")
+ *         .port(1883);
  * client.setClientId("myClient");
  * client.connect(new MqttClientCallback() {
  *     public void connected(boolean sessionPresent, int returnCode) {
@@ -71,17 +77,8 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  */
 public class MqttClient {
 
-    private final String host;
-    private final InetAddress hostAddress;
-    private final int port;
-    private final String socketPath;
-    private final SelectorLoop selectorLoop;
-
-    private boolean secure;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
-    private Path keystoreFile;
-    private String keystorePass;
+    private final ClientDial dial = ClientDial.withDefaultPort(1883);
+    private final ClientTlsConfig tls = new ClientTlsConfig();
 
     private MqttVersion version = MqttVersion.V3_1_1;
     private String clientId;
@@ -101,16 +98,15 @@ public class MqttClient {
     private ClientEndpoint clientEndpoint;
     private MqttClientProtocolHandler protocolHandler;
 
+    public MqttClient() {
+    }
+
     public MqttClient(String host, int port) {
         this(null, host, port);
     }
 
     public MqttClient(SelectorLoop selectorLoop, String host, int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = host;
-        this.hostAddress = null;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
     public MqttClient(InetAddress host, int port) {
@@ -118,61 +114,37 @@ public class MqttClient {
     }
 
     public MqttClient(SelectorLoop selectorLoop, InetAddress host, int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = host;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
-    /**
-     * Creates an MQTT client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
-     *
-     * @param socketPath the UNIX domain socket path
-     */
     public MqttClient(String socketPath) {
         this(null, socketPath);
     }
 
-    /**
-     * Creates an MQTT client for a UNIX domain socket with an explicit
-     * selector loop.
-     *
-     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
-     * @param socketPath the UNIX domain socket path
-     */
     public MqttClient(SelectorLoop selectorLoop, String socketPath) {
-        if (socketPath == null) {
-            throw new NullPointerException("socketPath");
-        }
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = null;
-        this.port = -1;
-        this.socketPath = socketPath;
+        dial.selectorLoop(selectorLoop).socketPath(socketPath);
     }
 
     // ── Configuration ──
 
     public void setSecure(boolean secure) {
-        this.secure = secure;
+        tls.secure(secure);
     }
 
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
+        tls.clientCredentials(clientCredentials);
     }
 
     public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+        tls.trustManager(trustManager);
     }
 
     public void setKeystoreFile(Path path) {
-        this.keystoreFile = path;
+        tls.keystoreFile(path);
     }
 
     public void setKeystorePass(String pass) {
-        this.keystorePass = pass;
+        tls.keystorePass(pass);
     }
 
     public void setVersion(MqttVersion version) {
@@ -238,6 +210,36 @@ public class MqttClient {
         return this;
     }
 
+    public MqttClient host(String host) {
+        dial.host(host);
+        return this;
+    }
+
+    public MqttClient host(InetAddress hostAddress) {
+        dial.host(hostAddress);
+        return this;
+    }
+
+    public MqttClient port(int port) {
+        dial.port(port);
+        return this;
+    }
+
+    public MqttClient socketPath(String socketPath) {
+        dial.socketPath(socketPath);
+        return this;
+    }
+
+    public MqttClient selectorLoop(SelectorLoop selectorLoop) {
+        dial.selectorLoop(selectorLoop);
+        return this;
+    }
+
+    public MqttClient dnsResolver(DnsResolver dnsResolver) {
+        dial.dnsResolver(dnsResolver);
+        return this;
+    }
+
     // ── Connection ──
 
     /**
@@ -258,45 +260,10 @@ public class MqttClient {
                 connectPacket, callback, messageListener, messageStore);
 
         transportFactory = new TcpTransportFactory();
-        if (secure) {
-            transportFactory.setSecure(true);
-        }
-        if (clientCredentials != null) {
-            transportFactory.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            transportFactory.setTrustManager(trustManager);
-        }
-        if (keystoreFile != null) {
-            transportFactory.setKeystoreFile(keystoreFile);
-            if (keystorePass != null) {
-                transportFactory.setKeystorePass(keystorePass);
-            }
-        }
-        transportFactory.start();
-
-        if (socketPath != null) {
-            clientEndpoint = (selectorLoop != null)
-                    ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
-                    : new ClientEndpoint(transportFactory, socketPath);
-        } else if (selectorLoop != null) {
-            if (hostAddress != null) {
-                clientEndpoint = new ClientEndpoint(transportFactory,
-                        selectorLoop, hostAddress, port);
-            } else {
-                clientEndpoint = new ClientEndpoint(transportFactory,
-                        selectorLoop, host, port);
-            }
-        } else {
-            if (hostAddress != null) {
-                clientEndpoint = new ClientEndpoint(transportFactory,
-                        hostAddress, port);
-            } else {
-                clientEndpoint = new ClientEndpoint(transportFactory,
-                        host, port);
-            }
-        }
-        clientEndpoint.connect(protocolHandler);
+        dial.requireTarget();
+        ClientConnect.prepareTls(tls, transportFactory);
+        clientEndpoint = ClientConnect.openAndConnect(
+                dial, transportFactory, protocolHandler);
     }
 
     // ── Operations ──

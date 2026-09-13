@@ -45,7 +45,8 @@ implicit upstream relay or similar.
 | **HTTP** | **404 Not Found** for standard methods on any path | **501 Not Implemented** (HTTP layer) |
 | **DNS** | **Empty answer** (NOERROR, zero RRs) — no upstream, no cache side effects | Appropriate REFUSED / NOTIMP where applicable |
 | **SMTP** *(today)* | `SmtpServer` requires `openSession()` — no silent relay | Staged handler rejects at SMTP layer |
-| **IMAP** / **POP3** | Protocol stack and **CAPABILITY** / greeting work; no mailbox backing — SELECT/LIST/AUTH fail with protocol errors (e.g. nonexistent mailbox) | Staged handler / protocol layer |
+| **IMAP** / **POP3** | Protocol stack and **CAPABILITY** / greeting work; no mailbox backing — SELECT/LIST/AUTH fail with protocol errors | Staged handler / protocol layer |
+| **FTP** *(empty)* | {@code 220} greeting; USER/PASS without session provider → login failure | Protocol layer |
 
 **Previously:** `DnsServer` always forwarded to upstream resolvers
 (`useSystemResolvers=true` by default). **Now split:** default `DnsServer` uses
@@ -96,7 +97,72 @@ Stock providers: {@link org.bluezoo.gumdrop.smtp.server.SimpleRelaySessionProvid
 {@code LocalDeliveryServer} subclasses delegate to these providers for XML
 configuration.
 
-### Stateful client (SMTP reference)
+### Client dial (all outbound clients)
+
+Every outbound client — mail, FTP, **HTTP**, **WebSocket**, CONNECT, MQTT, … —
+must configure **where and how to connect** before `connect()`. That dial axis is
+the same everywhere; only the protocol-specific extras differ.
+
+| Dial setting | Purpose |
+|--------------|---------|
+| `host` / `host(InetAddress)` / `socketPath` | Target (hostname defers DNS until connect) |
+| `port` | TCP/UDP port (or `-1` for UNIX socket) |
+| **TLS** | {@link org.bluezoo.gumdrop.tls.ClientTlsConfig}: `secure`, `trustJvm()`, client identity, trust verification — merged with {@link org.bluezoo.gumdrop.client.ClientDefaults} until `Runtime` §C.4 |
+| **DNS** | Hostname → address via {@link org.bluezoo.gumdrop.dns.client.DnsResolver}; optional protocol lookups (SMTP TLSA/DANE, HTTP/HTTPS/SRV records, …) |
+
+**Interim process defaults ({@link org.bluezoo.gumdrop.client.ClientDefaults}):** until `Runtime` §C.4
+lands, use {@link org.bluezoo.gumdrop.client.ClientDefaults#setDefaultTls} for process-wide
+TLS material and rely on {@link org.bluezoo.gumdrop.client.ClientDefaults#dnsResolver} /
+{@link org.bluezoo.gumdrop.dns.client.DnsResolver#forLoop} for DNS.
+
+**TLS gating:** without explicit {@link org.bluezoo.gumdrop.tls.ClientTlsConfig} material on
+the client *or* in {@link org.bluezoo.gumdrop.client.ClientDefaults}, connections are
+**plaintext only**. {@code secure(true)} alone does not enable TLS — callers must also
+supply trust or identity material (typically {@code .trustJvm()} for public CAs, or
+{@code trustManager}, keystore, PEM paths, {@code clientCredentials}, …). STARTTLS /
+STLS / AUTH TLS upgrades require the same material ({@link
+org.bluezoo.gumdrop.tls.ClientTlsConfig#allowsTlsUpgrade()}).
+
+**DNS default chain:** per-client {@code dnsResolver(...)} wins; otherwise {@link
+org.bluezoo.gumdrop.dns.client.DnsResolver#forLoop} parses {@code resolv.conf}. When no
+usable system nameservers remain, fallbacks are **Cloudflare → Quad9 → Google** (matching
+DoQ → DoT → UDP preference — Google Public DNS has no DoQ).
+
+**Implementation status:** all outbound facades use {@link
+org.bluezoo.gumdrop.client.ClientDial} and/or {@link org.bluezoo.gumdrop.tls.ClientTlsConfig}
+internally (mail, FTP, HTTP, WebSocket, Redis, LDAP, MQTT). Fluent {@code host()} /
+{@code port()} / {@code socketPath()} / {@code dnsResolver()} / {@code trustJvm()} are
+exposed on the high-traffic clients; CONNECT-IP/UDP and gRPC still mirror the same TLS
+fields directly (migration optional — see below).
+
+Protocol-specific dial extras (not duplicated on mail clients):
+
+| Client | Extra dial / transport knobs |
+|--------|------------------------------|
+| **HttpClient** | HTTP/2, HTTP/3, Alt-Svc, HTTPS DNS record, connection pool, `blockPrivateAddresses` |
+| **WebSocketClient** | Subprotocol, extensions, HTTP/3 WebSocket (`:protocol`), delegates to {@link org.bluezoo.gumdrop.http.HttpClient} for QUIC path |
+| **ConnectIpClient** / **ConnectUdpClient** | Proxy **host:port** dial (not the tunneled target); RFC 9484 / RFC 9298 capsule session after Extended CONNECT |
+| **GrpcClient** | No dial of its own — unary/streaming RPC over an already-configured {@link org.bluezoo.gumdrop.http.HttpClient} |
+
+### Session composition (stateful mail/FTP)
+
+Stateful mail and FTP clients have a **second** axis — which handler runs after
+the transport is up:
+
+| Axis | Configure before `connect()` | Purpose |
+|------|------------------------------|---------|
+| **Dial** | see above | Open the transport |
+| **Session** | `{Protocol}ClientSessionProvider` or `sessionPerConnection(...)` | Bootstrap handler ({@link org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting}, …) |
+
+Session providers apply to SMTP, IMAP, POP3, and FTP only. **HTTP and WebSocket do
+not use `{Protocol}ClientSessionProvider`:** they are request- or handshake-oriented.
+Pass {@code connect(HttpClientHandler)}, {@code connect(path, WebSocketEventHandler)},
+or issue requests after connect — application logic lives in those handlers or per
+request, not in a mail-style session provider.
+
+Dial settings are required on every client. Session providers are required only
+when calling parameterless `connect()` on mail/FTP clients;
+`connect(RemoteGreeting)` remains valid for one-off use.
 
 ```java
 SmtpClient client = new SmtpClient()
@@ -104,17 +170,126 @@ SmtpClient client = new SmtpClient()
         .port(587)
         .sessionPerConnection(() -> new MyRemoteGreeting());
 client.connect();
+
+HttpClient http = new HttpClient("api.example.com", 443)
+        .secure(true)
+        .trustJvm()
+        .credentials("alice", "secret");   // HTTP-layer auth, not session SPI
+http.connect(handler);
+
+WebSocketClient ws = new WebSocketClient("echo.example.com", 443)
+        .secure(true)
+        .trustJvm();
+ws.connect("/ws", eventHandler);
 ```
 
-{@link org.bluezoo.gumdrop.ClientSessionProvider#openSession} supplies the
-bootstrap handler ({@link org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting}).
+### Client authentication (cross-cutting)
+
+“Client auth” spans three layers. Only the first belongs on the shared dial /
+`Runtime` defaults axis; the others stay in handlers or HTTP-specific APIs.
+
+| Layer | What it proves | Where it belongs today | Runtime default? |
+|-------|----------------|------------------------|------------------|
+| **1. Transport (TLS)** | Client certificate to the TLS stack (mTLS); which CAs to trust | {@link org.bluezoo.gumdrop.tls.ClientTlsConfig} on each facade (+ {@link org.bluezoo.gumdrop.client.ClientDefaults}) | **Yes** — target `Runtime.clientTls()` (name TBD): identity + trust when not set per client |
+| **2. Application (protocol)** | Username/password, tokens, SASL mechanisms after connect | Staged client handlers: SMTP `AUTH`, IMAP `LOGIN`, FTP `USER`/`PASS`, POP3 `USER`/`PASS`, MQTT connect credentials | **No** — protocol-specific; stays in `{Protocol}ClientSessionProvider` handlers |
+| **3. HTTP application** | `Authorization` on requests (Basic, Digest, Bearer, …) | {@link org.bluezoo.gumdrop.http.HttpClient#credentials(String, String)} → {@code Authorization} / {@code Proxy-Authorization} on requests | Optional future: default credentials on `Runtime` for outbound HTTP only |
+
+**Naming note:** {@link org.bluezoo.gumdrop.tls.ServerCredentials} on a **client**
+means “this client's own TLS identity” (cert chain + key to present if the server
+requests mTLS), not server-side listener identity. All outbound facades funnel transport
+TLS through {@link org.bluezoo.gumdrop.tls.ClientTlsConfig}; facades still expose the
+same fluent setters ({@code secure}, {@code trustJvm}, {@code clientCredentials}, …)
+as thin delegates.
+
+#### WebSocket upgrade authentication (spec)
+
+WebSocket opens with an HTTP request (RFC 6455 upgrade, RFC 8441 Extended CONNECT, or
+RFC 9220 HTTP/3 CONNECT). **Transport TLS** ({@link org.bluezoo.gumdrop.tls.ClientTlsConfig})
+is orthogonal to **handshake HTTP credentials**:
+
+| Mechanism | Header / field | Layer | Status |
+|-----------|------------------|-------|--------|
+| Basic / Bearer / custom | {@code Authorization} on the upgrade request | HTTP application (layer 3) | **HttpClient** only — {@link org.bluezoo.gumdrop.http.HttpClient#credentials} or per-request headers via {@link org.bluezoo.gumdrop.http.HttpClient#connectWebSocket} |
+| Cookie | {@code Cookie} on the upgrade request | HTTP application | Caller-supplied headers on {@code connectWebSocket} |
+| mTLS | Client cert in TLS handshake | Transport (layer 1) | {@code clientCredentials} / keystore on {@link org.bluezoo.gumdrop.websocket.client.WebSocketClient} or {@link org.bluezoo.gumdrop.http.HttpClient} |
+
+**{@link org.bluezoo.gumdrop.websocket.client.WebSocketClient}** today sets only
+WebSocket-specific headers ({@code Sec-WebSocket-Key}, {@code Sec-WebSocket-Protocol},
+extension offers). It does **not** yet offer {@code credentials()} or {@code
+upgradeHeader(name, value)} helpers — authenticated handshakes should use {@link
+org.bluezoo.gumdrop.http.HttpClient#connectWebSocket} (which can attach {@code
+Authorization}) or a future {@code WebSocketClient.upgradeHeaders(...)} API.
+
+#### CONNECT-IP, CONNECT-UDP, and gRPC (dial vs application)
+
+These clients share the **same transport dial** as {@link org.bluezoo.gumdrop.http.HttpClient}
+(host, port, TLS, DNS) because the tunnel or RPC rides HTTP:
+
+```
+ConnectIpClient / ConnectUdpClient          GrpcClient
+        |                                        |
+        |  dial: proxy host:port + TLS           |  no dial — takes HttpClient
+        v                                        v
+   Extended CONNECT request              POST + application/grpc
+        |                                        |
+        v                                        v
+ ConnectIpClientSession /              ProtoMessageHandler /
+ ConnectUdpClientSession               GrpcEventHandler
+```
+
+- **ConnectIpClient** / **ConnectUdpClient**: dial targets the **proxy**, not the final
+  IP/UDP endpoint. After connect, {@code ConnectIpTarget} / UDP target selectors choose
+  what the proxy opens. Transport negotiation (HTTPS record, Alt-Svc, ALPN) mirrors
+  {@link org.bluezoo.gumdrop.http.HttpClient}; TLS fields should converge on {@link
+  org.bluezoo.gumdrop.tls.ClientTlsConfig} the same way (not yet refactored).
+- **GrpcClient**: a **pure application adapter** over {@link org.bluezoo.gumdrop.http.HttpClient}.
+  Configure dial + TLS on the {@code HttpClient} instance passed to {@code unaryCall} /
+  streaming methods; {@code GrpcClient} only adds protobuf framing and {@code
+  content-type: application/grpc} semantics.
+
+**WebSocket gap (summary):** transport TLS is configured on {@link
+org.bluezoo.gumdrop.websocket.client.WebSocketClient}; HTTP credentials for the upgrade
+request are not — see table above.
+
+**Not the same as server `realm`:** HTTP Basic on the server uses {@link
+org.bluezoo.gumdrop.http.server.BasicAuthHandler} on the request handler chain.
+Client-side credentials are outbound dial/application configuration, not listener
+`realm()`.
+
+### FTP (session-based)
+
+Same session-provider model as SMTP and IMAP. The server-side staged handler SPI lives
+in {@code org.bluezoo.gumdrop.ftp.handler} ({@link org.bluezoo.gumdrop.ftp.handler.ClientConnected},
+{@link org.bluezoo.gumdrop.ftp.handler.NotAuthenticatedHandler},
+{@link org.bluezoo.gumdrop.ftp.handler.AuthenticatedHandler}, …). Legacy
+{@link org.bluezoo.gumdrop.ftp.FtpConnectionHandler} implementations continue to work
+via {@link org.bluezoo.gumdrop.ftp.server.FtpServerSessionProviders#connectionHandler(java.util.function.Supplier)}.
+
+```java
+FtpServer server = FtpServer.compose()
+        .listener(new FtpListener().port(21).bindWildcard())
+        .realm(realm)
+        .sessionProvider(FtpServerSessionProviders.fileSystem()
+                .rootDirectory(Path.of("/var/ftp")))
+        .server();
+
+// Empty default — 220 greeting, login fails without a session provider
+FtpServer empty = FtpServer.compose()
+        .listener(new FtpListener().port(21).bindWildcard())
+        .server();
+
+FtpClient ftp = new FtpClient()
+        .host("ftp.example.com")
+        .port(21)
+        .sessionPerConnection(() -> new MyRemoteGreeting());
+ftp.connect();
+```
+
+{@link org.bluezoo.gumdrop.ftp.client.FtpClientSessionProvider} mirrors the server-side
+{@link org.bluezoo.gumdrop.ftp.server.FtpServerSessionProvider}; there is no stock client
+provider beyond {@link org.bluezoo.gumdrop.ftp.client.FtpClientSessionProviders#perSession(java.util.function.Supplier)} —
+applications implement {@link org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting}.
 Passing {@code connect(RemoteGreeting)} directly remains supported for one-off use.
-
-### FTP (planned)
-
-FTP will adopt the same pattern ({@code FtpServerSessionProvider}, staged server
-handlers, {@code FtpClientSessionProvider}) when its monolithic
-{@code FtpConnectionHandler} is split — after SMTP shape is stable.
 
 ---
 
@@ -405,6 +580,12 @@ Pop3Client pop3 = new Pop3Client()
         .secure(true)
         .sessionPerConnection(() -> new MyRemoteGreeting());
 pop3.connect();
+
+FtpClient ftp = new FtpClient()
+        .host("ftp.example.com")
+        .port(21)
+        .sessionPerConnection(() -> new MyRemoteGreeting());
+ftp.connect();
 ```
 
 Legacy XML may still declare {@code DefaultIMAPServer} / {@code DefaultPOP3Server};
@@ -442,7 +623,9 @@ implements {@code SmtpServerSessionProvider}; the client uses
 {@code SmtpClientSessionProvider} / staged {@code *ReplyHandler} interfaces.
 **IMAP** and **POP3** use the same pattern ({@code ImapServerSessionProvider},
 {@code Pop3ServerSessionProvider}, and matching client providers).
-**FTP** will follow after its server SPI is restaged.
+**FTP** uses {@code FtpServerSessionProvider} and staged {@code ftp.handler.*} on the
+server; the client uses {@code FtpClientSessionProvider} and staged
+{@code ftp.client.handler.*} interfaces (same pattern as SMTP/IMAP/POP3).
 
 ---
 
@@ -469,6 +652,7 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 | `<service class="…WebDAVService">` | `HttpServer` + `WebDAVRequestHandler` |
 | `HttpRequestHandlerFactory` for routing | `HttpRequestRouter` / handler on `HttpServer` |
 | `SmtpServer#createHandler()` | `SmtpServer#openSession()` / `SmtpServerSessionProvider` |
+| `FtpServer` `createHandler()` | `openSession()` / `FtpServerSessionProvider` |
 | `ImapServer` / `Pop3Server` `createHandler()` | `openSession()` / `{Protocol}ServerSessionProvider` |
 | `DnsServer` with implicit upstream | `DnsServer` + `UpstreamRelayHandler` |
 | Subclass `*Server` for app logic | Handler interfaces + composition; use `{Protocol}Server#compose()` |
@@ -502,5 +686,8 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 | `SimpleRelaySessionProvider`, `LocalDeliverySessionProvider`, listener `.sessionProvider()` | **Done** |
 | `ImapServer.compose()`, `Pop3Server.compose()`, mailbox session providers | **Done** |
 | `ImapClient` / `Pop3Client` session providers | **Done** |
-| `ServerSessionProvider`, `ClientSessionProvider`; SMTP/IMAP/POP3 session SPI | **Done**; FTP planned |
+| `FtpServer.compose()`, `FtpServerSessionProvider`, staged `ftp.handler.*` | **Done** (server) |
+| `FtpClientSessionProvider`, `FtpClient` session composition | **Done** (client) |
+| `ClientDial`, `ClientTlsConfig`, fluent client dial across facades | **In progress** |
+| `ServerSessionProvider`, `ClientSessionProvider`; SMTP/IMAP/POP3 session SPI | **Done** |
 | `Runtime` replaces `Gumdrop.getInstance()` | Planned (§C.4) |

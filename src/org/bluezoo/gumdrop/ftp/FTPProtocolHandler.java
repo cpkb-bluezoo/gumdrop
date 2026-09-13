@@ -51,6 +51,18 @@ import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SaslUtils;
+import org.bluezoo.gumdrop.ftp.handler.AuthenticatedHandlerConnectionAdapter;
+import org.bluezoo.gumdrop.ftp.handler.AccountHandler;
+import org.bluezoo.gumdrop.ftp.handler.AccountState;
+import org.bluezoo.gumdrop.ftp.handler.AuthenticatedHandler;
+import org.bluezoo.gumdrop.ftp.handler.AuthenticatingHandler;
+import org.bluezoo.gumdrop.ftp.handler.ClientConnected;
+import org.bluezoo.gumdrop.ftp.handler.ConnectedState;
+import org.bluezoo.gumdrop.ftp.handler.LoginState;
+import org.bluezoo.gumdrop.ftp.handler.NotAuthenticatedHandler;
+import org.bluezoo.gumdrop.ftp.handler.PasswordHandler;
+import org.bluezoo.gumdrop.ftp.handler.PasswordState;
+import org.bluezoo.gumdrop.ftp.handler.TlsLoginState;
 import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
@@ -83,7 +95,8 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  */
 public final class FtpProtocolHandler
         implements ProtocolHandler, ByteStreamLexer.Handler<FtpServerLexer.Token>,
-                   FtpControlConnection {
+                   FtpControlConnection, ConnectedState, LoginState,
+                   PasswordState, AccountState, TlsLoginState {
 
     private static final Logger LOGGER =
             Logger.getLogger(FtpProtocolHandler.class.getName());
@@ -111,6 +124,12 @@ public final class FtpProtocolHandler
 
     private final FtpListener server;
     private final FtpConnectionHandler handler;
+    private final ClientConnected sessionHandler;
+    private NotAuthenticatedHandler notAuthenticatedHandler;
+    private PasswordHandler passwordHandler;
+    private AccountHandler accountHandler;
+    private AuthenticatedHandler authenticatedHandler;
+    private FtpConnectionHandler connectionHandlerAdapter;
     private final FtpConnectionMetadata metadata;
     private final FtpDataConnectionCoordinator dataCoordinator;
 
@@ -142,14 +161,24 @@ public final class FtpProtocolHandler
     private Span authenticatedSpan = null;
 
     /**
-     * Creates a new FTP endpoint handler.
-     *
-     * @param server the FTP server configuration
-     * @param handler the connection handler for authentication and file operations
+     * Creates a new FTP endpoint handler with a legacy connection handler.
      */
     public FtpProtocolHandler(FtpListener server, FtpConnectionHandler handler) {
+        this(server, handler, null);
+    }
+
+    /**
+     * Creates a new FTP endpoint handler with a staged session pipeline.
+     */
+    public FtpProtocolHandler(FtpListener server, ClientConnected sessionHandler) {
+        this(server, null, sessionHandler);
+    }
+
+    private FtpProtocolHandler(FtpListener server, FtpConnectionHandler handler,
+            ClientConnected sessionHandler) {
         this.server = server;
         this.handler = handler;
+        this.sessionHandler = sessionHandler;
 
         FtpConnectionMetadata tempMetadata;
         try {
@@ -211,6 +240,10 @@ public final class FtpProtocolHandler
         startSessionSpan();
 
         try {
+            if (sessionHandler != null) {
+                sessionHandler.connected(this, endpoint);
+                return;
+            }
             if (handler != null) {
                 String customBanner = handler.connected(metadata);
                 if (customBanner != null && !customBanner.isEmpty()) {
@@ -245,6 +278,9 @@ public final class FtpProtocolHandler
                     dataCoordinator.cleanup();
                 }
             } finally {
+                if (sessionHandler != null) {
+                    sessionHandler.disconnected();
+                }
                 if (handler != null) {
                     handler.disconnected(metadata);
                 }
@@ -593,7 +629,20 @@ public final class FtpProtocolHandler
 
     // ── Protocol helpers ──
 
+    private FtpConnectionHandler activeConnectionHandler() {
+        if (handler != null) {
+            return handler;
+        }
+        if (connectionHandlerAdapter != null) {
+            return connectionHandlerAdapter;
+        }
+        return null;
+    }
+
     private FtpFileSystem getFileSystem() {
+        if (authenticatedHandler != null) {
+            return authenticatedHandler.getFileSystem();
+        }
         if (handler != null && authenticated) {
             return handler.getFileSystem(metadata);
         }
@@ -681,6 +730,11 @@ public final class FtpProtocolHandler
     }
 
     private boolean checkAuthorization(FtpOperation operation, String path) throws IOException {
+        if (authenticatedHandler != null
+                && !authenticatedHandler.isAuthorized(operation, path)) {
+            reply(550, L10N.getString("ftp.err.permission_denied"));
+            return false;
+        }
         if (handler != null && !handler.isAuthorized(operation, path, metadata)) {
             reply(550, L10N.getString("ftp.err.permission_denied"));
             return false;
@@ -758,6 +812,16 @@ public final class FtpProtocolHandler
      */
     private void authenticateAsync(
             final StorageExecutor.Callback<FtpAuthenticationResult> callback) {
+        if (passwordHandler instanceof AuthenticatingHandler) {
+            submitStagedAuthentication((AuthenticatingHandler) passwordHandler,
+                    callback);
+            return;
+        }
+        if (accountHandler instanceof AuthenticatingHandler) {
+            submitStagedAuthentication((AuthenticatingHandler) accountHandler,
+                    callback);
+            return;
+        }
         if (handler == null) {
             callback.completed(null);
             return;
@@ -770,6 +834,21 @@ public final class FtpProtocolHandler
             public FtpAuthenticationResult call() {
                 return handler.authenticate(
                         authUser, authPassword, authAccount, metadata);
+            }
+        }, callback);
+    }
+
+    private void submitStagedAuthentication(
+            final AuthenticatingHandler authHandler,
+            final StorageExecutor.Callback<FtpAuthenticationResult> callback) {
+        final String authUser = user;
+        final String authPassword = password;
+        final String authAccount = account;
+        submitStorage(new Callable<FtpAuthenticationResult>() {
+            @Override
+            public FtpAuthenticationResult call() {
+                return authHandler.evaluateAuthentication(
+                        authUser, authPassword, authAccount);
             }
         }, callback);
     }
@@ -1017,6 +1096,11 @@ public final class FtpProtocolHandler
         account = null;
         authenticated = false;
 
+        if (notAuthenticatedHandler != null) {
+            notAuthenticatedHandler.user(this, user);
+            return;
+        }
+
         if (handler != null) {
             FtpAuthenticationResult result = handler.authenticate(user, null, null, metadata);
             handleAuthenticationResult(result);
@@ -1033,6 +1117,24 @@ public final class FtpProtocolHandler
         }
 
         password = args;
+
+        if (passwordHandler != null) {
+            authenticateAsync(new StorageExecutor.Callback<FtpAuthenticationResult>() {
+                @Override
+                public void completed(FtpAuthenticationResult result) {
+                    handleStagedPasswordResultQuietly(result);
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    LOGGER.log(Level.WARNING,
+                            "FTP PASS authentication check failed", error);
+                    handleStagedPasswordResultQuietly(
+                            FtpAuthenticationResult.INVALID_PASSWORD);
+                }
+            });
+            return;
+        }
 
         if (handler != null) {
             authenticateAsync(new StorageExecutor.Callback<FtpAuthenticationResult>() {
@@ -1062,6 +1164,24 @@ public final class FtpProtocolHandler
         }
 
         account = args;
+
+        if (accountHandler != null) {
+            authenticateAsync(new StorageExecutor.Callback<FtpAuthenticationResult>() {
+                @Override
+                public void completed(FtpAuthenticationResult result) {
+                    handleStagedAccountResultQuietly(result);
+                }
+
+                @Override
+                public void failed(Throwable error) {
+                    LOGGER.log(Level.WARNING,
+                            "FTP ACCT authentication check failed", error);
+                    handleStagedAccountResultQuietly(
+                            FtpAuthenticationResult.INVALID_PASSWORD);
+                }
+            });
+            return;
+        }
 
         if (handler != null) {
             authenticateAsync(new StorageExecutor.Callback<FtpAuthenticationResult>() {
@@ -1574,7 +1694,7 @@ public final class FtpProtocolHandler
                     filePath,
                     false,
                     restartOffset,
-                    handler,
+                    activeConnectionHandler(),
                     metadata
                 );
 
@@ -1689,7 +1809,7 @@ public final class FtpProtocolHandler
                     filePath,
                     false,
                     0,
-                    handler,
+                    activeConnectionHandler(),
                     metadata
                 );
 
@@ -1762,7 +1882,7 @@ public final class FtpProtocolHandler
                     "",
                     false,
                     0,
-                    handler,
+                    activeConnectionHandler(),
                     metadata
                 );
 
@@ -1832,7 +1952,7 @@ public final class FtpProtocolHandler
                     filePath,
                     true,
                     0,
-                    handler,
+                    activeConnectionHandler(),
                     metadata
                 );
 
@@ -2205,7 +2325,7 @@ public final class FtpProtocolHandler
                     listPath,
                     false,
                     0,
-                    handler,
+                    activeConnectionHandler(),
                     metadata
                 );
 
@@ -2241,7 +2361,7 @@ public final class FtpProtocolHandler
                     listPath,
                     false,
                     0,
-                    handler,
+                    activeConnectionHandler(),
                     metadata
                 );
 
@@ -2274,9 +2394,18 @@ public final class FtpProtocolHandler
             return;
         }
 
+        if (authenticatedHandler != null) {
+            metadata.clearSiteCommandResponse();
+            FtpFileOperationResult result =
+                    authenticatedHandler.handleSiteCommand(siteCommand);
+            handleFileOperationResult(result, siteCommand);
+            return;
+        }
+
         if (handler != null) {
             metadata.clearSiteCommandResponse();
-            FtpFileOperationResult result = handler.handleSiteCommand(siteCommand, metadata);
+            FtpFileOperationResult result =
+                    handler.handleSiteCommand(siteCommand, metadata);
 
             String customResponse = metadata.getSiteCommandResponse();
             if (customResponse != null && result == FtpFileOperationResult.SUCCESS) {
@@ -2300,8 +2429,10 @@ public final class FtpProtocolHandler
 
         String targetUser = user;
         String argPart = args.length() > 5 ? args.substring(5).trim() : "";
-        if (!argPart.isEmpty() && handler != null) {
-            if (handler.isAuthorized(FtpOperation.ADMIN, null, metadata)) {
+        if (!argPart.isEmpty()) {
+            FtpConnectionHandler active = activeConnectionHandler();
+            if (active != null
+                    && active.isAuthorized(FtpOperation.ADMIN, null, metadata)) {
                 targetUser = argPart;
             }
         }
@@ -2354,7 +2485,8 @@ public final class FtpProtocolHandler
             return;
         }
 
-        if (handler == null || !handler.isAuthorized(FtpOperation.ADMIN, null, metadata)) {
+        FtpConnectionHandler active = activeConnectionHandler();
+        if (active == null || !active.isAuthorized(FtpOperation.ADMIN, null, metadata)) {
             reply(550, L10N.getString("ftp.err.permission_denied"));
             addSessionEvent("QUOTA_SET_DENIED");
             addSessionAttribute("ftp.quota.error", "permission_denied");
@@ -2491,8 +2623,9 @@ public final class FtpProtocolHandler
     }
 
     private QuotaManager getQuotaManager() {
-        if (handler != null) {
-            return handler.getQuotaManager();
+        FtpConnectionHandler active = activeConnectionHandler();
+        if (active != null) {
+            return active.getQuotaManager();
         }
         return null;
     }
@@ -2912,7 +3045,7 @@ public final class FtpProtocolHandler
                     listPath,
                     false,
                     0,
-                    handler,
+                    activeConnectionHandler(),
                     metadata
                 );
             dataCoordinator.startAsyncListing(endpoint, transfer,
@@ -3138,6 +3271,252 @@ public final class FtpProtocolHandler
         if (authenticatedSpan != null && !authenticatedSpan.isEnded()) {
             authenticatedSpan.addAttribute("ftp.file.path", path);
         }
+    }
+
+    // ── Staged handler state (server SPI) ──
+
+    @Override
+    public void acceptConnection(String greeting,
+            NotAuthenticatedHandler loginHandler) {
+        notAuthenticatedHandler = loginHandler;
+        passwordHandler = null;
+        accountHandler = null;
+        try {
+            if (greeting != null && !greeting.isEmpty()) {
+                reply(220, greeting);
+            } else {
+                reply(220, L10N.getString("ftp.welcome_banner").substring(4));
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send welcome banner", e);
+            if (endpoint != null) {
+                endpoint.close();
+            }
+        }
+    }
+
+    @Override
+    public void acceptLoggedIn(String greeting,
+            AuthenticatedHandler authHandler) {
+        try {
+            completeLogin(authHandler);
+            if (greeting != null && !greeting.isEmpty()) {
+                reply(230, greeting);
+            }
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send login response", e);
+        }
+    }
+
+    @Override
+    public void rejectConnection() {
+        rejectConnection("Service not available");
+    }
+
+    @Override
+    public void rejectConnection(String message) {
+        try {
+            reply(421, message);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send service unavailable", e);
+        } finally {
+            if (endpoint != null) {
+                endpoint.close();
+            }
+        }
+    }
+
+    @Override
+    public void needPassword(PasswordHandler passHandler) {
+        passwordHandler = passHandler;
+        accountHandler = null;
+        try {
+            reply(331, L10N.getString("ftp.user_ok_need_password"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send need password reply", e);
+        }
+    }
+
+    @Override
+    public void needAccount(AccountHandler acctHandler) {
+        accountHandler = acctHandler;
+        passwordHandler = null;
+        try {
+            reply(332, L10N.getString("ftp.user_ok_need_account"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send need account reply", e);
+        }
+    }
+
+    @Override
+    public void loggedIn(AuthenticatedHandler authHandler) {
+        try {
+            completeLogin(authHandler);
+            reply(230, L10N.getString("ftp.login_successful"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send login successful", e);
+        }
+    }
+
+    @Override
+    public void rejectInvalidUser() {
+        rejectLogin(FtpAuthenticationResult.INVALID_USER);
+    }
+
+    @Override
+    public void rejectAnonymousNotAllowed() {
+        rejectLogin(FtpAuthenticationResult.ANONYMOUS_NOT_ALLOWED);
+    }
+
+    @Override
+    public void rejectTooManyAttempts() {
+        rejectLogin(FtpAuthenticationResult.TOO_MANY_ATTEMPTS);
+    }
+
+    @Override
+    public void rejectUserLimitExceeded() {
+        rejectLogin(FtpAuthenticationResult.USER_LIMIT_EXCEEDED);
+    }
+
+    @Override
+    public void rejectInvalidPassword() {
+        rejectLogin(FtpAuthenticationResult.INVALID_PASSWORD);
+    }
+
+    @Override
+    public void rejectAccountDisabled() {
+        rejectLogin(FtpAuthenticationResult.ACCOUNT_DISABLED);
+    }
+
+    @Override
+    public void commandOk() {
+        try {
+            reply(202, L10N.getString("ftp.command_ok"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send command ok", e);
+        }
+    }
+
+    @Override
+    public void rejectInvalidAccount() {
+        rejectLogin(FtpAuthenticationResult.INVALID_ACCOUNT);
+    }
+
+    @Override
+    public void continueLogin(NotAuthenticatedHandler loginHandler) {
+        notAuthenticatedHandler = loginHandler;
+    }
+
+    @Override
+    public void rejectCertificateLogin() {
+        try {
+            reply(530, L10N.getString("ftp.err.invalid_password"));
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send certificate login failure", e);
+        }
+    }
+
+    private void completeLogin(AuthenticatedHandler authHandler) {
+        authenticatedHandler = authHandler;
+        connectionHandlerAdapter =
+                new AuthenticatedHandlerConnectionAdapter(authHandler, metadata);
+        authenticated = true;
+        metadata.setAuthenticated(true);
+        metadata.setAuthenticatedUser(user);
+        recordAuthenticationSuccess("USER/PASS");
+    }
+
+    private void rejectLogin(FtpAuthenticationResult result) {
+        try {
+            handleAuthenticationResult(result);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Failed to send login rejection", e);
+        }
+    }
+
+    private void handleStagedPasswordResultQuietly(
+            FtpAuthenticationResult result) {
+        try {
+            dispatchStagedPasswordResult(result);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to send authentication reply", e);
+        }
+    }
+
+    private void handleStagedAccountResultQuietly(
+            FtpAuthenticationResult result) {
+        try {
+            dispatchStagedAccountResult(result);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to send authentication reply", e);
+        }
+    }
+
+    private void dispatchStagedPasswordResult(FtpAuthenticationResult result)
+            throws IOException {
+        switch (result) {
+            case SUCCESS:
+                loggedIn(resolveAuthenticatedHandler());
+                break;
+            case NEED_ACCOUNT:
+                needAccount(resolveAccountHandler());
+                break;
+            case INVALID_PASSWORD:
+                rejectInvalidPassword();
+                break;
+            case ACCOUNT_DISABLED:
+                rejectAccountDisabled();
+                break;
+            case TOO_MANY_ATTEMPTS:
+                rejectTooManyAttempts();
+                break;
+            default:
+                rejectInvalidPassword();
+                break;
+        }
+    }
+
+    private void dispatchStagedAccountResult(FtpAuthenticationResult result)
+            throws IOException {
+        switch (result) {
+            case SUCCESS:
+                loggedIn(resolveAuthenticatedHandler());
+                break;
+            case NEED_ACCOUNT:
+                commandOk();
+                break;
+            case INVALID_ACCOUNT:
+                rejectInvalidAccount();
+                break;
+            default:
+                rejectInvalidPassword();
+                break;
+        }
+    }
+
+    private AuthenticatedHandler resolveAuthenticatedHandler() {
+        if (passwordHandler instanceof AuthenticatedHandler) {
+            return (AuthenticatedHandler) passwordHandler;
+        }
+        if (accountHandler instanceof AuthenticatedHandler) {
+            return (AuthenticatedHandler) accountHandler;
+        }
+        if (notAuthenticatedHandler instanceof AuthenticatedHandler) {
+            return (AuthenticatedHandler) notAuthenticatedHandler;
+        }
+        return authenticatedHandler;
+    }
+
+    private AccountHandler resolveAccountHandler() {
+        if (passwordHandler instanceof AccountHandler) {
+            return (AccountHandler) passwordHandler;
+        }
+        if (notAuthenticatedHandler instanceof AccountHandler) {
+            return (AccountHandler) notAuthenticatedHandler;
+        }
+        return accountHandler;
     }
 
 }

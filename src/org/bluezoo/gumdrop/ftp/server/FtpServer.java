@@ -23,10 +23,13 @@ package org.bluezoo.gumdrop.ftp.server;
 
 import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FtpListener;
+import org.bluezoo.gumdrop.ftp.handler.ClientConnected;
+import org.bluezoo.gumdrop.ftp.handler.LegacyConnectionHandlerAdapter;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -36,12 +39,12 @@ import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.auth.Realm;
 
 /**
- * Abstract base for FTP application services.
+ * FTP protocol server — listeners, configuration, and session composition.
  *
- * <p>An {@code FtpServer} defines the application logic for handling
- * FTP connections. It acts as its own handler factory: subclasses
- * override {@link #createHandler(TcpListener)} to return the
- * appropriate {@link FtpConnectionHandler} for each new connection.
+ * <p>Do not subclass for application logic. Use {@link #compose()} with an
+ * {@link FtpServerSessionProvider} (typically {@link FileSystemFtpSessionProvider})
+ * or configure a legacy {@link org.bluezoo.gumdrop.ftp.FtpConnectionHandler}
+ * via {@link FtpServerSessionProviders#connectionHandler(java.util.function.Supplier)}.
  *
  * <p>In addition to static (configured) control listeners, the FTP
  * service manages <em>dynamic</em> data-connection listeners that are
@@ -52,7 +55,7 @@ import org.bluezoo.gumdrop.auth.Realm;
  *
  * <h2>Configuration Example</h2>
  * <pre>{@code
- * <service class="com.example.MyFtpService">
+ * <service class="org.bluezoo.gumdrop.ftp.server.FtpServer">
  *   <property name="require-tls-for-data">true</property>
  *   <listener class="org.bluezoo.gumdrop.ftp.FtpListener"
  *           port="21"/>
@@ -66,13 +69,14 @@ import org.bluezoo.gumdrop.auth.Realm;
  * @see FtpListener
  * @see FtpConnectionHandler
  */
-public abstract class FtpServer implements Server {
+public class FtpServer implements Server, FtpServerSessionProvider {
 
     private static final Logger LOGGER =
             Logger.getLogger(FtpServer.class.getName());
 
     private final List<FtpListener> listeners = new ArrayList<FtpListener>();
     private final List<Listener> dynamicListeners = new ArrayList<Listener>();
+    private FtpServerSessionProvider sessionProvider;
 
     // ── Service-level configuration ──
 
@@ -184,22 +188,37 @@ public abstract class FtpServer implements Server {
         this.realm = realm;
     }
 
-    // ── Handler creation ──
+    // ── Session pipeline ──
 
     /**
-     * Creates a new handler for an incoming FTP control connection on
-     * the given endpoint.
-     *
-     * <p>Subclasses must implement this to provide connection-level
-     * FTP behaviour (authentication, file system access, etc.).
-     * The {@code endpoint} parameter identifies which control listener
-     * accepted the connection.
-     *
-     * @param endpoint the endpoint that accepted the connection
-     * @return a handler for the new connection, or null for default
+     * Opens the staged handler pipeline for an incoming control connection.
      */
-    public abstract FtpConnectionHandler createHandler(
-            TcpListener endpoint);
+    @Override
+    public ClientConnected openSession(TcpListener listener) {
+        if (sessionProvider != null) {
+            return sessionProvider.openSession(listener);
+        }
+        return null;
+    }
+
+    protected FtpServerSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    void setComposedSessionProvider(FtpServerSessionProvider provider) {
+        this.sessionProvider = provider;
+    }
+
+    /**
+     * Creates a new handler for an incoming FTP control connection.
+     *
+     * @deprecated use {@link #openSession(TcpListener)} and
+     *             {@link FtpServerSessionProvider} instead.
+     */
+    @Deprecated
+    public FtpConnectionHandler createHandler(TcpListener endpoint) {
+        return LegacyConnectionHandlerAdapter.unwrap(openSession(endpoint));
+    }
 
     // ── Lifecycle ──
 
@@ -209,16 +228,20 @@ public abstract class FtpServer implements Server {
      * <p>The default implementation does nothing.
      */
     protected void initService() {
-        // Default: no-op
+        FtpServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.start();
+        }
     }
 
     /**
      * Tears down service resources after listeners are stopped.
-     *
-     * <p>The default implementation does nothing.
      */
     protected void destroyService() {
-        // Default: no-op
+        FtpServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.stop();
+        }
     }
 
     @Override
@@ -230,6 +253,10 @@ public abstract class FtpServer implements Server {
             if (listener instanceof FtpListener) {
                 FtpListener ep = (FtpListener) listener;
                 wireEndpoint(ep);
+                FtpServerSessionProvider provider = getSessionProvider();
+                if (provider != null) {
+                    ep.setSessionProvider(provider);
+                }
                 ep.setService(this);
             }
             startListener(listener);
@@ -291,6 +318,91 @@ public abstract class FtpServer implements Server {
         for (int i = 0; i < snapshot.size(); i++) {
             Object listener = snapshot.get(i);
             stopListener(listener);
+        }
+    }
+
+    /**
+     * Starts fluent composition of a concrete {@link FtpServer}.
+     */
+    public static Composer compose() {
+        return new Composer();
+    }
+
+    /**
+     * @deprecated use {@link #compose()}.
+     */
+    @Deprecated
+    public static Composer builder() {
+        return compose();
+    }
+
+    /**
+     * Fluent composition of listeners and an {@link FtpServerSessionProvider}.
+     */
+    public static final class Composer {
+
+        private final List<FtpListener> listeners = new ArrayList<FtpListener>();
+        private FtpServerSessionProvider sessionProvider;
+        private Realm realm;
+        private boolean requireTLSForData;
+
+        private Composer() {
+        }
+
+        public Composer listener(FtpListener listener) {
+            if (listener == null) {
+                throw new NullPointerException("listener");
+            }
+            listeners.add(listener);
+            return this;
+        }
+
+        public Composer sessionProvider(FtpServerSessionProvider provider) {
+            if (provider == null) {
+                throw new NullPointerException("provider");
+            }
+            this.sessionProvider = provider;
+            return this;
+        }
+
+        public Composer sessionPerConnection(Supplier<ClientConnected> supplier) {
+            return sessionProvider(FtpServerSessionProviders.perSession(supplier));
+        }
+
+        public Composer realm(Realm realm) {
+            this.realm = realm;
+            return this;
+        }
+
+        public Composer requireTLSForData(boolean requireTLSForData) {
+            this.requireTLSForData = requireTLSForData;
+            return this;
+        }
+
+        public FtpServer server() {
+            FtpServerSessionProvider provider = sessionProvider;
+            if (provider == null && listeners.size() == 1) {
+                provider = listeners.get(0).getSessionProvider();
+            }
+            if (listeners.isEmpty()) {
+                throw new IllegalStateException(
+                        "at least one listener is required");
+            }
+            FtpServer server = new FtpServer();
+            server.setComposedSessionProvider(provider);
+            if (realm != null) {
+                server.setRealm(realm);
+            }
+            server.setRequireTLSForData(requireTLSForData);
+            for (int i = 0; i < listeners.size(); i++) {
+                server.addListener(listeners.get(i));
+            }
+            return server;
+        }
+
+        @Deprecated
+        public FtpServer build() {
+            return server();
         }
     }
 

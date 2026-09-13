@@ -28,8 +28,9 @@ import org.bluezoo.gumdrop.ClientHandler;
  * RFC 959 §4.2 (220 service ready / 421 service not available).
  *
  * <p>This is the entry point for FTP client handlers. When connecting to an
- * FTP server, the handler passed to {@code FtpClient.connect()} must
- * implement this interface to receive the server's initial greeting and
+ * FTP server, the handler passed to {@link org.bluezoo.gumdrop.ftp.client.FtpClient#connect(org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting)}
+ * or supplied by a {@link org.bluezoo.gumdrop.ftp.client.FtpClientSessionProvider}
+ * must implement this interface to receive the server's initial greeting and
  * begin the session with USER.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

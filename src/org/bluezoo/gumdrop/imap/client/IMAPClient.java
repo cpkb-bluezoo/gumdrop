@@ -30,12 +30,15 @@ import java.util.logging.Logger;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
-import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.client.ClientDial;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.imap.client.handler.MailboxEventListener;
-import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.imap.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * High-level IMAP4rev2 client facade (RFC 9051).
@@ -81,18 +84,9 @@ public class ImapClient {
     private static final Logger LOGGER =
             Logger.getLogger(ImapClient.class.getName());
 
-    private String host;
-    private InetAddress hostAddress;
-    private int port;
-    private String socketPath;
-    private SelectorLoop selectorLoop;
+    private final ClientDial dial = ClientDial.withDefaultPort(993);
+    private final ClientTlsConfig tls = new ClientTlsConfig();
 
-    private boolean secure;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
-    private Path keystoreFile;
-    private String keystorePass;
-    private String keystoreFormat;
     private MailboxEventListener mailboxEventListener;
 
     private TcpTransportFactory transportFactory;
@@ -101,16 +95,10 @@ public class ImapClient {
 
     private ImapClientSessionProvider sessionProvider;
 
-
     /**
      * Creates a client for fluent configuration before {@link #connect()}.
      */
     public ImapClient() {
-        this.selectorLoop = null;
-        this.host = null;
-        this.hostAddress = null;
-        this.port = 993;
-        this.socketPath = null;
     }
 
     /**
@@ -139,11 +127,7 @@ public class ImapClient {
      */
     public ImapClient(SelectorLoop selectorLoop, String host,
                       int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = host;
-        this.hostAddress = null;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
     /**
@@ -166,11 +150,7 @@ public class ImapClient {
      */
     public ImapClient(SelectorLoop selectorLoop, InetAddress host,
                       int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = host;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
     /**
@@ -194,14 +174,7 @@ public class ImapClient {
      * @param socketPath the UNIX domain socket path
      */
     public ImapClient(SelectorLoop selectorLoop, String socketPath) {
-        if (socketPath == null) {
-            throw new NullPointerException("socketPath");
-        }
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = null;
-        this.port = -1;
-        this.socketPath = socketPath;
+        dial.selectorLoop(selectorLoop).socketPath(socketPath);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -218,7 +191,7 @@ public class ImapClient {
      * @param secure true for implicit TLS
      */
     public void setSecure(boolean secure) {
-        this.secure = secure;
+        tls.secure(secure);
     }
 
     /**
@@ -232,7 +205,7 @@ public class ImapClient {
      * @param context the SSL context
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
+        tls.clientCredentials(clientCredentials);
     }
 
     /**
@@ -247,7 +220,7 @@ public class ImapClient {
      * @param trustManager the trust manager, or null to use defaults
      */
     public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+        tls.trustManager(trustManager);
     }
 
     /**
@@ -256,11 +229,11 @@ public class ImapClient {
      * @param path the keystore file path
      */
     public void setKeystoreFile(Path path) {
-        this.keystoreFile = path;
+        tls.keystoreFile(path);
     }
 
     public void setKeystoreFile(String path) {
-        this.keystoreFile = Path.of(path);
+        tls.keystoreFile(Path.of(path));
     }
 
     /**
@@ -269,7 +242,7 @@ public class ImapClient {
      * @param password the keystore password
      */
     public void setKeystorePass(String password) {
-        this.keystorePass = password;
+        tls.keystorePass(password);
     }
 
     /**
@@ -278,7 +251,7 @@ public class ImapClient {
      * @param format the keystore format
      */
     public void setKeystoreFormat(String format) {
-        this.keystoreFormat = format;
+        tls.keystoreFormat(format);
     }
 
     /**
@@ -299,75 +272,73 @@ public class ImapClient {
 
     /** @return this client */
     public ImapClient secure(boolean secure) {
-        setSecure(secure);
+        tls.secure(secure);
+        return this;
+    }
+
+    public ImapClient trustJvm() {
+        tls.trustJvm();
         return this;
     }
 
     /** @return this client */
     public ImapClient clientCredentials(ServerCredentials clientCredentials) {
-        setClientCredentials(clientCredentials);
+        tls.clientCredentials(clientCredentials);
         return this;
     }
 
     /** @return this client */
     public ImapClient trustManager(X509TrustManager trustManager) {
-        setTrustManager(trustManager);
+        tls.trustManager(trustManager);
         return this;
     }
 
     /** @return this client */
     public ImapClient keystoreFile(Path path) {
-        setKeystoreFile(path);
+        tls.keystoreFile(path);
         return this;
     }
 
     /** @return this client */
     public ImapClient keystorePass(String password) {
-        setKeystorePass(password);
+        tls.keystorePass(password);
         return this;
     }
 
     /** @return this client */
     public ImapClient keystoreFormat(String format) {
-        setKeystoreFormat(format);
+        tls.keystoreFormat(format);
         return this;
     }
 
 
     public ImapClient host(String host) {
-        this.host = host;
-        this.hostAddress = null;
-        this.socketPath = null;
+        dial.host(host);
         return this;
     }
 
     public ImapClient host(InetAddress hostAddress) {
-        if (hostAddress == null) {
-            throw new NullPointerException("hostAddress");
-        }
-        this.hostAddress = hostAddress;
-        this.host = null;
-        this.socketPath = null;
+        dial.host(hostAddress);
         return this;
     }
 
     public ImapClient port(int port) {
-        this.port = port;
+        dial.port(port);
         return this;
     }
 
     public ImapClient socketPath(String socketPath) {
-        if (socketPath == null) {
-            throw new NullPointerException("socketPath");
-        }
-        this.socketPath = socketPath;
-        this.host = null;
-        this.hostAddress = null;
+        dial.socketPath(socketPath);
         return this;
     }
 
     public ImapClient selectorLoop(SelectorLoop selectorLoop) {
-        this.selectorLoop = selectorLoop;
+        dial.selectorLoop(selectorLoop);
+        return this;
+    }
+
+    public ImapClient dnsResolver(DnsResolver dnsResolver) {
+        dial.dnsResolver(dnsResolver);
         return this;
     }
 
@@ -395,61 +366,17 @@ public class ImapClient {
      *                lifecycle events
      */
     public void connect(RemoteGreeting handler) {
-        if (socketPath == null && host == null && hostAddress == null) {
-            throw new IllegalStateException(
-                    "host, host address, or socketPath is required");
-        }
+        dial.requireTarget();
         transportFactory = new TcpTransportFactory();
-        transportFactory.setSecure(secure);
-        if (clientCredentials != null) {
-            transportFactory.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            transportFactory.setTrustManager(trustManager);
-        }
-        if (keystoreFile != null) {
-            transportFactory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            transportFactory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            transportFactory.setKeystoreFormat(keystoreFormat);
-        }
-        transportFactory.start();
-
         endpointHandler = new ImapClientProtocolHandler(handler);
-        endpointHandler.setSecure(secure);
         if (mailboxEventListener != null) {
-            endpointHandler.setMailboxEventListener(
-                    mailboxEventListener);
+            endpointHandler.setMailboxEventListener(mailboxEventListener);
         }
-
         try {
-            if (socketPath != null) {
-                clientEndpoint = (selectorLoop != null)
-                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
-                        : new ClientEndpoint(transportFactory, socketPath);
-            } else if (host != null) {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            host, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, host, port);
-                }
-            } else {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            hostAddress, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, hostAddress, port);
-                }
-            }
-            clientEndpoint.connect(endpointHandler);
+            ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
+            endpointHandler.setSecure(effective.useImplicitTls());
+            clientEndpoint = ClientConnect.openAndConnect(
+                    dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }

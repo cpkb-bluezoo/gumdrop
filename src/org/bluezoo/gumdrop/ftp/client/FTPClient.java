@@ -1,22 +1,6 @@
 /*
  * FtpClient.java
  * Copyright (C) 2026 Chris Burdess
- *
- * This file is part of gumdrop, a multipurpose Java server.
- * For more information please visit https://www.nongnu.org/gumdrop/
- *
- * gumdrop is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * gumdrop is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.ftp.client;
@@ -24,342 +8,204 @@ package org.bluezoo.gumdrop.ftp.client;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
+import java.util.function.Supplier;
 
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
-import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.client.ClientDial;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.tls.ClientTlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * High-level FTP client facade.
- *
- * <p>This class provides a simple, concrete API for connecting to FTP
- * servers. It internally creates a {@link TcpTransportFactory}, {@link
- * ClientEndpoint}, and {@link FtpClientProtocolHandler}, wiring them
- * together and forwarding lifecycle events to the caller's {@link
- * RemoteGreeting} handler. Mirrors {@code
- * org.bluezoo.gumdrop.smtp.client.SmtpClient}.
- *
- * <h4>Plaintext with AUTH TLS (explicit FTPS)</h4>
- * <pre>{@code
- * FtpClient client = new FtpClient("ftp.example.com", 21);
- * client.setClientCredentials(clientCredentials);
- * client.connect(new RemoteGreeting() {
- *     public void handleGreeting(ClientLoginState login, String message) {
- *         login.authTls(authTlsHandler);
- *     }
- *     // ...
- * });
- * }</pre>
- *
- * <h4>Implicit TLS (FTPS, port 990)</h4>
- * <pre>{@code
- * FtpClient client = new FtpClient("ftp.example.com", 990);
- * client.setSecure(true);
- * client.setClientCredentials(clientCredentials);
- * client.connect(greetingHandler);
- * }</pre>
- *
- * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see RemoteGreeting
- * @see FtpClientProtocolHandler
- * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a> (FTP)
- * @see <a href="https://www.rfc-editor.org/rfc/rfc4217">RFC 4217</a> (AUTH TLS)
  */
 public class FtpClient {
 
-    private final String host;
-    private final InetAddress hostAddress;
-    private final int port;
-    private final String socketPath;
-    private final SelectorLoop selectorLoop;
-
-    private boolean secure;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
-    private Path keystoreFile;
-    private String keystorePass;
-    private String keystoreFormat;
+    private final ClientDial dial = ClientDial.withDefaultPort(21);
+    private final ClientTlsConfig tls = new ClientTlsConfig();
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private FtpClientProtocolHandler endpointHandler;
+    private FtpClientSessionProvider sessionProvider;
 
-    /**
-     * Creates an FTP client for the given hostname and port.
-     *
-     * <p>Uses the next available worker loop from the global
-     * {@link Gumdrop} instance. DNS resolution is deferred until
-     * {@link #connect} is called.
-     *
-     * @param host the remote hostname or IP address
-     * @param port the remote port
-     */
+    public FtpClient() {
+    }
+
     public FtpClient(String host, int port) {
         this(null, host, port);
     }
 
-    /**
-     * Creates an FTP client with an explicit selector loop.
-     *
-     * @param selectorLoop the selector loop, or null to use a Gumdrop
-     *                     worker
-     * @param host the remote hostname or IP address
-     * @param port the remote port
-     */
     public FtpClient(SelectorLoop selectorLoop, String host, int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = host;
-        this.hostAddress = null;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
-    /**
-     * Creates an FTP client for the given address and port.
-     *
-     * @param host the remote host address
-     * @param port the remote port
-     */
     public FtpClient(InetAddress host, int port) {
         this(null, host, port);
     }
 
-    /**
-     * Creates an FTP client with an explicit selector loop and address.
-     *
-     * @param selectorLoop the selector loop, or null to use a Gumdrop
-     *                     worker
-     * @param host the remote host address
-     * @param port the remote port
-     */
     public FtpClient(SelectorLoop selectorLoop, InetAddress host, int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = host;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
-    /**
-     * Creates an FTP client whose control connection is a UNIX domain
-     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#setPath}
-     * on the server side. Only the control connection may be a UNIX
-     * domain socket -- PASV/EPSV data connections are always TCP,
-     * negotiated against the server's own advertised address/port and
-     * unrelated to how the client reached the control connection.
-     *
-     * <p>Uses the next available worker loop from the global {@link
-     * Gumdrop} instance.
-     *
-     * @param socketPath the UNIX domain socket path
-     */
     public FtpClient(String socketPath) {
         this(null, socketPath);
     }
 
-    /**
-     * Creates an FTP client whose control connection is a UNIX domain
-     * socket, with an explicit selector loop. See {@link
-     * #FtpClient(String)} for the PASV/EPSV caveat that applies to
-     * every UNIX-domain-socket client.
-     *
-     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
-     * @param socketPath the UNIX domain socket path
-     */
     public FtpClient(SelectorLoop selectorLoop, String socketPath) {
-        if (socketPath == null) {
-            throw new NullPointerException("socketPath");
-        }
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = null;
-        this.port = -1;
-        this.socketPath = socketPath;
+        dial.selectorLoop(selectorLoop).socketPath(socketPath);
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Configuration (before connect)
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Sets whether this client uses implicit TLS (FTPS, typically port 990).
-     *
-     * @param secure true for implicit TLS
-     */
     public void setSecure(boolean secure) {
-        this.secure = secure;
+        tls.secure(secure);
     }
 
-    /**
-     * Sets this client's own identity (certificate chain and private key)
-     * to present if the server requests client certificate authentication
-     * (mTLS), for both the control connection and any TLS-protected data
-     * connections (RFC 4217 §9, PROT P).
-     *
-     * @param clientCredentials the client's own credentials
-     */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
+        tls.clientCredentials(clientCredentials);
     }
 
-    /**
-     * Sets a custom trust manager for TLS certificate verification.
-     *
-     * @param trustManager the trust manager, or null to use defaults
-     */
     public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+        tls.trustManager(trustManager);
     }
 
-    /**
-     * Sets the keystore file for client certificate authentication.
-     *
-     * @param path the keystore file path
-     */
     public void setKeystoreFile(Path path) {
-        this.keystoreFile = path;
+        tls.keystoreFile(path);
     }
 
     public void setKeystoreFile(String path) {
-        this.keystoreFile = Path.of(path);
+        tls.keystoreFile(Path.of(path));
     }
 
-    /**
-     * Sets the keystore password.
-     *
-     * @param password the keystore password
-     */
     public void setKeystorePass(String password) {
-        this.keystorePass = password;
+        tls.keystorePass(password);
     }
 
-    /**
-     * Sets the keystore format (e.g. JKS, PKCS12).
-     *
-     * @param format the keystore format
-     */
     public void setKeystoreFormat(String format) {
-        this.keystoreFormat = format;
+        tls.keystoreFormat(format);
     }
 
-
-    /** @return this client */
     public FtpClient secure(boolean secure) {
-        setSecure(secure);
+        tls.secure(secure);
         return this;
     }
 
-    /** @return this client */
+    public FtpClient trustJvm() {
+        tls.trustJvm();
+        return this;
+    }
+
     public FtpClient clientCredentials(ServerCredentials clientCredentials) {
-        setClientCredentials(clientCredentials);
+        tls.clientCredentials(clientCredentials);
         return this;
     }
 
-    /** @return this client */
     public FtpClient trustManager(X509TrustManager trustManager) {
-        setTrustManager(trustManager);
+        tls.trustManager(trustManager);
         return this;
     }
 
-    /** @return this client */
     public FtpClient keystoreFile(Path path) {
-        setKeystoreFile(path);
+        tls.keystoreFile(path);
         return this;
     }
 
-    /** @return this client */
     public FtpClient keystorePass(String password) {
-        setKeystorePass(password);
+        tls.keystorePass(password);
         return this;
     }
 
-    /** @return this client */
     public FtpClient keystoreFormat(String format) {
-        setKeystoreFormat(format);
+        tls.keystoreFormat(format);
         return this;
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Lifecycle
-    // ═══════════════════════════════════════════════════════════════════
+    public FtpClient host(String host) {
+        dial.host(host);
+        return this;
+    }
 
-    /**
-     * Connects to the remote FTP server.
-     *
-     * @param handler the handler to receive the server greeting and
-     *                lifecycle events
-     */
+    public FtpClient host(InetAddress hostAddress) {
+        dial.host(hostAddress);
+        return this;
+    }
+
+    public FtpClient port(int port) {
+        dial.port(port);
+        return this;
+    }
+
+    public FtpClient socketPath(String socketPath) {
+        dial.socketPath(socketPath);
+        return this;
+    }
+
+    public FtpClient selectorLoop(SelectorLoop selectorLoop) {
+        dial.selectorLoop(selectorLoop);
+        return this;
+    }
+
+    public FtpClient dnsResolver(DnsResolver dnsResolver) {
+        dial.dnsResolver(dnsResolver);
+        return this;
+    }
+
+    public FtpClient sessionProvider(FtpClientSessionProvider provider) {
+        setSessionProvider(provider);
+        return this;
+    }
+
+    public FtpClient sessionPerConnection(Supplier<RemoteGreeting> supplier) {
+        return sessionProvider(FtpClientSessionProviders.perSession(supplier));
+    }
+
     public void connect(RemoteGreeting handler) {
+        dial.requireTarget();
         transportFactory = new TcpTransportFactory();
-        transportFactory.setSecure(secure);
-        if (clientCredentials != null) {
-            transportFactory.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            transportFactory.setTrustManager(trustManager);
-        }
-        if (keystoreFile != null) {
-            transportFactory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            transportFactory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            transportFactory.setKeystoreFormat(keystoreFormat);
-        }
-        transportFactory.start();
-
         endpointHandler = new FtpClientProtocolHandler(handler);
-        endpointHandler.setSecure(secure);
-        if (clientCredentials != null) {
-            endpointHandler.setClientCredentials(clientCredentials);
-        }
-
         try {
-            if (socketPath != null) {
-                clientEndpoint = (selectorLoop != null)
-                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
-                        : new ClientEndpoint(transportFactory, socketPath);
-            } else if (host != null) {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop, host, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, host, port);
-                }
-            } else {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop, hostAddress, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, hostAddress, port);
-                }
+            ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
+            endpointHandler.setSecure(effective.useImplicitTls());
+            if (effective.getClientCredentials() != null) {
+                endpointHandler.setClientCredentials(effective.getClientCredentials());
             }
-            clientEndpoint.connect(endpointHandler);
+            clientEndpoint = ClientConnect.openAndConnect(
+                    dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }
     }
 
-    /**
-     * Returns whether the connection is open.
-     *
-     * @return true if connected and open
-     */
+    public void connect(FtpClientSessionProvider provider) {
+        connect(provider.openSession());
+    }
+
+    public void connect() {
+        if (sessionProvider == null) {
+            throw new IllegalStateException(
+                    "sessionProvider is required; use .sessionProvider(...)"
+                            + " or connect(RemoteGreeting)");
+        }
+        connect(sessionProvider);
+    }
+
+    public FtpClientSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    public void setSessionProvider(FtpClientSessionProvider sessionProvider) {
+        this.sessionProvider = sessionProvider;
+    }
+
     public boolean isOpen() {
         return endpointHandler != null && endpointHandler.isOpen();
     }
 
-    /**
-     * Closes the connection.
-     */
     public void close() {
         if (endpointHandler != null) {
             endpointHandler.close();

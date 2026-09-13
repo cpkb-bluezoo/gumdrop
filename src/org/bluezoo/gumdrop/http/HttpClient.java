@@ -44,6 +44,8 @@ import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.ClientEndpointPool;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.client.ClientDefaults;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -55,7 +57,6 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
-import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 import org.bluezoo.gumdrop.http.client.AltSvcCache;
 import org.bluezoo.gumdrop.http.client.AltSvcListener;
@@ -74,6 +75,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.tls.ClientTlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -126,19 +128,15 @@ public class HttpClient implements AltSvcListener {
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
 
-    private final String host;
-    private final int port;
-    private final String socketPath;
-    private final SelectorLoop selectorLoop;
+    private String host;
+    private int port;
+    private String socketPath;
+    private SelectorLoop selectorLoop;
     private InetAddress hostAddress;
+    private DnsResolver dnsResolver;
 
     // Configuration (set before connect)
-    private boolean secure;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
-    private Path keystoreFile;
-    private String keystorePass;
-    private String keystoreFormat;
+    private final ClientTlsConfig tls = new ClientTlsConfig();
     private String username;
     private String password;
     private boolean h2Enabled = true;
@@ -148,9 +146,6 @@ public class HttpClient implements AltSvcListener {
     private boolean altSvcEnabled = true;
     private boolean dnsHttpsRecordEnabled = true;
     private boolean earlyDataEnabled;
-    private Path certFile;
-    private Path keyFile;
-    private boolean verifyPeer = true;
     private boolean blockPrivateAddresses;
     private long idleTimeoutMs;
     private ClientEndpointPool connectionPool;
@@ -172,6 +167,13 @@ public class HttpClient implements AltSvcListener {
     // Alt-Svc upgrade state
     private volatile boolean h3UpgradeInProgress;
     private HttpClientHandler connectHandler;
+
+    /**
+     * Creates a client for fluent dial configuration before {@link #connect}.
+     */
+    public HttpClient() {
+        this.port = 443;
+    }
 
     /**
      * Creates an HTTP client for the given host and port.
@@ -284,7 +286,7 @@ public class HttpClient implements AltSvcListener {
      * @param secure true for TLS
      */
     public void setSecure(boolean secure) {
-        this.secure = secure;
+        tls.secure(secure);
     }
 
     /**
@@ -295,7 +297,7 @@ public class HttpClient implements AltSvcListener {
      * @param clientCredentials the client's own credentials
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
+        tls.clientCredentials(clientCredentials);
     }
 
     /**
@@ -306,7 +308,7 @@ public class HttpClient implements AltSvcListener {
      * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
      */
     public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+        tls.trustManager(trustManager);
     }
 
     /**
@@ -334,11 +336,11 @@ public class HttpClient implements AltSvcListener {
      * @param path the keystore file path
      */
     public void setKeystoreFile(Path path) {
-        this.keystoreFile = path;
+        tls.keystoreFile(path);
     }
 
     public void setKeystoreFile(String path) {
-        this.keystoreFile = Path.of(path);
+        tls.keystoreFile(Path.of(path));
     }
 
     /**
@@ -347,7 +349,7 @@ public class HttpClient implements AltSvcListener {
      * @param password the keystore password
      */
     public void setKeystorePass(String password) {
-        this.keystorePass = password;
+        tls.keystorePass(password);
     }
 
     /**
@@ -356,7 +358,7 @@ public class HttpClient implements AltSvcListener {
      * @param format the keystore format
      */
     public void setKeystoreFormat(String format) {
-        this.keystoreFormat = format;
+        tls.keystoreFormat(format);
     }
 
     /**
@@ -485,11 +487,11 @@ public class HttpClient implements AltSvcListener {
      * @param path the PEM file path
      */
     public void setCertFile(Path path) {
-        this.certFile = path;
+        tls.certFile(path);
     }
 
     public void setCertFile(String path) {
-        this.certFile = Path.of(path);
+        tls.certFile(Path.of(path));
     }
 
     /**
@@ -498,11 +500,11 @@ public class HttpClient implements AltSvcListener {
      * @param path the PEM file path
      */
     public void setKeyFile(Path path) {
-        this.keyFile = path;
+        tls.keyFile(path);
     }
 
     public void setKeyFile(String path) {
-        this.keyFile = Path.of(path);
+        tls.keyFile(Path.of(path));
     }
 
     /**
@@ -512,7 +514,7 @@ public class HttpClient implements AltSvcListener {
      * @param verify true to verify the peer certificate
      */
     public void setVerifyPeer(boolean verify) {
-        this.verifyPeer = verify;
+        tls.verifyPeer(verify);
     }
 
     /**
@@ -573,6 +575,52 @@ public class HttpClient implements AltSvcListener {
         this.connectionPool = pool;
     }
 
+    public HttpClient host(String host) {
+        this.host = host;
+        this.hostAddress = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    public HttpClient host(InetAddress hostAddress) {
+        if (hostAddress == null) {
+            throw new NullPointerException("hostAddress");
+        }
+        this.hostAddress = hostAddress;
+        this.host = hostAddress.getHostAddress();
+        this.socketPath = null;
+        return this;
+    }
+
+    public HttpClient port(int port) {
+        this.port = port;
+        return this;
+    }
+
+    public HttpClient socketPath(String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.socketPath = socketPath;
+        this.host = null;
+        this.hostAddress = null;
+        return this;
+    }
+
+    public HttpClient selectorLoop(SelectorLoop selectorLoop) {
+        this.selectorLoop = selectorLoop;
+        return this;
+    }
+
+    public HttpClient dnsResolver(DnsResolver dnsResolver) {
+        this.dnsResolver = dnsResolver;
+        return this;
+    }
+
+    public DnsResolver getDnsResolver() {
+        return dnsResolver;
+    }
+
     /**
      * Sets whether this client uses TLS. Returns {@code this} for fluent
      * configuration.
@@ -591,6 +639,15 @@ public class HttpClient implements AltSvcListener {
     /** @return this client */
     public HttpClient trustManager(X509TrustManager trustManager) {
         setTrustManager(trustManager);
+        return this;
+    }
+
+    /**
+     * Trust the JVM default CA store (required before {@link #secure(boolean)}
+     * can enable TLS).
+     */
+    public HttpClient trustJvm() {
+        tls.trustJvm();
         return this;
     }
 
@@ -714,6 +771,11 @@ public class HttpClient implements AltSvcListener {
      */
     public void connect(final HttpClientHandler handler) {
         this.connectHandler = handler;
+        if (socketPath == null && host == null && hostAddress == null) {
+            handler.onError(new IllegalStateException(
+                    "host, host address, or socketPath is required"));
+            return;
+        }
         if (Boolean.getBoolean("gumdrop.http.debug")) {
             Logger.getLogger(HttpClient.class.getName()).info(
                 "[HttpClient] connect() "
@@ -746,6 +808,10 @@ public class HttpClient implements AltSvcListener {
         }
 
         discoverAndConnect(handler);
+    }
+
+    private DnsResolver effectiveResolver(SelectorLoop loop) {
+        return dnsResolver != null ? dnsResolver : DnsResolver.forLoop(loop);
     }
 
     /**
@@ -785,7 +851,7 @@ public class HttpClient implements AltSvcListener {
             return;
         }
 
-        DnsResolver resolver = DnsResolver.forLoop(loop);
+        DnsResolver resolver = effectiveResolver(loop);
         resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
@@ -827,6 +893,19 @@ public class HttpClient implements AltSvcListener {
     }
 
     /**
+     * Copies TLS dial settings into this client (used when another facade
+     * delegates to {@link HttpClient} on the HTTP/3 path).
+     */
+    public HttpClient importTls(ClientTlsConfig source) {
+        tls.copyFrom(source);
+        return this;
+    }
+
+    public ClientTlsConfig getTls() {
+        return tls;
+    }
+
+    /**
      * Returns true if {@code hostname} isn't worth issuing a DNS HTTPS-record
      * query for: a literal IPv4/IPv6 address, or loopback.
      */
@@ -846,31 +925,8 @@ public class HttpClient implements AltSvcListener {
      */
     private void connectTcp(final HttpClientHandler handler) {
         transportFactory = new TcpTransportFactory();
-        transportFactory.setSecure(secure);
-        if (clientCredentials != null) {
-            transportFactory.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            transportFactory.setTrustManager(trustManager);
-        } else if (!verifyPeer) {
-            LOGGER.warning(L10N.getString("warn.tls_verification_disabled"));
-            transportFactory.setTrustManager(new EmptyX509TrustManager());
-        }
-        if (keystoreFile != null) {
-            transportFactory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            transportFactory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            transportFactory.setKeystoreFormat(keystoreFormat);
-        }
-        if (certFile != null) {
-            transportFactory.setCertFile(certFile);
-        }
-        if (keyFile != null) {
-            transportFactory.setKeyFile(keyFile);
-        }
+        ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
+        boolean secure = effective.useImplicitTls();
         // RFC 9113 section 3.2 / RFC 7301: advertise HTTP/2 via ALPN on TLS so
         // the server can negotiate "h2". Without this the ClientHello carries
         // no ALPN protocols and the connection always falls back to HTTP/1.1,
@@ -881,7 +937,6 @@ public class HttpClient implements AltSvcListener {
         if (secure && h2Enabled && !h2WithPriorKnowledge) {
             transportFactory.setApplicationProtocols("h2", "http/1.1");
         }
-        transportFactory.start();
 
         HttpClientHandler poolAwareHandler = connectionPool != null
                 ? wrapHandlerForPool(handler) : handler;
@@ -940,9 +995,16 @@ public class HttpClient implements AltSvcListener {
                             transportFactory, host, port);
                 }
             }
+            applyDnsResolver(clientEndpoint);
             clientEndpoint.connect(endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
+        }
+    }
+
+    private void applyDnsResolver(ClientEndpoint endpoint) {
+        if (dnsResolver != null) {
+            endpoint.setDnsResolver(dnsResolver);
         }
     }
 
@@ -990,7 +1052,9 @@ public class HttpClient implements AltSvcListener {
             }
             ClientEndpointPool.PoolTarget target =
                     new ClientEndpointPool.PoolTarget(
-                            resolved, port, secure, loop);
+                            resolved, port,
+                            ClientDefaults.effectiveTls(tls).useImplicitTls(),
+                            loop);
             poolEntry = connectionPool.register(target, ep);
         }
     }
@@ -1026,28 +1090,8 @@ public class HttpClient implements AltSvcListener {
 
         quicTransportFactory = new QuicTransportFactory();
         quicTransportFactory.setApplicationProtocols("h3");
-        if (trustManager != null) {
-            quicTransportFactory.setTrustManager(trustManager);
-        } else if (!verifyPeer) {
-            LOGGER.warning(L10N.getString("warn.tls_verification_disabled"));
-            quicTransportFactory.setVerifyPeer(false);
-        }
-        if (keystoreFile != null) {
-            quicTransportFactory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            quicTransportFactory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            quicTransportFactory.setKeystoreFormat(keystoreFormat);
-        }
-        if (certFile != null) {
-            quicTransportFactory.setCertFile(certFile);
-        }
-        if (keyFile != null) {
-            quicTransportFactory.setKeyFile(keyFile);
-        }
-        quicTransportFactory.setVerifyPeer(verifyPeer);
+        ClientTlsConfig effective = ClientDefaults.effectiveTls(tls);
+        effective.applyTo(quicTransportFactory);
         quicTransportFactory.setEarlyDataEnabled(earlyDataEnabled);
 
         try {
@@ -1117,7 +1161,7 @@ public class HttpClient implements AltSvcListener {
                     "No SelectorLoop available for DNS resolution"));
             return;
         }
-        DnsResolver resolver = DnsResolver.forLoop(loop);
+        DnsResolver resolver = effectiveResolver(loop);
         resolver.resolve(targetHost, new ResolveCallback() {
             @Override
             public void onResolved(List<InetAddress> addresses) {

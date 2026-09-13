@@ -31,9 +31,10 @@ import java.util.function.Supplier;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
-import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.client.ClientDial;
 import org.bluezoo.gumdrop.dns.DaneTrustManager;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
@@ -42,6 +43,7 @@ import org.bluezoo.gumdrop.dns.DnssecStatus;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.tls.ClientTlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -102,18 +104,9 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  */
 public class SmtpClient {
 
-    private String host;
-    private InetAddress hostAddress;
-    private int port;
-    private String socketPath;
-    private SelectorLoop selectorLoop;
+    private final ClientDial dial = ClientDial.withDefaultPort(25);
+    private final ClientTlsConfig tls = new ClientTlsConfig();
 
-    private boolean secure;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
-    private Path keystoreFile;
-    private String keystorePass;
-    private String keystoreFormat;
     private DnsResolver daneResolver;
     private SmtpClientSessionProvider sessionProvider;
 
@@ -125,11 +118,6 @@ public class SmtpClient {
      * Creates an SMTP client for fluent configuration before {@link #connect()}.
      */
     public SmtpClient() {
-        this.selectorLoop = null;
-        this.host = null;
-        this.hostAddress = null;
-        this.port = 25;
-        this.socketPath = null;
     }
 
     /**
@@ -158,11 +146,7 @@ public class SmtpClient {
      */
     public SmtpClient(SelectorLoop selectorLoop, String host,
                       int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = host;
-        this.hostAddress = null;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
     /**
@@ -185,11 +169,7 @@ public class SmtpClient {
      */
     public SmtpClient(SelectorLoop selectorLoop, InetAddress host,
                       int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = host;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
     /**
@@ -213,14 +193,7 @@ public class SmtpClient {
      * @param socketPath the UNIX domain socket path
      */
     public SmtpClient(SelectorLoop selectorLoop, String socketPath) {
-        if (socketPath == null) {
-            throw new NullPointerException("socketPath");
-        }
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = null;
-        this.port = -1;
-        this.socketPath = socketPath;
+        dial.selectorLoop(selectorLoop).socketPath(socketPath);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -238,7 +211,7 @@ public class SmtpClient {
      * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> — implicit TLS (port 465)
      */
     public void setSecure(boolean secure) {
-        this.secure = secure;
+        tls.secure(secure);
     }
 
     /**
@@ -252,7 +225,7 @@ public class SmtpClient {
      * @param context the SSL context
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
+        tls.clientCredentials(clientCredentials);
     }
 
     /**
@@ -263,7 +236,7 @@ public class SmtpClient {
      * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
      */
     public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+        tls.trustManager(trustManager);
     }
 
     /**
@@ -287,16 +260,24 @@ public class SmtpClient {
     }
 
     /**
+     * Sets the DNS resolver used for hostname lookup at connect. When
+     * unset, {@link ClientEndpoint} uses {@link DnsResolver#forLoop}.
+     */
+    public void setDnsResolver(DnsResolver resolver) {
+        dial.dnsResolver(resolver);
+    }
+
+    /**
      * Sets the keystore file for client certificate authentication.
      *
      * @param path the keystore file path
      */
     public void setKeystoreFile(Path path) {
-        this.keystoreFile = path;
+        tls.keystoreFile(path);
     }
 
     public void setKeystoreFile(String path) {
-        this.keystoreFile = Path.of(path);
+        tls.keystoreFile(Path.of(path));
     }
 
     /**
@@ -305,7 +286,7 @@ public class SmtpClient {
      * @param password the keystore password
      */
     public void setKeystorePass(String password) {
-        this.keystorePass = password;
+        tls.keystorePass(password);
     }
 
     /**
@@ -314,7 +295,7 @@ public class SmtpClient {
      * @param format the keystore format
      */
     public void setKeystoreFormat(String format) {
-        this.keystoreFormat = format;
+        tls.keystoreFormat(format);
     }
 
     /**
@@ -325,9 +306,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient host(String host) {
-        this.host = host;
-        this.hostAddress = null;
-        this.socketPath = null;
+        dial.host(host);
         return this;
     }
 
@@ -338,12 +317,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient host(InetAddress hostAddress) {
-        if (hostAddress == null) {
-            throw new NullPointerException("hostAddress");
-        }
-        this.hostAddress = hostAddress;
-        this.host = null;
-        this.socketPath = null;
+        dial.host(hostAddress);
         return this;
     }
 
@@ -354,7 +328,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient port(int port) {
-        this.port = port;
+        dial.port(port);
         return this;
     }
 
@@ -365,12 +339,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient socketPath(String socketPath) {
-        if (socketPath == null) {
-            throw new NullPointerException("socketPath");
-        }
-        this.socketPath = socketPath;
-        this.host = null;
-        this.hostAddress = null;
+        dial.socketPath(socketPath);
         return this;
     }
 
@@ -381,7 +350,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient selectorLoop(SelectorLoop selectorLoop) {
-        this.selectorLoop = selectorLoop;
+        dial.selectorLoop(selectorLoop);
         return this;
     }
 
@@ -413,7 +382,12 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient secure(boolean secure) {
-        setSecure(secure);
+        tls.secure(secure);
+        return this;
+    }
+
+    public SmtpClient trustJvm() {
+        tls.trustJvm();
         return this;
     }
 
@@ -424,7 +398,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient clientCredentials(ServerCredentials clientCredentials) {
-        setClientCredentials(clientCredentials);
+        tls.clientCredentials(clientCredentials);
         return this;
     }
 
@@ -435,7 +409,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient trustManager(X509TrustManager trustManager) {
-        setTrustManager(trustManager);
+        tls.trustManager(trustManager);
         return this;
     }
 
@@ -446,7 +420,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient keystoreFile(Path path) {
-        setKeystoreFile(path);
+        tls.keystoreFile(path);
         return this;
     }
 
@@ -457,7 +431,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient keystorePass(String password) {
-        setKeystorePass(password);
+        tls.keystorePass(password);
         return this;
     }
 
@@ -468,7 +442,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient keystoreFormat(String format) {
-        setKeystoreFormat(format);
+        tls.keystoreFormat(format);
         return this;
     }
 
@@ -480,6 +454,11 @@ public class SmtpClient {
      */
     public SmtpClient daneResolver(DnsResolver resolver) {
         setDaneResolver(resolver);
+        return this;
+    }
+
+    public SmtpClient dnsResolver(DnsResolver resolver) {
+        dial.dnsResolver(resolver);
         return this;
     }
 
@@ -498,7 +477,7 @@ public class SmtpClient {
      *                lifecycle events
      */
     public void connect(final RemoteGreeting handler) {
-        if (daneResolver != null && host != null) {
+        if (daneResolver != null && dial.getHost() != null) {
             lookupDane(handler);
         } else {
             doConnect(handler);
@@ -555,7 +534,7 @@ public class SmtpClient {
      * proceeds with whatever trust manager was already configured.
      */
     private void lookupDane(final RemoteGreeting handler) {
-        String tlsaName = "_" + port + "._tcp." + host;
+        String tlsaName = "_" + dial.getPort() + "._tcp." + dial.getHost();
         daneResolver.queryTLSA(tlsaName, new DnssecAwareQueryCallback() {
             @Override
             public void onResponse(DnsMessage response, DnssecStatus status) {
@@ -567,8 +546,8 @@ public class SmtpClient {
                         }
                     }
                     if (!tlsaRecords.isEmpty()) {
-                        trustManager = new DaneTrustManager(
-                                trustManager, tlsaRecords);
+                        tls.trustManager(new DaneTrustManager(
+                                tls.getTrustManager(), tlsaRecords));
                     }
                 }
                 doConnect(handler);
@@ -590,57 +569,14 @@ public class SmtpClient {
      *                lifecycle events
      */
     private void doConnect(RemoteGreeting handler) {
-        if (socketPath == null && host == null && hostAddress == null) {
-            throw new IllegalStateException(
-                    "host, host address, or socketPath is required");
-        }
+        dial.requireTarget();
         transportFactory = new TcpTransportFactory();
-        transportFactory.setSecure(secure);
-        if (clientCredentials != null) {
-            transportFactory.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            transportFactory.setTrustManager(trustManager);
-        }
-        if (keystoreFile != null) {
-            transportFactory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            transportFactory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            transportFactory.setKeystoreFormat(keystoreFormat);
-        }
-        transportFactory.start();
-
         endpointHandler = new SmtpClientProtocolHandler(handler);
-        endpointHandler.setSecure(secure);
-
         try {
-            if (socketPath != null) {
-                clientEndpoint = (selectorLoop != null)
-                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
-                        : new ClientEndpoint(transportFactory, socketPath);
-            } else if (host != null) {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            host, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, host, port);
-                }
-            } else {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            hostAddress, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, hostAddress, port);
-                }
-            }
-            clientEndpoint.connect(endpointHandler);
+            ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
+            endpointHandler.setSecure(effective.useImplicitTls());
+            clientEndpoint = ClientConnect.openAndConnect(
+                    dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }

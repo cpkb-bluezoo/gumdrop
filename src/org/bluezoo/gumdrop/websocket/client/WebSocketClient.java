@@ -38,6 +38,8 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.client.ClientDefaults;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
@@ -54,8 +56,8 @@ import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.tls.ClientTlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
-import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -111,20 +113,15 @@ public class WebSocketClient implements AltSvcListener {
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketClient.class.getName());
 
-    private final String host;
-    private final InetAddress hostAddress;
-    private final int port;
-    private final String socketPath;
-    private final SelectorLoop selectorLoop;
+    private String host;
+    private InetAddress hostAddress;
+    private int port;
+    private String socketPath;
+    private SelectorLoop selectorLoop;
+    private DnsResolver dnsResolver;
 
     // Configuration (set before connect)
-    private boolean secure;
-    private boolean verifyPeer = true;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
-    private Path keystoreFile;
-    private String keystorePass;
-    private String keystoreFormat;
+    private final ClientTlsConfig tls = new ClientTlsConfig();
     private String subprotocol;
     private boolean deflateEnabled = true;
     private boolean h3Enabled;
@@ -142,6 +139,13 @@ public class WebSocketClient implements AltSvcListener {
     // Internal transport components (created at connect time) -- HTTP/3 path
     private HttpClient httpClient;
     private WebSocketConnection h3WebSocketConnection;
+
+    /**
+     * Creates a client for fluent dial configuration before {@link #connect}.
+     */
+    public WebSocketClient() {
+        this.port = 443;
+    }
 
     /**
      * Creates a WebSocket client for the given host and port.
@@ -250,7 +254,7 @@ public class WebSocketClient implements AltSvcListener {
      * @param secure true for TLS
      */
     public void setSecure(boolean secure) {
-        this.secure = secure;
+        tls.secure(secure);
     }
 
     /**
@@ -261,7 +265,7 @@ public class WebSocketClient implements AltSvcListener {
      * @param clientCredentials the client's own credentials
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
+        tls.clientCredentials(clientCredentials);
     }
 
     /**
@@ -273,7 +277,7 @@ public class WebSocketClient implements AltSvcListener {
      * @param verify false to accept any certificate
      */
     public void setVerifyPeer(boolean verify) {
-        this.verifyPeer = verify;
+        tls.verifyPeer(verify);
     }
 
     /**
@@ -284,7 +288,7 @@ public class WebSocketClient implements AltSvcListener {
      * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
      */
     public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+        tls.trustManager(trustManager);
     }
 
     /**
@@ -293,11 +297,11 @@ public class WebSocketClient implements AltSvcListener {
      * @param path the keystore file path
      */
     public void setKeystoreFile(Path path) {
-        this.keystoreFile = path;
+        tls.keystoreFile(path);
     }
 
     public void setKeystoreFile(String path) {
-        this.keystoreFile = Path.of(path);
+        tls.keystoreFile(Path.of(path));
     }
 
     /**
@@ -306,7 +310,7 @@ public class WebSocketClient implements AltSvcListener {
      * @param password the keystore password
      */
     public void setKeystorePass(String password) {
-        this.keystorePass = password;
+        tls.keystorePass(password);
     }
 
     /**
@@ -315,7 +319,19 @@ public class WebSocketClient implements AltSvcListener {
      * @param format the keystore format
      */
     public void setKeystoreFormat(String format) {
-        this.keystoreFormat = format;
+        tls.keystoreFormat(format);
+    }
+
+    /** Trust the JVM default CA store (required before {@link #setSecure} enables TLS). */
+    public WebSocketClient trustJvm() {
+        tls.trustJvm();
+        return this;
+    }
+
+    /** @return this client */
+    public WebSocketClient secure(boolean secure) {
+        setSecure(secure);
+        return this;
     }
 
     /**
@@ -442,6 +458,48 @@ public class WebSocketClient implements AltSvcListener {
         this.requestedExtensions.add(extension);
     }
 
+    public WebSocketClient host(String host) {
+        this.host = host;
+        this.hostAddress = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    public WebSocketClient host(InetAddress hostAddress) {
+        if (hostAddress == null) {
+            throw new NullPointerException("hostAddress");
+        }
+        this.hostAddress = hostAddress;
+        this.host = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    public WebSocketClient port(int port) {
+        this.port = port;
+        return this;
+    }
+
+    public WebSocketClient socketPath(String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.socketPath = socketPath;
+        this.host = null;
+        this.hostAddress = null;
+        return this;
+    }
+
+    public WebSocketClient selectorLoop(SelectorLoop selectorLoop) {
+        this.selectorLoop = selectorLoop;
+        return this;
+    }
+
+    public WebSocketClient dnsResolver(DnsResolver dnsResolver) {
+        this.dnsResolver = dnsResolver;
+        return this;
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════
@@ -456,6 +514,11 @@ public class WebSocketClient implements AltSvcListener {
      * @param handler the handler to receive WebSocket events
      */
     public void connect(String path, final WebSocketEventHandler handler) {
+        if (socketPath == null && host == null && hostAddress == null) {
+            handler.error(new IllegalStateException(
+                    "host, host address, or socketPath is required"));
+            return;
+        }
         if (socketPath != null) {
             if (h3Enabled) {
                 handler.error(new IOException(
@@ -470,6 +533,10 @@ public class WebSocketClient implements AltSvcListener {
             return;
         }
         discoverAndConnect(path, handler);
+    }
+
+    private DnsResolver effectiveResolver(SelectorLoop loop) {
+        return dnsResolver != null ? dnsResolver : DnsResolver.forLoop(loop);
     }
 
     /**
@@ -507,7 +574,7 @@ public class WebSocketClient implements AltSvcListener {
             return;
         }
 
-        DnsResolver resolver = DnsResolver.forLoop(loop);
+        DnsResolver resolver = effectiveResolver(loop);
         resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
@@ -576,24 +643,8 @@ public class WebSocketClient implements AltSvcListener {
                 WebSocketHandshake.createUpgradeRequest(key, subprotocol, extOffer);
 
         transportFactory = new TcpTransportFactory();
-        transportFactory.setSecure(secure);
-        if (clientCredentials != null) {
-            transportFactory.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            transportFactory.setTrustManager(trustManager);
-        } else if (!verifyPeer) {
-            transportFactory.setTrustManager(new EmptyX509TrustManager());
-        }
-        if (keystoreFile != null) {
-            transportFactory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            transportFactory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            transportFactory.setKeystoreFormat(keystoreFormat);
-        }
+        ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
+        boolean secure = effective.useImplicitTls();
         // RFC 8441 rides the same TCP+TLS attempt as HTTP/1.1 -- offer h2
         // via ALPN (mirroring HttpClient.connectTcp's own offer) so the
         // already-negotiated version is known by the time onConnected
@@ -603,7 +654,6 @@ public class WebSocketClient implements AltSvcListener {
         if (secure && h2Enabled && !h2WithPriorKnowledge) {
             transportFactory.setApplicationProtocols("h2", "http/1.1");
         }
-        transportFactory.start();
 
         HttpClientHandler internalHandler = new HttpClientHandler() {
 
@@ -703,6 +753,9 @@ public class WebSocketClient implements AltSvcListener {
                     clientEndpoint = new ClientEndpoint(
                             transportFactory, hostAddress, port);
                 }
+            }
+            if (dnsResolver != null) {
+                clientEndpoint.setDnsResolver(dnsResolver);
             }
             clientEndpoint.connect(protocolHandler);
         } catch (IOException e) {
@@ -842,11 +895,10 @@ public class WebSocketClient implements AltSvcListener {
                     ? new HttpClient(selectorLoop, hostAddress, port) : new HttpClient(hostAddress, port);
         }
         httpClient.setH3Enabled(true);
-        // Note: HttpClient's QUIC/H3 path (unlike its TCP/H1.1 path)
-        // doesn't consult a custom X509TrustManager at all today, only
-        // verifyPeer -- trustManager/keystoreFile are therefore not
-        // wired through here; a follow-up alongside HttpClient's own gap.
-        httpClient.setVerifyPeer(verifyPeer);
+        if (dnsResolver != null) {
+            httpClient.dnsResolver(dnsResolver);
+        }
+        httpClient.importTls(tls);
 
         httpClient.connect(new HttpClientHandler() {
             @Override

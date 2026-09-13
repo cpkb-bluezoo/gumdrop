@@ -489,11 +489,10 @@ public class DnsResolver {
      *
      * <p>Discovers the platform's configured nameservers by parsing
      * {@code /etc/resolv.conf} (see {@link ResolvConf}). Falls back to
-     * well-known public resolvers (8.8.8.8 and 1.1.1.1) if none are found
-     * or none are valid -- {@link DnsServerCapabilityCache} knows these
-     * addresses support DoQ/DoT/DoH, so (absent an explicit {@link
-     * #setTransport} override) this fallback path prefers an encrypted
-     * transport rather than landing on plain UDP.
+     * well-known public resolvers (Cloudflare, then Quad9, then Google — see
+     * {@link DnsServerCapabilityCache}) if none are found or none are valid.
+     * Cloudflare and Quad9 precede Google because Gumdrop's transport preference
+     * is DoQ → DoT → UDP and Google Public DNS does not offer DoQ.
      */
     public void useSystemResolvers() {
         for (String ns : ResolvConf.getNameservers()) {
@@ -507,11 +506,25 @@ public class DnsResolver {
             }
         }
         if (servers.isEmpty()) {
+            addWellKnownPublicFallbacks();
+        }
+    }
+
+    /**
+     * Cloudflare → Quad9 → Google. Order matches {@link DnsServerCapabilityCache}
+     * DoQ-capable fallbacks (Google has no DoQ).
+     */
+    private void addWellKnownPublicFallbacks() {
+        String[] fallbacks = {
+                "1.1.1.1", "1.0.0.1",
+                "9.9.9.9", "149.112.112.112",
+                "8.8.8.8", "8.8.4.4",
+        };
+        for (String address : fallbacks) {
             try {
-                addServer("8.8.8.8");
-                addServer("1.1.1.1");
+                addServer(address);
             } catch (UnknownHostException e) {
-                // Should not happen for IP address literals
+                // IP literals should not fail
             }
         }
     }

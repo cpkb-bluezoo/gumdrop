@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.client.ClientDefaults;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 
@@ -84,6 +85,7 @@ public class ClientEndpoint {
     private InetAddress host;
     private SelectorLoop selectorLoop;
     private Gumdrop gumdrop;
+    private DnsResolver dnsResolver;
 
     // ── Constructors with explicit SelectorLoop (server integration) ──
 
@@ -307,6 +309,24 @@ public class ClientEndpoint {
         return selectorLoop;
     }
 
+    /**
+     * Sets the DNS resolver used when this endpoint must resolve a hostname
+     * at {@link #connect}. When unset, {@link DnsResolver#forLoop} is used.
+     *
+     * @param dnsResolver the resolver, or {@code null} for the default
+     */
+    public void setDnsResolver(DnsResolver dnsResolver) {
+        this.dnsResolver = dnsResolver;
+    }
+
+    /**
+     * Returns the configured DNS resolver, or {@code null} if the default
+     * will be chosen at connect time.
+     */
+    public DnsResolver getDnsResolver() {
+        return dnsResolver;
+    }
+
     // ── Connection ──
 
     /**
@@ -365,7 +385,9 @@ public class ClientEndpoint {
                 LOGGER.info(MessageFormat.format(
                         Gumdrop.L10N.getString("info.client_endpoint_resolving"), hostname));
             }
-            DnsResolver resolver = DnsResolver.forLoop(selectorLoop);
+            DnsResolver resolver = dnsResolver != null
+                    ? dnsResolver
+                    : ClientDefaults.dnsResolver(selectorLoop, null);
             resolver.resolve(hostname, new ResolveCallback() {
                 @Override
                 public void onResolved(List<InetAddress> addresses) {

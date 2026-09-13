@@ -11,4 +11,4 @@ package org.bluezoo.gumdrop.ftp;
  * @see org.bluezoo.gumdrop.ftp.server.FtpServer
  * @see docs/NAMING-TAXONOMY.md
  */
-public abstract class FtpServer extends org.bluezoo.gumdrop.ftp.server.FtpServer {}
+public class FtpServer extends org.bluezoo.gumdrop.ftp.server.FtpServer {}

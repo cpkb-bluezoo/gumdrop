@@ -91,6 +91,7 @@ public class FtpListener extends TcpListener {
     protected int port = FTP_DEFAULT_PORT;
     private boolean portExplicitlySet = false;
     protected FtpConnectionHandlerFactory handlerFactory;
+    private org.bluezoo.gumdrop.ftp.server.FtpServerSessionProvider sessionProvider;
     private boolean requireTLSForData = false;
     private boolean allowActiveModeBounce = false;
     private int pasvMinPort = 0;
@@ -329,12 +330,68 @@ public class FtpListener extends TcpListener {
         return service;
     }
 
-    @Override
-    protected ProtocolHandler createHandler() {
-        FtpConnectionHandler handler = null;
+    public void setSessionProvider(
+            org.bluezoo.gumdrop.ftp.server.FtpServerSessionProvider sessionProvider) {
+        this.sessionProvider = sessionProvider;
+    }
+
+    public org.bluezoo.gumdrop.ftp.server.FtpServerSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    public FtpListener sessionProvider(
+            org.bluezoo.gumdrop.ftp.server.FtpServerSessionProvider sessionProvider) {
+        setSessionProvider(sessionProvider);
+        return this;
+    }
+
+    /**
+     * Opens the application handler pipeline for a new connection.
+     */
+    public org.bluezoo.gumdrop.ftp.handler.ClientConnected openApplicationSession() {
+        if (sessionProvider != null) {
+            try {
+                return sessionProvider.openSession(this);
+            } catch (Exception e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to create FTP handler from session provider",
+                            e);
+                }
+            }
+        }
         if (service != null) {
             try {
-                handler = service.createHandler(this);
+                return service.openSession(this);
+            } catch (Exception e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to create FTP handler from service", e);
+                }
+            }
+        }
+        return null;
+    }
+
+    @Override
+    protected ProtocolHandler createHandler() {
+        org.bluezoo.gumdrop.ftp.handler.ClientConnected session =
+                openApplicationSession();
+        org.bluezoo.gumdrop.ftp.FtpConnectionHandler legacy =
+                org.bluezoo.gumdrop.ftp.handler.LegacyConnectionHandlerAdapter
+                        .unwrap(session);
+        if (legacy != null) {
+            return new FtpProtocolHandler(this, legacy);
+        }
+        if (session != null) {
+            return new FtpProtocolHandler(this, session);
+        }
+        if (service != null) {
+            try {
+                legacy = service.createHandler(this);
+                if (legacy != null) {
+                    return new FtpProtocolHandler(this, legacy);
+                }
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
@@ -344,7 +401,7 @@ public class FtpListener extends TcpListener {
             }
         } else if (handlerFactory != null) {
             try {
-                handler = handlerFactory.createHandler();
+                legacy = handlerFactory.createHandler();
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
@@ -353,7 +410,7 @@ public class FtpListener extends TcpListener {
                 }
             }
         }
-        return new FtpProtocolHandler(this, handler);
+        return new FtpProtocolHandler(this, legacy);
     }
 
 }

@@ -31,11 +31,14 @@ import java.util.logging.Logger;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
-import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.client.ClientDial;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.pop3.client.handler.RemoteGreeting;
+import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
  * High-level POP3 client facade (RFC 1939).
@@ -98,18 +101,8 @@ public class Pop3Client {
     private static final Logger LOGGER =
             Logger.getLogger(Pop3Client.class.getName());
 
-    private String host;
-    private InetAddress hostAddress;
-    private int port;
-    private String socketPath;
-    private SelectorLoop selectorLoop;
-
-    private boolean secure;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
-    private Path keystoreFile;
-    private String keystorePass;
-    private String keystoreFormat;
+    private final ClientDial dial = ClientDial.withDefaultPort(110);
+    private final ClientTlsConfig tls = new ClientTlsConfig();
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
@@ -117,16 +110,10 @@ public class Pop3Client {
 
     private Pop3ClientSessionProvider sessionProvider;
 
-
     /**
      * Creates a client for fluent configuration before {@link #connect()}.
      */
     public Pop3Client() {
-        this.selectorLoop = null;
-        this.host = null;
-        this.hostAddress = null;
-        this.port = 110;
-        this.socketPath = null;
     }
 
     /**
@@ -154,11 +141,7 @@ public class Pop3Client {
      * @param port the remote port
      */
     public Pop3Client(SelectorLoop selectorLoop, String host, int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = host;
-        this.hostAddress = null;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
     /**
@@ -181,11 +164,7 @@ public class Pop3Client {
      */
     public Pop3Client(SelectorLoop selectorLoop, InetAddress host,
                       int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = host;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
     /**
@@ -209,14 +188,7 @@ public class Pop3Client {
      * @param socketPath the UNIX domain socket path
      */
     public Pop3Client(SelectorLoop selectorLoop, String socketPath) {
-        if (socketPath == null) {
-            throw new NullPointerException("socketPath");
-        }
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = null;
-        this.port = -1;
-        this.socketPath = socketPath;
+        dial.selectorLoop(selectorLoop).socketPath(socketPath);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -233,7 +205,7 @@ public class Pop3Client {
      * @param secure true for implicit TLS
      */
     public void setSecure(boolean secure) {
-        this.secure = secure;
+        tls.secure(secure);
     }
 
     /**
@@ -247,7 +219,7 @@ public class Pop3Client {
      * @param context the SSL context
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
+        tls.clientCredentials(clientCredentials);
     }
 
     /**
@@ -258,7 +230,7 @@ public class Pop3Client {
      * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
      */
     public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+        tls.trustManager(trustManager);
     }
 
     /**
@@ -267,11 +239,11 @@ public class Pop3Client {
      * @param path the keystore file path
      */
     public void setKeystoreFile(Path path) {
-        this.keystoreFile = path;
+        tls.keystoreFile(path);
     }
 
     public void setKeystoreFile(String path) {
-        this.keystoreFile = Path.of(path);
+        tls.keystoreFile(Path.of(path));
     }
 
     /**
@@ -280,7 +252,7 @@ public class Pop3Client {
      * @param password the keystore password
      */
     public void setKeystorePass(String password) {
-        this.keystorePass = password;
+        tls.keystorePass(password);
     }
 
     /**
@@ -289,81 +261,79 @@ public class Pop3Client {
      * @param format the keystore format
      */
     public void setKeystoreFormat(String format) {
-        this.keystoreFormat = format;
+        tls.keystoreFormat(format);
     }
 
 
     /** @return this client */
     public Pop3Client secure(boolean secure) {
-        setSecure(secure);
+        tls.secure(secure);
+        return this;
+    }
+
+    public Pop3Client trustJvm() {
+        tls.trustJvm();
         return this;
     }
 
     /** @return this client */
     public Pop3Client clientCredentials(ServerCredentials clientCredentials) {
-        setClientCredentials(clientCredentials);
+        tls.clientCredentials(clientCredentials);
         return this;
     }
 
     /** @return this client */
     public Pop3Client trustManager(X509TrustManager trustManager) {
-        setTrustManager(trustManager);
+        tls.trustManager(trustManager);
         return this;
     }
 
     /** @return this client */
     public Pop3Client keystoreFile(Path path) {
-        setKeystoreFile(path);
+        tls.keystoreFile(path);
         return this;
     }
 
     /** @return this client */
     public Pop3Client keystorePass(String password) {
-        setKeystorePass(password);
+        tls.keystorePass(password);
         return this;
     }
 
     /** @return this client */
     public Pop3Client keystoreFormat(String format) {
-        setKeystoreFormat(format);
+        tls.keystoreFormat(format);
         return this;
     }
 
 
     public Pop3Client host(String host) {
-        this.host = host;
-        this.hostAddress = null;
-        this.socketPath = null;
+        dial.host(host);
         return this;
     }
 
     public Pop3Client host(InetAddress hostAddress) {
-        if (hostAddress == null) {
-            throw new NullPointerException("hostAddress");
-        }
-        this.hostAddress = hostAddress;
-        this.host = null;
-        this.socketPath = null;
+        dial.host(hostAddress);
         return this;
     }
 
     public Pop3Client port(int port) {
-        this.port = port;
+        dial.port(port);
         return this;
     }
 
     public Pop3Client socketPath(String socketPath) {
-        if (socketPath == null) {
-            throw new NullPointerException("socketPath");
-        }
-        this.socketPath = socketPath;
-        this.host = null;
-        this.hostAddress = null;
+        dial.socketPath(socketPath);
         return this;
     }
 
     public Pop3Client selectorLoop(SelectorLoop selectorLoop) {
-        this.selectorLoop = selectorLoop;
+        dial.selectorLoop(selectorLoop);
+        return this;
+    }
+
+    public Pop3Client dnsResolver(DnsResolver dnsResolver) {
+        dial.dnsResolver(dnsResolver);
         return this;
     }
 
@@ -391,57 +361,14 @@ public class Pop3Client {
      *                lifecycle events
      */
     public void connect(RemoteGreeting handler) {
-        if (socketPath == null && host == null && hostAddress == null) {
-            throw new IllegalStateException(
-                    "host, host address, or socketPath is required");
-        }
+        dial.requireTarget();
         transportFactory = new TcpTransportFactory();
-        transportFactory.setSecure(secure);
-        if (clientCredentials != null) {
-            transportFactory.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            transportFactory.setTrustManager(trustManager);
-        }
-        if (keystoreFile != null) {
-            transportFactory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            transportFactory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            transportFactory.setKeystoreFormat(keystoreFormat);
-        }
-        transportFactory.start();
-
         endpointHandler = new Pop3ClientProtocolHandler(handler);
-        endpointHandler.setSecure(secure);
-
         try {
-            if (socketPath != null) {
-                clientEndpoint = (selectorLoop != null)
-                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
-                        : new ClientEndpoint(transportFactory, socketPath);
-            } else if (host != null) {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            host, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, host, port);
-                }
-            } else {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            hostAddress, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, hostAddress, port);
-                }
-            }
-            clientEndpoint.connect(endpointHandler);
+            ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
+            endpointHandler.setSecure(effective.useImplicitTls());
+            clientEndpoint = ClientConnect.openAndConnect(
+                    dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }
