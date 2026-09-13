@@ -86,6 +86,9 @@ public final class Gumdrop3NamingRules {
         if (typeName == null || typeName.isEmpty()) {
             return null;
         }
+        if (typeName.startsWith("WebDAV") && typeName.endsWith("RequestHandler")) {
+            return null;
+        }
         for (int i = 0; i < ACRONYM_PREFIXES.length; i++) {
             String legacyPrefix = ACRONYM_PREFIXES[i][0];
             String modernPrefix = ACRONYM_PREFIXES[i][1];

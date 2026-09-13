@@ -99,6 +99,8 @@ public abstract class Listener {
     protected Path keystoreFile;
     protected String keystorePass;
     protected String keystoreFormat = "PKCS12";
+    protected Path certFile;
+    protected Path keyFile;
     private String cipherSuites;
     private String namedGroups;
     protected TelemetryConfig telemetryConfig;
@@ -229,6 +231,32 @@ public abstract class Listener {
     }
 
     /**
+     * Sets the PEM certificate chain file for TLS server identity.
+     *
+     * @param file the certificate chain PEM file path
+     */
+    public void setCertFile(Path file) {
+        certFile = file;
+    }
+
+    public void setCertFile(String file) {
+        certFile = Path.of(file);
+    }
+
+    /**
+     * Sets the PEM private key file for TLS server identity.
+     *
+     * @param file the private key PEM file path
+     */
+    public void setKeyFile(Path file) {
+        keyFile = file;
+    }
+
+    public void setKeyFile(String file) {
+        keyFile = Path.of(file);
+    }
+
+    /**
      * Sets the TLS 1.3 cipher suites (colon-separated IANA names).
      *
      * @param cipherSuites colon-separated cipher suite names, or null
@@ -325,7 +353,8 @@ public abstract class Listener {
      */
     protected boolean isTLSConfigured() {
         return serverCredentials != null
-                || (keystoreFile != null && keystorePass != null);
+                || (keystoreFile != null && keystorePass != null)
+                || (certFile != null && keyFile != null);
     }
 
     public void setSniHostnames(Map<String, String> hostnames) {
@@ -657,6 +686,12 @@ public abstract class Listener {
         }
         if (keystoreFormat != null) {
             factory.setKeystoreFormat(keystoreFormat);
+        }
+        if (certFile != null) {
+            factory.setCertFile(certFile);
+        }
+        if (keyFile != null) {
+            factory.setKeyFile(keyFile);
         }
         if (telemetryConfig != null) {
             factory.setTelemetryConfig(telemetryConfig);

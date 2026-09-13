@@ -21,20 +21,14 @@
 
 package org.bluezoo.gumdrop.webdav.server;
 
-import org.bluezoo.gumdrop.webdav.DeadPropertyStore;
-import org.bluezoo.gumdrop.webdav.FileHandlerFactory;
-
 import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.Headers;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.MessageFormat;
-import java.util.ResourceBundle;
-import java.util.logging.Logger;
-
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 
 /**
  * WebDAV protocol server — filesystem HTTP with optional RFC 4918 authoring.
@@ -43,22 +37,23 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
  * MKCOL, COPY, MOVE, LOCK, and UNLOCK methods in addition to the
  * standard HTTP methods.
  *
+ * <p>New applications should prefer {@link org.bluezoo.gumdrop.http.HttpServer#builder()}
+ * with {@link WebDAVRequestHandler} rather than this type. {@code WebdavServer}
+ * remains for XML configuration and legacy wiring.
+ *
  * <p>Transport endpoints (ports, TLS configuration) are defined by
- * adding listeners via {@link #addListener}. The service creates a
- * {@link FileHandlerFactory} during {@link #initService()} and wires
+ * adding listeners via {@link #addListener}. The service builds a
+ * {@link WebDAVRequestHandler} during {@link #initService()} and wires
  * it into each listener.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HttpServer
+ * @see WebDAVRequestHandler
+ * @see docs/COMPOSITION.md
  * @see docs/NAMING-TAXONOMY.md
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
 public class WebdavServer extends HttpServer {
-
-    private static final Logger LOGGER =
-            Logger.getLogger(WebdavServer.class.getName());
-    private static final ResourceBundle L10N =
-            ResourceBundle.getBundle("org.bluezoo.gumdrop.webdav.L10N");
 
     private Path rootPath = Paths.get(".");
     private boolean allowWrite = false;
@@ -66,7 +61,7 @@ public class WebdavServer extends HttpServer {
     private String welcomeFile = "index.html";
     private String deadPropertyStorage = "auto";
 
-    private FileHandlerFactory handlerFactory;
+    private WebDAVRequestHandler requestHandler;
 
     // ── Configuration ──
 
@@ -75,14 +70,12 @@ public class WebdavServer extends HttpServer {
     }
 
     public void setRootPath(Path rootPath) {
-        validateRootPath(rootPath);
+        WebDAVRequestHandler.validateRootPath(rootPath, allowWrite);
         this.rootPath = rootPath;
     }
 
     public void setRootPath(String rootPath) {
-        Path path = Paths.get(rootPath);
-        validateRootPath(path);
-        this.rootPath = path;
+        setRootPath(Paths.get(rootPath));
     }
 
     public boolean isAllowWrite() {
@@ -159,77 +152,29 @@ public class WebdavServer extends HttpServer {
     // ── HttpServer hooks ──
 
     /**
-     * Builds the handler factory on startup.
+     * Builds the request handler on startup.
      */
     @Override
     protected void initService() {
-        DeadPropertyStore store = null;
-        if (webdavEnabled) {
-            store = createDeadPropertyStore();
-        }
-        handlerFactory = new FileHandlerFactory(
-                rootPath, allowWrite, welcomeFile, webdavEnabled,
-                store);
-    }
-
-    private DeadPropertyStore createDeadPropertyStore() {
-        DeadPropertyStore store = new DeadPropertyStore();
-        if ("xattr".equals(deadPropertyStorage)) {
-            store.setMode(DeadPropertyStore.Mode.XATTR);
-        } else if ("sidecar".equals(deadPropertyStorage)) {
-            store.setMode(DeadPropertyStore.Mode.SIDECAR);
-        } else if ("none".equals(deadPropertyStorage)) {
-            store.setMode(DeadPropertyStore.Mode.NONE);
-        } else {
-            store.setMode(DeadPropertyStore.Mode.AUTO);
-        }
-        LOGGER.info(MessageFormat.format(
-                L10N.getString("info.dead_property_storage"), store.getMode()));
-        return store;
+        requestHandler = WebDAVRequestHandler.builder()
+                .rootPath(rootPath)
+                .allowWrite(allowWrite)
+                .welcomeFile(welcomeFile)
+                .webdavEnabled(webdavEnabled)
+                .deadPropertyStorage(deadPropertyStorage)
+                .build();
     }
 
     @Override
     protected HttpRequestHandlerFactory getHandlerFactory() {
-        return handlerFactory;
-    }
-
-    // ── Validation ──
-
-    /**
-     * Validates that the root path is safe for use as a file server root.
-     */
-    private void validateRootPath(Path path) {
-        if (path == null) {
-            throw new IllegalArgumentException(
-                    "Root path cannot be null");
-        }
-
-        try {
-            Path realPath = path.toRealPath();
-
-            if (!Files.isDirectory(realPath)) {
-                throw new IllegalArgumentException(
-                        "Root path must be a directory: " + realPath);
+        final WebDAVRequestHandler router = requestHandler;
+        return new HttpRequestHandlerFactory() {
+            @Override
+            public HttpRequestHandler createHandler(HttpResponseState state,
+                                                    Headers headers) {
+                return router.route(state, headers);
             }
-
-            if (!Files.isReadable(realPath)) {
-                throw new IllegalArgumentException(
-                        "Root path must be readable: " + realPath);
-            }
-
-            if (allowWrite && !Files.isWritable(realPath)) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.root_path_not_writable"), realPath));
-            }
-
-            LOGGER.info(MessageFormat.format(
-                    L10N.getString("info.file_server_root_validated"), realPath, allowWrite));
-
-        } catch (IOException e) {
-            throw new IllegalArgumentException(
-                    "Cannot access root path: " + path
-                            + " - " + e.getMessage(), e);
-        }
+        };
     }
 
 }

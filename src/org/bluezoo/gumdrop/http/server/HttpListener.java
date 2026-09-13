@@ -446,6 +446,7 @@ public class HttpListener extends TcpListener {
         private int port = -1;
         private String addresses;
         private boolean secure;
+        private HttpTlsConfig tls;
 
         private Builder() {
         }
@@ -460,8 +461,28 @@ public class HttpListener extends TcpListener {
             return this;
         }
 
+        /**
+         * Marks this listener as HTTPS (TLS on TCP). Requires
+         * {@link #tls(HttpTlsConfig)} or legacy keystore setters before
+         * {@link Listener#start()}.
+         */
         public Builder secure(boolean secure) {
             this.secure = secure;
+            return this;
+        }
+
+        /**
+         * Sets the server TLS identity (PEM, keystore, or credentials).
+         *
+         * <p>When {@link #secure(boolean)} is {@code true}, this supplies
+         * the certificate chain and private key for HTTPS (HTTP/1.1 and
+         * HTTP/2 over TLS).
+         */
+        public Builder tls(HttpTlsConfig tls) {
+            if (tls == null) {
+                throw new NullPointerException("tls");
+            }
+            this.tls = tls;
             return this;
         }
 
@@ -472,6 +493,9 @@ public class HttpListener extends TcpListener {
                 listener.setAddresses(addresses);
             }
             listener.setSecure(secure);
+            if (tls != null) {
+                tls.applyTo(listener);
+            }
             return listener;
         }
     }

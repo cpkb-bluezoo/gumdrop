@@ -17,8 +17,8 @@ not XML configuration files or reflective dependency injection.
    logic.
 2. **One entry type per protocol** — e.g. `HttpServer` owns listeners and a
    single handler (or router/decorator chain). Servlet and WebDAV stacks attach
-   as **`ServletRequestHandler`** and **`WebDAVRequestHandler`** (planned;
-   see below).
+   as **`ServletRequestHandler`** (planned) and **`WebDAVRequestHandler`**
+   (done) on `HttpServer.builder()`.
 3. **Default servers do nothing (application layer)** — a composed server with
    no handler wired must not silently pick up relay, upstream, or mailbox
    behaviour. “Do nothing” is protocol-specific (see [Default behaviour](#default-behaviour)).
@@ -55,22 +55,27 @@ composable stock implementation (like **`SimpleRelayHandler`** for SMTP).
 
 ## Minimal HTTP server
 
+Gumdrop’s default HTTP stack is **TLS + HTTP/3**, with HTTPS on TCP for
+HTTP/2 and HTTP/1.1 compatibility. Plaintext HTTP/1.1 is a **legacy
+fallback** — use it only for local development or backward compatibility.
+
 ```java
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.HttpServer;
-import org.bluezoo.gumdrop.http.server.HttpListener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
 import org.bluezoo.gumdrop.http.Headers;
+
+import java.nio.file.Path;
 
 public final class EchoMain {
     public static void main(String[] args) throws Exception {
         Gumdrop gumdrop = Gumdrop.getInstance();
 
         HttpServer server = HttpServer.builder()
-                .listener(HttpListener.builder().port(8080).build())
+                .secureEndpoint(443, HttpTlsConfig.pem(
+                        Path.of("cert.pem"), Path.of("key.pem")))
                 .handler(new EchoHandler())
                 .build();
 
@@ -97,6 +102,41 @@ public final class EchoMain {
 }
 ```
 
+`secureEndpoint(port, tls)` adds **both**:
+
+| Transport | Listener | Protocols |
+|-----------|----------|-----------|
+| TCP (TLS) | `HttpListener` | HTTP/2, HTTP/1.1 |
+| UDP (QUIC) | `Http3Listener` | HTTP/3 |
+
+TCP responses include **`Alt-Svc`** so clients can upgrade to HTTP/3.
+The same `HttpTlsConfig` (PEM, keystore, or `ServerCredentials`) is applied
+to both listeners.
+
+Keystore form:
+
+```java
+HttpTlsConfig tls = HttpTlsConfig.keystore(
+        Path.of("server.p12"), "changeit");
+HttpServer.builder().secureEndpoint(443, tls) …
+```
+
+### Legacy plaintext fallback
+
+Cleartext HTTP/1.1 on a separate port (not the default pattern):
+
+```java
+HttpServer server = HttpServer.builder()
+        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+        .plaintextListener(8080)   // legacy / dev only
+        .handler(new EchoHandler())
+        .build();
+```
+
+Advanced: wire listeners individually with
+`HttpListener.builder()` / `Http3Listener.builder()` when ports or TLS
+material differ per transport.
+
 ### Handler-less HTTP server
 
 Omitting `.handler()` / `.router()` installs the default
@@ -105,7 +145,7 @@ every request **404**.
 
 ```java
 HttpServer empty = HttpServer.builder()
-        .listener(HttpListener.builder().port(8080).build())
+        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
         .build();
 ```
 
@@ -113,7 +153,7 @@ HttpServer empty = HttpServer.builder()
 
 ```java
 HttpServer server = HttpServer.builder()
-        .listener(HttpListener.builder().port(8080).build())
+        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
         .handlerPerRequest(MyHandler::new)   // fresh instance per request
         .build();
 
@@ -125,7 +165,7 @@ HttpRequestRouter router = (state, headers) -> {
 };
 
 HttpServer routed = HttpServer.builder()
-        .listener(HttpListener.builder().port(8080).build())
+        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
         .router(router)
         .build();
 ```
@@ -138,13 +178,14 @@ Legacy `HttpRequestHandlerFactory` code can bridge via
 ## Servlet container *(planned — C.3 step 2)*
 
 Target: **`ServletRequestHandler`** on `HttpServer`, not a separate
-`ServletServer` type:
+`ServletServer` type. The handler is constructed with a **`Container`**
+that owns servlet lifecycle (context init, class loading, deployment):
 
 ```java
 Container container = /* … */;
 
 HttpServer server = HttpServer.builder()
-        .listener(HttpListener.builder().port(8080).build())
+        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
         .handler(new ServletRequestHandler(container))   // planned
         .build();
 ```
@@ -153,21 +194,20 @@ Until `ServletRequestHandler` lands, use `ServletServer` (interim).
 
 ---
 
-## File server and WebDAV *(planned — C.3 step 2)*
-
-Target: **`WebDAVRequestHandler`** (tradename **WebDAV**, not `Webdav*`):
+## File server and WebDAV
 
 ```java
 HttpServer server = HttpServer.builder()
-        .listener(HttpListener.builder().port(8080).build())
-        .handler(WebDAVRequestHandler.builder()   // planned
+        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
+        .router(WebDAVRequestHandler.builder()
                 .rootPath(Path.of("/var/www/html"))
                 .webdavEnabled(true)
                 .build())
         .build();
 ```
 
-Until then, use `WebdavServer` (interim).
+`WebdavServer` remains for XML configuration; new code should compose
+`WebDAVRequestHandler` on `HttpServer.builder()` as above.
 
 ---
 
@@ -234,7 +274,7 @@ HttpRequestHandler withAuth = BasicAuthHandler.decorate(app, realm);
 HttpRequestHandler withTelemetry = TelemetryHandler.decorate(withAuth, config);
 
 HttpServer server = HttpServer.builder()
-        .listener(HttpListener.builder().port(8080).build())
+        .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
         .handler(withTelemetry)
         .build();
 ```
@@ -295,9 +335,10 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 
 | Item | Status |
 |------|--------|
-| `HttpServer.builder()`, `HttpListener.builder()` | **Done** |
+| `HttpServer.builder()`, `secureEndpoint()`, `HttpTlsConfig` | **Done** |
+| `HttpListener.builder()`, `Http3Listener.builder()` | **Done** |
 | `HttpRequestRouter`, `HttpRequestHandlers`, default 404 | **Done** |
-| `ServletRequestHandler`, `WebDAVRequestHandler` | Planned |
+| `ServletRequestHandler`, `WebDAVRequestHandler` | Servlet planned; **WebDAV done** |
 | `DnsServer.builder()`, `DnsQueryHandler`, default empty answers | **Done** |
 | `UpstreamRelayHandler`, `AuthoritativeZoneHandler`, `ZoneFile` | **Done** |
 | `Runtime` replaces `Gumdrop.getInstance()` | Planned (§C.4) |

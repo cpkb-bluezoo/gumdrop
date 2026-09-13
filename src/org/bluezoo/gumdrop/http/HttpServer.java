@@ -33,6 +33,7 @@ import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
+import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
 import org.bluezoo.gumdrop.http.server.DefaultHttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpListener;
@@ -76,11 +77,16 @@ import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
  * <h2>Composition Example</h2>
  * <pre>{@code
  * HttpServer server = HttpServer.builder()
- *         .listener(HttpListener.builder().port(8080).build())
+ *         .secureEndpoint(443, HttpTlsConfig.pem("cert.pem", "key.pem"))
  *         .handler(new MyHandler())
  *         .build();
  * gumdrop.addServer(server);
  * }</pre>
+ *
+ * <p>{@link Builder#secureEndpoint(int, HttpTlsConfig)} wires HTTPS (TCP:
+ * HTTP/2 + HTTP/1.1) and HTTP/3 (QUIC) on the same port, with {@code Alt-Svc}
+ * on TCP responses. Plaintext HTTP/1.1 is a legacy fallback — add
+ * {@link Builder#plaintextListener(int)} only when you need it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Server
@@ -427,6 +433,41 @@ public abstract class HttpServer implements Server {
             }
             quicListeners.add(listener);
             return this;
+        }
+
+        /**
+         * Wires the default secure HTTP endpoint: HTTPS on TCP (HTTP/2 +
+         * HTTP/1.1) and HTTP/3 on QUIC, same port, shared TLS material.
+         *
+         * <p>TCP responses include {@code Alt-Svc} advertising the HTTP/3
+         * endpoint. This is the recommended composition entry point for new
+         * applications.
+         *
+         * @param port the TCP and UDP port (typically 443)
+         * @param tls server certificate and private key
+         */
+        public Builder secureEndpoint(int port, HttpTlsConfig tls) {
+            if (tls == null) {
+                throw new NullPointerException("tls");
+            }
+            listener(HttpListener.builder()
+                    .port(port)
+                    .secure(true)
+                    .tls(tls)
+                    .build());
+            listener(Http3Listener.builder()
+                    .port(port)
+                    .tls(tls)
+                    .build());
+            return this;
+        }
+
+        /**
+         * Adds a cleartext HTTP/1.1 (+ optional HTTP/2 cleartext upgrade)
+         * listener. Legacy fallback only — prefer {@link #secureEndpoint(int, HttpTlsConfig)}.
+         */
+        public Builder plaintextListener(int port) {
+            return listener(HttpListener.builder().port(port).build());
         }
 
         /**

@@ -387,4 +387,72 @@ public class Http3Listener extends TcpListener
         return null;
     }
 
+    /**
+     * Creates a builder for a QUIC HTTP/3 listener.
+     */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /**
+     * Builds an {@link Http3Listener} for use with
+     * {@link org.bluezoo.gumdrop.http.HttpServer#builder()}.
+     */
+    public static final class Builder {
+
+        private int port = -1;
+        private String addresses;
+        private org.bluezoo.gumdrop.http.server.HttpTlsConfig tls;
+        private boolean requireRetry = true;
+
+        private Builder() {
+        }
+
+        public Builder port(int port) {
+            this.port = port;
+            return this;
+        }
+
+        public Builder addresses(String addresses) {
+            this.addresses = addresses;
+            return this;
+        }
+
+        /**
+         * Sets the server TLS identity (PEM, keystore, or credentials).
+         *
+         * <p>HTTP/3 requires TLS 1.3 over QUIC; this configuration is
+         * mandatory for production listeners.
+         */
+        public Builder tls(org.bluezoo.gumdrop.http.server.HttpTlsConfig tls) {
+            if (tls == null) {
+                throw new NullPointerException("tls");
+            }
+            this.tls = tls;
+            return this;
+        }
+
+        /**
+         * Sets whether RFC 9000 Retry-based address validation is required.
+         * Default {@code true}.
+         */
+        public Builder requireRetry(boolean requireRetry) {
+            this.requireRetry = requireRetry;
+            return this;
+        }
+
+        public Http3Listener build() {
+            Http3Listener listener = new Http3Listener();
+            listener.setPort(port);
+            if (addresses != null) {
+                listener.setAddresses(addresses);
+            }
+            listener.setRequireRetry(requireRetry);
+            if (tls != null) {
+                tls.applyTo(listener);
+            }
+            return listener;
+        }
+    }
+
 }
