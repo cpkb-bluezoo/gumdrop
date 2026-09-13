@@ -1,5 +1,5 @@
 /*
- * DKIMResult.java
+ * DkimResult.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -30,7 +30,7 @@ package org.bluezoo.gumdrop.smtp.auth;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  */
-public enum DKIMResult {
+public enum DkimResult {
 
     /**
      * The message signature was verified successfully.
@@ -73,7 +73,7 @@ public enum DKIMResult {
 
     private final String value;
 
-    DKIMResult(String value) {
+    DkimResult(String value) {
         this.value = value;
     }
 

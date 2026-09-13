@@ -1,5 +1,5 @@
 /*
- * JSPSourceLocation.java
+ * JspSourceLocation.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,7 +28,7 @@ package org.bluezoo.gumdrop.servlet.jsp;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPSourceLocation {
+public class JspSourceLocation {
 
     private final String jspFile;
     private final int jspLine;
@@ -41,7 +41,7 @@ public class JSPSourceLocation {
      * @param jspFile the JSP file path
      * @param jspLine the line number in the JSP file (1-based)
      */
-    public JSPSourceLocation(String jspFile, int jspLine) {
+    public JspSourceLocation(String jspFile, int jspLine) {
         this(jspFile, jspLine, 0, null);
     }
     
@@ -52,7 +52,7 @@ public class JSPSourceLocation {
      * @param jspLine the line number in the JSP file (1-based)
      * @param jspColumn the column number in the JSP file (1-based)
      */
-    public JSPSourceLocation(String jspFile, int jspLine, int jspColumn) {
+    public JspSourceLocation(String jspFile, int jspLine, int jspColumn) {
         this(jspFile, jspLine, jspColumn, null);
     }
     
@@ -64,7 +64,7 @@ public class JSPSourceLocation {
      * @param jspColumn the column number in the JSP file (1-based)
      * @param elementType the type of JSP element (e.g., "scriptlet", "expression")
      */
-    public JSPSourceLocation(String jspFile, int jspLine, int jspColumn, String elementType) {
+    public JspSourceLocation(String jspFile, int jspLine, int jspColumn, String elementType) {
         this.jspFile = jspFile;
         this.jspLine = jspLine;
         this.jspColumn = jspColumn;

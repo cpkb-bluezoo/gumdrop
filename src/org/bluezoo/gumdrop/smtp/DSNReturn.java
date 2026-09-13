@@ -1,5 +1,5 @@
 /*
- * DSNReturn.java
+ * DsnReturn.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -42,7 +42,7 @@ import java.util.ResourceBundle;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.3">RFC 3461 §4.3</a>
  */
-public enum DSNReturn {
+public enum DsnReturn {
 
     /**
      * Include the full original message in the DSN.
@@ -63,10 +63,10 @@ public enum DSNReturn {
      * Parses a DSN return keyword.
      * 
      * @param keyword the keyword to parse (case-insensitive)
-     * @return the corresponding DSNReturn value
+     * @return the corresponding DsnReturn value
      * @throws IllegalArgumentException if the keyword is not recognized
      */
-    public static DSNReturn parse(String keyword) {
+    public static DsnReturn parse(String keyword) {
         if (keyword == null) {
             throw new IllegalArgumentException(L10N.getString("err.null_dsn_return"));
         }

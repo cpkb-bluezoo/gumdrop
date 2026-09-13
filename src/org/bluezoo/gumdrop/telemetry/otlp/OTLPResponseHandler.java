@@ -1,5 +1,5 @@
 /*
- * OTLPResponseHandler.java
+ * OtlpResponseHandler.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -42,14 +42,14 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class OTLPResponseHandler extends DefaultHttpResponseHandler {
+class OtlpResponseHandler extends DefaultHttpResponseHandler {
 
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
-    private static final Logger logger = Logger.getLogger(OTLPResponseHandler.class.getName());
+    private static final Logger logger = Logger.getLogger(OtlpResponseHandler.class.getName());
 
     private final String endpointName;
-    private final OTLPExporter exporter;
+    private final OtlpExporter exporter;
 
     private volatile boolean complete;
     private volatile boolean success;
@@ -61,7 +61,7 @@ class OTLPResponseHandler extends DefaultHttpResponseHandler {
      * @param endpointName the endpoint name (traces, logs, metrics) for logging
      * @param exporter the exporter to notify on completion
      */
-    OTLPResponseHandler(String endpointName, OTLPExporter exporter) {
+    OtlpResponseHandler(String endpointName, OtlpExporter exporter) {
         this.endpointName = endpointName;
         this.exporter = exporter;
     }
@@ -171,7 +171,7 @@ class OTLPResponseHandler extends DefaultHttpResponseHandler {
 
     @Override
     public String toString() {
-        return "OTLPResponseHandler[" + endpointName + ", complete=" + complete + ", success=" + success + "]";
+        return "OtlpResponseHandler[" + endpointName + ", complete=" + complete + ", success=" + success + "]";
     }
 }
 

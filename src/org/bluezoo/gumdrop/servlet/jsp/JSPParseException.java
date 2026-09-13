@@ -1,5 +1,5 @@
 /*
- * JSPParseException.java
+ * JspParseException.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,7 +27,7 @@ package org.bluezoo.gumdrop.servlet.jsp;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPParseException extends Exception {
+public class JspParseException extends Exception {
     
     private static final long serialVersionUID = 1L;
     
@@ -40,7 +40,7 @@ public class JSPParseException extends Exception {
      * 
      * @param message the error message
      */
-    public JSPParseException(String message) {
+    public JspParseException(String message) {
         this(message, null, -1, -1);
     }
     
@@ -50,7 +50,7 @@ public class JSPParseException extends Exception {
      * @param message the error message
      * @param cause the underlying cause of the parsing error
      */
-    public JSPParseException(String message, Throwable cause) {
+    public JspParseException(String message, Throwable cause) {
         this(message, null, -1, -1, cause);
     }
     
@@ -62,7 +62,7 @@ public class JSPParseException extends Exception {
      * @param lineNumber the line number where the error occurred (1-based, -1 if unknown)
      * @param columnNumber the column number where the error occurred (1-based, -1 if unknown)
      */
-    public JSPParseException(String message, String jspUri, int lineNumber, int columnNumber) {
+    public JspParseException(String message, String jspUri, int lineNumber, int columnNumber) {
         super(formatMessage(message, jspUri, lineNumber, columnNumber));
         this.jspUri = jspUri;
         this.lineNumber = lineNumber;
@@ -78,7 +78,7 @@ public class JSPParseException extends Exception {
      * @param columnNumber the column number where the error occurred (1-based, -1 if unknown)
      * @param cause the underlying cause of the parsing error
      */
-    public JSPParseException(String message, String jspUri, int lineNumber, int columnNumber, Throwable cause) {
+    public JspParseException(String message, String jspUri, int lineNumber, int columnNumber, Throwable cause) {
         super(formatMessage(message, jspUri, lineNumber, columnNumber), cause);
         this.jspUri = jspUri;
         this.lineNumber = lineNumber;

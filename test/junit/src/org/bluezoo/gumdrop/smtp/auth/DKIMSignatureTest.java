@@ -27,7 +27,7 @@ import static org.junit.Assert.*;
 import java.util.List;
 
 /**
- * Unit tests for DKIMSignature parsing.
+ * Unit tests for DkimSignature parsing.
  */
 public class DKIMSignatureTest {
 
@@ -36,7 +36,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=selector1; " +
                 "h=from:to:subject:date; bh=base64bodyhash==; b=base64signature==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("1", sig.getVersion());
@@ -52,7 +52,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "h=From:To:Subject:Date:Message-ID; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         List<String> headers = sig.getSignedHeaders();
@@ -69,7 +69,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "c=relaxed/simple; h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("relaxed/simple", sig.getCanonicalization());
@@ -82,7 +82,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "c=relaxed/relaxed; h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("relaxed", sig.getHeaderCanonicalization());
@@ -94,7 +94,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertNull(sig.getCanonicalization());
@@ -107,7 +107,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "l=1024; h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals(1024, sig.getBodyLength());
@@ -118,7 +118,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals(-1, sig.getBodyLength());
@@ -129,7 +129,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "t=1234567890; x=1234657890; h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals(1234567890L, sig.getTimestamp());
@@ -141,7 +141,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "i=user@example.com; h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("user@example.com", sig.getIdentity());
@@ -152,7 +152,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "q=dns/txt; h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("dns/txt", sig.getQueryMethod());
@@ -163,7 +163,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=dkim2024; " +
                 "h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("dkim2024._domainkey.example.com", sig.getKeyQueryName());
@@ -176,7 +176,7 @@ public class DKIMSignatureTest {
                 " h=from:to:subject; bh=hash==;\r\n" +
                 " b=long\r\n signature\r\n value==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("longsignaturevalue==", sig.getSignature());
@@ -188,7 +188,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "h=from; bh=hash with spaces==; b=sig with tabs\t==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("hashwithspaces==", sig.getBodyHash());
@@ -197,7 +197,7 @@ public class DKIMSignatureTest {
 
     @Test
     public void testParseNullReturnsNull() {
-        assertNull(DKIMSignature.parse(null));
+        assertNull(DkimSignature.parse(null));
     }
 
     @Test
@@ -205,7 +205,7 @@ public class DKIMSignatureTest {
         String header = "a=rsa-sha256; d=example.com; s=sel; " +
                 "h=from; bh=hash==; b=sig==";
 
-        assertNull(DKIMSignature.parse(header));
+        assertNull(DkimSignature.parse(header));
     }
 
     @Test
@@ -213,7 +213,7 @@ public class DKIMSignatureTest {
         String header = "v=1; d=example.com; s=sel; " +
                 "h=from; bh=hash==; b=sig==";
 
-        assertNull(DKIMSignature.parse(header));
+        assertNull(DkimSignature.parse(header));
     }
 
     @Test
@@ -221,7 +221,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; s=sel; " +
                 "h=from; bh=hash==; b=sig==";
 
-        assertNull(DKIMSignature.parse(header));
+        assertNull(DkimSignature.parse(header));
     }
 
     @Test
@@ -229,7 +229,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; " +
                 "h=from; bh=hash==; b=sig==";
 
-        assertNull(DKIMSignature.parse(header));
+        assertNull(DkimSignature.parse(header));
     }
 
     @Test
@@ -237,7 +237,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "bh=hash==; b=sig==";
 
-        assertNull(DKIMSignature.parse(header));
+        assertNull(DkimSignature.parse(header));
     }
 
     @Test
@@ -245,7 +245,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "h=from; b=sig==";
 
-        assertNull(DKIMSignature.parse(header));
+        assertNull(DkimSignature.parse(header));
     }
 
     @Test
@@ -253,7 +253,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "h=from; bh=hash==";
 
-        assertNull(DKIMSignature.parse(header));
+        assertNull(DkimSignature.parse(header));
     }
 
     @Test
@@ -261,7 +261,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=ed25519-sha256; d=example.com; s=sel; " +
                 "h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("ed25519-sha256", sig.getAlgorithm());
@@ -272,7 +272,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals(header, sig.getRawHeader());
@@ -283,7 +283,7 @@ public class DKIMSignatureTest {
         String header = "v=1; a=rsa-sha256; d=example.com; s=sel; " +
                 "c=relaxed; h=from; bh=hash==; b=sig==";
 
-        DKIMSignature sig = DKIMSignature.parse(header);
+        DkimSignature sig = DkimSignature.parse(header);
 
         assertNotNull(sig);
         assertEquals("relaxed", sig.getHeaderCanonicalization());

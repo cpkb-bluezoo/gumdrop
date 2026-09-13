@@ -1,5 +1,5 @@
 /*
- * RESPType.java
+ * RespType.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,7 +36,7 @@ import java.util.ResourceBundle;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
-public enum RESPType {
+public enum RespType {
 
     // RESP2 types
 
@@ -86,7 +86,7 @@ public enum RESPType {
 
     private final byte prefix;
 
-    RESPType(char prefix) {
+    RespType(char prefix) {
         this.prefix = (byte) prefix;
     }
 
@@ -104,9 +104,9 @@ public enum RESPType {
      *
      * @param prefix the prefix byte
      * @return the corresponding RESP type
-     * @throws RESPException if the prefix is not recognized
+     * @throws RespException if the prefix is not recognized
      */
-    public static RESPType fromPrefix(byte prefix) throws RESPException {
+    public static RespType fromPrefix(byte prefix) throws RespException {
         switch (prefix) {
             case '+': return SIMPLE_STRING;
             case '-': return ERROR;
@@ -123,8 +123,8 @@ public enum RESPType {
             case '(': return BIG_NUMBER;
             case '!': return BLOB_ERROR;
             default:
-                String msg = MessageFormat.format(RESPDecoder.L10N.getString("err.unknown_type_prefix"), (char) prefix);
-                throw new RESPException(msg);
+                String msg = MessageFormat.format(RespDecoder.L10N.getString("err.unknown_type_prefix"), (char) prefix);
+                throw new RespException(msg);
         }
     }
 

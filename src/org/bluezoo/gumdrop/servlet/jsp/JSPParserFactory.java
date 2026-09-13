@@ -1,5 +1,5 @@
 /*
- * JSPParserFactory.java
+ * JspParserFactory.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,25 +39,25 @@ import java.util.logging.Logger;
  * <p>Usage example:
  * <pre>
  * try (InputStream input = new FileInputStream("example.jsp")) {
- *   JSPPage page = JSPParserFactory.parseJSP(input, "UTF-8", "/example.jsp");
+ *   JspPage page = JspParserFactory.parseJSP(input, "UTF-8", "/example.jsp");
  *   // Process the parsed JSP page...
  * }
  * </pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPParserFactory {
+public class JspParserFactory {
     
-    private static final Logger LOGGER = Logger.getLogger(JSPParserFactory.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(JspParserFactory.class.getName());
     
     // Registry of available parsers  
-    private final List<JSPParser> availableParsers = new ArrayList<>();
+    private final List<JspParser> availableParsers = new ArrayList<>();
     
     /**
      * Creates a JSP parser factory.
      * Uses Gonzalez streaming XML parser for XML-format JSP files.
      */
-    public JSPParserFactory() {
+    public JspParserFactory() {
         // Register default parsers
         availableParsers.add(new XMLJSPParser());
         availableParsers.add(new TraditionalJSPParser());
@@ -72,18 +72,18 @@ public class JSPParserFactory {
      * @param jspUri the URI/path of the JSP file being parsed (for error reporting)
      * @return a parsed JSP page
      * @throws IOException if an I/O error occurs while reading
-     * @throws JSPParseException if parsing fails
+     * @throws JspParseException if parsing fails
      * @throws UnsupportedOperationException if no suitable parser is found
      */
-    public JSPPage parseJSP(InputStream input, String encoding, String jspUri) 
-            throws IOException, JSPParseException {
+    public JspPage parseJSP(InputStream input, String encoding, String jspUri) 
+            throws IOException, JspParseException {
         
         // Ensure the input stream supports mark/reset for format detection
         if (!input.markSupported()) {
             input = new BufferedInputStream(input);
         }
         
-        JSPParser parser = detectParser(input, encoding);
+        JspParser parser = detectParser(input, encoding);
         if (parser == null) {
             throw new UnsupportedOperationException(
                 "No suitable JSP parser found for: " + jspUri);
@@ -107,18 +107,18 @@ public class JSPParserFactory {
      * @param jspProperties the resolved JSP properties from configuration
      * @return the parsed JSP page
      * @throws IOException if an I/O error occurs
-     * @throws JSPParseException if the JSP content is malformed
+     * @throws JspParseException if the JSP content is malformed
      */
-    public JSPPage parseJSP(InputStream input, String encoding, String jspUri, 
-                                  JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties)
-            throws IOException, JSPParseException {
+    public JspPage parseJSP(InputStream input, String encoding, String jspUri, 
+                                  JspPropertyGroupResolver.ResolvedJSPProperties jspProperties)
+            throws IOException, JspParseException {
         
         // Ensure the input stream supports mark/reset for format detection
         if (!input.markSupported()) {
             input = new BufferedInputStream(input);
         }
         
-        JSPParser parser;
+        JspParser parser;
         
         // Check if isXml property forces XML parsing
         if (jspProperties != null && jspProperties.getIsXml() != null && jspProperties.getIsXml()) {
@@ -140,7 +140,7 @@ public class JSPParserFactory {
             LOGGER.fine("Using " + parser.getParserName() + " for: " + jspUri);
         }
         
-        // Use standard JSPParser interface - SAX factory already injected into XML parser
+        // Use standard JspParser interface - SAX factory already injected into XML parser
         return parser.parse(input, encoding, jspUri, jspProperties);
     }
 
@@ -153,7 +153,7 @@ public class JSPParserFactory {
      * @throws IllegalArgumentException if the parser type is unknown
      * @throws IllegalStateException if XML parser cannot be created
      */
-    public JSPParser createParser(ParserType parserType) {
+    public JspParser createParser(ParserType parserType) {
         switch (parserType) {
             case XML:
                 return new XMLJSPParser();
@@ -172,9 +172,9 @@ public class JSPParserFactory {
      * @return a suitable parser, or null if none found
      * @throws IOException if format detection fails
      */
-    private JSPParser detectParser(InputStream input, String encoding) throws IOException {
+    private JspParser detectParser(InputStream input, String encoding) throws IOException {
         
-        for (JSPParser parser : availableParsers) {
+        for (JspParser parser : availableParsers) {
             try {
                 if (parser.canParse(input, encoding)) {
                     if (LOGGER.isLoggable(Level.FINE)) {
@@ -197,7 +197,7 @@ public class JSPParserFactory {
      * 
      * @param parser the parser to register
      */
-    public void registerParser(JSPParser parser) {
+    public void registerParser(JspParser parser) {
         if (parser != null && !availableParsers.contains(parser)) {
             availableParsers.add(0, parser); // Add at beginning for priority
         }
@@ -208,7 +208,7 @@ public class JSPParserFactory {
      * 
      * @param parser the parser to unregister
      */
-    public void unregisterParser(JSPParser parser) {
+    public void unregisterParser(JspParser parser) {
         availableParsers.remove(parser);
     }
     
@@ -217,7 +217,7 @@ public class JSPParserFactory {
      * 
      * @return a list of available parsers
      */
-    public List<JSPParser> getAvailableParsers() {
+    public List<JspParser> getAvailableParsers() {
         return new ArrayList<>(availableParsers);
     }
     

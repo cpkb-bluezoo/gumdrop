@@ -83,8 +83,8 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * DnsClientTransport} and {@link #setTransport}. Without an explicit
  * override, each configured server gets its own transport chosen by
  * descending preference -- RFC 9250 DoQ, then RFC 7858 DoT, then RFC
- * 8484 DoH, then plain UDP ({@link UdpDNSClientTransport}) -- based on
- * what {@link DNSServerCapabilityCache} already knows that server
+ * 8484 DoH, then plain UDP ({@link UdpDnsClientTransport}) -- based on
+ * what {@link DnsServerCapabilityCache} already knows that server
  * supports (seeded for well-known public resolvers; otherwise plain
  * UDP, since most servers support none of the encrypted transports and
  * probing every configured server for them by default would add
@@ -361,7 +361,7 @@ public class DnsResolver {
      * <p>When enabled, {@link #open()} opportunistically asks each
      * configured server whose encrypted transport support isn't already
      * known (i.e. it was opened on plain UDP by default, not because
-     * {@link DNSServerCapabilityCache} already knew better) whether it
+     * {@link DnsServerCapabilityCache} already knew better) whether it
      * also offers an encrypted equivalent, via a single extra plaintext
      * SVCB query to {@code _dns.resolver.arpa} sent to that same
      * server. On success, the discovered capability is recorded for
@@ -422,7 +422,7 @@ public class DnsResolver {
      * <p>Discovers the platform's configured nameservers by parsing
      * {@code /etc/resolv.conf} (see {@link ResolvConf}). Falls back to
      * well-known public resolvers (8.8.8.8 and 1.1.1.1) if none are found
-     * or none are valid -- {@link DNSServerCapabilityCache} knows these
+     * or none are valid -- {@link DnsServerCapabilityCache} knows these
      * addresses support DoQ/DoT/DoH, so (absent an explicit {@link
      * #setTransport} override) this fallback path prefers an encrypted
      * transport rather than landing on plain UDP.
@@ -477,7 +477,7 @@ public class DnsResolver {
             // better was already known (an explicit setTransport override
             // never sets it at all, so this also naturally excludes that
             // case) -- exactly the condition worth spending one DDR query on.
-            if (ddrEnabled && callback.transportType == DNSTransportType.PLAIN) {
+            if (ddrEnabled && callback.transportType == DnsTransportType.PLAIN) {
                 startDdrDiscovery(i, server);
             }
         }
@@ -811,7 +811,7 @@ public class DnsResolver {
         // EDNS0 options are simply concatenated), unless this server was
         // already observed not to honor it.
         boolean attachMQType = !additionalTypes.isEmpty() && targetServer != null
-                && !DNSMultiQTypeCache.isKnownUnsupported(targetServer);
+                && !DnsMultiQTypeCache.isKnownUnsupported(targetServer);
         byte[] optionData;
         if (attachMQType) {
             byte[] mqtypeOption = DnsMultiQType.buildMQTypeQueryOption(additionalTypes);
@@ -970,8 +970,8 @@ public class DnsResolver {
 
     // Descending preference (issue #408): encrypted QUIC-based transport
     // first, then TLS-based, then HTTPS-based, then plain TCP/UDP.
-    private static final DNSTransportType[] TRANSPORT_PREFERENCE_ORDER = {
-        DNSTransportType.DOQ, DNSTransportType.DOT, DNSTransportType.DOH, DNSTransportType.PLAIN
+    private static final DnsTransportType[] TRANSPORT_PREFERENCE_ORDER = {
+        DnsTransportType.DOQ, DnsTransportType.DOT, DnsTransportType.DOH, DnsTransportType.PLAIN
     };
 
     /**
@@ -979,7 +979,7 @@ public class DnsResolver {
      * configured via {@link #setTransport}, that override is used as
      * before, with no capability-based selection. Otherwise, transports
      * are tried in {@link #TRANSPORT_PREFERENCE_ORDER}, skipping any
-     * {@link DNSServerCapabilityCache} already knows this server doesn't
+     * {@link DnsServerCapabilityCache} already knows this server doesn't
      * support, and falling through to the next preference if one fails
      * to open synchronously. Plain UDP is always the last preference and
      * essentially never fails synchronously, so this always returns a
@@ -999,10 +999,10 @@ public class DnsResolver {
                     selectorLoop, callback);
             return transportPrototype;
         }
-        DNSServerCapabilities caps = DNSServerCapabilityCache.get(server);
+        DnsServerCapabilities caps = DnsServerCapabilityCache.get(server);
         IOException lastFailure = null;
-        for (DNSTransportType type : TRANSPORT_PREFERENCE_ORDER) {
-            if (!supports(caps, type) || DNSServerCapabilityCache.isKnownUnsupported(server, type)) {
+        for (DnsTransportType type : TRANSPORT_PREFERENCE_ORDER) {
+            if (!supports(caps, type) || DnsServerCapabilityCache.isKnownUnsupported(server, type)) {
                 continue;
             }
             DnsClientTransport transport = newTransportInstance(type, caps);
@@ -1023,8 +1023,8 @@ public class DnsResolver {
                     LOGGER.log(Level.FINE, MessageFormat.format(
                             L10N.getString("debug.transport_open_failed"), type, server), e);
                 }
-                if (type != DNSTransportType.PLAIN) {
-                    DNSServerCapabilityCache.markUnsupported(server, type);
+                if (type != DnsTransportType.PLAIN) {
+                    DnsServerCapabilityCache.markUnsupported(server, type);
                 }
             }
         }
@@ -1035,7 +1035,7 @@ public class DnsResolver {
                 : new IOException(L10N.getString("err.no_dns_servers"));
     }
 
-    private static boolean supports(DNSServerCapabilities caps, DNSTransportType type) {
+    private static boolean supports(DnsServerCapabilities caps, DnsTransportType type) {
         switch (type) {
             case DOQ: return caps.isDoqSupported();
             case DOT: return caps.isDotSupported();
@@ -1053,7 +1053,7 @@ public class DnsResolver {
      * port as plaintext DNS. Forwarding {@code server.getPort()}
      * (typically 53) to an encrypted transport here would be wrong.
      */
-    private static int portFor(DNSTransportType type, DNSServerCapabilities caps, InetSocketAddress server) {
+    private static int portFor(DnsTransportType type, DnsServerCapabilities caps, InetSocketAddress server) {
         switch (type) {
             case DOQ: return caps.getDoqPort();
             case DOT: return caps.getDotPort();
@@ -1065,17 +1065,17 @@ public class DnsResolver {
     // Package-private (not private) and non-final so tests can override
     // it to inject mock transports per type, the same way
     // createTcpRetryTransport() below is overridable for the TC-retry path.
-    DnsClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
+    DnsClientTransport newTransportInstance(DnsTransportType type, DnsServerCapabilities caps) {
         switch (type) {
             case DOQ:
                 return new DoQClientTransport();
             case DOT:
-                return TcpDNSClientTransport.createDoT();
+                return TcpDnsClientTransport.createDoT();
             case DOH:
                 return createDohTransport(caps.getDohPath());
             case PLAIN:
             default:
-                return new UdpDNSClientTransport();
+                return new UdpDnsClientTransport();
         }
     }
 
@@ -1240,7 +1240,7 @@ public class DnsResolver {
     private static final int TCP_TIMEOUT_MS = 5000;
 
     DnsClientTransport createTcpRetryTransport() {
-        return new TcpDNSClientTransport();
+        return new TcpDnsClientTransport();
     }
 
     private void retryOverTcpAsync(final PendingQuery pending,
@@ -1356,7 +1356,7 @@ public class DnsResolver {
      * path.
      */
     DnsClientTransport createDdrTransport() {
-        return new UdpDNSClientTransport();
+        return new UdpDnsClientTransport();
     }
 
     /**
@@ -1400,11 +1400,11 @@ public class DnsResolver {
      * <p>RFC 9461 §4: the ALPN identifiers "dot" and "doq" indicate
      * DoT/DoQ support; "h2"/"h3" (RFC 9113/9114) alongside a "dohpath"
      * SvcParam (RFC 9461 §5, defaulting to {@link
-     * DNSServerCapabilityCache#DOH_PATH} if absent per that section)
+     * DnsServerCapabilityCache#DOH_PATH} if absent per that section)
      * indicate DoH support. AliasForm records (SvcPriority 0) carry no
      * SvcParams and are skipped.
      */
-    private DNSServerCapabilities parseDdrResponse(DnsMessage response) {
+    private DnsServerCapabilities parseDdrResponse(DnsMessage response) {
         if (response.getRcode() != DnsMessage.RCODE_NOERROR) {
             return null;
         }
@@ -1430,14 +1430,14 @@ public class DnsResolver {
             }
             if (dohPath == null && (alpns.contains("h2") || alpns.contains("h3"))) {
                 String path = rr.getSVCBDohPath();
-                dohPath = stripUriTemplateSuffix(path != null ? path : DNSServerCapabilityCache.DOH_PATH);
+                dohPath = stripUriTemplateSuffix(path != null ? path : DnsServerCapabilityCache.DOH_PATH);
                 dohPort = recordPort > 0 ? recordPort : 0;
             }
         }
         if (!doq && !dot && dohPath == null) {
             return null;
         }
-        return DNSServerCapabilities.of(doq, doqPort, dot, dotPort, dohPath, dohPort);
+        return DnsServerCapabilities.of(doq, doqPort, dot, dotPort, dohPath, dohPort);
     }
 
     // RFC 9461 §5: "dohpath" is a URI Template that must contain
@@ -1519,9 +1519,9 @@ public class DnsResolver {
             }
             try {
                 DnsMessage response = DnsMessage.parse(data);
-                DNSServerCapabilities discovered = parseDdrResponse(response);
+                DnsServerCapabilities discovered = parseDdrResponse(response);
                 if (discovered != null) {
-                    DNSServerCapabilityCache.learn(server, discovered);
+                    DnsServerCapabilityCache.learn(server, discovered);
                     if (LOGGER.isLoggable(Level.FINE)) {
                         LOGGER.fine(MessageFormat.format(
                                 L10N.getString("debug.ddr_discovered"), server));
@@ -1627,7 +1627,7 @@ public class DnsResolver {
 
         final InetSocketAddress targetServer = servers.isEmpty() ? null : servers.get(0);
         final List<DnsType> optionTypes = (!additionalTypes.isEmpty() && targetServer != null
-                && !DNSMultiQTypeCache.isKnownUnsupported(targetServer))
+                && !DnsMultiQTypeCache.isKnownUnsupported(targetServer))
                 ? additionalTypes : Collections.<DnsType>emptyList();
 
         query(name, primaryType, optionTypes, new DnsQueryCallback() {
@@ -1697,7 +1697,7 @@ public class DnsResolver {
     // RFC 10029: returns the additional types the server reported having
     // merged into `response` via MQTYPE-Response, marking `server` as
     // not supporting the mechanism (so future queries skip attaching the
-    // option, per DNSMultiQTypeCache) when that option is absent or the
+    // option, per DnsMultiQTypeCache) when that option is absent or the
     // server erroneously echoed MQTYPE-Query back instead.
     private List<DnsType> mqTypeResponseCoverage(DnsMessage response, InetSocketAddress server) {
         for (Object obj : response.getAdditionals()) {
@@ -1710,7 +1710,7 @@ public class DnsResolver {
                     rdata, DnsMultiQType.EDNS_OPTION_MQTYPE_RESPONSE);
             if (responseData == null) {
                 if (server != null) {
-                    DNSMultiQTypeCache.markUnsupported(server);
+                    DnsMultiQTypeCache.markUnsupported(server);
                 }
                 return Collections.emptyList();
             }
@@ -1726,7 +1726,7 @@ public class DnsResolver {
         // No OPT record at all in the response: server doesn't even echo
         // EDNS0, so it certainly doesn't support RFC 10029.
         if (server != null) {
-            DNSMultiQTypeCache.markUnsupported(server);
+            DnsMultiQTypeCache.markUnsupported(server);
         }
         return Collections.emptyList();
     }
@@ -1781,7 +1781,7 @@ public class DnsResolver {
          * override is in effect, since there's nothing to fall back
          * from in that case.
          */
-        volatile DNSTransportType transportType;
+        volatile DnsTransportType transportType;
 
         TransportCallback(int serverIndex) {
             this.serverIndex = serverIndex;
@@ -1812,10 +1812,10 @@ public class DnsResolver {
             // already-open transport mid-flight. In-flight queries on
             // this session still recover via the existing per-server
             // retry-on-timeout in handleTimeout().
-            DNSTransportType type = transportType;
-            if (type != null && type != DNSTransportType.PLAIN
+            DnsTransportType type = transportType;
+            if (type != null && type != DnsTransportType.PLAIN
                     && serverIndex >= 0 && serverIndex < servers.size()) {
-                DNSServerCapabilityCache.markUnsupported(servers.get(serverIndex), type);
+                DnsServerCapabilityCache.markUnsupported(servers.get(serverIndex), type);
             }
         }
     }

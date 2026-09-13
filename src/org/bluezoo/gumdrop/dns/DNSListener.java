@@ -120,14 +120,14 @@ public class DnsListener extends UdpListener {
 
     @Override
     protected ProtocolHandler createProtocolHandler() {
-        return new DNSDatagramHandler();
+        return new DnsDatagramHandler();
     }
 
     /**
      * Inner handler that dispatches received datagrams to the
      * owning {@link DnsServer}.
      */
-    private class DNSDatagramHandler implements ProtocolHandler {
+    private class DnsDatagramHandler implements ProtocolHandler {
 
         @Override
         public void connected(Endpoint ep) {

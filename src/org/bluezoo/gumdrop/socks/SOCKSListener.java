@@ -29,7 +29,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
-import org.bluezoo.gumdrop.auth.GSSAPIServer;
+import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
 
 /**
@@ -54,7 +54,7 @@ public class SocksListener extends TcpListener {
 
     private int port = -1;
     private Realm realm;
-    private GSSAPIServer gssapiServer;
+    private GssapiServer gssapiServer;
 
     private SocksServer service;
     private SocksServerMetrics metrics;
@@ -121,7 +121,7 @@ public class SocksListener extends TcpListener {
      *
      * @return the GSSAPI server, or null if GSSAPI is not configured
      */
-    public GSSAPIServer getGSSAPIServer() {
+    public GssapiServer getGSSAPIServer() {
         return gssapiServer;
     }
 
@@ -131,13 +131,13 @@ public class SocksListener extends TcpListener {
      *
      * @param gssapiServer the GSSAPI server
      */
-    public void setGSSAPIServer(GSSAPIServer gssapiServer) {
+    public void setGSSAPIServer(GssapiServer gssapiServer) {
         this.gssapiServer = gssapiServer;
     }
 
     /**
      * Configures GSSAPI/Kerberos authentication by creating a
-     * {@link GSSAPIServer} from the specified keytab and service
+     * {@link GssapiServer} from the specified keytab and service
      * principal. RFC 1961 §3–§4: GSS-API authentication for SOCKS5.
      *
      * @param keytabPath the path to the Kerberos keytab file
@@ -148,7 +148,7 @@ public class SocksListener extends TcpListener {
      */
     public void configureGSSAPI(Path keytabPath, String servicePrincipal)
             throws IOException {
-        this.gssapiServer = new GSSAPIServer(keytabPath, servicePrincipal);
+        this.gssapiServer = new GssapiServer(keytabPath, servicePrincipal);
     }
 
     SocksServer getService() {

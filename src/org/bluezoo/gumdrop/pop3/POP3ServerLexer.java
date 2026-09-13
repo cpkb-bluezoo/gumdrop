@@ -1,5 +1,5 @@
 /*
- * POP3ServerLexer.java
+ * Pop3ServerLexer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -42,13 +42,13 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Pop3ProtocolHandler
  */
-final class POP3ServerLexer extends ByteStreamLexer<POP3ServerLexer.Token> {
+final class Pop3ServerLexer extends ByteStreamLexer<Pop3ServerLexer.Token> {
 
     enum Token { KEYWORD, SP, TEXT, CRLF }
 
     private boolean lastWasCR;
 
-    POP3ServerLexer(Handler<Token> handler, int maxTokenLength) {
+    Pop3ServerLexer(Handler<Token> handler, int maxTokenLength) {
         super(handler, maxTokenLength, Token.CRLF, Token.TEXT);
     }
 

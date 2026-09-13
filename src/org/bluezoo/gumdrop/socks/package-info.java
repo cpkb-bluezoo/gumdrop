@@ -28,12 +28,12 @@
  * org.bluezoo.gumdrop.socks.DefaultSOCKSServer} is a ready-to-use
  * implementation; {@link org.bluezoo.gumdrop.socks.SocksListener} is the
  * TCP transport listener, on port 1080 (plaintext) or 1081 (TLS); {@link
- * org.bluezoo.gumdrop.socks.SOCKSProtocolHandler} drives the handshake
+ * org.bluezoo.gumdrop.socks.SocksProtocolHandler} drives the handshake
  * and command dispatch, with policy decisions delegated to {@link
  * org.bluezoo.gumdrop.socks.handler}. CONNECT is relayed by {@link
- * org.bluezoo.gumdrop.socks.SOCKSRelay}, BIND by {@link
- * org.bluezoo.gumdrop.socks.SOCKSBindRelay}, and UDP ASSOCIATE by {@link
- * org.bluezoo.gumdrop.socks.SOCKSUDPRelay} (framing datagrams per {@link
+ * org.bluezoo.gumdrop.socks.SocksRelay}, BIND by {@link
+ * org.bluezoo.gumdrop.socks.SocksBindRelay}, and UDP ASSOCIATE by {@link
+ * org.bluezoo.gumdrop.socks.SocksUdpRelay} (framing datagrams per {@link
  * org.bluezoo.gumdrop.socks.SocksUDPHeader}). Authentication runs
  * through {@link org.bluezoo.gumdrop.auth.Realm}.
  *

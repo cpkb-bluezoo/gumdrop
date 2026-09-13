@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.socks.handler.BindHandler;
 import org.bluezoo.gumdrop.socks.handler.ConnectHandler;
-import org.bluezoo.gumdrop.util.CIDRNetwork;
+import org.bluezoo.gumdrop.util.CidrNetwork;
 
 /**
  * Abstract base for SOCKS proxy application services.
@@ -82,8 +82,8 @@ public abstract class SocksServer implements Server {
     private final List<SocksListener> listeners = new ArrayList<>();
 
     private Realm realm;
-    private List<CIDRNetwork> allowedDestinations;
-    private List<CIDRNetwork> blockedDestinations;
+    private List<CidrNetwork> allowedDestinations;
+    private List<CidrNetwork> blockedDestinations;
     private int maxRelays = 0;
     private long relayIdleTimeoutMs = 5 * 60 * 1000;
 
@@ -151,7 +151,7 @@ public abstract class SocksServer implements Server {
      */
     public void setAllowedDestinations(String allowed) {
         if (allowed != null && !allowed.isEmpty()) {
-            this.allowedDestinations = CIDRNetwork.parseList(allowed);
+            this.allowedDestinations = CidrNetwork.parseList(allowed);
         }
     }
 
@@ -164,7 +164,7 @@ public abstract class SocksServer implements Server {
      */
     public void setBlockedDestinations(String blocked) {
         if (blocked != null && !blocked.isEmpty()) {
-            this.blockedDestinations = CIDRNetwork.parseList(blocked);
+            this.blockedDestinations = CidrNetwork.parseList(blocked);
         }
     }
 
@@ -253,7 +253,7 @@ public abstract class SocksServer implements Server {
      */
     public boolean isDestinationAllowed(InetAddress address) {
         if (blockedDestinations != null) {
-            for (Iterator<CIDRNetwork> it = blockedDestinations.iterator();
+            for (Iterator<CidrNetwork> it = blockedDestinations.iterator();
                  it.hasNext(); ) {
                 if (it.next().matches(address)) {
                     return false;
@@ -262,7 +262,7 @@ public abstract class SocksServer implements Server {
         }
 
         if (allowedDestinations != null) {
-            for (Iterator<CIDRNetwork> it = allowedDestinations.iterator();
+            for (Iterator<CidrNetwork> it = allowedDestinations.iterator();
                  it.hasNext(); ) {
                 if (it.next().matches(address)) {
                     return true;
@@ -350,9 +350,9 @@ public abstract class SocksServer implements Server {
      * Creates the protocol handler for a new SOCKS connection.
      * Called by {@link SocksListener#createHandler()}.
      */
-    SOCKSProtocolHandler createProtocolHandler(SocksListener listener) {
-        SOCKSProtocolHandler handler =
-                new SOCKSProtocolHandler(listener, this);
+    SocksProtocolHandler createProtocolHandler(SocksListener listener) {
+        SocksProtocolHandler handler =
+                new SocksProtocolHandler(listener, this);
         ConnectHandler ch = createConnectHandler(listener);
         if (ch != null) {
             handler.setConnectHandler(ch);

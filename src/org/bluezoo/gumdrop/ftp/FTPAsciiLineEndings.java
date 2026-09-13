@@ -1,5 +1,5 @@
 /*
- * FTPAsciiLineEndings.java
+ * FtpAsciiLineEndings.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -53,7 +53,7 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class FTPAsciiLineEndings {
+final class FtpAsciiLineEndings {
 
     /** Whether the last byte emitted by {@link #encode} was a CR. */
     private boolean lastByteWasCR;

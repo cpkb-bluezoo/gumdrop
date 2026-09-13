@@ -1,5 +1,5 @@
 /*
- * DSNEnvelopeParameters.java
+ * DsnEnvelopeParameters.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -41,14 +41,14 @@ package org.bluezoo.gumdrop.smtp;
  * automatically decoded when parsed.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DSNReturn
+ * @see DsnReturn
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.3">RFC 3461 §4.3</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.4">RFC 3461 §4.4</a>
  */
-public class DSNEnvelopeParameters {
+public class DsnEnvelopeParameters {
 
-    private final DSNReturn ret;
+    private final DsnReturn ret;
     private final String envid;
 
     /**
@@ -57,7 +57,7 @@ public class DSNEnvelopeParameters {
      * @param ret the return type (FULL or HDRS), may be null
      * @param envid the envelope ID, may be null
      */
-    public DSNEnvelopeParameters(DSNReturn ret, String envid) {
+    public DsnEnvelopeParameters(DsnReturn ret, String envid) {
         this.ret = ret;
         this.envid = envid;
     }
@@ -70,7 +70,7 @@ public class DSNEnvelopeParameters {
      * 
      * @return the return type, or null if not specified
      */
-    public DSNReturn getRet() {
+    public DsnReturn getRet() {
         return ret;
     }
 
@@ -97,7 +97,7 @@ public class DSNEnvelopeParameters {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("DSNEnvelopeParameters[");
+        StringBuilder sb = new StringBuilder("DsnEnvelopeParameters[");
         if (ret != null) {
             sb.append("RET=").append(ret);
         }

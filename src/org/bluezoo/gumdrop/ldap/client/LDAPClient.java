@@ -1,5 +1,5 @@
 /*
- * LDAPClient.java
+ * LdapClient.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -40,9 +40,9 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <p>This class provides a simple, concrete API for connecting to LDAP servers.
  * It internally creates a {@link TcpTransportFactory},
- * {@link ClientEndpoint}, and {@link LDAPClientProtocolHandler}, wiring
+ * {@link ClientEndpoint}, and {@link LdapClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
- * {@link LDAPConnectionReady} handler.
+ * {@link LdapConnectionReady} handler.
  *
  * <p>Connection modes:
  * <ul>
@@ -53,15 +53,15 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <h4>Basic Usage</h4>
  * <pre>{@code
- * LDAPClient client = new LDAPClient(selectorLoop, "ldap.example.com", 389);
- * client.connect(new LDAPConnectionReady() {
- *     public void handleReady(LDAPConnected connection) {
+ * LdapClient client = new LdapClient(selectorLoop, "ldap.example.com", 389);
+ * client.connect(new LdapConnectionReady() {
+ *     public void handleReady(LdapConnected connection) {
  *         connection.bind("cn=admin,dc=example,dc=com", "secret",
  *             new BindResultHandler() {
- *                 public void handleBindSuccess(LDAPSession session) {
+ *                 public void handleBindSuccess(LdapSession session) {
  *                     // Perform operations
  *                 }
- *                 public void handleBindFailure(LDAPResult result, LDAPConnected conn) {
+ *                 public void handleBindFailure(LdapResult result, LdapConnected conn) {
  *                     conn.unbind();
  *                 }
  *             });
@@ -74,15 +74,15 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPConnectionReady
- * @see LDAPClientProtocolHandler
+ * @see LdapConnectionReady
+ * @see LdapClientProtocolHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511 — LDAPv3</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4513">RFC 4513 — LDAP Authentication</a>
  */
-public class LDAPClient {
+public class LdapClient {
 
     private static final Logger LOGGER =
-            Logger.getLogger(LDAPClient.class.getName());
+            Logger.getLogger(LdapClient.class.getName());
 
     private final String host;
     private final InetAddress hostAddress;
@@ -101,7 +101,7 @@ public class LDAPClient {
     // Internal transport components (created at connect time)
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
-    private LDAPClientProtocolHandler endpointHandler;
+    private LdapClientProtocolHandler endpointHandler;
 
     /**
      * Creates an LDAP client for the given host and port.
@@ -113,7 +113,7 @@ public class LDAPClient {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public LDAPClient(String host, int port) {
+    public LdapClient(String host, int port) {
         this(null, host, port);
     }
 
@@ -126,7 +126,7 @@ public class LDAPClient {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public LDAPClient(SelectorLoop selectorLoop, String host, int port) {
+    public LdapClient(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
         this.hostAddress = null;
@@ -140,7 +140,7 @@ public class LDAPClient {
      * @param host the remote host address
      * @param port the remote port
      */
-    public LDAPClient(InetAddress host, int port) {
+    public LdapClient(InetAddress host, int port) {
         this(null, host, port);
     }
 
@@ -151,7 +151,7 @@ public class LDAPClient {
      * @param host the remote host address
      * @param port the remote port
      */
-    public LDAPClient(SelectorLoop selectorLoop, InetAddress host,
+    public LdapClient(SelectorLoop selectorLoop, InetAddress host,
                       int port) {
         this.selectorLoop = selectorLoop;
         this.host = null;
@@ -169,7 +169,7 @@ public class LDAPClient {
      *
      * @param socketPath the UNIX domain socket path
      */
-    public LDAPClient(String socketPath) {
+    public LdapClient(String socketPath) {
         this(null, socketPath);
     }
 
@@ -180,7 +180,7 @@ public class LDAPClient {
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param socketPath the UNIX domain socket path
      */
-    public LDAPClient(SelectorLoop selectorLoop, String socketPath) {
+    public LdapClient(SelectorLoop selectorLoop, String socketPath) {
         if (socketPath == null) {
             throw new NullPointerException("socketPath");
         }
@@ -270,7 +270,7 @@ public class LDAPClient {
      *
      * @param handler the handler to receive connection lifecycle events
      */
-    public void connect(LDAPConnectionReady handler) {
+    public void connect(LdapConnectionReady handler) {
         transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
@@ -290,7 +290,7 @@ public class LDAPClient {
         }
         transportFactory.start();
 
-        endpointHandler = new LDAPClientProtocolHandler(handler, secure);
+        endpointHandler = new LdapClientProtocolHandler(handler, secure);
 
         try {
             if (socketPath != null) {

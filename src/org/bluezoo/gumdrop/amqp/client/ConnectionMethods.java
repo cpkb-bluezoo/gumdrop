@@ -221,7 +221,7 @@ final class ConnectionMethods {
         buf.putShort((short) AmqpMethod.CONNECTION_OPEN);
         FieldTable.putShortString(buf, virtualHost);
         FieldTable.putShortString(buf, "");
-        buf.put(AMQPBits.pack(false));
+        buf.put(AmqpBits.pack(false));
         buf.flip();
         return buf;
     }

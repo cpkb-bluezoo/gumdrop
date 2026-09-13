@@ -37,7 +37,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Unit tests for {@link SPFValidator} modifier handling (RFC 7208 §6).
+ * Unit tests for {@link SpfValidator} modifier handling (RFC 7208 §6).
  */
 public class SPFValidatorTest {
 
@@ -59,7 +59,7 @@ public class SPFValidatorTest {
 
         SPFResultHolder result = check();
 
-        assertEquals(SPFResult.FAIL, result.result);
+        assertEquals(SpfResult.FAIL, result.result);
         assertEquals("Sender not authorized", result.explanation);
     }
 
@@ -70,7 +70,7 @@ public class SPFValidatorTest {
 
         SPFResultHolder result = check();
 
-        assertEquals(SPFResult.FAIL, result.result);
+        assertEquals(SpfResult.FAIL, result.result);
         assertEquals("Sender not authorized", result.explanation);
     }
 
@@ -81,7 +81,7 @@ public class SPFValidatorTest {
 
         SPFResultHolder result = check();
 
-        assertEquals(SPFResult.PERMERROR, result.result);
+        assertEquals(SpfResult.PERMERROR, result.result);
         assertEquals("Duplicate exp modifier", result.explanation);
     }
 
@@ -92,7 +92,7 @@ public class SPFValidatorTest {
 
         SPFResultHolder result = check();
 
-        assertEquals(SPFResult.PERMERROR, result.result);
+        assertEquals(SpfResult.PERMERROR, result.result);
         assertEquals("Duplicate redirect modifier", result.explanation);
     }
 
@@ -105,16 +105,16 @@ public class SPFValidatorTest {
 
         SPFResultHolder result = check();
 
-        assertEquals(SPFResult.PASS, result.result);
+        assertEquals(SpfResult.PASS, result.result);
         assertNull(result.explanation);
     }
 
     private SPFResultHolder check() {
         final SPFResultHolder holder = new SPFResultHolder();
-        SPFValidator validator = new SPFValidator(resolver);
-        validator.check(sender, clientIP, "mail.example.com", new SPFCallback() {
+        SpfValidator validator = new SpfValidator(resolver);
+        validator.check(sender, clientIP, "mail.example.com", new SpfCallback() {
             @Override
-            public void spfResult(SPFResult result, String explanation) {
+            public void spfResult(SpfResult result, String explanation) {
                 holder.result = result;
                 holder.explanation = explanation;
             }
@@ -123,7 +123,7 @@ public class SPFValidatorTest {
     }
 
     private static final class SPFResultHolder {
-        SPFResult result;
+        SpfResult result;
         String explanation;
     }
 

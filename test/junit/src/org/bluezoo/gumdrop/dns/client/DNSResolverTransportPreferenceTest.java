@@ -42,7 +42,7 @@ import java.util.Map;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for issue #408: {@link DNSServerCapabilityCache}'s two
+ * Unit tests for issue #408: {@link DnsServerCapabilityCache}'s two
  * tiers (permanent seed table, temporary negative cache), and {@link
  * DnsResolver}'s automatic per-server transport preference and
  * fallback that uses it.
@@ -53,20 +53,20 @@ public class DNSResolverTransportPreferenceTest {
 
     @Before
     public void setUp() {
-        DNSServerCapabilityCache.clear();
+        DnsServerCapabilityCache.clear();
     }
 
     @After
     public void tearDown() {
-        DNSServerCapabilityCache.clear();
+        DnsServerCapabilityCache.clear();
     }
 
-    // ── DNSServerCapabilityCache ──
+    // ── DnsServerCapabilityCache ──
 
     @Test
     public void testUnknownServerHasNoKnownCapabilities() throws Exception {
         InetSocketAddress server = server("203.0.113.1");
-        DNSServerCapabilities caps = DNSServerCapabilityCache.get(server);
+        DnsServerCapabilities caps = DnsServerCapabilityCache.get(server);
         assertFalse(caps.isDoqSupported());
         assertFalse(caps.isDotSupported());
         assertFalse(caps.isDohSupported());
@@ -76,7 +76,7 @@ public class DNSResolverTransportPreferenceTest {
     public void testWellKnownResolversAreSeeded() throws Exception {
         for (String address : new String[] {
                 "8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1", "9.9.9.9", "149.112.112.112"}) {
-            DNSServerCapabilities caps = DNSServerCapabilityCache.get(server(address));
+            DnsServerCapabilities caps = DnsServerCapabilityCache.get(server(address));
             assertTrue(address + " should support DoQ", caps.isDoqSupported());
             assertTrue(address + " should support DoT", caps.isDotSupported());
             assertTrue(address + " should support DoH", caps.isDohSupported());
@@ -87,21 +87,21 @@ public class DNSResolverTransportPreferenceTest {
     @Test
     public void testMarkUnsupportedRoundTrips() throws Exception {
         InetSocketAddress server = server("8.8.8.8");
-        assertFalse(DNSServerCapabilityCache.isKnownUnsupported(server, DNSTransportType.DOQ));
-        DNSServerCapabilityCache.markUnsupported(server, DNSTransportType.DOQ);
-        assertTrue(DNSServerCapabilityCache.isKnownUnsupported(server, DNSTransportType.DOQ));
+        assertFalse(DnsServerCapabilityCache.isKnownUnsupported(server, DnsTransportType.DOQ));
+        DnsServerCapabilityCache.markUnsupported(server, DnsTransportType.DOQ);
+        assertTrue(DnsServerCapabilityCache.isKnownUnsupported(server, DnsTransportType.DOQ));
         // Marking one transport unsupported doesn't affect another for the same server.
-        assertFalse(DNSServerCapabilityCache.isKnownUnsupported(server, DNSTransportType.DOT));
+        assertFalse(DnsServerCapabilityCache.isKnownUnsupported(server, DnsTransportType.DOT));
     }
 
     @Test
     public void testClearResetsNegativeCacheNotWellKnownTable() throws Exception {
         InetSocketAddress server = server("8.8.8.8");
-        DNSServerCapabilityCache.markUnsupported(server, DNSTransportType.DOQ);
-        DNSServerCapabilityCache.clear();
-        assertFalse(DNSServerCapabilityCache.isKnownUnsupported(server, DNSTransportType.DOQ));
+        DnsServerCapabilityCache.markUnsupported(server, DnsTransportType.DOQ);
+        DnsServerCapabilityCache.clear();
+        assertFalse(DnsServerCapabilityCache.isKnownUnsupported(server, DnsTransportType.DOQ));
         // Seeded knowledge is permanent, unlike runtime-discovered state.
-        assertTrue(DNSServerCapabilityCache.get(server).isDoqSupported());
+        assertTrue(DnsServerCapabilityCache.get(server).isDoqSupported());
     }
 
     // ── DnsResolver transport preference/fallback ──
@@ -112,38 +112,38 @@ public class DNSResolverTransportPreferenceTest {
         resolver.addServer("8.8.8.8");
         resolver.open();
 
-        assertEquals(Collections.singletonList(DNSTransportType.DOQ), resolver.attempted);
+        assertEquals(Collections.singletonList(DnsTransportType.DOQ), resolver.attempted);
         resolver.close();
     }
 
     @Test
     public void testFallsThroughOnSynchronousOpenFailure() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.transports.put(DNSTransportType.DOQ, new FailingTransport());
+        resolver.transports.put(DnsTransportType.DOQ, new FailingTransport());
         resolver.addServer("8.8.8.8");
         resolver.open();
 
-        assertEquals(Arrays.asList(DNSTransportType.DOQ, DNSTransportType.DOT), resolver.attempted);
+        assertEquals(Arrays.asList(DnsTransportType.DOQ, DnsTransportType.DOT), resolver.attempted);
         assertTrue("DOQ should be recorded as unsupported after its open() failure",
-                DNSServerCapabilityCache.isKnownUnsupported(server("8.8.8.8"), DNSTransportType.DOQ));
+                DnsServerCapabilityCache.isKnownUnsupported(server("8.8.8.8"), DnsTransportType.DOQ));
         resolver.close();
     }
 
     @Test
     public void testFallsThroughAllTheWayToPlainWhenEverythingElseFails() throws Exception {
         TestableResolver resolver = new TestableResolver();
-        resolver.transports.put(DNSTransportType.DOQ, new FailingTransport());
-        resolver.transports.put(DNSTransportType.DOT, new FailingTransport());
-        resolver.transports.put(DNSTransportType.DOH, new FailingTransport());
+        resolver.transports.put(DnsTransportType.DOQ, new FailingTransport());
+        resolver.transports.put(DnsTransportType.DOT, new FailingTransport());
+        resolver.transports.put(DnsTransportType.DOH, new FailingTransport());
         resolver.addServer("8.8.8.8");
         resolver.open();
 
-        assertEquals(Arrays.asList(DNSTransportType.DOQ, DNSTransportType.DOT,
-                DNSTransportType.DOH, DNSTransportType.PLAIN), resolver.attempted);
+        assertEquals(Arrays.asList(DnsTransportType.DOQ, DnsTransportType.DOT,
+                DnsTransportType.DOH, DnsTransportType.PLAIN), resolver.attempted);
         InetSocketAddress server = server("8.8.8.8");
-        assertTrue(DNSServerCapabilityCache.isKnownUnsupported(server, DNSTransportType.DOQ));
-        assertTrue(DNSServerCapabilityCache.isKnownUnsupported(server, DNSTransportType.DOT));
-        assertTrue(DNSServerCapabilityCache.isKnownUnsupported(server, DNSTransportType.DOH));
+        assertTrue(DnsServerCapabilityCache.isKnownUnsupported(server, DnsTransportType.DOQ));
+        assertTrue(DnsServerCapabilityCache.isKnownUnsupported(server, DnsTransportType.DOT));
+        assertTrue(DnsServerCapabilityCache.isKnownUnsupported(server, DnsTransportType.DOH));
         resolver.close();
     }
 
@@ -153,20 +153,20 @@ public class DNSResolverTransportPreferenceTest {
         resolver.addServer("203.0.113.1"); // not a seeded well-known resolver
         resolver.open();
 
-        assertEquals(Collections.singletonList(DNSTransportType.PLAIN), resolver.attempted);
+        assertEquals(Collections.singletonList(DnsTransportType.PLAIN), resolver.attempted);
         resolver.close();
     }
 
     @Test
     public void testKnownUnsupportedTransportIsSkippedOnNextOpen() throws Exception {
         InetSocketAddress server = server("8.8.8.8");
-        DNSServerCapabilityCache.markUnsupported(server, DNSTransportType.DOQ);
+        DnsServerCapabilityCache.markUnsupported(server, DnsTransportType.DOQ);
 
         TestableResolver resolver = new TestableResolver();
         resolver.addServer("8.8.8.8");
         resolver.open();
 
-        assertEquals(Collections.singletonList(DNSTransportType.DOT), resolver.attempted);
+        assertEquals(Collections.singletonList(DnsTransportType.DOT), resolver.attempted);
         resolver.close();
     }
 
@@ -174,14 +174,14 @@ public class DNSResolverTransportPreferenceTest {
     public void testAsyncTransportErrorMarksUnsupportedForFutureOpens() throws Exception {
         RecordingTransport doq = new RecordingTransport();
         TestableResolver resolver = new TestableResolver();
-        resolver.transports.put(DNSTransportType.DOQ, doq);
+        resolver.transports.put(DnsTransportType.DOQ, doq);
         resolver.addServer("8.8.8.8");
         resolver.open();
 
         assertNotNull("transport.open() should have captured the resolver's handler", doq.handler);
         doq.handler.onError(new IOException("simulated QUIC handshake failure"));
 
-        assertTrue(DNSServerCapabilityCache.isKnownUnsupported(server("8.8.8.8"), DNSTransportType.DOQ));
+        assertTrue(DnsServerCapabilityCache.isKnownUnsupported(server("8.8.8.8"), DnsTransportType.DOQ));
         resolver.close();
     }
 
@@ -199,8 +199,8 @@ public class DNSResolverTransportPreferenceTest {
     @Test
     public void testDohTransportInstanceResolvesViaServiceLoader() {
         DnsResolver resolver = new DnsResolver();
-        DNSServerCapabilities caps = DNSServerCapabilities.of(false, 0, false, 0, "/dns-query", 0);
-        DnsClientTransport transport = resolver.newTransportInstance(DNSTransportType.DOH, caps);
+        DnsServerCapabilities caps = DnsServerCapabilities.of(false, 0, false, 0, "/dns-query", 0);
+        DnsClientTransport transport = resolver.newTransportInstance(DnsTransportType.DOH, caps);
         assertNotNull("DoHTransportFactory should be discovered from gumdrop-http.jar on the test classpath",
                 transport);
     }
@@ -231,11 +231,11 @@ public class DNSResolverTransportPreferenceTest {
     public void testEncryptedTransportOpensWithDefaultPortNotPlaintextPort() throws Exception {
         RecordingTransport doq = new RecordingTransport();
         TestableResolver resolver = new TestableResolver();
-        resolver.transports.put(DNSTransportType.DOQ, doq);
+        resolver.transports.put(DnsTransportType.DOQ, doq);
         resolver.addServer("8.8.8.8", 53);
         resolver.open();
 
-        assertEquals(Collections.singletonList(DNSTransportType.DOQ), resolver.attempted);
+        assertEquals(Collections.singletonList(DnsTransportType.DOQ), resolver.attempted);
         assertEquals("DoQ should open with port 0 (use transport default), not the plaintext port 53",
                 0, doq.openedPort);
         resolver.close();
@@ -245,11 +245,11 @@ public class DNSResolverTransportPreferenceTest {
     public void testPlainTransportUsesTheConfiguredPort() throws Exception {
         TestableResolver resolver = new TestableResolver();
         RecordingTransport plain = new RecordingTransport();
-        resolver.transports.put(DNSTransportType.PLAIN, plain);
+        resolver.transports.put(DnsTransportType.PLAIN, plain);
         resolver.addServer("203.0.113.1", 5353); // not a seeded resolver, and a non-default port
         resolver.open();
 
-        assertEquals(Collections.singletonList(DNSTransportType.PLAIN), resolver.attempted);
+        assertEquals(Collections.singletonList(DnsTransportType.PLAIN), resolver.attempted);
         assertEquals(5353, plain.openedPort);
         resolver.close();
     }
@@ -317,12 +317,12 @@ public class DNSResolverTransportPreferenceTest {
      * transports, and recording which types were attempted, in order.
      */
     private static class TestableResolver extends DnsResolver {
-        final Map<DNSTransportType, DnsClientTransport> transports =
-                new EnumMap<>(DNSTransportType.class);
-        final List<DNSTransportType> attempted = new ArrayList<>();
+        final Map<DnsTransportType, DnsClientTransport> transports =
+                new EnumMap<>(DnsTransportType.class);
+        final List<DnsTransportType> attempted = new ArrayList<>();
 
         @Override
-        DnsClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
+        DnsClientTransport newTransportInstance(DnsTransportType type, DnsServerCapabilities caps) {
             attempted.add(type);
             DnsClientTransport transport = transports.get(type);
             return transport != null ? transport : new RecordingTransport();

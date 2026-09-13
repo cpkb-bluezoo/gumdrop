@@ -74,10 +74,10 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.util.ByteArrays;
-import org.bluezoo.gumdrop.auth.GSSAPIServer;
+import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
 import org.bluezoo.gumdrop.imap.handler.AppendDataHandler;
@@ -134,7 +134,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses a streaming {@link IMAPServerLexer} (issue #85):
+ * <li>Line parsing uses a streaming {@link ImapServerLexer} (issue #85):
  *     bytes are tokenised as they arrive rather than buffered into whole
  *     lines — see {@link ByteStreamLexer}. IMAP literals ({@code {nnn}})
  *     use {@link ByteStreamLexer#enterRaw(long)}, triggered by inspecting
@@ -169,12 +169,12 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see IMAPServerLexer
+ * @see ImapServerLexer
  * @see ImapListener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
 public final class ImapProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<IMAPServerLexer.Token> {
+        implements ProtocolHandler, ByteStreamLexer.Handler<ImapServerLexer.Token> {
 
     private static final Logger LOGGER =
             Logger.getLogger(ImapProtocolHandler.class.getName());
@@ -188,7 +188,7 @@ public final class ImapProtocolHandler
     private static final String CRLF = "\r\n";
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    enum IMAPState {
+    enum ImapState {
         NOT_AUTHENTICATED,
         AUTHENTICATED,
         SELECTED,
@@ -223,7 +223,7 @@ public final class ImapProtocolHandler
     private Realm realm;
 
     // Session state
-    private IMAPState state = IMAPState.NOT_AUTHENTICATED;
+    private ImapState state = ImapState.NOT_AUTHENTICATED;
     private String authenticatedUser = null;
 
     // Mailbox state
@@ -244,9 +244,9 @@ public final class ImapProtocolHandler
     // used to hand to lineReceived() as one buffered line); a "command"
     // can span several segments when literals are involved, exactly as
     // pendingCommand used to accumulate across them.
-    private final IMAPServerLexer lexer;
-    private final TokenErrorRecovery<IMAPServerLexer.Token> lexerRecovery =
-            new TokenErrorRecovery<IMAPServerLexer.Token>(IMAPServerLexer.Token.CRLF);
+    private final ImapServerLexer lexer;
+    private final TokenErrorRecovery<ImapServerLexer.Token> lexerRecovery =
+            new TokenErrorRecovery<ImapServerLexer.Token>(ImapServerLexer.Token.CRLF);
     private boolean freshCommand = true;
     private String pendingTagText = "";
     private boolean pendingHasSp;
@@ -264,7 +264,7 @@ public final class ImapProtocolHandler
     private String scramStoredKey = null;
     private String scramServerKey = null;
     private int scramIterations = 4096;
-    private GSSAPIServer.GSSAPIExchange gssapiExchange = null;
+    private GssapiServer.GssapiExchange gssapiExchange = null;
 
     // IDLE state
     private boolean idling = false;
@@ -340,7 +340,7 @@ public final class ImapProtocolHandler
     public ImapProtocolHandler(ImapListener server) {
         this.server = server;
         ByteStreamLexer.checkTokenCap(server.getMaxLineLength(), server.getMaxNetInSize());
-        this.lexer = new IMAPServerLexer(this, server.getMaxLineLength());
+        this.lexer = new ImapServerLexer(this, server.getMaxLineLength());
     }
 
     // ── ProtocolHandler implementation ──
@@ -376,7 +376,7 @@ public final class ImapProtocolHandler
                 clientConnected.disconnected();
             }
 
-            if (state != IMAPState.LOGOUT) {
+            if (state != ImapState.LOGOUT) {
                 endSessionSpanError("Client disconnected");
             } else {
                 endSessionSpan("Connection closed");
@@ -436,7 +436,7 @@ public final class ImapProtocolHandler
 
     @Override
     public void securityEstablished(SecurityInfo info) {
-        if (state == IMAPState.NOT_AUTHENTICATED && !starttlsUsed) {
+        if (state == ImapState.NOT_AUTHENTICATED && !starttlsUsed) {
             try {
                 sendGreeting();
             } catch (IOException e) {
@@ -459,7 +459,7 @@ public final class ImapProtocolHandler
 
     // RFC 9051 section 2.2: KEYWORD [SP TEXT] CRLF, the same outer shape
     // as every other server lexer in this conversion. TEXT is delivered in
-    // zero-copy chunks (see IMAPServerLexer / ByteStreamLexer); this
+    // zero-copy chunks (see ImapServerLexer / ByteStreamLexer); this
     // dispatcher accumulates a "tag" and an "args-so-far" text, exactly
     // mirroring the old whole-line decode's tag/rest split, and enforces
     // the combined per-segment length budget itself (matching the
@@ -474,7 +474,7 @@ public final class ImapProtocolHandler
     // once false, KEYWORD/SP content is appended into argsBuilder
     // verbatim instead of being captured as the tag.
     @Override
-    public boolean token(IMAPServerLexer.Token type, ByteBuffer window) {
+    public boolean token(ImapServerLexer.Token type, ByteBuffer window) {
         if (lexerRecovery.handleToken(type)) {
             // Discarding the remainder of a segment already rejected by
             // tokenTooLong(); the error reply was already sent there.
@@ -892,7 +892,7 @@ public final class ImapProtocolHandler
     private void closeEndpoint() {
         try {
             if (sessionSpan != null && !sessionSpan.isEnded()) {
-                if (state == IMAPState.LOGOUT) {
+                if (state == ImapState.LOGOUT) {
                     endSessionSpan("Connection closed");
                 } else {
                     endSessionSpanError("Connection closed unexpectedly");
@@ -1293,7 +1293,7 @@ public final class ImapProtocolHandler
     // RFC 9051 section 6.1.1 — CAPABILITY command
     private void handleCapability(String tag) throws IOException {
         String caps = server.getCapabilities(
-                state != IMAPState.NOT_AUTHENTICATED, endpoint.isSecure());
+                state != ImapState.NOT_AUTHENTICATED, endpoint.isSecure());
         sendUntagged("CAPABILITY " + caps);
         sendTaggedOk(tag, L10N.getString("imap.capability_complete"));
     }
@@ -1347,7 +1347,7 @@ public final class ImapProtocolHandler
 
     // RFC 9051 section 6.1.3 — LOGOUT command
     private void handleLogout(String tag) throws IOException {
-        state = IMAPState.LOGOUT;
+        state = ImapState.LOGOUT;
         addSessionEvent("LOGOUT");
         endSessionSpan("LOGOUT");
         sendUntagged("BYE " + L10N.getString("imap.goodbye"));
@@ -1465,7 +1465,7 @@ public final class ImapProtocolHandler
 
         pendingAuthTag = tag;
 
-        SASLMechanism mech = SASLMechanism.fromName(mechanism);
+        SaslMechanism mech = SaslMechanism.fromName(mechanism);
         if (mech == null) {
             sendTaggedNo(tag, L10N.getString("imap.err.unsupported_mechanism"));
             return;
@@ -1523,16 +1523,16 @@ public final class ImapProtocolHandler
     private void handleAuthLOGIN(String initialResponse) throws IOException {
         if (initialResponse != null && !initialResponse.isEmpty()) {
             try {
-                pendingAuthUsername = SASLUtils.decodeBase64ToString(
+                pendingAuthUsername = SaslUtils.decodeBase64ToString(
                         initialResponse);
                 authState = AuthState.LOGIN_PASSWORD;
-                sendContinuation(SASLUtils.encodeBase64("Password:"));
+                sendContinuation(SaslUtils.encodeBase64("Password:"));
             } catch (IllegalArgumentException e) {
                 authFailed();
             }
         } else {
             authState = AuthState.LOGIN_USERNAME;
-            sendContinuation(SASLUtils.encodeBase64("Username:"));
+            sendContinuation(SaslUtils.encodeBase64("Username:"));
         }
     }
 
@@ -1549,10 +1549,10 @@ public final class ImapProtocolHandler
         try {
             InetSocketAddress addr = (InetSocketAddress) endpoint
                     .getLocalAddress();
-            authChallenge = SASLUtils.generateCramMD5Challenge(
+            authChallenge = SaslUtils.generateCramMD5Challenge(
                     addr.getHostString());
             authState = AuthState.CRAM_MD5_RESPONSE;
-            sendContinuation(SASLUtils.encodeBase64(authChallenge));
+            sendContinuation(SaslUtils.encodeBase64(authChallenge));
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Failed to generate CRAM-MD5 challenge", e);
             authFailed();
@@ -1577,11 +1577,11 @@ public final class ImapProtocolHandler
         try {
             InetSocketAddress addr = (InetSocketAddress) endpoint
                     .getLocalAddress();
-            authNonce = SASLUtils.generateNonce(16);
-            String challenge = SASLUtils.generateDigestMD5Challenge(
+            authNonce = SaslUtils.generateNonce(16);
+            String challenge = SaslUtils.generateDigestMD5Challenge(
                     addr.getHostString(), authNonce);
             authState = AuthState.DIGEST_MD5_RESPONSE;
-            sendContinuation(SASLUtils.encodeBase64(challenge));
+            sendContinuation(SaslUtils.encodeBase64(challenge));
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE,
                     "Failed to generate DIGEST-MD5 challenge", e);
@@ -1619,7 +1619,7 @@ public final class ImapProtocolHandler
 
     // RFC 4752 — SASL GSSAPI mechanism (Kerberos V5)
     private void handleAuthGSSAPI(String initialResponse) throws IOException {
-        GSSAPIServer gssapiServer = server.getGSSAPIServer();
+        GssapiServer gssapiServer = server.getGSSAPIServer();
         if (gssapiServer == null) {
             sendTaggedNo(pendingAuthTag,
                     L10N.getString("imap.err.gssapi_unavailable"));
@@ -1644,19 +1644,19 @@ public final class ImapProtocolHandler
     // RFC 4752 §3.1 — processes a GSSAPI token exchange step
     private void processGSSAPIToken(String line) throws IOException {
         try {
-            byte[] clientToken = SASLUtils.decodeBase64(line);
+            byte[] clientToken = SaslUtils.decodeBase64(line);
             byte[] responseToken = gssapiExchange.acceptToken(clientToken);
 
             if (gssapiExchange.isContextEstablished()) {
                 byte[] challenge =
                         gssapiExchange.generateSecurityLayerChallenge();
-                String encoded = SASLUtils.encodeBase64(challenge);
+                String encoded = SaslUtils.encodeBase64(challenge);
                 sendContinuation(encoded);
                 return;
             }
 
             if (responseToken != null && responseToken.length > 0) {
-                String encoded = SASLUtils.encodeBase64(responseToken);
+                String encoded = SaslUtils.encodeBase64(responseToken);
                 sendContinuation(encoded);
             } else {
                 sendContinuation("");
@@ -1672,7 +1672,7 @@ public final class ImapProtocolHandler
     // RFC 4752 §3.1 para 7-8 — processes the security layer response
     private void processGSSAPISecurityLayer(String line) throws IOException {
         try {
-            byte[] wrapped = SASLUtils.decodeBase64(line);
+            byte[] wrapped = SaslUtils.decodeBase64(line);
             String gssName =
                     gssapiExchange.validateSecurityLayerResponse(wrapped);
             Realm realm = getRealm();
@@ -1716,7 +1716,7 @@ public final class ImapProtocolHandler
         }
 
         Realm.CertificateAuthenticationResult result =
-                SASLUtils.authenticateExternal(
+                SaslUtils.authenticateExternal(
                         endpoint, getRealm(), authzid);
         if (result == null || !result.valid) {
             authFailed();
@@ -1775,8 +1775,8 @@ public final class ImapProtocolHandler
 
     private void processPlainCredentials(String credentials) throws IOException {
         try {
-            byte[] decoded = SASLUtils.decodeBase64(credentials);
-            String[] parts = SASLUtils.parsePlainCredentials(decoded);
+            byte[] decoded = SaslUtils.decodeBase64(credentials);
+            String[] parts = SaslUtils.parsePlainCredentials(decoded);
             final String username = parts[1];
             String password = parts[2];
 
@@ -1811,9 +1811,9 @@ public final class ImapProtocolHandler
 
     private void processLoginUsername(String line) throws IOException {
         try {
-            pendingAuthUsername = SASLUtils.decodeBase64ToString(line);
+            pendingAuthUsername = SaslUtils.decodeBase64ToString(line);
             authState = AuthState.LOGIN_PASSWORD;
-            sendContinuation(SASLUtils.encodeBase64("Password:"));
+            sendContinuation(SaslUtils.encodeBase64("Password:"));
         } catch (IllegalArgumentException e) {
             authFailed();
         }
@@ -1821,7 +1821,7 @@ public final class ImapProtocolHandler
 
     private void processLoginPassword(String line) throws IOException {
         try {
-            String password = SASLUtils.decodeBase64ToString(line);
+            String password = SaslUtils.decodeBase64ToString(line);
             final String username = pendingAuthUsername;
 
             authenticateUserAsync(username, password, new StorageExecutor.Callback<Boolean>() {
@@ -1855,7 +1855,7 @@ public final class ImapProtocolHandler
 
     private void processCramMD5Response(String line) throws IOException {
         try {
-            String response = SASLUtils.decodeBase64ToString(line);
+            String response = SaslUtils.decodeBase64ToString(line);
             int spaceIndex = response.lastIndexOf(' ');
             if (spaceIndex <= 0) {
                 authFailed();
@@ -1885,8 +1885,8 @@ public final class ImapProtocolHandler
 
     private void processDigestMD5Response(String line) throws IOException {
         try {
-            String response = SASLUtils.decodeBase64ToString(line);
-            Map<String, String> params = SASLUtils.parseDigestParams(response);
+            String response = SaslUtils.decodeBase64ToString(line);
+            Map<String, String> params = SaslUtils.parseDigestParams(response);
 
             String username = params.get("username");
             if (username == null) {
@@ -1902,7 +1902,7 @@ public final class ImapProtocolHandler
                 realmName = addr.getHostString();
             }
             String ha1 = realm.getDigestHA1(username, realmName);
-            String rspAuth = SASLUtils.verifyDigestMD5ClientResponse(
+            String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
                     ha1, authNonce, params);
 
             if (rspAuth != null) {
@@ -1912,7 +1912,7 @@ public final class ImapProtocolHandler
                     @Override
                     public void run() {
                         try {
-                            sendContinuation(SASLUtils.encodeBase64(
+                            sendContinuation(SaslUtils.encodeBase64(
                                     "rspauth=" + digestRspAuth));
                             authSucceeded();
                         } catch (IOException e) {
@@ -1935,7 +1935,7 @@ public final class ImapProtocolHandler
         final String username;
         final String clientNonce;
         try {
-            clientFirst = SASLUtils.decodeBase64ToString(line);
+            clientFirst = SaslUtils.decodeBase64ToString(line);
 
             if (!clientFirst.startsWith("n,,")) {
                 authFailed();
@@ -1987,13 +1987,13 @@ public final class ImapProtocolHandler
                         return;
                     }
                     pendingAuthUsername = username;
-                    String serverNonce = clientNonce + SASLUtils.generateNonce(16);
+                    String serverNonce = clientNonce + SaslUtils.generateNonce(16);
                     authNonce = serverNonce;
-                    String serverFirst = SASLUtils.generateScramServerFirst(serverNonce,
+                    String serverFirst = SaslUtils.generateScramServerFirst(serverNonce,
                             creds.salt, creds.iterations);
                     authChallenge = attrString + "," + serverFirst;
                     authState = AuthState.SCRAM_FINAL;
-                    sendContinuation(SASLUtils.encodeBase64(serverFirst));
+                    sendContinuation(SaslUtils.encodeBase64(serverFirst));
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, "Failed to complete SCRAM-SHA-256 client-first", e);
                 }
@@ -2013,7 +2013,7 @@ public final class ImapProtocolHandler
     private void processScramClientFinal(String line) throws IOException {
         final String clientFinal;
         try {
-            clientFinal = SASLUtils.decodeBase64ToString(line);
+            clientFinal = SaslUtils.decodeBase64ToString(line);
             if (getRealm() == null) {
                 authFailed();
                 return;
@@ -2037,7 +2037,7 @@ public final class ImapProtocolHandler
                         authFailed();
                         return;
                     }
-                    byte[] serverSignature = SASLUtils.verifyScramClientFinal(creds,
+                    byte[] serverSignature = SaslUtils.verifyScramClientFinal(creds,
                             authChallenge, clientFinal, authNonce);
                     if (serverSignature == null) {
                         authFailed();
@@ -2051,7 +2051,7 @@ public final class ImapProtocolHandler
                             try {
                                 String serverFinal = "v=" + Base64.getEncoder()
                                         .encodeToString(scramServerSignature);
-                                sendContinuation(SASLUtils.encodeBase64(serverFinal));
+                                sendContinuation(SaslUtils.encodeBase64(serverFinal));
                                 authSucceeded();
                             } catch (IOException e) {
                                 LOGGER.log(Level.WARNING,
@@ -2077,9 +2077,9 @@ public final class ImapProtocolHandler
 
     private void processOAuthBearerCredentials(String line) throws IOException {
         try {
-            String credentials = SASLUtils.decodeBase64ToString(line);
+            String credentials = SaslUtils.decodeBase64ToString(line);
             Map<String, String> params =
-                    SASLUtils.parseOAuthBearerCredentials(credentials);
+                    SaslUtils.parseOAuthBearerCredentials(credentials);
 
             String user = params.get("user");
             String token = params.get("token");
@@ -2237,7 +2237,7 @@ public final class ImapProtocolHandler
             return;
         }
 
-        state = IMAPState.AUTHENTICATED;
+        state = ImapState.AUTHENTICATED;
         startAuthenticatedSpan(username, mechanism);
 
         MailboxFactory factory = server.getMailboxFactory();
@@ -2288,7 +2288,7 @@ public final class ImapProtocolHandler
             final Runnable onSuccess) {
         final MailboxFactory factory = server.getMailboxFactory();
         if (factory == null) {
-            state = IMAPState.AUTHENTICATED;
+            state = ImapState.AUTHENTICATED;
             startAuthenticatedSpan(username, mechanism);
             if (onSuccess != null) {
                 onSuccess.run();
@@ -2307,7 +2307,7 @@ public final class ImapProtocolHandler
             @Override
             public void completed(MailboxStore s) {
                 store = s;
-                state = IMAPState.AUTHENTICATED;
+                state = ImapState.AUTHENTICATED;
                 startAuthenticatedSpan(username, mechanism);
                 if (onSuccess != null) {
                     onSuccess.run();
@@ -2503,7 +2503,7 @@ public final class ImapProtocolHandler
                 readOnly, qresyncUidValidity, qresyncModSeq,
                 qresyncKnownUids);
 
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             if (readOnly) {
                 selectedHandler.examine(selectState, store, mailboxName);
             } else {
@@ -2551,7 +2551,7 @@ public final class ImapProtocolHandler
                 try {
                     selectedMailbox = mbox;
                     selectedReadOnly = readOnly;
-                    state = IMAPState.SELECTED;
+                    state = ImapState.SELECTED;
 
                     addSessionAttribute("imap.mailbox", mailboxName);
                     addSessionAttribute("imap.mailbox.readonly", readOnly);
@@ -2707,7 +2707,7 @@ public final class ImapProtocolHandler
         }
 
         CreateStateImpl createState = new CreateStateImpl(tag, mailboxName);
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.create(createState, store, mailboxName);
             return;
         }
@@ -2753,7 +2753,7 @@ public final class ImapProtocolHandler
         }
 
         DeleteStateImpl deleteState = new DeleteStateImpl(tag, mailboxName);
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.delete(deleteState, store, mailboxName);
             return;
         }
@@ -2800,7 +2800,7 @@ public final class ImapProtocolHandler
 
         RenameStateImpl renameState =
                 new RenameStateImpl(tag, parts[0], parts[1]);
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.rename(renameState, store, parts[0], parts[1]);
             return;
         }
@@ -2849,7 +2849,7 @@ public final class ImapProtocolHandler
 
         SubscribeStateImpl subState =
                 new SubscribeStateImpl(tag, mailboxName, false);
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.subscribe(subState, store, mailboxName);
             return;
         }
@@ -2871,7 +2871,7 @@ public final class ImapProtocolHandler
 
         SubscribeStateImpl subState =
                 new SubscribeStateImpl(tag, mailboxName, true);
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.unsubscribe(subState, store, mailboxName);
             return;
         }
@@ -2932,7 +2932,7 @@ public final class ImapProtocolHandler
 
         ListStateImpl listState =
                 new ListStateImpl(tag, false, reference, pattern);
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.list(listState, store, reference, pattern);
             return;
         }
@@ -2954,7 +2954,7 @@ public final class ImapProtocolHandler
 
         ListStateImpl listState =
                 new ListStateImpl(tag, true, parts[0], parts[1]);
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.lsub(listState, store, parts[0], parts[1]);
             return;
         }
@@ -3077,7 +3077,7 @@ public final class ImapProtocolHandler
         }
         String[] attrs = attrList.toArray(new String[0]);
 
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             Set<StatusItem> statusItems = parseStatusItems(attrs);
             selectedHandler.status(
                     new SelectedStatusStateImpl(tag, mailboxName, attrs),
@@ -3308,7 +3308,7 @@ public final class ImapProtocolHandler
             }
         }
 
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.append(
                     new AppendStateImpl(tag, literalSize, nonSync,
                             mailboxName, flags, internalDate),
@@ -3905,7 +3905,7 @@ public final class ImapProtocolHandler
             return;
         }
 
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.getQuota(
                     new QuotaStateImpl(tag, QuotaStateImpl.Command.GET_QUOTA,
                             quotaRoot, targetUser),
@@ -3945,7 +3945,7 @@ public final class ImapProtocolHandler
             return;
         }
 
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.getQuotaRoot(
                     new QuotaStateImpl(tag,
                             QuotaStateImpl.Command.GET_QUOTA_ROOT,
@@ -4048,7 +4048,7 @@ public final class ImapProtocolHandler
             resourceLimits.put("MESSAGE", messageLimitValue);
         }
 
-        if (state == IMAPState.SELECTED && selectedHandler != null) {
+        if (state == ImapState.SELECTED && selectedHandler != null) {
             selectedHandler.setQuota(
                     new QuotaStateImpl(tag,
                             QuotaStateImpl.Command.SET_QUOTA,
@@ -4181,7 +4181,7 @@ public final class ImapProtocolHandler
         selectedReadOnly = false;
         lastReportedExists = -1;
         lastReportedUIDs = null;
-        state = IMAPState.AUTHENTICATED;
+        state = ImapState.AUTHENTICATED;
 
         if (mbox == null) {
             try {
@@ -6923,7 +6923,7 @@ public final class ImapProtocolHandler
         @Override
         public void acceptPreauth(String greeting, AuthenticatedHandler handler) {
             authenticatedHandler = handler;
-            state = IMAPState.AUTHENTICATED;
+            state = ImapState.AUTHENTICATED;
             try {
                 String caps = server.getCapabilities(true, endpoint.isSecure());
                 sendUntagged("PREAUTH [CAPABILITY " + caps + "] " + greeting);
@@ -7014,7 +7014,7 @@ public final class ImapProtocolHandler
                 AuthenticatedHandler handler) {
             store = newStore;
             authenticatedHandler = handler;
-            state = IMAPState.AUTHENTICATED;
+            state = ImapState.AUTHENTICATED;
             startAuthenticatedSpan(authenticatedUser, mechanism);
             resetAuthState();
             try {
@@ -7089,7 +7089,7 @@ public final class ImapProtocolHandler
             selectedMailbox = mailbox;
             selectedHandler = handler;
             selectedReadOnly = readOnly;
-            state = IMAPState.SELECTED;
+            state = ImapState.SELECTED;
             addSessionAttribute("imap.mailbox", mailbox.getName());
             addSessionAttribute("imap.mailbox.readonly", readOnly);
             addSessionEvent(readOnly ? "EXAMINE" : "SELECT");
@@ -7505,7 +7505,7 @@ public final class ImapProtocolHandler
             selectedHandler = null;
             selectedMailbox = null;
             selectedReadOnly = false;
-            state = IMAPState.AUTHENTICATED;
+            state = ImapState.AUTHENTICATED;
             try {
                 String key = expunge ? "imap.close_complete"
                         : "imap.unselect_complete";

@@ -52,8 +52,8 @@ import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
 import org.bluezoo.gumdrop.amqp.client.handler.OpenHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.TuneHandler;
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -519,12 +519,12 @@ public class AmqpClientRecovery {
             };
 
             if ("AMQPLAIN".equalsIgnoreCase(mechanism)) {
-                handshake.startOk(new AMQPLainClientMechanism(username, password), tuneHandler);
+                handshake.startOk(new AmqpPlainClientMechanism(username, password), tuneHandler);
             } else if ("EXTERNAL".equalsIgnoreCase(mechanism)) {
-                handshake.startOk(SASLUtils.createClient("EXTERNAL", username, password, host), tuneHandler);
+                handshake.startOk(SaslUtils.createClient("EXTERNAL", username, password, host), tuneHandler);
             } else if ("GSSAPI".equalsIgnoreCase(mechanism)) {
                 String principal = (gssapiServicePrincipal != null) ? gssapiServicePrincipal : host;
-                SASLClientMechanism client = SASLUtils.createClient(
+                SaslClientMechanism client = SaslUtils.createClient(
                         "GSSAPI", username, password, principal, gssapiSubject);
                 if (client == null) {
                     scheduleReconnect(new IOException(

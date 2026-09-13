@@ -30,7 +30,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
-import org.bluezoo.gumdrop.mime.MIMEParseException;
+import org.bluezoo.gumdrop.mime.MimeParseException;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
 import org.bluezoo.gumdrop.smtp.SmtpPipeline;
@@ -45,10 +45,10 @@ import org.bluezoo.gumdrop.smtp.SmtpPipeline;
  *
  * <p>The pipeline is purely event-driven:
  * <ul>
- *   <li>SPF check runs at MAIL FROM, delivers result via {@link SPFCallback}</li>
- *   <li>DKIM verification runs at end-of-data, delivers result via {@link DKIMCallback}</li>
+ *   <li>SPF check runs at MAIL FROM, delivers result via {@link SpfCallback}</li>
+ *   <li>DKIM verification runs at end-of-data, delivers result via {@link DkimCallback}</li>
  *   <li>DMARC evaluation runs when DKIM completes (using accumulated SPF result
- *       and From domain), delivers result via {@link DMARCCallback}</li>
+ *       and From domain), delivers result via {@link DmarcCallback}</li>
  * </ul>
  *
  * <p>Example usage:
@@ -56,7 +56,7 @@ import org.bluezoo.gumdrop.smtp.SmtpPipeline;
  * <pre><code>
  * AuthPipeline pipeline = new AuthPipeline.Builder(resolver, clientIP, heloHost)
  *     .onSPF((result, explanation) -&gt; {
- *         if (result == SPFResult.FAIL) {
+ *         if (result == SpfResult.FAIL) {
  *             // Log or take action
  *         }
  *     })
@@ -70,8 +70,8 @@ import org.bluezoo.gumdrop.smtp.SmtpPipeline;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SmtpPipeline
- * @see DMARCValidator
- * @see DMARCMessageHandler
+ * @see DmarcValidator
+ * @see DmarcMessageHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
@@ -88,20 +88,20 @@ public class AuthPipeline implements SmtpPipeline {
     private final String heloHost;
 
     // User callbacks
-    private final SPFCallback spfCallback;
-    private final DKIMCallback dkimCallback;
-    private final DMARCCallback dmarcCallback;
+    private final SpfCallback spfCallback;
+    private final DkimCallback dkimCallback;
+    private final DmarcCallback dmarcCallback;
 
     // User's message handler for teed content
     private final MessageHandler messageHandler;
 
     // Validators
-    private final SPFValidator spfValidator;
-    private final DKIMValidator dkimValidator;
+    private final SpfValidator spfValidator;
+    private final DkimValidator dkimValidator;
 
     // Per-message state
-    private DKIMMessageParser parser;
-    private DMARCValidator dmarcValidator;
+    private DkimMessageParser parser;
+    private DmarcValidator dmarcValidator;
 
     /**
      * Creates a pipeline from the builder.
@@ -117,26 +117,26 @@ public class AuthPipeline implements SmtpPipeline {
         this.messageHandler = builder.messageHandler;
 
         // Create validators
-        this.spfValidator = new SPFValidator(resolver);
-        this.dkimValidator = new DKIMValidator(resolver);
+        this.spfValidator = new SpfValidator(resolver);
+        this.dkimValidator = new DkimValidator(resolver);
     }
 
     // -- SmtpPipeline implementation --
 
     @Override
     public void mailFrom(EmailAddress sender) {
-        // Create DMARCValidator for this message (it aggregates SPF + DKIM results)
-        dmarcValidator = new DMARCValidator(resolver, dmarcCallback);
+        // Create DmarcValidator for this message (it aggregates SPF + DKIM results)
+        dmarcValidator = new DmarcValidator(resolver, dmarcCallback);
 
-        // Set SPF domain on DMARCValidator
+        // Set SPF domain on DmarcValidator
         String spfDomain = (sender != null) ? sender.getDomain() : heloHost;
         dmarcValidator.setSpfDomain(spfDomain);
 
-        // Create SPF callback that forwards to both user callback and DMARCValidator
-        SPFCallback effectiveSpfCallback = new SPFCallback() {
+        // Create SPF callback that forwards to both user callback and DmarcValidator
+        SpfCallback effectiveSpfCallback = new SpfCallback() {
             @Override
-            public void spfResult(SPFResult result, String explanation) {
-                // Forward to DMARCValidator for DMARC evaluation
+            public void spfResult(SpfResult result, String explanation) {
+                // Forward to DmarcValidator for DMARC evaluation
                 dmarcValidator.spfResult(result, explanation);
                 // Forward to user callback if registered
                 if (spfCallback != null) {
@@ -149,19 +149,19 @@ public class AuthPipeline implements SmtpPipeline {
         spfValidator.check(sender, clientIP, heloHost, effectiveSpfCallback);
 
         // Create DKIM message parser
-        parser = new DKIMMessageParser();
+        parser = new DkimMessageParser();
 
-        // Create DMARCMessageHandler that:
+        // Create DmarcMessageHandler that:
         // 1. Extracts From domain for DMARC
         // 2. Tees to user's MessageHandler
-        DMARCMessageHandler.FromDomainCallback fromDomainCallback =
-                new DMARCMessageHandler.FromDomainCallback() {
+        DmarcMessageHandler.FromDomainCallback fromDomainCallback =
+                new DmarcMessageHandler.FromDomainCallback() {
                     @Override
                     public void onFromDomain(String domain) {
                         dmarcValidator.setFromDomain(domain);
                     }
                 };
-        DMARCMessageHandler dmarcHandler = new DMARCMessageHandler(fromDomainCallback, messageHandler);
+        DmarcMessageHandler dmarcHandler = new DmarcMessageHandler(fromDomainCallback, messageHandler);
         parser.setMessageHandler(dmarcHandler);
     }
 
@@ -187,19 +187,19 @@ public class AuthPipeline implements SmtpPipeline {
         // Close parser
         try {
             parser.close();
-        } catch (MIMEParseException e) {
+        } catch (MimeParseException e) {
             LOGGER.log(Level.WARNING, "Error closing message parser", e);
         }
 
-        // Create DKIM callback that forwards to both user callback and DMARCValidator
-        DKIMCallback effectiveDkimCallback = new DKIMCallback() {
+        // Create DKIM callback that forwards to both user callback and DmarcValidator
+        DkimCallback effectiveDkimCallback = new DkimCallback() {
             @Override
-            public void dkimResult(DKIMResult result, String signingDomain, String selector) {
+            public void dkimResult(DkimResult result, String signingDomain, String selector) {
                 // Forward to user callback if registered
                 if (dkimCallback != null) {
                     dkimCallback.dkimResult(result, signingDomain, selector);
                 }
-                // Forward to DMARCValidator - this triggers DMARC evaluation
+                // Forward to DmarcValidator - this triggers DMARC evaluation
                 dmarcValidator.dkimResult(result, signingDomain, selector);
             }
         };
@@ -220,14 +220,14 @@ public class AuthPipeline implements SmtpPipeline {
     }
 
     /**
-     * WritableByteChannel that forwards bytes to the DKIMMessageParser.
+     * WritableByteChannel that forwards bytes to the DkimMessageParser.
      */
     private static class ParserChannel implements WritableByteChannel {
 
-        private final DKIMMessageParser parser;
+        private final DkimMessageParser parser;
         private boolean open = true;
 
-        ParserChannel(DKIMMessageParser parser) {
+        ParserChannel(DkimMessageParser parser) {
             this.parser = parser;
         }
 
@@ -240,7 +240,7 @@ public class AuthPipeline implements SmtpPipeline {
             if (count > 0) {
                 try {
                     parser.receive(src);
-                } catch (MIMEParseException e) {
+                } catch (MimeParseException e) {
                     throw new IOException("Parse error", e);
                 }
             }
@@ -269,9 +269,9 @@ public class AuthPipeline implements SmtpPipeline {
         private final InetAddress clientIP;
         private final String heloHost;
 
-        private SPFCallback spfCallback;
-        private DKIMCallback dkimCallback;
-        private DMARCCallback dmarcCallback;
+        private SpfCallback spfCallback;
+        private DkimCallback dkimCallback;
+        private DmarcCallback dmarcCallback;
         private MessageHandler messageHandler;
 
         /**
@@ -299,7 +299,7 @@ public class AuthPipeline implements SmtpPipeline {
          * @param callback the SPF result callback
          * @return this builder
          */
-        public Builder onSPF(SPFCallback callback) {
+        public Builder onSPF(SpfCallback callback) {
             this.spfCallback = callback;
             return this;
         }
@@ -313,7 +313,7 @@ public class AuthPipeline implements SmtpPipeline {
          * @param callback the DKIM result callback
          * @return this builder
          */
-        public Builder onDKIM(DKIMCallback callback) {
+        public Builder onDKIM(DkimCallback callback) {
             this.dkimCallback = callback;
             return this;
         }
@@ -327,7 +327,7 @@ public class AuthPipeline implements SmtpPipeline {
          * @param callback the DMARC result callback
          * @return this builder
          */
-        public Builder onDMARC(DMARCCallback callback) {
+        public Builder onDMARC(DmarcCallback callback) {
             this.dmarcCallback = callback;
             return this;
         }

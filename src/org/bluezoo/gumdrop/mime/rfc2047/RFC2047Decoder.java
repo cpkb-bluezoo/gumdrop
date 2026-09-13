@@ -1,5 +1,5 @@
 /*
- * RFC2047Decoder.java
+ * Rfc2047Decoder.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -53,11 +53,11 @@ import java.util.ResourceBundle;
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2231'>RFC 2231</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class RFC2047Decoder {
+public class Rfc2047Decoder {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.rfc2047.L10N");
 
-	private RFC2047Decoder() {
+	private Rfc2047Decoder() {
 		// Static utility class
 	}
 
@@ -637,7 +637,7 @@ public class RFC2047Decoder {
 		if (paramValue == null || paramValue.isEmpty()) {
 			return paramValue;
 		}
-		RFC2231ParseResult result = parseRFC2231Parameter(paramValue);
+		Rfc2231ParseResult result = parseRFC2231Parameter(paramValue);
 		if (result == null) {
 			return paramValue;
 		}
@@ -818,7 +818,7 @@ public class RFC2047Decoder {
 		}
 	}
 
-	private static RFC2231ParseResult parseRFC2231Parameter(String paramValue) {
+	private static Rfc2231ParseResult parseRFC2231Parameter(String paramValue) {
 		if (paramValue == null || paramValue.isEmpty()) {
 			return null;
 		}
@@ -857,16 +857,16 @@ public class RFC2047Decoder {
 
 		String encoded = paramValue.substring(pos);
 
-		return new RFC2231ParseResult(name, charset, language, encoded);
+		return new Rfc2231ParseResult(name, charset, language, encoded);
 	}
 
-	private static class RFC2231ParseResult {
+	private static class Rfc2231ParseResult {
 		final String name;
 		final String charset;
 		final String language;
 		final String encoded;
 
-		RFC2231ParseResult(String name, String charset, String language, String encoded) {
+		Rfc2231ParseResult(String name, String charset, String language, String encoded) {
 			this.name = name;
 			this.charset = charset;
 			this.language = language;

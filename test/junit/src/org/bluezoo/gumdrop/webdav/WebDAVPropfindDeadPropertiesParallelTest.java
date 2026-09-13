@@ -128,7 +128,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         Headers req = new Headers();
         req.add(":method", "PROPFIND");
         req.add(":path", "/tree");
-        req.add(DAVConstants.HEADER_DEPTH, "infinity");
+        req.add(DavConstants.HEADER_DEPTH, "infinity");
 
         handler.headers(state, req);
         assertTrue("PROPFIND did not complete: " + state.status(),
@@ -172,7 +172,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         return new FileHandler(root, true, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types,
-                new WebDAVLockManager(), store);
+                new WebdavLockManager(), store);
     }
 
     private static void writeSidecar(Path resource, String value)

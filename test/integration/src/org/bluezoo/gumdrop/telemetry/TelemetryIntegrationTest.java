@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
-import org.bluezoo.gumdrop.telemetry.otlp.OTLPExporter;
+import org.bluezoo.gumdrop.telemetry.otlp.OtlpExporter;
 
 import org.junit.After;
 import org.junit.Before;
@@ -70,7 +70,7 @@ public class TelemetryIntegrationTest {
 
     private MockOTLPCollector collector;
     private TelemetryConfig telemetryConfig;
-    private OTLPExporter exporter;
+    private OtlpExporter exporter;
     private Gumdrop gumdrop;
     private HttpListener httpServer;
     private SmtpListener smtpServer;
@@ -112,7 +112,7 @@ public class TelemetryIntegrationTest {
         // Initialize the config - this automatically creates the exporter
         // (In production, this is called by ComponentRegistry after setting properties)
         telemetryConfig.init();
-        exporter = (OTLPExporter) telemetryConfig.getExporter();
+        exporter = (OtlpExporter) telemetryConfig.getExporter();
 
         // Create HTTP server with telemetry enabled
         httpServer = new HttpListener();

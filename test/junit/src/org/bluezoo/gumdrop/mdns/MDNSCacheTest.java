@@ -36,7 +36,7 @@ import org.bluezoo.gumdrop.dns.DnsType;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link MDNSCache} against a {@link FakeRefresher} that
+ * Unit tests for {@link MdnsCache} against a {@link FakeRefresher} that
  * captures scheduled callbacks (keyed by their exact delay) instead of
  * running them on a real clock, so tests fire the 80/85/90/95/100%
  * refresh schedule (RFC 6762 section 5.2) deterministically.
@@ -57,7 +57,7 @@ public class MDNSCacheTest {
     @Test
     public void testAddAndLookup() throws Exception {
         FakeRefresher refresher = new FakeRefresher();
-        MDNSCache cache = new MDNSCache(refresher);
+        MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 120, "10.0.0.1", true)));
 
@@ -68,14 +68,14 @@ public class MDNSCacheTest {
 
     @Test
     public void testLookupMissReturnsEmpty() {
-        MDNSCache cache = new MDNSCache(new FakeRefresher());
+        MdnsCache cache = new MdnsCache(new FakeRefresher());
         assertTrue(cache.lookup("nothing.local", DnsType.A).isEmpty());
     }
 
     @Test
     public void testCacheFlushReplacesRRSetAfterGracePeriod() throws Exception {
         FakeRefresher refresher = new FakeRefresher();
-        MDNSCache cache = new MDNSCache(refresher);
+        MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 120, "10.0.0.1", true)));
         // A later cache-flush batch that no longer includes 10.0.0.1.
@@ -96,7 +96,7 @@ public class MDNSCacheTest {
 
     @Test
     public void testNonFlushRecordsAccumulate() throws Exception {
-        MDNSCache cache = new MDNSCache(new FakeRefresher());
+        MdnsCache cache = new MdnsCache(new FakeRefresher());
 
         // Shared record types (e.g. PTR in real use) don't set
         // cache-flush and are additive, not replacing.
@@ -109,7 +109,7 @@ public class MDNSCacheTest {
     @Test
     public void testGoodbyeRemovesAfterGracePeriod() throws Exception {
         FakeRefresher refresher = new FakeRefresher();
-        MDNSCache cache = new MDNSCache(refresher);
+        MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 120, "10.0.0.1", true)));
         cache.addAll(Arrays.asList(a("host.local", 0, "10.0.0.1", true)));
@@ -122,7 +122,7 @@ public class MDNSCacheTest {
     @Test
     public void testUpsertUsesOneTimerPerRecord() throws Exception {
         FakeRefresher refresher = new FakeRefresher();
-        MDNSCache cache = new MDNSCache(refresher);
+        MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 10, "10.0.0.1", true)));
         assertEquals("Each cached record should arm one refresh timer, not five",
@@ -137,7 +137,7 @@ public class MDNSCacheTest {
     @Test
     public void testActiveRefreshFiresAtEachStageThenExpires() throws Exception {
         FakeRefresher refresher = new FakeRefresher();
-        MDNSCache cache = new MDNSCache(refresher);
+        MdnsCache cache = new MdnsCache(refresher);
 
         // TTL 10s -> refresh at 8000/8500/9000/9500ms, expiry at 10000ms.
         cache.addAll(Arrays.asList(a("host.local", 10, "10.0.0.1", true)));
@@ -160,7 +160,7 @@ public class MDNSCacheTest {
     @Test
     public void testRefreshedRecordCancelsStalePendingTimers() throws Exception {
         FakeRefresher refresher = new FakeRefresher();
-        MDNSCache cache = new MDNSCache(refresher);
+        MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 10, "10.0.0.1", true)));
         assertEquals(1, refresher.pendingCount());
@@ -178,7 +178,7 @@ public class MDNSCacheTest {
     @Test
     public void testClearCancelsAllTimersAndEmptiesCache() throws Exception {
         FakeRefresher refresher = new FakeRefresher();
-        MDNSCache cache = new MDNSCache(refresher);
+        MdnsCache cache = new MdnsCache(refresher);
 
         cache.addAll(Arrays.asList(a("host.local", 120, "10.0.0.1", true)));
         assertEquals(1, refresher.pendingCount());
@@ -190,11 +190,11 @@ public class MDNSCacheTest {
     }
 
     /**
-     * Captures every {@link MDNSCache.Refresher#scheduleTimer} call
+     * Captures every {@link MdnsCache.Refresher#scheduleTimer} call
      * (keyed by its exact delay) instead of running it, so tests can
      * fire a specific stage deterministically via {@link #fireByDelay}.
      */
-    static class FakeRefresher implements MDNSCache.Refresher {
+    static class FakeRefresher implements MdnsCache.Refresher {
 
         static final class Scheduled {
             final long delay;

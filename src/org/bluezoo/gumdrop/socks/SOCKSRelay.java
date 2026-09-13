@@ -1,5 +1,5 @@
 /*
- * SOCKSRelay.java
+ * SocksRelay.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -52,10 +52,10 @@ import org.bluezoo.gumdrop.TimerHandle;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928">RFC 1928 §4</a>
  */
-class SOCKSRelay {
+class SocksRelay {
 
     private static final Logger LOGGER =
-            Logger.getLogger(SOCKSRelay.class.getName());
+            Logger.getLogger(SocksRelay.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -76,7 +76,7 @@ class SOCKSRelay {
     private boolean clientReadPaused;
     private boolean upstreamReadPaused;
 
-    SOCKSRelay(Endpoint clientEndpoint, SocksServer service,
+    SocksRelay(Endpoint clientEndpoint, SocksServer service,
                SocksServerMetrics metrics, long idleTimeoutMs) {
         this.clientEndpoint = clientEndpoint;
         this.service = service;

@@ -1,5 +1,5 @@
 /*
- * DKIMCallback.java
+ * DkimCallback.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -29,11 +29,11 @@ package org.bluezoo.gumdrop.smtp.auth;
  * the public key from DNS.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DKIMValidator
- * @see DKIMResult
+ * @see DkimValidator
+ * @see DkimResult
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  */
-public interface DKIMCallback {
+public interface DkimCallback {
 
     /**
      * Called when a DKIM verification completes.
@@ -42,7 +42,7 @@ public interface DKIMCallback {
      * @param signingDomain the domain that signed the message (d= tag), or null
      * @param selector the selector used (s= tag), or null
      */
-    void dkimResult(DKIMResult result, String signingDomain, String selector);
+    void dkimResult(DkimResult result, String signingDomain, String selector);
 
 }
 

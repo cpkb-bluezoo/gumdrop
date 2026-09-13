@@ -36,7 +36,7 @@ import java.security.cert.Certificate;
  *
  * <p>Implementations:
  * <ul>
- * <li>JSSESecurityInfo -- wraps an SSLEngine's session (TCP TLS, UDP DTLS)</li>
+ * <li>JsseSecurityInfo -- wraps an SSLEngine's session (TCP TLS, UDP DTLS)</li>
  * <li>{@link org.bluezoo.gumdrop.quic.QuicSecurityInfo} -- reads negotiated
  *     TLS 1.3 state from the QUIC connection</li>
  * <li>{@link NullSecurityInfo} -- singleton for plaintext endpoints</li>

@@ -1,5 +1,5 @@
 /*
- * LDAPClientProtocolHandler.java
+ * LdapClientProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,32 +36,32 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
-import org.bluezoo.gumdrop.auth.GSSAPIClientMechanism;
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.GssapiClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.ldap.asn1.ASN1Element;
-import org.bluezoo.gumdrop.ldap.asn1.ASN1Exception;
-import org.bluezoo.gumdrop.ldap.asn1.ASN1Type;
-import org.bluezoo.gumdrop.ldap.asn1.BERDecoder;
-import org.bluezoo.gumdrop.ldap.asn1.BEREncoder;
+import org.bluezoo.gumdrop.ldap.asn1.Asn1Element;
+import org.bluezoo.gumdrop.ldap.asn1.Asn1Exception;
+import org.bluezoo.gumdrop.ldap.asn1.Asn1Type;
+import org.bluezoo.gumdrop.ldap.asn1.BerDecoder;
+import org.bluezoo.gumdrop.ldap.asn1.BerEncoder;
 
 /**
  * LDAPv3 client protocol handler (RFC 4511).
  *
- * <p>Implements the LDAP client interfaces ({@link LDAPConnected},
- * {@link LDAPPostTLS}, {@link LDAPSession}) and delegates all transport
+ * <p>Implements the LDAP client interfaces ({@link LdapConnected},
+ * {@link LdapPostTLS}, {@link LdapSession}) and delegates all transport
  * operations to a transport-agnostic {@link Endpoint}.
  *
  * <p>Messages are encoded/decoded using BER (ITU-T X.690) via the
- * {@link BEREncoder} and {@link BERDecoder} classes.
+ * {@link BerEncoder} and {@link BerDecoder} classes.
  *
  * <p>The handler implements stateful interfaces that guide the caller through
  * the LDAP protocol:
  * <ul>
- * <li>{@link LDAPConnected} — initial state, allows bind and STARTTLS</li>
- * <li>{@link LDAPPostTLS} — after STARTTLS, must bind</li>
- * <li>{@link LDAPSession} — after bind, full operations available</li>
+ * <li>{@link LdapConnected} — initial state, allows bind and STARTTLS</li>
+ * <li>{@link LdapPostTLS} — after STARTTLS, must bind</li>
+ * <li>{@link LdapSession} — after bind, full operations available</li>
  * </ul>
  *
  * <p>Supported operations (RFC 4511):
@@ -86,21 +86,21 @@ import org.bluezoo.gumdrop.ldap.asn1.BEREncoder;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511 — LDAPv3</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4513">RFC 4513 — LDAP Authentication</a>
  */
-public class LDAPClientProtocolHandler
-        implements ProtocolHandler, LDAPConnected, LDAPPostTLS, LDAPSession {
+public class LdapClientProtocolHandler
+        implements ProtocolHandler, LdapConnected, LdapPostTLS, LdapSession {
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.ldap.client.L10N");
     private static final Logger logger =
-            Logger.getLogger(LDAPClientProtocolHandler.class.getName());
+            Logger.getLogger(LdapClientProtocolHandler.class.getName());
 
     // Message ID generator
     private final AtomicInteger nextMessageId = new AtomicInteger(1);
 
     // Protocol state
-    private final LDAPConnectionReady handler;
+    private final LdapConnectionReady handler;
     private final boolean secure;
-    private final BERDecoder decoder;
+    private final BerDecoder decoder;
     private Endpoint endpoint;
     private boolean closed = false;
     private boolean tlsEstablished = false;
@@ -113,7 +113,7 @@ public class LDAPClientProtocolHandler
     private StartTLSResultHandler startTLSCallback;
 
     // Active SASL negotiation (RFC 4513 §5.2)
-    private SASLClientMechanism activeSaslClient;
+    private SaslClientMechanism activeSaslClient;
     // RFC 4752 — worker executor for offloading blocking GSSAPI calls
     private ExecutorService gssapiExecutor;
 
@@ -128,10 +128,10 @@ public class LDAPClientProtocolHandler
      * @param handler the client handler for callbacks
      * @param secure whether this is an initially secure connection (LDAPS)
      */
-    public LDAPClientProtocolHandler(LDAPConnectionReady handler, boolean secure) {
+    public LdapClientProtocolHandler(LdapConnectionReady handler, boolean secure) {
         this.handler = handler;
         this.secure = secure;
-        this.decoder = new BERDecoder();
+        this.decoder = new BerDecoder();
         this.tlsEstablished = secure;
     }
 
@@ -153,11 +153,11 @@ public class LDAPClientProtocolHandler
         try {
             decoder.receive(buf);
 
-            ASN1Element message;
+            Asn1Element message;
             while ((message = decoder.next()) != null) {
                 processMessage(message);
             }
-        } catch (ASN1Exception e) {
+        } catch (Asn1Exception e) {
             logger.log(Level.WARNING, "LDAP protocol error", e);
             handler.onError(e);
             close();
@@ -227,7 +227,7 @@ public class LDAPClientProtocolHandler
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // LDAPConnected implementation (RFC 4511 section 4.2–4.3, 4.14)
+    // LdapConnected implementation (RFC 4511 section 4.2–4.3, 4.14)
     // ─────────────────────────────────────────────────────────────────────────
 
     // RFC 4511 section 4.2 — BindRequest (simple authentication)
@@ -244,11 +244,11 @@ public class LDAPClientProtocolHandler
         int messageId = nextMessageId.getAndIncrement();
         pendingCallbacks.put(messageId, callback);
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(0, true);  // BindRequest
-        encoder.writeInteger(LDAPConstants.LDAP_VERSION_3);
+        encoder.writeInteger(LdapConstants.LDAP_VERSION_3);
         encoder.writeOctetString(dn);
         encoder.writeContext(0, password.getBytes(StandardCharsets.UTF_8));  // Simple auth
         encoder.endApplication();
@@ -265,11 +265,11 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.2 + RFC 4513 section 5.2 — SASL bind.
-    // The SASLClientMechanism drives the multi-step challenge-response
+    // The SaslClientMechanism drives the multi-step challenge-response
     // exchange; intermediate SASL_BIND_IN_PROGRESS responses are handled
     // internally.
     @Override
-    public void bindSASL(SASLClientMechanism saslClient, BindResultHandler callback) {
+    public void bindSASL(SaslClientMechanism saslClient, BindResultHandler callback) {
         bindSASL(saslClient, callback, null);
     }
 
@@ -289,11 +289,11 @@ public class LDAPClientProtocolHandler
      * @param executor worker executor for blocking calls (required for
      *        GSSAPI, may be null for other mechanisms)
      */
-    public void bindSASL(SASLClientMechanism saslClient,
+    public void bindSASL(SaslClientMechanism saslClient,
                          BindResultHandler callback,
                          ExecutorService executor) {
         activeSaslClient = saslClient;
-        if (saslClient instanceof GSSAPIClientMechanism && executor != null) {
+        if (saslClient instanceof GssapiClientMechanism && executor != null) {
             this.gssapiExecutor = executor;
             evaluateChallengeAsync(new byte[0], callback);
         } else {
@@ -308,7 +308,7 @@ public class LDAPClientProtocolHandler
                 clearSaslClient();
                 logger.log(Level.WARNING, "LDAP bind failed", e);
                 callback.handleBindFailure(
-                        new LDAPResult(LDAPResultCode.OTHER, "",
+                        new LdapResult(LdapResultCode.OTHER, "",
                                 "Operation failed", null),
                         this);
             }
@@ -319,7 +319,7 @@ public class LDAPClientProtocolHandler
     // and dispatches the result back to the NIO event loop.
     private void evaluateChallengeAsync(byte[] challenge,
                                         BindResultHandler callback) {
-        SASLClientMechanism client = activeSaslClient;
+        SaslClientMechanism client = activeSaslClient;
         gssapiExecutor.submit(new Runnable() {
             @Override
             public void run() {
@@ -340,9 +340,9 @@ public class LDAPClientProtocolHandler
                         public void run() {
                             clearSaslClient();
                             callback.handleBindFailure(
-                                    new LDAPResult(LDAPResultCode.OTHER, "",
+                                    new LdapResult(LdapResultCode.OTHER, "",
                                             "Operation failed", null),
-                                    LDAPClientProtocolHandler.this);
+                                    LdapClientProtocolHandler.this);
                         }
                     });
                 }
@@ -355,11 +355,11 @@ public class LDAPClientProtocolHandler
         int messageId = nextMessageId.getAndIncrement();
         pendingCallbacks.put(messageId, callback);
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(0, true);  // BindRequest
-        encoder.writeInteger(LDAPConstants.LDAP_VERSION_3);
+        encoder.writeInteger(LdapConstants.LDAP_VERSION_3);
         encoder.writeOctetString("");       // name (empty for SASL)
         encoder.beginContext(3, true);      // SaslCredentials [3]
         encoder.writeOctetString(mechanism);
@@ -382,11 +382,11 @@ public class LDAPClientProtocolHandler
         this.startTLSMessageId = nextMessageId.getAndIncrement();
         this.startTLSCallback = callback;
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(startTLSMessageId);
         encoder.beginApplication(23, true);  // ExtendedRequest
-        encoder.writeContext(0, LDAPConstants.OID_STARTTLS.getBytes(StandardCharsets.UTF_8));
+        encoder.writeContext(0, LdapConstants.OID_STARTTLS.getBytes(StandardCharsets.UTF_8));
         encoder.endApplication();
         encoder.endSequence();
 
@@ -399,7 +399,7 @@ public class LDAPClientProtocolHandler
     public void unbind() {
         int messageId = nextMessageId.getAndIncrement();
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.writeContext(2, new byte[0]);  // UnbindRequest (application 2, primitive)
@@ -411,7 +411,7 @@ public class LDAPClientProtocolHandler
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // LDAPSession implementation (RFC 4511 sections 4.5–4.12)
+    // LdapSession implementation (RFC 4511 sections 4.5–4.12)
     // ─────────────────────────────────────────────────────────────────────────
 
     // RFC 4511 section 4.11 — AbandonRequest
@@ -422,7 +422,7 @@ public class LDAPClientProtocolHandler
         pendingCallbacks.remove(targetMessageId);
 
         int messageId = nextMessageId.getAndIncrement();
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.writeApplication(16, encodeIntegerValue(targetMessageId));
@@ -452,7 +452,7 @@ public class LDAPClientProtocolHandler
         int messageId = nextMessageId.getAndIncrement();
         pendingCallbacks.put(messageId, callback);
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(3, true);  // SearchRequest
@@ -488,7 +488,7 @@ public class LDAPClientProtocolHandler
         int messageId = nextMessageId.getAndIncrement();
         pendingCallbacks.put(messageId, callback);
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(6, true);  // ModifyRequest
@@ -525,7 +525,7 @@ public class LDAPClientProtocolHandler
         int messageId = nextMessageId.getAndIncrement();
         pendingCallbacks.put(messageId, callback);
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(8, true);  // AddRequest
@@ -559,7 +559,7 @@ public class LDAPClientProtocolHandler
         int messageId = nextMessageId.getAndIncrement();
         pendingCallbacks.put(messageId, callback);
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.writeApplication(10, dn.getBytes(StandardCharsets.UTF_8));  // DelRequest
@@ -576,7 +576,7 @@ public class LDAPClientProtocolHandler
         int messageId = nextMessageId.getAndIncrement();
         pendingCallbacks.put(messageId, callback);
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(14, true);  // CompareRequest
@@ -607,7 +607,7 @@ public class LDAPClientProtocolHandler
         int messageId = nextMessageId.getAndIncrement();
         pendingCallbacks.put(messageId, callback);
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(12, true);  // ModifyDNRequest
@@ -631,7 +631,7 @@ public class LDAPClientProtocolHandler
         int messageId = nextMessageId.getAndIncrement();
         pendingCallbacks.put(messageId, callback);
 
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(23, true);  // ExtendedRequest
@@ -654,7 +654,7 @@ public class LDAPClientProtocolHandler
     }
 
     @Override
-    public void rebindSASL(SASLClientMechanism saslClient, BindResultHandler callback) {
+    public void rebindSASL(SaslClientMechanism saslClient, BindResultHandler callback) {
         bindSASL(saslClient, callback);
     }
 
@@ -666,7 +666,7 @@ public class LDAPClientProtocolHandler
     // Supports: AND, OR, NOT, presence, equality, substring,
     // greater-or-equal, less-or-equal, approximate match (RFC 4515 §4 / context tag 8),
     // and extensible match (RFC 4515 §4 / context tag 9).
-    private void encodeFilter(BEREncoder encoder, String filter) {
+    private void encodeFilter(BerEncoder encoder, String filter) {
         filter = filter.trim();
 
         if (filter.startsWith("(") && filter.endsWith(")")) {
@@ -735,7 +735,7 @@ public class LDAPClientProtocolHandler
         }
     }
 
-    private void encodeFilterList(BEREncoder encoder, String filterList) {
+    private void encodeFilterList(BerEncoder encoder, String filterList) {
         // Parse multiple filters like (filter1)(filter2)
         int depth = 0;
         int start = 0;
@@ -756,7 +756,7 @@ public class LDAPClientProtocolHandler
         }
     }
 
-    private void encodeSubstringFilter(BEREncoder encoder, String attr, String value) {
+    private void encodeSubstringFilter(BerEncoder encoder, String attr, String value) {
         encoder.beginContext(4, true);
         encoder.writeOctetString(attr);
         encoder.beginSequence();
@@ -805,7 +805,7 @@ public class LDAPClientProtocolHandler
     // Syntax:  [attr][:dn][:matchingRule]:=value
     // BER:     MatchingRuleAssertion (context tag 9, constructed)
     //          matchingRule [1], type [2], matchValue [3], dnAttributes [4]
-    private void encodeExtensibleMatchFilter(BEREncoder encoder, String filter) {
+    private void encodeExtensibleMatchFilter(BerEncoder encoder, String filter) {
         int extIdx = filter.indexOf(":=");
         String lhs = filter.substring(0, extIdx);
         String matchValue = filter.substring(extIdx + 2);
@@ -847,25 +847,25 @@ public class LDAPClientProtocolHandler
 
     // RFC 4511 section 4.2 — decode LDAPMessage envelope (messageID + protocolOp)
     // and dispatch to operation-specific response handlers.
-    private void processMessage(ASN1Element message) throws ASN1Exception {
-        if (message.getTag() != ASN1Type.SEQUENCE) {
-            throw new ASN1Exception("Expected SEQUENCE, got "
-                    + ASN1Type.getTagName(message.getTag()));
+    private void processMessage(Asn1Element message) throws Asn1Exception {
+        if (message.getTag() != Asn1Type.SEQUENCE) {
+            throw new Asn1Exception("Expected SEQUENCE, got "
+                    + Asn1Type.getTagName(message.getTag()));
         }
 
-        List<ASN1Element> children = message.getChildren();
+        List<Asn1Element> children = message.getChildren();
         if (children.size() < 2) {
-            throw new ASN1Exception("Invalid LDAP message structure");
+            throw new Asn1Exception("Invalid LDAP message structure");
         }
 
         int messageId = children.get(0).asInt();
-        ASN1Element protocolOp = children.get(1);
+        Asn1Element protocolOp = children.get(1);
         int tag = protocolOp.getTag();
 
         // RFC 4511 section 4.1.11 — parse response controls if present
         List<Control> responseControls = null;
         if (children.size() >= 3
-                && children.get(2).getTag() == LDAPConstants.TAG_CONTROLS) {
+                && children.get(2).getTag() == LdapConstants.TAG_CONTROLS) {
             responseControls = parseControls(children.get(2));
         }
         this.lastResponseControls = responseControls;
@@ -880,37 +880,37 @@ public class LDAPClientProtocolHandler
         }
 
         switch (tag) {
-            case LDAPConstants.TAG_BIND_RESPONSE:          // application 1
+            case LdapConstants.TAG_BIND_RESPONSE:          // application 1
                 handleBindResponse(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_SEARCH_RESULT_ENTRY:    // application 4
+            case LdapConstants.TAG_SEARCH_RESULT_ENTRY:    // application 4
                 handleSearchResultEntry(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_SEARCH_RESULT_DONE:     // application 5
+            case LdapConstants.TAG_SEARCH_RESULT_DONE:     // application 5
                 handleSearchResultDone(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_SEARCH_RESULT_REFERENCE: // application 19
+            case LdapConstants.TAG_SEARCH_RESULT_REFERENCE: // application 19
                 handleSearchResultReference(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_MODIFY_RESPONSE:        // application 7
+            case LdapConstants.TAG_MODIFY_RESPONSE:        // application 7
                 handleModifyResponse(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_ADD_RESPONSE:           // application 9
+            case LdapConstants.TAG_ADD_RESPONSE:           // application 9
                 handleAddResponse(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_DEL_RESPONSE:           // application 11
+            case LdapConstants.TAG_DEL_RESPONSE:           // application 11
                 handleDeleteResponse(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_MODIFY_DN_RESPONSE:     // application 13
+            case LdapConstants.TAG_MODIFY_DN_RESPONSE:     // application 13
                 handleModifyDNResponse(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_COMPARE_RESPONSE:       // application 15
+            case LdapConstants.TAG_COMPARE_RESPONSE:       // application 15
                 handleCompareResponse(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_EXTENDED_RESPONSE:      // application 24
+            case LdapConstants.TAG_EXTENDED_RESPONSE:      // application 24
                 handleExtendedResponse(messageId, protocolOp);
                 break;
-            case LDAPConstants.TAG_INTERMEDIATE_RESPONSE:  // application 25
+            case LdapConstants.TAG_INTERMEDIATE_RESPONSE:  // application 25
                 handleIntermediateResponse(messageId, protocolOp);
                 break;
             default:
@@ -920,11 +920,11 @@ public class LDAPClientProtocolHandler
         }
     }
 
-    // RFC 4511 section 4.1.9 — LDAPResult (resultCode, matchedDN, diagnosticMessage, referral)
-    private LDAPResult parseResult(ASN1Element element) throws ASN1Exception {
-        List<ASN1Element> children = element.getChildren();
+    // RFC 4511 section 4.1.9 — LdapResult (resultCode, matchedDN, diagnosticMessage, referral)
+    private LdapResult parseResult(Asn1Element element) throws Asn1Exception {
+        List<Asn1Element> children = element.getChildren();
         if (children.size() < 3) {
-            throw new ASN1Exception("Invalid LDAPResult structure");
+            throw new Asn1Exception("Invalid LdapResult structure");
         }
 
         int code = children.get(0).asInt();
@@ -932,14 +932,14 @@ public class LDAPClientProtocolHandler
         String diagnosticMessage = children.get(2).asString();
 
         List<String> referrals = null;
-        if (children.size() > 3 && children.get(3).getTag() == LDAPConstants.TAG_REFERRAL) {
+        if (children.size() > 3 && children.get(3).getTag() == LdapConstants.TAG_REFERRAL) {
             referrals = new ArrayList<String>();
-            for (ASN1Element ref : children.get(3).getChildren()) {
+            for (Asn1Element ref : children.get(3).getChildren()) {
                 referrals.add(ref.asString());
             }
         }
 
-        LDAPResult result = new LDAPResult(LDAPResultCode.fromCode(code), matchedDN,
+        LdapResult result = new LdapResult(LdapResultCode.fromCode(code), matchedDN,
                 diagnosticMessage, referrals);
         // RFC 4511 section 4.1.11 — attach response controls if present
         if (lastResponseControls != null) {
@@ -949,10 +949,10 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.1.11 — parse Controls SEQUENCE from message envelope
-    private List<Control> parseControls(ASN1Element controlsElement) throws ASN1Exception {
+    private List<Control> parseControls(Asn1Element controlsElement) throws Asn1Exception {
         List<Control> controls = new ArrayList<Control>();
-        for (ASN1Element controlSeq : controlsElement.getChildren()) {
-            List<ASN1Element> parts = controlSeq.getChildren();
+        for (Asn1Element controlSeq : controlsElement.getChildren()) {
+            List<Asn1Element> parts = controlSeq.getChildren();
             if (parts.isEmpty()) {
                 continue;
             }
@@ -960,10 +960,10 @@ public class LDAPClientProtocolHandler
             boolean critical = false;
             byte[] value = null;
             for (int i = 1; i < parts.size(); i++) {
-                ASN1Element part = parts.get(i);
-                if (part.getTag() == ASN1Type.BOOLEAN) {
+                Asn1Element part = parts.get(i);
+                if (part.getTag() == Asn1Type.BOOLEAN) {
                     critical = part.asBoolean();
-                } else if (part.getTag() == ASN1Type.OCTET_STRING) {
+                } else if (part.getTag() == Asn1Type.OCTET_STRING) {
                     value = part.asOctetString();
                 }
             }
@@ -973,8 +973,8 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.2.2 — BindResponse (handles both simple and SASL)
-    private void handleBindResponse(int messageId, ASN1Element element) throws ASN1Exception {
-        LDAPResult result = parseResult(element);
+    private void handleBindResponse(int messageId, Asn1Element element) throws Asn1Exception {
+        LdapResult result = parseResult(element);
         Object callback = pendingCallbacks.remove(messageId);
 
         if (!(callback instanceof BindResultHandler)) {
@@ -987,10 +987,10 @@ public class LDAPClientProtocolHandler
             byte[] challenge =
                     serverSaslCreds != null ? serverSaslCreds : new byte[0];
 
-            if (result.getResultCode() == LDAPResultCode.SASL_BIND_IN_PROGRESS) {
+            if (result.getResultCode() == LdapResultCode.SASL_BIND_IN_PROGRESS) {
                 // RFC 4752 — offload GSSAPI evaluateChallenge to worker
                 if (gssapiExecutor != null
-                        && activeSaslClient instanceof GSSAPIClientMechanism) {
+                        && activeSaslClient instanceof GssapiClientMechanism) {
                     evaluateChallengeAsync(challenge, bindCallback);
                 } else {
                     try {
@@ -1003,7 +1003,7 @@ public class LDAPClientProtocolHandler
                         clearSaslClient();
                         logger.log(Level.WARNING, "LDAP bind failed", e);
                         bindCallback.handleBindFailure(
-                                new LDAPResult(LDAPResultCode.OTHER, "",
+                                new LdapResult(LdapResultCode.OTHER, "",
                                         "Operation failed", null),
                                 this);
                     }
@@ -1019,7 +1019,7 @@ public class LDAPClientProtocolHandler
                     if (!activeSaslClient.isComplete()) {
                         clearSaslClient();
                         bindCallback.handleBindFailure(
-                                new LDAPResult(LDAPResultCode.OTHER, "",
+                                new LdapResult(LdapResultCode.OTHER, "",
                                         "SASL negotiation incomplete after "
                                                 + "server success", null),
                                 this);
@@ -1029,7 +1029,7 @@ public class LDAPClientProtocolHandler
                     clearSaslClient();
                     logger.log(Level.WARNING, "LDAP bind failed", e);
                     bindCallback.handleBindFailure(
-                            new LDAPResult(LDAPResultCode.OTHER, "",
+                            new LdapResult(LdapResultCode.OTHER, "",
                                     "Operation failed", null),
                             this);
                     return;
@@ -1046,10 +1046,10 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.2.2 — extract optional serverSaslCreds [7] from BindResponse
-    private byte[] extractServerSaslCreds(ASN1Element element) {
-        List<ASN1Element> children = element.getChildren();
+    private byte[] extractServerSaslCreds(Asn1Element element) {
+        List<Asn1Element> children = element.getChildren();
         for (int i = 3; i < children.size(); i++) {
-            if (children.get(i).getTag() == LDAPConstants.TAG_SERVER_SASL_CREDS) {
+            if (children.get(i).getTag() == LdapConstants.TAG_SERVER_SASL_CREDS) {
                 return children.get(i).asOctetString();
             }
         }
@@ -1079,7 +1079,7 @@ public class LDAPClientProtocolHandler
      * Encodes controls into the current message SEQUENCE (RFC 4511 §4.1.11).
      * Consumes and clears the requestControls.
      */
-    private void encodeRequestControls(BEREncoder encoder) {
+    private void encodeRequestControls(BerEncoder encoder) {
         List<Control> controls = this.requestControls;
         this.requestControls = null;
         if (controls == null || controls.isEmpty()) {
@@ -1101,23 +1101,23 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.5.2 — SearchResultEntry
-    private void handleSearchResultEntry(int messageId, ASN1Element element) throws ASN1Exception {
-        List<ASN1Element> children = element.getChildren();
+    private void handleSearchResultEntry(int messageId, Asn1Element element) throws Asn1Exception {
+        List<Asn1Element> children = element.getChildren();
         if (children.size() < 2) {
-            throw new ASN1Exception("Invalid SearchResultEntry structure");
+            throw new Asn1Exception("Invalid SearchResultEntry structure");
         }
 
         String dn = children.get(0).asString();
         Map<String, List<byte[]>> attributes = new HashMap<String, List<byte[]>>();
 
-        ASN1Element attrList = children.get(1);
-        for (ASN1Element attr : attrList.getChildren()) {
-            List<ASN1Element> attrChildren = attr.getChildren();
+        Asn1Element attrList = children.get(1);
+        for (Asn1Element attr : attrList.getChildren()) {
+            List<Asn1Element> attrChildren = attr.getChildren();
             String name = attrChildren.get(0).asString();
             List<byte[]> values = new ArrayList<byte[]>();
 
             if (attrChildren.size() > 1) {
-                for (ASN1Element val : attrChildren.get(1).getChildren()) {
+                for (Asn1Element val : attrChildren.get(1).getChildren()) {
                     values.add(val.asOctetString());
                 }
             }
@@ -1133,8 +1133,8 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.5.2 — SearchResultDone
-    private void handleSearchResultDone(int messageId, ASN1Element element) throws ASN1Exception {
-        LDAPResult result = parseResult(element);
+    private void handleSearchResultDone(int messageId, Asn1Element element) throws Asn1Exception {
+        LdapResult result = parseResult(element);
         Object callback = pendingCallbacks.remove(messageId);
 
         if (callback instanceof SearchResultHandler) {
@@ -1143,9 +1143,9 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.5.3 — SearchResultReference (continuation references)
-    private void handleSearchResultReference(int messageId, ASN1Element element)
-            throws ASN1Exception {
-        List<ASN1Element> children = element.getChildren();
+    private void handleSearchResultReference(int messageId, Asn1Element element)
+            throws Asn1Exception {
+        List<Asn1Element> children = element.getChildren();
         String[] urls = new String[children.size()];
         for (int i = 0; i < children.size(); i++) {
             urls[i] = children.get(i).asString();
@@ -1159,8 +1159,8 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.6 — ModifyResponse
-    private void handleModifyResponse(int messageId, ASN1Element element) throws ASN1Exception {
-        LDAPResult result = parseResult(element);
+    private void handleModifyResponse(int messageId, Asn1Element element) throws Asn1Exception {
+        LdapResult result = parseResult(element);
         Object callback = pendingCallbacks.remove(messageId);
 
         if (callback instanceof ModifyResultHandler) {
@@ -1169,8 +1169,8 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.7 — AddResponse
-    private void handleAddResponse(int messageId, ASN1Element element) throws ASN1Exception {
-        LDAPResult result = parseResult(element);
+    private void handleAddResponse(int messageId, Asn1Element element) throws Asn1Exception {
+        LdapResult result = parseResult(element);
         Object callback = pendingCallbacks.remove(messageId);
 
         if (callback instanceof AddResultHandler) {
@@ -1179,8 +1179,8 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.8 — DelResponse
-    private void handleDeleteResponse(int messageId, ASN1Element element) throws ASN1Exception {
-        LDAPResult result = parseResult(element);
+    private void handleDeleteResponse(int messageId, Asn1Element element) throws Asn1Exception {
+        LdapResult result = parseResult(element);
         Object callback = pendingCallbacks.remove(messageId);
 
         if (callback instanceof DeleteResultHandler) {
@@ -1189,8 +1189,8 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.9 — ModifyDNResponse
-    private void handleModifyDNResponse(int messageId, ASN1Element element) throws ASN1Exception {
-        LDAPResult result = parseResult(element);
+    private void handleModifyDNResponse(int messageId, Asn1Element element) throws Asn1Exception {
+        LdapResult result = parseResult(element);
         Object callback = pendingCallbacks.remove(messageId);
 
         if (callback instanceof ModifyDNResultHandler) {
@@ -1199,15 +1199,15 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.10 — CompareResponse (COMPARE_TRUE / COMPARE_FALSE)
-    private void handleCompareResponse(int messageId, ASN1Element element) throws ASN1Exception {
-        LDAPResult result = parseResult(element);
+    private void handleCompareResponse(int messageId, Asn1Element element) throws Asn1Exception {
+        LdapResult result = parseResult(element);
         Object callback = pendingCallbacks.remove(messageId);
 
         if (callback instanceof CompareResultHandler) {
             CompareResultHandler compareCallback = (CompareResultHandler) callback;
-            if (result.getResultCode() == LDAPResultCode.COMPARE_TRUE) {
+            if (result.getResultCode() == LdapResultCode.COMPARE_TRUE) {
                 compareCallback.handleCompareTrue(this);
-            } else if (result.getResultCode() == LDAPResultCode.COMPARE_FALSE) {
+            } else if (result.getResultCode() == LdapResultCode.COMPARE_FALSE) {
                 compareCallback.handleCompareFalse(this);
             } else {
                 compareCallback.handleCompareFailure(result, this);
@@ -1216,16 +1216,16 @@ public class LDAPClientProtocolHandler
     }
 
     // RFC 4511 section 4.12 — ExtendedResponse (with optional responseName/responseValue)
-    private void handleExtendedResponse(int messageId, ASN1Element element) throws ASN1Exception {
-        LDAPResult result = parseResult(element);
+    private void handleExtendedResponse(int messageId, Asn1Element element) throws Asn1Exception {
+        LdapResult result = parseResult(element);
 
         String responseName = null;
         byte[] responseValue = null;
 
-        List<ASN1Element> children = element.getChildren();
+        List<Asn1Element> children = element.getChildren();
         for (int i = 3; i < children.size(); i++) {
-            ASN1Element child = children.get(i);
-            int tagNum = ASN1Type.getTagNumber(child.getTag());
+            Asn1Element child = children.get(i);
+            int tagNum = Asn1Type.getTagNumber(child.getTag());
             if (tagNum == 10) {  // responseName
                 responseName = child.asString();
             } else if (tagNum == 11) {  // responseValue
@@ -1250,7 +1250,7 @@ public class LDAPClientProtocolHandler
                         StartTLSResultHandler callback = startTLSCallback;
                         startTLSCallback = null;
                         callback.handleStartTLSFailure(
-                                new LDAPResult(LDAPResultCode.OTHER, "", "Operation failed", null),
+                                new LdapResult(LdapResultCode.OTHER, "", "Operation failed", null),
                                 this);
                     } else {
                         handler.onError(e);
@@ -1279,20 +1279,20 @@ public class LDAPClientProtocolHandler
     // RFC 4511 section 4.4 — Unsolicited Notification (messageID 0)
     // The only defined unsolicited notification is Notice of Disconnection
     // (OID 1.3.6.1.4.1.1466.20036, RFC 4511 section 4.4.1).
-    private void handleUnsolicitedNotification(ASN1Element element) throws ASN1Exception {
-        LDAPResult result = parseResult(element);
+    private void handleUnsolicitedNotification(Asn1Element element) throws Asn1Exception {
+        LdapResult result = parseResult(element);
 
         String responseName = null;
-        List<ASN1Element> children = element.getChildren();
+        List<Asn1Element> children = element.getChildren();
         for (int i = 3; i < children.size(); i++) {
-            int tagNum = ASN1Type.getTagNumber(children.get(i).getTag());
+            int tagNum = Asn1Type.getTagNumber(children.get(i).getTag());
             if (tagNum == 10) {
                 responseName = children.get(i).asString();
                 break;
             }
         }
 
-        if (LDAPConstants.OID_NOTICE_OF_DISCONNECTION.equals(responseName)) {
+        if (LdapConstants.OID_NOTICE_OF_DISCONNECTION.equals(responseName)) {
             logger.warning("Notice of Disconnection from server: "
                     + result.getDiagnosticMessage()
                     + " (code=" + result.getResultCode() + ")");
@@ -1307,14 +1307,14 @@ public class LDAPClientProtocolHandler
 
     // RFC 4511 section 4.13 — IntermediateResponse
     // Dispatched to the pending callback if it implements IntermediateResponseHandler.
-    private void handleIntermediateResponse(int messageId, ASN1Element element)
-            throws ASN1Exception {
+    private void handleIntermediateResponse(int messageId, Asn1Element element)
+            throws Asn1Exception {
         String responseName = null;
         byte[] responseValue = null;
 
-        List<ASN1Element> children = element.getChildren();
-        for (ASN1Element child : children) {
-            int tagNum = ASN1Type.getTagNumber(child.getTag());
+        List<Asn1Element> children = element.getChildren();
+        for (Asn1Element child : children) {
+            int tagNum = Asn1Type.getTagNumber(child.getTag());
             if (tagNum == 0) {
                 responseName = child.asString();
             } else if (tagNum == 1) {

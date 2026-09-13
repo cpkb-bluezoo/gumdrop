@@ -33,23 +33,23 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
 /**
- * Unit tests for {@link DMARCAggregateReport} — DMARC aggregate reporting
+ * Unit tests for {@link DmarcAggregateReport} — DMARC aggregate reporting
  * (RFC 7489 §7.1, Appendix C).
  */
 public class DMARCAggregateReportTest {
 
     @Test
     public void testReportMetadata() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("Receiver Corp");
         report.setReporterEmail("reports@receiver.example.com");
         report.setReportId("rpt-001");
         report.setDateRange(1700000000L, 1700086400L);
 
         report.addResult("192.0.2.1", "sender.example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "sender.example.com",
-                DKIMResult.PASS, "sender.example.com", "sel1");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "sender.example.com",
+                DkimResult.PASS, "sender.example.com", "sel1");
 
         String xml = writeToString(report);
 
@@ -62,7 +62,7 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testReportContainsXMLDeclaration() throws IOException {
-        DMARCAggregateReport report = createMinimalReport();
+        DmarcAggregateReport report = createMinimalReport();
         String xml = writeToString(report);
 
         assertTrue(xml.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
@@ -72,16 +72,16 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testPolicyPublished() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("Test");
         report.setReporterEmail("test@test.com");
         report.setReportId("001");
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "strict.example.com",
-                DMARCPolicy.REJECT, "s", "s",
-                DMARCResult.FAIL, SPFResult.FAIL, "strict.example.com",
-                DKIMResult.FAIL, "strict.example.com", "sel1");
+                DmarcPolicy.REJECT, "s", "s",
+                DmarcResult.FAIL, SpfResult.FAIL, "strict.example.com",
+                DkimResult.FAIL, "strict.example.com", "sel1");
 
         String xml = writeToString(report);
 
@@ -94,7 +94,7 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testRecordRow() throws IOException {
-        DMARCAggregateReport report = createMinimalReport();
+        DmarcAggregateReport report = createMinimalReport();
         String xml = writeToString(report);
 
         assertTrue(xml.contains("<record>"));
@@ -106,7 +106,7 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testAuthResults() throws IOException {
-        DMARCAggregateReport report = createMinimalReport();
+        DmarcAggregateReport report = createMinimalReport();
         String xml = writeToString(report);
 
         assertTrue(xml.contains("<auth_results>"));
@@ -116,7 +116,7 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testCountAggregation() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("Test");
         report.setReporterEmail("t@t.com");
         report.setReportId("002");
@@ -125,9 +125,9 @@ public class DMARCAggregateReportTest {
         // Two messages from same IP + same disposition → count=2
         for (int i = 0; i < 2; i++) {
             report.addResult("10.0.0.5", "example.com",
-                    DMARCPolicy.NONE, "r", "r",
-                    DMARCResult.PASS, SPFResult.PASS, "example.com",
-                    DKIMResult.PASS, "example.com", "sel1");
+                    DmarcPolicy.NONE, "r", "r",
+                    DmarcResult.PASS, SpfResult.PASS, "example.com",
+                    DkimResult.PASS, "example.com", "sel1");
         }
 
         String xml = writeToString(report);
@@ -136,21 +136,21 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testDifferentIPsCreateSeparateRows() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("Test");
         report.setReporterEmail("t@t.com");
         report.setReportId("003");
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "example.com",
-                DKIMResult.PASS, "example.com", "sel1");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "example.com",
+                DkimResult.PASS, "example.com", "sel1");
 
         report.addResult("10.0.0.2", "example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "example.com",
-                DKIMResult.PASS, "example.com", "sel1");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "example.com",
+                DkimResult.PASS, "example.com", "sel1");
 
         String xml = writeToString(report);
         assertTrue(xml.contains("<source_ip>10.0.0.1</source_ip>"));
@@ -159,16 +159,16 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testDispositionReject() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("Test");
         report.setReporterEmail("t@t.com");
         report.setReportId("004");
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "bad.example.com",
-                DMARCPolicy.REJECT, "r", "r",
-                DMARCResult.FAIL, SPFResult.FAIL, "bad.example.com",
-                DKIMResult.FAIL, "bad.example.com", null);
+                DmarcPolicy.REJECT, "r", "r",
+                DmarcResult.FAIL, SpfResult.FAIL, "bad.example.com",
+                DkimResult.FAIL, "bad.example.com", null);
 
         String xml = writeToString(report);
         assertTrue(xml.contains("<disposition>reject</disposition>"));
@@ -176,16 +176,16 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testDispositionQuarantine() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("Test");
         report.setReporterEmail("t@t.com");
         report.setReportId("005");
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "suspect.example.com",
-                DMARCPolicy.QUARANTINE, "r", "r",
-                DMARCResult.FAIL, SPFResult.FAIL, "suspect.example.com",
-                DKIMResult.FAIL, "suspect.example.com", null);
+                DmarcPolicy.QUARANTINE, "r", "r",
+                DmarcResult.FAIL, SpfResult.FAIL, "suspect.example.com",
+                DkimResult.FAIL, "suspect.example.com", null);
 
         String xml = writeToString(report);
         assertTrue(xml.contains("<disposition>quarantine</disposition>"));
@@ -193,7 +193,7 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testExtraContactInfo() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("Test");
         report.setReporterEmail("t@t.com");
         report.setReporterExtraContactInfo("https://example.com/dmarc-info");
@@ -201,9 +201,9 @@ public class DMARCAggregateReportTest {
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "example.com",
-                DKIMResult.PASS, "example.com", "sel1");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "example.com",
+                DkimResult.PASS, "example.com", "sel1");
 
         String xml = writeToString(report);
         assertTrue(xml.contains("<extra_contact_info>https://example.com/dmarc-info</extra_contact_info>"));
@@ -211,16 +211,16 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testXmlEscaping() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("Test & <Corp>");
         report.setReporterEmail("t@t.com");
         report.setReportId("007");
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "example.com",
-                DKIMResult.PASS, "example.com", "sel1");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "example.com",
+                DkimResult.PASS, "example.com", "sel1");
 
         String xml = writeToString(report);
         assertTrue(xml.contains("Test &amp; &lt;Corp&gt;"));
@@ -228,20 +228,20 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testDkimSelectorIncluded() throws IOException {
-        DMARCAggregateReport report = createMinimalReport();
+        DmarcAggregateReport report = createMinimalReport();
         String xml = writeToString(report);
         assertTrue(xml.contains("<selector>sel1</selector>"));
     }
 
     @Test
     public void testDomainCount() {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         assertEquals(0, report.getDomainCount());
 
         report.addResult("10.0.0.1", "a.example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "a.example.com",
-                DKIMResult.PASS, "a.example.com", "s");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "a.example.com",
+                DkimResult.PASS, "a.example.com", "s");
 
         assertEquals(1, report.getDomainCount());
     }
@@ -253,17 +253,17 @@ public class DMARCAggregateReportTest {
      */
     @Test
     public void testSecondDistinctDomainIsRejected() {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.addResult("10.0.0.1", "a.example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "a.example.com",
-                DKIMResult.PASS, "a.example.com", "s");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "a.example.com",
+                DkimResult.PASS, "a.example.com", "s");
 
         try {
             report.addResult("10.0.0.1", "b.example.com",
-                    DMARCPolicy.NONE, "r", "r",
-                    DMARCResult.PASS, SPFResult.PASS, "b.example.com",
-                    DKIMResult.PASS, "b.example.com", "s");
+                    DmarcPolicy.NONE, "r", "r",
+                    DmarcResult.PASS, SpfResult.PASS, "b.example.com",
+                    DkimResult.PASS, "b.example.com", "s");
             fail("Expected IllegalStateException for a second Policy Domain");
         } catch (IllegalStateException expected) {
             // pass
@@ -277,31 +277,31 @@ public class DMARCAggregateReportTest {
      */
     @Test
     public void testSameDomainRepeatedIsAllowed() {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.addResult("10.0.0.1", "a.example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "a.example.com",
-                DKIMResult.PASS, "a.example.com", "s");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "a.example.com",
+                DkimResult.PASS, "a.example.com", "s");
         report.addResult("10.0.0.2", "a.example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "a.example.com",
-                DKIMResult.PASS, "a.example.com", "s");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "a.example.com",
+                DkimResult.PASS, "a.example.com", "s");
 
         assertEquals(1, report.getDomainCount());
     }
 
     @Test
     public void testDkimPassInPolicyEvaluated() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("T");
         report.setReporterEmail("t@t.com");
         report.setReportId("008");
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.FAIL, "example.com",
-                DKIMResult.PASS, "example.com", "sel1");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.FAIL, "example.com",
+                DkimResult.PASS, "example.com", "sel1");
 
         String xml = writeToString(report);
         assertTrue(xml.contains("<dkim>pass</dkim>"));
@@ -310,16 +310,16 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testSpfPassInPolicyEvaluated() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("T");
         report.setReporterEmail("t@t.com");
         report.setReportId("009");
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "example.com",
-                DKIMResult.FAIL, "example.com", "sel1");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "example.com",
+                DkimResult.FAIL, "example.com", "sel1");
 
         String xml = writeToString(report);
         assertTrue(xml.contains("<spf>pass</spf>"));
@@ -329,17 +329,17 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testNpTestingAndDiscoveryMethodInPolicyPublished() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("T");
         report.setReporterEmail("t@t.com");
         report.setReportId("feat002-1");
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "example.com",
-                DKIMResult.PASS, "example.com", "sel1",
-                DMARCPolicy.REJECT, "y", 50, "treewalk");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "example.com",
+                DkimResult.PASS, "example.com", "sel1",
+                DmarcPolicy.REJECT, "y", 50, "treewalk");
 
         String xml = writeToString(report);
         assertTrue(xml.contains("<np>reject</np>"));
@@ -354,7 +354,7 @@ public class DMARCAggregateReportTest {
     public void testDefaultTestingIsNWhenOmitted() throws IOException {
         // The plain 11-arg addResult() overload defaults testing to "n"
         // and omits np/discovery_method entirely.
-        DMARCAggregateReport report = createMinimalReport();
+        DmarcAggregateReport report = createMinimalReport();
         String xml = writeToString(report);
 
         assertTrue(xml.contains("<testing>n</testing>"));
@@ -365,7 +365,7 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testGeneratorIsOptional() throws IOException {
-        DMARCAggregateReport report = createMinimalReport();
+        DmarcAggregateReport report = createMinimalReport();
         assertFalse(writeToString(report).contains("<generator>"));
 
         report.setGenerator("gumdrop/2.1");
@@ -374,16 +374,16 @@ public class DMARCAggregateReportTest {
 
     @Test
     public void testSelectorRequiredEvenWhenUnknown() throws IOException {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("T");
         report.setReporterEmail("t@t.com");
         report.setReportId("feat002-2");
         report.setDateRange(0, 1);
 
         report.addResult("10.0.0.1", "example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "example.com",
-                DKIMResult.PASS, "example.com", null);
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "example.com",
+                DkimResult.PASS, "example.com", null);
 
         String xml = writeToString(report);
         // RFC 9990: selector is required, emitted as empty rather than
@@ -394,17 +394,17 @@ public class DMARCAggregateReportTest {
 
     // -- Helpers --
 
-    private DMARCAggregateReport createMinimalReport() {
-        DMARCAggregateReport report = new DMARCAggregateReport();
+    private DmarcAggregateReport createMinimalReport() {
+        DmarcAggregateReport report = new DmarcAggregateReport();
         report.setReporterOrgName("Test");
         report.setReporterEmail("test@test.com");
         report.setReportId("min-001");
         report.setDateRange(1700000000L, 1700086400L);
 
         report.addResult("192.0.2.1", "sender.example.com",
-                DMARCPolicy.NONE, "r", "r",
-                DMARCResult.PASS, SPFResult.PASS, "sender.example.com",
-                DKIMResult.PASS, "sender.example.com", "sel1");
+                DmarcPolicy.NONE, "r", "r",
+                DmarcResult.PASS, SpfResult.PASS, "sender.example.com",
+                DkimResult.PASS, "sender.example.com", "sel1");
 
         return report;
     }
@@ -416,7 +416,7 @@ public class DMARCAggregateReportTest {
      */
     @Test
     public void testWriteXMLAcceptsARealFileChannel() throws IOException {
-        DMARCAggregateReport report = createMinimalReport();
+        DmarcAggregateReport report = createMinimalReport();
         Path tempFile = Files.createTempFile("dmarc-aggregate-", ".xml");
         try {
             try (FileChannel channel = FileChannel.open(tempFile,
@@ -431,7 +431,7 @@ public class DMARCAggregateReportTest {
         }
     }
 
-    private String writeToString(DMARCAggregateReport report) throws IOException {
+    private String writeToString(DmarcAggregateReport report) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         report.writeXML(Channels.newChannel(out));
         return out.toString("UTF-8");

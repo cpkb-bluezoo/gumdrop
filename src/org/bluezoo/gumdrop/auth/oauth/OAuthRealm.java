@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.auth.oauth;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -145,8 +145,8 @@ public class OAuthRealm implements Realm {
     /**
      * Supported SASL mechanisms for OAuth realm.
      */
-    private static final Set<SASLMechanism> SUPPORTED_MECHANISMS =
-        Collections.unmodifiableSet(EnumSet.of(SASLMechanism.OAUTHBEARER));
+    private static final Set<SaslMechanism> SUPPORTED_MECHANISMS =
+        Collections.unmodifiableSet(EnumSet.of(SaslMechanism.OAUTHBEARER));
     
     // Configuration properties
     private final String authorizationServerUrl;
@@ -263,7 +263,7 @@ public class OAuthRealm implements Realm {
     }
     
     @Override
-    public Set<SASLMechanism> getSupportedSASLMechanisms() {
+    public Set<SaslMechanism> getSupportedSASLMechanisms() {
         return SUPPORTED_MECHANISMS;
     }
 
@@ -440,7 +440,7 @@ public class OAuthRealm implements Realm {
             byte[] signatureBytes = urlDecoder.decode(parts[2]);
             
             // Parse header to determine algorithm
-            JWTClaimsHandler headerHandler = new JWTClaimsHandler(null);
+            JwtClaimsHandler headerHandler = new JwtClaimsHandler(null);
             parseJsonString(headerJson, headerHandler);
             String alg = headerHandler.getString("alg");
             if (alg == null) {
@@ -456,7 +456,7 @@ public class OAuthRealm implements Realm {
             }
             
             // Parse payload claims
-            JWTClaimsHandler claimsHandler = new JWTClaimsHandler(jwtAudience);
+            JwtClaimsHandler claimsHandler = new JwtClaimsHandler(jwtAudience);
             parseJsonString(payloadJson, claimsHandler);
             
             // RFC 7519 §4.1.4 — exp is required; a token with no expiry is rejected.
@@ -592,7 +592,7 @@ public class OAuthRealm implements Realm {
     /**
      * Parses a JSON string using the streaming parser.
      */
-    private static void parseJsonString(String json, JWTClaimsHandler handler)
+    private static void parseJsonString(String json, JwtClaimsHandler handler)
             throws JSONException {
         JSONParser parser = new JSONParser();
         parser.setContentHandler(handler);
@@ -930,7 +930,7 @@ public class OAuthRealm implements Realm {
      * number values by key, used for both the JOSE header and the
      * JWT claims set.
      */
-    static class JWTClaimsHandler extends JSONDefaultHandler {
+    static class JwtClaimsHandler extends JSONDefaultHandler {
 
         private final String expectedAudience;
         private String currentKey;
@@ -939,7 +939,7 @@ public class OAuthRealm implements Realm {
         private final Map<String, String> strings = new HashMap<String, String>();
         private final Map<String, Long> numbers = new HashMap<String, Long>();
 
-        JWTClaimsHandler(String expectedAudience) {
+        JwtClaimsHandler(String expectedAudience) {
             this.expectedAudience = expectedAudience;
         }
 

@@ -73,7 +73,7 @@ public class AcceptSelectorLoop implements Runnable {
      * doing so would stall acceptance of new connections on every
      * other listener until it returns. Queue the channel or hand it
      * off to another thread/{@link SelectorLoop} instead, the way
-     * {@code FTPClientDataConnectionCoordinator} does.
+     * {@code FtpClientDataConnectionCoordinator} does.
      */
     public interface RawAcceptHandler {
         void accepted(SocketChannel sc) throws IOException;

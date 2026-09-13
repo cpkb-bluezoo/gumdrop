@@ -394,7 +394,7 @@ public class EmailAddressParserTest {
 
     @Test
     public void testParseEmailAddressListByteBufferBareAddrSpec() {
-        // Format as produced by MIMEParser for folded To header (no CRLF in value)
+        // Format as produced by MimeParser for folded To header (no CRLF in value)
         String value = " user0@example.com,\tuser1@example.com,\tuser2@example.com";
         ByteBuffer buf = ByteBuffer.wrap(value.getBytes(StandardCharsets.US_ASCII));
         CharsetDecoder decoder = StandardCharsets.US_ASCII.newDecoder();
@@ -410,7 +410,7 @@ public class EmailAddressParserTest {
 
     @Test
     public void testParseEmailAddressListByteBuffer100Addresses() {
-        // Format as produced by MIMEParser for folded To header with 100 addresses
+        // Format as produced by MimeParser for folded To header with 100 addresses
         StringBuilder sb = new StringBuilder();
         sb.append(" user0@example.com,");
         for (int i = 1; i < 99; i++) {

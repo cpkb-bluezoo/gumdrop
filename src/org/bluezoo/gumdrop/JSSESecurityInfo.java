@@ -1,5 +1,5 @@
 /*
- * JSSESecurityInfo.java
+ * JsseSecurityInfo.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -38,7 +38,7 @@ import javax.net.ssl.SSLSession;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SecurityInfo
  */
-final class JSSESecurityInfo implements SecurityInfo {
+final class JsseSecurityInfo implements SecurityInfo {
 
     private static final Map<String,Integer> KNOWN_KEY_SIZES =
             new HashMap<String,Integer>();
@@ -55,12 +55,12 @@ final class JSSESecurityInfo implements SecurityInfo {
     private final long handshakeEndTime;
 
     /**
-     * Creates a JSSESecurityInfo from an SSL engine.
+     * Creates a JsseSecurityInfo from an SSL engine.
      *
      * @param engine the SSL engine (handshake must be complete)
      * @param handshakeStartTime time when the handshake started
      */
-    JSSESecurityInfo(SSLEngine engine, long handshakeStartTime) {
+    JsseSecurityInfo(SSLEngine engine, long handshakeStartTime) {
         this.session = engine.getSession();
         this.alpnProtocol = engine.getApplicationProtocol();
         this.handshakeStartTime = handshakeStartTime;

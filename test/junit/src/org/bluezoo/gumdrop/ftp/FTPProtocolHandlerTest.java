@@ -169,7 +169,7 @@ public class FTPProtocolHandlerTest {
 
     // ═══════════════════════════════════════════════════════════════════
     // Streaming lexer tests (issue #85) — sliced-boundary and golden
-    // transcript coverage, proving the FTPServerLexer conversion from
+    // transcript coverage, proving the FtpServerLexer conversion from
     // buffered-line parsing preserves identical semantic dispatch.
     // ═══════════════════════════════════════════════════════════════════
 

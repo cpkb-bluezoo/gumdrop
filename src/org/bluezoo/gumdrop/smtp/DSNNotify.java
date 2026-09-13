@@ -1,5 +1,5 @@
 /*
- * DSNNotify.java
+ * DsnNotify.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -44,7 +44,7 @@ import java.util.ResourceBundle;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.1">RFC 3461 §4.1</a>
  */
-public enum DSNNotify {
+public enum DsnNotify {
 
     /**
      * Never send a DSN for this recipient.
@@ -74,10 +74,10 @@ public enum DSNNotify {
      * Parses a DSN notify keyword.
      * 
      * @param keyword the keyword to parse (case-insensitive)
-     * @return the corresponding DSNNotify value
+     * @return the corresponding DsnNotify value
      * @throws IllegalArgumentException if the keyword is not recognized
      */
-    public static DSNNotify parse(String keyword) {
+    public static DsnNotify parse(String keyword) {
         if (keyword == null) {
             throw new IllegalArgumentException(L10N.getString("err.null_dsn_notify"));
         }

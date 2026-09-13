@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.amqp.client.handler;
 
 import java.util.concurrent.ExecutorService;
 
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 
 /**
  * State after {@code connection.start} — send credentials via
@@ -32,8 +32,8 @@ import org.bluezoo.gumdrop.auth.SASLClientMechanism;
  * <p>SASL {@code PLAIN} is offered as a direct convenience overload since
  * it is the mechanism almost all brokers require at minimum. For
  * {@code AMQPLAIN}, {@code EXTERNAL}, or {@code GSSAPI} (issue #188), pass
- * a {@link SASLClientMechanism} obtained from
- * {@link org.bluezoo.gumdrop.auth.SASLUtils#createClient} (or, for
+ * a {@link SaslClientMechanism} obtained from
+ * {@link org.bluezoo.gumdrop.auth.SaslUtils#createClient} (or, for
  * {@code AMQPLAIN}, from the AMQP client package itself) instead — the
  * protocol handler drives it through {@code start-ok} and, if the broker
  * demands further rounds via {@code connection.secure}, through as many
@@ -60,17 +60,17 @@ public interface ClientHandshake {
      *
      * <p>Not for {@code GSSAPI} — its first challenge evaluation may
      * block on KDC contact; use
-     * {@link #startOk(SASLClientMechanism, TuneHandler, ExecutorService)}
+     * {@link #startOk(SaslClientMechanism, TuneHandler, ExecutorService)}
      * instead.
      *
      * @param saslClient the SASL mechanism driving the exchange
      * @param handler receives {@code tune} once the server responds
      */
-    void startOk(SASLClientMechanism saslClient, TuneHandler handler);
+    void startOk(SaslClientMechanism saslClient, TuneHandler handler);
 
     /**
      * Authenticates with an arbitrary SASL mechanism, offloading each
-     * {@link SASLClientMechanism#evaluateChallenge} call to
+     * {@link SaslClientMechanism#evaluateChallenge} call to
      * {@code executor} before dispatching the resulting frame back on the
      * connection's event loop.
      *
@@ -82,6 +82,6 @@ public interface ClientHandshake {
      * @param handler receives {@code tune} once the server responds
      * @param executor worker executor for blocking challenge evaluation
      */
-    void startOk(SASLClientMechanism saslClient, TuneHandler handler, ExecutorService executor);
+    void startOk(SaslClientMechanism saslClient, TuneHandler handler, ExecutorService executor);
 
 }

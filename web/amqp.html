@@ -86,7 +86,7 @@ entry point callback fired once, on the first successful connection</li>
 optional callback for connection-lost/reconnecting/recovered lifecycle events</li>
 <li><code>org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake</code> -
 sends credentials via <code>start-ok</code>, either as a PLAIN username/password
-convenience or as an arbitrary <code>SASLClientMechanism</code> (AMQPLAIN,
+convenience or as an arbitrary <code>SaslClientMechanism</code> (AMQPLAIN,
 EXTERNAL, GSSAPI)</li>
 <li>Codec classes (<code>AmqpFrame</code>, <code>AmqpMethod</code>,
 <code>FieldTable</code>, <code>BasicProperties</code>, and per-class method
@@ -376,10 +376,10 @@ AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
 
 <p>
 For lower-level control (or mechanisms this convenience API doesn't cover),
-<code>ClientHandshake</code> accepts any <code>SASLClientMechanism</code>
-directly — see <code>org.bluezoo.gumdrop.auth.SASLUtils#createClient</code>
-— via <code>startOk(SASLClientMechanism, TuneHandler)</code> or, for
-blocking mechanisms, <code>startOk(SASLClientMechanism, TuneHandler,
+<code>ClientHandshake</code> accepts any <code>SaslClientMechanism</code>
+directly — see <code>org.bluezoo.gumdrop.auth.SaslUtils#createClient</code>
+— via <code>startOk(SaslClientMechanism, TuneHandler)</code> or, for
+blocking mechanisms, <code>startOk(SaslClientMechanism, TuneHandler,
 ExecutorService)</code>. Multi-step mechanisms are handled transparently:
 the client responds to as many <code>connection.secure</code> challenges as
 the broker sends before <code>connection.tune</code>.

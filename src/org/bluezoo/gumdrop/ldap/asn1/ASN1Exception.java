@@ -1,5 +1,5 @@
 /*
- * ASN1Exception.java
+ * Asn1Exception.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,26 +26,26 @@ package org.bluezoo.gumdrop.ldap.asn1;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class ASN1Exception extends Exception {
+public class Asn1Exception extends Exception {
 
     private static final long serialVersionUID = 1L;
 
     /**
-     * Creates a new ASN1Exception with the specified message.
+     * Creates a new Asn1Exception with the specified message.
      *
      * @param message the error message
      */
-    public ASN1Exception(String message) {
+    public Asn1Exception(String message) {
         super(message);
     }
 
     /**
-     * Creates a new ASN1Exception with the specified message and cause.
+     * Creates a new Asn1Exception with the specified message and cause.
      *
      * @param message the error message
      * @param cause the underlying cause
      */
-    public ASN1Exception(String message, Throwable cause) {
+    public Asn1Exception(String message, Throwable cause) {
         super(message, cause);
     }
 }

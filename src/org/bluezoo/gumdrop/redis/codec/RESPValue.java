@@ -1,5 +1,5 @@
 /*
- * RESPValue.java
+ * RespValue.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -41,14 +41,14 @@ import java.util.Map;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
-public final class RESPValue {
+public final class RespValue {
 
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
 
     /** Singleton null value instance. */
-    private static final RESPValue NULL = new RESPValue(null, null);
+    private static final RespValue NULL = new RespValue(null, null);
 
-    private final RESPType type;
+    private final RespType type;
     private final Object value;
 
     /**
@@ -57,7 +57,7 @@ public final class RESPValue {
      * @param type the RESP type
      * @param value the value (type depends on RESP type)
      */
-    private RESPValue(RESPType type, Object value) {
+    private RespValue(RespType type, Object value) {
         this.type = type;
         this.value = value;
     }
@@ -71,7 +71,7 @@ public final class RESPValue {
      *
      * @return the null RESP value
      */
-    public static RESPValue nullValue() {
+    public static RespValue nullValue() {
         return NULL;
     }
 
@@ -81,8 +81,8 @@ public final class RESPValue {
      * @param value the string value
      * @return the RESP value
      */
-    public static RESPValue simpleString(String value) {
-        return new RESPValue(RESPType.SIMPLE_STRING, value);
+    public static RespValue simpleString(String value) {
+        return new RespValue(RespType.SIMPLE_STRING, value);
     }
 
     /**
@@ -91,8 +91,8 @@ public final class RESPValue {
      * @param message the error message
      * @return the RESP value
      */
-    public static RESPValue error(String message) {
-        return new RESPValue(RESPType.ERROR, message);
+    public static RespValue error(String message) {
+        return new RespValue(RespType.ERROR, message);
     }
 
     /**
@@ -101,8 +101,8 @@ public final class RESPValue {
      * @param value the integer value
      * @return the RESP value
      */
-    public static RESPValue integer(long value) {
-        return new RESPValue(RESPType.INTEGER, Long.valueOf(value));
+    public static RespValue integer(long value) {
+        return new RespValue(RespType.INTEGER, Long.valueOf(value));
     }
 
     /**
@@ -111,8 +111,8 @@ public final class RESPValue {
      * @param value the byte array value
      * @return the RESP value
      */
-    public static RESPValue bulkString(byte[] value) {
-        return new RESPValue(RESPType.BULK_STRING, value);
+    public static RespValue bulkString(byte[] value) {
+        return new RespValue(RespType.BULK_STRING, value);
     }
 
     /**
@@ -121,8 +121,8 @@ public final class RESPValue {
      * @param elements the array elements
      * @return the RESP value
      */
-    public static RESPValue array(List<RESPValue> elements) {
-        return new RESPValue(RESPType.ARRAY, elements);
+    public static RespValue array(List<RespValue> elements) {
+        return new RespValue(RespType.ARRAY, elements);
     }
 
     // RESP3 factory methods
@@ -133,8 +133,8 @@ public final class RESPValue {
      * @param entries the map entries (key-value pairs of RESPValues)
      * @return the RESP value
      */
-    public static RESPValue map(Map<RESPValue, RESPValue> entries) {
-        return new RESPValue(RESPType.MAP, entries);
+    public static RespValue map(Map<RespValue, RespValue> entries) {
+        return new RespValue(RespType.MAP, entries);
     }
 
     /**
@@ -143,8 +143,8 @@ public final class RESPValue {
      * @param elements the set elements
      * @return the RESP value
      */
-    public static RESPValue set(List<RESPValue> elements) {
-        return new RESPValue(RESPType.SET, elements);
+    public static RespValue set(List<RespValue> elements) {
+        return new RespValue(RespType.SET, elements);
     }
 
     /**
@@ -153,8 +153,8 @@ public final class RESPValue {
      * @param value the double value
      * @return the RESP value
      */
-    public static RESPValue doubleValue(double value) {
-        return new RESPValue(RESPType.DOUBLE, Double.valueOf(value));
+    public static RespValue doubleValue(double value) {
+        return new RespValue(RespType.DOUBLE, Double.valueOf(value));
     }
 
     /**
@@ -163,8 +163,8 @@ public final class RESPValue {
      * @param value the boolean value
      * @return the RESP value
      */
-    public static RESPValue booleanValue(boolean value) {
-        return new RESPValue(RESPType.BOOLEAN, Boolean.valueOf(value));
+    public static RespValue booleanValue(boolean value) {
+        return new RespValue(RespType.BOOLEAN, Boolean.valueOf(value));
     }
 
     /**
@@ -172,8 +172,8 @@ public final class RESPValue {
      *
      * @return the RESP3 null value
      */
-    public static RESPValue resp3Null() {
-        return new RESPValue(RESPType.NULL, null);
+    public static RespValue resp3Null() {
+        return new RespValue(RespType.NULL, null);
     }
 
     /**
@@ -182,8 +182,8 @@ public final class RESPValue {
      * @param elements the push data elements
      * @return the RESP value
      */
-    public static RESPValue push(List<RESPValue> elements) {
-        return new RESPValue(RESPType.PUSH, elements);
+    public static RespValue push(List<RespValue> elements) {
+        return new RespValue(RespType.PUSH, elements);
     }
 
     /**
@@ -193,8 +193,8 @@ public final class RESPValue {
      * @param data the string data
      * @return the RESP value
      */
-    public static RESPValue verbatimString(String encoding, byte[] data) {
-        return new RESPValue(RESPType.VERBATIM_STRING, new Object[] { encoding, data });
+    public static RespValue verbatimString(String encoding, byte[] data) {
+        return new RespValue(RespType.VERBATIM_STRING, new Object[] { encoding, data });
     }
 
     /**
@@ -203,8 +203,8 @@ public final class RESPValue {
      * @param value the big number as a string
      * @return the RESP value
      */
-    public static RESPValue bigNumber(String value) {
-        return new RESPValue(RESPType.BIG_NUMBER, value);
+    public static RespValue bigNumber(String value) {
+        return new RespValue(RespType.BIG_NUMBER, value);
     }
 
     /**
@@ -213,8 +213,8 @@ public final class RESPValue {
      * @param data the error data
      * @return the RESP value
      */
-    public static RESPValue blobError(byte[] data) {
-        return new RESPValue(RESPType.BLOB_ERROR, data);
+    public static RespValue blobError(byte[] data) {
+        return new RespValue(RespType.BLOB_ERROR, data);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -226,7 +226,7 @@ public final class RESPValue {
      *
      * @return the type, or null if this is a null value
      */
-    public RESPType getType() {
+    public RespType getType() {
         return type;
     }
 
@@ -236,7 +236,7 @@ public final class RESPValue {
      * @return true if null
      */
     public boolean isNull() {
-        return type == null || type == RESPType.NULL;
+        return type == null || type == RespType.NULL;
     }
 
     /**
@@ -245,7 +245,7 @@ public final class RESPValue {
      * @return true if simple string
      */
     public boolean isSimpleString() {
-        return type == RESPType.SIMPLE_STRING;
+        return type == RespType.SIMPLE_STRING;
     }
 
     /**
@@ -254,7 +254,7 @@ public final class RESPValue {
      * @return true if error
      */
     public boolean isError() {
-        return type == RESPType.ERROR || type == RESPType.BLOB_ERROR;
+        return type == RespType.ERROR || type == RespType.BLOB_ERROR;
     }
 
     /**
@@ -263,7 +263,7 @@ public final class RESPValue {
      * @return true if integer
      */
     public boolean isInteger() {
-        return type == RESPType.INTEGER;
+        return type == RespType.INTEGER;
     }
 
     /**
@@ -272,7 +272,7 @@ public final class RESPValue {
      * @return true if bulk string
      */
     public boolean isBulkString() {
-        return type == RESPType.BULK_STRING;
+        return type == RespType.BULK_STRING;
     }
 
     /**
@@ -281,34 +281,34 @@ public final class RESPValue {
      * @return true if array
      */
     public boolean isArray() {
-        return type == RESPType.ARRAY;
+        return type == RespType.ARRAY;
     }
 
     // RESP3 type checks
 
     /** Returns whether this is a RESP3 map. */
-    public boolean isMap() { return type == RESPType.MAP; }
+    public boolean isMap() { return type == RespType.MAP; }
 
     /** Returns whether this is a RESP3 set. */
-    public boolean isSet() { return type == RESPType.SET; }
+    public boolean isSet() { return type == RespType.SET; }
 
     /** Returns whether this is a RESP3 double. */
-    public boolean isDouble() { return type == RESPType.DOUBLE; }
+    public boolean isDouble() { return type == RespType.DOUBLE; }
 
     /** Returns whether this is a RESP3 boolean. */
-    public boolean isBoolean() { return type == RESPType.BOOLEAN; }
+    public boolean isBoolean() { return type == RespType.BOOLEAN; }
 
     /** Returns whether this is a RESP3 push message. */
-    public boolean isPush() { return type == RESPType.PUSH; }
+    public boolean isPush() { return type == RespType.PUSH; }
 
     /** Returns whether this is a RESP3 verbatim string. */
-    public boolean isVerbatimString() { return type == RESPType.VERBATIM_STRING; }
+    public boolean isVerbatimString() { return type == RespType.VERBATIM_STRING; }
 
     /** Returns whether this is a RESP3 big number. */
-    public boolean isBigNumber() { return type == RESPType.BIG_NUMBER; }
+    public boolean isBigNumber() { return type == RespType.BIG_NUMBER; }
 
     /** Returns whether this is a RESP3 blob error. */
-    public boolean isBlobError() { return type == RESPType.BLOB_ERROR; }
+    public boolean isBlobError() { return type == RespType.BLOB_ERROR; }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Value access
@@ -358,7 +358,7 @@ public final class RESPValue {
      * @throws IllegalStateException if this is not an integer type
      */
     public long asLong() {
-        if (type != RESPType.INTEGER) {
+        if (type != RespType.INTEGER) {
             throw new IllegalStateException("Not an integer value");
         }
         return ((Long) value).longValue();
@@ -407,9 +407,9 @@ public final class RESPValue {
     // constructors/parser to match `type`, so the cast is safe whenever
     // the type check above passes, though not statically provable.
     @SuppressWarnings("unchecked")
-    public List<RESPValue> asArray() {
-        if (type == RESPType.ARRAY || type == RESPType.SET || type == RESPType.PUSH) {
-            return (List<RESPValue>) value;
+    public List<RespValue> asArray() {
+        if (type == RespType.ARRAY || type == RespType.SET || type == RespType.PUSH) {
+            return (List<RespValue>) value;
         }
         return null;
     }
@@ -420,10 +420,10 @@ public final class RESPValue {
      * @return the error message, or null if not an error
      */
     public String getErrorMessage() {
-        if (type == RESPType.ERROR) {
+        if (type == RespType.ERROR) {
             return (String) value;
         }
-        if (type == RESPType.BLOB_ERROR) {
+        if (type == RespType.BLOB_ERROR) {
             return new String((byte[]) value, UTF_8);
         }
         return null;
@@ -438,7 +438,7 @@ public final class RESPValue {
      * @return the error type prefix, or null if not an error
      */
     public String getErrorType() {
-        if (type != RESPType.ERROR && type != RESPType.BLOB_ERROR) {
+        if (type != RespType.ERROR && type != RespType.BLOB_ERROR) {
             return null;
         }
         String message = asString();
@@ -464,11 +464,11 @@ public final class RESPValue {
     // Unchecked: value's runtime type is enforced by this class's own
     // constructors/parser to match `type` (see asArray()).
     @SuppressWarnings("unchecked")
-    public Map<RESPValue, RESPValue> asMap() {
-        if (type != RESPType.MAP) {
+    public Map<RespValue, RespValue> asMap() {
+        if (type != RespType.MAP) {
             return null;
         }
-        return (Map<RESPValue, RESPValue>) value;
+        return (Map<RespValue, RespValue>) value;
     }
 
     /**
@@ -478,10 +478,10 @@ public final class RESPValue {
      * @throws IllegalStateException if this is not a double type
      */
     public double asDouble() {
-        if (type == RESPType.DOUBLE) {
+        if (type == RespType.DOUBLE) {
             return ((Double) value).doubleValue();
         }
-        if (type == RESPType.INTEGER) {
+        if (type == RespType.INTEGER) {
             return ((Long) value).doubleValue();
         }
         throw new IllegalStateException("Not a double value");
@@ -494,7 +494,7 @@ public final class RESPValue {
      * @throws IllegalStateException if this is not a boolean type
      */
     public boolean asBoolean() {
-        if (type != RESPType.BOOLEAN) {
+        if (type != RespType.BOOLEAN) {
             throw new IllegalStateException("Not a boolean value");
         }
         return ((Boolean) value).booleanValue();
@@ -508,11 +508,11 @@ public final class RESPValue {
     // Unchecked: value's runtime type is enforced by this class's own
     // constructors/parser to match `type` (see asArray()).
     @SuppressWarnings("unchecked")
-    public List<RESPValue> asPush() {
-        if (type != RESPType.PUSH) {
+    public List<RespValue> asPush() {
+        if (type != RespType.PUSH) {
             return null;
         }
-        return (List<RESPValue>) value;
+        return (List<RespValue>) value;
     }
 
     /**
@@ -521,7 +521,7 @@ public final class RESPValue {
      * @return the 3-character encoding hint, or null if not a verbatim string
      */
     public String getVerbatimEncoding() {
-        if (type != RESPType.VERBATIM_STRING) {
+        if (type != RespType.VERBATIM_STRING) {
             return null;
         }
         Object[] vs = (Object[]) value;
@@ -553,15 +553,15 @@ public final class RESPValue {
                 return "$" + bytes.length + ":" + new String(bytes, UTF_8);
             case ARRAY:
                 @SuppressWarnings("unchecked")
-                List<RESPValue> aElems = (List<RESPValue>) value;
+                List<RespValue> aElems = (List<RespValue>) value;
                 return "*" + aElems.size();
             case MAP:
                 @SuppressWarnings("unchecked")
-                Map<RESPValue, RESPValue> map = (Map<RESPValue, RESPValue>) value;
+                Map<RespValue, RespValue> map = (Map<RespValue, RespValue>) value;
                 return "%" + map.size();
             case SET:
                 @SuppressWarnings("unchecked")
-                List<RESPValue> sElems = (List<RESPValue>) value;
+                List<RespValue> sElems = (List<RespValue>) value;
                 return "~" + sElems.size();
             case DOUBLE:
                 return "," + value;
@@ -571,7 +571,7 @@ public final class RESPValue {
                 return "_";
             case PUSH:
                 @SuppressWarnings("unchecked")
-                List<RESPValue> pElems = (List<RESPValue>) value;
+                List<RespValue> pElems = (List<RespValue>) value;
                 return ">" + pElems.size();
             case VERBATIM_STRING:
                 Object[] vs = (Object[]) value;

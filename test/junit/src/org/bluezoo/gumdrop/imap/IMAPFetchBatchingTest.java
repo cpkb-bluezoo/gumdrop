@@ -25,7 +25,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
@@ -187,9 +187,9 @@ public class IMAPFetchBatchingTest {
     private static final class AcceptingRealm implements Realm {
         private final String user;
         private final String pass;
-        private static final Set<SASLMechanism> SUPPORTED =
+        private static final Set<SaslMechanism> SUPPORTED =
                 Collections.unmodifiableSet(
-                        EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN));
+                        EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
 
         AcceptingRealm(String user, String pass) {
             this.user = user;
@@ -202,7 +202,7 @@ public class IMAPFetchBatchingTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
 

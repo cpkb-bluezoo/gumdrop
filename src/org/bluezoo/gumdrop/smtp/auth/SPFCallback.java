@@ -1,5 +1,5 @@
 /*
- * SPFCallback.java
+ * SpfCallback.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -29,11 +29,11 @@ package org.bluezoo.gumdrop.smtp.auth;
  * lookups for mechanisms like "include" or "redirect".
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SPFValidator
- * @see SPFResult
+ * @see SpfValidator
+ * @see SpfResult
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
  */
-public interface SPFCallback {
+public interface SpfCallback {
 
     /**
      * Called when an SPF check completes.
@@ -41,7 +41,7 @@ public interface SPFCallback {
      * @param result the SPF check result
      * @param explanation optional explanation text from the SPF record, or null
      */
-    void spfResult(SPFResult result, String explanation);
+    void spfResult(SpfResult result, String explanation);
 
 }
 

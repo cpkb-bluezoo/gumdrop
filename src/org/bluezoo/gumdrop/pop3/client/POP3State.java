@@ -1,5 +1,5 @@
 /*
- * POP3State.java
+ * Pop3State.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ package org.bluezoo.gumdrop.pop3.client;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-enum POP3State {
+enum Pop3State {
 
     /** Not connected to any server. */
     DISCONNECTED,

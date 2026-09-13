@@ -105,7 +105,7 @@ public class FTPDataConnectionCoordinatorTest {
         assertEquals("/pub", transfer.getPath());
     }
 
-    private static class StubControlConnection implements FTPControlConnection {
+    private static class StubControlConnection implements FtpControlConnection {
         private final FtpListener server;
 
         StubControlConnection() {

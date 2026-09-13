@@ -368,7 +368,7 @@ All client classes support certificate pinning via
 <code>setTrustManager(X509TrustManager)</code>:
 <code>HttpClient</code>, <code>SmtpClient</code>, <code>ImapClient</code>,
 <code>Pop3Client</code>, <code>WebSocketClient</code>, <code>RedisClient</code>,
-<code>LDAPClient</code>.
+<code>LdapClient</code>.
 </p>
 
 <h2 id="iam">Identity and Access Management (IAM)</h2>
@@ -390,7 +390,7 @@ mechanisms without exposing stored credentials:
 <pre>
 public interface Realm {
     Realm forSelectorLoop(SelectorLoop loop);
-    Set&lt;SASLMechanism&gt; getSupportedSASLMechanisms();
+    Set&lt;SaslMechanism&gt; getSupportedSASLMechanisms();
     boolean passwordMatch(String username, String password);
     String getDigestHA1(String username, String realmName);
     boolean isUserInRole(String username, String role);
@@ -459,7 +459,7 @@ containing space-separated role names. Users reference groups using the
 
 <p>
 BasicRealm with plaintext passwords is intended for development and testing
-only. For production, use <a href="#ldaprealm">LDAPRealm</a> or
+only. For production, use <a href="#ldaprealm">LdapRealm</a> or
 <a href="#oauthrealm">OAuthRealm</a>. A warning is logged at startup when
 plaintext passwords are loaded.
 </p>
@@ -664,7 +664,7 @@ imapListener.configureGSSAPI(
     "imap/mail.example.com@EXAMPLE.COM");
 
 // Or via setGSSAPIServer() for shared keytab
-GSSAPIServer gss = new GSSAPIServer(
+GssapiServer gss = new GssapiServer(
     Path.of("/etc/krb5.keytab"),
     "imap/mail.example.com@EXAMPLE.COM");
 imapListener.setGSSAPIServer(gss);

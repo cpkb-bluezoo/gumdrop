@@ -1,5 +1,5 @@
 /*
- * JSPDependencyTracker.java
+ * JspDependencyTracker.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -56,9 +56,9 @@ import jakarta.servlet.ServletContext;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPDependencyTracker {
+public class JspDependencyTracker {
 
-    private static final Logger LOGGER = Logger.getLogger(JSPDependencyTracker.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(JspDependencyTracker.class.getName());
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
     
@@ -80,7 +80,7 @@ public class JSPDependencyTracker {
      * @param servletContext the servlet context
      * @param webappRoot the root directory of the web application
      */
-    public JSPDependencyTracker(ServletContext servletContext, File webappRoot) {
+    public JspDependencyTracker(ServletContext servletContext, File webappRoot) {
         this.servletContext = servletContext;
         this.webappRoot = webappRoot;
     }

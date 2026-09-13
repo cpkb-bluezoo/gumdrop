@@ -59,10 +59,10 @@ import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
-import org.bluezoo.gumdrop.auth.GSSAPIServer;
+import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
@@ -100,7 +100,7 @@ import org.bluezoo.util.ByteArrays;
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses a streaming {@link POP3ServerLexer} (issue #85):
+ * <li>Line parsing uses a streaming {@link Pop3ServerLexer} (issue #85):
  *     bytes are tokenised as they arrive rather than buffered into whole
  *     lines — see {@link ByteStreamLexer}</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
@@ -127,12 +127,12 @@ import org.bluezoo.util.ByteArrays;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see POP3ServerLexer
+ * @see Pop3ServerLexer
  * @see Pop3Listener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  */
 public final class Pop3ProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<POP3ServerLexer.Token>,
+        implements ProtocolHandler, ByteStreamLexer.Handler<Pop3ServerLexer.Token>,
                    ConnectedState, AuthenticateState, MailboxStatusState,
                    ListState, RetrieveState, MarkDeletedState, ResetState,
                    TopState, UidlState, UpdateState, MessageListingCacheHost {
@@ -149,7 +149,7 @@ public final class Pop3ProtocolHandler
     private static final String CRLF = "\r\n";
 
     // RFC 1939 section 3 — POP3 session states
-    enum POP3State {
+    enum Pop3State {
         AUTHORIZATION,
         TRANSACTION,
         UPDATE
@@ -160,7 +160,7 @@ public final class Pop3ProtocolHandler
     // buffered as a String and re-compared later: the command is known as
     // soon as its token arrives, so it is carried as this enum from then
     // on instead of a string requiring a second dispatch-time lookup.
-    enum POP3Command {
+    enum Pop3Command {
         QUIT, CAPA, NOOP,
         USER, PASS, APOP, AUTH, STLS, UTF8,
         STAT, LIST, RETR, DELE, RSET, TOP, UIDL,
@@ -200,7 +200,7 @@ public final class Pop3ProtocolHandler
     private Runnable pendingOpenSuccess;
 
     // POP3 session state
-    private POP3State state = POP3State.AUTHORIZATION;
+    private Pop3State state = Pop3State.AUTHORIZATION;
     private String username;
     private MailboxStore store;
     private Mailbox mailbox;
@@ -220,13 +220,13 @@ public final class Pop3ProtocolHandler
     private String authClientNonce;
     private byte[] authSalt;
     private int authIterations = 4096;
-    private GSSAPIServer.GSSAPIExchange gssapiExchange;
+    private GssapiServer.GssapiExchange gssapiExchange;
 
     // Streaming lexer (issue #85) and per-line parse state
-    private final POP3ServerLexer lexer;
-    private final TokenErrorRecovery<POP3ServerLexer.Token> lexerRecovery =
-            new TokenErrorRecovery<POP3ServerLexer.Token>(POP3ServerLexer.Token.CRLF);
-    private POP3Command pendingCommand = POP3Command.UNKNOWN;
+    private final Pop3ServerLexer lexer;
+    private final TokenErrorRecovery<Pop3ServerLexer.Token> lexerRecovery =
+            new TokenErrorRecovery<Pop3ServerLexer.Token>(Pop3ServerLexer.Token.CRLF);
+    private Pop3Command pendingCommand = Pop3Command.UNKNOWN;
     private String pendingUnknownText = "";
     private String pendingContinuationText = "";
     private boolean pendingHasSp;
@@ -249,7 +249,7 @@ public final class Pop3ProtocolHandler
         this.connectionTimeMillis = System.currentTimeMillis();
         this.lastActivityTime = connectionTimeMillis;
         ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
-        this.lexer = new POP3ServerLexer(this, MAX_LINE_LENGTH);
+        this.lexer = new Pop3ServerLexer(this, MAX_LINE_LENGTH);
 
         if (server.isEnableAPOP()) {
             this.apopTimestamp = generateAPOPTimestamp();
@@ -289,13 +289,13 @@ public final class Pop3ProtocolHandler
             }
 
             endAuthenticatedSpan();
-            if (state == POP3State.UPDATE) {
+            if (state == Pop3State.UPDATE) {
                 endSessionSpan();
             } else {
                 endSessionSpanError("Connection lost");
             }
         } finally {
-            offloadCloseMailboxAndStore(state != POP3State.UPDATE);
+            offloadCloseMailboxAndStore(state != Pop3State.UPDATE);
         }
     }
 
@@ -355,7 +355,7 @@ public final class Pop3ProtocolHandler
     public void securityEstablished(SecurityInfo info) {
         // For POP3S (implicit TLS), send greeting now
         // For STLS, the greeting was already sent
-        if (state == POP3State.AUTHORIZATION && !stlsUsed) {
+        if (state == Pop3State.AUTHORIZATION && !stlsUsed) {
             sendGreetingWithHandler();
         }
     }
@@ -369,12 +369,12 @@ public final class Pop3ProtocolHandler
     // ── ByteStreamLexer.Handler implementation (issue #85) ──
 
     // RFC 1939 section 3: KEYWORD [SP TEXT] CRLF. TEXT is delivered in
-    // zero-copy chunks by the lexer (see POP3ServerLexer / ByteStreamLexer);
+    // zero-copy chunks by the lexer (see Pop3ServerLexer / ByteStreamLexer);
     // this dispatcher accumulates only what it needs to retain (the args
     // string) and enforces the combined line-length budget itself, since
     // free-form text is intentionally exempt from the lexer's own cap.
     @Override
-    public boolean token(POP3ServerLexer.Token type, ByteBuffer window) {
+    public boolean token(Pop3ServerLexer.Token type, ByteBuffer window) {
         if (lexerRecovery.handleToken(type)) {
             // Discarding the remainder of a line already rejected by
             // tokenTooLong(); the error reply was already sent there.
@@ -384,7 +384,7 @@ public final class Pop3ProtocolHandler
             case KEYWORD:
                 lineByteCount = window.remaining();
                 if (lineErrorMessage == null) {
-                    if (state == POP3State.AUTHORIZATION
+                    if (state == Pop3State.AUTHORIZATION
                             && authState != AuthState.NONE) {
                         // SASL continuation data must preserve original
                         // case, and isn't a command at all, so it is
@@ -403,7 +403,7 @@ public final class Pop3ProtocolHandler
                         // where the exact text is needed for the error
                         // reply.
                         pendingCommand = matchCommand(window);
-                        if (pendingCommand == POP3Command.UNKNOWN) {
+                        if (pendingCommand == Pop3Command.UNKNOWN) {
                             try {
                                 pendingUnknownText =
                                         decodeAscii(window).toUpperCase(Locale.ENGLISH);
@@ -466,7 +466,7 @@ public final class Pop3ProtocolHandler
     }
 
     private void resetLineState() {
-        pendingCommand = POP3Command.UNKNOWN;
+        pendingCommand = Pop3Command.UNKNOWN;
         pendingUnknownText = "";
         pendingContinuationText = "";
         pendingHasSp = false;
@@ -482,9 +482,9 @@ public final class Pop3ProtocolHandler
      * to a string comparison at dispatch time.
      *
      * @param window the KEYWORD token's bytes
-     * @return the matched command, or {@link POP3Command#UNKNOWN}
+     * @return the matched command, or {@link Pop3Command#UNKNOWN}
      */
-    private static POP3Command matchCommand(ByteBuffer window) {
+    private static Pop3Command matchCommand(ByteBuffer window) {
         int len = window.remaining();
         int base = window.position();
         // Every verb byte is read exactly once and folded to uppercase,
@@ -497,45 +497,45 @@ public final class Pop3ProtocolHandler
         if (len == 4) {
             switch (pack4(window, base)) {
                 case ('Q' << 24) | ('U' << 16) | ('I' << 8) | 'T':
-                    return POP3Command.QUIT;
+                    return Pop3Command.QUIT;
                 case ('C' << 24) | ('A' << 16) | ('P' << 8) | 'A':
-                    return POP3Command.CAPA;
+                    return Pop3Command.CAPA;
                 case ('N' << 24) | ('O' << 16) | ('O' << 8) | 'P':
-                    return POP3Command.NOOP;
+                    return Pop3Command.NOOP;
                 case ('U' << 24) | ('S' << 16) | ('E' << 8) | 'R':
-                    return POP3Command.USER;
+                    return Pop3Command.USER;
                 case ('P' << 24) | ('A' << 16) | ('S' << 8) | 'S':
-                    return POP3Command.PASS;
+                    return Pop3Command.PASS;
                 case ('A' << 24) | ('P' << 16) | ('O' << 8) | 'P':
-                    return POP3Command.APOP;
+                    return Pop3Command.APOP;
                 case ('A' << 24) | ('U' << 16) | ('T' << 8) | 'H':
-                    return POP3Command.AUTH;
+                    return Pop3Command.AUTH;
                 case ('S' << 24) | ('T' << 16) | ('L' << 8) | 'S':
-                    return POP3Command.STLS;
+                    return Pop3Command.STLS;
                 case ('U' << 24) | ('T' << 16) | ('F' << 8) | '8':
-                    return POP3Command.UTF8;
+                    return Pop3Command.UTF8;
                 case ('S' << 24) | ('T' << 16) | ('A' << 8) | 'T':
-                    return POP3Command.STAT;
+                    return Pop3Command.STAT;
                 case ('L' << 24) | ('I' << 16) | ('S' << 8) | 'T':
-                    return POP3Command.LIST;
+                    return Pop3Command.LIST;
                 case ('R' << 24) | ('E' << 16) | ('T' << 8) | 'R':
-                    return POP3Command.RETR;
+                    return Pop3Command.RETR;
                 case ('D' << 24) | ('E' << 16) | ('L' << 8) | 'E':
-                    return POP3Command.DELE;
+                    return Pop3Command.DELE;
                 case ('R' << 24) | ('S' << 16) | ('E' << 8) | 'T':
-                    return POP3Command.RSET;
+                    return Pop3Command.RSET;
                 case ('U' << 24) | ('I' << 16) | ('D' << 8) | 'L':
-                    return POP3Command.UIDL;
+                    return Pop3Command.UIDL;
                 default:
-                    return POP3Command.UNKNOWN;
+                    return Pop3Command.UNKNOWN;
             }
         }
         if (len == 3) {
             if (pack3(window, base) == (('T' << 16) | ('O' << 8) | 'P')) {
-                return POP3Command.TOP;
+                return Pop3Command.TOP;
             }
         }
-        return POP3Command.UNKNOWN;
+        return Pop3Command.UNKNOWN;
     }
 
     private static int pack4(ByteBuffer window, int base) {
@@ -565,7 +565,7 @@ public final class Pop3ProtocolHandler
     // lexed; the command was already resolved to an enum at the KEYWORD
     // token, so dispatch is a direct switch, not a re-parse of a string.
     private void dispatchLine() {
-        POP3Command command = pendingCommand;
+        Pop3Command command = pendingCommand;
         String unknownText = pendingUnknownText;
         String continuationText = pendingContinuationText;
         String args = argsBuilder.toString();
@@ -580,7 +580,7 @@ public final class Pop3ProtocolHandler
             }
 
             // SASL continuation data must preserve original case
-            if (state == POP3State.AUTHORIZATION
+            if (state == Pop3State.AUTHORIZATION
                     && authState != AuthState.NONE) {
                 String rawLine = hadArgs
                         ? (continuationText + " " + args) : continuationText;
@@ -713,7 +713,7 @@ public final class Pop3ProtocolHandler
     // already resolved from the KEYWORD token's raw bytes (see
     // matchCommand()); SASL continuation routing happens earlier, in
     // dispatchLine(), before this is ever called.
-    private void dispatchCommand(POP3Command command, String unknownText, String args)
+    private void dispatchCommand(Pop3Command command, String unknownText, String args)
             throws IOException {
         switch (command) {
             case QUIT:
@@ -797,8 +797,8 @@ public final class Pop3ProtocolHandler
     // because it matched a verb that isn't valid in the current state
     // (e.g. USER while in TRANSACTION) — in which case the enum's own
     // name is already the exact uppercased text, with no decode needed.
-    private static String unknownCommandText(POP3Command command, String unknownText) {
-        return command == POP3Command.UNKNOWN ? unknownText : command.name();
+    private static String unknownCommandText(Pop3Command command, String unknownText) {
+        return command == Pop3Command.UNKNOWN ? unknownText : command.name();
     }
 
     // ── AUTHORIZATION commands (RFC 1939 section 4, 7) ──
@@ -859,7 +859,7 @@ public final class Pop3ProtocolHandler
                                 openMailboxAsync(passUsername, new Runnable() {
                                     @Override
                                     public void run() {
-                                        state = POP3State.TRANSACTION;
+                                        state = Pop3State.TRANSACTION;
                                         if (LOGGER.isLoggable(Level.INFO)) {
                                             LOGGER.info(
                                                     "POP3 USER/PASS auth successful: "
@@ -945,7 +945,7 @@ public final class Pop3ProtocolHandler
                             openMailboxAsync(username, new Runnable() {
                                 @Override
                                 public void run() {
-                                    state = POP3State.TRANSACTION;
+                                    state = Pop3State.TRANSACTION;
                                     if (LOGGER.isLoggable(Level.INFO)) {
                                         LOGGER.info(
                                                 "POP3 APOP auth successful: "
@@ -1035,13 +1035,13 @@ public final class Pop3ProtocolHandler
             Realm realm = getRealm();
             if (realm != null) {
                 sendOK(L10N.getString("pop3.auth_mechanisms"));
-                Set<SASLMechanism> supported =
+                Set<SaslMechanism> supported =
                         realm.getSupportedSASLMechanisms();
-                for (SASLMechanism mech : supported) {
+                for (SaslMechanism mech : supported) {
                     if (!endpoint.isSecure() && mech.requiresTLS()) {
                         continue;
                     }
-                    if (mech == SASLMechanism.EXTERNAL
+                    if (mech == SaslMechanism.EXTERNAL
                             && !endpoint.isSecure()) {
                         continue;
                     }
@@ -1069,10 +1069,10 @@ public final class Pop3ProtocolHandler
             mechanismText = args;
         }
 
-        // SASLMechanism.fromName() is already the canonical, case-insensitive
+        // SaslMechanism.fromName() is already the canonical, case-insensitive
         // string-to-enum lookup for this — resolve to the enum once here
         // rather than switching on the raw string.
-        SASLMechanism mechanism = SASLMechanism.fromName(mechanismText);
+        SaslMechanism mechanism = SaslMechanism.fromName(mechanismText);
         if (mechanism == null) {
             sendERR(L10N.getString("pop3.err.unsupported_mechanism"));
             return;
@@ -1154,10 +1154,10 @@ public final class Pop3ProtocolHandler
         try {
             InetSocketAddress addr =
                     (InetSocketAddress) endpoint.getLocalAddress();
-            authChallenge = SASLUtils.generateCramMD5Challenge(
+            authChallenge = SaslUtils.generateCramMD5Challenge(
                     addr.getHostString());
             authState = AuthState.CRAM_MD5_RESPONSE;
-            sendContinuation(SASLUtils.encodeBase64(authChallenge));
+            sendContinuation(SaslUtils.encodeBase64(authChallenge));
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE,
                     "Failed to generate CRAM-MD5 challenge", e);
@@ -1182,13 +1182,13 @@ public final class Pop3ProtocolHandler
         }
 
         try {
-            authNonce = SASLUtils.generateNonce(16);
+            authNonce = SaslUtils.generateNonce(16);
             String hostname = ((InetSocketAddress)
                     endpoint.getLocalAddress()).getHostString();
-            String challenge = SASLUtils.generateDigestMD5Challenge(
+            String challenge = SaslUtils.generateDigestMD5Challenge(
                     hostname, authNonce);
             authState = AuthState.DIGEST_MD5_RESPONSE;
-            sendContinuation(SASLUtils.encodeBase64(challenge));
+            sendContinuation(SaslUtils.encodeBase64(challenge));
         } catch (Exception e) {
             LOGGER.log(Level.WARNING,
                     "DIGEST-MD5 challenge generation error", e);
@@ -1228,7 +1228,7 @@ public final class Pop3ProtocolHandler
     // RFC 4752 — SASL GSSAPI mechanism (Kerberos V5)
     private void handleAuthGSSAPI(String initialResponse)
             throws IOException {
-        GSSAPIServer gssapiServer = server.getGSSAPIServer();
+        GssapiServer gssapiServer = server.getGSSAPIServer();
         if (gssapiServer == null) {
             sendERR(L10N.getString("pop3.err.gssapi_not_available"));
             return;
@@ -1251,19 +1251,19 @@ public final class Pop3ProtocolHandler
     // RFC 4752 §3.1 — processes a GSSAPI token exchange step
     private void processGSSAPIToken(String line) throws IOException {
         try {
-            byte[] clientToken = SASLUtils.decodeBase64(line);
+            byte[] clientToken = SaslUtils.decodeBase64(line);
             byte[] responseToken = gssapiExchange.acceptToken(clientToken);
 
             if (gssapiExchange.isContextEstablished()) {
                 byte[] challenge =
                         gssapiExchange.generateSecurityLayerChallenge();
-                String encoded = SASLUtils.encodeBase64(challenge);
+                String encoded = SaslUtils.encodeBase64(challenge);
                 sendContinuation(encoded);
                 return;
             }
 
             if (responseToken != null && responseToken.length > 0) {
-                String encoded = SASLUtils.encodeBase64(responseToken);
+                String encoded = SaslUtils.encodeBase64(responseToken);
                 sendContinuation(encoded);
             } else {
                 sendContinuation("");
@@ -1281,7 +1281,7 @@ public final class Pop3ProtocolHandler
     // RFC 4752 §3.1 para 7-8 — processes the security layer response
     private void processGSSAPISecurityLayer(String line) throws IOException {
         try {
-            byte[] wrapped = SASLUtils.decodeBase64(line);
+            byte[] wrapped = SaslUtils.decodeBase64(line);
             String gssName =
                     gssapiExchange.validateSecurityLayerResponse(wrapped);
             Realm realm = getRealm();
@@ -1301,7 +1301,7 @@ public final class Pop3ProtocolHandler
                 @Override
                 public void run() {
                     username = gssUser;
-                    state = POP3State.TRANSACTION;
+                    state = Pop3State.TRANSACTION;
                     recordAuthenticationSuccess("AUTH GSSAPI");
                     try {
                         sendOK(L10N.getString("pop3.mailbox_opened"));
@@ -1340,7 +1340,7 @@ public final class Pop3ProtocolHandler
         }
 
         Realm.CertificateAuthenticationResult result =
-                SASLUtils.authenticateExternal(
+                SaslUtils.authenticateExternal(
                         endpoint, getRealm(), authzid);
         if (result == null || !result.valid) {
             recordAuthenticationFailure("AUTH EXTERNAL", authzid);
@@ -1353,7 +1353,7 @@ public final class Pop3ProtocolHandler
             @Override
             public void run() {
                 username = extUser;
-                state = POP3State.TRANSACTION;
+                state = Pop3State.TRANSACTION;
                 recordAuthenticationSuccess("AUTH EXTERNAL");
                 try {
                     sendOK(L10N.getString("pop3.mailbox_opened"));
@@ -1418,8 +1418,8 @@ public final class Pop3ProtocolHandler
     private void processPlainCredentials(String data)
             throws IOException {
         try {
-            byte[] decoded = SASLUtils.decodeBase64(data);
-            String[] parts = SASLUtils.parsePlainCredentials(decoded);
+            byte[] decoded = SaslUtils.decodeBase64(data);
+            String[] parts = SaslUtils.parsePlainCredentials(decoded);
             String authzid = parts[0];
             String authcid = parts[1];
             String password = parts[2];
@@ -1490,7 +1490,7 @@ public final class Pop3ProtocolHandler
     private void processCramMD5Response(String data)
             throws IOException {
         try {
-            String response = SASLUtils.decodeBase64ToString(data);
+            String response = SaslUtils.decodeBase64ToString(data);
             int spaceIndex = response.indexOf(' ');
             if (spaceIndex < 0) {
                 sendERR(L10N.getString(
@@ -1520,7 +1520,7 @@ public final class Pop3ProtocolHandler
                         @Override
                         public void run() {
                             username = user;
-                            state = POP3State.TRANSACTION;
+                            state = Pop3State.TRANSACTION;
                             recordAuthenticationSuccess("AUTH CRAM-MD5");
                             try {
                                 sendOK(L10N.getString("pop3.mailbox_opened"));
@@ -1554,9 +1554,9 @@ public final class Pop3ProtocolHandler
             throws IOException {
         try {
             String credentials =
-                    SASLUtils.decodeBase64ToString(data);
+                    SaslUtils.decodeBase64ToString(data);
             Map<String, String> params =
-                    SASLUtils.parseOAuthBearerCredentials(credentials);
+                    SaslUtils.parseOAuthBearerCredentials(credentials);
             String user = params.get("user");
             String token = params.get("token");
 
@@ -1580,7 +1580,7 @@ public final class Pop3ProtocolHandler
                         @Override
                         public void run() {
                             username = user;
-                            state = POP3State.TRANSACTION;
+                            state = Pop3State.TRANSACTION;
                             recordAuthenticationSuccess(
                                     "AUTH OAUTHBEARER");
                             try {
@@ -1610,9 +1610,9 @@ public final class Pop3ProtocolHandler
             throws IOException {
         try {
             String digestResponse =
-                    SASLUtils.decodeBase64ToString(data);
+                    SaslUtils.decodeBase64ToString(data);
             Map<String, String> params =
-                    SASLUtils.parseDigestParams(digestResponse);
+                    SaslUtils.parseDigestParams(digestResponse);
             String digestUsername = params.get("username");
 
             if (digestUsername != null) {
@@ -1625,14 +1625,14 @@ public final class Pop3ProtocolHandler
                     }
                     String ha1 = realm.getDigestHA1(
                             digestUsername, realmName);
-                    String rspAuth = SASLUtils.verifyDigestMD5ClientResponse(
+                    String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
                             ha1, authNonce, params);
                     if (rspAuth != null) {
                         openMailboxAsync(digestUsername, new Runnable() {
                             @Override
                             public void run() {
                                 username = digestUsername;
-                                state = POP3State.TRANSACTION;
+                                state = Pop3State.TRANSACTION;
                                 recordAuthenticationSuccess(
                                         "AUTH DIGEST-MD5");
                                 try {
@@ -1730,9 +1730,9 @@ public final class Pop3ProtocolHandler
                         resetAuthState();
                         return;
                     }
-                    String serverNonce = clientNonce + SASLUtils.generateNonce(16);
+                    String serverNonce = clientNonce + SaslUtils.generateNonce(16);
                     authNonce = serverNonce;
-                    String serverFirst = SASLUtils.generateScramServerFirst(serverNonce,
+                    String serverFirst = SaslUtils.generateScramServerFirst(serverNonce,
                             creds.salt, creds.iterations);
                     authChallenge = messageBody + "," + serverFirst;
                     authSalt = Base64.getDecoder().decode(creds.salt);
@@ -1768,7 +1768,7 @@ public final class Pop3ProtocolHandler
             throws IOException {
         final String clientFinal;
         try {
-            clientFinal = SASLUtils.decodeBase64ToString(data);
+            clientFinal = SaslUtils.decodeBase64ToString(data);
         } catch (IllegalArgumentException e) {
             sendERR(L10N.getString("pop3.err.invalid_base64"));
             resetAuthState();
@@ -1802,7 +1802,7 @@ public final class Pop3ProtocolHandler
                         return;
                     }
                     byte[] serverSignature =
-                            SASLUtils.verifyScramClientFinal(creds,
+                            SaslUtils.verifyScramClientFinal(creds,
                                     authChallenge, clientFinal, authNonce);
                     if (serverSignature == null) {
                         failedAuthAttempts++;
@@ -1820,7 +1820,7 @@ public final class Pop3ProtocolHandler
                         @Override
                         public void run() {
                             username = scramUser;
-                            state = POP3State.TRANSACTION;
+                            state = Pop3State.TRANSACTION;
                             recordAuthenticationSuccess(
                                     "AUTH SCRAM-SHA-256");
                             try {
@@ -1907,7 +1907,7 @@ public final class Pop3ProtocolHandler
                                     @Override
                                     public void run() {
                                         username = user;
-                                        state = POP3State.TRANSACTION;
+                                        state = Pop3State.TRANSACTION;
                                         recordAuthenticationSuccess(
                                                 "AUTH " + mechanism);
                                         try {
@@ -2045,7 +2045,7 @@ public final class Pop3ProtocolHandler
     public void proceed(TransactionHandler handler) {
         this.transactionHandler = handler;
         // Shared AuthenticateState / UpdateState proceed: dispatch by phase.
-        if (state == POP3State.UPDATE) {
+        if (state == Pop3State.UPDATE) {
             executeQuitClose();
             return;
         }
@@ -2075,7 +2075,7 @@ public final class Pop3ProtocolHandler
                         TransactionHandler handler) {
         this.mailbox = mailbox;
         this.transactionHandler = handler;
-        this.state = POP3State.TRANSACTION;
+        this.state = Pop3State.TRANSACTION;
         messageListingCache.invalidate();
         pendingOpenUser = null;
         pendingOpenSuccess = null;
@@ -2703,16 +2703,16 @@ public final class Pop3ProtocolHandler
 
         Realm realm = getRealm();
         if (realm != null) {
-            Set<SASLMechanism> supported =
+            Set<SaslMechanism> supported =
                     realm.getSupportedSASLMechanisms();
             if (!supported.isEmpty()) {
                 StringBuilder saslLine = new StringBuilder("SASL");
-                for (SASLMechanism mech : supported) {
+                for (SaslMechanism mech : supported) {
                     if (!endpoint.isSecure()
                             && mech.requiresTLS()) {
                         continue;
                     }
-                    if (mech == SASLMechanism.EXTERNAL
+                    if (mech == SaslMechanism.EXTERNAL
                             && !endpoint.isSecure()) {
                         continue;
                     }
@@ -2774,8 +2774,8 @@ public final class Pop3ProtocolHandler
     private void handleQUIT(String args) throws IOException {
         addSessionEvent("QUIT");
 
-        if (state == POP3State.TRANSACTION) {
-            state = POP3State.UPDATE;
+        if (state == Pop3State.TRANSACTION) {
+            state = Pop3State.UPDATE;
             if (transactionHandler != null) {
                 transactionHandler.quit(this, mailbox);
                 return;

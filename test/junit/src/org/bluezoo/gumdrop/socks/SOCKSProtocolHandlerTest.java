@@ -12,18 +12,18 @@ import static org.junit.Assert.*;
 import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
- * Unit tests for {@link SOCKSProtocolHandler}.
+ * Unit tests for {@link SocksProtocolHandler}.
  *
  * <p>Tests the state machine, version detection, protocol parsing,
  * and reply construction by feeding raw bytes via
- * {@link SOCKSProtocolHandler#receive(ByteBuffer)} and inspecting
+ * {@link SocksProtocolHandler#receive(ByteBuffer)} and inspecting
  * what is sent back via a {@link StubEndpoint}.
  */
 public class SOCKSProtocolHandlerTest {
 
     private DefaultSOCKSServer service;
     private SocksListener listener;
-    private SOCKSProtocolHandler handler;
+    private SocksProtocolHandler handler;
     private StubEndpoint endpoint;
 
     @Before

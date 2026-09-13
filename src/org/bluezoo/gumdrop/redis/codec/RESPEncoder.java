@@ -1,5 +1,5 @@
 /*
- * RESPEncoder.java
+ * RespEncoder.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -38,7 +38,7 @@ import java.nio.charset.StandardCharsets;
  *
  * <h4>Usage Example</h4>
  * <pre>{@code
- * RESPEncoder encoder = new RESPEncoder();
+ * RespEncoder encoder = new RespEncoder();
  *
  * // Simple command
  * ByteBuffer ping = encoder.encodeCommand("PING");
@@ -53,7 +53,7 @@ import java.nio.charset.StandardCharsets;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
-public class RESPEncoder {
+public class RespEncoder {
 
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
     private static final byte[] CRLF = new byte[] { '\r', '\n' };
@@ -61,7 +61,7 @@ public class RESPEncoder {
     /**
      * Creates a new RESP encoder.
      */
-    public RESPEncoder() {
+    public RespEncoder() {
     }
 
     /**

@@ -70,7 +70,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * ClientLoginState}, {@code ClientAuthenticatedState}, etc.) and delegates
  * all transport operations to a transport-agnostic {@link Endpoint}.
  *
- * <p>Reply parsing uses a streaming {@link FTPClientLexer} (issue #85):
+ * <p>Reply parsing uses a streaming {@link FtpClientLexer} (issue #85):
  * bytes are tokenised as they arrive rather than buffered into whole
  * lines — see {@link ByteStreamLexer}. FTP replies share SMTP's {@code
  * CODE SEP TEXT CRLF} grammar (RFC 959 §4.2), including multi-line
@@ -88,7 +88,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4217">RFC 4217 - AUTH TLS</a>
  */
 public final class FtpClientProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<FTPClientLexer.Token>,
+        implements ProtocolHandler, ByteStreamLexer.Handler<FtpClientLexer.Token>,
         ClientLoginState, ClientPasswordState, ClientAccountState,
         ClientAuthenticatedState {
 
@@ -102,7 +102,7 @@ public final class FtpClientProtocolHandler
     private final RemoteGreeting handler;
 
     private Endpoint endpoint;
-    private FTPState state = FTPState.DISCONNECTED;
+    private FtpState state = FtpState.DISCONNECTED;
     private boolean secure;
 
     // Current callback waiting for a response
@@ -115,9 +115,9 @@ public final class FtpClientProtocolHandler
     // Data connection coordination (RFC 959 §3.2). Only one transfer can
     // be active at a time (FTP's command sequencing is strictly serial),
     // so this is tracked with plain fields rather than a per-transfer
-    // object — see FTPClientDataConnectionCoordinator's class Javadoc and
+    // object — see FtpClientDataConnectionCoordinator's class Javadoc and
     // the *DataHandler inner classes below.
-    private FTPClientDataConnectionCoordinator dataCoordinator;
+    private FtpClientDataConnectionCoordinator dataCoordinator;
     private Endpoint dataEndpoint;
     private boolean dataConnClosed;
     private boolean controlAckReceived;
@@ -133,8 +133,8 @@ public final class FtpClientProtocolHandler
 
     // Streaming lexer (issue #85) and per-line parse state. No cap on
     // structured tokens: this client trusts the remote server, same
-    // principle as SMTPClientLexer/POP3ClientLexer.
-    private final FTPClientLexer lexer = new FTPClientLexer(this, Integer.MAX_VALUE);
+    // principle as SmtpClientLexer/Pop3ClientLexer.
+    private final FtpClientLexer lexer = new FtpClientLexer(this, Integer.MAX_VALUE);
     private boolean pendingHasCode;
     private int pendingCode;
     private String pendingCodeError;
@@ -178,8 +178,8 @@ public final class FtpClientProtocolHandler
     @Override
     public void connected(Endpoint ep) {
         this.endpoint = ep;
-        this.dataCoordinator = new FTPClientDataConnectionCoordinator(ep);
-        state = FTPState.CONNECTING;
+        this.dataCoordinator = new FtpClientDataConnectionCoordinator(ep);
+        state = FtpState.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("FTP client connected to " + ep.getRemoteAddress());
@@ -195,7 +195,7 @@ public final class FtpClientProtocolHandler
     @Override
     public void disconnected() {
         LOGGER.info(L10N.getString("client.info.connection_disconnected"));
-        state = FTPState.CLOSED;
+        state = FtpState.CLOSED;
         handler.onDisconnected();
     }
 
@@ -210,7 +210,7 @@ public final class FtpClientProtocolHandler
             AuthTlsReplyHandler callback =
                     (AuthTlsReplyHandler) currentCallback;
             currentCallback = null;
-            state = FTPState.CONNECTED;
+            state = FtpState.CONNECTED;
             callback.handleTlsEstablished(this);
         }
     }
@@ -226,7 +226,7 @@ public final class FtpClientProtocolHandler
     // 5321 §4.2) — see SmtpClientProtocolHandler.token() for the mirrored
     // implementation this is based on.
     @Override
-    public boolean token(FTPClientLexer.Token type, ByteBuffer window) {
+    public boolean token(FtpClientLexer.Token type, ByteBuffer window) {
         switch (type) {
             case CODE:
                 pendingHasCode = true;
@@ -273,7 +273,7 @@ public final class FtpClientProtocolHandler
 
     @Override
     public void tokenTooLong() {
-        // FTPClientLexer is constructed with an unbounded per-token cap
+        // FtpClientLexer is constructed with an unbounded per-token cap
         // (Integer.MAX_VALUE) — this client trusts the remote server —
         // so this is structurally unreachable.
         LOGGER.warning(L10N.getString("warn.unexpected_token_too_long_client"));
@@ -364,9 +364,9 @@ public final class FtpClientProtocolHandler
      * @return true if connected
      */
     public boolean isConnected() {
-        return state != FTPState.DISCONNECTED
-                && state != FTPState.CLOSED
-                && state != FTPState.ERROR;
+        return state != FtpState.DISCONNECTED
+                && state != FtpState.CLOSED
+                && state != FtpState.ERROR;
     }
 
     /**
@@ -382,10 +382,10 @@ public final class FtpClientProtocolHandler
      * Closes the connection.
      */
     public void close() {
-        if (state == FTPState.CLOSED) {
+        if (state == FtpState.CLOSED) {
             return;
         }
-        state = FTPState.CLOSED;
+        state = FtpState.CLOSED;
         if (endpoint != null) {
             endpoint.close();
         }
@@ -397,20 +397,20 @@ public final class FtpClientProtocolHandler
     @Override
     public void user(String username, UserReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("USER " + username, FTPState.USER_SENT);
+        sendCommand("USER " + username, FtpState.USER_SENT);
     }
 
     /** RFC 4217 §4 — AUTH TLS command. */
     @Override
     public void authTls(AuthTlsReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("AUTH TLS", FTPState.AUTH_TLS_SENT);
+        sendCommand("AUTH TLS", FtpState.AUTH_TLS_SENT);
     }
 
     /** RFC 959 §4.1.1 — QUIT command. */
     @Override
     public void quit() {
-        sendCommand("QUIT", FTPState.QUIT_SENT);
+        sendCommand("QUIT", FtpState.QUIT_SENT);
     }
 
     // ── ClientPasswordState (RFC 959 §4.1.1 — PASS after USER) ──
@@ -419,7 +419,7 @@ public final class FtpClientProtocolHandler
     @Override
     public void pass(String password, PassReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("PASS " + password, FTPState.PASS_SENT);
+        sendCommand("PASS " + password, FtpState.PASS_SENT);
     }
 
     // ── ClientAccountState (RFC 959 §4.1.1 — ACCT after 332) ──
@@ -428,7 +428,7 @@ public final class FtpClientProtocolHandler
     @Override
     public void acct(String account, AcctReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("ACCT " + account, FTPState.ACCT_SENT);
+        sendCommand("ACCT " + account, FtpState.ACCT_SENT);
     }
 
     // ── ClientAuthenticatedState (RFC 959 §4.1.2 / §4.1.3) ──
@@ -437,77 +437,77 @@ public final class FtpClientProtocolHandler
     @Override
     public void cwd(String pathname, CwdReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("CWD " + pathname, FTPState.CWD_SENT);
+        sendCommand("CWD " + pathname, FtpState.CWD_SENT);
     }
 
     /** RFC 959 §4.1.3 — CDUP command. */
     @Override
     public void cdup(SimpleReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("CDUP", FTPState.CDUP_SENT);
+        sendCommand("CDUP", FtpState.CDUP_SENT);
     }
 
     /** RFC 959 §4.1.3 — PWD command. */
     @Override
     public void pwd(PwdReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("PWD", FTPState.PWD_SENT);
+        sendCommand("PWD", FtpState.PWD_SENT);
     }
 
     /** RFC 959 §4.1.2 — TYPE command. */
     @Override
     public void type(String type, SimpleReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("TYPE " + type, FTPState.TYPE_SENT);
+        sendCommand("TYPE " + type, FtpState.TYPE_SENT);
     }
 
     /** RFC 959 §4.1.2 — STRU command. */
     @Override
     public void stru(String structure, SimpleReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("STRU " + structure, FTPState.STRU_SENT);
+        sendCommand("STRU " + structure, FtpState.STRU_SENT);
     }
 
     /** RFC 959 §4.1.2 — MODE command. */
     @Override
     public void mode(String mode, SimpleReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("MODE " + mode, FTPState.MODE_SENT);
+        sendCommand("MODE " + mode, FtpState.MODE_SENT);
     }
 
     /** RFC 959 §4.1.3 — DELE command. */
     @Override
     public void dele(String pathname, SimpleReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("DELE " + pathname, FTPState.DELE_SENT);
+        sendCommand("DELE " + pathname, FtpState.DELE_SENT);
     }
 
     /** RFC 959 §4.1.3 — RMD command. */
     @Override
     public void rmd(String pathname, SimpleReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("RMD " + pathname, FTPState.RMD_SENT);
+        sendCommand("RMD " + pathname, FtpState.RMD_SENT);
     }
 
     /** RFC 959 §4.1.3 — MKD command. */
     @Override
     public void mkd(String pathname, MkdReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("MKD " + pathname, FTPState.MKD_SENT);
+        sendCommand("MKD " + pathname, FtpState.MKD_SENT);
     }
 
     /** RFC 959 §4.1.2 — PASV command. */
     @Override
     public void pasv(PasvReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("PASV", FTPState.PASV_SENT);
+        sendCommand("PASV", FtpState.PASV_SENT);
     }
 
     /** RFC 2428 §3 — EPSV command. */
     @Override
     public void epsv(EpsvReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("EPSV", FTPState.EPSV_SENT);
+        sendCommand("EPSV", FtpState.EPSV_SENT);
     }
 
     /** RFC 959 §4.1.2 — PORT command. Opens the local active-mode listener first. */
@@ -525,7 +525,7 @@ public final class FtpClientProtocolHandler
             String cmd = "PORT " + (addr[0] & 0xFF) + "," + (addr[1] & 0xFF) + ","
                     + (addr[2] & 0xFF) + "," + (addr[3] & 0xFF) + ","
                     + ((port >> 8) & 0xFF) + "," + (port & 0xFF);
-            sendCommand(cmd, FTPState.PORT_SENT);
+            sendCommand(cmd, FtpState.PORT_SENT);
         } catch (IOException e) {
             currentCallback = null;
             callback.handleError(this, 0, e.getMessage());
@@ -541,7 +541,7 @@ public final class FtpClientProtocolHandler
             InetAddress addr = local.getAddress();
             int af = (addr instanceof Inet6Address) ? 2 : 1;
             String cmd = "EPRT |" + af + "|" + addr.getHostAddress() + "|" + local.getPort() + "|";
-            sendCommand(cmd, FTPState.EPRT_SENT);
+            sendCommand(cmd, FtpState.EPRT_SENT);
         } catch (IOException e) {
             currentCallback = null;
             callback.handleError(this, 0, e.getMessage());
@@ -552,7 +552,7 @@ public final class FtpClientProtocolHandler
     @Override
     public void pbsz(int size, SimpleReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("PBSZ " + size, FTPState.PBSZ_SENT);
+        sendCommand("PBSZ " + size, FtpState.PBSZ_SENT);
     }
 
     /** RFC 4217 §9 — PROT command. */
@@ -560,7 +560,7 @@ public final class FtpClientProtocolHandler
     public void prot(String level, SimpleReplyHandler callback) {
         this.currentCallback = callback;
         this.pendingProtLevel = level;
-        sendCommand("PROT " + level, FTPState.PROT_SENT);
+        sendCommand("PROT " + level, FtpState.PROT_SENT);
     }
 
     /**
@@ -648,7 +648,7 @@ public final class FtpClientProtocolHandler
         }
     }
 
-    private void sendCommand(String command, FTPState newState) {
+    private void sendCommand(String command, FtpState newState) {
         if (!isConnected()) {
             handler.onError(new FtpException("Not connected"));
             return;
@@ -674,7 +674,7 @@ public final class FtpClientProtocolHandler
 
     /** RFC 959 §4.2 — 421 service not available, closing control connection. */
     private void handle421ServiceClosing(String message) {
-        state = FTPState.CLOSED;
+        state = FtpState.CLOSED;
 
         if (currentCallback instanceof ReplyHandler) {
             ((ReplyHandler) currentCallback).handleServiceClosing(message);
@@ -686,7 +686,7 @@ public final class FtpClientProtocolHandler
     }
 
     private void dispatchResponse(int code, List<String> messages) {
-        if (state == FTPState.CLOSED || state == FTPState.DISCONNECTED) {
+        if (state == FtpState.CLOSED || state == FtpState.DISCONNECTED) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine("Ignoring response in state " + state + ": " + code);
             }
@@ -759,7 +759,7 @@ public final class FtpClientProtocolHandler
                 dispatchTransferControlReply(code, message);
                 break;
             case QUIT_SENT:
-                state = FTPState.CLOSED;
+                state = FtpState.CLOSED;
                 close();
                 break;
             default:
@@ -773,11 +773,11 @@ public final class FtpClientProtocolHandler
     /** RFC 959 §4.2 — 220 greeting or service unavailable. */
     private void dispatchGreeting(int code, String message) {
         if (code == 220) {
-            state = FTPState.CONNECTED;
+            state = FtpState.CONNECTED;
             handler.onConnected(endpoint);
             handler.handleGreeting(this, message);
         } else {
-            state = FTPState.ERROR;
+            state = FtpState.ERROR;
             handler.handleServiceUnavailable(code + " " + message);
             close();
         }
@@ -789,16 +789,16 @@ public final class FtpClientProtocolHandler
         currentCallback = null;
 
         if (code == 230) {
-            state = FTPState.AUTHENTICATED;
+            state = FtpState.AUTHENTICATED;
             callback.handleUserAccepted(this);
         } else if (code == 331) {
-            state = FTPState.CONNECTED;
+            state = FtpState.CONNECTED;
             callback.handlePasswordRequired(this);
         } else if (code == 332) {
-            state = FTPState.CONNECTED;
+            state = FtpState.CONNECTED;
             callback.handleAccountRequired(this);
         } else {
-            state = FTPState.CONNECTED;
+            state = FtpState.CONNECTED;
             callback.handleRejected(this, message);
         }
     }
@@ -809,13 +809,13 @@ public final class FtpClientProtocolHandler
         currentCallback = null;
 
         if (code == 230) {
-            state = FTPState.AUTHENTICATED;
+            state = FtpState.AUTHENTICATED;
             callback.handleAuthenticated(this);
         } else if (code == 332) {
-            state = FTPState.CONNECTED;
+            state = FtpState.CONNECTED;
             callback.handleAccountRequired(this);
         } else {
-            state = FTPState.CONNECTED;
+            state = FtpState.CONNECTED;
             callback.handleAuthFailed(this, message);
         }
     }
@@ -826,10 +826,10 @@ public final class FtpClientProtocolHandler
         currentCallback = null;
 
         if (code == 230) {
-            state = FTPState.AUTHENTICATED;
+            state = FtpState.AUTHENTICATED;
             callback.handleAuthenticated(this);
         } else {
-            state = FTPState.CONNECTED;
+            state = FtpState.CONNECTED;
             callback.handleAuthFailed(this, message);
         }
     }
@@ -843,12 +843,12 @@ public final class FtpClientProtocolHandler
                 endpoint.startTLS();
             } catch (IOException e) {
                 currentCallback = null;
-                state = FTPState.CONNECTED;
+                state = FtpState.CONNECTED;
                 callback.handleTlsUnavailable(this);
             }
         } else {
             currentCallback = null;
-            state = FTPState.CONNECTED;
+            state = FtpState.CONNECTED;
             callback.handleTlsUnavailable(this);
         }
     }
@@ -857,7 +857,7 @@ public final class FtpClientProtocolHandler
     private void dispatchCwdReply(int code, String message) {
         CwdReplyHandler callback = (CwdReplyHandler) currentCallback;
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
 
         if (code == 250) {
             callback.handleOk(this);
@@ -870,7 +870,7 @@ public final class FtpClientProtocolHandler
     private void dispatchPwdReply(int code, String message) {
         PwdReplyHandler callback = (PwdReplyHandler) currentCallback;
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
 
         if (code == 257) {
             callback.handlePathname(parseQuotedPathname(message), this);
@@ -883,7 +883,7 @@ public final class FtpClientProtocolHandler
     private void dispatchMkdReply(int code, String message) {
         MkdReplyHandler callback = (MkdReplyHandler) currentCallback;
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
 
         if (code == 257) {
             callback.handlePathname(parseQuotedPathname(message), this);
@@ -896,7 +896,7 @@ public final class FtpClientProtocolHandler
     private void dispatchPasvReply(int code, String message) {
         PasvReplyHandler callback = (PasvReplyHandler) currentCallback;
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
 
         if (code == 227) {
             try {
@@ -913,7 +913,7 @@ public final class FtpClientProtocolHandler
     private void dispatchEpsvReply(int code, String message) {
         EpsvReplyHandler callback = (EpsvReplyHandler) currentCallback;
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
 
         if (code == 229) {
             try {
@@ -933,7 +933,7 @@ public final class FtpClientProtocolHandler
     private void dispatchPortReply(int code, String message) {
         PortReplyHandler callback = (PortReplyHandler) currentCallback;
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
 
         if (code >= 200 && code < 300) {
             callback.handleOk(this);
@@ -950,7 +950,7 @@ public final class FtpClientProtocolHandler
     private void dispatchProtReply(int code, String message) {
         SimpleReplyHandler callback = (SimpleReplyHandler) currentCallback;
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
         String level = pendingProtLevel;
         pendingProtLevel = null;
 
@@ -994,7 +994,7 @@ public final class FtpClientProtocolHandler
             return;
         }
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
         dataEndpoint = null;
         dataConnClosed = false;
         controlAckReceived = false;
@@ -1023,7 +1023,7 @@ public final class FtpClientProtocolHandler
             return;
         }
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
         if (dataEndpoint != null) {
             dataEndpoint.close();
         }
@@ -1143,7 +1143,7 @@ public final class FtpClientProtocolHandler
         @Override
         public void connected(Endpoint ep) {
             dataEndpoint = ep;
-            sendCommand("RETR " + pathname, FTPState.RETR_SENT);
+            sendCommand("RETR " + pathname, FtpState.RETR_SENT);
         }
 
         @Override
@@ -1185,7 +1185,7 @@ public final class FtpClientProtocolHandler
             this.ep = ep;
             dataEndpoint = ep;
             String command = (append ? "APPE " : "STOR ") + pathname;
-            FTPState newState = append ? FTPState.APPE_SENT : FTPState.STOR_SENT;
+            FtpState newState = append ? FtpState.APPE_SENT : FtpState.STOR_SENT;
             sendCommand(command, newState);
             if (!ep.isSecure()) {
                 callback.handleReadyToSend(this);
@@ -1254,8 +1254,8 @@ public final class FtpClientProtocolHandler
             dataEndpoint = ep;
             String full = (pathname == null || pathname.isEmpty())
                     ? command : command + " " + pathname;
-            FTPState newState = "NLST".equals(command) ? FTPState.NLST_SENT
-                    : "MLSD".equals(command) ? FTPState.MLSD_SENT : FTPState.LIST_SENT;
+            FtpState newState = "NLST".equals(command) ? FtpState.NLST_SENT
+                    : "MLSD".equals(command) ? FtpState.MLSD_SENT : FtpState.LIST_SENT;
             sendCommand(full, newState);
         }
 
@@ -1287,7 +1287,7 @@ public final class FtpClientProtocolHandler
     private void dispatchSimpleReply(int code, String message) {
         SimpleReplyHandler callback = (SimpleReplyHandler) currentCallback;
         currentCallback = null;
-        state = FTPState.AUTHENTICATED;
+        state = FtpState.AUTHENTICATED;
 
         if (code >= 200 && code < 300) {
             callback.handleOk(this);
@@ -1337,7 +1337,7 @@ public final class FtpClientProtocolHandler
             LOGGER.warning(MessageFormat.format(
                     L10N.getString("warn.ftp_client_error"), error.getMessage()));
         }
-        state = FTPState.ERROR;
+        state = FtpState.ERROR;
         handler.onError(error);
     }
 }

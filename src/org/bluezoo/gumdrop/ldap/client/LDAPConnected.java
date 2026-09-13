@@ -1,5 +1,5 @@
 /*
- * LDAPConnected.java
+ * LdapConnected.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -21,13 +21,13 @@
 
 package org.bluezoo.gumdrop.ldap.client;
 
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 
 /**
  * Operations available after LDAP connection is established (RFC 4511).
  * 
  * <p>This interface is provided to the handler in
- * {@link LDAPConnectionReady#handleReady} after the TCP connection
+ * {@link LdapConnectionReady#handleReady} after the TCP connection
  * (and TLS handshake for LDAPS) is complete.
  * 
  * <p>Unlike SMTP which has a server greeting, LDAP clients initiate
@@ -40,21 +40,21 @@ import org.bluezoo.gumdrop.auth.SASLClientMechanism;
  * </ul>
  * 
  * <p>Most LDAP operations require a successful bind first. After binding,
- * the handler receives an {@link LDAPSession} interface for performing
+ * the handler receives an {@link LdapSession} interface for performing
  * directory operations.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPConnectionReady#handleReady
- * @see LDAPSession
+ * @see LdapConnectionReady#handleReady
+ * @see LdapSession
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.2">RFC 4511 §4.2 — Bind</a>
  */
-public interface LDAPConnected {
+public interface LdapConnected {
 
     /**
      * Performs a simple bind (authentication) with DN and password.
      * 
      * <p>This is the standard authentication method for LDAP. After a
-     * successful bind, the handler receives an {@link LDAPSession} for
+     * successful bind, the handler receives an {@link LdapSession} for
      * performing directory operations.
      * 
      * @param dn the distinguished name to bind as (e.g., "cn=admin,dc=example,dc=com")
@@ -77,9 +77,9 @@ public interface LDAPConnected {
     /**
      * Performs a SASL bind (RFC 4513 section 5.2).
      *
-     * <p>The provided {@link SASLClientMechanism} drives the multi-step
+     * <p>The provided {@link SaslClientMechanism} drives the multi-step
      * challenge-response exchange. Create it via
-     * {@link org.bluezoo.gumdrop.auth.SASLUtils#createClient}.
+     * {@link org.bluezoo.gumdrop.auth.SaslUtils#createClient}.
      * The protocol handler manages intermediate
      * {@code SASL_BIND_IN_PROGRESS} responses internally and only
      * invokes the callback on final success or failure.
@@ -87,17 +87,17 @@ public interface LDAPConnected {
      * @param saslClient the pre-created SASL client mechanism
      * @param callback receives the bind result
      */
-    void bindSASL(SASLClientMechanism saslClient, BindResultHandler callback);
+    void bindSASL(SaslClientMechanism saslClient, BindResultHandler callback);
 
     /**
      * Initiates a STARTTLS upgrade to encrypt the connection.
      * 
      * <p>This should be called before binding to protect credentials.
-     * The {@link LDAPClient} must have been configured with TLS
+     * The {@link LdapClient} must have been configured with TLS
      * credentials/trust before connecting.
      * 
      * <p>After successful TLS upgrade, the handler receives an
-     * {@link LDAPPostTLS} interface and should proceed to bind.
+     * {@link LdapPostTLS} interface and should proceed to bind.
      * 
      * @param callback receives the STARTTLS result
      */

@@ -1,5 +1,5 @@
 /*
- * AMQPLainClientMechanism.java
+ * AmqpPlainClientMechanism.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,16 +23,16 @@ package org.bluezoo.gumdrop.amqp.client;
 
 import java.nio.ByteBuffer;
 
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 
 /**
  * Client-side {@code AMQPLAIN} SASL mechanism (issue #188).
  *
  * <p>{@code AMQPLAIN} is a broker-specific (RabbitMQ) mechanism, not an
  * IANA-registered SASL mechanism, so it is implemented here in the AMQP
- * client package rather than in {@link org.bluezoo.gumdrop.auth.SASLUtils},
+ * client package rather than in {@link org.bluezoo.gumdrop.auth.SaslUtils},
  * which is shared across protocols that only ever see standard mechanisms.
- * It still implements the same {@link SASLClientMechanism} contract as
+ * It still implements the same {@link SaslClientMechanism} contract as
  * every other mechanism this client supports, so the protocol handler
  * drives it identically.
  *
@@ -45,13 +45,13 @@ import org.bluezoo.gumdrop.auth.SASLClientMechanism;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rabbitmq.com/docs/access-control#mechanisms">RabbitMQ: Authentication Mechanisms</a>
  */
-final class AMQPLainClientMechanism implements SASLClientMechanism {
+final class AmqpPlainClientMechanism implements SaslClientMechanism {
 
     private final String username;
     private final String password;
     private boolean complete;
 
-    AMQPLainClientMechanism(String username, String password) {
+    AmqpPlainClientMechanism(String username, String password) {
         this.username = username;
         this.password = (password != null) ? password : "";
     }

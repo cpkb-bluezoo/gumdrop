@@ -1,5 +1,5 @@
 /*
- * POP3Response.java
+ * Pop3Response.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ package org.bluezoo.gumdrop.pop3.client;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939#section-3">RFC 1939 section 3</a>
  */
-class POP3Response {
+class Pop3Response {
 
     enum Status {
         OK,
@@ -43,7 +43,7 @@ class POP3Response {
     private final Status status;
     private final String message;
 
-    POP3Response(Status status, String message) {
+    Pop3Response(Status status, String message) {
         this.status = status;
         this.message = message;
     }
@@ -75,18 +75,18 @@ class POP3Response {
      * @return the parsed response, or null if the line is not a valid
      *         POP3 response
      */
-    static POP3Response parse(String line) {
+    static Pop3Response parse(String line) {
         if (line.startsWith("+OK")) {
             String msg = line.length() > 3 ? line.substring(4) : "";
-            return new POP3Response(Status.OK, msg);
+            return new Pop3Response(Status.OK, msg);
         } else if (line.startsWith("-ERR")) {
             String msg = line.length() > 4 ? line.substring(5) : "";
-            return new POP3Response(Status.ERR, msg);
+            return new Pop3Response(Status.ERR, msg);
         } else if (line.startsWith("+ ")) {
-            return new POP3Response(Status.CONTINUATION,
+            return new Pop3Response(Status.CONTINUATION,
                     line.substring(2));
         } else if (line.equals("+")) {
-            return new POP3Response(Status.CONTINUATION, "");
+            return new Pop3Response(Status.CONTINUATION, "");
         }
         return null;
     }

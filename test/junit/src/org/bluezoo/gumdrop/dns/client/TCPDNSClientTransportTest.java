@@ -45,7 +45,7 @@ import javax.net.ssl.X509TrustManager;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link TcpDNSClientTransport}.
+ * Unit tests for {@link TcpDnsClientTransport}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -53,26 +53,26 @@ public class TCPDNSClientTransportTest {
 
     @Test
     public void testImplementsInterface() {
-        TcpDNSClientTransport transport = new TcpDNSClientTransport();
+        TcpDnsClientTransport transport = new TcpDnsClientTransport();
         assertTrue(transport instanceof DnsClientTransport);
     }
 
     @Test
     public void testCloseBeforeOpen() {
-        TcpDNSClientTransport transport = new TcpDNSClientTransport();
+        TcpDnsClientTransport transport = new TcpDnsClientTransport();
         transport.close();
     }
 
     @Test
     public void testCreateDoT() {
-        TcpDNSClientTransport transport = TcpDNSClientTransport.createDoT();
+        TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
         assertNotNull(transport);
         transport.close();
     }
 
     @Test
     public void testSetSecureChangesDefaults() {
-        TcpDNSClientTransport transport = new TcpDNSClientTransport();
+        TcpDnsClientTransport transport = new TcpDnsClientTransport();
         transport.setSecure(true);
         transport.setSecure(false);
         transport.close();
@@ -80,7 +80,7 @@ public class TCPDNSClientTransportTest {
 
     @Test
     public void testSetDefaultPort() {
-        TcpDNSClientTransport transport = new TcpDNSClientTransport();
+        TcpDnsClientTransport transport = new TcpDnsClientTransport();
         transport.setDefaultPort(5353);
         transport.close();
     }
@@ -91,7 +91,7 @@ public class TCPDNSClientTransportTest {
      */
     @Test
     public void testDoTEnablesTcpFastOpen() {
-        TcpDNSClientTransport transport = TcpDNSClientTransport.createDoT();
+        TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
         TcpTransportFactory factory = transport.createTransportFactory();
         assertTrue(factory.isTcpFastOpen());
         transport.close();
@@ -105,7 +105,7 @@ public class TCPDNSClientTransportTest {
      */
     @Test
     public void testCreateDoTAdvertisesDotAlpn() {
-        TcpDNSClientTransport transport = TcpDNSClientTransport.createDoT();
+        TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
         TcpTransportFactory factory = transport.createTransportFactory();
         assertArrayEquals(new String[]{ "dot" },
                 factory.getApplicationProtocols());
@@ -114,7 +114,7 @@ public class TCPDNSClientTransportTest {
 
     @Test
     public void testPlainTcpTransportHasNoAlpn() {
-        TcpDNSClientTransport transport = new TcpDNSClientTransport();
+        TcpDnsClientTransport transport = new TcpDnsClientTransport();
         TcpTransportFactory factory = transport.createTransportFactory();
         assertNull(factory.getApplicationProtocols());
         transport.close();
@@ -122,7 +122,7 @@ public class TCPDNSClientTransportTest {
 
     @Test
     public void testSetTrustManagerUsedDirectlyWhenNoSpkiPins() {
-        TcpDNSClientTransport transport = TcpDNSClientTransport.createDoT();
+        TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
         X509TrustManager custom = new X509TrustManager() {
             @Override
             public void checkClientTrusted(X509Certificate[] chain, String authType) {
@@ -144,7 +144,7 @@ public class TCPDNSClientTransportTest {
 
     @Test
     public void testPlainTransportHasNoTrustManagerByDefault() {
-        TcpDNSClientTransport transport = TcpDNSClientTransport.createDoT();
+        TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
         TcpTransportFactory factory = transport.createTransportFactory();
         assertNull(factory.getTrustManager());
         transport.close();
@@ -157,7 +157,7 @@ public class TCPDNSClientTransportTest {
      */
     @Test
     public void testCustomTrustManagerUsedAsSpkiDelegate() throws Exception {
-        TcpDNSClientTransport transport = TcpDNSClientTransport.createDoT();
+        TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
         final AtomicBoolean delegateCalled = new AtomicBoolean();
         X509TrustManager custom = new X509TrustManager() {
             @Override
@@ -183,7 +183,7 @@ public class TCPDNSClientTransportTest {
         TcpTransportFactory factory = transport.createTransportFactory();
         X509TrustManager wrapped = factory.getTrustManager();
         assertTrue(wrapped instanceof
-                org.bluezoo.gumdrop.util.SPKIPinnedCertTrustManager);
+                org.bluezoo.gumdrop.util.SpkiPinnedCertTrustManager);
 
         try {
             wrapped.checkServerTrusted(new X509Certificate[0], "RSA");
@@ -205,7 +205,7 @@ public class TCPDNSClientTransportTest {
     @Test
     public void testSpkiPinningWithoutCustomTrustManagerUsesJvmDefault()
             throws Exception {
-        TcpDNSClientTransport transport = TcpDNSClientTransport.createDoT();
+        TcpDnsClientTransport transport = TcpDnsClientTransport.createDoT();
         transport.setPinnedSPKIFingerprints(new HashSet<>(Arrays.asList(
                 "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
                         + ":aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99")));
@@ -228,7 +228,7 @@ public class TCPDNSClientTransportTest {
         transport.close();
     }
 
-    // -- Framing tests using the inner TCPProtocolHandler --
+    // -- Framing tests using the inner TcpProtocolHandler --
 
     @Test
     public void testFramingSingleMessage() throws Exception {
@@ -377,18 +377,18 @@ public class TCPDNSClientTransportTest {
     }
 
     /**
-     * Creates the private inner TCPProtocolHandler via reflection.
+     * Creates the private inner TcpProtocolHandler via reflection.
      */
     private static ProtocolHandler createProtocolHandler(
             DnsClientTransportHandler handler) throws Exception {
         Class<?> handlerClass = null;
-        for (Class<?> c : TcpDNSClientTransport.class.getDeclaredClasses()) {
-            if (c.getSimpleName().equals("TCPProtocolHandler")) {
+        for (Class<?> c : TcpDnsClientTransport.class.getDeclaredClasses()) {
+            if (c.getSimpleName().equals("TcpProtocolHandler")) {
                 handlerClass = c;
                 break;
             }
         }
-        assertNotNull("TCPProtocolHandler inner class should exist",
+        assertNotNull("TcpProtocolHandler inner class should exist",
                 handlerClass);
         Constructor<?> ctor = handlerClass.getDeclaredConstructor(
                 DnsClientTransportHandler.class);

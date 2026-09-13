@@ -1,5 +1,5 @@
 /*
- * FTPControlConnection.java
+ * FtpControlConnection.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,14 +23,14 @@ package org.bluezoo.gumdrop.ftp;
 
 /**
  * Interface for FTP control connections used by {@link FtpDataConnectionCoordinator}
- * and {@link FTPDataServer} to obtain server configuration (e.g. for TLS data
+ * and {@link FtpDataServer} to obtain server configuration (e.g. for TLS data
  * connections).
  *
  * <p>Implemented by {@link FtpProtocolHandler}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-interface FTPControlConnection {
+interface FtpControlConnection {
 
     /**
      * Returns the FtpListener instance for this connection.

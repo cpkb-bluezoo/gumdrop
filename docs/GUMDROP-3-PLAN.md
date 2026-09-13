@@ -97,16 +97,11 @@ gravity.
 
 ### C.1 Naming and taxonomy
 
-**Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.5** complete — see
-[FtpServer.java](../src/org/bluezoo/gumdrop/ftp/FtpServer.java),
-[DnsServer.java](../src/org/bluezoo/gumdrop/dns/DnsServer.java),
-[MqttServer.java](../src/org/bluezoo/gumdrop/mqtt/MqttServer.java),
-[SocksServer.java](../src/org/bluezoo/gumdrop/socks/SocksServer.java),
-[MdnsServer.java](../src/org/bluezoo/gumdrop/mdns/MdnsServer.java),
-[GrpcServer.java](../src/org/bluezoo/gumdrop/grpc/server/GrpcServer.java),
-[HealthServer.java](../src/org/bluezoo/gumdrop/health/HealthServer.java),
-AMQP/DNS/FTP/MQTT/SOCKS listener and handler renames. Next slice: **C.1.6**
-internal / package-private types.
+**Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.6** complete — public
+facades (C.1.1–C.1.5) plus internal renames: mail/FTP lexers, HPACK/QPACK,
+SOCKS/AMQP/DNS/mDNS/WebDAV internals, MIME/LDAP/JSP/RESP/OTLP/auth types
+(`scripts/c16-internal-rename.py`). Deprecated `@Deprecated` `*Service` shims
+remain for XML compat. Next: **C.2** package moves (`http/server/`, …).
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
@@ -294,8 +289,8 @@ already depend on them**.
 | Layer | Contents | Artifact (proposed) |
 |-------|----------|---------------------|
 | **Codec** | `ProtobufWriter`, `ProtobufParser`, `ProtobufHandler`, `DefaultProtobufHandler`, `ByteBufferChannel`, `ProtobufParseException` | **`jprotobuf`** (or separate repo `cpkb-bluezoo/jprotobuf`) — LGPL, JPMS module, Maven Central |
-| **OTLP encoders** | `TraceSerializer`, `MetricSerializer`, `LogSerializer`, `OTLPFieldNumbers` | `gumdrop-telemetry` (depends on jprotobuf) |
-| **Export transport** | `OTLPExporter`, `OTLPGrpcExporter`, JSONL file exporter, HTTP/gRPC endpoints | `gumdrop-telemetry` (optional jar, unchanged role) |
+| **OTLP encoders** | `TraceSerializer`, `MetricSerializer`, `LogSerializer`, `OtlpFieldNumbers` | `gumdrop-telemetry` (depends on jprotobuf) |
+| **Export transport** | `OtlpExporter`, `OtlpGrpcExporter`, JSONL file exporter, HTTP/gRPC endpoints | `gumdrop-telemetry` (optional jar, unchanged role) |
 | **Instrumentation** | `Trace`, `Span`, `TelemetryConfig`, `*Metrics`, protocol auto-instrumentation | `gumdrop-core` or `gumdrop-otel` module |
 
 **Package rename:** `org.bluezoo.gumdrop.telemetry.protobuf` →

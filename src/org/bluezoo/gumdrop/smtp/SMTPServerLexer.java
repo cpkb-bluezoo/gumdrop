@@ -1,5 +1,5 @@
 /*
- * SMTPServerLexer.java
+ * SmtpServerLexer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,8 +27,8 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * Streaming lexer for the SMTP command grammar (RFC 5321 section 2.3.8, 4.1.1):
  * {@code KEYWORD [SP TEXT] CRLF}.
  *
- * <p>Structurally identical to {@link org.bluezoo.gumdrop.pop3.POP3ServerLexer}
- * and {@link org.bluezoo.gumdrop.ftp.FTPServerLexer} — the lexer only
+ * <p>Structurally identical to {@link org.bluezoo.gumdrop.pop3.Pop3ServerLexer}
+ * and {@link org.bluezoo.gumdrop.ftp.FtpServerLexer} — the lexer only
  * recognises the lexical shape; {@code SmtpProtocolHandler} decides how to
  * interpret {@code KEYWORD} (a command verb, or — while an AUTH continuation
  * exchange is in progress — raw continuation data) and which charset to
@@ -50,13 +50,13 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SmtpProtocolHandler
  */
-final class SMTPServerLexer extends ByteStreamLexer<SMTPServerLexer.Token> {
+final class SmtpServerLexer extends ByteStreamLexer<SmtpServerLexer.Token> {
 
     enum Token { KEYWORD, SP, TEXT, CRLF }
 
     private boolean lastWasCR;
 
-    SMTPServerLexer(Handler<Token> handler, int maxTokenLength) {
+    SmtpServerLexer(Handler<Token> handler, int maxTokenLength) {
         super(handler, maxTokenLength, Token.CRLF, Token.TEXT);
     }
 

@@ -25,7 +25,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
@@ -170,7 +170,7 @@ public class POP3ServerIntegrationTest {
     @Test
     public void testMboxServerGreeting() throws Exception {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
-            POP3ClientHelper.POP3Response greeting = session.getLastResponse();
+            POP3ClientHelper.Pop3Response greeting = session.getLastResponse();
             
             assertTrue("Greeting should be +OK", greeting.ok);
             assertTrue("Greeting should contain server info", 
@@ -199,7 +199,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
+            POP3ClientHelper.Pop3Response stat = session.sendCommand("STAT");
             
             assertTrue("STAT should succeed", stat.ok);
             assertTrue("STAT should return message count and size",
@@ -216,7 +216,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response list = session.sendMultiLineCommand("LIST");
+            POP3ClientHelper.Pop3Response list = session.sendMultiLineCommand("LIST");
             
             assertTrue("LIST should succeed", list.ok);
             // First line is +OK, then 2 message lines
@@ -229,7 +229,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response uidl = session.sendMultiLineCommand("UIDL");
+            POP3ClientHelper.Pop3Response uidl = session.sendMultiLineCommand("UIDL");
             
             assertTrue("UIDL should succeed", uidl.ok);
             // First line is +OK, then 2 message lines
@@ -242,7 +242,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response retr = session.sendMultiLineCommand("RETR 1");
+            POP3ClientHelper.Pop3Response retr = session.sendMultiLineCommand("RETR 1");
             
             assertTrue("RETR should succeed", retr.ok);
             
@@ -259,7 +259,7 @@ public class POP3ServerIntegrationTest {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
             // Get headers + 0 body lines
-            POP3ClientHelper.POP3Response top = session.sendMultiLineCommand("TOP 1 0");
+            POP3ClientHelper.Pop3Response top = session.sendMultiLineCommand("TOP 1 0");
             
             assertTrue("TOP should succeed", top.ok);
             
@@ -275,11 +275,11 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response dele = session.sendCommand("DELE 1");
+            POP3ClientHelper.Pop3Response dele = session.sendCommand("DELE 1");
             assertTrue("DELE should succeed", dele.ok);
             
             // Reset to undelete
-            POP3ClientHelper.POP3Response rset = session.sendCommand("RSET");
+            POP3ClientHelper.Pop3Response rset = session.sendCommand("RSET");
             assertTrue("RSET should succeed", rset.ok);
         }
     }
@@ -289,7 +289,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response noop = session.sendCommand("NOOP");
+            POP3ClientHelper.Pop3Response noop = session.sendCommand("NOOP");
             assertTrue("NOOP should succeed", noop.ok);
         }
     }
@@ -297,7 +297,7 @@ public class POP3ServerIntegrationTest {
     @Test
     public void testMboxCAPA() throws Exception {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
-            POP3ClientHelper.POP3Response capa = session.sendMultiLineCommand("CAPA");
+            POP3ClientHelper.Pop3Response capa = session.sendMultiLineCommand("CAPA");
             
             assertTrue("CAPA should succeed", capa.ok);
             
@@ -312,7 +312,7 @@ public class POP3ServerIntegrationTest {
     @Test
     public void testMaildirServerGreeting() throws Exception {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
-            POP3ClientHelper.POP3Response greeting = session.getLastResponse();
+            POP3ClientHelper.Pop3Response greeting = session.getLastResponse();
             
             assertTrue("Greeting should be +OK", greeting.ok);
         }
@@ -331,7 +331,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
+            POP3ClientHelper.Pop3Response stat = session.sendCommand("STAT");
             
             assertTrue("STAT should succeed", stat.ok);
             assertTrue("STAT should return message count and size",
@@ -348,7 +348,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response list = session.sendMultiLineCommand("LIST");
+            POP3ClientHelper.Pop3Response list = session.sendMultiLineCommand("LIST");
             
             assertTrue("LIST should succeed", list.ok);
             assertTrue("LIST should return at least 3 lines", list.lines.size() >= 3);
@@ -360,7 +360,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response retr = session.sendMultiLineCommand("RETR 1");
+            POP3ClientHelper.Pop3Response retr = session.sendMultiLineCommand("RETR 1");
             
             assertTrue("RETR should succeed", retr.ok);
             
@@ -376,7 +376,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MAILDIR_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response retr = session.sendMultiLineCommand("RETR 2");
+            POP3ClientHelper.Pop3Response retr = session.sendMultiLineCommand("RETR 2");
             
             assertTrue("RETR 2 should succeed", retr.ok);
             
@@ -393,7 +393,7 @@ public class POP3ServerIntegrationTest {
     public void testCommandBeforeAuth() throws Exception {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             // Try to get stats without authenticating
-            POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
+            POP3ClientHelper.Pop3Response stat = session.sendCommand("STAT");
             
             assertFalse("STAT should fail before authentication", stat.ok);
         }
@@ -404,7 +404,7 @@ public class POP3ServerIntegrationTest {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
             POP3ClientHelper.authenticate(session, TEST_USER, TEST_PASS);
             
-            POP3ClientHelper.POP3Response retr = session.sendCommand("RETR 999");
+            POP3ClientHelper.Pop3Response retr = session.sendCommand("RETR 999");
             
             assertFalse("RETR invalid message should fail", retr.ok);
         }
@@ -413,7 +413,7 @@ public class POP3ServerIntegrationTest {
     @Test
     public void testUnknownCommand() throws Exception {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
-            POP3ClientHelper.POP3Response response = session.sendCommand("INVALID");
+            POP3ClientHelper.Pop3Response response = session.sendCommand("INVALID");
             
             assertFalse("Unknown command should fail", response.ok);
         }
@@ -429,12 +429,12 @@ public class POP3ServerIntegrationTest {
             String b64 = Base64.getEncoder().encodeToString(
                     creds.getBytes(StandardCharsets.US_ASCII));
 
-            POP3ClientHelper.POP3Response auth =
+            POP3ClientHelper.Pop3Response auth =
                     session.sendCommand("AUTH PLAIN " + b64);
             assertTrue("AUTH PLAIN should succeed: " + auth, auth.ok);
 
             // Mailbox opened off-loop; confirm we are in TRANSACTION state.
-            POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
+            POP3ClientHelper.Pop3Response stat = session.sendCommand("STAT");
             assertTrue("STAT after AUTH PLAIN should succeed: " + stat, stat.ok);
         }
     }
@@ -442,22 +442,22 @@ public class POP3ServerIntegrationTest {
     @Test
     public void testAuthLogin() throws Exception {
         try (POP3ClientHelper.POP3Session session = POP3ClientHelper.connect("::1", MBOX_PORT)) {
-            POP3ClientHelper.POP3Response start = session.sendCommand("AUTH LOGIN");
+            POP3ClientHelper.Pop3Response start = session.sendCommand("AUTH LOGIN");
             assertTrue("AUTH LOGIN should prompt for username: " + start,
                     start.lines.get(0).startsWith("+ "));
 
             String userB64 = Base64.getEncoder().encodeToString(
                     TEST_USER.getBytes(StandardCharsets.US_ASCII));
-            POP3ClientHelper.POP3Response userResp = session.sendCommand(userB64);
+            POP3ClientHelper.Pop3Response userResp = session.sendCommand(userB64);
             assertTrue("AUTH LOGIN should prompt for password: " + userResp,
                     userResp.lines.get(0).startsWith("+ "));
 
             String passB64 = Base64.getEncoder().encodeToString(
                     TEST_PASS.getBytes(StandardCharsets.US_ASCII));
-            POP3ClientHelper.POP3Response passResp = session.sendCommand(passB64);
+            POP3ClientHelper.Pop3Response passResp = session.sendCommand(passB64);
             assertTrue("AUTH LOGIN should succeed: " + passResp, passResp.ok);
 
-            POP3ClientHelper.POP3Response stat = session.sendCommand("STAT");
+            POP3ClientHelper.Pop3Response stat = session.sendCommand("STAT");
             assertTrue("STAT after AUTH LOGIN should succeed: " + stat, stat.ok);
         }
     }
@@ -467,8 +467,8 @@ public class POP3ServerIntegrationTest {
      */
     private static class TestRealm implements Realm {
         
-        private static final Set<SASLMechanism> SUPPORTED = 
-            Collections.unmodifiableSet(EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN));
+        private static final Set<SaslMechanism> SUPPORTED = 
+            Collections.unmodifiableSet(EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
         
         @Override
         public Realm forSelectorLoop(SelectorLoop loop) {
@@ -476,7 +476,7 @@ public class POP3ServerIntegrationTest {
         }
         
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
         

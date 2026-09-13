@@ -32,8 +32,8 @@ import static org.junit.Assert.*;
  * Unit tests for {@link HeaderTableIndex} pinning its contract to exactly
  * what a linear {@code List.indexOf}/name scan over the source table would
  * have returned - the behaviour it replaces in the HPACK and QPACK
- * encoders' static table lookups (see {@code HPACKConstants.STATIC_TABLE}
- * and {@code QPACKConstants.STATIC_TABLE}), since those tables carry a
+ * encoders' static table lookups (see {@code HpackConstants.STATIC_TABLE}
+ * and {@code QpackConstants.STATIC_TABLE}), since those tables carry a
  * {@code null} placeholder entry and duplicate names that a naive hash
  * index could easily get wrong.
  *

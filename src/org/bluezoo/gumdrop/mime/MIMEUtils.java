@@ -1,5 +1,5 @@
 /*
- * MIMEUtils.java
+ * MimeUtils.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,9 +27,9 @@ package org.bluezoo.gumdrop.mime;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2045">RFC 2045: MIME Part One</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2046">RFC 2046: MIME Part Two</a>
  */
-public final class MIMEUtils {
+public final class MimeUtils {
 
-	private MIMEUtils() {
+	private MimeUtils() {
 		// Static utility class
 	}
 

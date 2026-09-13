@@ -45,7 +45,7 @@ public class IMAPClientHelper {
     /**
      * Result of an IMAP command containing status and all response lines.
      */
-    public static class IMAPResponse {
+    public static class ImapResponse {
         /** Whether the command succeeded (OK) */
         public final boolean ok;
         /** Whether the command failed with NO */
@@ -61,7 +61,7 @@ public class IMAPClientHelper {
         /** The tag used for this command */
         public final String tag;
         
-        public IMAPResponse(String tag, boolean ok, boolean no, boolean bad, 
+        public ImapResponse(String tag, boolean ok, boolean no, boolean bad, 
                 String statusMessage, List<String> untaggedResponses, List<String> allLines) {
             this.tag = tag;
             this.ok = ok;
@@ -111,7 +111,7 @@ public class IMAPClientHelper {
         /**
          * Sends an IMAP command and reads all responses until the tagged response.
          */
-        public IMAPResponse sendCommand(String command) throws IOException {
+        public ImapResponse sendCommand(String command) throws IOException {
             String tag = nextTag();
             writer.print(tag + " " + command + "\r\n");
             writer.flush();
@@ -138,7 +138,7 @@ public class IMAPClientHelper {
         /**
          * Reads IMAP responses until we get the tagged response.
          */
-        public IMAPResponse readResponse(String expectedTag) throws IOException {
+        public ImapResponse readResponse(String expectedTag) throws IOException {
             List<String> untaggedResponses = new ArrayList<>();
             List<String> allLines = new ArrayList<>();
             
@@ -169,12 +169,12 @@ public class IMAPClientHelper {
                         statusMessage = rest.length() > 4 ? rest.substring(4) : "";
                     }
                     
-                    return new IMAPResponse(expectedTag, ok, no, bad, 
+                    return new ImapResponse(expectedTag, ok, no, bad, 
                             statusMessage, untaggedResponses, allLines);
                 } else if (line.startsWith("+ ")) {
                     // Continuation request - return partial response
                     // Caller should send data and call readResponse again
-                    return new IMAPResponse(expectedTag, false, false, false,
+                    return new ImapResponse(expectedTag, false, false, false,
                             line.substring(2), untaggedResponses, allLines);
                 }
                 // Other lines (like literal data) are collected but not specially handled
@@ -246,7 +246,7 @@ public class IMAPClientHelper {
         String quotedUser = "\"" + username.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
         String quotedPass = "\"" + password.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
         
-        IMAPResponse response = session.sendCommand("LOGIN " + quotedUser + " " + quotedPass);
+        ImapResponse response = session.sendCommand("LOGIN " + quotedUser + " " + quotedPass);
         return response.ok;
     }
 }

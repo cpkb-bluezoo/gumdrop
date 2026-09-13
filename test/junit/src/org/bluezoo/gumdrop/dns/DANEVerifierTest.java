@@ -35,7 +35,7 @@ import java.util.Collections;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DANEVerifier}.
+ * Unit tests for {@link DaneVerifier}.
  * RFC 6698 section 2: certificate usage, selector, and matching type
  * comparisons.
  *
@@ -48,10 +48,10 @@ public class DANEVerifierTest {
         X509Certificate cert = generateSelfSignedCert("dane-1");
         DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
-                DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
-                DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded());
+                DaneVerifier.USAGE_DANE_EE, DaneVerifier.SELECTOR_FULL_CERT,
+                DaneVerifier.MATCHING_TYPE_FULL, cert.getEncoded());
 
-        assertTrue(DANEVerifier.matches(cert, tlsa));
+        assertTrue(DaneVerifier.matches(cert, tlsa));
     }
 
     @Test
@@ -61,10 +61,10 @@ public class DANEVerifierTest {
                 .digest(cert.getEncoded());
         DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
-                DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
-                DANEVerifier.MATCHING_TYPE_SHA256, hash);
+                DaneVerifier.USAGE_DANE_EE, DaneVerifier.SELECTOR_FULL_CERT,
+                DaneVerifier.MATCHING_TYPE_SHA256, hash);
 
-        assertTrue(DANEVerifier.matches(cert, tlsa));
+        assertTrue(DaneVerifier.matches(cert, tlsa));
     }
 
     @Test
@@ -74,10 +74,10 @@ public class DANEVerifierTest {
                 .digest(cert.getPublicKey().getEncoded());
         DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
-                DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_SPKI,
-                DANEVerifier.MATCHING_TYPE_SHA256, hash);
+                DaneVerifier.USAGE_DANE_EE, DaneVerifier.SELECTOR_SPKI,
+                DaneVerifier.MATCHING_TYPE_SHA256, hash);
 
-        assertTrue(DANEVerifier.matches(cert, tlsa));
+        assertTrue(DaneVerifier.matches(cert, tlsa));
     }
 
     @Test
@@ -87,10 +87,10 @@ public class DANEVerifierTest {
                 .digest(cert.getPublicKey().getEncoded());
         DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
-                DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_SPKI,
-                DANEVerifier.MATCHING_TYPE_SHA512, hash);
+                DaneVerifier.USAGE_DANE_EE, DaneVerifier.SELECTOR_SPKI,
+                DaneVerifier.MATCHING_TYPE_SHA512, hash);
 
-        assertTrue(DANEVerifier.matches(cert, tlsa));
+        assertTrue(DaneVerifier.matches(cert, tlsa));
     }
 
     @Test
@@ -100,10 +100,10 @@ public class DANEVerifierTest {
         Arrays.fill(wrongHash, (byte) 0x11);
         DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
-                DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
-                DANEVerifier.MATCHING_TYPE_SHA256, wrongHash);
+                DaneVerifier.USAGE_DANE_EE, DaneVerifier.SELECTOR_FULL_CERT,
+                DaneVerifier.MATCHING_TYPE_SHA256, wrongHash);
 
-        assertFalse(DANEVerifier.matches(cert, tlsa));
+        assertFalse(DaneVerifier.matches(cert, tlsa));
     }
 
     @Test
@@ -116,10 +116,10 @@ public class DANEVerifierTest {
         // must not match even though "other" is in the chain.
         DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
-                DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
-                DANEVerifier.MATCHING_TYPE_FULL, other.getEncoded());
+                DaneVerifier.USAGE_DANE_EE, DaneVerifier.SELECTOR_FULL_CERT,
+                DaneVerifier.MATCHING_TYPE_FULL, other.getEncoded());
 
-        DnsResourceRecord match = DANEVerifier.findMatch(
+        DnsResourceRecord match = DaneVerifier.findMatch(
                 new X509Certificate[]{ leaf, other },
                 Collections.singletonList(tlsa));
         assertNull(match);
@@ -134,10 +134,10 @@ public class DANEVerifierTest {
         // not just the leaf.
         DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
-                DANEVerifier.USAGE_DANE_TA, DANEVerifier.SELECTOR_FULL_CERT,
-                DANEVerifier.MATCHING_TYPE_FULL, ca.getEncoded());
+                DaneVerifier.USAGE_DANE_TA, DaneVerifier.SELECTOR_FULL_CERT,
+                DaneVerifier.MATCHING_TYPE_FULL, ca.getEncoded());
 
-        DnsResourceRecord match = DANEVerifier.findMatch(
+        DnsResourceRecord match = DaneVerifier.findMatch(
                 new X509Certificate[]{ leaf, ca },
                 Collections.singletonList(tlsa));
         assertSame(tlsa, match);
@@ -149,10 +149,10 @@ public class DANEVerifierTest {
         byte[] wrongHash = new byte[32];
         DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
-                DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
-                DANEVerifier.MATCHING_TYPE_SHA256, wrongHash);
+                DaneVerifier.USAGE_DANE_EE, DaneVerifier.SELECTOR_FULL_CERT,
+                DaneVerifier.MATCHING_TYPE_SHA256, wrongHash);
 
-        assertNull(DANEVerifier.findMatch(
+        assertNull(DaneVerifier.findMatch(
                 new X509Certificate[]{ leaf },
                 Collections.singletonList(tlsa)));
     }
@@ -161,12 +161,12 @@ public class DANEVerifierTest {
     public void testFindMatchNullOrEmptyChainReturnsNull() throws Exception {
         DnsResourceRecord tlsa = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600,
-                DANEVerifier.USAGE_DANE_EE, DANEVerifier.SELECTOR_FULL_CERT,
-                DANEVerifier.MATCHING_TYPE_FULL, new byte[32]);
+                DaneVerifier.USAGE_DANE_EE, DaneVerifier.SELECTOR_FULL_CERT,
+                DaneVerifier.MATCHING_TYPE_FULL, new byte[32]);
 
-        assertNull(DANEVerifier.findMatch(null,
+        assertNull(DaneVerifier.findMatch(null,
                 Collections.singletonList(tlsa)));
-        assertNull(DANEVerifier.findMatch(new X509Certificate[0],
+        assertNull(DaneVerifier.findMatch(new X509Certificate[0],
                 Collections.singletonList(tlsa)));
     }
 

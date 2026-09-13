@@ -26,7 +26,7 @@
  * features and Expression Language (EL) 3.0.
  * and tag library (JSTL) support.
  *
- * <p>{@link org.bluezoo.gumdrop.servlet.jsp.JSPParser} parses a
+ * <p>{@link org.bluezoo.gumdrop.servlet.jsp.JspParser} parses a
  * {@code .jsp} file into an element tree; {@link
  * org.bluezoo.gumdrop.servlet.jsp.ELEvaluator} evaluates EL expressions
  * within it; {@link org.bluezoo.gumdrop.servlet.jsp.InMemoryJavaCompiler}
@@ -35,7 +35,7 @@
  * changes, with compiled classes cached for subsequent requests.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.servlet.jsp.JSPParser
+ * @see org.bluezoo.gumdrop.servlet.jsp.JspParser
  * @see org.bluezoo.gumdrop.servlet
  */
 package org.bluezoo.gumdrop.servlet.jsp;

@@ -168,8 +168,8 @@ public class MethodCodecTest {
         assertEquals("my-exchange", FieldTable.getShortString(encoded));
         assertEquals("topic", FieldTable.getShortString(encoded));
         byte bits = encoded.get();
-        assertFalse(AMQPBits.unpack(bits, 0)); // passive
-        assertTrue(AMQPBits.unpack(bits, 1));  // durable
+        assertFalse(AmqpBits.unpack(bits, 0)); // passive
+        assertTrue(AmqpBits.unpack(bits, 1));  // durable
         int argsLen = encoded.getInt();
         FieldTable decodedArgs = FieldTable.decode(encoded, argsLen);
         assertEquals(1, decodedArgs.get("x-arg"));
@@ -210,8 +210,8 @@ public class MethodCodecTest {
         assertEquals("ex1", FieldTable.getShortString(encoded));
         assertEquals("rk1", FieldTable.getShortString(encoded));
         byte bits = encoded.get();
-        assertTrue(AMQPBits.unpack(bits, 0)); // mandatory
-        assertFalse(AMQPBits.unpack(bits, 1)); // immediate
+        assertTrue(AmqpBits.unpack(bits, 0)); // mandatory
+        assertFalse(AmqpBits.unpack(bits, 1)); // immediate
     }
 
     @Test
@@ -219,7 +219,7 @@ public class MethodCodecTest {
         ByteBuffer buf = ByteBuffer.allocate(1 + 14 + 8 + 1 + 1 + 3 + 1 + 3);
         FieldTable.putShortString(buf, "consumer-tag-1");
         buf.putLong(99L);
-        buf.put(AMQPBits.pack(true));
+        buf.put(AmqpBits.pack(true));
         FieldTable.putShortString(buf, "ex1");
         FieldTable.putShortString(buf, "rk1");
         buf.flip();
@@ -264,14 +264,14 @@ public class MethodCodecTest {
         ByteBuffer encoded = BasicMethods.encodeReject(33L, true);
         stripHeader(encoded, AmqpMethod.CLASS_BASIC, AmqpMethod.BASIC_REJECT);
         assertEquals(33L, encoded.getLong());
-        assertTrue(AMQPBits.unpack(encoded.get(), 0));
+        assertTrue(AmqpBits.unpack(encoded.get(), 0));
     }
 
     @Test
     public void testBasicGetOkRoundTrip() throws AmqpProtocolException {
         ByteBuffer buf = ByteBuffer.allocate(8 + 1 + 1 + 3 + 1 + 3 + 4);
         buf.putLong(11L);
-        buf.put(AMQPBits.pack(false));
+        buf.put(AmqpBits.pack(false));
         FieldTable.putShortString(buf, "ex1");
         FieldTable.putShortString(buf, "rk1");
         buf.putInt(5);
@@ -306,6 +306,6 @@ public class MethodCodecTest {
     public void testConfirmSelectEncodesNoWait() {
         ByteBuffer encoded = ConfirmMethods.encodeSelect(true);
         stripHeader(encoded, AmqpMethod.CLASS_CONFIRM, AmqpMethod.CONFIRM_SELECT);
-        assertTrue(AMQPBits.unpack(encoded.get(), 0));
+        assertTrue(AmqpBits.unpack(encoded.get(), 0));
     }
 }

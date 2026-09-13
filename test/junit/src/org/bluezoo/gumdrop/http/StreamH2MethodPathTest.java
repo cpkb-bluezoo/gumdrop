@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.http;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.http.hpack.Decoder;
 import org.bluezoo.gumdrop.http.hpack.Encoder;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -79,7 +79,7 @@ public class StreamH2MethodPathTest {
     private static final String REALM = "test-realm";
     private static final String USERNAME = "alice";
     private static final String PASSWORD = "secret";
-    private static final String HA1 = SASLUtils.computeDigestHA1(
+    private static final String HA1 = SaslUtils.computeDigestHA1(
             USERNAME, REALM, PASSWORD);
 
     private static final class TestDigestProvider extends HttpAuthenticationProvider {

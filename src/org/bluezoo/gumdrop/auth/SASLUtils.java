@@ -1,5 +1,5 @@
 /*
- * SASLUtils.java
+ * SaslUtils.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -55,7 +55,7 @@ import org.bluezoo.gumdrop.auth.Realm.CertificateAuthenticationResult;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
  */
-public final class SASLUtils {
+public final class SaslUtils {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
 
@@ -63,7 +63,7 @@ public final class SASLUtils {
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    private SASLUtils() {
+    private SaslUtils() {
         // Utility class
     }
 
@@ -622,7 +622,7 @@ public final class SASLUtils {
      * @return the mechanism, or null if the name is not recognised
      * @see #createClient(String, String, String, String, Subject)
      */
-    public static SASLClientMechanism createClient(String mechanism,
+    public static SaslClientMechanism createClient(String mechanism,
                                                    String username,
                                                    String password,
                                                    String host) {
@@ -649,7 +649,7 @@ public final class SASLUtils {
      * @return the mechanism, or null if the name is not recognised
      * @see <a href="https://www.rfc-editor.org/rfc/rfc4752">RFC 4752: GSSAPI SASL</a>
      */
-    public static SASLClientMechanism createClient(String mechanism,
+    public static SaslClientMechanism createClient(String mechanism,
                                                    String username,
                                                    String password,
                                                    String host,
@@ -671,7 +671,7 @@ public final class SASLUtils {
                     return null;
                 }
                 try {
-                    return new GSSAPIClientMechanism(host, subject);
+                    return new GssapiClientMechanism(host, subject);
                 } catch (IOException e) {
                     return null;
                 }
@@ -681,7 +681,7 @@ public final class SASLUtils {
     }
 
     // RFC 4616 — PLAIN: \0authcid\0password (single step)
-    private static final class PlainClient implements SASLClientMechanism {
+    private static final class PlainClient implements SaslClientMechanism {
         private final String username;
         private final String password;
         private boolean complete;
@@ -716,7 +716,7 @@ public final class SASLUtils {
 
     // RFC 2195 — CRAM-MD5: server sends challenge, client returns
     // "username SP HMAC-MD5-hex" (single step after challenge)
-    private static final class CramMD5Client implements SASLClientMechanism {
+    private static final class CramMD5Client implements SaslClientMechanism {
         private final String username;
         private final String password;
         private boolean complete;
@@ -746,7 +746,7 @@ public final class SASLUtils {
 
     // RFC 2831 — DIGEST-MD5: server sends challenge with realm/nonce,
     // client computes md5-sess response digest.
-    private static final class DigestMD5Client implements SASLClientMechanism {
+    private static final class DigestMD5Client implements SaslClientMechanism {
         private final String username;
         private final String password;
         private final String host;
@@ -867,7 +867,7 @@ public final class SASLUtils {
     }
 
     // RFC 4422 Appendix A — EXTERNAL: no credentials, relies on TLS cert
-    private static final class ExternalClient implements SASLClientMechanism {
+    private static final class ExternalClient implements SaslClientMechanism {
         private boolean complete;
 
         @Override

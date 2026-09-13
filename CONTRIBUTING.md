@@ -491,7 +491,7 @@ if (appendBuffer != null) {
 Errors in parsers or codecs that are caught and handled internally, or represent malformed data from external sources:
 ```java
 // Good - hardcoded, internal parsing error
-throw new ASN1Exception("Invalid tag: 0x" + Integer.toHexString(tag));
+throw new Asn1Exception("Invalid tag: 0x" + Integer.toHexString(tag));
 
 // Good - hardcoded, protocol violation
 throw new ProtocolException("Invalid HPACK index: " + index);

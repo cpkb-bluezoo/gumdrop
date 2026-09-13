@@ -45,7 +45,7 @@ import org.bluezoo.gumdrop.UdpTransportFactory;
  * the same way (RFC 9297; RFC 9298 section 5's Context ID layer is
  * {@link HttpDatagramContext}).
  *
- * <p>Unlike {@code SOCKSUDPRelay} (RFC 1928 section 7's UDP ASSOCIATE,
+ * <p>Unlike {@code SocksUdpRelay} (RFC 1928 section 7's UDP ASSOCIATE,
  * the closest existing pattern in this codebase), CONNECT-UDP names
  * exactly one target in the request path itself -- there is no
  * per-datagram destination to track, and no separate client-facing UDP
@@ -71,7 +71,7 @@ final class ConnectUdpRelay {
      * relay lifetime this way (rather than relying solely on the HTTP
      * request/response exchange's own close/error notification, which a
      * long-lived, otherwise-silent tunnel may not reliably deliver)
-     * mirrors {@code SOCKSUDPRelay}'s identical use of an idle timer as
+     * mirrors {@code SocksUdpRelay}'s identical use of an idle timer as
      * its primary bound on relay lifetime.
      */
     static final long DEFAULT_IDLE_TIMEOUT_MS = 5L * 60L * 1000L;

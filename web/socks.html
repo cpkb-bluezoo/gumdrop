@@ -59,10 +59,10 @@ consistent with the rest of the framework.
 <p>
 A <code>SocksServer</code> owns one or more <code>SocksListener</code>
 instances. Each accepted connection is handled by
-<code>SOCKSProtocolHandler</code>, which negotiates the SOCKS version,
+<code>SocksProtocolHandler</code>, which negotiates the SOCKS version,
 performs optional authentication, and establishes relays via
-<code>SOCKSRelay</code>, <code>SOCKSBindRelay</code>, or
-<code>SOCKSUDPRelay</code> as appropriate. Subclasses of
+<code>SocksRelay</code>, <code>SocksBindRelay</code>, or
+<code>SocksUdpRelay</code> as appropriate. Subclasses of
 <code>SocksServer</code> may supply <code>ConnectHandler</code> and
 <code>BindHandler</code> implementations for application-level authorization.
 </p>
@@ -184,7 +184,7 @@ unlimited</td></tr>
 <code>port</code>)</td></tr>
 <tr><td><code>realm</code></td><td><code>setRealm(Realm)</code></td>
 <td>from service</td><td>Per-listener realm override</td></tr>
-<tr><td><code>gssapi-server</code></td><td><code>setGSSAPIServer(GSSAPIServer)</code></td>
+<tr><td><code>gssapi-server</code></td><td><code>setGSSAPIServer(GssapiServer)</code></td>
 <td>none</td><td>Optional GSS-API server for Kerberos (RFC&nbsp;1961); may be
 supplied as a configured bean reference</td></tr>
 </table>
@@ -193,7 +193,7 @@ supplied as a configured bean reference</td></tr>
 To configure Kerberos from code, use
 <code>SocksListener.configureGSSAPI(Path&nbsp;keytabPath,
 String&nbsp;servicePrincipal)</code>, which constructs a
-<code>GSSAPIServer</code> for that listener.
+<code>GssapiServer</code> for that listener.
 </p>
 
 <h3 id="listener-common">Common listener options</h3>

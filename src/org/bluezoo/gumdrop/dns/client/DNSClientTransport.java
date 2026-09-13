@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.TimerHandle;
  *
  * <p>Each implementation wraps an existing Gumdrop transport factory:
  * <ul>
- * <li>{@link UdpDNSClientTransport} -- plain UDP via
+ * <li>{@link UdpDnsClientTransport} -- plain UDP via
  *     {@link org.bluezoo.gumdrop.UdpTransportFactory}</li>
  * </ul>
  *

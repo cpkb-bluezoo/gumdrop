@@ -41,7 +41,7 @@ public class DecoderMalformedInputTest {
      * literal name (RFC 9204 section 4.5.6): name "x" (1 byte, no Huffman),
      * value containing a bare CR (0x0D) — not a syntactically valid HTTP
      * header value. (Buffer-underflow shapes analogous to HPACK's #255 are
-     * not reachable here: QPACKStrings.read and PrefixedInteger.decode
+     * not reachable here: QpackStrings.read and PrefixedInteger.decode
      * already check remaining bytes and throw ProtocolException cleanly.)
      */
     @Test

@@ -47,7 +47,7 @@ import org.bluezoo.gumdrop.http.hpack.Huffman;
  * @see Decoder
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9204">RFC 9204</a>
  */
-public class SimpleDecoder extends QPACKConstants {
+public class SimpleDecoder extends QpackConstants {
 
     private static final Charset US_ASCII = StandardCharsets.US_ASCII;
 

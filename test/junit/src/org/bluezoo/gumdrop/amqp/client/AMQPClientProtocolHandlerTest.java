@@ -434,7 +434,7 @@ public class AMQPClientProtocolHandlerTest {
         args.putShort((short) AmqpMethod.BASIC_DELIVER);
         FieldTable.putShortString(args, consumerTag);
         args.putLong(deliveryTag);
-        args.put(AMQPBits.pack(redelivered));
+        args.put(AmqpBits.pack(redelivered));
         FieldTable.putShortString(args, exchange);
         FieldTable.putShortString(args, routingKey);
         args.flip();
@@ -734,7 +734,7 @@ public class AMQPClientProtocolHandlerTest {
         ByteBuffer args = ByteBuffer.allocate(5);
         args.putShort((short) AmqpMethod.CLASS_CHANNEL);
         args.putShort((short) AmqpMethod.CHANNEL_FLOW);
-        args.put(AMQPBits.pack(active));
+        args.put(AmqpBits.pack(active));
         args.flip();
         return AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channel, args);
     }
@@ -743,7 +743,7 @@ public class AMQPClientProtocolHandlerTest {
         ByteBuffer args = ByteBuffer.allocate(5);
         args.putShort((short) AmqpMethod.CLASS_CHANNEL);
         args.putShort((short) AmqpMethod.CHANNEL_FLOW_OK);
-        args.put(AMQPBits.pack(active));
+        args.put(AmqpBits.pack(active));
         args.flip();
         return AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channel, args);
     }
@@ -760,7 +760,7 @@ public class AMQPClientProtocolHandlerTest {
 
         assertEquals(List.of(false), flowEvents);
         ByteBuffer sent = lastSentMethodArgs(AmqpMethod.CLASS_CHANNEL, AmqpMethod.CHANNEL_FLOW_OK);
-        assertFalse(AMQPBits.unpack(sent.get(), 0));
+        assertFalse(AmqpBits.unpack(sent.get(), 0));
 
         feed(serverFlowFrame(1, true));
         assertEquals(List.of(false, true), flowEvents);
@@ -795,7 +795,7 @@ public class AMQPClientProtocolHandlerTest {
         args.putShort((short) AmqpMethod.CLASS_BASIC);
         args.putShort((short) AmqpMethod.BASIC_ACK);
         args.putLong(deliveryTag);
-        args.put(AMQPBits.pack(multiple));
+        args.put(AmqpBits.pack(multiple));
         args.flip();
         return AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channel, args);
     }
@@ -805,7 +805,7 @@ public class AMQPClientProtocolHandlerTest {
         args.putShort((short) AmqpMethod.CLASS_BASIC);
         args.putShort((short) AmqpMethod.BASIC_NACK);
         args.putLong(deliveryTag);
-        args.put(AMQPBits.pack(multiple, false));
+        args.put(AmqpBits.pack(multiple, false));
         args.flip();
         return AmqpFrame.encode(AmqpFrame.TYPE_METHOD, channel, args);
     }
@@ -950,7 +950,7 @@ public class AMQPClientProtocolHandlerTest {
     }
 
     /** A trivial two-step mechanism: sends an empty initial response, then echoes the challenge back. */
-    private static final class TwoStepMechanism implements org.bluezoo.gumdrop.auth.SASLClientMechanism {
+    private static final class TwoStepMechanism implements org.bluezoo.gumdrop.auth.SaslClientMechanism {
         private int step;
         private boolean complete;
 
@@ -978,7 +978,7 @@ public class AMQPClientProtocolHandlerTest {
     public void testStartOkSentWithAMQPLainMechanism() throws AmqpProtocolException {
         connect();
         feed(serverStartFrame());
-        recording.lastHandshake.startOk(new AMQPLainClientMechanism("guest", "guest"),
+        recording.lastHandshake.startOk(new AmqpPlainClientMechanism("guest", "guest"),
                 new TuneHandler() {
                     @Override
                     public void handleTune(int channelMax, long frameMax, int heartbeat, ClientTuned tuned) { }
@@ -1028,8 +1028,8 @@ public class AMQPClientProtocolHandlerTest {
         feed(serverStartFrame());
         final CountDownLatch evaluated = new CountDownLatch(1);
         final List<Thread> evaluatedOn = new ArrayList<>();
-        org.bluezoo.gumdrop.auth.SASLClientMechanism recordingMechanism =
-                new org.bluezoo.gumdrop.auth.SASLClientMechanism() {
+        org.bluezoo.gumdrop.auth.SaslClientMechanism recordingMechanism =
+                new org.bluezoo.gumdrop.auth.SaslClientMechanism() {
                     private boolean complete;
 
                     @Override

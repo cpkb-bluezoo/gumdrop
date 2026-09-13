@@ -1,5 +1,5 @@
 /*
- * IMAPResponse.java
+ * ImapResponse.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,7 +36,7 @@ package org.bluezoo.gumdrop.imap.client;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class IMAPResponse {
+class ImapResponse {
 
     enum Type {
         TAGGED,
@@ -56,7 +56,7 @@ class IMAPResponse {
     private final String responseCode;
     private final String message;
 
-    IMAPResponse(Type type, String tag, Status status,
+    ImapResponse(Type type, String tag, Status status,
             String responseCode, String message) {
         this.type = type;
         this.tag = tag;
@@ -115,17 +115,17 @@ class IMAPResponse {
      * @param line the response line (without CRLF)
      * @return the parsed response, or null if the line cannot be parsed
      */
-    static IMAPResponse parse(String line) {
+    static ImapResponse parse(String line) {
         if (line == null || line.isEmpty()) {
             return null;
         }
 
         if (line.startsWith("+ ")) {
-            return new IMAPResponse(Type.CONTINUATION, null, null,
+            return new ImapResponse(Type.CONTINUATION, null, null,
                     null, line.substring(2));
         }
         if (line.equals("+")) {
-            return new IMAPResponse(Type.CONTINUATION, null, null,
+            return new ImapResponse(Type.CONTINUATION, null, null,
                     null, "");
         }
 
@@ -143,31 +143,31 @@ class IMAPResponse {
         return null;
     }
 
-    private static IMAPResponse parseUntagged(String rest) {
+    private static ImapResponse parseUntagged(String rest) {
         Status status = parseStatus(rest);
         if (status != null) {
             String afterStatus = rest.substring(
                     status.name().length()).trim();
             String code = parseResponseCode(afterStatus);
             String msg = stripResponseCode(afterStatus);
-            return new IMAPResponse(Type.UNTAGGED, null, status,
+            return new ImapResponse(Type.UNTAGGED, null, status,
                     code, msg);
         }
-        return new IMAPResponse(Type.UNTAGGED, null, null,
+        return new ImapResponse(Type.UNTAGGED, null, null,
                 null, rest);
     }
 
-    private static IMAPResponse parseTagged(String tag, String rest) {
+    private static ImapResponse parseTagged(String tag, String rest) {
         Status status = parseStatus(rest);
         if (status != null) {
             String afterStatus = rest.substring(
                     status.name().length()).trim();
             String code = parseResponseCode(afterStatus);
             String msg = stripResponseCode(afterStatus);
-            return new IMAPResponse(Type.TAGGED, tag, status,
+            return new ImapResponse(Type.TAGGED, tag, status,
                     code, msg);
         }
-        return new IMAPResponse(Type.TAGGED, tag, null, null, rest);
+        return new ImapResponse(Type.TAGGED, tag, null, null, rest);
     }
 
     private static Status parseStatus(String text) {

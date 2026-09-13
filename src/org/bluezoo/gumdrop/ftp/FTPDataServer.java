@@ -1,5 +1,5 @@
 /*
- * FTPDataServer.java
+ * FtpDataServer.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -37,15 +37,15 @@ import java.nio.channels.SocketChannel;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class FTPDataServer implements AcceptSelectorLoop.RawAcceptHandler {
+class FtpDataServer implements AcceptSelectorLoop.RawAcceptHandler {
 
-    final FTPControlConnection controlConnection;
+    final FtpControlConnection controlConnection;
     final int requestedPort;
     final FtpDataConnectionCoordinator coordinator;
     private int actualPort = -1;
     private ServerSocketChannel serverChannel;
 
-    FTPDataServer(FTPControlConnection controlConnection, int port, FtpDataConnectionCoordinator coordinator) {
+    FtpDataServer(FtpControlConnection controlConnection, int port, FtpDataConnectionCoordinator coordinator) {
         this.controlConnection = controlConnection;
         this.requestedPort = port;
         this.coordinator = coordinator;
@@ -83,7 +83,7 @@ class FTPDataServer implements AcceptSelectorLoop.RawAcceptHandler {
         // (issue #145). coordinator.cleanup() calling stop() again later
         // is a harmless no-op once serverChannel is already null.
         stop();
-        FTPDataConnection dataConnection = new FTPDataConnection(sc, coordinator);
+        FtpDataConnection dataConnection = new FtpDataConnection(sc, coordinator);
         coordinator.acceptDataConnection(dataConnection);
     }
 

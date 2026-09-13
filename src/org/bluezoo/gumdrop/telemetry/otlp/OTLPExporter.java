@@ -1,5 +1,5 @@
 /*
- * OTLPExporter.java
+ * OtlpExporter.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -69,11 +69,11 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class OTLPExporter implements TelemetryExporter {
+public class OtlpExporter implements TelemetryExporter {
 
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
-    private static final Logger logger = Logger.getLogger(OTLPExporter.class.getName());
+    private static final Logger logger = Logger.getLogger(OtlpExporter.class.getName());
 
     private static final int DEFAULT_BUFFER_SIZE = 1024 * 1024; // 1 MB
 
@@ -88,12 +88,12 @@ public class OTLPExporter implements TelemetryExporter {
     private final BlockingQueue<List<MetricData>> metricQueue;
 
     // Endpoints
-    private final OTLPEndpoint tracesEndpoint;
-    private final OTLPEndpoint logsEndpoint;
-    private final OTLPEndpoint metricsEndpoint;
+    private final OtlpEndpoint tracesEndpoint;
+    private final OtlpEndpoint logsEndpoint;
+    private final OtlpEndpoint metricsEndpoint;
 
     // Active exports for flush synchronization
-    private final Set<OTLPResponseHandler> pendingExports;
+    private final Set<OtlpResponseHandler> pendingExports;
     private final Object exportLock = new Object();
 
     // Background thread
@@ -105,7 +105,7 @@ public class OTLPExporter implements TelemetryExporter {
      *
      * @param config the telemetry configuration
      */
-    public OTLPExporter(TelemetryConfig config) {
+    public OtlpExporter(TelemetryConfig config) {
         this.config = config;
 
         // Build resource attributes
@@ -143,9 +143,9 @@ public class OTLPExporter implements TelemetryExporter {
 
         // Parse and create endpoints
         Map<String, String> headers = config.getParsedHeaders();
-        this.tracesEndpoint = OTLPEndpoint.create("traces", config.getTracesEndpoint(), "/v1/traces", headers, config);
-        this.logsEndpoint = OTLPEndpoint.create("logs", config.getLogsEndpoint(), "/v1/logs", headers, config);
-        this.metricsEndpoint = OTLPEndpoint.create("metrics", config.getMetricsEndpoint(), "/v1/metrics", headers, config);
+        this.tracesEndpoint = OtlpEndpoint.create("traces", config.getTracesEndpoint(), "/v1/traces", headers, config);
+        this.logsEndpoint = OtlpEndpoint.create("logs", config.getLogsEndpoint(), "/v1/logs", headers, config);
+        this.metricsEndpoint = OtlpEndpoint.create("metrics", config.getMetricsEndpoint(), "/v1/metrics", headers, config);
 
         // Track pending exports
         this.pendingExports = ConcurrentHashMap.newKeySet();
@@ -279,11 +279,11 @@ public class OTLPExporter implements TelemetryExporter {
      *
      * @param handler the completed handler
      */
-    void onExportComplete(OTLPResponseHandler handler) {
+    void onExportComplete(OtlpResponseHandler handler) {
         removePendingExport(handler);
     }
 
-    private void removePendingExport(OTLPResponseHandler handler) {
+    private void removePendingExport(OtlpResponseHandler handler) {
         synchronized (exportLock) {
             pendingExports.remove(handler);
             if (pendingExports.isEmpty()) {
@@ -326,7 +326,7 @@ public class OTLPExporter implements TelemetryExporter {
         private volatile boolean flushRequested;
 
         ExportThread() {
-            super("OTLPExporter");
+            super("OtlpExporter");
             setDaemon(true);
         }
 
@@ -447,10 +447,10 @@ public class OTLPExporter implements TelemetryExporter {
             }
 
             for (Trace trace : traces) {
-                OTLPResponseHandler handler = new OTLPResponseHandler("traces", OTLPExporter.this);
+                OtlpResponseHandler handler = new OtlpResponseHandler("traces", OtlpExporter.this);
                 pendingExports.add(handler);
 
-                HTTPRequestChannel channel = tracesEndpoint.openStream(handler);
+                HttpRequestChannel channel = tracesEndpoint.openStream(handler);
                 if (channel == null) {
                     continue;
                 }
@@ -471,10 +471,10 @@ public class OTLPExporter implements TelemetryExporter {
                 return;
             }
 
-            OTLPResponseHandler handler = new OTLPResponseHandler("logs", OTLPExporter.this);
+            OtlpResponseHandler handler = new OtlpResponseHandler("logs", OtlpExporter.this);
             pendingExports.add(handler);
 
-            HTTPRequestChannel channel = logsEndpoint.openStream(handler);
+            HttpRequestChannel channel = logsEndpoint.openStream(handler);
             if (channel == null) {
                 return;
             }
@@ -494,10 +494,10 @@ public class OTLPExporter implements TelemetryExporter {
             }
 
             for (List<MetricData> metrics : batches) {
-                OTLPResponseHandler handler = new OTLPResponseHandler("metrics", OTLPExporter.this);
+                OtlpResponseHandler handler = new OtlpResponseHandler("metrics", OtlpExporter.this);
                 pendingExports.add(handler);
 
-                HTTPRequestChannel channel = metricsEndpoint.openStream(handler);
+                HttpRequestChannel channel = metricsEndpoint.openStream(handler);
                 if (channel == null) {
                     continue;
                 }

@@ -1,5 +1,5 @@
 /*
- * JSPCodeGenerator.java
+ * JspCodeGenerator.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@ import java.util.Set;
 /**
  * Generates Java servlet source code from a JSP Abstract Syntax Tree.
  * 
- * <p>This class takes a {@link JSPPage} object (the parsed JSP AST) and generates
+ * <p>This class takes a {@link JspPage} object (the parsed JSP AST) and generates
  * the corresponding Java servlet source code that implements {@code HttpServlet}.
  * The generated servlet can then be compiled and loaded to handle JSP requests.</p>
  * 
@@ -50,12 +50,12 @@ import java.util.Set;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPCodeGenerator implements JSPElementVisitor {
+public class JspCodeGenerator implements JspElementVisitor {
 
-    private final JSPPage jspPage;
+    private final JspPage jspPage;
     private final PrintWriter writer;
     private final TaglibRegistry taglibRegistry;
-    private final JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties;
+    private final JspPropertyGroupResolver.ResolvedJSPProperties jspProperties;
     private final Set<String> imports = new HashSet<>();
     private final StringBuilder declarations = new StringBuilder();
     private final StringBuilder serviceMethodBody = new StringBuilder();
@@ -74,14 +74,14 @@ public class JSPCodeGenerator implements JSPElementVisitor {
     private String implementsInterfaces = null;
 
     /**
-     * Constructs a new JSPCodeGenerator.
+     * Constructs a new JspCodeGenerator.
      * 
      * @param jspPage The JSP page AST to generate code from.
      * @param output  The output stream to write the generated Java code to.
      * @param taglibRegistry The taglib registry for resolving custom tags.
      * @throws IOException If an I/O error occurs while setting up the writer.
      */
-    public JSPCodeGenerator(JSPPage jspPage, OutputStream output, TaglibRegistry taglibRegistry) throws IOException {
+    public JspCodeGenerator(JspPage jspPage, OutputStream output, TaglibRegistry taglibRegistry) throws IOException {
         this.jspPage = jspPage;
         this.writer = new PrintWriter(new OutputStreamWriter(output, StandardCharsets.UTF_8));
         this.taglibRegistry = taglibRegistry;
@@ -95,7 +95,7 @@ public class JSPCodeGenerator implements JSPElementVisitor {
     }
 
     /**
-     * Constructs a new JSPCodeGenerator with JSP configuration properties.
+     * Constructs a new JspCodeGenerator with JSP configuration properties.
      * 
      * @param jspPage The JSP page AST to generate code from.
      * @param output  The output stream to write the generated Java code to.
@@ -103,8 +103,8 @@ public class JSPCodeGenerator implements JSPElementVisitor {
      * @param jspProperties The resolved JSP configuration properties.
      * @throws IOException If an I/O error occurs while setting up the writer.
      */
-    public JSPCodeGenerator(JSPPage jspPage, OutputStream output, TaglibRegistry taglibRegistry,
-                           JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties) throws IOException {
+    public JspCodeGenerator(JspPage jspPage, OutputStream output, TaglibRegistry taglibRegistry,
+                           JspPropertyGroupResolver.ResolvedJSPProperties jspProperties) throws IOException {
         this.jspPage = jspPage;
         this.writer = new PrintWriter(new OutputStreamWriter(output, StandardCharsets.UTF_8));
         this.taglibRegistry = taglibRegistry;
@@ -229,9 +229,9 @@ public class JSPCodeGenerator implements JSPElementVisitor {
     }
 
     private void processPageDirectives() {
-        // Process page directives from JSPPage
-        // Note: Page directives are handled by JSPPage internally
-        // Extract the current settings from JSPPage
+        // Process page directives from JspPage
+        // Note: Page directives are handled by JspPage internally
+        // Extract the current settings from JspPage
         contentType = jspPage.getContentType();
         session = jspPage.isSessionEnabled();
         autoFlush = jspPage.isAutoFlush();
@@ -240,11 +240,11 @@ public class JSPCodeGenerator implements JSPElementVisitor {
         errorPage = jspPage.getErrorPage();
         pageEncoding = jspPage.getEncoding();
         
-        // Add imports from JSPPage
+        // Add imports from JspPage
         imports.addAll(jspPage.getImports());
         
         // Process directive elements
-        for (JSPElement element : jspPage.getElements()) {
+        for (JspElement element : jspPage.getElements()) {
             if (element instanceof DirectiveElement) {
                 DirectiveElement directive = (DirectiveElement) element;
                 if ("page".equals(directive.getName())) {
@@ -340,7 +340,7 @@ public class JSPCodeGenerator implements JSPElementVisitor {
         serviceMethodBody.append("        \n");
         
         // Process all elements in the JSP page
-        for (JSPElement element : jspPage.getElements()) {
+        for (JspElement element : jspPage.getElements()) {
             // Skip directives and declarations (already processed)
             if (!(element instanceof DirectiveElement) && !(element instanceof DeclarationElement)) {
                 try {
@@ -411,7 +411,7 @@ public class JSPCodeGenerator implements JSPElementVisitor {
         writer.println("}");
     }
 
-    // JSPElementVisitor implementation
+    // JspElementVisitor implementation
 
     @Override
     public void visitText(TextElement element) throws Exception {
@@ -602,10 +602,10 @@ public class JSPCodeGenerator implements JSPElementVisitor {
             serviceMethodBody.append("                int _sr = ").append(tagVarName).append(".doStartTag();\n");
             serviceMethodBody.append("                if (_sr != jakarta.servlet.jsp.tagext.Tag.SKIP_BODY) {\n");
             // Generate body content from children
-            List<JSPElement> children = element.getChildren();
+            List<JspElement> children = element.getChildren();
             if (!children.isEmpty()) {
                 serviceMethodBody.append("                    do {\n");
-                for (JSPElement child : children) {
+                for (JspElement child : children) {
                     try {
                         child.accept(this);
                     } catch (RuntimeException re) {
@@ -716,9 +716,9 @@ public class JSPCodeGenerator implements JSPElementVisitor {
      */
     private void generateDispatch(StandardActionElement element, String page,
                                   String method) {
-        List<JSPElement> children = element.getChildren();
+        List<JspElement> children = element.getChildren();
         List<StandardActionElement> params = new ArrayList<>();
-        for (JSPElement child : children) {
+        for (JspElement child : children) {
             if (child instanceof StandardActionElement) {
                 StandardActionElement childAction = (StandardActionElement) child;
                 if ("param".equals(childAction.getActionName())) {

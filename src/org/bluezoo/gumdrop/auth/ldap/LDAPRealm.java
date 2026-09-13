@@ -1,5 +1,5 @@
 /*
- * LDAPRealm.java
+ * LdapRealm.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -42,20 +42,20 @@ import java.util.logging.Logger;
 import javax.security.auth.x500.X500Principal;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.ldap.client.BindResultHandler;
-import org.bluezoo.gumdrop.ldap.client.LDAPClient;
-import org.bluezoo.gumdrop.ldap.client.LDAPConnected;
-import org.bluezoo.gumdrop.ldap.client.LDAPConnectionReady;
-import org.bluezoo.gumdrop.ldap.client.LDAPConstants;
-import org.bluezoo.gumdrop.ldap.client.LDAPResult;
-import org.bluezoo.gumdrop.ldap.client.LDAPResultCode;
-import org.bluezoo.gumdrop.ldap.client.LDAPSession;
+import org.bluezoo.gumdrop.ldap.client.LdapClient;
+import org.bluezoo.gumdrop.ldap.client.LdapConnected;
+import org.bluezoo.gumdrop.ldap.client.LdapConnectionReady;
+import org.bluezoo.gumdrop.ldap.client.LdapConstants;
+import org.bluezoo.gumdrop.ldap.client.LdapResult;
+import org.bluezoo.gumdrop.ldap.client.LdapResultCode;
+import org.bluezoo.gumdrop.ldap.client.LdapSession;
 import org.bluezoo.gumdrop.ldap.client.SearchRequest;
 import org.bluezoo.gumdrop.ldap.client.SearchResultEntry;
 import org.bluezoo.gumdrop.ldap.client.SearchResultHandler;
@@ -70,7 +70,7 @@ import org.bluezoo.gumdrop.ldap.client.SearchScope;
  *
  * <h3>Configuration</h3>
  * <pre>{@code
- * <realm class="org.bluezoo.gumdrop.auth.ldap.LDAPRealm">
+ * <realm class="org.bluezoo.gumdrop.auth.ldap.LdapRealm">
  *   <host>ldap.example.com</host>
  *   <port>389</port>
  *   <baseDN>dc=example,dc=com</baseDN>
@@ -92,7 +92,7 @@ import org.bluezoo.gumdrop.ldap.client.SearchScope;
  * <h3>SASL Bind (RFC 4513 §5.2)</h3>
  * <p>Optionally set {@code saslMechanism} to use SASL instead of simple bind.
  * Supported mechanisms: PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL — implemented
- * via {@link SASLUtils#createClient} using gumdrop's own cryptographic
+ * via {@link SaslUtils#createClient} using gumdrop's own cryptographic
  * primitives (non-blocking, no JDK SASL dependency).
  *
  * <h3>TLS Support</h3>
@@ -105,17 +105,17 @@ import org.bluezoo.gumdrop.ldap.client.SearchScope;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511: LDAPv3</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4513">RFC 4513: LDAP Authentication Methods</a>
  */
-public class LDAPRealm implements Realm {
+public class LdapRealm implements Realm {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
-    private static final Logger LOGGER = Logger.getLogger(LDAPRealm.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(LdapRealm.class.getName());
 
     /** Default timeout for LDAP operations in seconds. */
     private static final int DEFAULT_TIMEOUT = 30;
 
     // Configuration
     private String host = "localhost";
-    private int port = LDAPConstants.DEFAULT_PORT;
+    private int port = LdapConstants.DEFAULT_PORT;
     private boolean secure = false;
     private boolean startTLS = false;
     private Path keystoreFile;
@@ -142,23 +142,23 @@ public class LDAPRealm implements Realm {
      * LDAP realm only supports PLAIN and LOGIN since it needs the
      * plaintext password to perform LDAP bind.
      */
-    private static final Set<SASLMechanism> SUPPORTED_MECHANISMS =
+    private static final Set<SaslMechanism> SUPPORTED_MECHANISMS =
             Collections.unmodifiableSet(EnumSet.of(
-                    SASLMechanism.PLAIN,
-                    SASLMechanism.LOGIN,
-                    SASLMechanism.EXTERNAL
+                    SaslMechanism.PLAIN,
+                    SaslMechanism.LOGIN,
+                    SaslMechanism.EXTERNAL
             ));
 
     /**
-     * Creates a new LDAPRealm with default settings.
+     * Creates a new LdapRealm with default settings.
      */
-    public LDAPRealm() {
+    public LdapRealm() {
     }
 
     /**
      * Copy constructor for forSelectorLoop.
      */
-    private LDAPRealm(LDAPRealm source, SelectorLoop loop) {
+    private LdapRealm(LdapRealm source, SelectorLoop loop) {
         this.host = source.host;
         this.port = source.port;
         this.secure = source.secure;
@@ -298,11 +298,11 @@ public class LDAPRealm implements Realm {
 
     @Override
     public Realm forSelectorLoop(SelectorLoop loop) {
-        return new LDAPRealm(this, loop);
+        return new LdapRealm(this, loop);
     }
 
     @Override
-    public Set<SASLMechanism> getSupportedSASLMechanisms() {
+    public Set<SaslMechanism> getSupportedSASLMechanisms() {
         return SUPPORTED_MECHANISMS;
     }
 
@@ -415,13 +415,13 @@ public class LDAPRealm implements Realm {
         final AtomicReference<Exception> error = new AtomicReference<>();
         final CountDownLatch latch = new CountDownLatch(1);
 
-        LDAPClient client = createClient();
-        client.connect(new LDAPConnectionReady() {
+        LdapClient client = createClient();
+        client.connect(new LdapConnectionReady() {
             @Override
-            public void handleReady(LDAPConnected connection) {
+            public void handleReady(LdapConnected connection) {
                 BindResultHandler bindHandler = new BindResultHandler() {
                     @Override
-                    public void handleBindSuccess(LDAPSession session) {
+                    public void handleBindSuccess(LdapSession session) {
                         // Service bind succeeded, now search for user
                         SearchRequest search = new SearchRequest();
                         search.setBaseDN(baseDN);
@@ -441,7 +441,7 @@ public class LDAPRealm implements Realm {
                             }
 
                             @Override
-                            public void handleDone(LDAPResult result, LDAPSession sess) {
+                            public void handleDone(LdapResult result, LdapSession sess) {
                                 sess.unbind();
                                 latch.countDown();
                             }
@@ -449,7 +449,7 @@ public class LDAPRealm implements Realm {
                     }
 
                     @Override
-                    public void handleBindFailure(LDAPResult result, LDAPConnected conn) {
+                    public void handleBindFailure(LdapResult result, LdapConnected conn) {
                         String msg = MessageFormat.format(L10N.getString("err.ldap_bind"), result);
                         error.set(new Exception(msg));
                         conn.unbind();
@@ -501,20 +501,20 @@ public class LDAPRealm implements Realm {
         final AtomicReference<Exception> error = new AtomicReference<>();
         final CountDownLatch latch = new CountDownLatch(1);
 
-        LDAPClient client = createClient();
-        client.connect(new LDAPConnectionReady() {
+        LdapClient client = createClient();
+        client.connect(new LdapConnectionReady() {
             @Override
-            public void handleReady(LDAPConnected connection) {
+            public void handleReady(LdapConnected connection) {
                 performUserBind(connection, dn, password, new BindResultHandler() {
                     @Override
-                    public void handleBindSuccess(LDAPSession session) {
+                    public void handleBindSuccess(LdapSession session) {
                         success.set(true);
                         session.unbind();
                         latch.countDown();
                     }
 
                     @Override
-                    public void handleBindFailure(LDAPResult result, LDAPConnected conn) {
+                    public void handleBindFailure(LdapResult result, LdapConnected conn) {
                         success.set(false);
                         conn.unbind();
                         latch.countDown();
@@ -566,13 +566,13 @@ public class LDAPRealm implements Realm {
         final AtomicReference<Exception> error = new AtomicReference<>();
         final CountDownLatch latch = new CountDownLatch(1);
 
-        LDAPClient client = createClient();
-        client.connect(new LDAPConnectionReady() {
+        LdapClient client = createClient();
+        client.connect(new LdapConnectionReady() {
             @Override
-            public void handleReady(LDAPConnected connection) {
+            public void handleReady(LdapConnected connection) {
                 BindResultHandler bindHandler = new BindResultHandler() {
                     @Override
-                    public void handleBindSuccess(LDAPSession session) {
+                    public void handleBindSuccess(LdapSession session) {
                         SearchRequest search = new SearchRequest();
                         search.setBaseDN(baseDN);
                         search.setScope(SearchScope.SUBTREE);
@@ -599,7 +599,7 @@ public class LDAPRealm implements Realm {
                             }
 
                             @Override
-                            public void handleDone(LDAPResult result, LDAPSession sess) {
+                            public void handleDone(LdapResult result, LdapSession sess) {
                                 sess.unbind();
                                 latch.countDown();
                             }
@@ -607,7 +607,7 @@ public class LDAPRealm implements Realm {
                     }
 
                     @Override
-                    public void handleBindFailure(LDAPResult result, LDAPConnected conn) {
+                    public void handleBindFailure(LdapResult result, LdapConnected conn) {
                         String msg = MessageFormat.format(L10N.getString("err.ldap_bind"), result);
                         error.set(new Exception(msg));
                         conn.unbind();
@@ -697,13 +697,13 @@ public class LDAPRealm implements Realm {
         final AtomicReference<Exception> error = new AtomicReference<>();
         final CountDownLatch latch = new CountDownLatch(1);
 
-        LDAPClient client = createClient();
-        client.connect(new LDAPConnectionReady() {
+        LdapClient client = createClient();
+        client.connect(new LdapConnectionReady() {
             @Override
-            public void handleReady(LDAPConnected connection) {
+            public void handleReady(LdapConnected connection) {
                 BindResultHandler bindHandler = new BindResultHandler() {
                     @Override
-                    public void handleBindSuccess(LDAPSession session) {
+                    public void handleBindSuccess(LdapSession session) {
                         SearchRequest search = new SearchRequest();
                         search.setBaseDN(baseDN);
                         search.setScope(SearchScope.SUBTREE);
@@ -729,8 +729,8 @@ public class LDAPRealm implements Realm {
                             }
 
                             @Override
-                            public void handleDone(LDAPResult result,
-                                                   LDAPSession sess) {
+                            public void handleDone(LdapResult result,
+                                                   LdapSession sess) {
                                 sess.unbind();
                                 latch.countDown();
                             }
@@ -738,8 +738,8 @@ public class LDAPRealm implements Realm {
                     }
 
                     @Override
-                    public void handleBindFailure(LDAPResult result,
-                                                  LDAPConnected conn) {
+                    public void handleBindFailure(LdapResult result,
+                                                  LdapConnected conn) {
                         String msg = MessageFormat.format(
                                 L10N.getString("err.ldap_bind"), result);
                         error.set(new Exception(msg));
@@ -839,7 +839,7 @@ public class LDAPRealm implements Realm {
     // Bind helpers — choose between simple bind and SASL bind
     // based on the saslMechanism configuration property.
 
-    private void performServiceBind(LDAPConnected connection,
+    private void performServiceBind(LdapConnected connection,
                                     BindResultHandler handler) {
         if (bindDN != null && !bindDN.isEmpty()) {
             if (saslMechanism != null) {
@@ -852,7 +852,7 @@ public class LDAPRealm implements Realm {
         }
     }
 
-    private void performUserBind(LDAPConnected connection,
+    private void performUserBind(LdapConnected connection,
                                  String dn, String password,
                                  BindResultHandler handler) {
         if (saslMechanism != null) {
@@ -862,15 +862,15 @@ public class LDAPRealm implements Realm {
         }
     }
 
-    private void performSASLBind(LDAPConnected connection,
+    private void performSASLBind(LdapConnected connection,
                                  String username, String password,
                                  BindResultHandler handler) {
-        SASLClientMechanism mechanism =
-                SASLUtils.createClient(saslMechanism, username, password, host);
+        SaslClientMechanism mechanism =
+                SaslUtils.createClient(saslMechanism, username, password, host);
         if (mechanism == null) {
             handler.handleBindFailure(
-                    new LDAPResult(
-                            LDAPResultCode.AUTH_METHOD_NOT_SUPPORTED,
+                    new LdapResult(
+                            LdapResultCode.AUTH_METHOD_NOT_SUPPORTED,
                             "", "SASL mechanism not available: "
                                     + saslMechanism, null),
                     connection);
@@ -882,11 +882,11 @@ public class LDAPRealm implements Realm {
     /**
      * Creates a new LDAP client with current configuration.
      */
-    private LDAPClient createClient() {
+    private LdapClient createClient() {
         if (selectorLoop == null) {
             throw new IllegalStateException(L10N.getString("err.ldap_no_selectorloop"));
         }
-        LDAPClient client = new LDAPClient(selectorLoop, host, port);
+        LdapClient client = new LdapClient(selectorLoop, host, port);
         client.setSecure(secure);
         if (keystoreFile != null) {
             client.setKeystoreFile(keystoreFile);

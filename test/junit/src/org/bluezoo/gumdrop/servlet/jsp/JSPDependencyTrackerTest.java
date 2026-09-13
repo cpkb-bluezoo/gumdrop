@@ -35,7 +35,7 @@ import java.util.Set;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for JSPDependencyTracker.
+ * Unit tests for JspDependencyTracker.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -44,13 +44,13 @@ public class JSPDependencyTrackerTest {
     @Rule
     public TemporaryFolder tempFolder = new TemporaryFolder();
 
-    private JSPDependencyTracker tracker;
+    private JspDependencyTracker tracker;
     private File webappRoot;
 
     @Before
     public void setUp() throws IOException {
         webappRoot = tempFolder.newFolder("webapp");
-        tracker = new JSPDependencyTracker(null, webappRoot);
+        tracker = new JspDependencyTracker(null, webappRoot);
     }
 
     @Test

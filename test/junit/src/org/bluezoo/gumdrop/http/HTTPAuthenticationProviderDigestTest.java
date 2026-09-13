@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.util.ByteArrays;
 import org.junit.Test;
 
@@ -42,7 +42,7 @@ public class HTTPAuthenticationProviderDigestTest {
     private static final String REALM = "test-realm";
     private static final String USERNAME = "alice";
     private static final String PASSWORD = "secret";
-    private static final String HA1 = SASLUtils.computeDigestHA1(
+    private static final String HA1 = SaslUtils.computeDigestHA1(
             USERNAME, REALM, PASSWORD);
 
     private static final class TestProvider extends HttpAuthenticationProvider {

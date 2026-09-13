@@ -1,5 +1,5 @@
 /*
- * OTLPEndpoint.java
+ * OtlpEndpoint.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -53,11 +53,11 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class OTLPEndpoint {
+class OtlpEndpoint {
 
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
-    private static final Logger logger = Logger.getLogger(OTLPEndpoint.class.getName());
+    private static final Logger logger = Logger.getLogger(OtlpEndpoint.class.getName());
 
     private final String name;
     private final String host;
@@ -87,7 +87,7 @@ class OTLPEndpoint {
      * @param config the telemetry configuration (for TLS settings)
      * @return the endpoint, or null if the URL is invalid
      */
-    static OTLPEndpoint create(String name, String url, String defaultPath, 
+    static OtlpEndpoint create(String name, String url, String defaultPath, 
                                Map<String, String> headers, TelemetryConfig config) {
         if (url == null || url.isEmpty()) {
             return null;
@@ -112,7 +112,7 @@ class OTLPEndpoint {
                 path = defaultPath;
             }
 
-            OTLPEndpoint endpoint = new OTLPEndpoint(name, host, port, path, secure, headers);
+            OtlpEndpoint endpoint = new OtlpEndpoint(name, host, port, path, secure, headers);
             
             // Copy TLS settings from config
             if (config != null) {
@@ -129,7 +129,7 @@ class OTLPEndpoint {
         }
     }
 
-    private OTLPEndpoint(String name, String host, int port, String path, boolean secure,
+    private OtlpEndpoint(String name, String host, int port, String path, boolean secure,
                          Map<String, String> headers) {
         this.name = name;
         this.host = host;
@@ -318,7 +318,7 @@ class OTLPEndpoint {
             }
 
             // Initiate connection with handler
-            client.connect(new OTLPConnectionHandler(connectLatch));
+            client.connect(new OtlpConnectionHandler(connectLatch));
 
             logger.info(MessageFormat.format(L10N.getString("info.endpoint_connecting"), name, host, port));
 
@@ -339,11 +339,11 @@ class OTLPEndpoint {
     /**
      * Handler for OTLP connection lifecycle events.
      */
-    private class OTLPConnectionHandler implements HttpClientHandler {
+    private class OtlpConnectionHandler implements HttpClientHandler {
 
         private final CountDownLatch connectLatch;
 
-        OTLPConnectionHandler(CountDownLatch connectLatch) {
+        OtlpConnectionHandler(CountDownLatch connectLatch) {
             this.connectLatch = connectLatch;
         }
 
@@ -386,7 +386,7 @@ class OTLPEndpoint {
      * @param data the protobuf-encoded telemetry data
      * @param handler the response handler
      */
-    void send(ByteBuffer data, OTLPResponseHandler handler) {
+    void send(ByteBuffer data, OtlpResponseHandler handler) {
         HttpClient httpClient = getClient();
         if (httpClient == null) {
             handler.failed(new IOException("No connection to " + name + " endpoint"));
@@ -425,7 +425,7 @@ class OTLPEndpoint {
      * @param handler the response handler
      * @return the channel, or null if connection failed
      */
-    HTTPRequestChannel openStream(OTLPResponseHandler handler) {
+    HttpRequestChannel openStream(OtlpResponseHandler handler) {
         HttpClient httpClient = getClient();
         if (httpClient == null) {
             handler.failed(new IOException("No connection to " + name + " endpoint"));
@@ -452,7 +452,7 @@ class OTLPEndpoint {
             logger.finest("Opened streaming channel to OTLP " + name + " endpoint");
         }
 
-        return new HTTPRequestChannel(request);
+        return new HttpRequestChannel(request);
     }
 
     /**

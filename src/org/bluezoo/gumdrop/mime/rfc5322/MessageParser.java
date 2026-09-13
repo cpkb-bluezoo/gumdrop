@@ -22,10 +22,10 @@
 package org.bluezoo.gumdrop.mime.rfc5322;
 
 import org.bluezoo.gumdrop.mime.ContentID;
-import org.bluezoo.gumdrop.mime.MIMEHandler;
-import org.bluezoo.gumdrop.mime.MIMEParseException;
-import org.bluezoo.gumdrop.mime.MIMEParser;
-import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
+import org.bluezoo.gumdrop.mime.MimeHandler;
+import org.bluezoo.gumdrop.mime.MimeParseException;
+import org.bluezoo.gumdrop.mime.MimeParser;
+import org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Decoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
@@ -36,7 +36,7 @@ import java.util.List;
 
 /**
  * A parser for RFC 5322 email messages.
- * This parser extends MIMEParser to add support for email-specific
+ * This parser extends MimeParser to add support for email-specific
  * structured headers such as Date, From, To, Cc, Message-ID, etc.
  *
  * This parser uses a completely asynchronous, non-blocking,
@@ -54,7 +54,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5322">RFC 5322: Internet Message Format</a>
  */
-public class MessageParser extends MIMEParser {
+public class MessageParser extends MimeParser {
 
 	private MessageHandler messageHandler;
 	private boolean usedObsoleteSyntax = false; // track obsolete syntax in structured headers
@@ -106,7 +106,7 @@ public class MessageParser extends MIMEParser {
 	}
 
 	@Override
-	public void setHandler(MIMEHandler handler) {
+	public void setHandler(MimeHandler handler) {
 		if (handler instanceof MessageHandler) {
 			this.messageHandler = (MessageHandler) handler;
 		}
@@ -118,7 +118,7 @@ public class MessageParser extends MIMEParser {
 	 * Decode to string only for headers we handle; apply RFC 2047 for unstructured and address headers.
 	 */
 	@Override
-	protected void header(String name, ByteBuffer value) throws MIMEParseException {
+	protected void header(String name, ByteBuffer value) throws MimeParseException {
 		String lower = name.toLowerCase().intern();
 		switch (lower) {
 			case "content-type":
@@ -191,7 +191,7 @@ public class MessageParser extends MIMEParser {
 		}
 		byte[] bytes = new byte[len];
 		value.duplicate().get(bytes);
-		String s = RFC2047Decoder.decodeHeaderValue(bytes, smtputf8);
+		String s = Rfc2047Decoder.decodeHeaderValue(bytes, smtputf8);
 		return stripHeaderWhitespace ? s.trim() : s;
 	}
 
@@ -208,7 +208,7 @@ public class MessageParser extends MIMEParser {
 		}
 	}
 
-	protected void handleDateHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleDateHeader(String name, ByteBuffer value) throws MimeParseException {
 		if (messageHandler == null) {
 			return;
 		}
@@ -226,7 +226,7 @@ public class MessageParser extends MIMEParser {
 		}
 	}
 
-	protected void handleAddressHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleAddressHeader(String name, ByteBuffer value) throws MimeParseException {
 		if (messageHandler == null) {
 			return;
 		}
@@ -244,7 +244,7 @@ public class MessageParser extends MIMEParser {
 		}
 	}
 
-	protected void handleMessageIDHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleMessageIDHeader(String name, ByteBuffer value) throws MimeParseException {
 		if (messageHandler == null) {
 			return;
 		}
@@ -262,7 +262,7 @@ public class MessageParser extends MIMEParser {
 		}
 	}
 
-	protected void handleReceivedHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleReceivedHeader(String name, ByteBuffer value) throws MimeParseException {
 		if (messageHandler != null) {
 			String valueStr = decodeHeaderValueWithRFC2047(value, smtputf8);
 			messageHandler.header(name, valueStr);

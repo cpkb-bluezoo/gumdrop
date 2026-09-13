@@ -43,10 +43,10 @@
  *   <li>{@link org.bluezoo.gumdrop.mdns.MdnsListener} &ndash; the UDP
  *       multicast transport: binds port 5353 and joins the mDNS group
  *       on every eligible network interface</li>
- *   <li>{@link org.bluezoo.gumdrop.mdns.MDNSCache} &ndash; the
+ *   <li>{@link org.bluezoo.gumdrop.mdns.MdnsCache} &ndash; the
  *       querier-side record cache, with RFC 6762 section 5.2 active
  *       refresh and section 10.2 cache-flush semantics</li>
- *   <li>{@link org.bluezoo.gumdrop.mdns.DNSSDAdvertiser} &ndash;
+ *   <li>{@link org.bluezoo.gumdrop.mdns.DnssdAdvertiser} &ndash;
  *       builds RFC 6763 PTR/SRV/TXT records for this Gumdrop instance's
  *       own configured services</li>
  * </ul>
@@ -100,7 +100,7 @@
  *
  * <p>Only a deliberately conservative set of well-established DNS-SD
  * service types is advertised (see
- * {@link org.bluezoo.gumdrop.mdns.DNSSDAdvertiser} for the exact list);
+ * {@link org.bluezoo.gumdrop.mdns.DnssdAdvertiser} for the exact list);
  * a listener whose {@code getDescription()} isn't in that list is
  * silently skipped, not treated as an error.
  *
@@ -120,8 +120,8 @@
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.mdns.MdnsServer
  * @see org.bluezoo.gumdrop.mdns.MdnsListener
- * @see org.bluezoo.gumdrop.mdns.MDNSCache
- * @see org.bluezoo.gumdrop.mdns.DNSSDAdvertiser
+ * @see org.bluezoo.gumdrop.mdns.MdnsCache
+ * @see org.bluezoo.gumdrop.mdns.DnssdAdvertiser
  * @see org.bluezoo.gumdrop.dns.DnsServer
  */
 package org.bluezoo.gumdrop.mdns;

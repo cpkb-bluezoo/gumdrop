@@ -39,7 +39,7 @@ final class ConfirmMethods {
         ByteBuffer buf = ByteBuffer.allocate(4 + 1);
         buf.putShort((short) AmqpMethod.CLASS_CONFIRM);
         buf.putShort((short) AmqpMethod.CONFIRM_SELECT);
-        buf.put(AMQPBits.pack(noWait));
+        buf.put(AmqpBits.pack(noWait));
         buf.flip();
         return buf;
     }
@@ -50,7 +50,7 @@ final class ConfirmMethods {
     }
 
     static boolean decodeSelect(ByteBuffer payload) {
-        return AMQPBits.unpack(payload.get(), 0); // no-wait
+        return AmqpBits.unpack(payload.get(), 0); // no-wait
     }
 
     static ByteBuffer encodeSelectOk() {

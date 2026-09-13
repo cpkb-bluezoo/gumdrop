@@ -277,7 +277,7 @@ class IfHeaderParser {
      * @return true if the If header conditions are satisfied
      */
     static boolean evaluate(List<IfGroup> groups, Path resourcePath,
-                            String resourceHref, WebDAVLockManager lockManager,
+                            String resourceHref, WebdavLockManager lockManager,
                             String currentETag) {
         if (groups.isEmpty()) {
             return true;
@@ -315,7 +315,7 @@ class IfHeaderParser {
      * Evaluates a single condition list (all conditions AND'd).
      */
     private static boolean evaluateList(ConditionList list, Path resourcePath,
-                                        WebDAVLockManager lockManager,
+                                        WebdavLockManager lockManager,
                                         String currentETag) {
         for (Condition cond : list.conditions) {
             boolean result;

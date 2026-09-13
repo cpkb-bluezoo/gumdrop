@@ -1,5 +1,5 @@
 /*
- * HPACKConstants.java
+ * HpackConstants.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.http.HeaderTableIndex;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7541">RFC 7541</a>
  */
-abstract class HPACKConstants {
+abstract class HpackConstants {
 
     /**
      * RFC 7541 Appendix A: Static Table Definition.

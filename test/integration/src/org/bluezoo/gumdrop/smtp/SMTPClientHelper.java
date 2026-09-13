@@ -47,7 +47,7 @@ public class SMTPClientHelper {
     /**
      * Represents an SMTP response from the server.
      */
-    public static class SMTPResponse {
+    public static class SmtpResponse {
         /** The 3-digit response code. */
         public final int code;
         /** The response text from the final line. */
@@ -55,7 +55,7 @@ public class SMTPClientHelper {
         /** All response lines (for multiline responses like EHLO). */
         public final List<String> lines;
 
-        public SMTPResponse(int code, String message, List<String> lines) {
+        public SmtpResponse(int code, String message, List<String> lines) {
             this.code = code;
             this.message = message;
             this.lines = lines;
@@ -94,7 +94,7 @@ public class SMTPClientHelper {
         private final Socket socket;
         private final BufferedReader reader;
         private final PrintWriter writer;
-        private SMTPResponse lastResponse;
+        private SmtpResponse lastResponse;
 
         SMTPSession(Socket socket, BufferedReader reader, PrintWriter writer) {
             this.socket = socket;
@@ -108,7 +108,7 @@ public class SMTPClientHelper {
          * @param command the command to send (without CRLF)
          * @return the server's response
          */
-        public SMTPResponse sendCommand(String command) throws IOException {
+        public SmtpResponse sendCommand(String command) throws IOException {
             writer.print(command + "\r\n");
             writer.flush();
             lastResponse = readResponse();
@@ -130,7 +130,7 @@ public class SMTPClientHelper {
          *
          * @return the response
          */
-        public SMTPResponse readResponse() throws IOException {
+        public SmtpResponse readResponse() throws IOException {
             List<String> lines = new ArrayList<String>();
             String lastLine = null;
             int code = 0;
@@ -158,7 +158,7 @@ public class SMTPClientHelper {
                     break;
                 }
             }
-            return new SMTPResponse(code, lastLine, lines);
+            return new SmtpResponse(code, lastLine, lines);
         }
 
         /**
@@ -166,7 +166,7 @@ public class SMTPClientHelper {
          *
          * @return the last response
          */
-        public SMTPResponse getLastResponse() {
+        public SmtpResponse getLastResponse() {
             return lastResponse;
         }
 
@@ -233,7 +233,7 @@ public class SMTPClientHelper {
      * @param body the email body
      * @return the final response (after message submission)
      */
-    public static SMTPResponse sendEmail(String host, int port,
+    public static SmtpResponse sendEmail(String host, int port,
                                          String from, String to, String subject, String body)
             throws IOException {
 
@@ -243,22 +243,22 @@ public class SMTPClientHelper {
                 return session.getLastResponse();
             }
 
-            SMTPResponse ehloResponse = session.sendCommand("EHLO test.example.com");
+            SmtpResponse ehloResponse = session.sendCommand("EHLO test.example.com");
             if (!ehloResponse.isPositiveCompletion()) {
                 return ehloResponse;
             }
 
-            SMTPResponse mailResponse = session.sendCommand("MAIL FROM:<" + from + ">");
+            SmtpResponse mailResponse = session.sendCommand("MAIL FROM:<" + from + ">");
             if (!mailResponse.isPositiveCompletion()) {
                 return mailResponse;
             }
 
-            SMTPResponse rcptResponse = session.sendCommand("RCPT TO:<" + to + ">");
+            SmtpResponse rcptResponse = session.sendCommand("RCPT TO:<" + to + ">");
             if (!rcptResponse.isPositiveCompletion()) {
                 return rcptResponse;
             }
 
-            SMTPResponse dataResponse = session.sendCommand("DATA");
+            SmtpResponse dataResponse = session.sendCommand("DATA");
             if (dataResponse.code != 354) {
                 return dataResponse;
             }

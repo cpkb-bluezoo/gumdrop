@@ -1,5 +1,5 @@
 /*
- * CIDRNetwork.java
+ * CidrNetwork.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -47,7 +47,7 @@ import java.util.List;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class CIDRNetwork {
+public class CidrNetwork {
     
     // IPv4 fields (32-bit)
     private final int ipv4NetworkAddress;
@@ -68,7 +68,7 @@ public class CIDRNetwork {
      * @param cidr the CIDR notation string (e.g., "192.168.1.0/24" or "2001:db8::/32")
      * @throws IllegalArgumentException if CIDR format is invalid
      */
-    public CIDRNetwork(String cidr) throws IllegalArgumentException {
+    public CidrNetwork(String cidr) throws IllegalArgumentException {
         this.originalCIDR = cidr;
         
         int slashIndex = cidr.indexOf('/');
@@ -230,7 +230,7 @@ public class CIDRNetwork {
             return false;
         }
         
-        CIDRNetwork other = (CIDRNetwork) obj;
+        CidrNetwork other = (CidrNetwork) obj;
         return originalCIDR.equals(other.originalCIDR);
     }
 
@@ -246,8 +246,8 @@ public class CIDRNetwork {
      * @param networks the CIDR networks to check against
      * @return true if the address matches any of the networks
      */
-    public static boolean matchesAny(InetAddress address, Iterable<CIDRNetwork> networks) {
-        for (CIDRNetwork network : networks) {
+    public static boolean matchesAny(InetAddress address, Iterable<CidrNetwork> networks) {
+        for (CidrNetwork network : networks) {
             if (network.matches(address)) {
                 return true;
             }
@@ -262,16 +262,16 @@ public class CIDRNetwork {
      * <p>Example usage in a connector:
      * <pre>
      * public void setAllowedNetworks(String cidrs) {
-     *     this.allowedNetworks = CIDRNetwork.parseList(cidrs);
+     *     this.allowedNetworks = CidrNetwork.parseList(cidrs);
      * }
      * </pre>
      * 
      * @param cidrList comma-separated CIDR strings (e.g., "192.168.1.0/24,2001:db8::/32,10.0.0.0/8")
-     * @return list of parsed CIDRNetwork objects
+     * @return list of parsed CidrNetwork objects
      * @throws IllegalArgumentException if any CIDR format is invalid
      */
-    public static List<CIDRNetwork> parseList(String cidrList) {
-        List<CIDRNetwork> networks = new ArrayList<CIDRNetwork>();
+    public static List<CidrNetwork> parseList(String cidrList) {
+        List<CidrNetwork> networks = new ArrayList<CidrNetwork>();
         
         if (cidrList != null && !cidrList.trim().isEmpty()) {
             int start = 0;
@@ -283,7 +283,7 @@ public class CIDRNetwork {
                 }
                 String trimmed = cidrList.substring(start, end).trim();
                 if (!trimmed.isEmpty()) {
-                    networks.add(new CIDRNetwork(trimmed));
+                    networks.add(new CidrNetwork(trimmed));
                 }
                 start = end + 1;
             }

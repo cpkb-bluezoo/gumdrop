@@ -1,5 +1,5 @@
 /*
- * FTPServerLexer.java
+ * FtpServerLexer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -44,13 +44,13 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see FtpProtocolHandler
  */
-final class FTPServerLexer extends ByteStreamLexer<FTPServerLexer.Token> {
+final class FtpServerLexer extends ByteStreamLexer<FtpServerLexer.Token> {
 
     enum Token { KEYWORD, SP, TEXT, CRLF }
 
     private boolean lastWasCR;
 
-    FTPServerLexer(Handler<Token> handler, int maxTokenLength) {
+    FtpServerLexer(Handler<Token> handler, int maxTokenLength) {
         super(handler, maxTokenLength, Token.CRLF, Token.TEXT);
     }
 

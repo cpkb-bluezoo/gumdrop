@@ -1,5 +1,5 @@
 /*
- * SMTPResponse.java
+ * SmtpResponse.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -42,7 +42,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-4.2">RFC 5321 §4.2</a> (reply code format)
  */
-class SMTPResponse {
+class SmtpResponse {
     
     private final int code;
     private final String message;
@@ -55,7 +55,7 @@ class SMTPResponse {
      * @param code 3-digit response code
      * @param message response message
      */
-    public SMTPResponse(int code, String message) {
+    public SmtpResponse(int code, String message) {
         this.code = code;
         this.message = message;
         this.lines = Collections.singletonList(message);
@@ -68,7 +68,7 @@ class SMTPResponse {
      * @param code 3-digit response code  
      * @param lines all response lines
      */
-    public SMTPResponse(int code, List<String> lines) {
+    public SmtpResponse(int code, List<String> lines) {
         this.code = code;
         this.lines = new ArrayList<String>(lines);
         this.message = lines.isEmpty() ? "" : lines.get(lines.size() - 1);

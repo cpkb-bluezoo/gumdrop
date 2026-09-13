@@ -102,7 +102,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     private final String allowedOptions;
     private final String[] welcomeFiles;
     private final Map<String, String> contentTypes;
-    private final WebDAVLockManager lockManager;
+    private final WebdavLockManager lockManager;
     private final DeadPropertyStore deadPropertyStore;
 
     // Request state
@@ -113,7 +113,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     private boolean pathIsDirectory;
     private long ifModifiedSince = -1;
     private long requestContentLength = -1;
-    private int depth = DAVConstants.DEPTH_INFINITY;
+    private int depth = DavConstants.DEPTH_INFINITY;
     private String destination;
     private boolean overwrite = true;
     private String lockToken;
@@ -134,7 +134,7 @@ class FileHandler extends DefaultHttpRequestHandler {
     
     // WebDAV request body accumulation
     private ByteBuffer requestBodyBuffer;
-    private WebDAVRequestParser webdavParser;
+    private WebdavRequestParser webdavParser;
     private Headers requestHeaders;
 
     /**
@@ -149,7 +149,7 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     FileHandler(Path rootPath, boolean allowWrite, boolean webdavEnabled,
                 String allowedOptions, String[] welcomeFiles,
-                Map<String, String> contentTypes, WebDAVLockManager lockManager,
+                Map<String, String> contentTypes, WebdavLockManager lockManager,
                 DeadPropertyStore deadPropertyStore) {
         this.rootPath = rootPath;
         Path canonical;
@@ -204,21 +204,21 @@ class FileHandler extends DefaultHttpRequestHandler {
         
         // Parse WebDAV headers
         if (webdavEnabled) {
-            String depthHeader = headers.getValue(DAVConstants.HEADER_DEPTH);
+            String depthHeader = headers.getValue(DavConstants.HEADER_DEPTH);
             if (depthHeader != null) {
                 if ("0".equals(depthHeader)) {
-                    depth = DAVConstants.DEPTH_0;
+                    depth = DavConstants.DEPTH_0;
                 } else if ("1".equals(depthHeader)) {
-                    depth = DAVConstants.DEPTH_1;
+                    depth = DavConstants.DEPTH_1;
                 } else {
-                    depth = DAVConstants.DEPTH_INFINITY;
+                    depth = DavConstants.DEPTH_INFINITY;
                 }
             }
-            destination = headers.getValue(DAVConstants.HEADER_DESTINATION);
-            String overwriteHeader = headers.getValue(DAVConstants.HEADER_OVERWRITE);
+            destination = headers.getValue(DavConstants.HEADER_DESTINATION);
+            String overwriteHeader = headers.getValue(DavConstants.HEADER_OVERWRITE);
             overwrite = overwriteHeader == null || !"F".equalsIgnoreCase(overwriteHeader);
-            lockToken = headers.getValue(DAVConstants.HEADER_LOCK_TOKEN);
-            ifHeader = headers.getValue(DAVConstants.HEADER_IF);
+            lockToken = headers.getValue(DavConstants.HEADER_LOCK_TOKEN);
+            ifHeader = headers.getValue(DavConstants.HEADER_IF);
         }
         
         // Process the request
@@ -632,7 +632,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         response.status(HttpStatus.OK);
         response.add("Allow", allowedOptions);
         if (webdavEnabled) {
-            response.add(DAVConstants.HEADER_DAV, "1,2");
+            response.add(DavConstants.HEADER_DAV, "1,2");
         }
         state.headers(response);
         state.complete();
@@ -803,30 +803,30 @@ class FileHandler extends DefaultHttpRequestHandler {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         XMLWriter xml = new XMLWriter(baos);
 
-        davStart(xml, DAVConstants.ELEM_MULTISTATUS);
-        xml.writeNamespace(DAVConstants.PREFIX, DAVConstants.NAMESPACE);
+        davStart(xml, DavConstants.ELEM_MULTISTATUS);
+        xml.writeNamespace(DavConstants.PREFIX, DavConstants.NAMESPACE);
 
         for (String[] error : errors) {
-            davStart(xml, DAVConstants.ELEM_RESPONSE);
+            davStart(xml, DavConstants.ELEM_RESPONSE);
 
-            davStart(xml, DAVConstants.ELEM_HREF);
+            davStart(xml, DavConstants.ELEM_HREF);
             davText(xml, error[0]);
-            davEnd(xml, DAVConstants.ELEM_HREF);
+            davEnd(xml, DavConstants.ELEM_HREF);
 
-            davStart(xml, DAVConstants.ELEM_STATUS);
+            davStart(xml, DavConstants.ELEM_STATUS);
             davText(xml, error[1]);
-            davEnd(xml, DAVConstants.ELEM_STATUS);
+            davEnd(xml, DavConstants.ELEM_STATUS);
 
-            davEnd(xml, DAVConstants.ELEM_RESPONSE);
+            davEnd(xml, DavConstants.ELEM_RESPONSE);
         }
 
-        davEnd(xml, DAVConstants.ELEM_MULTISTATUS);
+        davEnd(xml, DavConstants.ELEM_MULTISTATUS);
         xml.close();
 
         byte[] body = baos.toByteArray();
         Headers response = new Headers();
         response.status(HttpStatus.MULTI_STATUS);
-        response.add("Content-Type", DAVConstants.CONTENT_TYPE_XML);
+        response.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
         response.add("Content-Length", String.valueOf(body.length));
         state.headers(response);
         state.startResponseBody();
@@ -983,12 +983,12 @@ class FileHandler extends DefaultHttpRequestHandler {
         // Existence is checked inside the offloaded PropfindData gather;
         // do not Files.exists on the loop here.
         if (requestContentLength > 0) {
-            webdavParser = new WebDAVRequestParser();
+            webdavParser = new WebdavRequestParser();
             requestBodyExpected = true;
             // Response will be sent in finalizeWebDAVRequest
         } else {
             // No body = allprop request
-            sendPropfindResponse(state, WebDAVRequestParser.PropfindType.ALLPROP, null, null);
+            sendPropfindResponse(state, WebdavRequestParser.PropfindType.ALLPROP, null, null);
         }
     }
 
@@ -1028,7 +1028,7 @@ class FileHandler extends DefaultHttpRequestHandler {
                     return;
                 }
                 pathIsDirectory = prep.isDirectory;
-                webdavParser = new WebDAVRequestParser();
+                webdavParser = new WebdavRequestParser();
                 requestBodyExpected = true;
                 state.resumeRequestBody();
             }
@@ -1312,8 +1312,8 @@ class FileHandler extends DefaultHttpRequestHandler {
         if (lockToken != null && requestContentLength == 0) {
             String token = extractLockToken(lockToken);
             if (token != null) {
-                long timeout = parseTimeout(requestHeaders.getValue(DAVConstants.HEADER_TIMEOUT));
-                WebDAVLock refreshed = lockManager.refresh(token, timeout);
+                long timeout = parseTimeout(requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
+                WebdavLock refreshed = lockManager.refresh(token, timeout);
                 if (refreshed != null) {
                     boolean isDir = requestPath != null && requestPath.endsWith("/");
                     sendLockResponse(state, refreshed, false, isDir);
@@ -1326,11 +1326,11 @@ class FileHandler extends DefaultHttpRequestHandler {
         
         // New lock request
         if (requestContentLength > 0) {
-            webdavParser = new WebDAVRequestParser();
+            webdavParser = new WebdavRequestParser();
             requestBodyExpected = true;
         } else {
             // Default to exclusive write lock
-            createLock(state, WebDAVLock.Scope.EXCLUSIVE, WebDAVLock.Type.WRITE, null);
+            createLock(state, WebdavLock.Scope.EXCLUSIVE, WebdavLock.Type.WRITE, null);
         }
     }
 
@@ -1364,19 +1364,19 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     private void finalizeWebDAVRequest(HttpResponseState state) throws IOException {
-        WebDAVRequestParser.PropfindRequest propfind = webdavParser.getPropfindRequest();
+        WebdavRequestParser.PropfindRequest propfind = webdavParser.getPropfindRequest();
         if (propfind != null) {
             sendPropfindResponse(state, propfind.type, propfind.properties, propfind.include);
             return;
         }
         
-        WebDAVRequestParser.ProppatchRequest proppatch = webdavParser.getProppatchRequest();
+        WebdavRequestParser.ProppatchRequest proppatch = webdavParser.getProppatchRequest();
         if (proppatch != null) {
             sendProppatchResponse(state, proppatch);
             return;
         }
         
-        WebDAVRequestParser.LockRequest lockReq = webdavParser.getLockRequest();
+        WebdavRequestParser.LockRequest lockReq = webdavParser.getLockRequest();
         if (lockReq != null) {
             createLock(state, lockReq.scope, lockReq.type, lockReq.owner);
             return;
@@ -1395,9 +1395,9 @@ class FileHandler extends DefaultHttpRequestHandler {
      * builds the XML response synchronously.
      */
     private void sendPropfindResponse(final HttpResponseState state,
-            final WebDAVRequestParser.PropfindType type,
-            final List<WebDAVRequestParser.PropertyRef> requestedProps,
-            final List<WebDAVRequestParser.PropertyRef> include) {
+            final WebdavRequestParser.PropfindType type,
+            final List<WebdavRequestParser.PropertyRef> requestedProps,
+            final List<WebdavRequestParser.PropertyRef> include) {
 
         offload(state, new Callable<PropfindData>() {
             @Override
@@ -1484,8 +1484,8 @@ class FileHandler extends DefaultHttpRequestHandler {
             final List<Path> resources,
             final Map<Path, Map<String, DeadProperty>> allDeadProps,
             final HttpResponseState state,
-            final WebDAVRequestParser.PropfindType type,
-            final List<WebDAVRequestParser.PropertyRef> requestedProps,
+            final WebdavRequestParser.PropfindType type,
+            final List<WebdavRequestParser.PropertyRef> requestedProps,
             final Map<Path, BasicFileAttributes> attrsMap) {
         if (resources.isEmpty()) {
             buildPropfindResponse(state, resources, type,
@@ -1529,17 +1529,17 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     private void buildPropfindResponse(HttpResponseState state,
             List<Path> resources,
-            WebDAVRequestParser.PropfindType type,
-            List<WebDAVRequestParser.PropertyRef> requestedProps,
+            WebdavRequestParser.PropfindType type,
+            List<WebdavRequestParser.PropertyRef> requestedProps,
             Map<Path, Map<String, DeadProperty>> allDeadProps,
             Map<Path, BasicFileAttributes> attrsMap) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             XMLWriter xml = new XMLWriter(baos);
 
-            davStart(xml, DAVConstants.ELEM_MULTISTATUS);
-            xml.writeNamespace(DAVConstants.PREFIX,
-                    DAVConstants.NAMESPACE);
+            davStart(xml, DavConstants.ELEM_MULTISTATUS);
+            xml.writeNamespace(DavConstants.PREFIX,
+                    DavConstants.NAMESPACE);
 
             for (int i = 0; i < resources.size(); i++) {
                 Path resource = resources.get(i);
@@ -1549,14 +1549,14 @@ class FileHandler extends DefaultHttpRequestHandler {
                         requestedProps, deadProps, attrsMap);
             }
 
-            davEnd(xml, DAVConstants.ELEM_MULTISTATUS);
+            davEnd(xml, DavConstants.ELEM_MULTISTATUS);
             xml.close();
 
             byte[] body = baos.toByteArray();
             Headers response = new Headers();
             response.status(HttpStatus.MULTI_STATUS);
             response.add("Content-Type",
-                    DAVConstants.CONTENT_TYPE_XML);
+                    DavConstants.CONTENT_TYPE_XML);
             response.add("Content-Length",
                     String.valueOf(body.length));
             state.headers(response);
@@ -1570,8 +1570,8 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     private void writeResourceResponse(XMLWriter xml, Path resource,
-            WebDAVRequestParser.PropfindType type,
-            List<WebDAVRequestParser.PropertyRef> requestedProps,
+            WebdavRequestParser.PropfindType type,
+            List<WebdavRequestParser.PropertyRef> requestedProps,
             Map<String, DeadProperty> deadProps,
             Map<Path, BasicFileAttributes> attrsMap)
             throws IOException {
@@ -1579,18 +1579,18 @@ class FileHandler extends DefaultHttpRequestHandler {
         BasicFileAttributes attrs = attrsMap.get(resource);
         boolean isDir = attrs != null && attrs.isDirectory();
 
-        davStart(xml, DAVConstants.ELEM_RESPONSE);
+        davStart(xml, DavConstants.ELEM_RESPONSE);
 
-        davStart(xml, DAVConstants.ELEM_HREF);
+        davStart(xml, DavConstants.ELEM_HREF);
         davText(xml, getHref(resource, isDir));
-        davEnd(xml, DAVConstants.ELEM_HREF);
+        davEnd(xml, DavConstants.ELEM_HREF);
 
-        davStart(xml, DAVConstants.ELEM_PROPSTAT);
-        davStart(xml, DAVConstants.ELEM_PROP);
+        davStart(xml, DavConstants.ELEM_PROPSTAT);
+        davStart(xml, DavConstants.ELEM_PROP);
 
-        if (type == WebDAVRequestParser.PropfindType.PROPNAME) {
+        if (type == WebdavRequestParser.PropfindType.PROPNAME) {
             writePropertyNames(xml, resource, deadProps);
-        } else if (type == WebDAVRequestParser.PropfindType.PROP
+        } else if (type == WebdavRequestParser.PropfindType.PROP
                 && requestedProps != null) {
             writeRequestedProperties(xml, resource, requestedProps,
                     deadProps, attrs);
@@ -1598,14 +1598,14 @@ class FileHandler extends DefaultHttpRequestHandler {
             writeAllProperties(xml, resource, deadProps, attrs);
         }
 
-        davEnd(xml, DAVConstants.ELEM_PROP);
+        davEnd(xml, DavConstants.ELEM_PROP);
 
-        davStart(xml, DAVConstants.ELEM_STATUS);
+        davStart(xml, DavConstants.ELEM_STATUS);
         davText(xml, "HTTP/1.1 200 OK");
-        davEnd(xml, DAVConstants.ELEM_STATUS);
+        davEnd(xml, DavConstants.ELEM_STATUS);
 
-        davEnd(xml, DAVConstants.ELEM_PROPSTAT);
-        davEnd(xml, DAVConstants.ELEM_RESPONSE);
+        davEnd(xml, DavConstants.ELEM_PROPSTAT);
+        davEnd(xml, DavConstants.ELEM_RESPONSE);
     }
 
     private void writePropertyNames(XMLWriter xml, Path resource,
@@ -1631,43 +1631,43 @@ class FileHandler extends DefaultHttpRequestHandler {
             throws IOException {
         boolean isDir = attrs.isDirectory();
 
-        davStartText(xml, DAVConstants.PROP_CREATIONDATE,
+        davStartText(xml, DavConstants.PROP_CREATIONDATE,
                 formatISO8601(attrs.creationTime().toMillis()));
 
         Path fileName = resource.getFileName();
-        davStartText(xml, DAVConstants.PROP_DISPLAYNAME,
+        davStartText(xml, DavConstants.PROP_DISPLAYNAME,
                 fileName != null ? fileName.toString() : "");
 
         if (!isDir) {
-            davStartText(xml, DAVConstants.PROP_GETCONTENTLENGTH,
+            davStartText(xml, DavConstants.PROP_GETCONTENTLENGTH,
                     String.valueOf(attrs.size()));
         }
 
-        davStartText(xml, DAVConstants.PROP_GETCONTENTTYPE,
+        davStartText(xml, DavConstants.PROP_GETCONTENTTYPE,
                 isDir
                         ? "httpd/unix-directory"
                         : getContentType(resource));
 
-        davStartText(xml, DAVConstants.PROP_GETETAG,
+        davStartText(xml, DavConstants.PROP_GETETAG,
                 "\"" + generateETag(resource, attrs) + "\"");
 
-        davStartText(xml, DAVConstants.PROP_GETLASTMODIFIED,
+        davStartText(xml, DavConstants.PROP_GETLASTMODIFIED,
                 dateFormat.format(
                         attrs.lastModifiedTime().toMillis()));
 
-        davStart(xml, DAVConstants.PROP_LOCKDISCOVERY);
+        davStart(xml, DavConstants.PROP_LOCKDISCOVERY);
         writeLockDiscovery(xml, resource, isDir);
-        davEnd(xml, DAVConstants.PROP_LOCKDISCOVERY);
+        davEnd(xml, DavConstants.PROP_LOCKDISCOVERY);
 
-        davStart(xml, DAVConstants.PROP_RESOURCETYPE);
+        davStart(xml, DavConstants.PROP_RESOURCETYPE);
         if (isDir) {
-            davEmpty(xml, DAVConstants.ELEM_COLLECTION);
+            davEmpty(xml, DavConstants.ELEM_COLLECTION);
         }
-        davEnd(xml, DAVConstants.PROP_RESOURCETYPE);
+        davEnd(xml, DavConstants.PROP_RESOURCETYPE);
 
-        davStart(xml, DAVConstants.PROP_SUPPORTEDLOCK);
+        davStart(xml, DavConstants.PROP_SUPPORTEDLOCK);
         writeSupportedLock(xml);
-        davEnd(xml, DAVConstants.PROP_SUPPORTEDLOCK);
+        davEnd(xml, DavConstants.PROP_SUPPORTEDLOCK);
 
         if (deadProps != null) {
             for (Map.Entry<String, DeadProperty> entry
@@ -1678,64 +1678,64 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     private void writeRequestedProperties(XMLWriter xml, Path resource,
-            List<WebDAVRequestParser.PropertyRef> props,
+            List<WebdavRequestParser.PropertyRef> props,
             Map<String, DeadProperty> deadProps,
             BasicFileAttributes attrs)
             throws IOException {
         boolean isDir = attrs != null && attrs.isDirectory();
 
         for (int i = 0; i < props.size(); i++) {
-            WebDAVRequestParser.PropertyRef prop = props.get(i);
+            WebdavRequestParser.PropertyRef prop = props.get(i);
             String ns = prop.namespaceURI;
             String name = prop.localName;
 
-            if (DAVConstants.NAMESPACE.equals(ns)) {
-                if (DAVConstants.PROP_CREATIONDATE.equals(name)) {
+            if (DavConstants.NAMESPACE.equals(ns)) {
+                if (DavConstants.PROP_CREATIONDATE.equals(name)) {
                     davStartText(xml, name,
                             formatISO8601(
                                     attrs.creationTime().toMillis()));
-                } else if (DAVConstants.PROP_DISPLAYNAME
+                } else if (DavConstants.PROP_DISPLAYNAME
                         .equals(name)) {
                     Path fileName = resource.getFileName();
                     davStartText(xml, name,
                             fileName != null
                                     ? fileName.toString() : "");
-                } else if (DAVConstants.PROP_GETCONTENTLENGTH
+                } else if (DavConstants.PROP_GETCONTENTLENGTH
                         .equals(name)) {
                     if (!isDir) {
                         davStartText(xml, name,
                                 String.valueOf(attrs.size()));
                     }
-                } else if (DAVConstants.PROP_GETCONTENTTYPE
+                } else if (DavConstants.PROP_GETCONTENTTYPE
                         .equals(name)) {
                     davStartText(xml, name,
                             isDir
                                     ? "httpd/unix-directory"
                                     : getContentType(resource));
-                } else if (DAVConstants.PROP_GETETAG.equals(name)) {
+                } else if (DavConstants.PROP_GETETAG.equals(name)) {
                     davStartText(xml, name,
                             "\"" + generateETag(resource, attrs)
                                     + "\"");
-                } else if (DAVConstants.PROP_GETLASTMODIFIED
+                } else if (DavConstants.PROP_GETLASTMODIFIED
                         .equals(name)) {
                     davStartText(xml, name,
                             dateFormat.format(
                                     attrs.lastModifiedTime()
                                             .toMillis()));
-                } else if (DAVConstants.PROP_LOCKDISCOVERY
+                } else if (DavConstants.PROP_LOCKDISCOVERY
                         .equals(name)) {
                     davStart(xml, name);
                     writeLockDiscovery(xml, resource, isDir);
                     davEnd(xml, name);
-                } else if (DAVConstants.PROP_RESOURCETYPE
+                } else if (DavConstants.PROP_RESOURCETYPE
                         .equals(name)) {
                     davStart(xml, name);
                     if (isDir) {
                         davEmpty(xml,
-                                DAVConstants.ELEM_COLLECTION);
+                                DavConstants.ELEM_COLLECTION);
                     }
                     davEnd(xml, name);
-                } else if (DAVConstants.PROP_SUPPORTEDLOCK
+                } else if (DavConstants.PROP_SUPPORTEDLOCK
                         .equals(name)) {
                     davStart(xml, name);
                     writeSupportedLock(xml);
@@ -1786,73 +1786,73 @@ class FileHandler extends DefaultHttpRequestHandler {
     /** RFC 4918 section 15.8 -- lockdiscovery property (active locks). */
     private void writeLockDiscovery(XMLWriter xml, Path resource,
             boolean isDir) throws IOException {
-        List<WebDAVLock> locks = lockManager.getCoveringLocks(resource);
-        for (WebDAVLock lock : locks) {
-            davStart(xml, DAVConstants.ELEM_ACTIVELOCK);
+        List<WebdavLock> locks = lockManager.getCoveringLocks(resource);
+        for (WebdavLock lock : locks) {
+            davStart(xml, DavConstants.ELEM_ACTIVELOCK);
             
-            davStart(xml, DAVConstants.ELEM_LOCKTYPE);
-            davEmpty(xml, DAVConstants.ELEM_WRITE);
-            davEnd(xml, DAVConstants.ELEM_LOCKTYPE);
+            davStart(xml, DavConstants.ELEM_LOCKTYPE);
+            davEmpty(xml, DavConstants.ELEM_WRITE);
+            davEnd(xml, DavConstants.ELEM_LOCKTYPE);
             
-            davStart(xml, DAVConstants.ELEM_LOCKSCOPE);
-            davEmpty(xml, lock.getScope() == WebDAVLock.Scope.EXCLUSIVE
-                    ? DAVConstants.ELEM_EXCLUSIVE : DAVConstants.ELEM_SHARED);
-            davEnd(xml, DAVConstants.ELEM_LOCKSCOPE);
+            davStart(xml, DavConstants.ELEM_LOCKSCOPE);
+            davEmpty(xml, lock.getScope() == WebdavLock.Scope.EXCLUSIVE
+                    ? DavConstants.ELEM_EXCLUSIVE : DavConstants.ELEM_SHARED);
+            davEnd(xml, DavConstants.ELEM_LOCKSCOPE);
             
-            davStartText(xml, DAVConstants.ELEM_DEPTH,
-                    lock.getDepth() == DAVConstants.DEPTH_INFINITY
+            davStartText(xml, DavConstants.ELEM_DEPTH,
+                    lock.getDepth() == DavConstants.DEPTH_INFINITY
                             ? "infinity" : String.valueOf(lock.getDepth()));
             
             if (lock.getOwner() != null) {
-                davStartText(xml, DAVConstants.ELEM_OWNER, lock.getOwner());
+                davStartText(xml, DavConstants.ELEM_OWNER, lock.getOwner());
             }
             
             long remaining = lock.getRemainingTimeoutSeconds();
-            davStartText(xml, DAVConstants.ELEM_TIMEOUT,
+            davStartText(xml, DavConstants.ELEM_TIMEOUT,
                     remaining < 0 ? "Infinite" : "Second-" + remaining);
             
-            davStart(xml, DAVConstants.ELEM_LOCKTOKEN);
-            davStartText(xml, DAVConstants.ELEM_HREF, lock.getToken());
-            davEnd(xml, DAVConstants.ELEM_LOCKTOKEN);
+            davStart(xml, DavConstants.ELEM_LOCKTOKEN);
+            davStartText(xml, DavConstants.ELEM_HREF, lock.getToken());
+            davEnd(xml, DavConstants.ELEM_LOCKTOKEN);
             
             // Ancestor covering locks are collections; same-path uses isDir.
             Path lockPath = lock.getPath();
             boolean lockIsDir = lockPath.equals(resource) ? isDir : true;
-            davStart(xml, DAVConstants.ELEM_LOCKROOT);
-            davStartText(xml, DAVConstants.ELEM_HREF,
+            davStart(xml, DavConstants.ELEM_LOCKROOT);
+            davStartText(xml, DavConstants.ELEM_HREF,
                     getHref(lockPath, lockIsDir));
-            davEnd(xml, DAVConstants.ELEM_LOCKROOT);
+            davEnd(xml, DavConstants.ELEM_LOCKROOT);
             
-            davEnd(xml, DAVConstants.ELEM_ACTIVELOCK);
+            davEnd(xml, DavConstants.ELEM_ACTIVELOCK);
         }
     }
 
     /** RFC 4918 §15.10 — supportedlock property (exclusive + shared write). */
     private void writeSupportedLock(XMLWriter xml) throws IOException {
         // Exclusive write lock
-        davStart(xml, DAVConstants.ELEM_LOCKENTRY);
-        davStart(xml, DAVConstants.ELEM_LOCKSCOPE);
-        davEmpty(xml, DAVConstants.ELEM_EXCLUSIVE);
-        davEnd(xml, DAVConstants.ELEM_LOCKSCOPE);
-        davStart(xml, DAVConstants.ELEM_LOCKTYPE);
-        davEmpty(xml, DAVConstants.ELEM_WRITE);
-        davEnd(xml, DAVConstants.ELEM_LOCKTYPE);
-        davEnd(xml, DAVConstants.ELEM_LOCKENTRY);
+        davStart(xml, DavConstants.ELEM_LOCKENTRY);
+        davStart(xml, DavConstants.ELEM_LOCKSCOPE);
+        davEmpty(xml, DavConstants.ELEM_EXCLUSIVE);
+        davEnd(xml, DavConstants.ELEM_LOCKSCOPE);
+        davStart(xml, DavConstants.ELEM_LOCKTYPE);
+        davEmpty(xml, DavConstants.ELEM_WRITE);
+        davEnd(xml, DavConstants.ELEM_LOCKTYPE);
+        davEnd(xml, DavConstants.ELEM_LOCKENTRY);
         
         // Shared write lock
-        davStart(xml, DAVConstants.ELEM_LOCKENTRY);
-        davStart(xml, DAVConstants.ELEM_LOCKSCOPE);
-        davEmpty(xml, DAVConstants.ELEM_SHARED);
-        davEnd(xml, DAVConstants.ELEM_LOCKSCOPE);
-        davStart(xml, DAVConstants.ELEM_LOCKTYPE);
-        davEmpty(xml, DAVConstants.ELEM_WRITE);
-        davEnd(xml, DAVConstants.ELEM_LOCKTYPE);
-        davEnd(xml, DAVConstants.ELEM_LOCKENTRY);
+        davStart(xml, DavConstants.ELEM_LOCKENTRY);
+        davStart(xml, DavConstants.ELEM_LOCKSCOPE);
+        davEmpty(xml, DavConstants.ELEM_SHARED);
+        davEnd(xml, DavConstants.ELEM_LOCKSCOPE);
+        davStart(xml, DavConstants.ELEM_LOCKTYPE);
+        davEmpty(xml, DavConstants.ELEM_WRITE);
+        davEnd(xml, DavConstants.ELEM_LOCKTYPE);
+        davEnd(xml, DavConstants.ELEM_LOCKENTRY);
     }
 
     private static void davStart(XMLWriter xml, String localName)
             throws IOException {
-        xml.writeStartElement(DAVConstants.PREFIX, localName, DAVConstants.NAMESPACE);
+        xml.writeStartElement(DavConstants.PREFIX, localName, DavConstants.NAMESPACE);
     }
 
     private static void davEnd(XMLWriter xml, String localName)
@@ -1884,7 +1884,7 @@ class FileHandler extends DefaultHttpRequestHandler {
      * and returns per-property status.
      */
     private void sendProppatchResponse(final HttpResponseState state,
-            final WebDAVRequestParser.ProppatchRequest proppatch)
+            final WebdavRequestParser.ProppatchRequest proppatch)
             throws IOException {
         if (deadPropertyStore == null
                 || deadPropertyStore.getMode()
@@ -1902,7 +1902,7 @@ class FileHandler extends DefaultHttpRequestHandler {
      */
     private void applyProppatchUpdate(
             final HttpResponseState state,
-            final WebDAVRequestParser.ProppatchRequest proppatch,
+            final WebdavRequestParser.ProppatchRequest proppatch,
             final int index,
             final List<Boolean> results) {
         if (index >= proppatch.updates.size()) {
@@ -1910,13 +1910,13 @@ class FileHandler extends DefaultHttpRequestHandler {
             return;
         }
 
-        final WebDAVRequestParser.PropertyUpdate update =
+        final WebdavRequestParser.PropertyUpdate update =
                 proppatch.updates.get(index);
         String ns = update.namespaceURI != null
                 ? update.namespaceURI : "";
         String name = update.localName;
 
-        if (DAVConstants.NAMESPACE.equals(ns)
+        if (DavConstants.NAMESPACE.equals(ns)
                 && getLivePropertyNames().contains(name)) {
             results.add(Boolean.FALSE);
             applyProppatchUpdate(state, proppatch, index + 1,
@@ -1925,7 +1925,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
 
         if (update.operation
-                == WebDAVRequestParser.PropPatchOp.REMOVE) {
+                == WebdavRequestParser.PropPatchOp.REMOVE) {
             deadPropertyStore.removeProperty(path,
                     Boolean.valueOf(pathIsDirectory), ns, name,
                     new DeadPropertyCallback() {
@@ -1968,18 +1968,18 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     private void sendProppatchResult(HttpResponseState state,
-            WebDAVRequestParser.ProppatchRequest proppatch,
+            WebdavRequestParser.ProppatchRequest proppatch,
             List<Boolean> results) {
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             XMLWriter xml = new XMLWriter(baos);
 
-            davStart(xml, DAVConstants.ELEM_MULTISTATUS);
-            xml.writeNamespace(DAVConstants.PREFIX,
-                    DAVConstants.NAMESPACE);
+            davStart(xml, DavConstants.ELEM_MULTISTATUS);
+            xml.writeNamespace(DavConstants.PREFIX,
+                    DavConstants.NAMESPACE);
 
-            davStart(xml, DAVConstants.ELEM_RESPONSE);
-            davStartText(xml, DAVConstants.ELEM_HREF,
+            davStart(xml, DavConstants.ELEM_RESPONSE);
+            davStartText(xml, DavConstants.ELEM_HREF,
                     getHref(path, pathIsDirectory));
 
             List<Integer> okIndices = new ArrayList<Integer>();
@@ -1993,42 +1993,42 @@ class FileHandler extends DefaultHttpRequestHandler {
             }
 
             if (!okIndices.isEmpty()) {
-                davStart(xml, DAVConstants.ELEM_PROPSTAT);
-                davStart(xml, DAVConstants.ELEM_PROP);
+                davStart(xml, DavConstants.ELEM_PROPSTAT);
+                davStart(xml, DavConstants.ELEM_PROP);
                 for (int i = 0; i < okIndices.size(); i++) {
                     writePropElement(xml,
                             proppatch.updates.get(
                                     okIndices.get(i).intValue()));
                 }
-                davEnd(xml, DAVConstants.ELEM_PROP);
-                davStartText(xml, DAVConstants.ELEM_STATUS,
+                davEnd(xml, DavConstants.ELEM_PROP);
+                davStartText(xml, DavConstants.ELEM_STATUS,
                         "HTTP/1.1 200 OK");
-                davEnd(xml, DAVConstants.ELEM_PROPSTAT);
+                davEnd(xml, DavConstants.ELEM_PROPSTAT);
             }
 
             if (!failIndices.isEmpty()) {
-                davStart(xml, DAVConstants.ELEM_PROPSTAT);
-                davStart(xml, DAVConstants.ELEM_PROP);
+                davStart(xml, DavConstants.ELEM_PROPSTAT);
+                davStart(xml, DavConstants.ELEM_PROP);
                 for (int i = 0; i < failIndices.size(); i++) {
                     writePropElement(xml,
                             proppatch.updates.get(
                                     failIndices.get(i).intValue()));
                 }
-                davEnd(xml, DAVConstants.ELEM_PROP);
-                davStartText(xml, DAVConstants.ELEM_STATUS,
+                davEnd(xml, DavConstants.ELEM_PROP);
+                davStartText(xml, DavConstants.ELEM_STATUS,
                         "HTTP/1.1 403 Forbidden");
-                davEnd(xml, DAVConstants.ELEM_PROPSTAT);
+                davEnd(xml, DavConstants.ELEM_PROPSTAT);
             }
 
-            davEnd(xml, DAVConstants.ELEM_RESPONSE);
-            davEnd(xml, DAVConstants.ELEM_MULTISTATUS);
+            davEnd(xml, DavConstants.ELEM_RESPONSE);
+            davEnd(xml, DavConstants.ELEM_MULTISTATUS);
             xml.close();
 
             byte[] body = baos.toByteArray();
             Headers response = new Headers();
             response.status(HttpStatus.MULTI_STATUS);
             response.add("Content-Type",
-                    DAVConstants.CONTENT_TYPE_XML);
+                    DavConstants.CONTENT_TYPE_XML);
             response.add("Content-Length",
                     String.valueOf(body.length));
             state.headers(response);
@@ -2042,13 +2042,13 @@ class FileHandler extends DefaultHttpRequestHandler {
     }
 
     private void writePropElement(XMLWriter xml,
-            WebDAVRequestParser.PropertyUpdate update)
+            WebdavRequestParser.PropertyUpdate update)
             throws IOException {
         String ns = update.namespaceURI != null
                 && !update.namespaceURI.isEmpty()
                 ? update.namespaceURI : "";
-        if (DAVConstants.NAMESPACE.equals(ns)) {
-            xml.writeStartElement(DAVConstants.PREFIX,
+        if (DavConstants.NAMESPACE.equals(ns)) {
+            xml.writeStartElement(DavConstants.PREFIX,
                     update.localName, ns);
         } else if (!ns.isEmpty()) {
             xml.writeStartElement(ns, update.localName);
@@ -2060,37 +2060,37 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     /** Fallback when dead property store is not available. */
     private void sendProppatchForbidden(HttpResponseState state,
-            WebDAVRequestParser.ProppatchRequest proppatch)
+            WebdavRequestParser.ProppatchRequest proppatch)
             throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         XMLWriter xml = new XMLWriter(baos);
 
-        davStart(xml, DAVConstants.ELEM_MULTISTATUS);
-        xml.writeNamespace(DAVConstants.PREFIX,
-                DAVConstants.NAMESPACE);
+        davStart(xml, DavConstants.ELEM_MULTISTATUS);
+        xml.writeNamespace(DavConstants.PREFIX,
+                DavConstants.NAMESPACE);
 
-        davStart(xml, DAVConstants.ELEM_RESPONSE);
-        davStartText(xml, DAVConstants.ELEM_HREF,
+        davStart(xml, DavConstants.ELEM_RESPONSE);
+        davStartText(xml, DavConstants.ELEM_HREF,
                 getHref(path, pathIsDirectory));
 
-        davStart(xml, DAVConstants.ELEM_PROPSTAT);
-        davStart(xml, DAVConstants.ELEM_PROP);
-        for (WebDAVRequestParser.PropertyUpdate update
+        davStart(xml, DavConstants.ELEM_PROPSTAT);
+        davStart(xml, DavConstants.ELEM_PROP);
+        for (WebdavRequestParser.PropertyUpdate update
                 : proppatch.updates) {
             writePropElement(xml, update);
         }
-        davEnd(xml, DAVConstants.ELEM_PROP);
-        davStartText(xml, DAVConstants.ELEM_STATUS,
+        davEnd(xml, DavConstants.ELEM_PROP);
+        davStartText(xml, DavConstants.ELEM_STATUS,
                 "HTTP/1.1 403 Forbidden");
-        davEnd(xml, DAVConstants.ELEM_PROPSTAT);
-        davEnd(xml, DAVConstants.ELEM_RESPONSE);
-        davEnd(xml, DAVConstants.ELEM_MULTISTATUS);
+        davEnd(xml, DavConstants.ELEM_PROPSTAT);
+        davEnd(xml, DavConstants.ELEM_RESPONSE);
+        davEnd(xml, DavConstants.ELEM_MULTISTATUS);
         xml.close();
 
         byte[] body = baos.toByteArray();
         Headers response = new Headers();
         response.status(HttpStatus.MULTI_STATUS);
-        response.add("Content-Type", DAVConstants.CONTENT_TYPE_XML);
+        response.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
         response.add("Content-Length", String.valueOf(body.length));
         state.headers(response);
         state.startResponseBody();
@@ -2104,18 +2104,18 @@ class FileHandler extends DefaultHttpRequestHandler {
      */
     private static final class LockPlan {
         HttpStatus error;
-        WebDAVLock lock;
+        WebdavLock lock;
         boolean created;
         boolean isDirectory;
     }
 
     /** RFC 4918 §9.10 — create lock; §7.3 — lock-null resource creation. */
-    private void createLock(HttpResponseState state, WebDAVLock.Scope scope,
-            WebDAVLock.Type type, String owner) {
+    private void createLock(HttpResponseState state, WebdavLock.Scope scope,
+            WebdavLock.Type type, String owner) {
         final long timeout = parseTimeout(
-                requestHeaders.getValue(DAVConstants.HEADER_TIMEOUT));
-        final WebDAVLock.Scope lockScope = scope;
-        final WebDAVLock.Type lockType = type;
+                requestHeaders.getValue(DavConstants.HEADER_TIMEOUT));
+        final WebdavLock.Scope lockScope = scope;
+        final WebdavLock.Type lockType = type;
         final String lockOwner = owner;
 
         offload(state, new Callable<LockPlan>() {
@@ -2148,8 +2148,8 @@ class FileHandler extends DefaultHttpRequestHandler {
         });
     }
 
-    private LockPlan computeLockPlan(WebDAVLock.Scope scope,
-            WebDAVLock.Type type, String owner, long timeout)
+    private LockPlan computeLockPlan(WebdavLock.Scope scope,
+            WebdavLock.Type type, String owner, long timeout)
             throws IOException {
         LockPlan plan = new LockPlan();
         if (path == null || !bindCanonicalPath()) {
@@ -2165,7 +2165,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             plan.isDirectory = Files.isDirectory(path);
         }
 
-        WebDAVLock lock = lockManager.lock(path, scope, type, depth, owner,
+        WebdavLock lock = lockManager.lock(path, scope, type, depth, owner,
                 timeout);
         if (lock == null) {
             plan.error = HttpStatus.LOCKED;
@@ -2175,59 +2175,59 @@ class FileHandler extends DefaultHttpRequestHandler {
         return plan;
     }
 
-    private void sendLockResponse(HttpResponseState state, WebDAVLock lock,
+    private void sendLockResponse(HttpResponseState state, WebdavLock lock,
             boolean created, boolean isDirectory) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         XMLWriter xml = new XMLWriter(baos);
         
-        davStart(xml, DAVConstants.ELEM_PROP);
-        xml.writeNamespace(DAVConstants.PREFIX, DAVConstants.NAMESPACE);
+        davStart(xml, DavConstants.ELEM_PROP);
+        xml.writeNamespace(DavConstants.PREFIX, DavConstants.NAMESPACE);
         
-        davStart(xml, DAVConstants.PROP_LOCKDISCOVERY);
+        davStart(xml, DavConstants.PROP_LOCKDISCOVERY);
         
-        davStart(xml, DAVConstants.ELEM_ACTIVELOCK);
+        davStart(xml, DavConstants.ELEM_ACTIVELOCK);
         
-        davStart(xml, DAVConstants.ELEM_LOCKTYPE);
-        davEmpty(xml, DAVConstants.ELEM_WRITE);
-        davEnd(xml, DAVConstants.ELEM_LOCKTYPE);
+        davStart(xml, DavConstants.ELEM_LOCKTYPE);
+        davEmpty(xml, DavConstants.ELEM_WRITE);
+        davEnd(xml, DavConstants.ELEM_LOCKTYPE);
         
-        davStart(xml, DAVConstants.ELEM_LOCKSCOPE);
-        davEmpty(xml, lock.getScope() == WebDAVLock.Scope.EXCLUSIVE
-                ? DAVConstants.ELEM_EXCLUSIVE : DAVConstants.ELEM_SHARED);
-        davEnd(xml, DAVConstants.ELEM_LOCKSCOPE);
+        davStart(xml, DavConstants.ELEM_LOCKSCOPE);
+        davEmpty(xml, lock.getScope() == WebdavLock.Scope.EXCLUSIVE
+                ? DavConstants.ELEM_EXCLUSIVE : DavConstants.ELEM_SHARED);
+        davEnd(xml, DavConstants.ELEM_LOCKSCOPE);
         
-        davStartText(xml, DAVConstants.ELEM_DEPTH,
-                lock.getDepth() == DAVConstants.DEPTH_INFINITY
+        davStartText(xml, DavConstants.ELEM_DEPTH,
+                lock.getDepth() == DavConstants.DEPTH_INFINITY
                         ? "infinity" : String.valueOf(lock.getDepth()));
         
         if (lock.getOwner() != null) {
-            davStartText(xml, DAVConstants.ELEM_OWNER, lock.getOwner());
+            davStartText(xml, DavConstants.ELEM_OWNER, lock.getOwner());
         }
         
         long remaining = lock.getRemainingTimeoutSeconds();
-        davStartText(xml, DAVConstants.ELEM_TIMEOUT,
+        davStartText(xml, DavConstants.ELEM_TIMEOUT,
                 remaining < 0 ? "Infinite" : "Second-" + remaining);
         
-        davStart(xml, DAVConstants.ELEM_LOCKTOKEN);
-        davStartText(xml, DAVConstants.ELEM_HREF, lock.getToken());
-        davEnd(xml, DAVConstants.ELEM_LOCKTOKEN);
+        davStart(xml, DavConstants.ELEM_LOCKTOKEN);
+        davStartText(xml, DavConstants.ELEM_HREF, lock.getToken());
+        davEnd(xml, DavConstants.ELEM_LOCKTOKEN);
         
-        davStart(xml, DAVConstants.ELEM_LOCKROOT);
-        davStartText(xml, DAVConstants.ELEM_HREF,
+        davStart(xml, DavConstants.ELEM_LOCKROOT);
+        davStartText(xml, DavConstants.ELEM_HREF,
                 getHref(lock.getPath(), isDirectory));
-        davEnd(xml, DAVConstants.ELEM_LOCKROOT);
+        davEnd(xml, DavConstants.ELEM_LOCKROOT);
         
-        davEnd(xml, DAVConstants.ELEM_ACTIVELOCK);
-        davEnd(xml, DAVConstants.PROP_LOCKDISCOVERY);
-        davEnd(xml, DAVConstants.ELEM_PROP);
+        davEnd(xml, DavConstants.ELEM_ACTIVELOCK);
+        davEnd(xml, DavConstants.PROP_LOCKDISCOVERY);
+        davEnd(xml, DavConstants.ELEM_PROP);
         xml.close();
         
         byte[] body = baos.toByteArray();
         Headers response = new Headers();
         response.status(created ? HttpStatus.CREATED : HttpStatus.OK);
-        response.add("Content-Type", DAVConstants.CONTENT_TYPE_XML);
+        response.add("Content-Type", DavConstants.CONTENT_TYPE_XML);
         response.add("Content-Length", String.valueOf(body.length));
-        response.add(DAVConstants.HEADER_LOCK_TOKEN, "<" + lock.getToken() + ">");
+        response.add(DavConstants.HEADER_LOCK_TOKEN, "<" + lock.getToken() + ">");
         state.headers(response);
         state.startResponseBody();
         state.responseBodyContent(ByteBuffer.wrap(body));
@@ -2242,15 +2242,15 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     private Set<String> getLivePropertyNames() {
         Set<String> names = new HashSet<String>();
-        names.add(DAVConstants.PROP_CREATIONDATE);
-        names.add(DAVConstants.PROP_DISPLAYNAME);
-        names.add(DAVConstants.PROP_GETCONTENTLENGTH);
-        names.add(DAVConstants.PROP_GETCONTENTTYPE);
-        names.add(DAVConstants.PROP_GETETAG);
-        names.add(DAVConstants.PROP_GETLASTMODIFIED);
-        names.add(DAVConstants.PROP_LOCKDISCOVERY);
-        names.add(DAVConstants.PROP_RESOURCETYPE);
-        names.add(DAVConstants.PROP_SUPPORTEDLOCK);
+        names.add(DavConstants.PROP_CREATIONDATE);
+        names.add(DavConstants.PROP_DISPLAYNAME);
+        names.add(DavConstants.PROP_GETCONTENTLENGTH);
+        names.add(DavConstants.PROP_GETCONTENTTYPE);
+        names.add(DavConstants.PROP_GETETAG);
+        names.add(DavConstants.PROP_GETLASTMODIFIED);
+        names.add(DavConstants.PROP_LOCKDISCOVERY);
+        names.add(DavConstants.PROP_RESOURCETYPE);
+        names.add(DavConstants.PROP_SUPPORTEDLOCK);
         return names;
     }
 
@@ -2397,7 +2397,7 @@ class FileHandler extends DefaultHttpRequestHandler {
             return true;
         }
         
-        List<WebDAVLock> locks = lockManager.getCoveringLocks(targetPath);
+        List<WebdavLock> locks = lockManager.getCoveringLocks(targetPath);
         if (locks.isEmpty()) {
             return true;
         }
@@ -2453,23 +2453,23 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     private long parseTimeout(String timeout) {
         if (timeout == null) {
-            return DAVConstants.DEFAULT_LOCK_TIMEOUT_SECONDS;
+            return DavConstants.DEFAULT_LOCK_TIMEOUT_SECONDS;
         }
         
-        if (DAVConstants.TIMEOUT_INFINITE.equalsIgnoreCase(timeout)) {
+        if (DavConstants.TIMEOUT_INFINITE.equalsIgnoreCase(timeout)) {
             return -1;
         }
         
-        if (timeout.startsWith(DAVConstants.TIMEOUT_SECOND_PREFIX)) {
+        if (timeout.startsWith(DavConstants.TIMEOUT_SECOND_PREFIX)) {
             try {
-                long seconds = Long.parseLong(timeout.substring(DAVConstants.TIMEOUT_SECOND_PREFIX.length()));
-                return Math.min(seconds, DAVConstants.MAX_LOCK_TIMEOUT_SECONDS);
+                long seconds = Long.parseLong(timeout.substring(DavConstants.TIMEOUT_SECOND_PREFIX.length()));
+                return Math.min(seconds, DavConstants.MAX_LOCK_TIMEOUT_SECONDS);
             } catch (NumberFormatException e) {
                 // ignore
             }
         }
         
-        return DAVConstants.DEFAULT_LOCK_TIMEOUT_SECONDS;
+        return DavConstants.DEFAULT_LOCK_TIMEOUT_SECONDS;
     }
 
     private String formatISO8601(long millis) {

@@ -1,5 +1,5 @@
 /*
- * FTPClientDataConnectionCoordinator.java
+ * FtpClientDataConnectionCoordinator.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -67,7 +67,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a> §3.2
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2428">RFC 2428</a> (EPRT/EPSV)
  */
-final class FTPClientDataConnectionCoordinator {
+final class FtpClientDataConnectionCoordinator {
 
     private final Endpoint controlEndpoint;
     private TcpTransportFactory transportFactory;
@@ -86,7 +86,7 @@ final class FTPClientDataConnectionCoordinator {
     private ServerCredentials dataClientCredentials;
     private TcpTransportFactory secureTransportFactory;
 
-    FTPClientDataConnectionCoordinator(Endpoint controlEndpoint) {
+    FtpClientDataConnectionCoordinator(Endpoint controlEndpoint) {
         this.controlEndpoint = controlEndpoint;
     }
 

@@ -1,5 +1,5 @@
 /*
- * DNSServerCapabilities.java
+ * DnsServerCapabilities.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.dns.client;
 
 /**
  * A DNS server's known support for encrypted transports, as recorded by
- * {@link DNSServerCapabilityCache} -- either seeded in advance for a
+ * {@link DnsServerCapabilityCache} -- either seeded in advance for a
  * well-known public resolver, or learned at runtime via RFC 9462
  * Discovery of Designated Resolvers (DDR).
  *
@@ -36,13 +36,13 @@ package org.bluezoo.gumdrop.dns.client;
  * port for a given transport.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSServerCapabilityCache
+ * @see DnsServerCapabilityCache
  */
-final class DNSServerCapabilities {
+final class DnsServerCapabilities {
 
     /** No known support for any encrypted transport. */
-    static final DNSServerCapabilities UNKNOWN =
-            new DNSServerCapabilities(false, 0, false, 0, null, 0);
+    static final DnsServerCapabilities UNKNOWN =
+            new DnsServerCapabilities(false, 0, false, 0, null, 0);
 
     private final boolean doqSupported;
     private final int doqPort;
@@ -51,7 +51,7 @@ final class DNSServerCapabilities {
     private final String dohPath;
     private final int dohPort;
 
-    private DNSServerCapabilities(boolean doqSupported, int doqPort,
+    private DnsServerCapabilities(boolean doqSupported, int doqPort,
                                   boolean dotSupported, int dotPort,
                                   String dohPath, int dohPort) {
         this.doqSupported = doqSupported;
@@ -71,10 +71,10 @@ final class DNSServerCapabilities {
      *                is known to speak DoH, or null otherwise
      * @param dohPort the DoH port, or 0 for the transport's default (443)
      */
-    static DNSServerCapabilities of(boolean doqSupported, int doqPort,
+    static DnsServerCapabilities of(boolean doqSupported, int doqPort,
                                     boolean dotSupported, int dotPort,
                                     String dohPath, int dohPort) {
-        return new DNSServerCapabilities(doqSupported, doqPort, dotSupported, dotPort,
+        return new DnsServerCapabilities(doqSupported, doqPort, dotSupported, dotPort,
                 dohPath, dohPort);
     }
 

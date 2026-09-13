@@ -1,5 +1,5 @@
 /*
- * SPFResult.java
+ * SpfResult.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,7 +31,7 @@ package org.bluezoo.gumdrop.smtp.auth;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208#section-2.6">RFC 7208 §2.6</a> — check_host() results
  */
-public enum SPFResult {
+public enum SpfResult {
 
     /**
      * The client is authorized to send mail for the domain.
@@ -78,7 +78,7 @@ public enum SPFResult {
 
     private final String value;
 
-    SPFResult(String value) {
+    SpfResult(String value) {
         this.value = value;
     }
 

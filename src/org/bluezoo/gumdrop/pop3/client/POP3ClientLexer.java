@@ -1,5 +1,5 @@
 /*
- * POP3ClientLexer.java
+ * Pop3ClientLexer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -33,7 +33,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * the lone {@code .} terminator). Either way, the lexer only recognises
  * the lexical shape; {@link Pop3ClientProtocolHandler} decides which
  * interpretation applies based on the current connection state, exactly
- * as {@link org.bluezoo.gumdrop.pop3.POP3ServerLexer} does for command
+ * as {@link org.bluezoo.gumdrop.pop3.Pop3ServerLexer} does for command
  * verbs on the server side.
  *
  * <p>RETR/TOP message content is <strong>not</strong> handled by this
@@ -50,13 +50,13 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Pop3ClientProtocolHandler
  */
-final class POP3ClientLexer extends ByteStreamLexer<POP3ClientLexer.Token> {
+final class Pop3ClientLexer extends ByteStreamLexer<Pop3ClientLexer.Token> {
 
     enum Token { WORD, SP, TEXT, CRLF }
 
     private boolean lastWasCR;
 
-    POP3ClientLexer(Handler<Token> handler, int maxTokenLength) {
+    Pop3ClientLexer(Handler<Token> handler, int maxTokenLength) {
         super(handler, maxTokenLength, Token.CRLF, Token.TEXT);
     }
 

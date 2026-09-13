@@ -1,5 +1,5 @@
 /*
- * JSPElement.java
+ * JspElement.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,7 +31,7 @@ package org.bluezoo.gumdrop.servlet.jsp;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface JSPElement {
+public interface JspElement {
     
     /**
      * Enumeration of JSP element types.
@@ -84,5 +84,5 @@ public interface JSPElement {
      * @param visitor the visitor to accept
      * @throws Exception if the visitor encounters an error
      */
-    void accept(JSPElementVisitor visitor) throws Exception;
+    void accept(JspElementVisitor visitor) throws Exception;
 }

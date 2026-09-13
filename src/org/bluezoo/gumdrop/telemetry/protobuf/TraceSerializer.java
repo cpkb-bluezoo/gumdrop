@@ -109,7 +109,7 @@ public class TraceSerializer {
 
     private void writeTracesData(ProtobufWriter writer, Trace trace) throws IOException {
         // TracesData { repeated ResourceSpans resource_spans = 1; }
-        writer.writeMessageField(OTLPFieldNumbers.TRACES_DATA_RESOURCE_SPANS,
+        writer.writeMessageField(OtlpFieldNumbers.TRACES_DATA_RESOURCE_SPANS,
                 new ResourceSpansWriter(trace));
     }
 
@@ -125,15 +125,15 @@ public class TraceSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // Resource resource = 1
-            writer.writeMessageField(OTLPFieldNumbers.RESOURCE_SPANS_RESOURCE,
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_SPANS_RESOURCE,
                     new ResourceWriter());
 
             // repeated ScopeSpans scope_spans = 2
-            writer.writeMessageField(OTLPFieldNumbers.RESOURCE_SPANS_SCOPE_SPANS,
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_SPANS_SCOPE_SPANS,
                     new ScopeSpansWriter(trace));
 
             // string schema_url = 3
-            writer.writeStringField(OTLPFieldNumbers.RESOURCE_SPANS_SCHEMA_URL, SCHEMA_URL);
+            writer.writeStringField(OtlpFieldNumbers.RESOURCE_SPANS_SCHEMA_URL, SCHEMA_URL);
         }
     }
 
@@ -141,22 +141,22 @@ public class TraceSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated KeyValue attributes = 1
-            writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+            writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                     "service.name", serviceName);
 
             if (serviceVersion != null) {
-                writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+                writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                         "service.version", serviceVersion);
             }
 
             if (serviceNamespace != null) {
-                writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+                writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                         "service.namespace", serviceNamespace);
             }
 
             if (resourceAttributes != null) {
                 for (Map.Entry<String, String> entry : resourceAttributes.entrySet()) {
-                    writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+                    writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                             entry.getKey(), entry.getValue());
                 }
             }
@@ -173,20 +173,20 @@ public class TraceSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // InstrumentationScope scope = 1
-            writer.writeMessageField(OTLPFieldNumbers.SCOPE_SPANS_SCOPE,
+            writer.writeMessageField(OtlpFieldNumbers.SCOPE_SPANS_SCOPE,
                     new InstrumentationScopeWriter());
 
             // repeated Span spans = 2
             // Write all ended spans
             for (Span span : trace.getEndedSpans()) {
-                writer.writeMessageField(OTLPFieldNumbers.SCOPE_SPANS_SPANS,
+                writer.writeMessageField(OtlpFieldNumbers.SCOPE_SPANS_SPANS,
                         new SpanWriter(span));
             }
 
             // Also write root span if it's ended and not already in endedSpans
             Span root = trace.getRootSpan();
             if (root.isEnded() && !trace.getEndedSpans().contains(root)) {
-                writer.writeMessageField(OTLPFieldNumbers.SCOPE_SPANS_SPANS,
+                writer.writeMessageField(OtlpFieldNumbers.SCOPE_SPANS_SPANS,
                         new SpanWriter(root));
             }
         }
@@ -196,9 +196,9 @@ public class TraceSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // string name = 1
-            writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_NAME, "gumdrop");
+            writer.writeStringField(OtlpFieldNumbers.INSTRUMENTATION_SCOPE_NAME, "gumdrop");
             // string version = 2
-            writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_VERSION, Gumdrop.VERSION);
+            writer.writeStringField(OtlpFieldNumbers.INSTRUMENTATION_SCOPE_VERSION, Gumdrop.VERSION);
         }
     }
 
@@ -212,53 +212,53 @@ public class TraceSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // bytes trace_id = 1
-            writer.writeBytesField(OTLPFieldNumbers.SPAN_TRACE_ID, span.getTrace().getTraceId().getBytes());
+            writer.writeBytesField(OtlpFieldNumbers.SPAN_TRACE_ID, span.getTrace().getTraceId().getBytes());
 
             // bytes span_id = 2
-            writer.writeBytesField(OTLPFieldNumbers.SPAN_SPAN_ID, span.getSpanId().getBytes());
+            writer.writeBytesField(OtlpFieldNumbers.SPAN_SPAN_ID, span.getSpanId().getBytes());
 
             // bytes parent_span_id = 4
             Span parent = span.getParent();
             if (parent != null) {
-                writer.writeBytesField(OTLPFieldNumbers.SPAN_PARENT_SPAN_ID, parent.getSpanId().getBytes());
+                writer.writeBytesField(OtlpFieldNumbers.SPAN_PARENT_SPAN_ID, parent.getSpanId().getBytes());
             }
 
             // string name = 5
-            writer.writeStringField(OTLPFieldNumbers.SPAN_NAME, span.getName());
+            writer.writeStringField(OtlpFieldNumbers.SPAN_NAME, span.getName());
 
             // SpanKind kind = 6
-            writer.writeVarintField(OTLPFieldNumbers.SPAN_KIND, span.getKind().getValue());
+            writer.writeVarintField(OtlpFieldNumbers.SPAN_KIND, span.getKind().getValue());
 
             // fixed64 start_time_unix_nano = 7
-            writer.writeFixed64Field(OTLPFieldNumbers.SPAN_START_TIME_UNIX_NANO,
+            writer.writeFixed64Field(OtlpFieldNumbers.SPAN_START_TIME_UNIX_NANO,
                     span.getStartTimeUnixNano());
 
             // fixed64 end_time_unix_nano = 8
-            writer.writeFixed64Field(OTLPFieldNumbers.SPAN_END_TIME_UNIX_NANO,
+            writer.writeFixed64Field(OtlpFieldNumbers.SPAN_END_TIME_UNIX_NANO,
                     span.getEndTimeUnixNano());
 
             // repeated KeyValue attributes = 9
             for (Attribute attr : span.getAttributes()) {
-                writer.writeMessageField(OTLPFieldNumbers.SPAN_ATTRIBUTES,
+                writer.writeMessageField(OtlpFieldNumbers.SPAN_ATTRIBUTES,
                         new AttributeWriter(attr));
             }
 
             // repeated Event events = 11
             for (SpanEvent event : span.getEvents()) {
-                writer.writeMessageField(OTLPFieldNumbers.SPAN_EVENTS,
+                writer.writeMessageField(OtlpFieldNumbers.SPAN_EVENTS,
                         new EventWriter(event));
             }
 
             // repeated Link links = 13
             for (SpanLink link : span.getLinks()) {
-                writer.writeMessageField(OTLPFieldNumbers.SPAN_LINKS,
+                writer.writeMessageField(OtlpFieldNumbers.SPAN_LINKS,
                         new LinkWriter(link));
             }
 
             // Status status = 15
             SpanStatus status = span.getStatus();
             if (status.getCode() != SpanStatus.STATUS_CODE_UNSET) {
-                writer.writeMessageField(OTLPFieldNumbers.SPAN_STATUS,
+                writer.writeMessageField(OtlpFieldNumbers.SPAN_STATUS,
                         new StatusWriter(status));
             }
         }
@@ -274,10 +274,10 @@ public class TraceSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // string key = 1
-            writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, attr.getKey());
+            writer.writeStringField(OtlpFieldNumbers.KEY_VALUE_KEY, attr.getKey());
 
             // AnyValue value = 2
-            writer.writeMessageField(OTLPFieldNumbers.KEY_VALUE_VALUE,
+            writer.writeMessageField(OtlpFieldNumbers.KEY_VALUE_VALUE,
                     new AnyValueWriter(attr));
         }
     }
@@ -293,19 +293,19 @@ public class TraceSerializer {
         public void writeTo(ProtobufWriter writer) throws IOException {
             switch (attr.getType()) {
                 case Attribute.TYPE_STRING:
-                    writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE,
+                    writer.writeStringField(OtlpFieldNumbers.ANY_VALUE_STRING_VALUE,
                             attr.getStringValue());
                     break;
                 case Attribute.TYPE_BOOL:
-                    writer.writeBoolField(OTLPFieldNumbers.ANY_VALUE_BOOL_VALUE,
+                    writer.writeBoolField(OtlpFieldNumbers.ANY_VALUE_BOOL_VALUE,
                             attr.getBoolValue());
                     break;
                 case Attribute.TYPE_INT:
-                    writer.writeVarintField(OTLPFieldNumbers.ANY_VALUE_INT_VALUE,
+                    writer.writeVarintField(OtlpFieldNumbers.ANY_VALUE_INT_VALUE,
                             attr.getIntValue());
                     break;
                 case Attribute.TYPE_DOUBLE:
-                    writer.writeDoubleField(OTLPFieldNumbers.ANY_VALUE_DOUBLE_VALUE,
+                    writer.writeDoubleField(OtlpFieldNumbers.ANY_VALUE_DOUBLE_VALUE,
                             attr.getDoubleValue());
                     break;
             }
@@ -322,15 +322,15 @@ public class TraceSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // fixed64 time_unix_nano = 1
-            writer.writeFixed64Field(OTLPFieldNumbers.EVENT_TIME_UNIX_NANO,
+            writer.writeFixed64Field(OtlpFieldNumbers.EVENT_TIME_UNIX_NANO,
                     event.getTimeUnixNano());
 
             // string name = 2
-            writer.writeStringField(OTLPFieldNumbers.EVENT_NAME, event.getName());
+            writer.writeStringField(OtlpFieldNumbers.EVENT_NAME, event.getName());
 
             // repeated KeyValue attributes = 3
             for (Attribute attr : event.getAttributes()) {
-                writer.writeMessageField(OTLPFieldNumbers.EVENT_ATTRIBUTES,
+                writer.writeMessageField(OtlpFieldNumbers.EVENT_ATTRIBUTES,
                         new AttributeWriter(attr));
             }
         }
@@ -346,16 +346,16 @@ public class TraceSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // bytes trace_id = 1
-            writer.writeBytesField(OTLPFieldNumbers.LINK_TRACE_ID,
+            writer.writeBytesField(OtlpFieldNumbers.LINK_TRACE_ID,
                     link.getContext().getTraceId().getBytes());
 
             // bytes span_id = 2
-            writer.writeBytesField(OTLPFieldNumbers.LINK_SPAN_ID,
+            writer.writeBytesField(OtlpFieldNumbers.LINK_SPAN_ID,
                     link.getContext().getSpanId().getBytes());
 
             // repeated KeyValue attributes = 4
             for (Attribute attr : link.getAttributes()) {
-                writer.writeMessageField(OTLPFieldNumbers.LINK_ATTRIBUTES,
+                writer.writeMessageField(OtlpFieldNumbers.LINK_ATTRIBUTES,
                         new AttributeWriter(attr));
             }
         }
@@ -372,11 +372,11 @@ public class TraceSerializer {
         public void writeTo(ProtobufWriter writer) throws IOException {
             // string message = 2
             if (status.getMessage() != null) {
-                writer.writeStringField(OTLPFieldNumbers.STATUS_MESSAGE, status.getMessage());
+                writer.writeStringField(OtlpFieldNumbers.STATUS_MESSAGE, status.getMessage());
             }
 
             // StatusCode code = 3
-            writer.writeVarintField(OTLPFieldNumbers.STATUS_CODE, status.getCode());
+            writer.writeVarintField(OtlpFieldNumbers.STATUS_CODE, status.getCode());
         }
     }
 
@@ -398,8 +398,8 @@ public class TraceSerializer {
 
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
-            writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, key);
-            writer.writeMessageField(OTLPFieldNumbers.KEY_VALUE_VALUE,
+            writer.writeStringField(OtlpFieldNumbers.KEY_VALUE_KEY, key);
+            writer.writeMessageField(OtlpFieldNumbers.KEY_VALUE_VALUE,
                     new StringAnyValueWriter(value));
         }
     }
@@ -413,7 +413,7 @@ public class TraceSerializer {
 
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
-            writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE, value);
+            writer.writeStringField(OtlpFieldNumbers.ANY_VALUE_STRING_VALUE, value);
         }
     }
 }

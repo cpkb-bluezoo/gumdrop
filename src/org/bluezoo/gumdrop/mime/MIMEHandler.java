@@ -1,5 +1,5 @@
 /*
- * MIMEHandler.java
+ * MimeHandler.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -37,7 +37,7 @@ import java.nio.ByteBuffer;
  * The structured MIME headers (Content-Type, Content-Disposition,
  * Content-Transfer-Encoding, Content-ID, Content-Description, MIME-Version)
  * are reported via dedicated callback methods. The parser handles these
- * headers and the base MIMEHandler interface ignores any other headers.
+ * headers and the base MimeHandler interface ignores any other headers.
  * </p>
  * <p>
  * Body content will be reported after an invocation of endHeaders(). The
@@ -50,7 +50,7 @@ import java.nio.ByteBuffer;
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2046'>RFC 2046</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface MIMEHandler {
+public interface MimeHandler {
 
 	/**
 	 * Receive an object for the location of MIME parsing events.
@@ -59,7 +59,7 @@ public interface MIMEHandler {
 	 * informed of the end position of the event.
 	 * @param locator the object for event parsing location information
 	 */
-	void setLocator(MIMELocator locator);
+	void setLocator(MimeLocator locator);
 
 	/**
 	 * RFC 2046 §5.1 — receive notification of the beginning of a MIME entity.
@@ -68,26 +68,26 @@ public interface MIMEHandler {
 	 * be the MIME boundary string that started this entity.
 	 * @param boundary the MIME boundary that started this entity, or null
 	 * for the root entity
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void startEntity(String boundary) throws MIMEParseException;
+	void startEntity(String boundary) throws MimeParseException;
 
 	/**
 	 * RFC 2045 §5 — receive notification of a Content-Type header.
 	 * @param contentType the structured content type value
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void contentType(ContentType contentType) throws MIMEParseException;
+	void contentType(ContentType contentType) throws MimeParseException;
 
 	/**
 	 * RFC 2183 — receive notification of a Content-Disposition header.
 	 * @param contentDisposition the structured content disposition value
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void contentDisposition(ContentDisposition contentDisposition) throws MIMEParseException;
+	void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException;
 
 	/**
 	 * RFC 2045 §6.1 — receive notification of a Content-Transfer-Encoding header.
@@ -97,35 +97,35 @@ public interface MIMEHandler {
 	 * All tokens should be treated as case-insensitive although they will
 	 * be provided here verbatim as they occur in the entity.
 	 * @param encoding the content transfer encoding value
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void contentTransferEncoding(String encoding) throws MIMEParseException;
+	void contentTransferEncoding(String encoding) throws MimeParseException;
 
 	/**
 	 * RFC 2045 §7 — receive notification of a Content-ID header.
 	 * @param contentID the structured content-id value
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void contentID(ContentID contentID) throws MIMEParseException;
+	void contentID(ContentID contentID) throws MimeParseException;
 
 	/**
 	 * RFC 2045 §8 — receive notification of a Content-Description header.
 	 * The description will have any RFC 2047 encoded words decoded.
 	 * @param description the content description text
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void contentDescription(String description) throws MIMEParseException;
+	void contentDescription(String description) throws MimeParseException;
 
 	/**
 	 * RFC 2045 §4 — receive notification of a MIME-Version header.
 	 * @param version the MIME-Version value
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void mimeVersion(MIMEVersion version) throws MIMEParseException;
+	void mimeVersion(MimeVersion version) throws MimeParseException;
 
 	/**
 	 * Receive notification that all the headers in an entity have been
@@ -138,10 +138,10 @@ public interface MIMEHandler {
 	 * <li>startEntity: for a new nested entity if this is a multipart entity</li>
 	 * <li>endEntity: to terminate the current entity</li>
 	 * </ul>
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void endHeaders() throws MIMEParseException;
+	void endHeaders() throws MimeParseException;
 
 	/**
 	 * Receive notification of the byte content of an entity.
@@ -153,10 +153,10 @@ public interface MIMEHandler {
 	 * representation, such as using the charset parameter in a text/plain
 	 * entity to convert byte data to character data.
 	 * @param data a buffer containing the body content data, ready for reading
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void bodyContent(ByteBuffer data) throws MIMEParseException;
+	void bodyContent(ByteBuffer data) throws MimeParseException;
 
 	/**
 	 * RFC 2046 §5.1.1 — receive notification of unexpected body content
@@ -167,10 +167,10 @@ public interface MIMEHandler {
 	 * <li>after the end boundary of a multipart entity (epilogue)</li>
 	 * </ul>
 	 * @param data a buffer containing the body content data, ready for reading
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void unexpectedContent(ByteBuffer data) throws MIMEParseException;
+	void unexpectedContent(ByteBuffer data) throws MimeParseException;
 
 	/**
 	 * RFC 2046 §5.1 — receive notification that a MIME entity has been
@@ -179,10 +179,10 @@ public interface MIMEHandler {
 	 * be the MIME boundary string that ended this entity.
 	 * @param boundary the MIME boundary that ended this entity, or null
 	 * for the root entity
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void endEntity(String boundary) throws MIMEParseException;
+	void endEntity(String boundary) throws MimeParseException;
 
 }
 

@@ -1,5 +1,5 @@
 /*
- * AMQPBits.java
+ * AmqpBits.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,9 +28,9 @@ package org.bluezoo.gumdrop.amqp.client;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class AMQPBits {
+final class AmqpBits {
 
-    private AMQPBits() {
+    private AmqpBits() {
     }
 
     /** Packs up to 8 booleans (in declaration order) into one octet. */

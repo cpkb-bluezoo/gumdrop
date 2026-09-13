@@ -1,5 +1,5 @@
 /*
- * SPKIPinnedCertTrustManager.java
+ * SpkiPinnedCertTrustManager.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -49,7 +49,7 @@ import javax.net.ssl.X509TrustManager;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see PinnedCertTrustManager
  */
-public class SPKIPinnedCertTrustManager implements X509TrustManager {
+public class SpkiPinnedCertTrustManager implements X509TrustManager {
 
     private final X509TrustManager delegate;
     private final Set<String> expectedFingerprints;
@@ -61,7 +61,7 @@ public class SPKIPinnedCertTrustManager implements X509TrustManager {
      * @param fingerprints one or more SPKI SHA-256 fingerprints
      *                     (colon-separated lowercase hex)
      */
-    public SPKIPinnedCertTrustManager(String... fingerprints) {
+    public SpkiPinnedCertTrustManager(String... fingerprints) {
         this(defaultTrustManager(), fingerprints);
     }
 
@@ -72,7 +72,7 @@ public class SPKIPinnedCertTrustManager implements X509TrustManager {
      * @param fingerprints one or more SPKI SHA-256 fingerprints
      *                     (colon-separated lowercase hex)
      */
-    public SPKIPinnedCertTrustManager(X509TrustManager delegate,
+    public SpkiPinnedCertTrustManager(X509TrustManager delegate,
                                       String... fingerprints) {
         this.delegate = delegate;
         this.expectedFingerprints =

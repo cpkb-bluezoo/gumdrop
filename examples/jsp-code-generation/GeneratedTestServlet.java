@@ -51,7 +51,7 @@ public class TestExample_jsp extends HttpServlet {
             out.write(String.valueOf(formatDate(now)));
             out.write("</p>\n    <p>Visit count: ");
             out.write(String.valueOf(visitCount));
-            out.write("</p>\n    \n    <p>This JSP file demonstrates the elements that will be converted \n       to Java servlet source code by the JSPCodeGenerator.</p>\n       \n    ");
+            out.write("</p>\n    \n    <p>This JSP file demonstrates the elements that will be converted \n       to Java servlet source code by the JspCodeGenerator.</p>\n       \n    ");
             out.write("\n</body>\n</html>\n");
         } catch (Exception e) {
             throw new ServletException("JSP processing error", e);

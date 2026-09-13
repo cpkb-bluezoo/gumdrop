@@ -74,7 +74,7 @@ import org.bluezoo.gumdrop.imap.client.handler.StoreReplyHandler;
  * each protocol stage. Tagged command tracking ensures exactly one
  * command is in-flight at a time (RFC 9051 section 5.5).
  *
- * <p>Line parsing uses a streaming {@link IMAPClientLexer} (issue #85):
+ * <p>Line parsing uses a streaming {@link ImapClientLexer} (issue #85):
  * bytes are tokenised as they arrive rather than buffered into whole
  * lines — see {@link ByteStreamLexer}. Incoming literal data (FETCH body
  * sections) is delivered via {@link ByteStreamLexer#enterRaw(long)} and
@@ -98,7 +98,7 @@ import org.bluezoo.gumdrop.imap.client.handler.StoreReplyHandler;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9051">RFC 9051 — IMAP4rev2</a>
  */
 public final class ImapClientProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<IMAPClientLexer.Token>,
+        implements ProtocolHandler, ByteStreamLexer.Handler<ImapClientLexer.Token>,
         LiteralTracker.Callback,
         ClientNotAuthenticatedState, ClientPostStarttls,
         ClientAuthExchange, ClientAuthenticatedState,
@@ -114,10 +114,10 @@ public final class ImapClientProtocolHandler
     private static final String CRLF = "\r\n";
 
     private final RemoteGreeting handler;
-    private final IMAPTagGenerator tagGenerator;
+    private final ImapTagGenerator tagGenerator;
 
     private Endpoint endpoint;
-    private IMAPState state = IMAPState.DISCONNECTED;
+    private ImapState state = ImapState.DISCONNECTED;
     private boolean secure;
 
     private String currentTag;
@@ -125,10 +125,10 @@ public final class ImapClientProtocolHandler
 
     // Streaming lexer (issue #85). No cap on structured tokens (this
     // client trusts the remote server, same principle as
-    // POP3ClientLexer/SMTPClientLexer) and no tag/args split is needed at
+    // Pop3ClientLexer/SmtpClientLexer) and no tag/args split is needed at
     // this layer at all — KEYWORD and TEXT are just concatenated back into
-    // one reconstructed line for the existing IMAPResponse.parse(String).
-    private final IMAPClientLexer lexer = new IMAPClientLexer(this, Integer.MAX_VALUE);
+    // one reconstructed line for the existing ImapResponse.parse(String).
+    private final ImapClientLexer lexer = new ImapClientLexer(this, Integer.MAX_VALUE);
     private final StringBuilder lineBuilder = new StringBuilder();
 
     // Whether we were in SELECTED state before issuing a command
@@ -189,7 +189,7 @@ public final class ImapClientProtocolHandler
             throw new NullPointerException("handler");
         }
         this.handler = handler;
-        this.tagGenerator = new IMAPTagGenerator();
+        this.tagGenerator = new ImapTagGenerator();
         this.capabilities = new ArrayList<String>();
         this.searchResults = new ArrayList<Long>();
     }
@@ -217,7 +217,7 @@ public final class ImapClientProtocolHandler
     @Override
     public void connected(Endpoint ep) {
         this.endpoint = ep;
-        state = IMAPState.CONNECTING;
+        state = ImapState.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("IMAP client connected to "
@@ -235,7 +235,7 @@ public final class ImapClientProtocolHandler
         if (LOGGER.isLoggable(Level.INFO)) {
             LOGGER.info(L10N.getString("info.imap_client_disconnected"));
         }
-        state = IMAPState.CLOSED;
+        state = ImapState.CLOSED;
         handler.onDisconnected();
     }
 
@@ -251,7 +251,7 @@ public final class ImapClientProtocolHandler
             StarttlsReplyHandler callback =
                     (StarttlsReplyHandler) currentCallback;
             currentCallback = null;
-            state = IMAPState.NOT_AUTHENTICATED;
+            state = ImapState.NOT_AUTHENTICATED;
             callback.handleTlsEstablished(this);
         }
     }
@@ -261,7 +261,7 @@ public final class ImapClientProtocolHandler
         if (LOGGER.isLoggable(Level.WARNING)) {
             LOGGER.log(Level.WARNING, "IMAP transport error", cause);
         }
-        state = IMAPState.ERROR;
+        state = ImapState.ERROR;
         handler.onError(cause);
     }
 
@@ -271,9 +271,9 @@ public final class ImapClientProtocolHandler
     // no tag/args split is needed here — KEYWORD and TEXT are just
     // concatenated back into one reconstructed line (identical to what
     // the old whole-line CharBuffer-free byte copy produced) and handed
-    // to the existing, unchanged handleResponseLine()/IMAPResponse.parse().
+    // to the existing, unchanged handleResponseLine()/ImapResponse.parse().
     @Override
-    public boolean token(IMAPClientLexer.Token type, ByteBuffer window) {
+    public boolean token(ImapClientLexer.Token type, ByteBuffer window) {
         switch (type) {
             case KEYWORD:
             case TEXT:
@@ -299,9 +299,9 @@ public final class ImapClientProtocolHandler
 
     @Override
     public void tokenTooLong() {
-        // IMAPClientLexer is constructed with an unbounded per-token cap
+        // ImapClientLexer is constructed with an unbounded per-token cap
         // (Integer.MAX_VALUE) — this client trusts the remote server, same
-        // as POP3ClientLexer/SMTPClientLexer — so this is structurally
+        // as Pop3ClientLexer/SmtpClientLexer — so this is structurally
         // unreachable.
         LOGGER.warning(L10N.getString("warn.imap_unexpected_token_too_long"));
     }
@@ -340,7 +340,7 @@ public final class ImapClientProtocolHandler
             ((FetchReplyHandler) currentCallback)
                     .handleFetchLiteralEnd(fetchMessageNumber);
         }
-        state = IMAPState.FETCH_SENT;
+        state = ImapState.FETCH_SENT;
         literalTracker = null;
     }
 
@@ -348,16 +348,16 @@ public final class ImapClientProtocolHandler
 
     public boolean isOpen() {
         return endpoint != null && endpoint.isOpen()
-                && state != IMAPState.DISCONNECTED
-                && state != IMAPState.CLOSED
-                && state != IMAPState.ERROR;
+                && state != ImapState.DISCONNECTED
+                && state != ImapState.CLOSED
+                && state != ImapState.ERROR;
     }
 
     public void close() {
-        if (state == IMAPState.CLOSED) {
+        if (state == ImapState.CLOSED) {
             return;
         }
-        state = IMAPState.CLOSED;
+        state = ImapState.CLOSED;
         literalTracker = null;
         if (endpoint != null) {
             endpoint.close();
@@ -371,7 +371,7 @@ public final class ImapClientProtocolHandler
     public void capability(CapabilityReplyHandler callback) {
         this.currentCallback = callback;
         capabilities.clear();
-        sendTaggedCommand("CAPABILITY", IMAPState.CAPABILITY_SENT);
+        sendTaggedCommand("CAPABILITY", ImapState.CAPABILITY_SENT);
     }
 
     // RFC 9051 section 6.2.3 — LOGIN command
@@ -380,7 +380,7 @@ public final class ImapClientProtocolHandler
                       LoginReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("LOGIN " + quoteString(username) + " "
-                + quoteString(password), IMAPState.LOGIN_SENT);
+                + quoteString(password), ImapState.LOGIN_SENT);
     }
 
     // RFC 9051 section 6.2.2 — AUTHENTICATE, RFC 4959 initial response
@@ -395,20 +395,20 @@ public final class ImapClientProtocolHandler
             cmd.append(Base64.getEncoder()
                     .encodeToString(initialResponse));
         }
-        sendTaggedCommand(cmd.toString(), IMAPState.AUTHENTICATE_SENT);
+        sendTaggedCommand(cmd.toString(), ImapState.AUTHENTICATE_SENT);
     }
 
     // RFC 9051 section 6.2.1 — STARTTLS command
     @Override
     public void starttls(StarttlsReplyHandler callback) {
         this.currentCallback = callback;
-        sendTaggedCommand("STARTTLS", IMAPState.STARTTLS_SENT);
+        sendTaggedCommand("STARTTLS", ImapState.STARTTLS_SENT);
     }
 
     // RFC 9051 section 6.1.3 — LOGOUT command
     @Override
     public void logout() {
-        sendTaggedCommand("LOGOUT", IMAPState.LOGOUT_SENT);
+        sendTaggedCommand("LOGOUT", ImapState.LOGOUT_SENT);
     }
 
     // ── ClientPostStarttls ──
@@ -421,13 +421,13 @@ public final class ImapClientProtocolHandler
                         AuthReplyHandler callback) {
         this.currentCallback = callback;
         String encoded = Base64.getEncoder().encodeToString(response);
-        sendRawLine(encoded, IMAPState.AUTHENTICATE_SENT);
+        sendRawLine(encoded, ImapState.AUTHENTICATE_SENT);
     }
 
     @Override
     public void abort(AuthAbortHandler callback) {
         this.currentCallback = callback;
-        sendRawLine("*", IMAPState.AUTH_ABORT_SENT);
+        sendRawLine("*", ImapState.AUTH_ABORT_SENT);
     }
 
     // ── ClientAuthenticatedState (RFC 9051 section 6.3) ──
@@ -439,7 +439,7 @@ public final class ImapClientProtocolHandler
         this.currentCallback = callback;
         pendingMailboxInfo = new MailboxInfo();
         sendTaggedCommand("SELECT " + quoteString(mailbox),
-                IMAPState.SELECT_SENT);
+                ImapState.SELECT_SENT);
     }
 
     // RFC 9051 section 6.3.2 — EXAMINE command
@@ -449,7 +449,7 @@ public final class ImapClientProtocolHandler
         this.currentCallback = callback;
         pendingMailboxInfo = new MailboxInfo();
         sendTaggedCommand("EXAMINE " + quoteString(mailbox),
-                IMAPState.EXAMINE_SENT);
+                ImapState.EXAMINE_SENT);
     }
 
     // RFC 9051 section 6.3.3 — CREATE command
@@ -458,7 +458,7 @@ public final class ImapClientProtocolHandler
                        MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("CREATE " + quoteString(mailbox),
-                IMAPState.CREATE_SENT);
+                ImapState.CREATE_SENT);
     }
 
     // RFC 9051 section 6.3.4 — DELETE command
@@ -467,7 +467,7 @@ public final class ImapClientProtocolHandler
                        MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("DELETE " + quoteString(mailbox),
-                IMAPState.DELETE_SENT);
+                ImapState.DELETE_SENT);
     }
 
     // RFC 9051 section 6.3.5 — RENAME command
@@ -476,7 +476,7 @@ public final class ImapClientProtocolHandler
                        MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("RENAME " + quoteString(from) + " "
-                + quoteString(to), IMAPState.RENAME_SENT);
+                + quoteString(to), ImapState.RENAME_SENT);
     }
 
     // RFC 9051 section 6.3.6 — SUBSCRIBE command
@@ -485,7 +485,7 @@ public final class ImapClientProtocolHandler
                           MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("SUBSCRIBE " + quoteString(mailbox),
-                IMAPState.SUBSCRIBE_SENT);
+                ImapState.SUBSCRIBE_SENT);
     }
 
     // RFC 9051 section 6.3.7 — UNSUBSCRIBE command
@@ -494,7 +494,7 @@ public final class ImapClientProtocolHandler
                             MailboxReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("UNSUBSCRIBE " + quoteString(mailbox),
-                IMAPState.UNSUBSCRIBE_SENT);
+                ImapState.UNSUBSCRIBE_SENT);
     }
 
     // RFC 9051 section 6.3.8 — LIST command
@@ -503,7 +503,7 @@ public final class ImapClientProtocolHandler
                      ListReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("LIST " + quoteString(reference) + " "
-                + quoteString(pattern), IMAPState.LIST_SENT);
+                + quoteString(pattern), ImapState.LIST_SENT);
     }
 
     // RFC 9051 section 6.3.9 — LSUB command (deprecated)
@@ -512,7 +512,7 @@ public final class ImapClientProtocolHandler
                      ListReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("LSUB " + quoteString(reference) + " "
-                + quoteString(pattern), IMAPState.LSUB_SENT);
+                + quoteString(pattern), ImapState.LSUB_SENT);
     }
 
     // RFC 9051 section 6.3.11 — STATUS command
@@ -531,7 +531,7 @@ public final class ImapClientProtocolHandler
             cmd.append(items[i]);
         }
         cmd.append(')');
-        sendTaggedCommand(cmd.toString(), IMAPState.STATUS_SENT);
+        sendTaggedCommand(cmd.toString(), ImapState.STATUS_SENT);
     }
 
     // RFC 2342 — NAMESPACE command
@@ -540,7 +540,7 @@ public final class ImapClientProtocolHandler
         this.currentCallback = callback;
         namespacePersonal = null;
         namespacePersonalDelimiter = null;
-        sendTaggedCommand("NAMESPACE", IMAPState.NAMESPACE_SENT);
+        sendTaggedCommand("NAMESPACE", ImapState.NAMESPACE_SENT);
     }
 
     // RFC 9208 — GETQUOTA command
@@ -549,7 +549,7 @@ public final class ImapClientProtocolHandler
                          QuotaReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("GETQUOTA " + quoteString(quotaRoot),
-                IMAPState.GETQUOTA_SENT);
+                ImapState.GETQUOTA_SENT);
     }
 
     // RFC 9208 — GETQUOTAROOT command
@@ -558,7 +558,7 @@ public final class ImapClientProtocolHandler
                              QuotaReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("GETQUOTAROOT " + quoteString(mailbox),
-                IMAPState.GETQUOTAROOT_SENT);
+                ImapState.GETQUOTAROOT_SENT);
     }
 
     // RFC 9051 section 6.3.12 — APPEND command
@@ -582,7 +582,7 @@ public final class ImapClientProtocolHandler
             cmd.append(" \"").append(date).append('"');
         }
         cmd.append(" {").append(size).append('}');
-        sendTaggedCommand(cmd.toString(), IMAPState.APPEND_SENT);
+        sendTaggedCommand(cmd.toString(), ImapState.APPEND_SENT);
     }
 
     // RFC 2177 — IDLE command
@@ -590,14 +590,14 @@ public final class ImapClientProtocolHandler
     public void idle(IdleEventHandler callback) {
         this.currentCallback = callback;
         this.idleEventHandler = callback;
-        sendTaggedCommand("IDLE", IMAPState.IDLE_SENT);
+        sendTaggedCommand("IDLE", ImapState.IDLE_SENT);
     }
 
     // RFC 9051 section 6.1.2 — NOOP command
     @Override
     public void noop(NoopReplyHandler callback) {
         this.currentCallback = callback;
-        sendTaggedCommand("NOOP", IMAPState.NOOP_SENT);
+        sendTaggedCommand("NOOP", ImapState.NOOP_SENT);
     }
 
     // ── ClientSelectedState (RFC 9051 section 6.4) ──
@@ -606,21 +606,21 @@ public final class ImapClientProtocolHandler
     @Override
     public void close(CloseReplyHandler callback) {
         this.currentCallback = callback;
-        sendTaggedCommand("CLOSE", IMAPState.CLOSE_SENT);
+        sendTaggedCommand("CLOSE", ImapState.CLOSE_SENT);
     }
 
     // RFC 9051 section 6.4.2 — UNSELECT command
     @Override
     public void unselect(CloseReplyHandler callback) {
         this.currentCallback = callback;
-        sendTaggedCommand("UNSELECT", IMAPState.UNSELECT_SENT);
+        sendTaggedCommand("UNSELECT", ImapState.UNSELECT_SENT);
     }
 
     // RFC 9051 section 6.4.3 — EXPUNGE command
     @Override
     public void expunge(ExpungeReplyHandler callback) {
         this.currentCallback = callback;
-        sendTaggedCommand("EXPUNGE", IMAPState.EXPUNGE_SENT);
+        sendTaggedCommand("EXPUNGE", ImapState.EXPUNGE_SENT);
     }
 
     // RFC 9051 section 6.4.4 — SEARCH command
@@ -630,7 +630,7 @@ public final class ImapClientProtocolHandler
         this.currentCallback = callback;
         searchResults.clear();
         sendTaggedCommand("SEARCH " + criteria,
-                IMAPState.SEARCH_SENT);
+                ImapState.SEARCH_SENT);
     }
 
     @Override
@@ -639,7 +639,7 @@ public final class ImapClientProtocolHandler
         this.currentCallback = callback;
         searchResults.clear();
         sendTaggedCommand("UID SEARCH " + criteria,
-                IMAPState.SEARCH_SENT);
+                ImapState.SEARCH_SENT);
     }
 
     // RFC 9051 section 6.4.5 — FETCH command
@@ -648,7 +648,7 @@ public final class ImapClientProtocolHandler
                       FetchReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("FETCH " + sequenceSet + " " + dataItems,
-                IMAPState.FETCH_SENT);
+                ImapState.FETCH_SENT);
     }
 
     @Override
@@ -656,7 +656,7 @@ public final class ImapClientProtocolHandler
                          FetchReplyHandler callback) {
         this.currentCallback = callback;
         sendTaggedCommand("UID FETCH " + sequenceSet + " " + dataItems,
-                IMAPState.FETCH_SENT);
+                ImapState.FETCH_SENT);
     }
 
     // RFC 9051 section 6.4.6 — STORE command
@@ -674,7 +674,7 @@ public final class ImapClientProtocolHandler
             cmd.append(flags[i]);
         }
         cmd.append(')');
-        sendTaggedCommand(cmd.toString(), IMAPState.STORE_SENT);
+        sendTaggedCommand(cmd.toString(), ImapState.STORE_SENT);
     }
 
     @Override
@@ -691,7 +691,7 @@ public final class ImapClientProtocolHandler
             cmd.append(flags[i]);
         }
         cmd.append(')');
-        sendTaggedCommand(cmd.toString(), IMAPState.STORE_SENT);
+        sendTaggedCommand(cmd.toString(), ImapState.STORE_SENT);
     }
 
     // RFC 9051 section 6.4.7 — COPY command
@@ -701,7 +701,7 @@ public final class ImapClientProtocolHandler
         this.currentCallback = callback;
         resetCopyData();
         sendTaggedCommand("COPY " + sequenceSet + " "
-                + quoteString(mailbox), IMAPState.COPY_SENT);
+                + quoteString(mailbox), ImapState.COPY_SENT);
     }
 
     @Override
@@ -710,7 +710,7 @@ public final class ImapClientProtocolHandler
         this.currentCallback = callback;
         resetCopyData();
         sendTaggedCommand("UID COPY " + sequenceSet + " "
-                + quoteString(mailbox), IMAPState.COPY_SENT);
+                + quoteString(mailbox), ImapState.COPY_SENT);
     }
 
     // RFC 6851 — MOVE command
@@ -720,7 +720,7 @@ public final class ImapClientProtocolHandler
         this.currentCallback = callback;
         resetCopyData();
         sendTaggedCommand("MOVE " + sequenceSet + " "
-                + quoteString(mailbox), IMAPState.MOVE_SENT);
+                + quoteString(mailbox), ImapState.MOVE_SENT);
     }
 
     @Override
@@ -729,7 +729,7 @@ public final class ImapClientProtocolHandler
         this.currentCallback = callback;
         resetCopyData();
         sendTaggedCommand("UID MOVE " + sequenceSet + " "
-                + quoteString(mailbox), IMAPState.MOVE_SENT);
+                + quoteString(mailbox), ImapState.MOVE_SENT);
     }
 
     // ── ClientIdleState ──
@@ -743,7 +743,7 @@ public final class ImapClientProtocolHandler
 
     @Override
     public void writeContent(ByteBuffer data) {
-        if (state != IMAPState.APPEND_DATA || !isOpen()) {
+        if (state != ImapState.APPEND_DATA || !isOpen()) {
             return;
         }
         ByteBuffer copy = ByteBuffer.allocate(data.remaining());
@@ -759,7 +759,7 @@ public final class ImapClientProtocolHandler
 
     @Override
     public void endAppend() {
-        if (state != IMAPState.APPEND_DATA || !isOpen()) {
+        if (state != ImapState.APPEND_DATA || !isOpen()) {
             return;
         }
         byte[] crlf = CRLF.getBytes(StandardCharsets.US_ASCII);
@@ -769,14 +769,14 @@ public final class ImapClientProtocolHandler
     // ── Command sending ──
 
     private void sendTaggedCommand(String command,
-                                   IMAPState newState) {
+                                   ImapState newState) {
         if (!isOpen()) {
             handler.onError(new IOException("Not connected"));
             return;
         }
 
         // Track whether we were in SELECTED before sending
-        wasSelected = (state == IMAPState.SELECTED);
+        wasSelected = (state == ImapState.SELECTED);
 
         currentTag = tagGenerator.next();
         state = newState;
@@ -798,7 +798,7 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void sendRawLine(String line, IMAPState newState) {
+    private void sendRawLine(String line, ImapState newState) {
         if (!isOpen()) {
             handler.onError(new IOException("Not connected"));
             return;
@@ -823,7 +823,7 @@ public final class ImapClientProtocolHandler
         }
 
         try {
-            IMAPResponse response = IMAPResponse.parse(line);
+            ImapResponse response = ImapResponse.parse(line);
             if (response == null) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.warning(
@@ -850,7 +850,7 @@ public final class ImapClientProtocolHandler
 
     // ── Continuation dispatch ──
 
-    private void dispatchContinuation(IMAPResponse response) {
+    private void dispatchContinuation(ImapResponse response) {
         switch (state) {
             case AUTHENTICATE_SENT: {
                 AuthReplyHandler callback =
@@ -868,14 +868,14 @@ public final class ImapClientProtocolHandler
                 break;
             }
             case APPEND_SENT: {
-                state = IMAPState.APPEND_DATA;
+                state = ImapState.APPEND_DATA;
                 AppendReplyHandler callback =
                         (AppendReplyHandler) currentCallback;
                 callback.handleReadyForData(this);
                 break;
             }
             case IDLE_SENT: {
-                state = IMAPState.IDLE_ACTIVE;
+                state = ImapState.IDLE_ACTIVE;
                 IdleEventHandler callback =
                         (IdleEventHandler) currentCallback;
                 callback.handleIdleStarted(this);
@@ -892,14 +892,14 @@ public final class ImapClientProtocolHandler
 
     // ── Untagged dispatch ──
 
-    private void dispatchUntagged(IMAPResponse response,
+    private void dispatchUntagged(ImapResponse response,
                                   String rawLine) {
         String msg = response.getMessage();
         if (msg == null) {
             return;
         }
 
-        if (state == IMAPState.CONNECTING) {
+        if (state == ImapState.CONNECTING) {
             dispatchGreeting(response);
             return;
         }
@@ -979,11 +979,11 @@ public final class ImapClientProtocolHandler
     }
 
     // RFC 9051 section 7.1 — server greeting (OK, PREAUTH, BYE)
-    private void dispatchGreeting(IMAPResponse response) {
+    private void dispatchGreeting(ImapResponse response) {
         String msg = response.getMessage();
 
-        if (response.getStatus() == IMAPResponse.Status.OK) {
-            state = IMAPState.NOT_AUTHENTICATED;
+        if (response.getStatus() == ImapResponse.Status.OK) {
+            state = ImapState.NOT_AUTHENTICATED;
             List<String> preAuthCapabilities =
                     new ArrayList<String>();
             String code = response.getResponseCode();
@@ -998,19 +998,19 @@ public final class ImapClientProtocolHandler
         } else if (response.getStatus() == null
                 && msg != null
                 && msg.toUpperCase().startsWith("PREAUTH ")) {
-            state = IMAPState.AUTHENTICATED;
+            state = ImapState.AUTHENTICATED;
             handler.onConnected(endpoint);
             handler.handlePreAuthenticated(this,
                     msg.substring(8));
         } else {
-            state = IMAPState.ERROR;
+            state = ImapState.ERROR;
             handler.handleServiceUnavailable(
                     msg != null ? msg : "");
             close();
         }
     }
 
-    private void dispatchUntaggedStatus(IMAPResponse response) {
+    private void dispatchUntaggedStatus(ImapResponse response) {
         String code = response.getResponseCode();
         if (code == null) {
             return;
@@ -1055,8 +1055,8 @@ public final class ImapClientProtocolHandler
     }
 
     private void dispatchBye(String message) {
-        if (state != IMAPState.LOGOUT_SENT
-                && state != IMAPState.CLOSED) {
+        if (state != ImapState.LOGOUT_SENT
+                && state != ImapState.CLOSED) {
             if (currentCallback != null) {
                 fireServiceClosing(message);
             }
@@ -1071,7 +1071,7 @@ public final class ImapClientProtocolHandler
         if (upper.startsWith("EXISTS")) {
             if (pendingMailboxInfo != null) {
                 pendingMailboxInfo.setExists(number);
-            } else if (state == IMAPState.IDLE_ACTIVE
+            } else if (state == ImapState.IDLE_ACTIVE
                     && idleEventHandler != null) {
                 idleEventHandler.handleExists(number);
             } else if (mailboxEventListener != null) {
@@ -1083,7 +1083,7 @@ public final class ImapClientProtocolHandler
         if (upper.startsWith("RECENT")) {
             if (pendingMailboxInfo != null) {
                 pendingMailboxInfo.setRecent(number);
-            } else if (state == IMAPState.IDLE_ACTIVE
+            } else if (state == ImapState.IDLE_ACTIVE
                     && idleEventHandler != null) {
                 idleEventHandler.handleRecent(number);
             } else if (mailboxEventListener != null) {
@@ -1093,12 +1093,12 @@ public final class ImapClientProtocolHandler
         }
 
         if (upper.startsWith("EXPUNGE")) {
-            if (state == IMAPState.EXPUNGE_SENT
+            if (state == ImapState.EXPUNGE_SENT
                     && currentCallback
                     instanceof ExpungeReplyHandler) {
                 ((ExpungeReplyHandler) currentCallback)
                         .handleExpunged(number);
-            } else if (state == IMAPState.IDLE_ACTIVE
+            } else if (state == ImapState.IDLE_ACTIVE
                     && idleEventHandler != null) {
                 idleEventHandler.handleExpunge(number);
             } else if (mailboxEventListener != null) {
@@ -1117,7 +1117,7 @@ public final class ImapClientProtocolHandler
 
     private void dispatchFetchLine(int messageNumber, String data,
                                    String rawLine) {
-        if (state == IMAPState.STORE_SENT
+        if (state == ImapState.STORE_SENT
                 && currentCallback
                 instanceof StoreReplyHandler) {
             String[] flags = parseFetchFlags(data);
@@ -1128,7 +1128,7 @@ public final class ImapClientProtocolHandler
             return;
         }
 
-        if (state == IMAPState.IDLE_ACTIVE
+        if (state == ImapState.IDLE_ACTIVE
                 && idleEventHandler != null) {
             String[] flags = parseFetchFlags(data);
             if (flags != null) {
@@ -1156,12 +1156,12 @@ public final class ImapClientProtocolHandler
         parseFetchData(data, fetchData);
         callback.handleFetchResponse(messageNumber, fetchData);
 
-        long literalSize = IMAPResponse.parseLiteralSize(rawLine);
+        long literalSize = ImapResponse.parseLiteralSize(rawLine);
         if (literalSize > 0) {
             fetchLiteralSection = parseFetchBodySection(data);
             callback.handleFetchLiteralBegin(
                     messageNumber, fetchLiteralSection, literalSize);
-            state = IMAPState.FETCH_LITERAL;
+            state = ImapState.FETCH_LITERAL;
             literalTracker = new LiteralTracker(literalSize, this);
         }
     }
@@ -1484,7 +1484,7 @@ public final class ImapClientProtocolHandler
 
     // ── Tagged dispatch ──
 
-    private void dispatchTagged(IMAPResponse response) {
+    private void dispatchTagged(ImapResponse response) {
         if (currentTag == null
                 || !currentTag.equals(response.getTag())) {
             if (LOGGER.isLoggable(Level.WARNING)) {
@@ -1494,8 +1494,8 @@ public final class ImapClientProtocolHandler
             return;
         }
 
-        if (state == IMAPState.CLOSED
-                || state == IMAPState.DISCONNECTED) {
+        if (state == ImapState.CLOSED
+                || state == ImapState.DISCONNECTED) {
             return;
         }
 
@@ -1570,7 +1570,7 @@ public final class ImapClientProtocolHandler
                 dispatchNoopComplete(response);
                 break;
             case LOGOUT_SENT:
-                state = IMAPState.CLOSED;
+                state = ImapState.CLOSED;
                 close();
                 break;
             default:
@@ -1583,7 +1583,7 @@ public final class ImapClientProtocolHandler
 
     // ── Tagged completion handlers ──
 
-    private void dispatchCapabilityComplete(IMAPResponse response) {
+    private void dispatchCapabilityComplete(ImapResponse response) {
         CapabilityReplyHandler callback =
                 (CapabilityReplyHandler) currentCallback;
         currentCallback = null;
@@ -1597,13 +1597,13 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchLoginComplete(IMAPResponse response) {
+    private void dispatchLoginComplete(ImapResponse response) {
         LoginReplyHandler callback =
                 (LoginReplyHandler) currentCallback;
         currentCallback = null;
 
         if (response.isOk()) {
-            state = IMAPState.AUTHENTICATED;
+            state = ImapState.AUTHENTICATED;
             List<String> loginCapabilities =
                     new ArrayList<String>();
             String code = response.getResponseCode();
@@ -1615,19 +1615,19 @@ public final class ImapClientProtocolHandler
             }
             callback.handleAuthenticated(this, loginCapabilities);
         } else {
-            state = IMAPState.NOT_AUTHENTICATED;
+            state = ImapState.NOT_AUTHENTICATED;
             callback.handleAuthFailed(this, response.getMessage());
         }
     }
 
     private void dispatchAuthenticateComplete(
-            IMAPResponse response) {
+            ImapResponse response) {
         AuthReplyHandler callback =
                 (AuthReplyHandler) currentCallback;
         currentCallback = null;
 
         if (response.isOk()) {
-            state = IMAPState.AUTHENTICATED;
+            state = ImapState.AUTHENTICATED;
             List<String> authCapabilities =
                     new ArrayList<String>();
             String code = response.getResponseCode();
@@ -1639,20 +1639,20 @@ public final class ImapClientProtocolHandler
             }
             callback.handleAuthSuccess(this, authCapabilities);
         } else {
-            state = IMAPState.NOT_AUTHENTICATED;
+            state = ImapState.NOT_AUTHENTICATED;
             callback.handleAuthFailed(this, response.getMessage());
         }
     }
 
-    private void dispatchAuthAbortComplete(IMAPResponse response) {
+    private void dispatchAuthAbortComplete(ImapResponse response) {
         AuthAbortHandler callback =
                 (AuthAbortHandler) currentCallback;
         currentCallback = null;
-        state = IMAPState.NOT_AUTHENTICATED;
+        state = ImapState.NOT_AUTHENTICATED;
         callback.handleAborted(this);
     }
 
-    private void dispatchStarttlsComplete(IMAPResponse response) {
+    private void dispatchStarttlsComplete(ImapResponse response) {
         if (response.isOk()) {
             try {
                 endpoint.startTLS();
@@ -1660,25 +1660,25 @@ public final class ImapClientProtocolHandler
                 StarttlsReplyHandler callback =
                         (StarttlsReplyHandler) currentCallback;
                 currentCallback = null;
-                state = IMAPState.NOT_AUTHENTICATED;
+                state = ImapState.NOT_AUTHENTICATED;
                 callback.handlePermanentFailure(e.getMessage());
             }
         } else if (response.isBad()) {
             StarttlsReplyHandler callback =
                     (StarttlsReplyHandler) currentCallback;
             currentCallback = null;
-            state = IMAPState.ERROR;
+            state = ImapState.ERROR;
             callback.handlePermanentFailure(response.getMessage());
         } else {
             StarttlsReplyHandler callback =
                     (StarttlsReplyHandler) currentCallback;
             currentCallback = null;
-            state = IMAPState.NOT_AUTHENTICATED;
+            state = ImapState.NOT_AUTHENTICATED;
             callback.handleTlsUnavailable(this);
         }
     }
 
-    private void dispatchSelectComplete(IMAPResponse response) {
+    private void dispatchSelectComplete(ImapResponse response) {
         SelectReplyHandler callback =
                 (SelectReplyHandler) currentCallback;
         currentCallback = null;
@@ -1695,15 +1695,15 @@ public final class ImapClientProtocolHandler
                     info.setReadWrite(false);
                 }
             }
-            state = IMAPState.SELECTED;
+            state = ImapState.SELECTED;
             callback.handleSelected(this, info);
         } else {
-            state = IMAPState.AUTHENTICATED;
+            state = ImapState.AUTHENTICATED;
             callback.handleFailed(this, response.getMessage());
         }
     }
 
-    private void dispatchMailboxComplete(IMAPResponse response) {
+    private void dispatchMailboxComplete(ImapResponse response) {
         MailboxReplyHandler callback =
                 (MailboxReplyHandler) currentCallback;
         currentCallback = null;
@@ -1716,7 +1716,7 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchListComplete(IMAPResponse response) {
+    private void dispatchListComplete(ImapResponse response) {
         ListReplyHandler callback =
                 (ListReplyHandler) currentCallback;
         currentCallback = null;
@@ -1729,7 +1729,7 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchStatusComplete(IMAPResponse response) {
+    private void dispatchStatusComplete(ImapResponse response) {
         StatusReplyHandler callback =
                 (StatusReplyHandler) currentCallback;
         currentCallback = null;
@@ -1744,7 +1744,7 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchNamespaceComplete(IMAPResponse response) {
+    private void dispatchNamespaceComplete(ImapResponse response) {
         NamespaceReplyHandler callback =
                 (NamespaceReplyHandler) currentCallback;
         currentCallback = null;
@@ -1759,7 +1759,7 @@ public final class ImapClientProtocolHandler
     }
 
     // RFC 9208 — GETQUOTA / GETQUOTAROOT completion
-    private void dispatchQuotaComplete(IMAPResponse response) {
+    private void dispatchQuotaComplete(ImapResponse response) {
         QuotaReplyHandler callback =
                 (QuotaReplyHandler) currentCallback;
         currentCallback = null;
@@ -1772,7 +1772,7 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchAppendComplete(IMAPResponse response) {
+    private void dispatchAppendComplete(ImapResponse response) {
         AppendReplyHandler callback =
                 (AppendReplyHandler) currentCallback;
         currentCallback = null;
@@ -1801,7 +1801,7 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchIdleComplete(IMAPResponse response) {
+    private void dispatchIdleComplete(ImapResponse response) {
         IdleEventHandler callback = idleEventHandler;
         currentCallback = null;
         idleEventHandler = null;
@@ -1812,19 +1812,19 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchCloseComplete(IMAPResponse response) {
+    private void dispatchCloseComplete(ImapResponse response) {
         CloseReplyHandler callback =
                 (CloseReplyHandler) currentCallback;
         currentCallback = null;
-        state = IMAPState.AUTHENTICATED;
+        state = ImapState.AUTHENTICATED;
         callback.handleClosed(this);
     }
 
-    private void dispatchExpungeComplete(IMAPResponse response) {
+    private void dispatchExpungeComplete(ImapResponse response) {
         ExpungeReplyHandler callback =
                 (ExpungeReplyHandler) currentCallback;
         currentCallback = null;
-        state = IMAPState.SELECTED;
+        state = ImapState.SELECTED;
 
         if (response.isOk()) {
             callback.handleExpungeComplete(this);
@@ -1833,11 +1833,11 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchSearchComplete(IMAPResponse response) {
+    private void dispatchSearchComplete(ImapResponse response) {
         SearchReplyHandler callback =
                 (SearchReplyHandler) currentCallback;
         currentCallback = null;
-        state = IMAPState.SELECTED;
+        state = ImapState.SELECTED;
 
         if (response.isOk()) {
             long[] results = new long[searchResults.size()];
@@ -1852,11 +1852,11 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchFetchComplete(IMAPResponse response) {
+    private void dispatchFetchComplete(ImapResponse response) {
         FetchReplyHandler callback =
                 (FetchReplyHandler) currentCallback;
         currentCallback = null;
-        state = IMAPState.SELECTED;
+        state = ImapState.SELECTED;
 
         if (response.isOk()) {
             callback.handleFetchComplete(this);
@@ -1865,11 +1865,11 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchStoreComplete(IMAPResponse response) {
+    private void dispatchStoreComplete(ImapResponse response) {
         StoreReplyHandler callback =
                 (StoreReplyHandler) currentCallback;
         currentCallback = null;
-        state = IMAPState.SELECTED;
+        state = ImapState.SELECTED;
 
         if (response.isOk()) {
             callback.handleStoreComplete(this);
@@ -1878,7 +1878,7 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchCopyComplete(IMAPResponse response) {
+    private void dispatchCopyComplete(ImapResponse response) {
         CopyReplyHandler callback =
                 (CopyReplyHandler) currentCallback;
         currentCallback = null;
@@ -1907,7 +1907,7 @@ public final class ImapClientProtocolHandler
         }
     }
 
-    private void dispatchNoopComplete(IMAPResponse response) {
+    private void dispatchNoopComplete(ImapResponse response) {
         NoopReplyHandler callback =
                 (NoopReplyHandler) currentCallback;
         currentCallback = null;
@@ -1917,9 +1917,9 @@ public final class ImapClientProtocolHandler
 
     // ── Helpers ──
 
-    private IMAPState restoreBaseState() {
-        return wasSelected ? IMAPState.SELECTED
-                : IMAPState.AUTHENTICATED;
+    private ImapState restoreBaseState() {
+        return wasSelected ? ImapState.SELECTED
+                : ImapState.AUTHENTICATED;
     }
 
     private void fireServiceClosing(String message) {

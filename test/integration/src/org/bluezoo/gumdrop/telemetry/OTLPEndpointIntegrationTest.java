@@ -45,7 +45,7 @@ import java.util.logging.Logger;
 import static org.junit.Assert.*;
 
 /**
- * Focused integration tests for OTLPEndpoint HTTP client functionality.
+ * Focused integration tests for OtlpEndpoint HTTP client functionality.
  */
 public class OTLPEndpointIntegrationTest {
 

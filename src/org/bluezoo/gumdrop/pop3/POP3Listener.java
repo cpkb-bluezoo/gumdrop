@@ -27,7 +27,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
-import org.bluezoo.gumdrop.auth.GSSAPIServer;
+import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 /**
@@ -81,7 +81,7 @@ public class Pop3Listener extends TcpListener {
     protected int expireDays = -1;
 
     // RFC 4752 — GSSAPI/Kerberos authentication
-    protected GSSAPIServer gssapiServer;
+    protected GssapiServer gssapiServer;
 
     // Back-reference to the owning service (null when used standalone)
     private Pop3Server service;
@@ -138,7 +138,7 @@ public class Pop3Listener extends TcpListener {
      *
      * @return the GSSAPI server, or null
      */
-    public GSSAPIServer getGSSAPIServer() {
+    public GssapiServer getGSSAPIServer() {
         return gssapiServer;
     }
 
@@ -147,13 +147,13 @@ public class Pop3Listener extends TcpListener {
      *
      * @param gssapiServer the GSSAPI server
      */
-    public void setGSSAPIServer(GSSAPIServer gssapiServer) {
+    public void setGSSAPIServer(GssapiServer gssapiServer) {
         this.gssapiServer = gssapiServer;
     }
 
     /**
      * Configures GSSAPI/Kerberos authentication (RFC 4752) by creating
-     * a {@link GSSAPIServer} from the specified keytab and service
+     * a {@link GssapiServer} from the specified keytab and service
      * principal.
      *
      * @param keytabPath the path to the Kerberos keytab file
@@ -164,7 +164,7 @@ public class Pop3Listener extends TcpListener {
      */
     public void configureGSSAPI(Path keytabPath, String servicePrincipal)
             throws IOException {
-        this.gssapiServer = new GSSAPIServer(keytabPath, servicePrincipal);
+        this.gssapiServer = new GssapiServer(keytabPath, servicePrincipal);
     }
 
     /**

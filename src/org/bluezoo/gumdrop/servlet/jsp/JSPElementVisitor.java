@@ -1,5 +1,5 @@
 /*
- * JSPElementVisitor.java
+ * JspElementVisitor.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ package org.bluezoo.gumdrop.servlet.jsp;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface JSPElementVisitor {
+public interface JspElementVisitor {
     
     /**
      * Visits a text content element.

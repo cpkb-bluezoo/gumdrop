@@ -48,7 +48,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
@@ -201,7 +201,7 @@ public class POP3ProtocolHandlerTest {
 
     // ═══════════════════════════════════════════════════════════════════
     // Streaming lexer tests (issue #85) — sliced-boundary and golden
-    // transcript coverage, proving the POP3ServerLexer conversion from
+    // transcript coverage, proving the Pop3ServerLexer conversion from
     // buffered-line parsing preserves identical semantic dispatch.
     // ═══════════════════════════════════════════════════════════════════
 
@@ -381,8 +381,8 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testCAPAIncludesSASLWithRealm() {
-        realm.supportedMechanisms.add(SASLMechanism.PLAIN);
-        realm.supportedMechanisms.add(SASLMechanism.LOGIN);
+        realm.supportedMechanisms.add(SaslMechanism.PLAIN);
+        realm.supportedMechanisms.add(SaslMechanism.LOGIN);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -779,7 +779,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testAuthListMechanisms() {
-        realm.supportedMechanisms.add(SASLMechanism.CRAM_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("AUTH");
@@ -814,7 +814,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test(timeout = 15000)
     public void testAuthCramMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
-        realm.supportedMechanisms.add(SASLMechanism.CRAM_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
         connectPlaintext();
         endpoint.sentData.clear();
 
@@ -835,7 +835,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test(timeout = 15000)
     public void testAuthDigestMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
-        realm.supportedMechanisms.add(SASLMechanism.DIGEST_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.DIGEST_MD5);
         connectPlaintext();
         endpoint.sentData.clear();
 
@@ -1759,8 +1759,8 @@ public class POP3ProtocolHandlerTest {
     }
 
     static class StubRealm implements Realm {
-        Set<SASLMechanism> supportedMechanisms =
-                new HashSet<SASLMechanism>();
+        Set<SaslMechanism> supportedMechanisms =
+                new HashSet<SaslMechanism>();
 
         @Override
         public Realm forSelectorLoop(SelectorLoop loop) {
@@ -1768,7 +1768,7 @@ public class POP3ProtocolHandlerTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return Collections.unmodifiableSet(supportedMechanisms);
         }
 

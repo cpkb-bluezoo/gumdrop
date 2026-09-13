@@ -1,5 +1,5 @@
 /*
- * FTPDataConnection.java
+ * FtpDataConnection.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -33,15 +33,15 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class FTPDataConnection {
+class FtpDataConnection {
 
-    private static final Logger LOGGER = Logger.getLogger(FTPDataConnection.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(FtpDataConnection.class.getName());
 
     private final SocketChannel channel;
     private final FtpDataConnectionCoordinator coordinator;
     private boolean transferActive = false;
 
-    FTPDataConnection(SocketChannel channel, FtpDataConnectionCoordinator coordinator) {
+    FtpDataConnection(SocketChannel channel, FtpDataConnectionCoordinator coordinator) {
         this.channel = channel;
         this.coordinator = coordinator;
     }

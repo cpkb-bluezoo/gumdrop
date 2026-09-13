@@ -948,7 +948,7 @@ disconnects are recorded in telemetry with exception details before the trace en
 to guarantee telemetry spans are ended even when exceptions occur</li>
 <li><b>JVM shutdown hook</b> - When an exporter is configured, a shutdown hook
 is automatically registered to flush pending telemetry data before the JVM exits</li>
-<li><b>Force flush</b> - The <code>OTLPExporter.forceFlush()</code> method can be
+<li><b>Force flush</b> - The <code>OtlpExporter.forceFlush()</code> method can be
 called programmatically to immediately export all pending data</li>
 </ul>
 
@@ -961,7 +961,7 @@ development, reduce <code>flush-interval-ms</code> to export more frequently.
 <h3 id="file-exporter">File Exporter (JSONL)</h3>
 
 <p>
-The <code>OTLPFileExporter</code> writes telemetry data to local files in
+The <code>OtlpFileExporter</code> writes telemetry data to local files in
 <a href="https://opentelemetry.io/docs/specs/otel/protocol/file-exporter/">
 OpenTelemetry OTLP JSON Lines format</a>. Each line is a complete OTLP JSON
 object (<code>ExportTraceServiceRequest</code>,

@@ -59,8 +59,8 @@ import org.bluezoo.gumdrop.amqp.client.handler.TuneHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.TxCommitHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.TxRollbackHandler;
 import org.bluezoo.gumdrop.amqp.client.handler.TxSelectHandler;
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 
 /**
  * AMQP 0-9-1 client protocol handler (issue #154).
@@ -96,7 +96,7 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
         DISCONNECTED, AWAITING_START, AWAITING_SECURE_OR_TUNE, AWAITING_OPEN_OK, OPEN, CLOSED
     }
 
-    /** Result callback for a (possibly offloaded) {@link SASLClientMechanism#evaluateChallenge} call. */
+    /** Result callback for a (possibly offloaded) {@link SaslClientMechanism#evaluateChallenge} call. */
     private interface ChallengeCallback {
         void onResponse(byte[] response);
         void onFailure(IOException e);
@@ -122,7 +122,7 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
      * {@code connection.secure} challenges after {@code start-ok} and
      * before {@code tune} — see issue #188.
      */
-    private SASLClientMechanism pendingSaslClient;
+    private SaslClientMechanism pendingSaslClient;
     /** Worker executor for {@link #pendingSaslClient}, or null to evaluate challenges inline. */
     private ExecutorService pendingSaslExecutor;
 
@@ -338,24 +338,24 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
                 new ClientHandshake() {
                     @Override
                     public void startOk(String username, String password, TuneHandler tuneHandler) {
-                        sendStartOk(SASLUtils.createClient("PLAIN", username, password, null),
+                        sendStartOk(SaslUtils.createClient("PLAIN", username, password, null),
                                 tuneHandler, null);
                     }
 
                     @Override
-                    public void startOk(SASLClientMechanism saslClient, TuneHandler tuneHandler) {
+                    public void startOk(SaslClientMechanism saslClient, TuneHandler tuneHandler) {
                         sendStartOk(saslClient, tuneHandler, null);
                     }
 
                     @Override
-                    public void startOk(SASLClientMechanism saslClient, TuneHandler tuneHandler,
+                    public void startOk(SaslClientMechanism saslClient, TuneHandler tuneHandler,
                             ExecutorService executor) {
                         sendStartOk(saslClient, tuneHandler, executor);
                     }
                 });
     }
 
-    private void sendStartOk(final SASLClientMechanism saslClient, final TuneHandler tuneHandler,
+    private void sendStartOk(final SaslClientMechanism saslClient, final TuneHandler tuneHandler,
             final ExecutorService executor) {
         pendingSaslClient = saslClient;
         pendingSaslExecutor = executor;
@@ -419,7 +419,7 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
      * event loop either way.
      */
     private void evaluateChallenge(final byte[] challenge, final ChallengeCallback callback) {
-        final SASLClientMechanism client = pendingSaslClient;
+        final SaslClientMechanism client = pendingSaslClient;
         if (pendingSaslExecutor != null) {
             pendingSaslExecutor.submit(new Runnable() {
                 @Override

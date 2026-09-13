@@ -1,5 +1,5 @@
 /*
- * JSPPropertyGroupResolver.java
+ * JspPropertyGroupResolver.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -40,9 +40,9 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPPropertyGroupResolver {
+public class JspPropertyGroupResolver {
 
-    private static final Logger LOGGER = Logger.getLogger(JSPPropertyGroupResolver.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(JspPropertyGroupResolver.class.getName());
 
     /**
      * Represents the resolved JSP configuration properties for a specific JSP page.

@@ -109,7 +109,7 @@ public class FileHandlerTest {
         return new FileHandler(root, allowWrite, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types,
-                new WebDAVLockManager(), null);
+                new WebdavLockManager(), null);
     }
 
     private RecordingState dispatch(FileHandler h, String method, String path,
@@ -235,7 +235,7 @@ public class FileHandlerTest {
     @Test
     public void testCopyFile() throws Exception {
         RecordingState st = dispatch(newHandler(true), "COPY", "/hello.txt",
-                headers(DAVConstants.HEADER_DESTINATION, "/copy.txt"));
+                headers(DavConstants.HEADER_DESTINATION, "/copy.txt"));
         assertEquals(HttpStatus.CREATED.code, st.status());
         Path copy = root.resolve("copy.txt");
         assertTrue(Files.exists(copy));
@@ -247,7 +247,7 @@ public class FileHandlerTest {
     @Test
     public void testMoveFile() throws Exception {
         RecordingState st = dispatch(newHandler(true), "MOVE", "/hello.txt",
-                headers(DAVConstants.HEADER_DESTINATION, "/moved.txt"));
+                headers(DavConstants.HEADER_DESTINATION, "/moved.txt"));
         assertEquals(HttpStatus.CREATED.code, st.status());
         assertFalse("source should be gone after MOVE", Files.exists(helloFile));
         Path moved = root.resolve("moved.txt");
@@ -261,7 +261,7 @@ public class FileHandlerTest {
     @Test
     public void testPropfindFileDepth0() throws Exception {
         RecordingState st = dispatch(newHandler(true), "PROPFIND", "/hello.txt",
-                headers(DAVConstants.HEADER_DEPTH, "0"));
+                headers(DavConstants.HEADER_DEPTH, "0"));
         assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
         String xml = new String(st.body(), StandardCharsets.UTF_8);
         assertTrue(xml.contains("hello.txt"));
@@ -274,7 +274,7 @@ public class FileHandlerTest {
     @Test
     public void testPropfindDirDepth1() throws Exception {
         RecordingState st = dispatch(newHandler(true), "PROPFIND", "/",
-                headers(DAVConstants.HEADER_DEPTH, "1"));
+                headers(DavConstants.HEADER_DEPTH, "1"));
         assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
         String xml = new String(st.body(), StandardCharsets.UTF_8);
         assertTrue("depth-1 listing should include hello.txt",
@@ -286,7 +286,7 @@ public class FileHandlerTest {
     @Test
     public void testPropfindMissing() throws Exception {
         RecordingState st = dispatch(newHandler(true), "PROPFIND", "/nope",
-                headers(DAVConstants.HEADER_DEPTH, "0"));
+                headers(DavConstants.HEADER_DEPTH, "0"));
         assertEquals(HttpStatus.NOT_FOUND.code, st.status());
     }
 

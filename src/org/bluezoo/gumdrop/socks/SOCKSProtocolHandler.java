@@ -1,5 +1,5 @@
 /*
- * SOCKSProtocolHandler.java
+ * SocksProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -44,7 +44,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpEndpoint;
 import org.bluezoo.gumdrop.TcpTransportFactory;
-import org.bluezoo.gumdrop.auth.GSSAPIServer;
+import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
@@ -71,17 +71,17 @@ import static org.bluezoo.gumdrop.socks.SocksConstants.*;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SocksServer
- * @see SOCKSRelay
+ * @see SocksRelay
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1928">RFC 1928</a> SOCKS Protocol Version 5
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1929">RFC 1929</a> Username/Password Authentication
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1961">RFC 1961</a> GSS-API Authentication
  * @see <a href="https://www.openssh.com/txt/socks4.protocol">SOCKS4 protocol</a>
  * @see <a href="https://www.openssh.com/txt/socks4a.protocol">SOCKS4a protocol</a>
  */
-class SOCKSProtocolHandler implements ProtocolHandler {
+class SocksProtocolHandler implements ProtocolHandler {
 
     private static final Logger LOGGER =
-            Logger.getLogger(SOCKSProtocolHandler.class.getName());
+            Logger.getLogger(SocksProtocolHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -112,14 +112,14 @@ class SOCKSProtocolHandler implements ProtocolHandler {
     // SOCKS5 authentication state
     private String authenticatedUser;
     private byte selectedAuthMethod;
-    private GSSAPIServer.GSSAPIExchange gssapiExchange;
+    private GssapiServer.GssapiExchange gssapiExchange;
 
     // Relay
-    private SOCKSRelay relay;
-    private SOCKSUDPRelay udpRelay;
-    private SOCKSBindRelay bindRelay;
+    private SocksRelay relay;
+    private SocksUdpRelay udpRelay;
+    private SocksBindRelay bindRelay;
 
-    SOCKSProtocolHandler(SocksListener listener, SocksServer service) {
+    SocksProtocolHandler(SocksListener listener, SocksServer service) {
         this.listener = listener;
         this.service = service;
     }
@@ -390,7 +390,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         }
 
         Realm realm = listener.getRealm();
-        GSSAPIServer gssapi = listener.getGSSAPIServer();
+        GssapiServer gssapi = listener.getGSSAPIServer();
 
         // RFC 1928 §3 method values: 0x00=NO AUTH, 0x01=GSSAPI, 0x02=USERNAME/PASSWORD, 0xFF=NO ACCEPTABLE
         if (realm != null && gssapi != null
@@ -817,7 +817,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
             ClientEndpoint client = new ClientEndpoint(
                     factory, loop, resolved, request.getPort());
 
-            relay = new SOCKSRelay(endpoint, service,
+            relay = new SocksRelay(endpoint, service,
                     getServerMetrics(),
                     service.getRelayIdleTimeoutMs());
 
@@ -963,10 +963,10 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         }
 
         try {
-            bindRelay = new SOCKSBindRelay(endpoint, service,
+            bindRelay = new SocksBindRelay(endpoint, service,
                     service.getRelayIdleTimeoutMs(),
                     expectedPeer,
-                    new SOCKSBindRelay.Callback() {
+                    new SocksBindRelay.Callback() {
                         @Override
                         public void bindAccepted(
                                 SocketChannel sc,
@@ -1006,7 +1006,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
     }
 
     /**
-     * Called by SOCKSBindRelay on the control SelectorLoop thread
+     * Called by SocksBindRelay on the control SelectorLoop thread
      * when an incoming connection has been accepted and validated.
      */
     private void onBindAccepted(SocksRequest request,
@@ -1027,7 +1027,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
             TcpTransportFactory factory = new TcpTransportFactory();
             factory.start();
 
-            relay = new SOCKSRelay(endpoint, service,
+            relay = new SocksRelay(endpoint, service,
                     getServerMetrics(),
                     service.getRelayIdleTimeoutMs());
 
@@ -1078,7 +1078,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
     }
 
     /**
-     * Called by SOCKSBindRelay when the bind fails (timeout or
+     * Called by SocksBindRelay when the bind fails (timeout or
      * peer rejected).
      */
     private void onBindFailed(SocksRequest request, byte replyCode) {
@@ -1096,7 +1096,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
 
     /**
      * Handles a SOCKS5 UDP ASSOCIATE request. Creates a
-     * {@link SOCKSUDPRelay} with two ephemeral UDP ports and replies
+     * {@link SocksUdpRelay} with two ephemeral UDP ports and replies
      * with the client-facing BND.ADDR:BND.PORT.
      *
      * <p>RFC 1928 §7: the client's DST.ADDR and DST.PORT indicate
@@ -1136,7 +1136,7 @@ class SOCKSProtocolHandler implements ProtocolHandler {
         }
 
         try {
-            udpRelay = new SOCKSUDPRelay(endpoint, service,
+            udpRelay = new SocksUdpRelay(endpoint, service,
                     mtr, service.getRelayIdleTimeoutMs(),
                     expectedClient);
             InetSocketAddress bound = udpRelay.start();

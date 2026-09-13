@@ -1,5 +1,5 @@
 /*
- * HTTPRequestChannel.java
+ * HttpRequestChannel.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -41,14 +41,14 @@ import java.nio.channels.WritableByteChannel;
  * request.header("Transfer-Encoding", "chunked");
  * request.startRequestBody(handler);
  *
- * HTTPRequestChannel channel = new HTTPRequestChannel(request);
+ * HttpRequestChannel channel = new HttpRequestChannel(request);
  * traceSerializer.serialize(trace, channel);
  * channel.close();  // Calls endRequestBody()
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class HTTPRequestChannel implements WritableByteChannel {
+class HttpRequestChannel implements WritableByteChannel {
 
     private final HttpRequest request;
     private boolean open;
@@ -60,7 +60,7 @@ class HTTPRequestChannel implements WritableByteChannel {
      *
      * @param request the HTTP request
      */
-    HTTPRequestChannel(HttpRequest request) {
+    HttpRequestChannel(HttpRequest request) {
         this.request = request;
         this.open = true;
     }

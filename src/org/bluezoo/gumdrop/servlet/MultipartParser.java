@@ -24,11 +24,11 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentID;
 import org.bluezoo.gumdrop.mime.ContentType;
-import org.bluezoo.gumdrop.mime.MIMEHandler;
-import org.bluezoo.gumdrop.mime.MIMELocator;
-import org.bluezoo.gumdrop.mime.MIMEParseException;
-import org.bluezoo.gumdrop.mime.MIMEParser;
-import org.bluezoo.gumdrop.mime.MIMEVersion;
+import org.bluezoo.gumdrop.mime.MimeHandler;
+import org.bluezoo.gumdrop.mime.MimeLocator;
+import org.bluezoo.gumdrop.mime.MimeParseException;
+import org.bluezoo.gumdrop.mime.MimeParser;
+import org.bluezoo.gumdrop.mime.MimeVersion;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -42,7 +42,7 @@ import java.util.List;
 import jakarta.servlet.http.Part;
 
 /**
- * Parses multipart/form-data request bodies using {@link MIMEParser}.
+ * Parses multipart/form-data request bodies using {@link MimeParser}.
  * Produces a collection of {@link MimePart} instances.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -70,7 +70,7 @@ class MultipartParser {
 	 */
 	Collection<Part> parse(InputStream inputStream) throws IOException {
 		PartsHandler handler = new PartsHandler();
-		MIMEParser parser = new MIMEParser();
+		MimeParser parser = new MimeParser();
 		parser.setHandler(handler);
 
 		try {
@@ -85,7 +85,7 @@ class MultipartParser {
 				parser.receive(ByteBuffer.wrap(buf, 0, len));
 			}
 			parser.close();
-		} catch (MIMEParseException e) {
+		} catch (MimeParseException e) {
 			throw new IOException("Failed to parse multipart: " + e.getMessage(), e);
 		}
 
@@ -99,7 +99,7 @@ class MultipartParser {
 	/**
 	 * Handler that collects MimePart instances from parser events.
 	 */
-	private class PartsHandler implements MIMEHandler {
+	private class PartsHandler implements MimeHandler {
 
 		private final List<Part> parts = new ArrayList<>();
 		private int depth = 0;
@@ -110,12 +110,12 @@ class MultipartParser {
 		private OutputStream currentOutput;
 
 		@Override
-		public void setLocator(MIMELocator locator) {
+		public void setLocator(MimeLocator locator) {
 			// Not needed
 		}
 
 		@Override
-		public void startEntity(String boundary) throws MIMEParseException {
+		public void startEntity(String boundary) throws MimeParseException {
 			depth++;
 			if (depth == 1) {
 				// Root multipart entity - nothing to create
@@ -126,75 +126,75 @@ class MultipartParser {
 			try {
 				currentOutput = currentPart.getOutputStream();
 			} catch (IOException e) {
-				throw new MIMEParseException("Failed to create part output", e);
+				throw new MimeParseException("Failed to create part output", e);
 			}
 		}
 
 		@Override
-		public void contentType(ContentType contentType) throws MIMEParseException {
+		public void contentType(ContentType contentType) throws MimeParseException {
 			if (depth > 1 && currentPart != null) {
 				currentPart.addHeader("Content-Type", contentType.toHeaderValue());
 			}
 		}
 
 		@Override
-		public void contentDisposition(ContentDisposition contentDisposition) throws MIMEParseException {
+		public void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException {
 			if (depth > 1 && currentPart != null) {
 				currentPart.addHeader("Content-Disposition", contentDisposition.toHeaderValue());
 			}
 		}
 
 		@Override
-		public void contentTransferEncoding(String encoding) throws MIMEParseException {
+		public void contentTransferEncoding(String encoding) throws MimeParseException {
 			if (depth > 1 && currentPart != null) {
 				currentPart.addHeader("Content-Transfer-Encoding", encoding);
 			}
 		}
 
 		@Override
-		public void contentID(ContentID contentID) throws MIMEParseException {
+		public void contentID(ContentID contentID) throws MimeParseException {
 			if (depth > 1 && currentPart != null) {
 				currentPart.addHeader("Content-ID", "<" + contentID.getLocalPart() + "@" + contentID.getDomain() + ">");
 			}
 		}
 
 		@Override
-		public void contentDescription(String description) throws MIMEParseException {
+		public void contentDescription(String description) throws MimeParseException {
 			if (depth > 1 && currentPart != null) {
 				currentPart.addHeader("Content-Description", description);
 			}
 		}
 
 		@Override
-		public void mimeVersion(MIMEVersion version) throws MIMEParseException {
+		public void mimeVersion(MimeVersion version) throws MimeParseException {
 			// Ignore for form-data parts
 		}
 
 		@Override
-		public void endHeaders() throws MIMEParseException {
+		public void endHeaders() throws MimeParseException {
 			// Headers complete - ready for body content
 		}
 
 		@Override
-		public void bodyContent(ByteBuffer data) throws MIMEParseException {
+		public void bodyContent(ByteBuffer data) throws MimeParseException {
 			if (depth > 1 && currentOutput != null) {
 				try {
 					byte[] bytes = new byte[data.remaining()];
 					data.get(bytes);
 					currentOutput.write(bytes);
 				} catch (IOException e) {
-					throw new MIMEParseException("Failed to write part content", e);
+					throw new MimeParseException("Failed to write part content", e);
 				}
 			}
 		}
 
 		@Override
-		public void unexpectedContent(ByteBuffer data) throws MIMEParseException {
+		public void unexpectedContent(ByteBuffer data) throws MimeParseException {
 			// Preamble/epilogue - ignore for form-data
 		}
 
 		@Override
-		public void endEntity(String boundary) throws MIMEParseException {
+		public void endEntity(String boundary) throws MimeParseException {
 			if (depth == 1) {
 				// Root entity complete
 				complete = true;
@@ -206,7 +206,7 @@ class MultipartParser {
 					}
 					parts.add(currentPart);
 				} catch (IOException e) {
-					throw new MIMEParseException("Failed to finalize part", e);
+					throw new MimeParseException("Failed to finalize part", e);
 				}
 				currentPart = null;
 				currentOutput = null;

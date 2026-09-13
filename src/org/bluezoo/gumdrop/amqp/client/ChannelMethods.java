@@ -67,28 +67,28 @@ final class ChannelMethods {
 
     /** {@code channel.flow} (20,20) — sent by either peer. */
     static boolean decodeFlow(ByteBuffer payload) {
-        return AMQPBits.unpack(payload.get(), 0);
+        return AmqpBits.unpack(payload.get(), 0);
     }
 
     static ByteBuffer encodeFlow(boolean active) {
         ByteBuffer buf = ByteBuffer.allocate(5);
         buf.putShort((short) AmqpMethod.CLASS_CHANNEL);
         buf.putShort((short) AmqpMethod.CHANNEL_FLOW);
-        buf.put(AMQPBits.pack(active));
+        buf.put(AmqpBits.pack(active));
         buf.flip();
         return buf;
     }
 
     /** {@code channel.flow-ok} (20,21) — sent by either peer. */
     static boolean decodeFlowOk(ByteBuffer payload) {
-        return AMQPBits.unpack(payload.get(), 0);
+        return AmqpBits.unpack(payload.get(), 0);
     }
 
     static ByteBuffer encodeFlowOk(boolean active) {
         ByteBuffer buf = ByteBuffer.allocate(5);
         buf.putShort((short) AmqpMethod.CLASS_CHANNEL);
         buf.putShort((short) AmqpMethod.CHANNEL_FLOW_OK);
-        buf.put(AMQPBits.pack(active));
+        buf.put(AmqpBits.pack(active));
         buf.flip();
         return buf;
     }

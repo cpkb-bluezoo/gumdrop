@@ -81,7 +81,7 @@ public final class MetricSerializer {
         ProtobufWriter writer = new ProtobufWriter(channel);
 
         // MetricsData { repeated ResourceMetrics resource_metrics = 1; }
-        writer.writeMessageField(OTLPFieldNumbers.METRICS_DATA_RESOURCE_METRICS,
+        writer.writeMessageField(OtlpFieldNumbers.METRICS_DATA_RESOURCE_METRICS,
                 new ResourceMetricsWriter(metrics, meterName, meterVersion));
     }
 
@@ -154,15 +154,15 @@ public final class MetricSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // Resource resource = 1
-            writer.writeMessageField(OTLPFieldNumbers.RESOURCE_METRICS_RESOURCE,
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_METRICS_RESOURCE,
                     new ResourceWriter());
 
             // repeated ScopeMetrics scope_metrics = 2
-            writer.writeMessageField(OTLPFieldNumbers.RESOURCE_METRICS_SCOPE_METRICS,
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_METRICS_SCOPE_METRICS,
                     new ScopeMetricsWriter(metrics, meterName, meterVersion));
 
             // string schema_url = 3
-            writer.writeStringField(OTLPFieldNumbers.RESOURCE_METRICS_SCHEMA_URL, SCHEMA_URL);
+            writer.writeStringField(OtlpFieldNumbers.RESOURCE_METRICS_SCHEMA_URL, SCHEMA_URL);
         }
     }
 
@@ -170,22 +170,22 @@ public final class MetricSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated KeyValue attributes = 1
-            writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+            writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                     "service.name", serviceName);
 
             if (serviceVersion != null) {
-                writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+                writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                         "service.version", serviceVersion);
             }
 
             if (serviceNamespace != null) {
-                writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+                writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                         "service.namespace", serviceNamespace);
             }
 
             if (resourceAttributes != null) {
                 for (Map.Entry<String, String> entry : resourceAttributes.entrySet()) {
-                    writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+                    writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                             entry.getKey(), entry.getValue());
                 }
             }
@@ -206,12 +206,12 @@ public final class MetricSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // InstrumentationScope scope = 1
-            writer.writeMessageField(OTLPFieldNumbers.SCOPE_METRICS_SCOPE,
+            writer.writeMessageField(OtlpFieldNumbers.SCOPE_METRICS_SCOPE,
                     new InstrumentationScopeWriter(meterName, meterVersion));
 
             // repeated Metric metrics = 2
             for (MetricData metric : metrics) {
-                writer.writeMessageField(OTLPFieldNumbers.SCOPE_METRICS_METRICS,
+                writer.writeMessageField(OtlpFieldNumbers.SCOPE_METRICS_METRICS,
                         new MetricWriter(metric));
             }
         }
@@ -229,11 +229,11 @@ public final class MetricSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // string name = 1
-            writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_NAME,
+            writer.writeStringField(OtlpFieldNumbers.INSTRUMENTATION_SCOPE_NAME,
                     name != null ? name : "gumdrop");
             // string version = 2
             if (version != null) {
-                writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_VERSION, version);
+                writer.writeStringField(OtlpFieldNumbers.INSTRUMENTATION_SCOPE_VERSION, version);
             }
         }
     }
@@ -248,30 +248,30 @@ public final class MetricSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // string name = 1
-            writer.writeStringField(OTLPFieldNumbers.METRIC_NAME, metric.getName());
+            writer.writeStringField(OtlpFieldNumbers.METRIC_NAME, metric.getName());
 
             // string description = 2
             if (metric.getDescription() != null && !metric.getDescription().isEmpty()) {
-                writer.writeStringField(OTLPFieldNumbers.METRIC_DESCRIPTION, metric.getDescription());
+                writer.writeStringField(OtlpFieldNumbers.METRIC_DESCRIPTION, metric.getDescription());
             }
 
             // string unit = 3
             if (metric.getUnit() != null && !metric.getUnit().isEmpty()) {
-                writer.writeStringField(OTLPFieldNumbers.METRIC_UNIT, metric.getUnit());
+                writer.writeStringField(OtlpFieldNumbers.METRIC_UNIT, metric.getUnit());
             }
 
             // Write data based on type
             switch (metric.getType()) {
                 case GAUGE:
-                    writer.writeMessageField(OTLPFieldNumbers.METRIC_GAUGE,
+                    writer.writeMessageField(OtlpFieldNumbers.METRIC_GAUGE,
                             new GaugeWriter(metric));
                     break;
                 case SUM:
-                    writer.writeMessageField(OTLPFieldNumbers.METRIC_SUM,
+                    writer.writeMessageField(OtlpFieldNumbers.METRIC_SUM,
                             new SumWriter(metric));
                     break;
                 case HISTOGRAM:
-                    writer.writeMessageField(OTLPFieldNumbers.METRIC_HISTOGRAM,
+                    writer.writeMessageField(OtlpFieldNumbers.METRIC_HISTOGRAM,
                             new HistogramWriter(metric));
                     break;
             }
@@ -289,7 +289,7 @@ public final class MetricSerializer {
         public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated NumberDataPoint data_points = 1
             for (NumberDataPoint point : metric.getNumberDataPoints()) {
-                writer.writeMessageField(OTLPFieldNumbers.GAUGE_DATA_POINTS,
+                writer.writeMessageField(OtlpFieldNumbers.GAUGE_DATA_POINTS,
                         new NumberDataPointWriter(point));
             }
         }
@@ -306,16 +306,16 @@ public final class MetricSerializer {
         public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated NumberDataPoint data_points = 1
             for (NumberDataPoint point : metric.getNumberDataPoints()) {
-                writer.writeMessageField(OTLPFieldNumbers.SUM_DATA_POINTS,
+                writer.writeMessageField(OtlpFieldNumbers.SUM_DATA_POINTS,
                         new NumberDataPointWriter(point));
             }
 
             // AggregationTemporality aggregation_temporality = 2
-            writer.writeVarintField(OTLPFieldNumbers.SUM_AGGREGATION_TEMPORALITY,
+            writer.writeVarintField(OtlpFieldNumbers.SUM_AGGREGATION_TEMPORALITY,
                     metric.getTemporality().getProtoValue());
 
             // bool is_monotonic = 3
-            writer.writeBoolField(OTLPFieldNumbers.SUM_IS_MONOTONIC, metric.isMonotonic());
+            writer.writeBoolField(OtlpFieldNumbers.SUM_IS_MONOTONIC, metric.isMonotonic());
         }
     }
 
@@ -330,12 +330,12 @@ public final class MetricSerializer {
         public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated HistogramDataPoint data_points = 1
             for (HistogramDataPoint point : metric.getHistogramDataPoints()) {
-                writer.writeMessageField(OTLPFieldNumbers.HISTOGRAM_DATA_POINTS,
+                writer.writeMessageField(OtlpFieldNumbers.HISTOGRAM_DATA_POINTS,
                         new HistogramDataPointWriter(point));
             }
 
             // AggregationTemporality aggregation_temporality = 2
-            writer.writeVarintField(OTLPFieldNumbers.HISTOGRAM_AGGREGATION_TEMPORALITY,
+            writer.writeVarintField(OtlpFieldNumbers.HISTOGRAM_AGGREGATION_TEMPORALITY,
                     metric.getTemporality().getProtoValue());
         }
     }
@@ -350,19 +350,19 @@ public final class MetricSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // fixed64 start_time_unix_nano = 2
-            writer.writeFixed64Field(OTLPFieldNumbers.NUMBER_DATA_POINT_START_TIME_UNIX_NANO,
+            writer.writeFixed64Field(OtlpFieldNumbers.NUMBER_DATA_POINT_START_TIME_UNIX_NANO,
                     point.getStartTimeUnixNano());
 
             // fixed64 time_unix_nano = 3
-            writer.writeFixed64Field(OTLPFieldNumbers.NUMBER_DATA_POINT_TIME_UNIX_NANO,
+            writer.writeFixed64Field(OtlpFieldNumbers.NUMBER_DATA_POINT_TIME_UNIX_NANO,
                     point.getTimeUnixNano());
 
             // value (field 4 = double, field 6 = int)
             if (point.isDouble()) {
-                writer.writeDoubleField(OTLPFieldNumbers.NUMBER_DATA_POINT_AS_DOUBLE,
+                writer.writeDoubleField(OtlpFieldNumbers.NUMBER_DATA_POINT_AS_DOUBLE,
                         point.getDoubleValue());
             } else {
-                writer.writeFixed64Field(OTLPFieldNumbers.NUMBER_DATA_POINT_AS_INT,
+                writer.writeFixed64Field(OtlpFieldNumbers.NUMBER_DATA_POINT_AS_INT,
                         point.getLongValue());
             }
 
@@ -370,7 +370,7 @@ public final class MetricSerializer {
             Attributes attrs = point.getAttributes();
             if (attrs != null && !attrs.isEmpty()) {
                 for (Attribute attr : attrs.asList()) {
-                    writer.writeMessageField(OTLPFieldNumbers.NUMBER_DATA_POINT_ATTRIBUTES,
+                    writer.writeMessageField(OtlpFieldNumbers.NUMBER_DATA_POINT_ATTRIBUTES,
                             new AttributeWriter(attr));
                 }
             }
@@ -387,46 +387,46 @@ public final class MetricSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // fixed64 start_time_unix_nano = 2
-            writer.writeFixed64Field(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_START_TIME_UNIX_NANO,
+            writer.writeFixed64Field(OtlpFieldNumbers.HISTOGRAM_DATA_POINT_START_TIME_UNIX_NANO,
                     point.getStartTimeUnixNano());
 
             // fixed64 time_unix_nano = 3
-            writer.writeFixed64Field(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_TIME_UNIX_NANO,
+            writer.writeFixed64Field(OtlpFieldNumbers.HISTOGRAM_DATA_POINT_TIME_UNIX_NANO,
                     point.getTimeUnixNano());
 
             // fixed64 count = 4
-            writer.writeFixed64Field(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_COUNT,
+            writer.writeFixed64Field(OtlpFieldNumbers.HISTOGRAM_DATA_POINT_COUNT,
                     point.getCount());
 
             // double sum = 5
-            writer.writeDoubleField(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_SUM, point.getSum());
+            writer.writeDoubleField(OtlpFieldNumbers.HISTOGRAM_DATA_POINT_SUM, point.getSum());
 
             // repeated fixed64 bucket_counts = 6 (packed)
             long[] bucketCounts = point.getBucketCounts();
             for (long count : bucketCounts) {
-                writer.writeFixed64Field(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_BUCKET_COUNTS, count);
+                writer.writeFixed64Field(OtlpFieldNumbers.HISTOGRAM_DATA_POINT_BUCKET_COUNTS, count);
             }
 
             // repeated double explicit_bounds = 7 (packed)
             double[] bounds = point.getExplicitBounds();
             for (double bound : bounds) {
-                writer.writeDoubleField(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_EXPLICIT_BOUNDS, bound);
+                writer.writeDoubleField(OtlpFieldNumbers.HISTOGRAM_DATA_POINT_EXPLICIT_BOUNDS, bound);
             }
 
             // repeated KeyValue attributes = 9
             Attributes attrs = point.getAttributes();
             if (attrs != null && !attrs.isEmpty()) {
                 for (Attribute attr : attrs.asList()) {
-                    writer.writeMessageField(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_ATTRIBUTES,
+                    writer.writeMessageField(OtlpFieldNumbers.HISTOGRAM_DATA_POINT_ATTRIBUTES,
                             new AttributeWriter(attr));
                 }
             }
 
             // double min = 11
-            writer.writeDoubleField(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_MIN, point.getMin());
+            writer.writeDoubleField(OtlpFieldNumbers.HISTOGRAM_DATA_POINT_MIN, point.getMin());
 
             // double max = 12
-            writer.writeDoubleField(OTLPFieldNumbers.HISTOGRAM_DATA_POINT_MAX, point.getMax());
+            writer.writeDoubleField(OtlpFieldNumbers.HISTOGRAM_DATA_POINT_MAX, point.getMax());
         }
     }
 
@@ -440,10 +440,10 @@ public final class MetricSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // string key = 1
-            writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, attr.getKey());
+            writer.writeStringField(OtlpFieldNumbers.KEY_VALUE_KEY, attr.getKey());
 
             // AnyValue value = 2
-            writer.writeMessageField(OTLPFieldNumbers.KEY_VALUE_VALUE,
+            writer.writeMessageField(OtlpFieldNumbers.KEY_VALUE_VALUE,
                     new AnyValueWriter(attr));
         }
     }
@@ -459,19 +459,19 @@ public final class MetricSerializer {
         public void writeTo(ProtobufWriter writer) throws IOException {
             switch (attr.getType()) {
                 case Attribute.TYPE_STRING:
-                    writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE,
+                    writer.writeStringField(OtlpFieldNumbers.ANY_VALUE_STRING_VALUE,
                             attr.getStringValue());
                     break;
                 case Attribute.TYPE_BOOL:
-                    writer.writeBoolField(OTLPFieldNumbers.ANY_VALUE_BOOL_VALUE,
+                    writer.writeBoolField(OtlpFieldNumbers.ANY_VALUE_BOOL_VALUE,
                             attr.getBoolValue());
                     break;
                 case Attribute.TYPE_INT:
-                    writer.writeVarintField(OTLPFieldNumbers.ANY_VALUE_INT_VALUE,
+                    writer.writeVarintField(OtlpFieldNumbers.ANY_VALUE_INT_VALUE,
                             attr.getIntValue());
                     break;
                 case Attribute.TYPE_DOUBLE:
-                    writer.writeDoubleField(OTLPFieldNumbers.ANY_VALUE_DOUBLE_VALUE,
+                    writer.writeDoubleField(OtlpFieldNumbers.ANY_VALUE_DOUBLE_VALUE,
                             attr.getDoubleValue());
                     break;
             }
@@ -496,8 +496,8 @@ public final class MetricSerializer {
 
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
-            writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, key);
-            writer.writeMessageField(OTLPFieldNumbers.KEY_VALUE_VALUE,
+            writer.writeStringField(OtlpFieldNumbers.KEY_VALUE_KEY, key);
+            writer.writeMessageField(OtlpFieldNumbers.KEY_VALUE_VALUE,
                     new StringAnyValueWriter(value));
         }
     }
@@ -511,7 +511,7 @@ public final class MetricSerializer {
 
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
-            writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE, value);
+            writer.writeStringField(OtlpFieldNumbers.ANY_VALUE_STRING_VALUE, value);
         }
     }
 }

@@ -35,7 +35,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * implementation and may be interleaved.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPSession#search
+ * @see LdapSession#search
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.5.2">RFC 4511 §4.5.2 — Search Result</a>
  */
 public interface SearchResultHandler {
@@ -79,7 +79,7 @@ public interface SearchResultHandler {
      * @param result the search result status
      * @param session operations for further directory access
      */
-    void handleDone(LDAPResult result, LDAPSession session);
+    void handleDone(LdapResult result, LdapSession session);
 
 }
 

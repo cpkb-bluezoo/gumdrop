@@ -1,5 +1,5 @@
 /*
- * SMTPState.java
+ * SmtpState.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ package org.bluezoo.gumdrop.smtp.client;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
  */
-enum SMTPState {
+enum SmtpState {
     
     /** Not connected to any server. */
     DISCONNECTED,

@@ -23,6 +23,6 @@
  * Handler and state interfaces for the SOCKS server's policy decisions.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.socks.SOCKSProtocolHandler
+ * @see org.bluezoo.gumdrop.socks.SocksProtocolHandler
  */
 package org.bluezoo.gumdrop.socks.handler;

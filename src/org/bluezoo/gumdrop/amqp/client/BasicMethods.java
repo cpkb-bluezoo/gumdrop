@@ -50,7 +50,7 @@ final class BasicMethods {
         buf.putShort((short) AmqpMethod.BASIC_QOS);
         buf.putInt((int) prefetchSize);
         buf.putShort((short) prefetchCount);
-        buf.put(AMQPBits.pack(global));
+        buf.put(AmqpBits.pack(global));
         buf.flip();
         return buf;
     }
@@ -76,7 +76,7 @@ final class BasicMethods {
         buf.putShort((short) 0);
         FieldTable.putShortString(buf, queue);
         FieldTable.putShortString(buf, consumerTag);
-        buf.put(AMQPBits.pack(noLocal, noAck, exclusive, noWait));
+        buf.put(AmqpBits.pack(noLocal, noAck, exclusive, noWait));
         ByteBuffer encodedArgs = args.encode();
         buf.putInt(encodedArgs.remaining());
         buf.put(encodedArgs);
@@ -119,8 +119,8 @@ final class BasicMethods {
         String queue = FieldTable.getShortString(payload);
         String consumerTag = FieldTable.getShortString(payload);
         byte bits = payload.get();
-        boolean noAck = AMQPBits.unpack(bits, 1);
-        boolean exclusive = AMQPBits.unpack(bits, 2);
+        boolean noAck = AmqpBits.unpack(bits, 1);
+        boolean exclusive = AmqpBits.unpack(bits, 2);
         int argsLen = payload.getInt();
         FieldTable.decode(payload, argsLen); // arguments, discarded
         return new Consume(queue, consumerTag, noAck, exclusive);
@@ -133,7 +133,7 @@ final class BasicMethods {
         buf.putShort((short) AmqpMethod.CLASS_BASIC);
         buf.putShort((short) AmqpMethod.BASIC_CANCEL);
         FieldTable.putShortString(buf, consumerTag);
-        buf.put(AMQPBits.pack(noWait));
+        buf.put(AmqpBits.pack(noWait));
         buf.flip();
         return buf;
     }
@@ -174,7 +174,7 @@ final class BasicMethods {
         buf.putShort((short) 0);
         FieldTable.putShortString(buf, exchange);
         FieldTable.putShortString(buf, routingKey);
-        buf.put(AMQPBits.pack(mandatory, immediate));
+        buf.put(AmqpBits.pack(mandatory, immediate));
         buf.flip();
         return buf;
     }
@@ -199,7 +199,7 @@ final class BasicMethods {
         String exchange = FieldTable.getShortString(payload);
         String routingKey = FieldTable.getShortString(payload);
         byte bits = payload.get();
-        return new Publish(exchange, routingKey, AMQPBits.unpack(bits, 0), AMQPBits.unpack(bits, 1));
+        return new Publish(exchange, routingKey, AmqpBits.unpack(bits, 0), AmqpBits.unpack(bits, 1));
     }
 
     /** {@code basic.return} (60,50) — sent by the server. */
@@ -246,7 +246,7 @@ final class BasicMethods {
     static Deliver decodeDeliver(ByteBuffer payload) throws AmqpProtocolException {
         String consumerTag = FieldTable.getShortString(payload);
         long deliveryTag = payload.getLong();
-        boolean redelivered = AMQPBits.unpack(payload.get(), 0);
+        boolean redelivered = AmqpBits.unpack(payload.get(), 0);
         String exchange = FieldTable.getShortString(payload);
         String routingKey = FieldTable.getShortString(payload);
         return new Deliver(consumerTag, deliveryTag, redelivered, exchange, routingKey);
@@ -262,7 +262,7 @@ final class BasicMethods {
         buf.putShort((short) AmqpMethod.BASIC_DELIVER);
         FieldTable.putShortString(buf, consumerTag);
         buf.putLong(deliveryTag);
-        buf.put(AMQPBits.pack(redelivered));
+        buf.put(AmqpBits.pack(redelivered));
         FieldTable.putShortString(buf, exchange);
         FieldTable.putShortString(buf, routingKey);
         buf.flip();
@@ -277,7 +277,7 @@ final class BasicMethods {
         buf.putShort((short) AmqpMethod.BASIC_GET);
         buf.putShort((short) 0);
         FieldTable.putShortString(buf, queue);
-        buf.put(AMQPBits.pack(noAck));
+        buf.put(AmqpBits.pack(noAck));
         buf.flip();
         return buf;
     }
@@ -302,7 +302,7 @@ final class BasicMethods {
 
     static GetOk decodeGetOk(ByteBuffer payload) throws AmqpProtocolException {
         long deliveryTag = payload.getLong();
-        boolean redelivered = AMQPBits.unpack(payload.get(), 0);
+        boolean redelivered = AmqpBits.unpack(payload.get(), 0);
         String exchange = FieldTable.getShortString(payload);
         String routingKey = FieldTable.getShortString(payload);
         long messageCount = payload.getInt() & 0xFFFFFFFFL;
@@ -320,7 +320,7 @@ final class BasicMethods {
         buf.putShort((short) AmqpMethod.CLASS_BASIC);
         buf.putShort((short) AmqpMethod.BASIC_ACK);
         buf.putLong(deliveryTag);
-        buf.put(AMQPBits.pack(multiple));
+        buf.put(AmqpBits.pack(multiple));
         buf.flip();
         return buf;
     }
@@ -337,7 +337,7 @@ final class BasicMethods {
 
     static Ack decodeAck(ByteBuffer payload) {
         long deliveryTag = payload.getLong();
-        boolean multiple = AMQPBits.unpack(payload.get(), 0);
+        boolean multiple = AmqpBits.unpack(payload.get(), 0);
         return new Ack(deliveryTag, multiple);
     }
 
@@ -347,7 +347,7 @@ final class BasicMethods {
         buf.putShort((short) AmqpMethod.CLASS_BASIC);
         buf.putShort((short) AmqpMethod.BASIC_REJECT);
         buf.putLong(deliveryTag);
-        buf.put(AMQPBits.pack(requeue));
+        buf.put(AmqpBits.pack(requeue));
         buf.flip();
         return buf;
     }
@@ -358,7 +358,7 @@ final class BasicMethods {
         buf.putShort((short) AmqpMethod.CLASS_BASIC);
         buf.putShort((short) AmqpMethod.BASIC_NACK);
         buf.putLong(deliveryTag);
-        buf.put(AMQPBits.pack(multiple, requeue));
+        buf.put(AmqpBits.pack(multiple, requeue));
         buf.flip();
         return buf;
     }
@@ -378,7 +378,7 @@ final class BasicMethods {
     static Nack decodeNack(ByteBuffer payload) {
         long deliveryTag = payload.getLong();
         byte bits = payload.get();
-        return new Nack(deliveryTag, AMQPBits.unpack(bits, 0), AMQPBits.unpack(bits, 1));
+        return new Nack(deliveryTag, AmqpBits.unpack(bits, 0), AmqpBits.unpack(bits, 1));
     }
 
     /** {@code basic.recover} (60,110) — sent by the client. */
@@ -386,7 +386,7 @@ final class BasicMethods {
         ByteBuffer buf = ByteBuffer.allocate(4 + 1);
         buf.putShort((short) AmqpMethod.CLASS_BASIC);
         buf.putShort((short) AmqpMethod.BASIC_RECOVER);
-        buf.put(AMQPBits.pack(requeue));
+        buf.put(AmqpBits.pack(requeue));
         buf.flip();
         return buf;
     }

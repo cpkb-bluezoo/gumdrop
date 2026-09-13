@@ -65,13 +65,13 @@ public class DNSResolverTest {
     public void setUp() {
         originalCache = DnsResolver.getCache();
         DnsResolver.setCache(new DnsCache());
-        DNSMultiQTypeCache.clear();
+        DnsMultiQTypeCache.clear();
     }
 
     @After
     public void tearDown() {
         DnsResolver.setCache(originalCache);
-        DNSMultiQTypeCache.clear();
+        DnsMultiQTypeCache.clear();
     }
 
     @Test
@@ -739,14 +739,14 @@ public class DNSResolverTest {
         assertTrue(completed[0]);
         assertEquals(new HashSet<>(Arrays.asList(DnsType.A, DnsType.AAAA)), delivered);
         assertTrue("Server should now be cached as not supporting RFC 10029",
-                DNSMultiQTypeCache.isKnownUnsupported(
+                DnsMultiQTypeCache.isKnownUnsupported(
                         new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 53)));
         resolver.close();
     }
 
     @Test
     public void testBatchSkipsOptionForKnownUnsupportedServer() throws Exception {
-        DNSMultiQTypeCache.markUnsupported(
+        DnsMultiQTypeCache.markUnsupported(
                 new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 53));
 
         MockTransport mockTransport = new MockTransport();

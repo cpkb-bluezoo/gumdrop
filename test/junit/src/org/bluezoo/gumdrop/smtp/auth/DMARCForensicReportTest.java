@@ -36,7 +36,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Date;
 
 /**
- * Unit tests for {@link DMARCForensicReport} — DMARC forensic/failure reporting
+ * Unit tests for {@link DmarcForensicReport} — DMARC forensic/failure reporting
  * (RFC 7489 §7.2, RFC 5965, RFC 6591).
  */
 public class DMARCForensicReportTest {
@@ -45,72 +45,72 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testShouldReportFo0AllFail() {
-        assertTrue(DMARCForensicReport.shouldReport("0",
-                SPFResult.FAIL, DKIMResult.FAIL, DMARCResult.FAIL));
+        assertTrue(DmarcForensicReport.shouldReport("0",
+                SpfResult.FAIL, DkimResult.FAIL, DmarcResult.FAIL));
     }
 
     @Test
     public void testShouldReportFo0PassDoesNotTrigger() {
-        assertFalse(DMARCForensicReport.shouldReport("0",
-                SPFResult.PASS, DKIMResult.PASS, DMARCResult.PASS));
+        assertFalse(DmarcForensicReport.shouldReport("0",
+                SpfResult.PASS, DkimResult.PASS, DmarcResult.PASS));
     }
 
     @Test
     public void testShouldReportFo1AnyFail() {
-        assertTrue(DMARCForensicReport.shouldReport("1",
-                SPFResult.PASS, DKIMResult.FAIL, DMARCResult.PASS));
+        assertTrue(DmarcForensicReport.shouldReport("1",
+                SpfResult.PASS, DkimResult.FAIL, DmarcResult.PASS));
     }
 
     @Test
     public void testShouldReportFo1AllPass() {
-        assertFalse(DMARCForensicReport.shouldReport("1",
-                SPFResult.PASS, DKIMResult.PASS, DMARCResult.PASS));
+        assertFalse(DmarcForensicReport.shouldReport("1",
+                SpfResult.PASS, DkimResult.PASS, DmarcResult.PASS));
     }
 
     @Test
     public void testShouldReportFoDkimOnly() {
-        assertTrue(DMARCForensicReport.shouldReport("d",
-                SPFResult.PASS, DKIMResult.FAIL, DMARCResult.PASS));
+        assertTrue(DmarcForensicReport.shouldReport("d",
+                SpfResult.PASS, DkimResult.FAIL, DmarcResult.PASS));
     }
 
     @Test
     public void testShouldReportFoDkimPassNoTrigger() {
-        assertFalse(DMARCForensicReport.shouldReport("d",
-                SPFResult.FAIL, DKIMResult.PASS, DMARCResult.FAIL));
+        assertFalse(DmarcForensicReport.shouldReport("d",
+                SpfResult.FAIL, DkimResult.PASS, DmarcResult.FAIL));
     }
 
     @Test
     public void testShouldReportFoSpfOnly() {
-        assertTrue(DMARCForensicReport.shouldReport("s",
-                SPFResult.FAIL, DKIMResult.PASS, DMARCResult.PASS));
+        assertTrue(DmarcForensicReport.shouldReport("s",
+                SpfResult.FAIL, DkimResult.PASS, DmarcResult.PASS));
     }
 
     @Test
     public void testShouldReportFoSpfPassNoTrigger() {
-        assertFalse(DMARCForensicReport.shouldReport("s",
-                SPFResult.PASS, DKIMResult.FAIL, DMARCResult.FAIL));
+        assertFalse(DmarcForensicReport.shouldReport("s",
+                SpfResult.PASS, DkimResult.FAIL, DmarcResult.FAIL));
     }
 
     @Test
     public void testShouldReportNullFoDefaultsTo0() {
-        assertTrue(DMARCForensicReport.shouldReport(null,
-                SPFResult.FAIL, DKIMResult.FAIL, DMARCResult.FAIL));
-        assertFalse(DMARCForensicReport.shouldReport(null,
-                SPFResult.PASS, DKIMResult.PASS, DMARCResult.PASS));
+        assertTrue(DmarcForensicReport.shouldReport(null,
+                SpfResult.FAIL, DkimResult.FAIL, DmarcResult.FAIL));
+        assertFalse(DmarcForensicReport.shouldReport(null,
+                SpfResult.PASS, DkimResult.PASS, DmarcResult.PASS));
     }
 
     @Test
     public void testShouldReportColonSeparatedFo() {
         // fo=0:d — triggers on all-fail OR dkim-fail
-        assertTrue(DMARCForensicReport.shouldReport("0:d",
-                SPFResult.PASS, DKIMResult.FAIL, DMARCResult.PASS));
+        assertTrue(DmarcForensicReport.shouldReport("0:d",
+                SpfResult.PASS, DkimResult.FAIL, DmarcResult.PASS));
     }
 
     // -- MIME output tests --
 
     @Test
     public void testWriteMIMEContainsBoundaries() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "BOUNDARY123");
 
         assertTrue(mime.contains("--BOUNDARY123\r\n"));
@@ -119,7 +119,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testWriteMIMEContainsHumanReadable() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Content-Type: text/plain"));
@@ -129,7 +129,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testWriteMIMEContainsFeedbackReport() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Content-Type: message/feedback-report"));
@@ -140,7 +140,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testWriteMIMEContainsSourceIP() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Source-IP: 192.0.2.1"));
@@ -148,7 +148,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testWriteMIMEContainsReportedDomain() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Reported-Domain: receiver.example.com"));
@@ -156,7 +156,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testWriteMIMEContainsOriginalHeaders() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Content-Type: text/rfc822-headers"));
@@ -165,7 +165,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testWriteMIMEWithFullMessage() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         report.setOriginalMessage(ByteBuffer.wrap(
                 "From: sender@bad.example.com\r\nSubject: Test\r\n\r\nBody"
                         .getBytes(StandardCharsets.US_ASCII)));
@@ -177,7 +177,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testWriteMIMEContainsAuthFailure() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Auth-Failure: dmarc"));
@@ -185,8 +185,8 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testDeliveryResultReject() throws IOException {
-        DMARCForensicReport report = createTestReport();
-        report.setDmarcPolicy(DMARCPolicy.REJECT);
+        DmarcForensicReport report = createTestReport();
+        report.setDmarcPolicy(DmarcPolicy.REJECT);
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Delivery-Result: reject"));
@@ -194,8 +194,8 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testDeliveryResultQuarantine() throws IOException {
-        DMARCForensicReport report = createTestReport();
-        report.setDmarcPolicy(DMARCPolicy.QUARANTINE);
+        DmarcForensicReport report = createTestReport();
+        report.setDmarcPolicy(DmarcPolicy.QUARANTINE);
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Delivery-Result: smg-quarantine"));
@@ -203,8 +203,8 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testDeliveryResultNone() throws IOException {
-        DMARCForensicReport report = createTestReport();
-        report.setDmarcPolicy(DMARCPolicy.NONE);
+        DmarcForensicReport report = createTestReport();
+        report.setDmarcPolicy(DmarcPolicy.NONE);
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Delivery-Result: delivered"));
@@ -212,14 +212,14 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testContentTypeHeader() {
-        DMARCForensicReport report = new DMARCForensicReport();
+        DmarcForensicReport report = new DmarcForensicReport();
         String ct = report.getContentType("myboundary");
         assertEquals("multipart/report; report-type=feedback-report; boundary=\"myboundary\"", ct);
     }
 
     @Test
     public void testHumanReadableShowsResults() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("DMARC result: fail"));
@@ -230,7 +230,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testEnvelopeFields() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Original-Rcpt-To: user@receiver.example.com"));
@@ -238,7 +238,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testDkimDomainIncluded() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         report.setDkimDomain("bad.example.com");
         String mime = writeToString(report, "B1");
 
@@ -247,7 +247,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testArrivalDateIncluded() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         report.setArrivalDate(new Date(1700000000000L));
         String mime = writeToString(report, "B1");
 
@@ -256,7 +256,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testAuthResultsIncluded() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Authentication-Results: dmarc=fail header.from=bad.example.com"));
@@ -267,10 +267,10 @@ public class DMARCForensicReportTest {
     @Test
     public void testParseFoTag() throws Exception {
         java.lang.reflect.Method method =
-                DMARCValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
+                DmarcValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
         method.setAccessible(true);
-        DMARCValidator validator = new DMARCValidator(null);
-        DMARCValidator.DMARCRecord rec = (DMARCValidator.DMARCRecord)
+        DmarcValidator validator = new DmarcValidator(null);
+        DmarcValidator.DmarcRecord rec = (DmarcValidator.DmarcRecord)
                 method.invoke(validator, "v=DMARC1; p=reject; fo=1; ruf=mailto:f@example.com");
 
         assertNotNull(rec);
@@ -282,10 +282,10 @@ public class DMARCForensicReportTest {
     @Test
     public void testParseRfTag() throws Exception {
         java.lang.reflect.Method method =
-                DMARCValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
+                DmarcValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
         method.setAccessible(true);
-        DMARCValidator validator = new DMARCValidator(null);
-        DMARCValidator.DMARCRecord rec = (DMARCValidator.DMARCRecord)
+        DmarcValidator validator = new DmarcValidator(null);
+        DmarcValidator.DmarcRecord rec = (DmarcValidator.DmarcRecord)
                 method.invoke(validator, "v=DMARC1; p=none; rf=afrf");
 
         assertNotNull(rec);
@@ -295,10 +295,10 @@ public class DMARCForensicReportTest {
     @Test
     public void testDefaultFoAndRf() throws Exception {
         java.lang.reflect.Method method =
-                DMARCValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
+                DmarcValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
         method.setAccessible(true);
-        DMARCValidator validator = new DMARCValidator(null);
-        DMARCValidator.DMARCRecord rec = (DMARCValidator.DMARCRecord)
+        DmarcValidator validator = new DmarcValidator(null);
+        DmarcValidator.DmarcRecord rec = (DmarcValidator.DmarcRecord)
                 method.invoke(validator, "v=DMARC1; p=none");
 
         assertNotNull(rec);
@@ -315,7 +315,7 @@ public class DMARCForensicReportTest {
         // createTestReport() has spfResult=FAIL, dkimResult=FAIL, and
         // never calls setSpfAligned/setDkimAligned - falls back to
         // approximating alignment from the raw pass/fail.
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         String mime = writeToString(report, "B1");
 
         assertTrue(mime.contains("Identity-Alignment: dkim,spf"));
@@ -323,7 +323,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testIdentityAlignmentNoneWhenBothExplicitlyAligned() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         report.setSpfAligned(true);
         report.setDkimAligned(true);
         String mime = writeToString(report, "B1");
@@ -333,7 +333,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testIdentityAlignmentListsOnlyFailedMechanism() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         // SPF passed and aligned, but DKIM did not - a raw DKIM pass
         // without alignment is exactly the case setSpfAligned/
         // setDkimAligned exist to distinguish from setSpfResult/
@@ -348,7 +348,7 @@ public class DMARCForensicReportTest {
 
     @Test
     public void testExplicitAlignmentOverridesRawResultApproximation() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         // Raw results are both FAIL (from createTestReport()), but if the
         // caller explicitly says both aligned, that must win.
         report.setSpfAligned(true);
@@ -365,7 +365,7 @@ public class DMARCForensicReportTest {
      */
     @Test
     public void testWriteMIMEAcceptsARealFileChannel() throws IOException {
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         Path tempFile = Files.createTempFile("dmarc-forensic-", ".eml");
         try {
             try (FileChannel channel = FileChannel.open(tempFile,
@@ -400,7 +400,7 @@ public class DMARCForensicReportTest {
                 '\r', '\n'
         };
 
-        DMARCForensicReport report = createTestReport();
+        DmarcForensicReport report = createTestReport();
         report.setOriginalHeaders(ByteBuffer.wrap(rawHeaderBytes));
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -426,8 +426,8 @@ public class DMARCForensicReportTest {
         return -1;
     }
 
-    private DMARCForensicReport createTestReport() {
-        DMARCForensicReport report = new DMARCForensicReport();
+    private DmarcForensicReport createTestReport() {
+        DmarcForensicReport report = new DmarcForensicReport();
         report.setReporterDomain("receiver.example.com");
         report.setReporterEmail("postmaster@receiver.example.com");
         report.setSourceIP("192.0.2.1");
@@ -435,17 +435,17 @@ public class DMARCForensicReportTest {
         report.setEnvelopeFrom("bounce@bad.example.com");
         report.setEnvelopeTo("user@receiver.example.com");
         report.setAuthResults("dmarc=fail header.from=bad.example.com");
-        report.setDmarcResult(DMARCResult.FAIL);
-        report.setDmarcPolicy(DMARCPolicy.REJECT);
-        report.setSpfResult(SPFResult.FAIL);
-        report.setDkimResult(DKIMResult.FAIL);
+        report.setDmarcResult(DmarcResult.FAIL);
+        report.setDmarcPolicy(DmarcPolicy.REJECT);
+        report.setSpfResult(SpfResult.FAIL);
+        report.setDkimResult(DkimResult.FAIL);
         report.setOriginalHeaders(ByteBuffer.wrap(
                 "From: sender@bad.example.com\r\nSubject: Test\r\n"
                         .getBytes(StandardCharsets.US_ASCII)));
         return report;
     }
 
-    private String writeToString(DMARCForensicReport report, String boundary) throws IOException {
+    private String writeToString(DmarcForensicReport report, String boundary) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         report.writeMIME(Channels.newChannel(out), boundary);
         return out.toString("UTF-8");

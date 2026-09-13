@@ -25,7 +25,7 @@ import org.junit.Test;
 
 import java.nio.ByteBuffer;
 
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 
 import static org.junit.Assert.*;
 
@@ -34,19 +34,19 @@ public class AMQPLainClientMechanismTest {
 
     @Test
     public void testMechanismName() {
-        SASLClientMechanism mechanism = new AMQPLainClientMechanism("guest", "guest");
+        SaslClientMechanism mechanism = new AmqpPlainClientMechanism("guest", "guest");
         assertEquals("AMQPLAIN", mechanism.getMechanismName());
     }
 
     @Test
     public void testHasInitialResponse() {
-        SASLClientMechanism mechanism = new AMQPLainClientMechanism("guest", "guest");
+        SaslClientMechanism mechanism = new AmqpPlainClientMechanism("guest", "guest");
         assertTrue(mechanism.hasInitialResponse());
     }
 
     @Test
     public void testInitialResponseIsFieldTableWithLoginAndPassword() throws Exception {
-        AMQPLainClientMechanism mechanism = new AMQPLainClientMechanism("alice", "s3cret");
+        AmqpPlainClientMechanism mechanism = new AmqpPlainClientMechanism("alice", "s3cret");
         byte[] response = mechanism.evaluateChallenge(new byte[0]);
 
         FieldTable decoded = FieldTable.decode(ByteBuffer.wrap(response), response.length);
@@ -57,7 +57,7 @@ public class AMQPLainClientMechanismTest {
 
     @Test
     public void testResponseMatchesFieldTableEncoding() {
-        AMQPLainClientMechanism mechanism = new AMQPLainClientMechanism("alice", "s3cret");
+        AmqpPlainClientMechanism mechanism = new AmqpPlainClientMechanism("alice", "s3cret");
         byte[] response = mechanism.evaluateChallenge(new byte[0]);
 
         FieldTable expected = new FieldTable().put("LOGIN", "alice").put("PASSWORD", "s3cret");
@@ -70,7 +70,7 @@ public class AMQPLainClientMechanismTest {
 
     @Test
     public void testNullPasswordTreatedAsEmpty() throws Exception {
-        AMQPLainClientMechanism mechanism = new AMQPLainClientMechanism("alice", null);
+        AmqpPlainClientMechanism mechanism = new AmqpPlainClientMechanism("alice", null);
         byte[] response = mechanism.evaluateChallenge(new byte[0]);
         FieldTable decoded = FieldTable.decode(ByteBuffer.wrap(response), response.length);
         assertEquals("", decoded.get("PASSWORD"));
@@ -78,7 +78,7 @@ public class AMQPLainClientMechanismTest {
 
     @Test
     public void testCompletesAfterFirstEvaluation() {
-        AMQPLainClientMechanism mechanism = new AMQPLainClientMechanism("alice", "s3cret");
+        AmqpPlainClientMechanism mechanism = new AmqpPlainClientMechanism("alice", "s3cret");
         assertFalse(mechanism.isComplete());
         mechanism.evaluateChallenge(new byte[0]);
         assertTrue(mechanism.isComplete());

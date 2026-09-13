@@ -1,5 +1,5 @@
 /*
- * FTPClientLexer.java
+ * FtpClientLexer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * line — that is consumed but not itself part of the message text.
  *
  * <p>This grammar is identical to SMTP's (RFC 5321 §4.2), so this lexer
- * mirrors {@code SMTPClientLexer} exactly: the reply code is a fixed
+ * mirrors {@code SmtpClientLexer} exactly: the reply code is a fixed
  * width, so this lexer tracks a small amount of per-line non-positional
  * state ({@code sawCode}) rather than scanning for a delimiter. Once
  * {@code SEP} is emitted, the lexer latches text mode for the rest of the
@@ -44,20 +44,20 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see FtpClientProtocolHandler
  */
-final class FTPClientLexer extends ByteStreamLexer<FTPClientLexer.Token> {
+final class FtpClientLexer extends ByteStreamLexer<FtpClientLexer.Token> {
 
     enum Token { CODE, DASH, SP, TEXT, CRLF }
 
     private boolean lastWasCR;
     private boolean sawCode;
 
-    FTPClientLexer(Handler<Token> handler, int maxTokenLength) {
+    FtpClientLexer(Handler<Token> handler, int maxTokenLength) {
         super(handler, maxTokenLength, Token.CRLF, Token.TEXT);
     }
 
     /**
      * Resets the CODE-vs-separator tracking for the next line. See {@code
-     * SMTPClientLexer#resetForNextLine()} for why this must be called
+     * SmtpClientLexer#resetForNextLine()} for why this must be called
      * externally, once per line, rather than from within {@link
      * #consume(byte)}.
      */

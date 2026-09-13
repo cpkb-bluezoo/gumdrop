@@ -1,5 +1,5 @@
 /*
- * LDAPConstants.java
+ * LdapConstants.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511 — LDAPv3</a>
  */
-public final class LDAPConstants {
+public final class LdapConstants {
 
     // Default ports (RFC 4511, RFC 4513 section 3.1.3)
     /** Default LDAP port (389). */
@@ -132,7 +132,7 @@ public final class LDAPConstants {
     /** Extensible match filter tag. */
     public static final int FILTER_EXTENSIBLE = 0xA9;
 
-    private LDAPConstants() {
+    private LdapConstants() {
     }
 }
 

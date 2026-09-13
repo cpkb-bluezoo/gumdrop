@@ -30,9 +30,9 @@
  * they stream past for DKIM signature verification, and evaluates DMARC
  * policy (combining the SPF/DKIM results with domain alignment) once the
  * message is complete -- results arrive via {@link
- * org.bluezoo.gumdrop.smtp.auth.SPFCallback}, {@link
- * org.bluezoo.gumdrop.smtp.auth.DKIMCallback}, and {@link
- * org.bluezoo.gumdrop.smtp.auth.DMARCCallback} respectively, registered
+ * org.bluezoo.gumdrop.smtp.auth.SpfCallback}, {@link
+ * org.bluezoo.gumdrop.smtp.auth.DkimCallback}, and {@link
+ * org.bluezoo.gumdrop.smtp.auth.DmarcCallback} respectively, registered
  * on the pipeline's builder. Message headers are parsed via {@link
  * org.bluezoo.gumdrop.mime.rfc5322.MessageParser}; a caller-supplied
  * {@code MessageHandler} can observe the same parse to process content

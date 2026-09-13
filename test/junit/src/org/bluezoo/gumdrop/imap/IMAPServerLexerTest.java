@@ -33,7 +33,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link IMAPServerLexer}, verifying the outer {@code
+ * Unit tests for {@link ImapServerLexer}, verifying the outer {@code
  * KEYWORD [SP TEXT] CRLF} shape independent of {@link
  * ImapProtocolHandler}'s literal-detection/business logic — this lexer
  * itself knows nothing about IMAP literals at all (see its class Javadoc),
@@ -44,29 +44,29 @@ import static org.junit.Assert.*;
 public class IMAPServerLexerTest {
 
     static class Event {
-        final IMAPServerLexer.Token type;
+        final ImapServerLexer.Token type;
         final String text;
-        Event(IMAPServerLexer.Token type, String text) {
+        Event(ImapServerLexer.Token type, String text) {
             this.type = type;
             this.text = text;
         }
     }
 
-    static class RecordingHandler implements ByteStreamLexer.Handler<IMAPServerLexer.Token> {
+    static class RecordingHandler implements ByteStreamLexer.Handler<ImapServerLexer.Token> {
         final List<Event> events = new ArrayList<Event>();
         int tokenTooLongCount;
 
         @Override
-        public boolean token(IMAPServerLexer.Token type, ByteBuffer window) {
+        public boolean token(ImapServerLexer.Token type, ByteBuffer window) {
             byte[] copy = new byte[window.remaining()];
             window.get(copy);
             events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
-            return type == IMAPServerLexer.Token.SP;
+            return type == ImapServerLexer.Token.SP;
         }
 
         @Override
         public void rawBytes(ByteBuffer slice) {
-            fail("IMAPServerLexer should never enter raw mode itself");
+            fail("ImapServerLexer should never enter raw mode itself");
         }
 
         @Override
@@ -77,7 +77,7 @@ public class IMAPServerLexerTest {
         String reconstructedArgs() {
             StringBuilder sb = new StringBuilder();
             for (Event e : events) {
-                if (e.type == IMAPServerLexer.Token.TEXT) {
+                if (e.type == ImapServerLexer.Token.TEXT) {
                     sb.append(e.text);
                 }
             }
@@ -92,24 +92,24 @@ public class IMAPServerLexerTest {
     @Test
     public void testBareTagNoArgs() {
         RecordingHandler handler = new RecordingHandler();
-        IMAPServerLexer lexer = new IMAPServerLexer(handler, 1024);
+        ImapServerLexer lexer = new ImapServerLexer(handler, 1024);
         lexer.feed(bytesOf("DONE\r\n"));
         assertEquals(2, handler.events.size());
-        assertEquals(IMAPServerLexer.Token.KEYWORD, handler.events.get(0).type);
+        assertEquals(ImapServerLexer.Token.KEYWORD, handler.events.get(0).type);
         assertEquals("DONE", handler.events.get(0).text);
-        assertEquals(IMAPServerLexer.Token.CRLF, handler.events.get(1).type);
+        assertEquals(ImapServerLexer.Token.CRLF, handler.events.get(1).type);
     }
 
     @Test
     public void testTagWithCommandAndArgs() {
         RecordingHandler handler = new RecordingHandler();
-        IMAPServerLexer lexer = new IMAPServerLexer(handler, 1024);
+        ImapServerLexer lexer = new ImapServerLexer(handler, 1024);
         lexer.feed(bytesOf("a1 SELECT INBOX\r\n"));
-        assertEquals(IMAPServerLexer.Token.KEYWORD, handler.events.get(0).type);
+        assertEquals(ImapServerLexer.Token.KEYWORD, handler.events.get(0).type);
         assertEquals("a1", handler.events.get(0).text);
-        assertEquals(IMAPServerLexer.Token.SP, handler.events.get(1).type);
+        assertEquals(ImapServerLexer.Token.SP, handler.events.get(1).type);
         assertEquals("SELECT INBOX", handler.reconstructedArgs());
-        assertEquals(IMAPServerLexer.Token.CRLF,
+        assertEquals(ImapServerLexer.Token.CRLF,
                 handler.events.get(handler.events.size() - 1).type);
     }
 
@@ -119,7 +119,7 @@ public class IMAPServerLexerTest {
         // more TEXT content, exactly like any other bytes — detecting and
         // acting on it is entirely ImapProtocolHandler's job.
         RecordingHandler handler = new RecordingHandler();
-        IMAPServerLexer lexer = new IMAPServerLexer(handler, 1024);
+        ImapServerLexer lexer = new ImapServerLexer(handler, 1024);
         lexer.feed(bytesOf("a1 LOGIN {5}\r\n"));
         assertEquals("LOGIN {5}", handler.reconstructedArgs());
     }
@@ -127,16 +127,16 @@ public class IMAPServerLexerTest {
     @Test
     public void testEmptyLineEmitsNoKeyword() {
         RecordingHandler handler = new RecordingHandler();
-        IMAPServerLexer lexer = new IMAPServerLexer(handler, 1024);
+        ImapServerLexer lexer = new ImapServerLexer(handler, 1024);
         lexer.feed(bytesOf("\r\n"));
         assertEquals(1, handler.events.size());
-        assertEquals(IMAPServerLexer.Token.CRLF, handler.events.get(0).type);
+        assertEquals(ImapServerLexer.Token.CRLF, handler.events.get(0).type);
     }
 
     @Test
     public void testCapEnforcedOnKeyword() {
         RecordingHandler handler = new RecordingHandler();
-        IMAPServerLexer lexer = new IMAPServerLexer(handler, 5);
+        ImapServerLexer lexer = new ImapServerLexer(handler, 5);
         StringBuilder longWord = new StringBuilder();
         for (int i = 0; i < 20; i++) {
             longWord.append('X');
@@ -144,14 +144,14 @@ public class IMAPServerLexerTest {
         lexer.feed(bytesOf(longWord + "\r\n"));
         assertEquals(1, handler.tokenTooLongCount);
         for (Event e : handler.events) {
-            assertNotEquals(IMAPServerLexer.Token.KEYWORD, e.type);
+            assertNotEquals(ImapServerLexer.Token.KEYWORD, e.type);
         }
     }
 
     @Test
     public void testCapNotEnforcedOnArgsText() {
         RecordingHandler handler = new RecordingHandler();
-        IMAPServerLexer lexer = new IMAPServerLexer(handler, 5);
+        ImapServerLexer lexer = new ImapServerLexer(handler, 5);
         StringBuilder longArgs = new StringBuilder();
         for (int i = 0; i < 50; i++) {
             longArgs.append('a');
@@ -167,12 +167,12 @@ public class IMAPServerLexerTest {
         byte[] wire = line.getBytes(StandardCharsets.US_ASCII);
 
         RecordingHandler whole = new RecordingHandler();
-        new IMAPServerLexer(whole, 1024).feed(bytesOf(line));
+        new ImapServerLexer(whole, 1024).feed(bytesOf(line));
         String expectedArgs = whole.reconstructedArgs();
 
         for (int chunkSize = 1; chunkSize <= wire.length; chunkSize++) {
             RecordingHandler handler = new RecordingHandler();
-            IMAPServerLexer lexer = new IMAPServerLexer(handler, 1024);
+            ImapServerLexer lexer = new ImapServerLexer(handler, 1024);
             ByteBuffer netIn = ByteBuffer.allocate(256);
             int offset = 0;
             while (offset < wire.length) {
@@ -197,8 +197,8 @@ public class IMAPServerLexerTest {
         // bytes arrive as an ordinary KEYWORD/CRLF pair, not as TEXT.
         RecordingHandler handler = new RecordingHandler() {
             @Override
-            public boolean token(IMAPServerLexer.Token type, ByteBuffer window) {
-                if (type == IMAPServerLexer.Token.KEYWORD) {
+            public boolean token(ImapServerLexer.Token type, ByteBuffer window) {
+                if (type == ImapServerLexer.Token.KEYWORD) {
                     byte[] copy = new byte[window.remaining()];
                     window.get(copy);
                     events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
@@ -211,9 +211,9 @@ public class IMAPServerLexerTest {
                 return super.token(type, window);
             }
         };
-        IMAPServerLexer lexer = new IMAPServerLexer(handler, 1024);
+        ImapServerLexer lexer = new ImapServerLexer(handler, 1024);
         lexer.feed(bytesOf(")\r\n"));
-        assertEquals(IMAPServerLexer.Token.KEYWORD, handler.events.get(0).type);
+        assertEquals(ImapServerLexer.Token.KEYWORD, handler.events.get(0).type);
         assertEquals(")", handler.events.get(0).text);
     }
 }

@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import java.util.Set;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
 
 /**
@@ -82,8 +82,8 @@ public class ServletAuthenticationProvider extends HttpAuthenticationProvider {
         }
         
         // HTTP Digest requires the same HA1 computation as SASL DIGEST-MD5
-        Set<SASLMechanism> supported = realm.getSupportedSASLMechanisms();
-        return supported.contains(SASLMechanism.DIGEST_MD5);
+        Set<SaslMechanism> supported = realm.getSupportedSASLMechanisms();
+        return supported.contains(SaslMechanism.DIGEST_MD5);
     }
 
     @Override

@@ -28,7 +28,7 @@ JUnit and Hamcrest (under `test/junit/lib/`) are downloaded separately by `ant r
 | `dist/gumdrop.jar` | Core server library (all protocols + servlet container; merges optional modules) |
 | `dist/gumdrop-telemetry.jar` | Optional OTLP/JSONL export (also merged into `gumdrop.jar`) |
 | `dist/gumdrop-http.jar` | OAuthRealm (compiled against http client; merged into `gumdrop.jar`) |
-| `dist/gumdrop-ldap.jar` | LDAPRealm (compiled against ldap client; merged into `gumdrop.jar`) |
+| `dist/gumdrop-ldap.jar` | LdapRealm (compiled against ldap client; merged into `gumdrop.jar`) |
 | `dist/gumdrop-container.jar` | Legacy self-contained fat jar (deprecated; use the zip) |
 | `dist/manager.war` | Admin web application |
 

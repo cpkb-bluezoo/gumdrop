@@ -1,5 +1,5 @@
 /*
- * DAVConstants.java
+ * DavConstants.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,9 +27,9 @@ package org.bluezoo.gumdrop.webdav;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-final class DAVConstants {
+final class DavConstants {
 
-    private DAVConstants() {
+    private DavConstants() {
         // Utility class
     }
 

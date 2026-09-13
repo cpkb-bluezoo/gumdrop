@@ -1,5 +1,5 @@
 /*
- * QPACKStrings.java
+ * QpackStrings.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -37,9 +37,9 @@ import org.bluezoo.gumdrop.http.hpack.Huffman;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class QPACKStrings {
+final class QpackStrings {
 
-    private QPACKStrings() {
+    private QpackStrings() {
     }
 
     /**

@@ -54,7 +54,7 @@ final class ExchangeMethods {
         buf.putShort((short) 0);
         FieldTable.putShortString(buf, exchange);
         FieldTable.putShortString(buf, type);
-        buf.put(AMQPBits.pack(passive, durable, autoDelete, internal, noWait));
+        buf.put(AmqpBits.pack(passive, durable, autoDelete, internal, noWait));
         ByteBuffer encodedArgs = args.encode();
         buf.putInt(encodedArgs.remaining());
         buf.put(encodedArgs);
@@ -93,7 +93,7 @@ final class ExchangeMethods {
         String exchange = FieldTable.getShortString(payload);
         String type = FieldTable.getShortString(payload);
         byte bits = payload.get();
-        boolean durable = AMQPBits.unpack(bits, 1);
+        boolean durable = AmqpBits.unpack(bits, 1);
         int argsLen = payload.getInt();
         FieldTable.decode(payload, argsLen); // arguments, discarded
         return new Declare(exchange, type, durable);

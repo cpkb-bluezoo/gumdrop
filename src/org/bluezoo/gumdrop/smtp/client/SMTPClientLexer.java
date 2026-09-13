@@ -1,5 +1,5 @@
 /*
- * SMTPClientLexer.java
+ * SmtpClientLexer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -48,14 +48,14 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SmtpClientProtocolHandler
  */
-final class SMTPClientLexer extends ByteStreamLexer<SMTPClientLexer.Token> {
+final class SmtpClientLexer extends ByteStreamLexer<SmtpClientLexer.Token> {
 
     enum Token { CODE, DASH, SP, TEXT, CRLF }
 
     private boolean lastWasCR;
     private boolean sawCode;
 
-    SMTPClientLexer(Handler<Token> handler, int maxTokenLength) {
+    SmtpClientLexer(Handler<Token> handler, int maxTokenLength) {
         super(handler, maxTokenLength, Token.CRLF, Token.TEXT);
     }
 

@@ -1,5 +1,5 @@
 /*
- * DKIMMessageParser.java
+ * DkimMessageParser.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -35,7 +35,7 @@ import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
-import org.bluezoo.gumdrop.mime.MIMEParseException;
+import org.bluezoo.gumdrop.mime.MimeParseException;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
 
 /**
@@ -69,7 +69,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
  * <h4>Usage</h4>
  *
  * <pre><code>
- * DKIMMessageParser parser = new DKIMMessageParser();
+ * DkimMessageParser parser = new DkimMessageParser();
  * parser.setMessageHandler(handler);
  *
  * // Feed message data
@@ -81,10 +81,10 @@ import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DKIMValidator
+ * @see DkimValidator
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  */
-public class DKIMMessageParser extends MessageParser {
+public class DkimMessageParser extends MessageParser {
 
     /**
      * Stores a raw header with name and bytes.
@@ -262,7 +262,7 @@ public class DKIMMessageParser extends MessageParser {
     /**
      * Creates a new DKIM message parser.
      */
-    public DKIMMessageParser() {
+    public DkimMessageParser() {
         super();
         this.rawHeaders = new ArrayList<RawHeader>();
         this.rawHeaderMap = new HashMap<String, List<RawHeader>>();
@@ -278,7 +278,7 @@ public class DKIMMessageParser extends MessageParser {
      * together with their preceding header line.
      */
     @Override
-    protected void headerLine(ByteBuffer buffer) throws MIMEParseException {
+    protected void headerLine(ByteBuffer buffer) throws MimeParseException {
         if (headersComplete) {
             // Already processed headers, just delegate
             super.headerLine(buffer);
@@ -359,7 +359,7 @@ public class DKIMMessageParser extends MessageParser {
      * Appends raw bytes from the buffer to the current header accumulator.
      * @throws HeaderValueTooLongException if adding these bytes would exceed maxHeaderValueSize
      */
-    private void appendRawBytes(ByteBuffer buffer, int start, int end) throws MIMEParseException {
+    private void appendRawBytes(ByteBuffer buffer, int start, int end) throws MimeParseException {
         int length = end - start;
         int currentSize = currentHeaderBytes.size();
         if (currentSize + length > getMaxHeaderValueSize()) {
@@ -490,7 +490,7 @@ public class DKIMMessageParser extends MessageParser {
      *
      * @return the DKIM signature, or null if not found
      */
-    public DKIMSignature getDKIMSignature() {
+    public DkimSignature getDKIMSignature() {
         RawHeader sigHeader = getRawHeader("dkim-signature");
         if (sigHeader == null) {
             return null;
@@ -503,7 +503,7 @@ public class DKIMMessageParser extends MessageParser {
             return null;
         }
         String value = full.substring(colonPos + 1);
-        return DKIMSignature.parse(value);
+        return DkimSignature.parse(value);
     }
 
     @Override
@@ -571,7 +571,7 @@ public class DKIMMessageParser extends MessageParser {
      * from the DKIM-Signature header (if present).
      */
     @Override
-    protected void bodyLine(ByteBuffer buffer) throws MIMEParseException {
+    protected void bodyLine(ByteBuffer buffer) throws MimeParseException {
         // Auto-initialize body hash if not yet done
         if (bodyHashDigest == null && headersComplete) {
             autoInitBodyHash();
@@ -590,7 +590,7 @@ public class DKIMMessageParser extends MessageParser {
      * Auto-initializes body hash from the DKIM-Signature header.
      */
     private void autoInitBodyHash() {
-        DKIMSignature sig = getDKIMSignature();
+        DkimSignature sig = getDKIMSignature();
         if (sig == null) {
             return;
         }

@@ -1,5 +1,5 @@
 /*
- * GSSAPIServer.java
+ * GssapiServer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -51,7 +51,7 @@ import org.ietf.jgss.Oid;
  *
  * <p>Created at service startup and shared by all connections on a listener.
  * Loads the service keytab via JAAS {@link LoginContext} and provides
- * per-connection {@link GSSAPIExchange} objects that handle the GSS-API
+ * per-connection {@link GssapiExchange} objects that handle the GSS-API
  * token exchange and RFC 4752 security layer negotiation.
  *
  * <p>{@code acceptSecContext()} is CPU-bound (AES decryption of the service
@@ -62,10 +62,10 @@ import org.ietf.jgss.Oid;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4752">RFC 4752: GSSAPI SASL</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
  */
-public final class GSSAPIServer {
+public final class GssapiServer {
 
     private static final Logger logger =
-            Logger.getLogger(GSSAPIServer.class.getName());
+            Logger.getLogger(GssapiServer.class.getName());
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.auth.L10N");
@@ -88,7 +88,7 @@ public final class GSSAPIServer {
     private final String servicePrincipal;
 
     /**
-     * Creates a GSSAPIServer by loading the service keytab and acquiring
+     * Creates a GssapiServer by loading the service keytab and acquiring
      * the server credential via JAAS.
      *
      * <p>This constructor performs local file I/O (keytab read) and should
@@ -102,7 +102,7 @@ public final class GSSAPIServer {
      * @see <a href="https://www.rfc-editor.org/rfc/rfc4752#section-3.2">
      *      RFC 4752 §3.2 — Service Name</a>
      */
-    public GSSAPIServer(Path keytabPath, String servicePrincipal)
+    public GssapiServer(Path keytabPath, String servicePrincipal)
             throws IOException {
         this.servicePrincipal = servicePrincipal;
         try {
@@ -166,7 +166,7 @@ public final class GSSAPIServer {
      * @return a new exchange instance
      * @throws IOException if the GSS context cannot be created
      */
-    public GSSAPIExchange createExchange() throws IOException {
+    public GssapiExchange createExchange() throws IOException {
         try {
             GSSContext context = Subject.doAs(serviceSubject,
                     new PrivilegedExceptionAction<GSSContext>() {
@@ -177,7 +177,7 @@ public final class GSSAPIServer {
                         }
                     });
             context.requestMutualAuth(true);
-            return new GSSAPIExchange(context);
+            return new GssapiExchange(context);
         } catch (PrivilegedActionException e) {
             String msg = L10N.getString("err.gssapi_context_create_failed");
             throw new IOException(msg, e.getCause());
@@ -196,12 +196,12 @@ public final class GSSAPIServer {
      * @see <a href="https://www.rfc-editor.org/rfc/rfc4752#section-3.1">
      *      RFC 4752 §3.1 — GSSAPI Exchange</a>
      */
-    public final class GSSAPIExchange {
+    public final class GssapiExchange {
 
         private final GSSContext context;
         private boolean securityLayerSent;
 
-        GSSAPIExchange(GSSContext context) {
+        GssapiExchange(GSSContext context) {
             this.context = context;
         }
 

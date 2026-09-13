@@ -67,7 +67,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.StarttlsReplyHandler;
  * delegates all transport operations to a transport-agnostic
  * {@link Endpoint}.
  *
- * <p>Line parsing uses a streaming {@link SMTPClientLexer} (issue #85):
+ * <p>Line parsing uses a streaming {@link SmtpClientLexer} (issue #85):
  * bytes are tokenised as they arrive rather than buffered into whole
  * lines — see {@link ByteStreamLexer}.
  *
@@ -100,7 +100,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.StarttlsReplyHandler;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954 - AUTH</a>
  */
 public final class SmtpClientProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<SMTPClientLexer.Token>,
+        implements ProtocolHandler, ByteStreamLexer.Handler<SmtpClientLexer.Token>,
         WritableByteChannel, ClientHelloState, ClientSession,
         ClientPostTls, ClientAuthExchange, ClientEnvelope,
         ClientEnvelopeReady, ClientMessageData {
@@ -116,7 +116,7 @@ public final class SmtpClientProtocolHandler
     private final DotStuffer dotStuffer;
 
     private Endpoint endpoint;
-    private SMTPState state = SMTPState.DISCONNECTED;
+    private SmtpState state = SmtpState.DISCONNECTED;
     private boolean secure;
 
     // Current callback waiting for a response
@@ -155,8 +155,8 @@ public final class SmtpClientProtocolHandler
     // Streaming lexer (issue #85) and per-line parse state. No cap on
     // structured tokens (CODE is always exactly 3 bytes; DASH/SP are
     // always exactly 1): this client trusts the remote server, same
-    // principle as POP3ClientLexer.
-    private final SMTPClientLexer lexer = new SMTPClientLexer(this, Integer.MAX_VALUE);
+    // principle as Pop3ClientLexer.
+    private final SmtpClientLexer lexer = new SmtpClientLexer(this, Integer.MAX_VALUE);
     private boolean pendingHasCode;
     private int pendingCode;
     private String pendingCodeError;
@@ -210,7 +210,7 @@ public final class SmtpClientProtocolHandler
     @Override
     public void connected(Endpoint ep) {
         this.endpoint = ep;
-        state = SMTPState.CONNECTING;
+        state = SmtpState.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("SMTP client connected to "
@@ -227,7 +227,7 @@ public final class SmtpClientProtocolHandler
     @Override
     public void disconnected() {
         LOGGER.info(L10N.getString("client.info.connection_disconnected"));
-        state = SMTPState.CLOSED;
+        state = SmtpState.CLOSED;
         handler.onDisconnected();
     }
 
@@ -245,7 +245,7 @@ public final class SmtpClientProtocolHandler
             StarttlsReplyHandler callback =
                     (StarttlsReplyHandler) currentCallback;
             currentCallback = null;
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleTlsEstablished(this);
         }
     }
@@ -258,12 +258,12 @@ public final class SmtpClientProtocolHandler
     // ── ByteStreamLexer.Handler implementation (issue #85) ──
 
     // RFC 5321 §4.2: CODE [SEP TEXT] CRLF. TEXT is delivered in zero-copy
-    // chunks by the lexer (see SMTPClientLexer / ByteStreamLexer); this
+    // chunks by the lexer (see SmtpClientLexer / ByteStreamLexer); this
     // dispatcher accumulates only what it needs to retain (the message
     // text) and resolves the reply code directly from the CODE token's
     // bytes, without decoding to a String for the common (valid) case.
     @Override
-    public boolean token(SMTPClientLexer.Token type, ByteBuffer window) {
+    public boolean token(SmtpClientLexer.Token type, ByteBuffer window) {
         switch (type) {
             case CODE:
                 pendingHasCode = true;
@@ -309,9 +309,9 @@ public final class SmtpClientProtocolHandler
 
     @Override
     public void tokenTooLong() {
-        // SMTPClientLexer is constructed with an unbounded per-token cap
+        // SmtpClientLexer is constructed with an unbounded per-token cap
         // (Integer.MAX_VALUE) — this client trusts the remote server, same
-        // as POP3ClientLexer — so this is structurally unreachable.
+        // as Pop3ClientLexer — so this is structurally unreachable.
         LOGGER.warning(L10N.getString("warn.unexpected_token_too_long_client"));
     }
 
@@ -403,9 +403,9 @@ public final class SmtpClientProtocolHandler
      * @return true if connected
      */
     public boolean isConnected() {
-        return state != SMTPState.DISCONNECTED
-                && state != SMTPState.CLOSED
-                && state != SMTPState.ERROR;
+        return state != SmtpState.DISCONNECTED
+                && state != SmtpState.CLOSED
+                && state != SmtpState.ERROR;
     }
 
     // ── WritableByteChannel (for DotStuffer) ──
@@ -430,10 +430,10 @@ public final class SmtpClientProtocolHandler
 
     @Override
     public void close() {
-        if (state == SMTPState.CLOSED) {
+        if (state == SmtpState.CLOSED) {
             return;
         }
-        state = SMTPState.CLOSED;
+        state = SmtpState.CLOSED;
         dotStuffer.reset();
         if (endpoint != null) {
             endpoint.close();
@@ -448,7 +448,7 @@ public final class SmtpClientProtocolHandler
                      EhloReplyHandler callback) {
         this.currentCallback = callback;
         resetEhloCapabilities();
-        sendCommand("EHLO " + hostname, SMTPState.EHLO_SENT);
+        sendCommand("EHLO " + hostname, SmtpState.EHLO_SENT);
     }
 
     /** RFC 5321 §4.1.1.1 — HELO command (non-extended). */
@@ -456,7 +456,7 @@ public final class SmtpClientProtocolHandler
     public void helo(String hostname,
                      HeloReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("HELO " + hostname, SMTPState.HELO_SENT);
+        sendCommand("HELO " + hostname, SmtpState.HELO_SENT);
     }
 
     // ── ClientSession (RFC 5321 §4.1.1.2–10) ──
@@ -527,14 +527,14 @@ public final class SmtpClientProtocolHandler
             }
         }
 
-        sendCommand(cmd.toString(), SMTPState.MAIL_FROM_SENT);
+        sendCommand(cmd.toString(), SmtpState.MAIL_FROM_SENT);
     }
 
     /** RFC 3207 §4 — STARTTLS command. */
     @Override
     public void starttls(StarttlsReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("STARTTLS", SMTPState.STARTTLS_SENT);
+        sendCommand("STARTTLS", SmtpState.STARTTLS_SENT);
     }
 
     /** RFC 4954 — AUTH command with optional initial-response. */
@@ -552,27 +552,27 @@ public final class SmtpClientProtocolHandler
                     .encodeToString(initialResponse));
         }
 
-        sendCommand(cmd.toString(), SMTPState.AUTH_SENT);
+        sendCommand(cmd.toString(), SmtpState.AUTH_SENT);
     }
 
     /** RFC 5321 §4.1.1.6 — VRFY command. */
     @Override
     public void vrfy(String user, ReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("VRFY " + user, SMTPState.VRFY_SENT);
+        sendCommand("VRFY " + user, SmtpState.VRFY_SENT);
     }
 
     /** RFC 5321 §4.1.1.7 — EXPN command. */
     @Override
     public void expn(String mailingList, ReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("EXPN " + mailingList, SMTPState.EXPN_SENT);
+        sendCommand("EXPN " + mailingList, SmtpState.EXPN_SENT);
     }
 
     /** RFC 5321 §4.1.1.10 — QUIT command. */
     @Override
     public void quit() {
-        sendCommand("QUIT", SMTPState.QUIT_SENT);
+        sendCommand("QUIT", SmtpState.QUIT_SENT);
     }
 
     // ── EHLO capability accessors ──
@@ -618,14 +618,14 @@ public final class SmtpClientProtocolHandler
                         AuthReplyHandler callback) {
         this.currentCallback = callback;
         String encoded = Base64.getEncoder().encodeToString(response);
-        sendRawLine(encoded, SMTPState.AUTH_SENT);
+        sendRawLine(encoded, SmtpState.AUTH_SENT);
     }
 
     /** RFC 4954 §4 — abort AUTH exchange with "*". */
     @Override
     public void abort(AuthAbortHandler callback) {
         this.currentCallback = callback;
-        sendRawLine("*", SMTPState.AUTH_ABORT_SENT);
+        sendRawLine("*", SmtpState.AUTH_ABORT_SENT);
     }
 
     // ── ClientEnvelope (RFC 5321 §4.1.1.3) ──
@@ -656,14 +656,14 @@ public final class SmtpClientProtocolHandler
                 cmd.append(" ORCPT=").append(orcpt);                // RFC 3461 §4.2
             }
         }
-        sendCommand(cmd.toString(), SMTPState.RCPT_TO_SENT);
+        sendCommand(cmd.toString(), SmtpState.RCPT_TO_SENT);
     }
 
     /** RFC 5321 §4.1.1.5 — RSET command. */
     @Override
     public void rset(RsetReplyHandler callback) {
         this.currentCallback = callback;
-        sendCommand("RSET", SMTPState.RSET_SENT);
+        sendCommand("RSET", SmtpState.RSET_SENT);
     }
 
     @Override
@@ -684,12 +684,12 @@ public final class SmtpClientProtocolHandler
         if (ehloChunking && chunkingEnabled) {
             useBdat = true;
             bdatPendingResponses = 0;
-            state = SMTPState.DATA_MODE;
+            state = SmtpState.DATA_MODE;
             callback.handleReadyForData(this);
         } else {
             useBdat = false;
             this.currentCallback = callback;
-            sendCommand("DATA", SMTPState.DATA_COMMAND_SENT);
+            sendCommand("DATA", SmtpState.DATA_COMMAND_SENT);
         }
     }
 
@@ -698,7 +698,7 @@ public final class SmtpClientProtocolHandler
     /** RFC 5321 §4.5.2 — dot-stuffed DATA; RFC 3030 — BDAT chunks. */
     @Override
     public void writeContent(ByteBuffer content) {
-        if (state != SMTPState.DATA_MODE) {
+        if (state != SmtpState.DATA_MODE) {
             throw new IllegalStateException(
                     L10N.getString("err.not_in_data_mode"));
         }
@@ -727,7 +727,7 @@ public final class SmtpClientProtocolHandler
     /** RFC 5321 §4.1.1.4 — end DATA (CRLF.CRLF); RFC 3030 — BDAT 0 LAST. */
     @Override
     public void endMessage(MessageReplyHandler callback) {
-        if (state != SMTPState.DATA_MODE) {
+        if (state != SmtpState.DATA_MODE) {
             throw new IllegalStateException(
                     L10N.getString("err.not_in_data_mode"));
         }
@@ -735,12 +735,12 @@ public final class SmtpClientProtocolHandler
         this.currentCallback = callback;
 
         if (useBdat) {
-            sendCommand("BDAT 0 LAST", SMTPState.DATA_END_SENT);
+            sendCommand("BDAT 0 LAST", SmtpState.DATA_END_SENT);
             bdatPendingResponses++;
         } else {
             try {
                 dotStuffer.endMessage(this);
-                state = SMTPState.DATA_END_SENT;
+                state = SmtpState.DATA_END_SENT;
             } catch (IOException e) {
                 handleError(new SmtpException(
                         "Failed to end message", e));
@@ -756,7 +756,7 @@ public final class SmtpClientProtocolHandler
         }
     }
 
-    private void sendCommand(String command, SMTPState newState) {
+    private void sendCommand(String command, SmtpState newState) {
         if (!isConnected()) {
             handler.onError(new SmtpException("Not connected"));
             return;
@@ -779,7 +779,7 @@ public final class SmtpClientProtocolHandler
         }
     }
 
-    private void sendRawLine(String line, SMTPState newState) {
+    private void sendRawLine(String line, SmtpState newState) {
         if (!isConnected()) {
             handler.onError(new SmtpException("Not connected"));
             return;
@@ -810,7 +810,7 @@ public final class SmtpClientProtocolHandler
 
     /** RFC 5321 §4.2.1 — 421 service closing transmission channel. */
     private void handle421ServiceClosing(String message) {
-        state = SMTPState.CLOSED;
+        state = SmtpState.CLOSED;
 
         if (currentCallback instanceof ReplyHandler) {
             ((ReplyHandler) currentCallback)
@@ -823,8 +823,8 @@ public final class SmtpClientProtocolHandler
     }
 
     private void dispatchResponse(int code, List<String> messages) {
-        if (state == SMTPState.CLOSED
-                || state == SMTPState.DISCONNECTED) {
+        if (state == SmtpState.CLOSED
+                || state == SmtpState.DISCONNECTED) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine("Ignoring response in state "
                         + state + ": " + code);
@@ -891,7 +891,7 @@ public final class SmtpClientProtocolHandler
                 dispatchVrfyExpnReply(code, message);
                 break;
             case QUIT_SENT:
-                state = SMTPState.CLOSED;
+                state = SmtpState.CLOSED;
                 close();
                 break;
             default:
@@ -909,7 +909,7 @@ public final class SmtpClientProtocolHandler
     /** RFC 5321 §4.2 — 220 greeting or service unavailable. */
     private void dispatchGreeting(int code, String message) {
         if (code == 220) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             boolean esmtp =
                     message.toUpperCase().indexOf("ESMTP") >= 0;
             // Notify the handler that the connection is established before
@@ -919,7 +919,7 @@ public final class SmtpClientProtocolHandler
             handler.onConnected(endpoint);
             handler.handleGreeting(this, message, esmtp);
         } else {
-            state = SMTPState.ERROR;
+            state = SmtpState.ERROR;
             handler.handleServiceUnavailable(
                     code + " " + message);
             close();
@@ -935,19 +935,19 @@ public final class SmtpClientProtocolHandler
 
         if (code == 250) {
             parseEhloCapabilities(messages);
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleEhlo(this, ehloStarttls, ehloMaxSize,
                     ehloAuthMethods, ehloPipelining);
         } else if (code == 502) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleEhloNotSupported(this);
         } else if (code >= 500) {
-            state = SMTPState.ERROR;
+            state = SmtpState.ERROR;
             callback.handlePermanentFailure(
                     messages.isEmpty() ? "" : messages.get(0));
             close();
         } else {
-            state = SMTPState.ERROR;
+            state = SmtpState.ERROR;
             callback.handlePermanentFailure(code + " "
                     + (messages.isEmpty() ? "" : messages.get(0)));
             close();
@@ -960,10 +960,10 @@ public final class SmtpClientProtocolHandler
         currentCallback = null;
 
         if (code == 250) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleHelo(this);
         } else {
-            state = SMTPState.ERROR;
+            state = SmtpState.ERROR;
             callback.handlePermanentFailure(message);
             close();
         }
@@ -979,16 +979,16 @@ public final class SmtpClientProtocolHandler
                 endpoint.startTLS();
             } catch (IOException e) {
                 currentCallback = null;
-                state = SMTPState.CONNECTED;
+                state = SmtpState.CONNECTED;
                 callback.handleTlsUnavailable(this);
             }
         } else if (code == 454 || code == 502) {
             currentCallback = null;
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleTlsUnavailable(this);
         } else if (code >= 500) {
             currentCallback = null;
-            state = SMTPState.ERROR;
+            state = SmtpState.ERROR;
             callback.handlePermanentFailure(message);
             close();
         }
@@ -1001,23 +1001,23 @@ public final class SmtpClientProtocolHandler
         currentCallback = null;
 
         if (code == 235) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleAuthSuccess(this);
         } else if (code == 334) {
             byte[] challenge =
                     Base64.getDecoder().decode(message);
             callback.handleChallenge(challenge, this);
         } else if (code == 535) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleAuthFailed(this);
         } else if (code == 504) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleMechanismNotSupported(this);
         } else if (code == 454) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleTemporaryFailure(this);
         } else {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleAuthFailed(this);
         }
     }
@@ -1027,7 +1027,7 @@ public final class SmtpClientProtocolHandler
         AuthAbortHandler callback =
                 (AuthAbortHandler) currentCallback;
         currentCallback = null;
-        state = SMTPState.CONNECTED;
+        state = SmtpState.CONNECTED;
         callback.handleAborted(this);
     }
 
@@ -1038,13 +1038,13 @@ public final class SmtpClientProtocolHandler
         currentCallback = null;
 
         if (code == 250) {
-            state = SMTPState.MAIL_FROM_ACCEPTED;
+            state = SmtpState.MAIL_FROM_ACCEPTED;
             callback.handleMailFromOk(this);
         } else if (code >= 400 && code < 500) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleTemporaryFailure(this);
         } else {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handlePermanentFailure(message);
         }
     }
@@ -1057,17 +1057,17 @@ public final class SmtpClientProtocolHandler
 
         if (code == 250 || code == 251 || code == 252) {
             acceptedRecipients++;
-            state = SMTPState.RCPT_TO_ACCEPTED;
+            state = SmtpState.RCPT_TO_ACCEPTED;
             callback.handleRcptToOk(this);
         } else if (code >= 400 && code < 500) {
             state = acceptedRecipients > 0
-                    ? SMTPState.RCPT_TO_ACCEPTED
-                    : SMTPState.MAIL_FROM_ACCEPTED;
+                    ? SmtpState.RCPT_TO_ACCEPTED
+                    : SmtpState.MAIL_FROM_ACCEPTED;
             callback.handleTemporaryFailure(this);
         } else {
             state = acceptedRecipients > 0
-                    ? SMTPState.RCPT_TO_ACCEPTED
-                    : SMTPState.MAIL_FROM_ACCEPTED;
+                    ? SmtpState.RCPT_TO_ACCEPTED
+                    : SmtpState.MAIL_FROM_ACCEPTED;
             callback.handleRecipientRejected(this);
         }
     }
@@ -1079,14 +1079,14 @@ public final class SmtpClientProtocolHandler
         currentCallback = null;
 
         if (code == 354) {
-            state = SMTPState.DATA_MODE;
+            state = SmtpState.DATA_MODE;
             dotStuffer.reset();
             callback.handleReadyForData(this);
         } else if (code >= 400 && code < 500) {
-            state = SMTPState.RCPT_TO_ACCEPTED;
+            state = SmtpState.RCPT_TO_ACCEPTED;
             callback.handleTemporaryFailure(this);
         } else {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handlePermanentFailure(message);
         }
     }
@@ -1098,7 +1098,7 @@ public final class SmtpClientProtocolHandler
         if (code == 250) {
             // Chunk accepted
         } else if (code >= 400 && code < 500) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             useBdat = false;
             if (currentCallback
                     instanceof MessageReplyHandler) {
@@ -1108,7 +1108,7 @@ public final class SmtpClientProtocolHandler
                 callback.handleTemporaryFailure(this);
             }
         } else if (code >= 500) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             useBdat = false;
             if (currentCallback
                     instanceof MessageReplyHandler) {
@@ -1128,14 +1128,14 @@ public final class SmtpClientProtocolHandler
         useBdat = false;
 
         if (code == 250) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             String queueId = parseQueueId(message);
             callback.handleMessageAccepted(queueId, this);
         } else if (code >= 400 && code < 500) {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handleTemporaryFailure(this);
         } else {
-            state = SMTPState.CONNECTED;
+            state = SmtpState.CONNECTED;
             callback.handlePermanentFailure(message, this);
         }
     }
@@ -1144,7 +1144,7 @@ public final class SmtpClientProtocolHandler
         RsetReplyHandler callback =
                 (RsetReplyHandler) currentCallback;
         currentCallback = null;
-        state = SMTPState.CONNECTED;
+        state = SmtpState.CONNECTED;
         acceptedRecipients = 0;
         callback.handleResetOk(this);
     }
@@ -1154,7 +1154,7 @@ public final class SmtpClientProtocolHandler
         ReplyHandler callback =
                 (ReplyHandler) currentCallback;
         currentCallback = null;
-        state = SMTPState.CONNECTED;
+        state = SmtpState.CONNECTED;
         callback.handleReply(code, message, this);
     }
 
@@ -1305,7 +1305,7 @@ public final class SmtpClientProtocolHandler
                     L10N.getString("client.warn.smtp_error"),
                     error.getMessage()));
         }
-        state = SMTPState.ERROR;
+        state = SmtpState.ERROR;
         handler.onError(error);
     }
 }

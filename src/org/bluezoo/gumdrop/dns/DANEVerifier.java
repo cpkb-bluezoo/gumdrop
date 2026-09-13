@@ -1,5 +1,5 @@
 /*
- * DANEVerifier.java
+ * DaneVerifier.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,9 +39,9 @@ import java.util.List;
  * usage).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DANETrustManager
+ * @see DaneTrustManager
  */
-public final class DANEVerifier {
+public final class DaneVerifier {
 
     /** PKIX-TA: a CA constrained by a WebPKI-valid chain. RFC 6698 section 2.1.1. */
     public static final int USAGE_PKIX_TA = 0;
@@ -70,7 +70,7 @@ public final class DANEVerifier {
     /** Matching type: certificate association data is a SHA-512 hash. RFC 6698 section 2.1.3. */
     public static final int MATCHING_TYPE_SHA512 = 2;
 
-    private DANEVerifier() {
+    private DaneVerifier() {
     }
 
     /**

@@ -1,5 +1,5 @@
 /*
- * RFC2047Encoder.java
+ * Rfc2047Encoder.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,14 +39,14 @@ import java.util.Base64;
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2047#section-5'>RFC 2047 §5</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class RFC2047Encoder {
+public class Rfc2047Encoder {
 
 	/** RFC 2047 §2 — an encoded-word MUST NOT be more than 75 characters long. */
 	static final int MAX_ENCODED_WORD_LENGTH = 75;
 
 	private static final Charset ISO_8859_1 = StandardCharsets.ISO_8859_1;
 
-	private RFC2047Encoder() {
+	private Rfc2047Encoder() {
 		// Static utility class
 	}
 

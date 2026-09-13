@@ -1,5 +1,5 @@
 /*
- * LDAPSession.java
+ * LdapSession.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -25,7 +25,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 
 /**
  * Operations available in an authenticated LDAP session (RFC 4511).
@@ -56,7 +56,7 @@ import org.bluezoo.gumdrop.auth.SASLClientMechanism;
  * @see BindResultHandler#handleBindSuccess
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.5">RFC 4511 §4.5–4.12</a>
  */
-public interface LDAPSession {
+public interface LdapSession {
 
     /**
      * Performs a search operation.
@@ -159,7 +159,7 @@ public interface LDAPSession {
      * Re-binds with different credentials.
      * 
      * <p>This allows switching to a different user identity within
-     * the same connection. On success, a new {@link LDAPSession} is
+     * the same connection. On success, a new {@link LdapSession} is
      * provided with the new identity.
      * 
      * @param dn the distinguished name to bind as
@@ -174,7 +174,7 @@ public interface LDAPSession {
      * @param saslClient the pre-created SASL client mechanism
      * @param callback receives the bind result
      */
-    void rebindSASL(SASLClientMechanism saslClient, BindResultHandler callback);
+    void rebindSASL(SaslClientMechanism saslClient, BindResultHandler callback);
 
     /**
      * Abandons an in-progress operation (RFC 4511 section 4.11).

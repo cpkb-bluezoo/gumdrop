@@ -8,20 +8,20 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link SOCKSRelay}.
+ * Unit tests for {@link SocksRelay}.
  */
 public class SOCKSRelayTest {
 
     private DefaultSOCKSServer service;
     private StubEndpoint clientEndpoint;
     private StubEndpoint upstreamEndpoint;
-    private SOCKSRelay relay;
+    private SocksRelay relay;
 
     @Before
     public void setUp() {
         service = new DefaultSOCKSServer();
         clientEndpoint = new StubEndpoint();
-        relay = new SOCKSRelay(clientEndpoint, service, null, 0);
+        relay = new SocksRelay(clientEndpoint, service, null, 0);
         upstreamEndpoint = new StubEndpoint();
         service.acquireRelay();
     }

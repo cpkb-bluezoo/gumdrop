@@ -1,5 +1,5 @@
 /*
- * MIMEParser.java
+ * MimeParser.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,10 +39,10 @@ import java.util.ResourceBundle;
  *
  * <p>This parser uses a completely asynchronous, non-blocking,
  * push design pattern (also known as EDA or event driven architecture).
- * First a MIMEHandler must be supplied to the parser for receiving
+ * First a MimeHandler must be supplied to the parser for receiving
  * parsing events.
  * Then byte data can be supplied to the parser via the receive method as
- * and when it arrives, obviously in order. The MIMEHandler (event sink)
+ * and when it arrives, obviously in order. The MimeHandler (event sink)
  * will be notified of events that it can use to construct an in-memory
  * representation of the entity (AST) or store its component parts via some
  * kind of storage service which allows for not storing potentially large
@@ -65,7 +65,7 @@ import java.util.ResourceBundle;
  * <h3>Typical Usage</h3>
  * <pre>
  * ByteBuffer buffer = ByteBuffer.allocate(8192);
- * MIMEParser parser = new MIMEParser();
+ * MimeParser parser = new MimeParser();
  * parser.setHandler(myHandler);
  *
  * while (channel.read(buffer) &gt; 0) {
@@ -90,14 +90,14 @@ import java.util.ResourceBundle;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2045">RFC 2045: MIME Part One</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2046">RFC 2046: MIME Part Two — Media Types</a>
  */
-public class MIMEParser {
+public class MimeParser {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.mime.L10N");
 
 	/**
 	 * Locator implementation for tracking parse position.
 	 */
-	static class MIMEParserLocator implements MIMELocator {
+	static class MimeParserLocator implements MimeLocator {
 
 		long offset;
 		long lineNumber;
@@ -160,8 +160,8 @@ public class MIMEParser {
 	/** Default max unfolded header value size (32 KB), per Gmail/Exchange practice. */
 	private static final int DEFAULT_MAX_HEADER_VALUE_SIZE = 32 * 1024;
 
-	protected MIMEHandler handler; // event sink
-	protected MIMEParserLocator locator;
+	protected MimeHandler handler; // event sink
+	protected MimeParserLocator locator;
 	private State state = State.INIT; // current parser state
 	private Deque<String> boundaries = new ArrayDeque<>(); // stack of boundary delimiters
 	private boolean boundarySet;
@@ -185,8 +185,8 @@ public class MIMEParser {
 	/**
 	 * Constructor.
 	 */
-	public MIMEParser() {
-		locator = new MIMEParserLocator();
+	public MimeParser() {
+		locator = new MimeParserLocator();
 	}
 
 	/**
@@ -194,7 +194,7 @@ public class MIMEParser {
 	 * to receive parsing events.
 	 * @param handler the MIME handler
 	 */
-	public void setHandler(MIMEHandler handler) {
+	public void setHandler(MimeHandler handler) {
 		this.handler = handler;
 	}
 
@@ -274,13 +274,13 @@ public class MIMEParser {
 	 * </ul>
 	 *
 	 * @param data the byte data (must be in read mode)
-	 * @throws MIMEParseException if any part of the parsing or
+	 * @throws MimeParseException if any part of the parsing or
 	 *         processing process wishes to cancel and abandon the parse
 	 * @throws IllegalStateException if no handler has been set
 	 * @see <a href="https://www.rfc-editor.org/rfc/rfc2045#section-2">RFC 2045 §2</a>
 	 * @see <a href="https://www.rfc-editor.org/rfc/rfc2046#section-5.1">RFC 2046 §5.1</a>
 	 */
-	public void receive(ByteBuffer data) throws MIMEParseException {
+	public void receive(ByteBuffer data) throws MimeParseException {
 		if (handler == null) {
 			throw new IllegalStateException(L10N.getString("err.no_handler"));
 		}
@@ -368,7 +368,7 @@ public class MIMEParser {
 	 * Buffer position/limit should be set to the line range.
 	 * @see <a href="https://www.rfc-editor.org/rfc/rfc5322#section-2.2">RFC 5322 §2.2</a>
 	 */
-	protected void headerLine(ByteBuffer buffer) throws MIMEParseException {
+	protected void headerLine(ByteBuffer buffer) throws MimeParseException {
 		int start = buffer.position();
 		int end = buffer.limit();
 		// Remove line-end delimiter
@@ -407,7 +407,7 @@ public class MIMEParser {
 			// LWSP-char
 			// This is a header line continuation in a folded header
 			if (headerName == null) { // no field-name in previous line
-				throw new MIMEParseException(L10N.getString("err.no_field_name"), locator);
+				throw new MimeParseException(L10N.getString("err.no_field_name"), locator);
 			}
 
 			// Note that according to RFC822 unfolding rules, the CRLF+LWSP
@@ -439,13 +439,13 @@ public class MIMEParser {
 					nameEnd--;
 				}
 				if (nameEnd <= start) {
-					throw new MIMEParseException(L10N.getString("err.field_name_empty"), locator);
+					throw new MimeParseException(L10N.getString("err.field_name_empty"), locator);
 				}
 				for (int i = start; i < nameEnd; i++) {
 					c = buffer.get(i);
 					if (c < 33 || c > 126) { // illegal field-name character
 						String msg = MessageFormat.format(L10N.getString("err.illegal_field_name_char"), Integer.toString(c & 0xFF));
-						throw new MIMEParseException(msg, locator);
+						throw new MimeParseException(msg, locator);
 					}
 				}
 				ByteBuffer nameView = buffer.duplicate();
@@ -460,7 +460,7 @@ public class MIMEParser {
 				}
 				// Note: if colonPos + 1 >= length, the header has no value (colon at end)
 			} else {
-				throw new MIMEParseException(L10N.getString("err.no_colon_in_header"), locator);
+				throw new MimeParseException(L10N.getString("err.no_colon_in_header"), locator);
 			}
 		}
 	}
@@ -474,7 +474,7 @@ public class MIMEParser {
 	 * Compacts and grows the buffer if necessary.
 	 * @throws HeaderValueTooLongException if adding required bytes would exceed maxHeaderValueSize
 	 */
-	private void ensureHeaderValueSinkCapacity(int required) throws MIMEParseException {
+	private void ensureHeaderValueSinkCapacity(int required) throws MimeParseException {
 		int currentSize = headerValueSink.position();
 		if (currentSize + required > maxHeaderValueSize) {
 			throw new HeaderValueTooLongException(
@@ -673,7 +673,7 @@ public class MIMEParser {
 	 * @param name the header field name
 	 * @param value the header field value bytes (position to limit)
 	 */
-	protected void header(String name, ByteBuffer value) throws MIMEParseException {
+	protected void header(String name, ByteBuffer value) throws MimeParseException {
 		switch (name.toLowerCase().intern()) {
 			case "content-type":
 				handleContentTypeHeader(name, value);
@@ -701,13 +701,13 @@ public class MIMEParser {
 	}
 
 	/** RFC 2045 §5 / RFC 2046 §5.1.1 — Content-Type header with boundary. */
-	protected void handleContentTypeHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleContentTypeHeader(String name, ByteBuffer value) throws MimeParseException {
 		ContentType contentType = ContentTypeParser.parse(value.duplicate(), getIso8859Decoder());
 		if (contentType != null) {
 			if ("multipart".equalsIgnoreCase(contentType.getPrimaryType())) {
 				String boundary = contentType.getParameter("boundary");
 				// check boundary matches RFC 2046 spec
-				if (boundary != null && MIMEUtils.isValidBoundary(boundary)) {
+				if (boundary != null && MimeUtils.isValidBoundary(boundary)) {
 					if (boundarySet) {
 						boundaries.removeLast(); // duplicate Content-Type
 					}
@@ -720,7 +720,7 @@ public class MIMEParser {
 	}
 
 	/** RFC 2183 — Content-Disposition header. */
-	protected void handleContentDispositionHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleContentDispositionHeader(String name, ByteBuffer value) throws MimeParseException {
 		ContentDisposition contentDisposition = ContentDispositionParser.parse(value.duplicate(), getIso8859Decoder());
 		if (contentDisposition != null) {
 			handler.contentDisposition(contentDisposition);
@@ -728,7 +728,7 @@ public class MIMEParser {
 	}
 
 	/** RFC 2045 §6.1 — Content-Transfer-Encoding header. */
-	protected void handleContentTransferEncodingHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleContentTransferEncodingHeader(String name, ByteBuffer value) throws MimeParseException {
 		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
 		switch (valueStr.toLowerCase().intern()) {
 			case "base64":
@@ -745,14 +745,14 @@ public class MIMEParser {
 				handler.contentTransferEncoding(valueStr);
 				break;
 			default:
-				if (valueStr.startsWith("x-") && MIMEUtils.isToken(valueStr)) {
+				if (valueStr.startsWith("x-") && MimeUtils.isToken(valueStr)) {
 					handler.contentTransferEncoding(valueStr);
 				}
 		}
 	}
 
 	/** RFC 2045 §7 — Content-ID header. */
-	protected void handleContentIDHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleContentIDHeader(String name, ByteBuffer value) throws MimeParseException {
 		ContentID id = ContentIDParser.parse(value.duplicate(), getIso8859Decoder());
 		if (id != null) {
 			handler.contentID(id);
@@ -760,21 +760,21 @@ public class MIMEParser {
 	}
 
 	/** RFC 2045 §8 — Content-Description header. */
-	protected void handleContentDescriptionHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleContentDescriptionHeader(String name, ByteBuffer value) throws MimeParseException {
 		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
 		handler.contentDescription(valueStr);
 	}
 
 	/** RFC 2045 §4 — MIME-Version header. */
-	protected void handleMIMEVersionHeader(String name, ByteBuffer value) throws MIMEParseException {
+	protected void handleMIMEVersionHeader(String name, ByteBuffer value) throws MimeParseException {
 		String valueStr = decodeTokenHeaderValue(value.duplicate(), getIso8859Decoder());
-		MIMEVersion mimeVersion = MIMEVersion.parse(valueStr);
+		MimeVersion mimeVersion = MimeVersion.parse(valueStr);
 		if (mimeVersion != null) {
 			handler.mimeVersion(mimeVersion);
 		}
 	}
 
-	private void startHeaders() throws MIMEParseException {
+	private void startHeaders() throws MimeParseException {
 		state = State.HEADER;
 		boundarySet = false;
 		contentFlushed = false;  // Reset for new part boundary detection
@@ -782,7 +782,7 @@ public class MIMEParser {
 		clearPendingBodyContent();  // Clear any pending body content from previous part
 	}
 
-	private void endHeaders() throws MIMEParseException {
+	private void endHeaders() throws MimeParseException {
 		if (headerName != null) {
 			ByteBuffer valueView = headerValueSink.duplicate();
 			valueView.flip();
@@ -805,7 +805,7 @@ public class MIMEParser {
 	 * including the CRLF/CR/LF in the body.
 	 * Buffer position/limit should be set to the line range (including line delimiter).
 	 */
-	protected void bodyLine(ByteBuffer buffer) throws MIMEParseException {
+	protected void bodyLine(ByteBuffer buffer) throws MimeParseException {
 		contentFlushed = false;  // Reset per line - only prevents boundary detection within the same line
 		int start = buffer.position();
 		int end = buffer.limit();
@@ -879,15 +879,15 @@ public class MIMEParser {
 				// Defensive programming: these states should not occur in bodyLine processing
 				// If they do, it indicates a parser state management issue
 				String msg = MessageFormat.format(L10N.getString("err.unexpected_parser_state"), state);
-				throw new MIMEParseException(msg, locator);
+				throw new MimeParseException(msg, locator);
 		}
 	}
 
-	private void flushBodyContent(ByteBuffer buffer, boolean unexpected, boolean isBeforeBoundary) throws MIMEParseException {
+	private void flushBodyContent(ByteBuffer buffer, boolean unexpected, boolean isBeforeBoundary) throws MimeParseException {
 		flushBodyContent(buffer, unexpected, isBeforeBoundary, false);
 	}
 
-	private void flushBodyContent(ByteBuffer buffer, boolean unexpected, boolean isBeforeBoundary, boolean endOfStream) throws MIMEParseException {
+	private void flushBodyContent(ByteBuffer buffer, boolean unexpected, boolean isBeforeBoundary, boolean endOfStream) throws MimeParseException {
 		// Buffer position/limit already correctly set by caller
 		switch (transferEncoding) {
 			case BASE64:
@@ -909,7 +909,7 @@ public class MIMEParser {
 	 * @param isBeforeBoundary true if this content precedes a boundary, causing trailing CRLF/CR/LF to be stripped
 	 * @param endOfStream true if this is the final content (no more data coming)
 	 */
-	private void flushBodyContentWithDecoding(ByteBuffer source, boolean unexpected, TransferEncoding transferEncoding, boolean isBeforeBoundary, boolean endOfStream) throws MIMEParseException {
+	private void flushBodyContentWithDecoding(ByteBuffer source, boolean unexpected, TransferEncoding transferEncoding, boolean isBeforeBoundary, boolean endOfStream) throws MimeParseException {
 		// Lazy allocation of decodeBuffer - only allocate when actually needed for decoding
 		if (decodeBuffer == null || decodeBuffer.capacity() < maxBufferSize) {
 			ByteBufferPool.release(decodeBuffer);
@@ -983,7 +983,7 @@ public class MIMEParser {
 	 * @param unexpected true if this content should be reported as unexpected
 	 * @param isBeforeBoundary true if this content precedes a boundary, causing trailing CRLF/CR/LF to be stripped
 	 */
-	private void flushBodyContentBinary(ByteBuffer source, boolean unexpected, boolean isBeforeBoundary) throws MIMEParseException {
+	private void flushBodyContentBinary(ByteBuffer source, boolean unexpected, boolean isBeforeBoundary) throws MimeParseException {
 		boolean hasProcessedContent = false;
 
 		while (source.hasRemaining()) {
@@ -1072,7 +1072,7 @@ public class MIMEParser {
 	 * Flushes any pending body content.
 	 * @param isBeforeBoundary true if this content precedes a boundary
 	 */
-	private void flushPendingBodyContent(boolean isBeforeBoundary) throws MIMEParseException {
+	private void flushPendingBodyContent(boolean isBeforeBoundary) throws MimeParseException {
 		if (pendingBodyContent != null && pendingBodyContent.position() > 0) {
 			ByteBuffer view = pendingBodyContent.duplicate();
 			view.flip();
@@ -1096,22 +1096,22 @@ public class MIMEParser {
 	 * connection event, indicating that there will be no more invocations
 	 * of receive.
 	 *
-	 * @throws MIMEParseException if there was unconsumed data in a context
+	 * @throws MimeParseException if there was unconsumed data in a context
 	 *         where it's not allowed (headers or multipart boundaries)
 	 */
-	public void close() throws MIMEParseException {
+	public void close() throws MimeParseException {
 		// Check underflow based on state
 		if (underflow) {
 			switch (state) {
 				case INIT:
 				case HEADER:
 					// Incomplete headers are always an error
-					throw new MIMEParseException(L10N.getString("err.incomplete_header"), locator);
+					throw new MimeParseException(L10N.getString("err.incomplete_header"), locator);
 				case FIRST_BOUNDARY:
 				case BOUNDARY_OR_CONTENT:
 				case BOUNDARY_ONLY:
 					// Incomplete data in multipart context is an error
-					throw new MIMEParseException(L10N.getString("err.incomplete_multipart"), locator);
+					throw new MimeParseException(L10N.getString("err.incomplete_multipart"), locator);
 				case BODY:
 					// Non-multipart body can end without final newline - this is valid
 					// The underflow content is just the final line of the body
@@ -1130,7 +1130,7 @@ public class MIMEParser {
 		// Validate that all multipart boundaries are properly closed
 		if (!boundaries.isEmpty()) {
 			String msg = MessageFormat.format(L10N.getString("err.unclosed_boundary"), boundaries.getLast());
-			throw new MIMEParseException(msg, locator);
+			throw new MimeParseException(msg, locator);
 		}
 
 		handler.endEntity(null);

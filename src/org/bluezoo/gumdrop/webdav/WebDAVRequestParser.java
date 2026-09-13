@@ -1,5 +1,5 @@
 /*
- * WebDAVRequestParser.java
+ * WebdavRequestParser.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -41,7 +41,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-class WebDAVRequestParser extends DefaultHandler {
+class WebdavRequestParser extends DefaultHandler {
 
     enum PropfindType { ALLPROP, PROPNAME, PROP }
     enum PropPatchOp { SET, REMOVE }
@@ -68,8 +68,8 @@ class WebDAVRequestParser extends DefaultHandler {
 
     /** LOCK request body (§14.11 lockinfo) */
     static class LockRequest {
-        WebDAVLock.Scope scope = WebDAVLock.Scope.EXCLUSIVE;
-        WebDAVLock.Type type = WebDAVLock.Type.WRITE;
+        WebdavLock.Scope scope = WebdavLock.Scope.EXCLUSIVE;
+        WebdavLock.Type type = WebdavLock.Type.WRITE;
         String owner;
     }
 
@@ -102,7 +102,7 @@ class WebDAVRequestParser extends DefaultHandler {
 
     private String parseError;
 
-    WebDAVRequestParser() {
+    WebdavRequestParser() {
         this.parser = new Parser();
         this.parser.setContentHandler(this);
         // Block external entity resolution (XXE) for untrusted request bodies.
@@ -181,7 +181,7 @@ class WebDAVRequestParser extends DefaultHandler {
             return;
         }
 
-        if (DAVConstants.NAMESPACE.equals(uri)) {
+        if (DavConstants.NAMESPACE.equals(uri)) {
             handleDAVStartElement(localName);
         } else if (inProp || inInclude) {
             handlePropertyElement(uri, localName);
@@ -189,47 +189,47 @@ class WebDAVRequestParser extends DefaultHandler {
     }
 
     private void handleDAVStartElement(String local) {
-        if (DAVConstants.ELEM_PROPFIND.equals(local)) {
+        if (DavConstants.ELEM_PROPFIND.equals(local)) {
             propfindRequest = new PropfindRequest();
-        } else if (DAVConstants.ELEM_ALLPROP.equals(local)) {
+        } else if (DavConstants.ELEM_ALLPROP.equals(local)) {
             if (propfindRequest != null) {
                 propfindRequest.type = PropfindType.ALLPROP;
             }
-        } else if (DAVConstants.ELEM_PROPNAME.equals(local)) {
+        } else if (DavConstants.ELEM_PROPNAME.equals(local)) {
             if (propfindRequest != null) {
                 propfindRequest.type = PropfindType.PROPNAME;
             }
-        } else if (DAVConstants.ELEM_PROP.equals(local)) {
+        } else if (DavConstants.ELEM_PROP.equals(local)) {
             if (propfindRequest != null) {
                 propfindRequest.type = PropfindType.PROP;
             }
             inProp = true;
-        } else if (DAVConstants.ELEM_INCLUDE.equals(local)) {
+        } else if (DavConstants.ELEM_INCLUDE.equals(local)) {
             inInclude = true;
-        } else if (DAVConstants.ELEM_PROPERTYUPDATE.equals(local)) {
+        } else if (DavConstants.ELEM_PROPERTYUPDATE.equals(local)) {
             proppatchRequest = new ProppatchRequest();
-        } else if (DAVConstants.ELEM_SET.equals(local)) {
+        } else if (DavConstants.ELEM_SET.equals(local)) {
             inSet = true;
-        } else if (DAVConstants.ELEM_REMOVE.equals(local)) {
+        } else if (DavConstants.ELEM_REMOVE.equals(local)) {
             inRemove = true;
-        } else if (DAVConstants.ELEM_LOCKINFO.equals(local)) {
+        } else if (DavConstants.ELEM_LOCKINFO.equals(local)) {
             lockRequest = new LockRequest();
-        } else if (DAVConstants.ELEM_EXCLUSIVE.equals(local)) {
+        } else if (DavConstants.ELEM_EXCLUSIVE.equals(local)) {
             if (lockRequest != null) {
-                lockRequest.scope = WebDAVLock.Scope.EXCLUSIVE;
+                lockRequest.scope = WebdavLock.Scope.EXCLUSIVE;
             }
-        } else if (DAVConstants.ELEM_SHARED.equals(local)) {
+        } else if (DavConstants.ELEM_SHARED.equals(local)) {
             if (lockRequest != null) {
-                lockRequest.scope = WebDAVLock.Scope.SHARED;
+                lockRequest.scope = WebdavLock.Scope.SHARED;
             }
-        } else if (DAVConstants.ELEM_WRITE.equals(local)) {
+        } else if (DavConstants.ELEM_WRITE.equals(local)) {
             if (lockRequest != null) {
-                lockRequest.type = WebDAVLock.Type.WRITE;
+                lockRequest.type = WebdavLock.Type.WRITE;
             }
-        } else if (DAVConstants.ELEM_OWNER.equals(local)) {
+        } else if (DavConstants.ELEM_OWNER.equals(local)) {
             inOwner = true;
         } else if (inProp || inInclude) {
-            handlePropertyElement(DAVConstants.NAMESPACE, local);
+            handlePropertyElement(DavConstants.NAMESPACE, local);
         }
     }
 
@@ -259,21 +259,21 @@ class WebDAVRequestParser extends DefaultHandler {
             return;
         }
 
-        if (DAVConstants.NAMESPACE.equals(uri)) {
+        if (DavConstants.NAMESPACE.equals(uri)) {
             handleDAVEndElement(localName);
         }
     }
 
     private void handleDAVEndElement(String local) {
-        if (DAVConstants.ELEM_PROP.equals(local)) {
+        if (DavConstants.ELEM_PROP.equals(local)) {
             inProp = false;
-        } else if (DAVConstants.ELEM_INCLUDE.equals(local)) {
+        } else if (DavConstants.ELEM_INCLUDE.equals(local)) {
             inInclude = false;
-        } else if (DAVConstants.ELEM_SET.equals(local)) {
+        } else if (DavConstants.ELEM_SET.equals(local)) {
             inSet = false;
-        } else if (DAVConstants.ELEM_REMOVE.equals(local)) {
+        } else if (DavConstants.ELEM_REMOVE.equals(local)) {
             inRemove = false;
-        } else if (DAVConstants.ELEM_OWNER.equals(local)) {
+        } else if (DavConstants.ELEM_OWNER.equals(local)) {
             if (lockRequest != null && textContent.length() > 0) {
                 lockRequest.owner = textContent.toString().trim();
             }

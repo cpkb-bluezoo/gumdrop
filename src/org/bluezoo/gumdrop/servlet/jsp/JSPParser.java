@@ -1,5 +1,5 @@
 /*
- * JSPParser.java
+ * JspParser.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -40,7 +40,7 @@ import java.io.IOException;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface JSPParser {
+public interface JspParser {
     
     /**
      * Parses a JSP source file from the provided input stream and creates an
@@ -49,12 +49,12 @@ public interface JSPParser {
      * @param input the input stream containing JSP source bytes
      * @param encoding the character encoding of the JSP source (e.g., "UTF-8")
      * @param jspUri the URI/path of the JSP file being parsed (for error reporting)
-     * @return a {@link JSPPage} representing the parsed JSP structure
+     * @return a {@link JspPage} representing the parsed JSP structure
      * @throws IOException if an I/O error occurs while reading the input
-     * @throws JSPParseException if the JSP source contains syntax errors
+     * @throws JspParseException if the JSP source contains syntax errors
      */
-    JSPPage parse(InputStream input, String encoding, String jspUri) 
-        throws IOException, JSPParseException;
+    JspPage parse(InputStream input, String encoding, String jspUri) 
+        throws IOException, JspParseException;
     
     /**
      * Parses a JSP source file from the provided input stream using the specified
@@ -65,13 +65,13 @@ public interface JSPParser {
      * @param encoding the character encoding of the JSP source (e.g., "UTF-8")
      * @param jspUri the URI/path of the JSP file being parsed (for error reporting)
      * @param jspProperties the resolved JSP configuration properties
-     * @return a {@link JSPPage} representing the parsed JSP structure
+     * @return a {@link JspPage} representing the parsed JSP structure
      * @throws IOException if an I/O error occurs while reading the input
-     * @throws JSPParseException if the JSP source contains syntax errors or violates configuration
+     * @throws JspParseException if the JSP source contains syntax errors or violates configuration
      */
-    default JSPPage parse(InputStream input, String encoding, String jspUri, 
-                         JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties) 
-        throws IOException, JSPParseException {
+    default JspPage parse(InputStream input, String encoding, String jspUri, 
+                         JspPropertyGroupResolver.ResolvedJSPProperties jspProperties) 
+        throws IOException, JspParseException {
         // Default implementation delegates to the standard parse method
         // Concrete parsers can override this to respect JSP configuration
         return parse(input, encoding, jspUri);

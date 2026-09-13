@@ -1,5 +1,5 @@
 /*
- * LDAPResult.java
+ * LdapResult.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,7 +26,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Represents an LDAPResult (RFC 4511 section 4.1.9).
+ * Represents an LdapResult (RFC 4511 section 4.1.9).
  *
  * <p>This is the base result type returned by LDAP operations such as
  * bind, search, modify, add, delete, etc. Contains resultCode,
@@ -35,9 +35,9 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.1.9">RFC 4511 §4.1.9</a>
  */
-public class LDAPResult {
+public class LdapResult {
 
-    private final LDAPResultCode resultCode;
+    private final LdapResultCode resultCode;
     private final String matchedDN;
     private final String diagnosticMessage;
     private final List<String> referrals;
@@ -50,7 +50,7 @@ public class LDAPResult {
      * @param matchedDN the matched DN (may be empty)
      * @param diagnosticMessage the diagnostic message (may be empty)
      */
-    public LDAPResult(LDAPResultCode resultCode, String matchedDN, 
+    public LdapResult(LdapResultCode resultCode, String matchedDN, 
                       String diagnosticMessage) {
         this(resultCode, matchedDN, diagnosticMessage, null);
     }
@@ -63,7 +63,7 @@ public class LDAPResult {
      * @param diagnosticMessage the diagnostic message (may be empty)
      * @param referrals the referral URLs (may be null)
      */
-    public LDAPResult(LDAPResultCode resultCode, String matchedDN,
+    public LdapResult(LdapResultCode resultCode, String matchedDN,
                       String diagnosticMessage, List<String> referrals) {
         this.resultCode = resultCode;
         this.matchedDN = matchedDN != null ? matchedDN : "";
@@ -78,7 +78,7 @@ public class LDAPResult {
      *
      * @return the result code
      */
-    public LDAPResultCode getResultCode() {
+    public LdapResultCode getResultCode() {
         return resultCode;
     }
 
@@ -164,7 +164,7 @@ public class LDAPResult {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("LDAPResult[").append(resultCode);
+        sb.append("LdapResult[").append(resultCode);
         if (!matchedDN.isEmpty()) {
             sb.append(", matchedDN=").append(matchedDN);
         }

@@ -65,10 +65,10 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
-import org.bluezoo.gumdrop.auth.GSSAPIServer;
+import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
@@ -92,8 +92,8 @@ import org.bluezoo.gumdrop.smtp.handler.RecipientState;
 import org.bluezoo.gumdrop.smtp.handler.ResetState;
 
 import org.bluezoo.gumdrop.smtp.DeliveryRequirements;
-import org.bluezoo.gumdrop.smtp.DSNNotify;
-import org.bluezoo.gumdrop.smtp.DSNReturn;
+import org.bluezoo.gumdrop.smtp.DsnNotify;
+import org.bluezoo.gumdrop.smtp.DsnReturn;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
@@ -108,12 +108,12 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses a streaming {@link SMTPServerLexer} (issue #85):
+ * <li>Line parsing uses a streaming {@link SmtpServerLexer} (issue #85):
  *     bytes are tokenised as they arrive rather than buffered into whole
  *     lines — see {@link ByteStreamLexer}. DATA (RFC 5321 §4.5.2) and BDAT
  *     (RFC 3030) message content bypass the lexer entirely; {@link
  *     #receive(ByteBuffer)} checks state before calling {@link
- *     SMTPServerLexer#feed}, exactly as before this conversion</li>
+ *     SmtpServerLexer#feed}, exactly as before this conversion</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
@@ -139,13 +139,13 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see SMTPServerLexer
+ * @see SmtpServerLexer
  * @see SmtpListener
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6409">RFC 6409 - Message Submission</a>
  */
 public final class SmtpProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<SMTPServerLexer.Token>,
+        implements ProtocolHandler, ByteStreamLexer.Handler<SmtpServerLexer.Token>,
                    ConnectedState, HelloState, AuthenticateState,
                    MailFromState, RecipientState, MessageStartState, MessageEndState,
                    ResetState, SmtpConnectionMetadata {
@@ -164,7 +164,7 @@ public final class SmtpProtocolHandler
     private static final int MAX_CONTROL_BUFFER_SIZE = 8;
     private static final int MAX_COMMAND_LINE_LENGTH = 1000;
 
-    enum SMTPState {
+    enum SmtpState {
         INITIAL, REJECTED, READY, MAIL, RCPT, DATA, BDAT, QUIT
     }
 
@@ -182,7 +182,7 @@ public final class SmtpProtocolHandler
     // command verbs. Resolved once, directly from the KEYWORD token's
     // bytes (issue #85), rather than buffered as a String and re-compared
     // later at dispatch time.
-    enum SMTPCommand {
+    enum SmtpCommand {
         HELO, EHLO, MAIL, RCPT, DATA, BDAT, RSET, QUIT, NOOP, HELP, VRFY,
         EXPN, STARTTLS, AUTH, XCLIENT, ETRN,
         UNKNOWN
@@ -194,14 +194,14 @@ public final class SmtpProtocolHandler
     private final ClientConnected connectedHandler;
     private final long connectionTimeMillis;
     private final List<EmailAddress> recipients;
-    private final Map<EmailAddress, DSNRecipientParameters> dsnRecipients;
+    private final Map<EmailAddress, DsnRecipientParameters> dsnRecipients;
     private ByteBuffer controlBuffer;
 
     // Streaming lexer (issue #85) and per-line parse state
-    private final SMTPServerLexer lexer;
-    private final TokenErrorRecovery<SMTPServerLexer.Token> lexerRecovery =
-            new TokenErrorRecovery<SMTPServerLexer.Token>(SMTPServerLexer.Token.CRLF);
-    private SMTPCommand pendingCommand = SMTPCommand.UNKNOWN;
+    private final SmtpServerLexer lexer;
+    private final TokenErrorRecovery<SmtpServerLexer.Token> lexerRecovery =
+            new TokenErrorRecovery<SmtpServerLexer.Token>(SmtpServerLexer.Token.CRLF);
+    private SmtpCommand pendingCommand = SmtpCommand.UNKNOWN;
     private String pendingUnknownText = "";
     private String pendingContinuationText = "";
     private boolean pendingHasSp;
@@ -218,7 +218,7 @@ public final class SmtpProtocolHandler
     private MessageDataHandler messageHandler;
     private SmtpPipeline currentPipeline;
 
-    private SMTPState state = SMTPState.INITIAL;
+    private SmtpState state = SmtpState.INITIAL;
     private String heloName;
     private EmailAddress mailFrom;
     private boolean extendedSMTP;
@@ -226,7 +226,7 @@ public final class SmtpProtocolHandler
     private BodyType bodyType = BodyType.SEVEN_BIT;
     private DefaultDeliveryRequirements deliveryRequirements;
 
-    private DSNRecipientParameters pendingRecipientDSN;
+    private DsnRecipientParameters pendingRecipientDSN;
     private boolean authenticated;
     private String authenticatedUser;
     private AuthState authState = AuthState.NONE;
@@ -242,7 +242,7 @@ public final class SmtpProtocolHandler
     private int authIterations = 4096;
 
     private SaslServer saslServer;
-    private GSSAPIServer.GSSAPIExchange gssapiExchange;
+    private GssapiServer.GssapiExchange gssapiExchange;
     private X509Certificate clientCertificate;
     private InetSocketAddress xclientAddr;
     private InetSocketAddress xclientDestAddr;
@@ -280,10 +280,10 @@ public final class SmtpProtocolHandler
         this.connectedHandler = handler;
         this.connectionTimeMillis = System.currentTimeMillis();
         this.recipients = new ArrayList<EmailAddress>();
-        this.dsnRecipients = new HashMap<EmailAddress, DSNRecipientParameters>();
+        this.dsnRecipients = new HashMap<EmailAddress, DsnRecipientParameters>();
         this.controlBuffer = ByteBuffer.allocate(MAX_CONTROL_BUFFER_SIZE);
         ByteStreamLexer.checkTokenCap(MAX_COMMAND_LINE_LENGTH, server.getMaxNetInSize());
-        this.lexer = new SMTPServerLexer(this, MAX_COMMAND_LINE_LENGTH);
+        this.lexer = new SmtpServerLexer(this, MAX_COMMAND_LINE_LENGTH);
     }
 
     // ── ProtocolHandler implementation ──
@@ -314,16 +314,16 @@ public final class SmtpProtocolHandler
             return;
         }
         try {
-            if (state == SMTPState.BDAT) {
+            if (state == SmtpState.BDAT) {
                 handleBdatContent(buf);
-            } else if (state == SMTPState.DATA) {
+            } else if (state == SmtpState.DATA) {
                 handleDataContent(buf);
             } else {
                 lexer.feed(buf);
                 if (buf.hasRemaining()) {
-                    if (state == SMTPState.BDAT) {
+                    if (state == SmtpState.BDAT) {
                         handleBdatContent(buf);
-                    } else if (state == SMTPState.DATA) {
+                    } else if (state == SmtpState.DATA) {
                         handleDataContent(buf);
                     }
                 }
@@ -349,7 +349,7 @@ public final class SmtpProtocolHandler
                 metrics.connectionClosed(durationMs);
             }
             if (sessionSpan != null && !sessionSpan.isEnded()) {
-                if (state == SMTPState.QUIT) {
+                if (state == SmtpState.QUIT) {
                     endSessionSpan("Connection closed");
                 } else {
                     endSessionSpanError("Connection lost");
@@ -383,7 +383,7 @@ public final class SmtpProtocolHandler
      */
     @Override
     public void securityEstablished(SecurityInfo info) {
-        if (state == SMTPState.INITIAL && !starttlsUsed) {
+        if (state == SmtpState.INITIAL && !starttlsUsed) {
             sendGreeting();
         } else if (helloHandler != null && starttlsUsed) {
             helloHandler.tlsEstablished(info);
@@ -401,12 +401,12 @@ public final class SmtpProtocolHandler
     // ── ByteStreamLexer.Handler implementation (issue #85) ──
 
     // RFC 5321 §2.3.8: KEYWORD [SP TEXT] CRLF. TEXT is delivered in
-    // zero-copy chunks by the lexer (see SMTPServerLexer / ByteStreamLexer);
+    // zero-copy chunks by the lexer (see SmtpServerLexer / ByteStreamLexer);
     // this dispatcher accumulates only what it needs to retain (the args
     // string) and enforces the combined line-length budget itself, since
     // free-form text is intentionally exempt from the lexer's own cap.
     @Override
-    public boolean token(SMTPServerLexer.Token type, ByteBuffer window) {
+    public boolean token(SmtpServerLexer.Token type, ByteBuffer window) {
         if (lexerRecovery.handleToken(type)) {
             // Discarding the remainder of a line already rejected by
             // tokenTooLong(); the error reply was already sent there.
@@ -420,7 +420,7 @@ public final class SmtpProtocolHandler
                 // 4-byte "MAIL" keyword can never itself contain non-ASCII
                 // bytes, so this check is purely a byte comparison, no
                 // decode needed.
-                pendingUseUtf8 = smtputf8 || (state == SMTPState.READY
+                pendingUseUtf8 = smtputf8 || (state == SmtpState.READY
                         && isMailKeyword(window));
                 if (authState != AuthState.NONE) {
                     // SASL continuation data must preserve original case,
@@ -438,7 +438,7 @@ public final class SmtpProtocolHandler
                     // the (rare) unrecognised-verb case, where the exact
                     // text is needed for the error reply.
                     pendingCommand = matchCommand(window);
-                    if (pendingCommand == SMTPCommand.UNKNOWN) {
+                    if (pendingCommand == SmtpCommand.UNKNOWN) {
                         try {
                             pendingUnknownText =
                                     decodeText(window, pendingUseUtf8).toUpperCase(Locale.ENGLISH);
@@ -515,7 +515,7 @@ public final class SmtpProtocolHandler
     }
 
     private void resetLineState() {
-        pendingCommand = SMTPCommand.UNKNOWN;
+        pendingCommand = SmtpCommand.UNKNOWN;
         pendingUnknownText = "";
         pendingContinuationText = "";
         pendingHasSp = false;
@@ -532,52 +532,52 @@ public final class SmtpProtocolHandler
      * insensitively, without decoding to a String.
      *
      * @param window the KEYWORD token's bytes
-     * @return the matched command, or {@link SMTPCommand#UNKNOWN}
+     * @return the matched command, or {@link SmtpCommand#UNKNOWN}
      */
-    private static SMTPCommand matchCommand(ByteBuffer window) {
+    private static SmtpCommand matchCommand(ByteBuffer window) {
         int len = window.remaining();
         int base = window.position();
         if (len == 4) {
             switch (pack4(window, base)) {
                 case ('H' << 24) | ('E' << 16) | ('L' << 8) | 'O':
-                    return SMTPCommand.HELO;
+                    return SmtpCommand.HELO;
                 case ('E' << 24) | ('H' << 16) | ('L' << 8) | 'O':
-                    return SMTPCommand.EHLO;
+                    return SmtpCommand.EHLO;
                 case ('M' << 24) | ('A' << 16) | ('I' << 8) | 'L':
-                    return SMTPCommand.MAIL;
+                    return SmtpCommand.MAIL;
                 case ('R' << 24) | ('C' << 16) | ('P' << 8) | 'T':
-                    return SMTPCommand.RCPT;
+                    return SmtpCommand.RCPT;
                 case ('D' << 24) | ('A' << 16) | ('T' << 8) | 'A':
-                    return SMTPCommand.DATA;
+                    return SmtpCommand.DATA;
                 case ('B' << 24) | ('D' << 16) | ('A' << 8) | 'T':
-                    return SMTPCommand.BDAT;
+                    return SmtpCommand.BDAT;
                 case ('R' << 24) | ('S' << 16) | ('E' << 8) | 'T':
-                    return SMTPCommand.RSET;
+                    return SmtpCommand.RSET;
                 case ('Q' << 24) | ('U' << 16) | ('I' << 8) | 'T':
-                    return SMTPCommand.QUIT;
+                    return SmtpCommand.QUIT;
                 case ('N' << 24) | ('O' << 16) | ('O' << 8) | 'P':
-                    return SMTPCommand.NOOP;
+                    return SmtpCommand.NOOP;
                 case ('H' << 24) | ('E' << 16) | ('L' << 8) | 'P':
-                    return SMTPCommand.HELP;
+                    return SmtpCommand.HELP;
                 case ('V' << 24) | ('R' << 16) | ('F' << 8) | 'Y':
-                    return SMTPCommand.VRFY;
+                    return SmtpCommand.VRFY;
                 case ('E' << 24) | ('X' << 16) | ('P' << 8) | 'N':
-                    return SMTPCommand.EXPN;
+                    return SmtpCommand.EXPN;
                 case ('A' << 24) | ('U' << 16) | ('T' << 8) | 'H':
-                    return SMTPCommand.AUTH;
+                    return SmtpCommand.AUTH;
                 case ('E' << 24) | ('T' << 16) | ('R' << 8) | 'N':
-                    return SMTPCommand.ETRN;
+                    return SmtpCommand.ETRN;
                 default:
-                    return SMTPCommand.UNKNOWN;
+                    return SmtpCommand.UNKNOWN;
             }
         }
         if (len == 7 && matchesLiteral(window, base, "XCLIENT")) {
-            return SMTPCommand.XCLIENT;
+            return SmtpCommand.XCLIENT;
         }
         if (len == 8 && matchesLiteral(window, base, "STARTTLS")) {
-            return SMTPCommand.STARTTLS;
+            return SmtpCommand.STARTTLS;
         }
-        return SMTPCommand.UNKNOWN;
+        return SmtpCommand.UNKNOWN;
     }
 
     private static boolean matchesLiteral(ByteBuffer window, int base, String literal) {
@@ -615,7 +615,7 @@ public final class SmtpProtocolHandler
     // exactly replicating continueLineProcessing()'s per-line-fresh-check
     // semantics from the pre-conversion LineParser-based code.
     private void dispatchLine() {
-        SMTPCommand command = pendingCommand;
+        SmtpCommand command = pendingCommand;
         String unknownText = pendingUnknownText;
         String continuationText = pendingContinuationText;
         boolean hadArgs = pendingHasSp;
@@ -646,13 +646,13 @@ public final class SmtpProtocolHandler
 
             dispatchCommand(command, unknownText, args);
 
-            if (useUtf8 && command == SMTPCommand.MAIL && !smtputf8 && sawNonAscii) {
+            if (useUtf8 && command == SmtpCommand.MAIL && !smtputf8 && sawNonAscii) {
                 resetTransaction();
                 reply(553, L10N.getString("smtp.err.smtputf8_required"));
                 return;
             }
 
-            if (state == SMTPState.DATA || state == SMTPState.BDAT) {
+            if (state == SmtpState.DATA || state == SmtpState.BDAT) {
                 lexer.enterContentMode();
             }
         } catch (IOException e) {
@@ -795,10 +795,10 @@ public final class SmtpProtocolHandler
     // already resolved from the KEYWORD token's raw bytes (see
     // matchCommand()); SASL continuation routing happens earlier, in
     // dispatchLine(), before this is ever called.
-    private void dispatchCommand(SMTPCommand command, String unknownText, String args)
+    private void dispatchCommand(SmtpCommand command, String unknownText, String args)
             throws IOException {
-        if (state == SMTPState.REJECTED) {
-            if (command == SMTPCommand.QUIT) {
+        if (state == SmtpState.REJECTED) {
+            if (command == SmtpCommand.QUIT) {
                 quit(args);
             } else {
                 reply(554, L10N.getString("smtp.err.connection_rejected"));
@@ -870,16 +870,16 @@ public final class SmtpProtocolHandler
     // because STARTTLS matched but its dispatch guard failed — in which
     // case the enum's own name is already the exact uppercased text, with
     // no decode needed.
-    private static String unknownCommandText(SMTPCommand command, String unknownText) {
-        return command == SMTPCommand.UNKNOWN ? unknownText : command.name();
+    private static String unknownCommandText(SmtpCommand command, String unknownText) {
+        return command == SmtpCommand.UNKNOWN ? unknownText : command.name();
     }
 
     private void handlePipelinedCommands(ByteBuffer buf) throws IOException {
         lexer.feed(buf);
         if (buf.hasRemaining()) {
-            if (state == SMTPState.BDAT) {
+            if (state == SmtpState.BDAT) {
                 handleBdatContent(buf);
-            } else if (state == SMTPState.DATA) {
+            } else if (state == SmtpState.DATA) {
                 handleDataContent(buf);
             }
         }
@@ -1095,7 +1095,7 @@ public final class SmtpProtocolHandler
     private void handleDataContent(ByteBuffer buf) throws IOException {
         if (controlBuffer.position() > 0) {
             handleControlSequenceWithNewData(buf);
-            if (state != SMTPState.DATA) {
+            if (state != SmtpState.DATA) {
                 if (buf.hasRemaining()) {
                     handlePipelinedCommands(buf);
                 }
@@ -1107,7 +1107,7 @@ public final class SmtpProtocolHandler
             retainInput(buf);
             return;
         }
-        if (state != SMTPState.DATA && buf.hasRemaining()) {
+        if (state != SmtpState.DATA && buf.hasRemaining()) {
             handlePipelinedCommands(buf);
         }
     }
@@ -1165,7 +1165,7 @@ public final class SmtpProtocolHandler
                         String rejectionMsg = dataTransferRejectionMessage;
                         long maxSize = server.getMaxMessageSize();
                         resetDataState();
-                        state = SMTPState.READY;
+                        state = SmtpState.READY;
                         if (exceeded) {
                             addSessionEvent("DATA rejected (size exceeded)");
                             reply(552, "5.3.4 Message size exceeds maximum (" + maxSize + " bytes)");
@@ -1236,7 +1236,7 @@ public final class SmtpProtocolHandler
                 retainInput(buf);
                 return;
             }
-            if (buf.hasRemaining() && state != SMTPState.BDAT) {
+            if (buf.hasRemaining() && state != SmtpState.BDAT) {
                 handlePipelinedCommands(buf);
             }
         }
@@ -1249,7 +1249,7 @@ public final class SmtpProtocolHandler
             addSessionEvent("BDAT LAST complete");
             if (dataTransferRejected) {
                 resetDataState();
-                state = SMTPState.READY;
+                state = SmtpState.READY;
                 reply(554, dataTransferRejectionMessage);
                 return;
             }
@@ -1266,10 +1266,10 @@ public final class SmtpProtocolHandler
                 return;
             }
             resetDataState();
-            state = SMTPState.READY;
+            state = SmtpState.READY;
             reply(250, "2.0.0 Message accepted for delivery (" + messageSize + " bytes)");
         } else {
-            state = SMTPState.RCPT;
+            state = SmtpState.RCPT;
             reply(250, "2.0.0 " + dataBytesReceived + " bytes received");
         }
     }
@@ -1327,7 +1327,7 @@ public final class SmtpProtocolHandler
         if (helloHandler != null) {
             helloHandler.hello(this, false, this.heloName);
         } else {
-            this.state = SMTPState.READY;
+            this.state = SmtpState.READY;
             String localHostname = endpoint.getLocalAddress().toString();
             reply(250, localHostname + " Hello " + hostname);
         }
@@ -1347,7 +1347,7 @@ public final class SmtpProtocolHandler
         if (helloHandler != null) {
             helloHandler.hello(this, true, this.heloName);
         } else {
-            this.state = SMTPState.READY;
+            this.state = SmtpState.READY;
             sendEhloResponse();
         }
     }
@@ -1391,14 +1391,14 @@ public final class SmtpProtocolHandler
         }
         Realm r = getRealm();
         if (r != null && (endpoint.isSecure() || server.isSTARTTLSAvailable())) {
-            Set<SASLMechanism> supported = r.getSupportedSASLMechanisms();
+            Set<SaslMechanism> supported = r.getSupportedSASLMechanisms();
             if (!supported.isEmpty() || server.getGSSAPIServer() != null) {
                 StringBuilder authLine = new StringBuilder("AUTH");
-                for (SASLMechanism mech : supported) {
+                for (SaslMechanism mech : supported) {
                     if (!endpoint.isSecure() && mech.requiresTLS()) {
                         continue;
                     }
-                    if (mech == SASLMechanism.EXTERNAL && !endpoint.isSecure()) {
+                    if (mech == SaslMechanism.EXTERNAL && !endpoint.isSecure()) {
                         continue;
                     }
                     authLine.append(" ").append(mech.getMechanismName());
@@ -1423,7 +1423,7 @@ public final class SmtpProtocolHandler
             reply(454, "4.7.0 TLS not available");
             return;
         }
-        if (state != SMTPState.INITIAL && state != SMTPState.READY) {
+        if (state != SmtpState.INITIAL && state != SmtpState.READY) {
             reply(503, "5.0.0 Bad sequence of commands");
             return;
         }
@@ -1435,7 +1435,7 @@ public final class SmtpProtocolHandler
         try {
             reply(220, "2.0.0 Ready to start TLS");
             endpoint.startTLS();
-            state = SMTPState.INITIAL;
+            state = SmtpState.INITIAL;
             heloName = null;
             extendedSMTP = false;
             starttlsUsed = true;
@@ -1605,7 +1605,7 @@ public final class SmtpProtocolHandler
         }
 
         Realm.CertificateAuthenticationResult result =
-                SASLUtils.authenticateExternal(
+                SaslUtils.authenticateExternal(
                         endpoint, getRealm(), authzid);
         if (result == null || !result.valid) {
             notifyAuthenticationFailure(authzid, "EXTERNAL");
@@ -1656,7 +1656,7 @@ public final class SmtpProtocolHandler
     private void handleAuthCramMD5(String initialResponse) throws IOException {
         try {
             String hostname = endpoint.getLocalAddress().toString();
-            authChallenge = SASLUtils.generateCramMD5Challenge(hostname);
+            authChallenge = SaslUtils.generateCramMD5Challenge(hostname);
             String encoded = Base64.getEncoder()
                     .encodeToString(authChallenge.getBytes(US_ASCII));
             reply(334, encoded);
@@ -1678,9 +1678,9 @@ public final class SmtpProtocolHandler
      */
     private void handleAuthDigestMD5(String initialResponse) throws IOException {
         try {
-            authNonce = SASLUtils.generateNonce(16);
+            authNonce = SaslUtils.generateNonce(16);
             String realmName = endpoint.getLocalAddress().toString();
-            authChallenge = SASLUtils.generateDigestMD5Challenge(realmName, authNonce);
+            authChallenge = SaslUtils.generateDigestMD5Challenge(realmName, authNonce);
             String encoded = Base64.getEncoder()
                     .encodeToString(authChallenge.getBytes(UTF_8));
             reply(334, encoded);
@@ -1779,12 +1779,12 @@ public final class SmtpProtocolHandler
                     }
                     pendingAuthUsername = username;
                     authClientNonce = clientNonce;
-                    String serverNonce = clientNonce + SASLUtils.generateNonce(16);
+                    String serverNonce = clientNonce + SaslUtils.generateNonce(16);
                     authNonce = serverNonce;
                     authSalt = Base64.getDecoder().decode(creds.salt);
                     authIterations = creds.iterations;
 
-                    String serverFirst = SASLUtils.generateScramServerFirst(
+                    String serverFirst = SaslUtils.generateScramServerFirst(
                             serverNonce, creds.salt, creds.iterations);
                     // Store the auth message for later verification:
                     // clientFirstBare + "," + serverFirst
@@ -1845,7 +1845,7 @@ public final class SmtpProtocolHandler
                         resetAuthState();
                         return;
                     }
-                    byte[] serverSignature = SASLUtils.verifyScramClientFinal(creds,
+                    byte[] serverSignature = SaslUtils.verifyScramClientFinal(creds,
                             authChallenge, clientFinal, authNonce);
                     if (serverSignature == null) {
                         notifyAuthenticationFailure(scramUser, "SCRAM-SHA-256");
@@ -1902,7 +1902,7 @@ public final class SmtpProtocolHandler
     /** RFC 7628 §3.1 — validate the OAUTHBEARER initial client response. */
     private void processOAuthBearerResponse(String encoded) throws IOException {
         String decoded = new String(Base64.getDecoder().decode(encoded), UTF_8);
-        Map<String, String> oauthParams = SASLUtils.parseOAuthBearerCredentials(decoded);
+        Map<String, String> oauthParams = SaslUtils.parseOAuthBearerCredentials(decoded);
         String token = oauthParams.get("token");
         String user = oauthParams.get("user");
         if (token == null || token.isEmpty()) {
@@ -1934,7 +1934,7 @@ public final class SmtpProtocolHandler
 
     /** RFC 4752 — SASL GSSAPI mechanism (Kerberos V5). */
     private void handleAuthGSSAPI(String initialResponse) throws IOException {
-        GSSAPIServer gssapiServer = server.getGSSAPIServer();
+        GssapiServer gssapiServer = server.getGSSAPIServer();
         if (gssapiServer == null) {
             reply(504, "5.5.4 Authentication mechanism not supported");
             return;
@@ -2167,7 +2167,7 @@ public final class SmtpProtocolHandler
     /** RFC 2831 §2.1.2 — verify DIGEST-MD5 response. */
     private void handleDigestMD5Response(String encodedData) throws IOException {
         String response = new String(Base64.getDecoder().decode(encodedData), UTF_8);
-        Map<String, String> params = SASLUtils.parseDigestParams(response);
+        Map<String, String> params = SaslUtils.parseDigestParams(response);
         String username = params.get("username");
 
         if (username == null) {
@@ -2180,7 +2180,7 @@ public final class SmtpProtocolHandler
             realmName = endpoint.getLocalAddress().toString();
         }
         String ha1 = getRealm().getDigestHA1(username, realmName);
-        String rspAuth = SASLUtils.verifyDigestMD5ClientResponse(
+        String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
                 ha1, authNonce, params);
 
         if (rspAuth != null) {
@@ -2368,7 +2368,7 @@ public final class SmtpProtocolHandler
     /** RFC 5321 §4.1.1.10 — QUIT command; reply 221 and close. */
     private void quit(String args) throws IOException {
         endSessionSpan("QUIT");
-        this.state = SMTPState.QUIT;
+        this.state = SmtpState.QUIT;
         reply(221, "2.0.0 Goodbye");
         closeEndpoint();
         if (connectedHandler != null) {
@@ -2485,8 +2485,8 @@ public final class SmtpProtocolHandler
             reply(550, "5.7.0 XCLIENT not authorized");
             return;
         }
-        if (state == SMTPState.MAIL || state == SMTPState.RCPT
-                || state == SMTPState.DATA || state == SMTPState.BDAT) {
+        if (state == SmtpState.MAIL || state == SmtpState.RCPT
+                || state == SmtpState.DATA || state == SmtpState.BDAT) {
             reply(503, "5.5.1 Mail transaction in progress");
             return;
         }
@@ -2612,7 +2612,7 @@ public final class SmtpProtocolHandler
                 return;
             }
         }
-        state = SMTPState.INITIAL;
+        state = SmtpState.INITIAL;
         heloName = xclientHelo;
         mailFrom = null;
         recipients.clear();
@@ -2630,7 +2630,7 @@ public final class SmtpProtocolHandler
     }
 
     private void resetTransaction() {
-        this.state = SMTPState.READY;
+        this.state = SmtpState.READY;
         this.mailFrom = null;
         this.recipients.clear();
         this.dsnRecipients.clear();
@@ -2667,7 +2667,7 @@ public final class SmtpProtocolHandler
      * MT-PRIORITY (RFC 6710), HOLDFOR/HOLDUNTIL (RFC 4865), BY (RFC 2852).
      */
     private void mail(String args) throws IOException {
-        if (state != SMTPState.READY) {
+        if (state != SmtpState.READY) {
             reply(503, "5.0.0 Bad sequence of commands");
             return;
         }
@@ -2750,7 +2750,7 @@ public final class SmtpProtocolHandler
                         return;
                     }
                     try {
-                        DSNReturn dsnRet = DSNReturn.parse(param.substring(4));
+                        DsnReturn dsnRet = DsnReturn.parse(param.substring(4));
                         if (deliveryRequirements == null) {
                             deliveryRequirements = new DefaultDeliveryRequirements();
                         }
@@ -2918,7 +2918,7 @@ public final class SmtpProtocolHandler
                     ? deliveryRequirements : DefaultDeliveryRequirements.EMPTY;
             mailFromHandler.mailFrom(this, sender, smtputf8, delivery);
         } else {
-            this.state = SMTPState.MAIL;
+            this.state = SmtpState.MAIL;
             reply(250, "2.1.0 Sender ok");
         }
     }
@@ -2952,7 +2952,7 @@ public final class SmtpProtocolHandler
      * Parameters: NOTIFY/ORCPT (RFC 3461 §4.1–4.2).
      */
     private void rcpt(String args) throws IOException {
-        if (state != SMTPState.MAIL && state != SMTPState.RCPT) {
+        if (state != SmtpState.MAIL && state != SmtpState.RCPT) {
             reply(503, "5.0.0 Bad sequence of commands");
             return;
         }
@@ -2991,7 +2991,7 @@ public final class SmtpProtocolHandler
                 addressPart = toArg;
             }
         }
-        Set<DSNNotify> dsnNotify = null;
+        Set<DsnNotify> dsnNotify = null;
         String orcptType = null;
         String orcptAddress = null;
         if (paramsPart != null && !paramsPart.isEmpty()) {
@@ -3017,7 +3017,7 @@ public final class SmtpProtocolHandler
                         return;
                     }
                     String notifyValue = param.substring(7);
-                    dsnNotify = EnumSet.noneOf(DSNNotify.class);
+                    dsnNotify = EnumSet.noneOf(DsnNotify.class);
                     try {
                         int kwStart = 0;
                         int kwLen = notifyValue.length();
@@ -3028,7 +3028,7 @@ public final class SmtpProtocolHandler
                             }
                             String keyword = notifyValue.substring(kwStart, kwEnd).trim();
                             if (!keyword.isEmpty()) {
-                                dsnNotify.add(DSNNotify.parse(keyword));
+                                dsnNotify.add(DsnNotify.parse(keyword));
                             }
                             kwStart = kwEnd + 1;
                         }
@@ -3036,7 +3036,7 @@ public final class SmtpProtocolHandler
                         reply(501, "5.5.4 Invalid NOTIFY parameter");
                         return;
                     }
-                    if (dsnNotify.contains(DSNNotify.NEVER) && dsnNotify.size() > 1) {
+                    if (dsnNotify.contains(DsnNotify.NEVER) && dsnNotify.size() > 1) {
                         reply(501, "5.5.4 NOTIFY=NEVER cannot be combined with other values");
                         return;
                     }
@@ -3069,9 +3069,9 @@ public final class SmtpProtocolHandler
             reply(501, "5.1.3 Invalid recipient address syntax");
             return;
         }
-        DSNRecipientParameters pendingDsnParams = null;
+        DsnRecipientParameters pendingDsnParams = null;
         if (dsnNotify != null || orcptType != null) {
-            pendingDsnParams = new DSNRecipientParameters(dsnNotify, orcptType, orcptAddress);
+            pendingDsnParams = new DsnRecipientParameters(dsnNotify, orcptType, orcptAddress);
         }
         this.pendingRecipientDSN = pendingDsnParams;
         this.pendingRecipient = recipient;
@@ -3079,7 +3079,7 @@ public final class SmtpProtocolHandler
             recipientHandler.rcptTo(this, recipient, server.getMailboxFactory());
         } else {
             this.recipients.add(recipient);
-            this.state = SMTPState.RCPT;
+            this.state = SmtpState.RCPT;
             reply(250, "2.1.5 " + recipient.getEnvelopeAddress() + "... Recipient ok");
         }
     }
@@ -3089,7 +3089,7 @@ public final class SmtpProtocolHandler
      * RFC 3030 — BODY=BINARYMIME requires BDAT, not DATA.
      */
     private void data(String args) throws IOException {
-        if (state != SMTPState.RCPT) {
+        if (state != SmtpState.RCPT) {
             reply(503, "5.0.0 Bad sequence of commands");
             return;
         }
@@ -3114,7 +3114,7 @@ public final class SmtpProtocolHandler
 
     private void doAcceptMessage() {
         resetDataState();
-        this.state = SMTPState.DATA;
+        this.state = SmtpState.DATA;
         try {
             reply(354, "Start mail input; end with <CRLF>.<CRLF>");
         } catch (IOException e) {
@@ -3129,7 +3129,7 @@ public final class SmtpProtocolHandler
             reply(503, "5.0.0 BDAT requires EHLO");
             return;
         }
-        if (state != SMTPState.RCPT) {
+        if (state != SmtpState.RCPT) {
             reply(503, "5.0.0 Bad sequence of commands");
             return;
         }
@@ -3212,7 +3212,7 @@ public final class SmtpProtocolHandler
         }
         bdatBytesRemaining = chunkSize;
         bdatLast = last;
-        state = SMTPState.BDAT;
+        state = SmtpState.BDAT;
         if (chunkSize == 0) {
             handleBdatChunkComplete();
         }
@@ -3302,7 +3302,7 @@ public final class SmtpProtocolHandler
     /** RFC 5321 §4.2 — 554 connection refused. */
     @Override
     public void rejectConnection(String message) {
-        this.state = SMTPState.REJECTED;
+        this.state = SmtpState.REJECTED;
         try {
             reply(554, "5.0.0 " + message);
         } catch (IOException e) {
@@ -3320,7 +3320,7 @@ public final class SmtpProtocolHandler
     @Override
     public void acceptHello(MailFromHandler handler) {
         this.mailFromHandler = handler;
-        this.state = SMTPState.READY;
+        this.state = SmtpState.READY;
         try {
             sendEhloResponse();
         } catch (IOException e) {
@@ -3351,7 +3351,7 @@ public final class SmtpProtocolHandler
 
     @Override
     public void rejectHelloAndClose(String message) {
-        this.state = SMTPState.REJECTED;
+        this.state = SmtpState.REJECTED;
         try {
             reply(554, "5.0.0 " + message);
         } catch (IOException e) {
@@ -3377,7 +3377,7 @@ public final class SmtpProtocolHandler
     public void accept(MailFromHandler handler) {
         this.authenticated = true;
         this.mailFromHandler = handler;
-        this.state = SMTPState.READY;
+        this.state = SmtpState.READY;
         recordAuthenticationSuccess(authenticatedUser, authMechanism);
         try {
             reply(235, "2.7.0 Authentication successful");
@@ -3425,7 +3425,7 @@ public final class SmtpProtocolHandler
     @Override
     public void acceptSender(RecipientHandler handler) {
         this.recipientHandler = handler;
-        this.state = SMTPState.MAIL;
+        this.state = SmtpState.MAIL;
         if (mailFromHandler != null) {
             this.currentPipeline = mailFromHandler.getPipeline();
             if (currentPipeline != null) {
@@ -3535,7 +3535,7 @@ public final class SmtpProtocolHandler
             this.dsnRecipients.put(recipient, pendingRecipientDSN);
             pendingRecipientDSN = null;
         }
-        this.state = SMTPState.RCPT;
+        this.state = SmtpState.RCPT;
         if (currentPipeline != null) {
             currentPipeline.rcptTo(recipient);
         }
@@ -3560,7 +3560,7 @@ public final class SmtpProtocolHandler
             this.dsnRecipients.put(recipient, pendingRecipientDSN);
             pendingRecipientDSN = null;
         }
-        this.state = SMTPState.RCPT;
+        this.state = SmtpState.RCPT;
         addSessionAttribute("smtp.rcpt_count", recipients.size());
         addSessionEvent("RCPT TO (forward): " + recipient.getEnvelopeAddress());
         try {
@@ -3815,17 +3815,17 @@ public final class SmtpProtocolHandler
     }
 
     @Override
-    public DSNEnvelopeParameters getDSNEnvelopeParameters() {
+    public DsnEnvelopeParameters getDSNEnvelopeParameters() {
         if (deliveryRequirements == null
                 || !deliveryRequirements.hasDsnParameters()) {
             return null;
         }
-        return new DSNEnvelopeParameters(deliveryRequirements.getDsnReturn(),
+        return new DsnEnvelopeParameters(deliveryRequirements.getDsnReturn(),
                 deliveryRequirements.getDsnEnvelopeId());
     }
 
     @Override
-    public DSNRecipientParameters getDSNRecipientParameters(
+    public DsnRecipientParameters getDSNRecipientParameters(
             EmailAddress recipient) {
         if (dsnRecipients == null || recipient == null) {
             return null;

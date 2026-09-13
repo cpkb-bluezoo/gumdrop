@@ -33,7 +33,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link FTPServerLexer}, verifying exact token content
+ * Unit tests for {@link FtpServerLexer}, verifying exact token content
  * (including the free-form TEXT chunking property relied on by {@link
  * FtpProtocolHandler} to reconstruct pathname arguments with embedded
  * whitespace preserved verbatim) independent of the full protocol
@@ -44,25 +44,25 @@ import static org.junit.Assert.*;
 public class FTPServerLexerTest {
 
     static class Event {
-        final FTPServerLexer.Token type;
+        final FtpServerLexer.Token type;
         final String text;
-        Event(FTPServerLexer.Token type, String text) {
+        Event(FtpServerLexer.Token type, String text) {
             this.type = type;
             this.text = text;
         }
     }
 
-    static class RecordingHandler implements ByteStreamLexer.Handler<FTPServerLexer.Token> {
+    static class RecordingHandler implements ByteStreamLexer.Handler<FtpServerLexer.Token> {
         final List<Event> events = new ArrayList<Event>();
         int tokenTooLongCount;
         boolean latchTextAfterSp = true;
 
         @Override
-        public boolean token(FTPServerLexer.Token type, ByteBuffer window) {
+        public boolean token(FtpServerLexer.Token type, ByteBuffer window) {
             byte[] copy = new byte[window.remaining()];
             window.get(copy);
             events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
-            return type == FTPServerLexer.Token.SP && latchTextAfterSp;
+            return type == FtpServerLexer.Token.SP && latchTextAfterSp;
         }
 
         @Override
@@ -78,7 +78,7 @@ public class FTPServerLexerTest {
         String reconstructedArgs() {
             StringBuilder sb = new StringBuilder();
             for (Event e : events) {
-                if (e.type == FTPServerLexer.Token.TEXT) {
+                if (e.type == FtpServerLexer.Token.TEXT) {
                     sb.append(e.text);
                 }
             }
@@ -93,31 +93,31 @@ public class FTPServerLexerTest {
     @Test
     public void testBareCommandNoArgs() {
         RecordingHandler handler = new RecordingHandler();
-        FTPServerLexer lexer = new FTPServerLexer(handler, 1024);
+        FtpServerLexer lexer = new FtpServerLexer(handler, 1024);
         lexer.feed(bytesOf("NOOP\r\n"));
         assertEquals(2, handler.events.size());
-        assertEquals(FTPServerLexer.Token.KEYWORD, handler.events.get(0).type);
+        assertEquals(FtpServerLexer.Token.KEYWORD, handler.events.get(0).type);
         assertEquals("NOOP", handler.events.get(0).text);
-        assertEquals(FTPServerLexer.Token.CRLF, handler.events.get(1).type);
+        assertEquals(FtpServerLexer.Token.CRLF, handler.events.get(1).type);
     }
 
     @Test
     public void testCommandWithArgs() {
         RecordingHandler handler = new RecordingHandler();
-        FTPServerLexer lexer = new FTPServerLexer(handler, 1024);
+        FtpServerLexer lexer = new FtpServerLexer(handler, 1024);
         lexer.feed(bytesOf("USER alice\r\n"));
-        assertEquals(FTPServerLexer.Token.KEYWORD, handler.events.get(0).type);
+        assertEquals(FtpServerLexer.Token.KEYWORD, handler.events.get(0).type);
         assertEquals("USER", handler.events.get(0).text);
-        assertEquals(FTPServerLexer.Token.SP, handler.events.get(1).type);
+        assertEquals(FtpServerLexer.Token.SP, handler.events.get(1).type);
         assertEquals("alice", handler.reconstructedArgs());
-        assertEquals(FTPServerLexer.Token.CRLF,
+        assertEquals(FtpServerLexer.Token.CRLF,
                 handler.events.get(handler.events.size() - 1).type);
     }
 
     @Test
     public void testPathnameWithEmbeddedSpacesPreservedVerbatim() {
         RecordingHandler handler = new RecordingHandler();
-        FTPServerLexer lexer = new FTPServerLexer(handler, 1024);
+        FtpServerLexer lexer = new FtpServerLexer(handler, 1024);
         lexer.feed(bytesOf("STOR my documents/report final.txt\r\n"));
         // Only the FIRST space is the KEYWORD/args separator; every
         // subsequent byte, including further spaces in the pathname, is
@@ -128,16 +128,16 @@ public class FTPServerLexerTest {
     @Test
     public void testEmptyLineEmitsNoKeyword() {
         RecordingHandler handler = new RecordingHandler();
-        FTPServerLexer lexer = new FTPServerLexer(handler, 1024);
+        FtpServerLexer lexer = new FtpServerLexer(handler, 1024);
         lexer.feed(bytesOf("\r\n"));
         assertEquals(1, handler.events.size());
-        assertEquals(FTPServerLexer.Token.CRLF, handler.events.get(0).type);
+        assertEquals(FtpServerLexer.Token.CRLF, handler.events.get(0).type);
     }
 
     @Test
     public void testCapEnforcedOnKeyword() {
         RecordingHandler handler = new RecordingHandler();
-        FTPServerLexer lexer = new FTPServerLexer(handler, 5);
+        FtpServerLexer lexer = new FtpServerLexer(handler, 5);
         StringBuilder longWord = new StringBuilder();
         for (int i = 0; i < 20; i++) {
             longWord.append('X');
@@ -145,14 +145,14 @@ public class FTPServerLexerTest {
         lexer.feed(bytesOf(longWord + "\r\n"));
         assertEquals(1, handler.tokenTooLongCount);
         for (Event e : handler.events) {
-            assertNotEquals(FTPServerLexer.Token.KEYWORD, e.type);
+            assertNotEquals(FtpServerLexer.Token.KEYWORD, e.type);
         }
     }
 
     @Test
     public void testCapNotEnforcedOnArgsText() {
         RecordingHandler handler = new RecordingHandler();
-        FTPServerLexer lexer = new FTPServerLexer(handler, 5);
+        FtpServerLexer lexer = new FtpServerLexer(handler, 5);
         StringBuilder longArgs = new StringBuilder();
         for (int i = 0; i < 50; i++) {
             longArgs.append('a');
@@ -168,12 +168,12 @@ public class FTPServerLexerTest {
         byte[] wire = line.getBytes(StandardCharsets.US_ASCII);
 
         RecordingHandler whole = new RecordingHandler();
-        new FTPServerLexer(whole, 1024).feed(bytesOf(line));
+        new FtpServerLexer(whole, 1024).feed(bytesOf(line));
         String expectedArgs = whole.reconstructedArgs();
 
         for (int chunkSize = 1; chunkSize <= wire.length; chunkSize++) {
             RecordingHandler handler = new RecordingHandler();
-            FTPServerLexer lexer = new FTPServerLexer(handler, 1024);
+            FtpServerLexer lexer = new FtpServerLexer(handler, 1024);
             ByteBuffer netIn = ByteBuffer.allocate(256);
             int offset = 0;
             while (offset < wire.length) {

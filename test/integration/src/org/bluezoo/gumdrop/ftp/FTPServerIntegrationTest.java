@@ -607,7 +607,7 @@ public class FTPServerIntegrationTest extends AbstractServerIntegrationTest {
      * <p>This is deliberately an end-to-end content check, not just a
      * check that PROT P replies 200: the FTP client (issue #104) always
      * TLS-wraps its own end of a PASV data connection once PROT P is
-     * active (see {@code FTPClientDataConnectionCoordinator}). If the
+     * active (see {@code FtpClientDataConnectionCoordinator}). If the
      * server's data connection were still plaintext, the client's TLS
      * ClientHello would arrive at the server as literal (mis-parsed) file
      * content instead of a handshake, and the round-tripped content would

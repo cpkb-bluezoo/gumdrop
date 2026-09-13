@@ -317,7 +317,7 @@ public class IfHeaderParserTest {
 
     // -- Stub lock manager for testing --
 
-    private static class StubLockManager extends WebDAVLockManager {
+    private static class StubLockManager extends WebdavLockManager {
         private final java.util.Map<String, java.util.Set<Path>> validTokens = new java.util.HashMap<>();
 
         void addValidToken(Path path, String token) {

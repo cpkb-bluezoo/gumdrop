@@ -1,5 +1,5 @@
 /*
- * DMARCPolicy.java
+ * DmarcPolicy.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,10 +26,10 @@ package org.bluezoo.gumdrop.smtp.auth;
  * RFC 7489 §6.3 (p= tag).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DMARCValidator
+ * @see DmarcValidator
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
-public enum DMARCPolicy {
+public enum DmarcPolicy {
 
     /**
      * No specific action requested.
@@ -53,7 +53,7 @@ public enum DMARCPolicy {
 
     private final String value;
 
-    DMARCPolicy(String value) {
+    DmarcPolicy(String value) {
         this.value = value;
     }
 
@@ -72,7 +72,7 @@ public enum DMARCPolicy {
      * @param value the policy value string
      * @return the policy, or NONE if not recognized
      */
-    public static DMARCPolicy parse(String value) {
+    public static DmarcPolicy parse(String value) {
         if (value == null) {
             return NONE;
         }

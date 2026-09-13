@@ -37,7 +37,7 @@ import java.util.Map;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DMARCValidator} (FEAT-001, RFC 9989 "DMARCbis"
+ * Unit tests for {@link DmarcValidator} (FEAT-001, RFC 9989 "DMARCbis"
  * additions: {@code t=}, {@code np=}, {@code psd=} tags, PSD policy
  * lookup, and {@code v=DMARC1} first-tag validation).
  */
@@ -74,21 +74,21 @@ public class DMARCValidatorTest {
 
     @Test
     public void testVTagFirstParsesCorrectly() throws Exception {
-        DMARCValidator.DMARCRecord rec = parseDMARC("v=DMARC1; p=reject");
+        DmarcValidator.DmarcRecord rec = parseDMARC("v=DMARC1; p=reject");
         assertNotNull(rec);
-        assertEquals(DMARCPolicy.REJECT, rec.policy);
+        assertEquals(DmarcPolicy.REJECT, rec.policy);
     }
 
     /**
      * Uses reflection to invoke the private parseDMARCRecord method
      * (mirrors DMARCRuaParsingTest's helper).
      */
-    private DMARCValidator.DMARCRecord parseDMARC(String txt) throws Exception {
+    private DmarcValidator.DmarcRecord parseDMARC(String txt) throws Exception {
         java.lang.reflect.Method method =
-                DMARCValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
+                DmarcValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
         method.setAccessible(true);
-        DMARCValidator validator = new DMARCValidator(resolver);
-        return (DMARCValidator.DMARCRecord) method.invoke(validator, txt);
+        DmarcValidator validator = new DmarcValidator(resolver);
+        return (DmarcValidator.DmarcRecord) method.invoke(validator, txt);
     }
 
     @Test
@@ -97,10 +97,10 @@ public class DMARCValidatorTest {
         // unaffected by the stricter v= validation.
         resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=reject");
 
-        Result result = evaluate("example.com", SPFResult.PASS, "example.com",
-                DKIMResult.FAIL, null);
+        Result result = evaluate("example.com", SpfResult.PASS, "example.com",
+                DkimResult.FAIL, null);
 
-        assertEquals(DMARCResult.PASS, result.result);
+        assertEquals(DmarcResult.PASS, result.result);
         assertEquals(AuthVerdict.PASS, result.verdict);
     }
 
@@ -108,10 +108,10 @@ public class DMARCValidatorTest {
     public void testTestingModeDowngradesRejectToQuarantine() {
         resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=reject; t=y");
 
-        Result result = evaluate("example.com", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null);
+        Result result = evaluate("example.com", SpfResult.FAIL, null,
+                DkimResult.FAIL, null);
 
-        assertEquals(DMARCResult.FAIL, result.result);
+        assertEquals(DmarcResult.FAIL, result.result);
         assertEquals(AuthVerdict.QUARANTINE, result.verdict);
     }
 
@@ -119,10 +119,10 @@ public class DMARCValidatorTest {
     public void testTestingModeDowngradesQuarantineToNone() {
         resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=quarantine; t=y");
 
-        Result result = evaluate("example.com", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null);
+        Result result = evaluate("example.com", SpfResult.FAIL, null,
+                DkimResult.FAIL, null);
 
-        assertEquals(DMARCResult.FAIL, result.result);
+        assertEquals(DmarcResult.FAIL, result.result);
         assertEquals(AuthVerdict.NONE, result.verdict);
     }
 
@@ -130,8 +130,8 @@ public class DMARCValidatorTest {
     public void testDefaultTestingModeAppliesPolicyAsWritten() {
         resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=reject");
 
-        Result result = evaluate("example.com", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null);
+        Result result = evaluate("example.com", SpfResult.FAIL, null,
+                DkimResult.FAIL, null);
 
         assertEquals(AuthVerdict.REJECT, result.verdict);
     }
@@ -142,12 +142,12 @@ public class DMARCValidatorTest {
         // ("example.co.uk"), but "co.uk" declares itself a PSD with np=.
         resolver.addTxt("_dmarc.co.uk", "v=DMARC1; p=none; psd=y; np=reject");
 
-        Result result = evaluate("sub.example.co.uk", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null);
+        Result result = evaluate("sub.example.co.uk", SpfResult.FAIL, null,
+                DkimResult.FAIL, null);
 
-        assertEquals(DMARCResult.FAIL, result.result);
+        assertEquals(DmarcResult.FAIL, result.result);
         assertEquals(AuthVerdict.REJECT, result.verdict);
-        assertEquals(DMARCPolicy.REJECT, result.policy);
+        assertEquals(DmarcPolicy.REJECT, result.policy);
     }
 
     @Test
@@ -156,10 +156,10 @@ public class DMARCValidatorTest {
         // RFC 9989 §5 only applies np= when a record explicitly opts in.
         resolver.addTxt("_dmarc.co.uk", "v=DMARC1; p=none; np=reject");
 
-        Result result = evaluate("sub.example.co.uk", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null);
+        Result result = evaluate("sub.example.co.uk", SpfResult.FAIL, null,
+                DkimResult.FAIL, null);
 
-        assertEquals(DMARCResult.NONE, result.result);
+        assertEquals(DmarcResult.NONE, result.result);
         assertEquals(AuthVerdict.NONE, result.verdict);
     }
 
@@ -167,10 +167,10 @@ public class DMARCValidatorTest {
     public void testPsdLookupFallsBackToPWhenNpAbsent() {
         resolver.addTxt("_dmarc.co.uk", "v=DMARC1; p=quarantine; psd=y");
 
-        Result result = evaluate("sub.example.co.uk", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null);
+        Result result = evaluate("sub.example.co.uk", SpfResult.FAIL, null,
+                DkimResult.FAIL, null);
 
-        assertEquals(DMARCResult.FAIL, result.result);
+        assertEquals(DmarcResult.FAIL, result.result);
         assertEquals(AuthVerdict.QUARANTINE, result.verdict);
     }
 
@@ -182,8 +182,8 @@ public class DMARCValidatorTest {
         resolver.addTxt("_dmarc.example.co.uk", "v=DMARC1; p=reject");
         resolver.addTxt("_dmarc.co.uk", "v=DMARC1; p=none; psd=y; np=none");
 
-        Result result = evaluate("sub.example.co.uk", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null);
+        Result result = evaluate("sub.example.co.uk", SpfResult.FAIL, null,
+                DkimResult.FAIL, null);
 
         assertEquals(AuthVerdict.REJECT, result.verdict);
     }
@@ -192,8 +192,8 @@ public class DMARCValidatorTest {
     public void testNpFallsBackToSubdomainPolicy() {
         resolver.addTxt("_dmarc.co.uk", "v=DMARC1; p=none; sp=quarantine; psd=y");
 
-        Result result = evaluate("sub.example.co.uk", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null);
+        Result result = evaluate("sub.example.co.uk", SpfResult.FAIL, null,
+                DkimResult.FAIL, null);
 
         assertEquals(AuthVerdict.QUARANTINE, result.verdict);
     }
@@ -203,12 +203,12 @@ public class DMARCValidatorTest {
         resolver.addTxt("_dmarc.example.com",
                 "v=DMARC1; p=reject; t=y; psd=n");
 
-        DMARCValidator validator = new DMARCValidator(resolver);
+        DmarcValidator validator = new DmarcValidator(resolver);
         final Result holder = new Result();
-        validator.evaluate("example.com", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null, new DMARCCallback() {
+        validator.evaluate("example.com", SpfResult.FAIL, null,
+                DkimResult.FAIL, null, new DmarcCallback() {
                     @Override
-                    public void dmarcResult(DMARCResult result, DMARCPolicy policy,
+                    public void dmarcResult(DmarcResult result, DmarcPolicy policy,
                                              String domain, AuthVerdict verdict) {
                         holder.result = result;
                     }
@@ -222,9 +222,9 @@ public class DMARCValidatorTest {
     public void testDiscoveryMethodAuthorWhenRecordAtFromDomain() {
         resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=reject");
 
-        DMARCValidator validator = new DMARCValidator(resolver);
-        validator.evaluate("example.com", SPFResult.PASS, "example.com",
-                DKIMResult.FAIL, null, noopCallback());
+        DmarcValidator validator = new DmarcValidator(resolver);
+        validator.evaluate("example.com", SpfResult.PASS, "example.com",
+                DkimResult.FAIL, null, noopCallback());
 
         assertEquals("author", validator.getLastDiscoveryMethod());
     }
@@ -233,9 +233,9 @@ public class DMARCValidatorTest {
     public void testDiscoveryMethodPslWhenRecordAtOrgDomain() {
         resolver.addTxt("_dmarc.example.co.uk", "v=DMARC1; p=reject");
 
-        DMARCValidator validator = new DMARCValidator(resolver);
-        validator.evaluate("sub.example.co.uk", SPFResult.PASS, "sub.example.co.uk",
-                DKIMResult.FAIL, null, noopCallback());
+        DmarcValidator validator = new DmarcValidator(resolver);
+        validator.evaluate("sub.example.co.uk", SpfResult.PASS, "sub.example.co.uk",
+                DkimResult.FAIL, null, noopCallback());
 
         assertEquals("psl", validator.getLastDiscoveryMethod());
     }
@@ -244,9 +244,9 @@ public class DMARCValidatorTest {
     public void testDiscoveryMethodTreewalkWhenRecordAtPsd() {
         resolver.addTxt("_dmarc.co.uk", "v=DMARC1; p=none; psd=y; np=reject");
 
-        DMARCValidator validator = new DMARCValidator(resolver);
-        validator.evaluate("sub.example.co.uk", SPFResult.FAIL, null,
-                DKIMResult.FAIL, null, noopCallback());
+        DmarcValidator validator = new DmarcValidator(resolver);
+        validator.evaluate("sub.example.co.uk", SpfResult.FAIL, null,
+                DkimResult.FAIL, null, noopCallback());
 
         assertEquals("treewalk", validator.getLastDiscoveryMethod());
     }
@@ -255,9 +255,9 @@ public class DMARCValidatorTest {
     public void testAlignmentAccessorsReflectLastEvaluation() {
         resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=reject");
 
-        DMARCValidator validator = new DMARCValidator(resolver);
-        validator.evaluate("example.com", SPFResult.PASS, "example.com",
-                DKIMResult.FAIL, null, noopCallback());
+        DmarcValidator validator = new DmarcValidator(resolver);
+        validator.evaluate("example.com", SpfResult.PASS, "example.com",
+                DkimResult.FAIL, null, noopCallback());
 
         assertTrue(validator.isLastSpfAligned());
         assertFalse(validator.isLastDkimAligned());
@@ -267,9 +267,9 @@ public class DMARCValidatorTest {
     public void testResetClearsAlignmentAndDiscoveryMethod() {
         resolver.addTxt("_dmarc.example.com", "v=DMARC1; p=reject");
 
-        DMARCValidator validator = new DMARCValidator(resolver);
-        validator.evaluate("example.com", SPFResult.PASS, "example.com",
-                DKIMResult.FAIL, null, noopCallback());
+        DmarcValidator validator = new DmarcValidator(resolver);
+        validator.evaluate("example.com", SpfResult.PASS, "example.com",
+                DkimResult.FAIL, null, noopCallback());
         assertEquals("author", validator.getLastDiscoveryMethod());
 
         validator.reset();
@@ -281,24 +281,24 @@ public class DMARCValidatorTest {
 
     // -- Helpers --
 
-    private DMARCCallback noopCallback() {
-        return new DMARCCallback() {
+    private DmarcCallback noopCallback() {
+        return new DmarcCallback() {
             @Override
-            public void dmarcResult(DMARCResult result, DMARCPolicy policy,
+            public void dmarcResult(DmarcResult result, DmarcPolicy policy,
                                      String domain, AuthVerdict verdict) {
                 // no-op
             }
         };
     }
 
-    private Result evaluate(String fromDomain, SPFResult spfResult, String spfDomain,
-                             DKIMResult dkimResult, String dkimDomain) {
-        DMARCValidator validator = new DMARCValidator(resolver);
+    private Result evaluate(String fromDomain, SpfResult spfResult, String spfDomain,
+                             DkimResult dkimResult, String dkimDomain) {
+        DmarcValidator validator = new DmarcValidator(resolver);
         final Result holder = new Result();
         validator.evaluate(fromDomain, spfResult, spfDomain, dkimResult, dkimDomain,
-                new DMARCCallback() {
+                new DmarcCallback() {
                     @Override
-                    public void dmarcResult(DMARCResult result, DMARCPolicy policy,
+                    public void dmarcResult(DmarcResult result, DmarcPolicy policy,
                                              String domain, AuthVerdict verdict) {
                         holder.result = result;
                         holder.policy = policy;
@@ -309,8 +309,8 @@ public class DMARCValidatorTest {
     }
 
     private static final class Result {
-        DMARCResult result;
-        DMARCPolicy policy;
+        DmarcResult result;
+        DmarcPolicy policy;
         AuthVerdict verdict;
     }
 

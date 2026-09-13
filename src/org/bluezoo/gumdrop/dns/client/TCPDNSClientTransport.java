@@ -1,5 +1,5 @@
 /*
- * TcpDNSClientTransport.java
+ * TcpDnsClientTransport.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.TimerHandle;
  * by RFC 7858 section 3.1. Server certificate verification uses the
  * JVM's default WebPKI trust store unless overridden with {@link
  * #setTrustManager} (an arbitrary {@code X509TrustManager}, e.g. {@link
- * org.bluezoo.gumdrop.dns.DANETrustManager}) or {@link
+ * org.bluezoo.gumdrop.dns.DaneTrustManager}) or {@link
  * #setPinnedSPKIFingerprints} (RFC 7858 section 4.2's Strict usage
  * profile); when both are set, the trust manager is used as the SPKI
  * check's delegate rather than being replaced by it.
@@ -59,7 +59,7 @@ import org.bluezoo.gumdrop.TimerHandle;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DnsClientTransport
  */
-public class TcpDNSClientTransport implements DnsClientTransport {
+public class TcpDnsClientTransport implements DnsClientTransport {
 
     // RFC 1035 section 4.2.2: DNS-over-TCP on port 53
     private static final int DEFAULT_TCP_PORT = 53;
@@ -94,8 +94,8 @@ public class TcpDNSClientTransport implements DnsClientTransport {
     /**
      * Returns a transport configured for DNS-over-TLS (port 853, TLS enabled).
      */
-    public static TcpDNSClientTransport createDoT() {
-        TcpDNSClientTransport transport = new TcpDNSClientTransport();
+    public static TcpDnsClientTransport createDoT() {
+        TcpDnsClientTransport transport = new TcpDnsClientTransport();
         transport.setSecure(true);
         return transport;
     }
@@ -127,7 +127,7 @@ public class TcpDNSClientTransport implements DnsClientTransport {
     /**
      * Sets a custom trust manager for TLS certificate verification, in
      * preference to the JVM's default WebPKI trust store -- e.g. a
-     * {@link org.bluezoo.gumdrop.dns.DANETrustManager} to authenticate
+     * {@link org.bluezoo.gumdrop.dns.DaneTrustManager} to authenticate
      * this resolver's upstream against TLSA records, or a private CA.
      * If {@link #setPinnedSPKIFingerprints} is also set, this trust
      * manager is used as its delegate rather than being replaced by it.
@@ -156,7 +156,7 @@ public class TcpDNSClientTransport implements DnsClientTransport {
             port = defaultPort;
         }
         this.endpoint = factory.connect(server, port,
-                new TCPProtocolHandler(handler), loop);
+                new TcpProtocolHandler(handler), loop);
     }
 
     /**
@@ -181,10 +181,10 @@ public class TcpDNSClientTransport implements DnsClientTransport {
             String[] fingerprints = spkiFingerprints.toArray(new String[0]);
             factory.setTrustManager(trustManager != null
                     ? new org.bluezoo.gumdrop.util
-                            .SPKIPinnedCertTrustManager(
+                            .SpkiPinnedCertTrustManager(
                             trustManager, fingerprints)
                     : new org.bluezoo.gumdrop.util
-                            .SPKIPinnedCertTrustManager(fingerprints));
+                            .SpkiPinnedCertTrustManager(fingerprints));
         } else if (trustManager != null) {
             factory.setTrustManager(trustManager);
         }
@@ -223,12 +223,12 @@ public class TcpDNSClientTransport implements DnsClientTransport {
      * Handles TCP framing and delegates reassembled DNS messages to
      * the transport handler.
      */
-    private static class TCPProtocolHandler implements ProtocolHandler {
+    private static class TcpProtocolHandler implements ProtocolHandler {
 
         private final DnsClientTransportHandler handler;
         private ByteBuffer accumulator;
 
-        TCPProtocolHandler(DnsClientTransportHandler handler) {
+        TcpProtocolHandler(DnsClientTransportHandler handler) {
             this.handler = handler;
         }
 

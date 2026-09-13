@@ -1,5 +1,5 @@
 /*
- * JSPPage.java
+ * JspPage.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ import java.util.Map;
  * This is the root node of the JSP structure containing all page directives,
  * elements, and content.
  * 
- * <p>A JSPPage contains:
+ * <p>A JspPage contains:
  * <ul>
  * <li>Page directives (imports, content type, etc.)</li>
  * <li>Tag library directives</li>
@@ -43,7 +43,7 @@ import java.util.Map;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPPage {
+public class JspPage {
     
     private final String uri;
     private final String encoding;
@@ -62,7 +62,7 @@ public class JSPPage {
     private final Map<String, String> tagLibraries = new HashMap<>();
     
     // JSP content elements in document order
-    private final List<JSPElement> elements = new ArrayList<>();
+    private final List<JspElement> elements = new ArrayList<>();
     
     // Static include file paths (for dependency tracking)
     private final List<String> includes = new ArrayList<>();
@@ -77,7 +77,7 @@ public class JSPPage {
      * @param uri the URI/path of the JSP file
      * @param encoding the character encoding of the JSP source
      */
-    public JSPPage(String uri, String encoding) {
+    public JspPage(String uri, String encoding) {
         this.uri = uri;
         this.encoding = encoding;
         
@@ -284,7 +284,7 @@ public class JSPPage {
      * 
      * @param element the JSP element to add
      */
-    public void addElement(JSPElement element) {
+    public void addElement(JspElement element) {
         elements.add(element);
     }
     
@@ -293,7 +293,7 @@ public class JSPPage {
      * 
      * @return a list of JSP elements
      */
-    public List<JSPElement> getElements() {
+    public List<JspElement> getElements() {
         return new ArrayList<>(elements);
     }
     
@@ -386,7 +386,7 @@ public class JSPPage {
     
     @Override
     public String toString() {
-        return "JSPPage{" +
+        return "JspPage{" +
                 "uri='" + uri + '\'' +
                 ", encoding='" + encoding + '\'' +
                 ", elements=" + elements.size() +

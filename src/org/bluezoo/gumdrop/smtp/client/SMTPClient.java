@@ -33,7 +33,7 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
-import org.bluezoo.gumdrop.dns.DANETrustManager;
+import org.bluezoo.gumdrop.dns.DaneTrustManager;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnssecAwareQueryCallback;
@@ -83,7 +83,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RemoteGreeting
  * @see SmtpClientProtocolHandler
- * @see org.bluezoo.gumdrop.dns.DANETrustManager
+ * @see org.bluezoo.gumdrop.dns.DaneTrustManager
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> (Implicit TLS, SMTPS port 465)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)
@@ -319,7 +319,7 @@ public class SmtpClient {
     /**
      * Looks up TLSA records for this client's host/port and, if the
      * lookup is DNSSEC-secure and non-empty, installs a {@link
-     * DANETrustManager} before proceeding to {@link #doConnect}.
+     * DaneTrustManager} before proceeding to {@link #doConnect}.
      * RFC 7672 section 3.1.3: an insecure or empty lookup is not an
      * error -- it just means DANE does not apply, so the connection
      * proceeds with whatever trust manager was already configured.
@@ -337,7 +337,7 @@ public class SmtpClient {
                         }
                     }
                     if (!tlsaRecords.isEmpty()) {
-                        trustManager = new DANETrustManager(
+                        trustManager = new DaneTrustManager(
                                 trustManager, tlsaRecords);
                     }
                 }

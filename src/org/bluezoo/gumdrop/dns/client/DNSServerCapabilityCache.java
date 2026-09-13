@@ -1,5 +1,5 @@
 /*
- * DNSServerCapabilityCache.java
+ * DnsServerCapabilityCache.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ import java.util.concurrent.ConcurrentMap;
  * Process-wide, address-keyed cache of which encrypted DNS transports a
  * server is known to support.
  *
- * <p>Three tiers, modeled on {@link DNSMultiQTypeCache} and {@link
+ * <p>Three tiers, modeled on {@link DnsMultiQTypeCache} and {@link
  * org.bluezoo.gumdrop.http.client.AltSvcCache}:
  * <ul>
  * <li>A permanent, seeded table of well-known public resolvers (Google,
@@ -59,7 +59,7 @@ import java.util.concurrent.ConcurrentMap;
  * {@code /etc/resolv.conf}) by actually opening a DoQ/DoT/DoH
  * connection to it. Most such servers support none of them, and unlike
  * an EDNS0 option opportunistically attached to a query that is being
- * sent anyway (as in {@link DNSMultiQTypeCache}), a real connection
+ * sent anyway (as in {@link DnsMultiQTypeCache}), a real connection
  * attempt costs a real connection timeout when it fails -- trying it by
  * default for every configured server would add that latency to the
  * common case. DDR sidesteps this: it is itself a single plain DNS
@@ -69,37 +69,37 @@ import java.util.concurrent.ConcurrentMap;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DnsResolver
  */
-final class DNSServerCapabilityCache {
+final class DnsServerCapabilityCache {
 
     // RFC 9250/7858/8484 don't define a TTL for this kind of capability
     // discovery; an hour bounds how long a server that starts (or
     // resumes) supporting a transport goes un-retried, without probing
-    // constantly -- same rationale and value as DNSMultiQTypeCache.
+    // constantly -- same rationale and value as DnsMultiQTypeCache.
     private static final long UNSUPPORTED_TTL_MS = 60 * 60 * 1000L;
 
-    private static final Map<String, DNSServerCapabilities> WELL_KNOWN = wellKnownResolvers();
+    private static final Map<String, DnsServerCapabilities> WELL_KNOWN = wellKnownResolvers();
 
-    private static final ConcurrentMap<String, DNSServerCapabilities> learned = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, DnsServerCapabilities> learned = new ConcurrentHashMap<>();
 
     private static final ConcurrentMap<String, Long> unsupportedUntil = new ConcurrentHashMap<>();
 
-    private DNSServerCapabilityCache() {
+    private DnsServerCapabilityCache() {
     }
 
     /**
      * Returns what's known about {@code server}'s encrypted transport
      * support: the seeded well-known table takes priority, then
      * anything learned at runtime via DDR, else {@link
-     * DNSServerCapabilities#UNKNOWN}.
+     * DnsServerCapabilities#UNKNOWN}.
      */
-    static DNSServerCapabilities get(InetSocketAddress server) {
+    static DnsServerCapabilities get(InetSocketAddress server) {
         String k = addressKey(server);
-        DNSServerCapabilities known = WELL_KNOWN.get(k);
+        DnsServerCapabilities known = WELL_KNOWN.get(k);
         if (known != null) {
             return known;
         }
-        DNSServerCapabilities discovered = learned.get(k);
-        return discovered != null ? discovered : DNSServerCapabilities.UNKNOWN;
+        DnsServerCapabilities discovered = learned.get(k);
+        return discovered != null ? discovered : DnsServerCapabilities.UNKNOWN;
     }
 
     /**
@@ -107,7 +107,7 @@ final class DNSServerCapabilityCache {
      * an otherwise-unknown server. A no-op for a server already in the
      * permanent well-known table, which takes priority regardless.
      */
-    static void learn(InetSocketAddress server, DNSServerCapabilities capabilities) {
+    static void learn(InetSocketAddress server, DnsServerCapabilities capabilities) {
         String k = addressKey(server);
         if (!WELL_KNOWN.containsKey(k)) {
             learned.put(k, capabilities);
@@ -118,7 +118,7 @@ final class DNSServerCapabilityCache {
      * Returns true if {@code transport} was recently observed not to
      * work against {@code server}, i.e. it should be skipped for now.
      */
-    static boolean isKnownUnsupported(InetSocketAddress server, DNSTransportType transport) {
+    static boolean isKnownUnsupported(InetSocketAddress server, DnsTransportType transport) {
         String k = key(server, transport);
         Long expiry = unsupportedUntil.get(k);
         if (expiry == null) {
@@ -136,7 +136,7 @@ final class DNSServerCapabilityCache {
      * {@code server} (its transport failed to open, or its connection
      * failed shortly after).
      */
-    static void markUnsupported(InetSocketAddress server, DNSTransportType transport) {
+    static void markUnsupported(InetSocketAddress server, DnsTransportType transport) {
         unsupportedUntil.put(key(server, transport),
                 System.currentTimeMillis() + UNSUPPORTED_TTL_MS);
     }
@@ -155,7 +155,7 @@ final class DNSServerCapabilityCache {
         return server.getAddress().getHostAddress();
     }
 
-    private static String key(InetSocketAddress server, DNSTransportType transport) {
+    private static String key(InetSocketAddress server, DnsTransportType transport) {
         return addressKey(server) + "|" + transport;
     }
 
@@ -165,10 +165,10 @@ final class DNSServerCapabilityCache {
     // "dohpath" SvcParam is absent.
     static final String DOH_PATH = "/dns-query";
 
-    private static Map<String, DNSServerCapabilities> wellKnownResolvers() {
-        Map<String, DNSServerCapabilities> m = new HashMap<>();
-        DNSServerCapabilities allSupported =
-                DNSServerCapabilities.of(true, 0, true, 0, DOH_PATH, 0);
+    private static Map<String, DnsServerCapabilities> wellKnownResolvers() {
+        Map<String, DnsServerCapabilities> m = new HashMap<>();
+        DnsServerCapabilities allSupported =
+                DnsServerCapabilities.of(true, 0, true, 0, DOH_PATH, 0);
 
         // Google Public DNS: DoQ/DoT on port 853, DoH at dns.google.
         m.put("8.8.8.8", allSupported);

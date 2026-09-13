@@ -48,7 +48,7 @@ class FileHandlerFactory implements HttpRequestHandlerFactory {
     private final String[] welcomeFiles;
     private final Map<String, String> contentTypes;
 
-    private final WebDAVLockManager lockManager;
+    private final WebdavLockManager lockManager;
     private final DeadPropertyStore deadPropertyStore;
 
     FileHandlerFactory(Path rootPath, boolean allowWrite,
@@ -126,7 +126,7 @@ class FileHandlerFactory implements HttpRequestHandlerFactory {
         contentTypes.put("webm", "video/webm");
         
         this.lockManager = webdavEnabled
-                ? new WebDAVLockManager() : null;
+                ? new WebdavLockManager() : null;
         this.deadPropertyStore = deadPropertyStore;
     }
 

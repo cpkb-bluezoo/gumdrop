@@ -1,5 +1,5 @@
 /*
- * OTLPGrpcEndpoint.java
+ * OtlpGrpcEndpoint.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -56,14 +56,14 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class OTLPGrpcEndpoint {
+class OtlpGrpcEndpoint {
 
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
     private static final int DEFAULT_GRPC_PORT = 4317;
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
-    private static final Logger logger = Logger.getLogger(OTLPGrpcEndpoint.class.getName());
+    private static final Logger logger = Logger.getLogger(OtlpGrpcEndpoint.class.getName());
 
     private final String name;
     private final String host;
@@ -92,7 +92,7 @@ class OTLPGrpcEndpoint {
      * @param config the telemetry configuration
      * @return the endpoint, or null if the URL is invalid
      */
-    static OTLPGrpcEndpoint create(String name, String url, String grpcPath,
+    static OtlpGrpcEndpoint create(String name, String url, String grpcPath,
                                     Map<String, String> headers, TelemetryConfig config) {
         if (url == null || url.isEmpty()) {
             return null;
@@ -112,7 +112,7 @@ class OTLPGrpcEndpoint {
                 port = DEFAULT_GRPC_PORT;
             }
 
-            OTLPGrpcEndpoint endpoint = new OTLPGrpcEndpoint(name, host, port, grpcPath, secure, headers);
+            OtlpGrpcEndpoint endpoint = new OtlpGrpcEndpoint(name, host, port, grpcPath, secure, headers);
 
             if (config != null) {
                 endpoint.truststoreFile = config.getTruststoreFile();
@@ -128,7 +128,7 @@ class OTLPGrpcEndpoint {
         }
     }
 
-    private OTLPGrpcEndpoint(String name, String host, int port, String path, boolean secure,
+    private OtlpGrpcEndpoint(String name, String host, int port, String path, boolean secure,
                             Map<String, String> headers) {
         this.name = name;
         this.host = host;
@@ -246,7 +246,7 @@ class OTLPGrpcEndpoint {
                 }
             }
 
-            client.connect(new OTLPGrpcConnectionHandler(connectLatch));
+            client.connect(new OtlpGrpcConnectionHandler(connectLatch));
 
             logger.info(MessageFormat.format(L10N.getString("info.endpoint_connecting"), name, host, port));
 
@@ -262,11 +262,11 @@ class OTLPGrpcEndpoint {
         }
     }
 
-    private class OTLPGrpcConnectionHandler implements HttpClientHandler {
+    private class OtlpGrpcConnectionHandler implements HttpClientHandler {
 
         private final CountDownLatch connectLatch;
 
-        OTLPGrpcConnectionHandler(CountDownLatch connectLatch) {
+        OtlpGrpcConnectionHandler(CountDownLatch connectLatch) {
             this.connectLatch = connectLatch;
         }
 
@@ -308,7 +308,7 @@ class OTLPGrpcEndpoint {
      * @param data the protobuf-encoded telemetry data (ExportTraceServiceRequest etc.)
      * @param handler the response handler
      */
-    void send(ByteBuffer data, OTLPGrpcResponseHandler handler) {
+    void send(ByteBuffer data, OtlpGrpcResponseHandler handler) {
         HttpClient httpClient = getClient();
         if (httpClient == null) {
             handler.failed(new IOException("No connection to " + name + " endpoint"));

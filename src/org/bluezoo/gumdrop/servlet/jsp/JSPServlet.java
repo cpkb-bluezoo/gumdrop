@@ -1,5 +1,5 @@
 /*
- * JSPServlet.java
+ * JspServlet.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This program is free software: you can redistribute it and/or modify
@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.servlet.Context;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPServlet extends HttpServlet {
+public class JspServlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
 

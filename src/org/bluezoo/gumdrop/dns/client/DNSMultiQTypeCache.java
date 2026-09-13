@@ -1,5 +1,5 @@
 /*
- * DNSMultiQTypeCache.java
+ * DnsMultiQTypeCache.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -41,7 +41,7 @@ import java.util.concurrent.ConcurrentMap;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc10029">RFC 10029</a>
  */
-final class DNSMultiQTypeCache {
+final class DnsMultiQTypeCache {
 
     // RFC 10029 doesn't define a TTL for this kind of capability
     // discovery; an hour bounds how long a server that starts (or
@@ -51,7 +51,7 @@ final class DNSMultiQTypeCache {
 
     private static final ConcurrentMap<String, Long> unsupportedUntil = new ConcurrentHashMap<>();
 
-    private DNSMultiQTypeCache() {
+    private DnsMultiQTypeCache() {
     }
 
     /**

@@ -270,7 +270,7 @@ TCP Fast Open to send data during the TCP handshake, saving a round trip</li>
 Strict privacy profile, the client can be configured with SHA-256 hashes of
 the server's Subject Public Key Info (SPKI). After the TLS handshake, the
 server's leaf certificate public key is verified against the configured pins
-via <code>SPKIPinnedCertTrustManager</code></li>
+via <code>SpkiPinnedCertTrustManager</code></li>
 <li><b>Connection pooling (RFC 7766)</b> — <code>TCPDNSConnectionPool</code>
 maintains persistent TCP connections to upstream servers with configurable
 maximum connections, idle timeout, and connection lifetime</li>
@@ -731,11 +731,11 @@ The default is plain UDP, but you can select any of the following:
 
 <table border="1" cellpadding="5">
 <tr><th>Transport</th><th>Class</th><th>RFC</th><th>Default Port</th></tr>
-<tr><td>UDP</td><td><code>UdpDNSClientTransport</code></td>
+<tr><td>UDP</td><td><code>UdpDnsClientTransport</code></td>
 <td>RFC 1035</td><td>53</td></tr>
-<tr><td>TCP</td><td><code>TcpDNSClientTransport</code></td>
+<tr><td>TCP</td><td><code>TcpDnsClientTransport</code></td>
 <td>RFC 1035</td><td>53</td></tr>
-<tr><td>DoT</td><td><code>TcpDNSClientTransport</code> (secure)</td>
+<tr><td>DoT</td><td><code>TcpDnsClientTransport</code> (secure)</td>
 <td>RFC 7858</td><td>853</td></tr>
 <tr><td>DoQ</td><td><code>DoQClientTransport</code></td>
 <td>RFC 9250</td><td>853</td></tr>
@@ -744,7 +744,7 @@ The default is plain UDP, but you can select any of the following:
 </table>
 
 <p>
-To use DoT, create a <code>TcpDNSClientTransport</code> with
+To use DoT, create a <code>TcpDnsClientTransport</code> with
 <code>setSecure(true)</code> and optionally configure SPKI fingerprints
 for the Strict privacy profile. For DoQ, use <code>DoQClientTransport</code>
 or <code>DoQConnectionPool</code> for persistent connections. For DoH, use
@@ -806,9 +806,9 @@ public <code>query()</code>/<code>lookup()</code> API</li>
 <li><code>MdnsListener</code> &ndash; the UDP multicast transport: binds port
 5353 and joins the mDNS group (<code>224.0.0.251</code>) on every up,
 multicast-capable, non-loopback, non-point-to-point network interface</li>
-<li><code>MDNSCache</code> &ndash; the querier-side record cache, with RFC
+<li><code>MdnsCache</code> &ndash; the querier-side record cache, with RFC
 6762 section 5.2 active refresh and section 10.2 cache-flush semantics</li>
-<li><code>DNSSDAdvertiser</code> &ndash; builds RFC 6763 PTR/SRV/TXT records
+<li><code>DnssdAdvertiser</code> &ndash; builds RFC 6763 PTR/SRV/TXT records
 for this Gumdrop instance's own configured services</li>
 </ul>
 
@@ -916,7 +916,7 @@ List&lt;DnsResourceRecord&gt; answers = mdnsService.lookup("printer.local", DnsT
 </pre>
 
 <p>
-Answers are kept in an <code>MDNSCache</code>, separate from the unicast
+Answers are kept in an <code>MdnsCache</code>, separate from the unicast
 <code>DnsCache</code> because mDNS caching works differently in two ways
 that matter: the cache-flush bit means "this is now the complete record set
 for this name/type" (anything cached but not re-asserted in a cache-flush
@@ -944,7 +944,7 @@ picked up yet.
 </p>
 
 <p>
-For each listener across every service, <code>DNSSDAdvertiser</code> maps
+For each listener across every service, <code>DnssdAdvertiser</code> maps
 its <code>getDescription()</code> value to a DNS-SD service type using a
 deliberately conservative table of long-established Bonjour service types
 &mdash; not the full IANA registry, and not a guess at every protocol

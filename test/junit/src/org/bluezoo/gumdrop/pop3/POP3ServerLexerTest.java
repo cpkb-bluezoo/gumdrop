@@ -34,7 +34,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link POP3ServerLexer}, verifying exact token content
+ * Unit tests for {@link Pop3ServerLexer}, verifying exact token content
  * (including the free-form TEXT chunking properties relied on by {@link
  * Pop3ProtocolHandler} to reconstruct args and SASL continuation lines
  * with embedded whitespace preserved verbatim) independent of the full
@@ -45,25 +45,25 @@ import static org.junit.Assert.*;
 public class POP3ServerLexerTest {
 
     static class Event {
-        final POP3ServerLexer.Token type;
+        final Pop3ServerLexer.Token type;
         final String text;
-        Event(POP3ServerLexer.Token type, String text) {
+        Event(Pop3ServerLexer.Token type, String text) {
             this.type = type;
             this.text = text;
         }
     }
 
-    static class RecordingHandler implements ByteStreamLexer.Handler<POP3ServerLexer.Token> {
+    static class RecordingHandler implements ByteStreamLexer.Handler<Pop3ServerLexer.Token> {
         final List<Event> events = new ArrayList<Event>();
         int tokenTooLongCount;
         boolean latchTextAfterSp = true;
 
         @Override
-        public boolean token(POP3ServerLexer.Token type, ByteBuffer window) {
+        public boolean token(Pop3ServerLexer.Token type, ByteBuffer window) {
             byte[] copy = new byte[window.remaining()];
             window.get(copy);
             events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
-            return type == POP3ServerLexer.Token.SP && latchTextAfterSp;
+            return type == Pop3ServerLexer.Token.SP && latchTextAfterSp;
         }
 
         @Override
@@ -79,7 +79,7 @@ public class POP3ServerLexerTest {
         String reconstructedArgs() {
             StringBuilder sb = new StringBuilder();
             for (Event e : events) {
-                if (e.type == POP3ServerLexer.Token.TEXT) {
+                if (e.type == Pop3ServerLexer.Token.TEXT) {
                     sb.append(e.text);
                 }
             }
@@ -94,31 +94,31 @@ public class POP3ServerLexerTest {
     @Test
     public void testBareCommandNoArgs() {
         RecordingHandler handler = new RecordingHandler();
-        POP3ServerLexer lexer = new POP3ServerLexer(handler, 512);
+        Pop3ServerLexer lexer = new Pop3ServerLexer(handler, 512);
         lexer.feed(bytesOf("NOOP\r\n"));
         assertEquals(2, handler.events.size());
-        assertEquals(POP3ServerLexer.Token.KEYWORD, handler.events.get(0).type);
+        assertEquals(Pop3ServerLexer.Token.KEYWORD, handler.events.get(0).type);
         assertEquals("NOOP", handler.events.get(0).text);
-        assertEquals(POP3ServerLexer.Token.CRLF, handler.events.get(1).type);
+        assertEquals(Pop3ServerLexer.Token.CRLF, handler.events.get(1).type);
     }
 
     @Test
     public void testCommandWithArgs() {
         RecordingHandler handler = new RecordingHandler();
-        POP3ServerLexer lexer = new POP3ServerLexer(handler, 512);
+        Pop3ServerLexer lexer = new Pop3ServerLexer(handler, 512);
         lexer.feed(bytesOf("USER alice\r\n"));
         assertEquals("KEYWORD", handler.events.get(0).type.toString());
         assertEquals("USER", handler.events.get(0).text);
-        assertEquals(POP3ServerLexer.Token.SP, handler.events.get(1).type);
+        assertEquals(Pop3ServerLexer.Token.SP, handler.events.get(1).type);
         assertEquals("alice", handler.reconstructedArgs());
-        assertEquals(POP3ServerLexer.Token.CRLF,
+        assertEquals(Pop3ServerLexer.Token.CRLF,
                 handler.events.get(handler.events.size() - 1).type);
     }
 
     @Test
     public void testArgsWithEmbeddedDoubleSpacePreservedVerbatim() {
         RecordingHandler handler = new RecordingHandler();
-        POP3ServerLexer lexer = new POP3ServerLexer(handler, 512);
+        Pop3ServerLexer lexer = new Pop3ServerLexer(handler, 512);
         lexer.feed(bytesOf("APOP someuser  extraspace\r\n"));
         // Only the FIRST space is the KEYWORD/args separator (consumed as
         // the SP token); every subsequent byte, including the second
@@ -129,30 +129,30 @@ public class POP3ServerLexerTest {
     @Test
     public void testEmptyLineEmitsNoKeyword() {
         RecordingHandler handler = new RecordingHandler();
-        POP3ServerLexer lexer = new POP3ServerLexer(handler, 512);
+        Pop3ServerLexer lexer = new Pop3ServerLexer(handler, 512);
         lexer.feed(bytesOf("\r\n"));
         assertEquals(1, handler.events.size());
-        assertEquals(POP3ServerLexer.Token.CRLF, handler.events.get(0).type);
+        assertEquals(Pop3ServerLexer.Token.CRLF, handler.events.get(0).type);
     }
 
     @Test
     public void testSaslContinuationSingleTokenNoSpace() {
         RecordingHandler handler = new RecordingHandler();
-        POP3ServerLexer lexer = new POP3ServerLexer(handler, 512);
+        Pop3ServerLexer lexer = new Pop3ServerLexer(handler, 512);
         // A base64 SASL response contains no spaces, so it lexes as a
         // single KEYWORD token spanning the whole line — the parser
         // (Pop3ProtocolHandler), tracking its own authState, treats this
         // as the raw continuation data rather than a command verb.
         lexer.feed(bytesOf("QUJDRA==\r\n"));
         assertEquals(2, handler.events.size());
-        assertEquals(POP3ServerLexer.Token.KEYWORD, handler.events.get(0).type);
+        assertEquals(Pop3ServerLexer.Token.KEYWORD, handler.events.get(0).type);
         assertEquals("QUJDRA==", handler.events.get(0).text);
     }
 
     @Test
     public void testCapEnforcedOnKeyword() {
         RecordingHandler handler = new RecordingHandler();
-        POP3ServerLexer lexer = new POP3ServerLexer(handler, 5);
+        Pop3ServerLexer lexer = new Pop3ServerLexer(handler, 5);
         StringBuilder longWord = new StringBuilder();
         for (int i = 0; i < 20; i++) {
             longWord.append('X');
@@ -160,14 +160,14 @@ public class POP3ServerLexerTest {
         lexer.feed(bytesOf(longWord + "\r\n"));
         assertEquals(1, handler.tokenTooLongCount);
         for (Event e : handler.events) {
-            assertNotEquals(POP3ServerLexer.Token.KEYWORD, e.type);
+            assertNotEquals(Pop3ServerLexer.Token.KEYWORD, e.type);
         }
     }
 
     @Test
     public void testCapNotEnforcedOnArgsText() {
         RecordingHandler handler = new RecordingHandler();
-        POP3ServerLexer lexer = new POP3ServerLexer(handler, 5);
+        Pop3ServerLexer lexer = new Pop3ServerLexer(handler, 5);
         StringBuilder longArgs = new StringBuilder();
         for (int i = 0; i < 50; i++) {
             longArgs.append('a');
@@ -183,12 +183,12 @@ public class POP3ServerLexerTest {
         byte[] wire = line.getBytes(StandardCharsets.US_ASCII);
 
         RecordingHandler whole = new RecordingHandler();
-        new POP3ServerLexer(whole, 512).feed(bytesOf(line));
+        new Pop3ServerLexer(whole, 512).feed(bytesOf(line));
         String expectedArgs = whole.reconstructedArgs();
 
         for (int chunkSize = 1; chunkSize <= wire.length; chunkSize++) {
             RecordingHandler handler = new RecordingHandler();
-            POP3ServerLexer lexer = new POP3ServerLexer(handler, 512);
+            Pop3ServerLexer lexer = new Pop3ServerLexer(handler, 512);
             ByteBuffer netIn = ByteBuffer.allocate(256);
             int offset = 0;
             while (offset < wire.length) {

@@ -1,5 +1,5 @@
 /*
- * DMARCValidator.java
+ * DmarcValidator.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -54,10 +54,10 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * (see {@link #lookupPsd}), and strict validation that {@code v=DMARC1}
  * is the first tag in the record.
  *
- * <p>This class implements both {@link SPFCallback} and {@link DKIMCallback},
+ * <p>This class implements both {@link SpfCallback} and {@link DkimCallback},
  * allowing it to aggregate results from both validators. When the DKIM result
  * arrives (always last, after end-of-data), DMARC evaluation is triggered
- * automatically and the registered {@link DMARCCallback} is invoked.
+ * automatically and the registered {@link DmarcCallback} is invoked.
  *
  * <p>DMARC alignment requires that:
  * <ul>
@@ -71,13 +71,13 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * resolver.useSystemResolvers();
  * resolver.open();
  *
- * DMARCValidator dmarc = new DMARCValidator(resolver, dmarcCallback);
+ * DmarcValidator dmarc = new DmarcValidator(resolver, dmarcCallback);
  *
  * // Wire up SPF validator to report to DMARC
  * spfValidator.check(sender, clientIP, heloHost, dmarc);
  *
  * // Set From domain when parsed from message headers
- * // (typically via DMARCMessageHandler)
+ * // (typically via DmarcMessageHandler)
  * dmarc.setFromDomain("example.com");
  *
  * // Wire up DKIM validator to report to DMARC
@@ -87,32 +87,32 @@ import org.bluezoo.gumdrop.dns.DnsType;
  *
  * <p>Direct usage (for testing or manual orchestration):
  * <pre><code>
- * dmarc.evaluate("example.com", SPFResult.PASS, "example.com",
- *     DKIMResult.PASS, "example.com", callback);
+ * dmarc.evaluate("example.com", SpfResult.PASS, "example.com",
+ *     DkimResult.PASS, "example.com", callback);
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
- * @see DMARCMessageHandler
+ * @see DmarcMessageHandler
  */
-public class DMARCValidator implements SPFCallback, DKIMCallback {
+public class DmarcValidator implements SpfCallback, DkimCallback {
 
 
-    private static final Logger LOGGER = Logger.getLogger(DMARCValidator.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(DmarcValidator.class.getName());
 
     private final DnsResolver resolver;
     private final SecureRandom random;
 
     // Callback for delivering DMARC results
-    private final DMARCCallback callback;
+    private final DmarcCallback callback;
 
     // Accumulated state from SPF and message parsing
-    private SPFResult spfResult;
+    private SpfResult spfResult;
     private String spfDomain;
     private String fromDomain;
 
     /** The last parsed DMARC record, retained for aggregate reporting (RFC 7489 §7.1). */
-    private DMARCRecord lastRecord;
+    private DmarcRecord lastRecord;
 
     // FEAT-002: additional state retained for RFC 9990/9991 reporting.
     private boolean lastSpfAligned;
@@ -124,43 +124,43 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * Creates a new DMARC validator using the specified DNS resolver.
      *
      * <p>Use this constructor for direct/manual evaluation via
-     * {@link #evaluate(String, SPFResult, String, DKIMResult, String, DMARCCallback)}.
+     * {@link #evaluate(String, SpfResult, String, DkimResult, String, DmarcCallback)}.
      *
      * @param resolver the DNS resolver to use for policy lookups
      */
-    public DMARCValidator(DnsResolver resolver) {
+    public DmarcValidator(DnsResolver resolver) {
         this(resolver, null);
     }
 
     /**
      * Creates a new DMARC validator for event-driven usage.
      *
-     * <p>This validator will implement {@link SPFCallback} and {@link DKIMCallback},
+     * <p>This validator will implement {@link SpfCallback} and {@link DkimCallback},
      * accumulating results. When {@link #dkimResult} is called, DMARC evaluation
      * triggers automatically.
      *
      * @param resolver the DNS resolver to use for policy lookups
      * @param callback the callback to receive DMARC results
      */
-    public DMARCValidator(DnsResolver resolver, DMARCCallback callback) {
+    public DmarcValidator(DnsResolver resolver, DmarcCallback callback) {
         this.resolver = resolver;
         this.callback = callback;
         this.random = new SecureRandom();
     }
 
-    // -- Event-driven interface (SPFCallback, DKIMCallback) --
+    // -- Event-driven interface (SpfCallback, DkimCallback) --
 
     /**
      * Receives the SPF result.
      *
-     * <p>Called by {@link SPFValidator} when SPF check completes. The result
+     * <p>Called by {@link SpfValidator} when SPF check completes. The result
      * is stored for later DMARC evaluation.
      *
      * @param result the SPF result
      * @param explanation optional explanation (for FAIL results)
      */
     @Override
-    public void spfResult(SPFResult result, String explanation) {
+    public void spfResult(SpfResult result, String explanation) {
         this.spfResult = result;
     }
 
@@ -179,7 +179,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     /**
      * Sets the RFC5322.From domain.
      *
-     * <p>This is typically called by {@link DMARCMessageHandler} when the
+     * <p>This is typically called by {@link DmarcMessageHandler} when the
      * From header is parsed.
      *
      * @param domain the From header domain
@@ -191,7 +191,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     /**
      * Receives the DKIM result and triggers DMARC evaluation.
      *
-     * <p>Called by {@link DKIMValidator} when DKIM verification completes.
+     * <p>Called by {@link DkimValidator} when DKIM verification completes.
      * Since DKIM is always the last result (at end-of-data), this triggers
      * DMARC evaluation with all accumulated state.
      *
@@ -200,7 +200,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * @param selector the DKIM selector (s= tag)
      */
     @Override
-    public void dkimResult(DKIMResult result, String signingDomain, String selector) {
+    public void dkimResult(DkimResult result, String signingDomain, String selector) {
         if (callback == null) {
             return;
         }
@@ -258,7 +258,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      *
      * @return the np= policy, or null if not present
      */
-    public DMARCPolicy getLastNp() {
+    public DmarcPolicy getLastNp() {
         return lastRecord != null ? lastRecord.np : null;
     }
 
@@ -361,12 +361,12 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * @param callback the callback to receive the result
      */
     public void evaluate(final String fromDomain,
-                         final SPFResult spfResult, final String spfDomain,
-                         final DKIMResult dkimResult, final String dkimDomain,
-                         final DMARCCallback callback) {
+                         final SpfResult spfResult, final String spfDomain,
+                         final DkimResult dkimResult, final String dkimDomain,
+                         final DmarcCallback callback) {
 
         if (fromDomain == null || fromDomain.isEmpty()) {
-            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.NONE, null, fromDomain, AuthVerdict.NONE);
             return;
         }
 
@@ -381,7 +381,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
             @Override
             public void onError(String error) {
-                callback.dmarcResult(DMARCResult.TEMPERROR, null, fromDomain, AuthVerdict.NONE);
+                callback.dmarcResult(DmarcResult.TEMPERROR, null, fromDomain, AuthVerdict.NONE);
             }
         });
     }
@@ -390,9 +390,9 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * Handles the DNS response for a DMARC lookup.
      */
     private void handleDMARCResponse(DnsMessage response, String fromDomain,
-                                      SPFResult spfResult, String spfDomain,
-                                      DKIMResult dkimResult, String dkimDomain,
-                                      DMARCCallback callback) {
+                                      SpfResult spfResult, String spfDomain,
+                                      DkimResult dkimResult, String dkimDomain,
+                                      DmarcCallback callback) {
 
         int rcode = response.getRcode();
         if (rcode == DnsMessage.RCODE_NXDOMAIN) {
@@ -403,12 +403,12 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
                         dkimResult, dkimDomain, callback);
                 return;
             }
-            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.NONE, null, fromDomain, AuthVerdict.NONE);
             return;
         }
 
         if (rcode != DnsMessage.RCODE_NOERROR) {
-            callback.dmarcResult(DMARCResult.TEMPERROR, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.TEMPERROR, null, fromDomain, AuthVerdict.NONE);
             return;
         }
 
@@ -422,7 +422,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
                 if (txt != null && txt.startsWith("v=DMARC1")) {
                     if (dmarcRecord != null) {
                         // Multiple DMARC records is a permanent error
-                        callback.dmarcResult(DMARCResult.PERMERROR, null, fromDomain, AuthVerdict.NONE);
+                        callback.dmarcResult(DmarcResult.PERMERROR, null, fromDomain, AuthVerdict.NONE);
                         return;
                     }
                     dmarcRecord = txt;
@@ -431,21 +431,21 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         }
 
         if (dmarcRecord == null) {
-            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.NONE, null, fromDomain, AuthVerdict.NONE);
             return;
         }
 
         // Parse DMARC record
-        DMARCRecord record = parseDMARCRecord(dmarcRecord);
+        DmarcRecord record = parseDMARCRecord(dmarcRecord);
         if (record == null) {
-            callback.dmarcResult(DMARCResult.PERMERROR, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.PERMERROR, null, fromDomain, AuthVerdict.NONE);
             return;
         }
         this.lastRecord = record;
         this.lastDiscoveryMethod = "author";
 
         // Evaluate alignment
-        DMARCResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
+        DmarcResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
                 dkimResult, dkimDomain, record);
 
         AuthVerdict verdict = computeVerdict(result, record);
@@ -456,9 +456,9 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * Looks up DMARC at the organizational domain.
      */
     private void lookupOrgDomain(final String orgDomain, final String fromDomain,
-                                  final SPFResult spfResult, final String spfDomain,
-                                  final DKIMResult dkimResult, final String dkimDomain,
-                                  final DMARCCallback callback) {
+                                  final SpfResult spfResult, final String spfDomain,
+                                  final DkimResult dkimResult, final String dkimDomain,
+                                  final DmarcCallback callback) {
 
         String dmarcDomain = "_dmarc." + orgDomain;
         resolver.queryTXT(dmarcDomain, new DnsQueryCallback() {
@@ -470,7 +470,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
             @Override
             public void onError(String error) {
-                callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+                callback.dmarcResult(DmarcResult.NONE, null, fromDomain, AuthVerdict.NONE);
             }
         });
     }
@@ -480,9 +480,9 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      */
     private void handleOrgDMARCResponse(DnsMessage response, String orgDomain,
                                          String fromDomain,
-                                         SPFResult spfResult, String spfDomain,
-                                         DKIMResult dkimResult, String dkimDomain,
-                                         DMARCCallback callback) {
+                                         SpfResult spfResult, String spfDomain,
+                                         DkimResult dkimResult, String dkimDomain,
+                                         DmarcCallback callback) {
 
         int rcode = response.getRcode();
         if (rcode != DnsMessage.RCODE_NOERROR) {
@@ -513,19 +513,19 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         }
 
         // Parse and evaluate
-        DMARCRecord record = parseDMARCRecord(dmarcRecord);
+        DmarcRecord record = parseDMARCRecord(dmarcRecord);
         if (record == null) {
-            callback.dmarcResult(DMARCResult.PERMERROR, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.PERMERROR, null, fromDomain, AuthVerdict.NONE);
             return;
         }
         this.lastRecord = record;
         this.lastDiscoveryMethod = "psl";
 
         // Use subdomain policy if available
-        DMARCRecord effectiveRecord = record;
+        DmarcRecord effectiveRecord = record;
         if (record.subdomainPolicy != null) {
             // Create a copy with subdomain policy as the main policy for verdict computation
-            effectiveRecord = new DMARCRecord();
+            effectiveRecord = new DmarcRecord();
             effectiveRecord.policy = record.subdomainPolicy;
             effectiveRecord.subdomainPolicy = record.subdomainPolicy;
             effectiveRecord.adkim = record.adkim;
@@ -534,7 +534,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
             effectiveRecord.t = record.t;
         }
 
-        DMARCResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
+        DmarcResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
                 dkimResult, dkimDomain, record);
 
         AuthVerdict verdict = computeVerdict(result, effectiveRecord);
@@ -565,14 +565,14 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * real-world domains without it.
      */
     private void lookupPsd(String orgDomain, final String fromDomain,
-                            final SPFResult spfResult, final String spfDomain,
-                            final DKIMResult dkimResult, final String dkimDomain,
-                            final DMARCCallback callback) {
+                            final SpfResult spfResult, final String spfDomain,
+                            final DkimResult dkimResult, final String dkimDomain,
+                            final DmarcCallback callback) {
 
         int dot = orgDomain.indexOf('.');
         if (dot < 0) {
             // No further label to walk up to.
-            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.NONE, null, fromDomain, AuthVerdict.NONE);
             return;
         }
         String psdCandidate = orgDomain.substring(dot + 1);
@@ -587,7 +587,7 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
             @Override
             public void onError(String error) {
-                callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+                callback.dmarcResult(DmarcResult.NONE, null, fromDomain, AuthVerdict.NONE);
             }
         });
     }
@@ -597,12 +597,12 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * {@link #lookupPsd}).
      */
     private void handlePsdResponse(DnsMessage response, String fromDomain,
-                                    SPFResult spfResult, String spfDomain,
-                                    DKIMResult dkimResult, String dkimDomain,
-                                    DMARCCallback callback) {
+                                    SpfResult spfResult, String spfDomain,
+                                    DkimResult dkimResult, String dkimDomain,
+                                    DmarcCallback callback) {
 
         if (response.getRcode() != DnsMessage.RCODE_NOERROR) {
-            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.NONE, null, fromDomain, AuthVerdict.NONE);
             return;
         }
 
@@ -620,32 +620,32 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
         }
 
         if (dmarcRecord == null) {
-            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.NONE, null, fromDomain, AuthVerdict.NONE);
             return;
         }
 
-        DMARCRecord record = parseDMARCRecord(dmarcRecord);
+        DmarcRecord record = parseDMARCRecord(dmarcRecord);
         if (record == null || !"y".equals(record.psd)) {
             // Not a declared PSD - RFC 9989 §5 only applies np= when the
             // record found explicitly opts in with psd=y.
-            callback.dmarcResult(DMARCResult.NONE, null, fromDomain, AuthVerdict.NONE);
+            callback.dmarcResult(DmarcResult.NONE, null, fromDomain, AuthVerdict.NONE);
             return;
         }
         this.lastRecord = record;
         this.lastDiscoveryMethod = "treewalk";
 
-        DMARCPolicy effectivePolicy = record.np != null ? record.np
+        DmarcPolicy effectivePolicy = record.np != null ? record.np
                 : record.subdomainPolicy != null ? record.subdomainPolicy
                 : record.policy;
 
-        DMARCRecord effectiveRecord = new DMARCRecord();
+        DmarcRecord effectiveRecord = new DmarcRecord();
         effectiveRecord.policy = effectivePolicy;
         effectiveRecord.adkim = record.adkim;
         effectiveRecord.aspf = record.aspf;
         effectiveRecord.pct = record.pct;
         effectiveRecord.t = record.t;
 
-        DMARCResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
+        DmarcResult result = evaluateAlignment(fromDomain, spfResult, spfDomain,
                 dkimResult, dkimDomain, record);
 
         AuthVerdict verdict = computeVerdict(result, effectiveRecord);
@@ -655,26 +655,26 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
     /**
      * Evaluates SPF and DKIM alignment with the From domain.
      */
-    private DMARCResult evaluateAlignment(String fromDomain,
-                                           SPFResult spfResult, String spfDomain,
-                                           DKIMResult dkimResult, String dkimDomain,
-                                           DMARCRecord record) {
+    private DmarcResult evaluateAlignment(String fromDomain,
+                                           SpfResult spfResult, String spfDomain,
+                                           DkimResult dkimResult, String dkimDomain,
+                                           DmarcRecord record) {
 
         boolean spfAligned = false;
         boolean dkimAligned = false;
 
         // Check SPF alignment
-        if (spfResult == SPFResult.PASS && spfDomain != null) {
+        if (spfResult == SpfResult.PASS && spfDomain != null) {
             spfAligned = checkAlignment(fromDomain, spfDomain, record.aspf);
         }
 
         // Check DKIM alignment
-        if (dkimResult == DKIMResult.PASS && dkimDomain != null) {
+        if (dkimResult == DkimResult.PASS && dkimDomain != null) {
             dkimAligned = checkAlignment(fromDomain, dkimDomain, record.adkim);
         }
 
         // FEAT-002: retained for RFC 9991 Identity-Alignment reporting
-        // (DMARCForensicReport) - distinct from the raw spfResult/dkimResult
+        // (DmarcForensicReport) - distinct from the raw spfResult/dkimResult
         // pass/fail, since a mechanism can pass without its identifier
         // aligning to the From domain.
         this.lastSpfAligned = spfAligned;
@@ -682,10 +682,10 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
 
         // DMARC passes if either mechanism is aligned
         if (spfAligned || dkimAligned) {
-            return DMARCResult.PASS;
+            return DmarcResult.PASS;
         }
 
-        return DMARCResult.FAIL;
+        return DmarcResult.FAIL;
     }
 
     /**
@@ -706,21 +706,21 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * @param record the parsed DMARC record containing policy and pct
      * @return the computed verdict
      */
-    private AuthVerdict computeVerdict(DMARCResult result, DMARCRecord record) {
-        if (result == DMARCResult.PASS) {
+    private AuthVerdict computeVerdict(DmarcResult result, DmarcRecord record) {
+        if (result == DmarcResult.PASS) {
             return AuthVerdict.PASS;
         }
 
-        DMARCPolicy policy = record.policy;
+        DmarcPolicy policy = record.policy;
         if ("y".equals(record.t)) {
-            if (policy == DMARCPolicy.REJECT) {
-                policy = DMARCPolicy.QUARANTINE;
-            } else if (policy == DMARCPolicy.QUARANTINE) {
-                policy = DMARCPolicy.NONE;
+            if (policy == DmarcPolicy.REJECT) {
+                policy = DmarcPolicy.QUARANTINE;
+            } else if (policy == DmarcPolicy.QUARANTINE) {
+                policy = DmarcPolicy.NONE;
             }
         }
 
-        if (result == DMARCResult.FAIL && policy != null) {
+        if (result == DmarcResult.FAIL && policy != null) {
             // Apply pct= sampling
             if (record.pct < 100) {
                 int roll = random.nextInt(100);
@@ -730,10 +730,10 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
                 }
             }
 
-            if (policy == DMARCPolicy.REJECT) {
+            if (policy == DmarcPolicy.REJECT) {
                 return AuthVerdict.REJECT;
             }
-            if (policy == DMARCPolicy.QUARANTINE) {
+            if (policy == DmarcPolicy.QUARANTINE) {
                 return AuthVerdict.QUARANTINE;
             }
         }
@@ -805,8 +805,8 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * string prefix check, which wouldn't handle whitespace variations
      * correctly).
      */
-    private DMARCRecord parseDMARCRecord(String record) {
-        DMARCRecord result = new DMARCRecord();
+    private DmarcRecord parseDMARCRecord(String record) {
+        DmarcRecord result = new DmarcRecord();
 
         String[] parts = splitOnSemicolons(record);
         if (parts.length == 0) {
@@ -828,12 +828,12 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
             String value = part.substring(eqPos + 1).trim();
 
             if ("p".equals(tag)) {
-                result.policy = DMARCPolicy.parse(value);
+                result.policy = DmarcPolicy.parse(value);
             } else if ("sp".equals(tag)) {
-                result.subdomainPolicy = DMARCPolicy.parse(value);
+                result.subdomainPolicy = DmarcPolicy.parse(value);
             } else if ("np".equals(tag)) {
                 // RFC 9989 §4.2 — policy for non-existent subdomains
-                result.np = DMARCPolicy.parse(value);
+                result.np = DmarcPolicy.parse(value);
             } else if ("adkim".equals(tag)) {
                 result.adkim = value;
             } else if ("aspf".equals(tag)) {
@@ -922,11 +922,11 @@ public class DMARCValidator implements SPFCallback, DKIMCallback {
      * Parsed DMARC record.
      * RFC 7489 §6.3 — contains all parsed tags from the DNS TXT record.
      */
-    static class DMARCRecord {
-        DMARCPolicy policy;
-        DMARCPolicy subdomainPolicy;
+    static class DmarcRecord {
+        DmarcPolicy policy;
+        DmarcPolicy subdomainPolicy;
         /** RFC 9989 §4.2 — policy for non-existent subdomains (np= tag). */
-        DMARCPolicy np;
+        DmarcPolicy np;
         String adkim = "r"; // relaxed by default
         String aspf = "r";  // relaxed by default
         int pct = 100;

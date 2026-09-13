@@ -138,7 +138,7 @@ public class POP3ClientProtocolHandlerTest {
 
     // ═══════════════════════════════════════════════════════════════════
     // Streaming lexer tests (issue #85) — sliced-boundary and golden
-    // transcript coverage, proving the POP3ClientLexer conversion from
+    // transcript coverage, proving the Pop3ClientLexer conversion from
     // buffered-line parsing preserves identical semantic dispatch, and
     // that requestStop() correctly hands off to DotUnstuffer.
     // ═══════════════════════════════════════════════════════════════════

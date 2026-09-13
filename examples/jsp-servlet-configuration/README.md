@@ -12,7 +12,7 @@ When Gumdrop starts a web application, it:
 
 1. **Checks for existing JSP mappings** in `web.xml`
 2. **If no JSP mappings exist**, it automatically creates:
-   - A JSP servlet (`org.bluezoo.gumdrop.servlet.jsp.JSPServlet`)
+   - A JSP servlet (`org.bluezoo.gumdrop.servlet.jsp.JspServlet`)
    - URL patterns for `*.jsp` and `*.jspx` files
    - Proper servlet initialization and lifecycle management
 
@@ -23,7 +23,7 @@ The automatically created configuration is equivalent to this `web.xml` configur
 ```xml
 <servlet>
     <servlet-name>jsp</servlet-name>
-    <servlet-class>org.bluezoo.gumdrop.servlet.jsp.JSPServlet</servlet-class>
+    <servlet-class>org.bluezoo.gumdrop.servlet.jsp.JspServlet</servlet-class>
     <load-on-startup>3</load-on-startup>
 </servlet>
 
@@ -41,7 +41,7 @@ The automatically created configuration is equivalent to this `web.xml` configur
 ## How JSP Processing Works
 
 1. **Request arrives** for a `.jsp` or `.jspx` file
-2. **JSPServlet handles** the request
+2. **JspServlet handles** the request
 3. **Context.parseJSPFile()** is called to:
    - Parse the JSP file using appropriate parser (Traditional or XML)
    - Apply JSP configuration from `web.xml` (encoding, scripting, etc.)
@@ -66,7 +66,7 @@ If you want to customize JSP processing, you can override the automatic configur
 
     <servlet>
         <servlet-name>custom-jsp</servlet-name>
-        <servlet-class>org.bluezoo.gumdrop.servlet.jsp.JSPServlet</servlet-class>
+        <servlet-class>org.bluezoo.gumdrop.servlet.jsp.JspServlet</servlet-class>
         <load-on-startup>1</load-on-startup>
         
         <!-- Custom init parameters (if needed) -->
@@ -215,8 +215,8 @@ Visit `http://localhost:8080/jsp/` when running Gumdrop to explore these example
 
 For advanced use cases, you can extend the JSP processing pipeline:
 
-1. **Custom JSP parsers** - implement `JSPParser` interface
-2. **Custom code generators** - extend `JSPCodeGenerator` class  
+1. **Custom JSP parsers** - implement `JspParser` interface
+2. **Custom code generators** - extend `JspCodeGenerator` class  
 3. **Custom tag libraries** - implement via `TaglibRegistry`
 4. **Preprocessing filters** - intercept JSP content before parsing
 

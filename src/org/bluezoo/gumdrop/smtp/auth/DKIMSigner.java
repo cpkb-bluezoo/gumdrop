@@ -1,5 +1,5 @@
 /*
- * DKIMSigner.java
+ * DkimSigner.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -46,7 +46,7 @@ import java.util.List;
  *
  * <h4>Usage</h4>
  * <pre>{@code
- * DKIMSigner signer = new DKIMSigner(privateKey, "example.com", "sel1");
+ * DkimSigner signer = new DkimSigner(privateKey, "example.com", "sel1");
  * signer.setHeaderCanonicalization("relaxed");
  * signer.setBodyCanonicalization("relaxed");
  * signer.setSignedHeaders(Arrays.asList("from", "to", "subject", "date"));
@@ -61,11 +61,11 @@ import java.util.List;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DKIMValidator
+ * @see DkimValidator
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376#section-5">RFC 6376 §5</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8463">RFC 8463 — Ed25519-SHA256</a>
  */
-public class DKIMSigner {
+public class DkimSigner {
 
     private static final String CRLF = "\r\n";
 
@@ -92,7 +92,7 @@ public class DKIMSigner {
      * @param domain the signing domain (d= tag)
      * @param selector the selector (s= tag)
      */
-    public DKIMSigner(PrivateKey privateKey, String domain, String selector) {
+    public DkimSigner(PrivateKey privateKey, String domain, String selector) {
         this.privateKey = privateKey;
         this.domain = domain;
         this.selector = selector;

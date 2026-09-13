@@ -4,7 +4,7 @@ This example demonstrates how to use Gumdrop's JSP code generation facility prog
 
 ## What This Example Shows
 
-- **JSP Parsing**: How to parse JSP files using `JSPParserFactory`
+- **JSP Parsing**: How to parse JSP files using `JspParserFactory`
 - **Code Generation**: How to generate Java servlet source code from JSP AST
 - **Dual Format Support**: Works with both traditional JSP (`.jsp`) and XML JSP (`.jspx`) formats
 - **Taglib Integration**: How to integrate with the `TaglibRegistry` for custom tag support
@@ -34,8 +34,8 @@ String javaSource = JSPCodeGeneratorExample.convertJSPToString(
 
 ## Workflow Steps
 
-1. **Parse JSP File**: Uses `JSPParserFactory.parseJSP()` to create JSP Abstract Syntax Tree (AST)
-2. **Create Code Generator**: Instantiates `JSPCodeGenerator` with JSP page and `TaglibRegistry`
+1. **Parse JSP File**: Uses `JspParserFactory.parseJSP()` to create JSP Abstract Syntax Tree (AST)
+2. **Create Code Generator**: Instantiates `JspCodeGenerator` with JSP page and `TaglibRegistry`
 3. **Generate Code**: Calls `generateCode()` to produce Java servlet source
 4. **Output Results**: Writes to file or returns as string
 
@@ -43,7 +43,7 @@ String javaSource = JSPCodeGeneratorExample.convertJSPToString(
 
 ```java
 public class MyJSPProcessor {
-    public void processJSP() throws IOException, JSPParseException {
+    public void processJSP() throws IOException, JspParseException {
         // Generate servlet source file from JSP
         JSPCodeGeneratorExample.convertJSPToFile(
             "src/main/webapp/hello.jsp",

@@ -79,9 +79,9 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   implement the full RFC 6762 peer lifecycle for a `.local` hostname —
   probing with conflict detection and automatic rename, announcing,
   answering queries (with known-answer suppression and QU-bit unicast
-  replies), and a goodbye packet on shutdown — plus an `MDNSCache` for
+  replies), and a goodbye packet on shutdown — plus an `MdnsCache` for
   querying other hosts' records, with RFC 6762 §5.2 active refresh and
-  §10.2 cache-flush semantics. `DNSSDAdvertiser` auto-advertises
+  §10.2 cache-flush semantics. `DnssdAdvertiser` auto-advertises
   gumdrop's own configured services (HTTP, IMAP, POP3, FTP, SMTP, DNS)
   as browsable DNS-SD records. `DnsQuestion`/`DnsResourceRecord` in the
   `dns` package gained the QU and cache-flush wire-format bits mDNS
@@ -201,7 +201,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   (issue #188, #189): the client previously only supported SASL PLAIN. It now
   also supports RabbitMQ's `AMQPLAIN` mechanism, `EXTERNAL` (TLS client
   certificate), and `GSSAPI`/Kerberos (worker-thread offloaded for KDC
-  contact), reusing gumdrop's shared `SASLUtils` infrastructure where
+  contact), reusing gumdrop's shared `SaslUtils` infrastructure where
   possible. `AmqpClientProtocolHandler` now also drives
   `connection.secure`/`secure-ok` round trips so multi-step mechanisms work,
   not just single-shot ones.
@@ -228,7 +228,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   serves many concurrent DTLS clients (DNS-over-DTLS, RFC 8094, in
   particular). Includes RFC 6347 §4.2.4 handshake flight retransmission
   with exponential backoff, and `securityEstablished(SecurityInfo)` now
-  actually fires for DTLS, backed by the same `JSSESecurityInfo` used for
+  actually fires for DTLS, backed by the same `JsseSecurityInfo` used for
   TCP/TLS.
 
 ### Changed
@@ -299,10 +299,10 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 - **`Container.getContextByPath` is now an indexed lookup** (issue #194)
   instead of an unindexed linear scan with `String.startsWith` over every
   deployed context on every request.
-- **LDAP `BERDecoder` no longer allocates a decoder and pooled buffer per
+- **LDAP `BerDecoder` no longer allocates a decoder and pooled buffer per
   nesting level** (issue #195): constructed (nested) BER values are now
   parsed in place via plain recursive descent over the already-received
-  bytes, rather than spinning up a whole new `BERDecoder` per level of
+  bytes, rather than spinning up a whole new `BerDecoder` per level of
   nesting — relevant to deeply nested LDAP search filters.
 
 ### Fixed
@@ -322,7 +322,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 - **HTTP authentication enforcement gaps across HTTP/1.1, HTTP/2, and
   HTTP/3** closed — auth constraints evaluated on one protocol version were
   not consistently reaching requests served over another (#117).
-- **`JSPServlet` exception messages no longer leak internal detail** to
+- **`JspServlet` exception messages no longer leak internal detail** to
   clients on compilation/runtime errors (#174, #177).
 - **Zip Slip vulnerability in `Context.getResourcePaths()`** fixed —
   crafted WAR entries could previously write outside the deployment
@@ -353,7 +353,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   application. Fixed with strict path confinement and regression tests.
 
 - **IMAP/POP3 SCRAM-SHA-256 proof verification broken**:
-  Server-side SCRAM proof verification in `SASLUtils`, `ImapProtocolHandler`,
+  Server-side SCRAM proof verification in `SaslUtils`, `ImapProtocolHandler`,
   and `Pop3ProtocolHandler` did not properly verify the client proof,
   potentially allowing authentication bypass.
 
@@ -364,7 +364,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **IMAP/POP3/SMTP DIGEST-MD5 response verification broken**:
   the same class of flaw as the SCRAM issue above, affecting DIGEST-MD5
-  response verification in `SASLUtils`, `ImapProtocolHandler`,
+  response verification in `SaslUtils`, `ImapProtocolHandler`,
   `Pop3ProtocolHandler`, and `SmtpProtocolHandler`.
 
 - **Strict allowlist for replicated session deserialization**: 
@@ -383,7 +383,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   `Transfer-Encoding` header listing multiple codings.
 
 - **SOCKS NO-AUTH/SOCKS4 accepted despite configured realm**: 
-  `SOCKSProtocolHandler` now rejects unauthenticated
+  `SocksProtocolHandler` now rejects unauthenticated
   NO-AUTH and SOCKS4 negotiation when a realm requiring authentication is
   configured.
 
@@ -491,12 +491,12 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   `maxLiteralSize` consistently.
 
 - **Resolved SOCKS destination addresses not validated against the
-  destination filter**: `SOCKSProtocolHandler`/
-  `SOCKSUDPRelay` now validate every DNS-resolved address, not just the
+  destination filter**: `SocksProtocolHandler`/
+  `SocksUdpRelay` now validate every DNS-resolved address, not just the
   literal target, against the configured destination policy.
 
 - **SOCKS BIND lacked destination-policy and bind-interface restriction**: 
-  `SOCKSBindRelay`/`SOCKSProtocolHandler` extend
+  `SocksBindRelay`/`SocksProtocolHandler` extend
   destination-policy enforcement to the BIND command and restrict which
   interfaces BIND may listen on.
 
@@ -511,7 +511,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **Timing-unsafe MAC/digest comparisons**: 
   `HttpAuthenticationProvider`, `ImapProtocolHandler`,
-  `Pop3ProtocolHandler`, and `DKIMValidator` now use constant-time
+  `Pop3ProtocolHandler`, and `DkimValidator` now use constant-time
   comparison for credential/digest checks.
 
 - **No HTTP/1.1 header-count limit**:
@@ -535,11 +535,11 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   from client-supplied multipart filenames and canonicalizes the result.
 
 - **Unbounded SOCKS5 GSSAPI token length**:
-  `SOCKSProtocolHandler`/`SocksConstants` now cap GSSAPI token length at
+  `SocksProtocolHandler`/`SocksConstants` now cap GSSAPI token length at
   16 KiB.
 
 - **`rsa-sha1` DKIM signatures accepted**: 
-  `DKIMValidator` no longer accepts `rsa-sha1` signatures.
+  `DkimValidator` no longer accepts `rsa-sha1` signatures.
 
 - **TLS peer-verification disable flag not applied to TCP/TLS**: 
   `HttpClient.setVerifyPeer(false)` previously only affected
@@ -550,7 +550,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   blocks requests/redirects to internal address ranges.
 
 - **WebDAV XML parsing hardened against XXE/DoS**:
-  `WebDAVRequestParser` and `DeadPropertyParser` now explicitly install a
+  `WebdavRequestParser` and `DeadPropertyParser` now explicitly install a
   deny-external-entities resolver (`XMLParseUtils.DENY_EXTERNAL_ENTITIES`)
   rather than relying on the parser default, and WebDAV request bodies are
   capped in size (rejecting oversized bodies with `413`) to bound XML
@@ -574,7 +574,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   crash on malformed input.
 
 - **DMARC `pct=` sampling used a non-cryptographic RNG**:
-  `DMARCValidator` now uses `SecureRandom` for percentage-based sampling
+  `DmarcValidator` now uses `SecureRandom` for percentage-based sampling
   decisions.
 
 - **Invalid HTTP response headers handled gracefully**:
@@ -599,7 +599,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   operator; no code behavior change.
 
 - **Hardcoded DMARC TLD set replaced with a real Public Suffix List**: 
-  `DMARCValidator` replaces a hardcoded TLD set with a
+  `DmarcValidator` replaces a hardcoded TLD set with a
   proper `PublicSuffixList` implementation for organizational-domain
   determination.
 

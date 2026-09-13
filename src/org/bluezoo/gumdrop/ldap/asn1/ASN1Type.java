@@ -1,5 +1,5 @@
 /*
- * ASN1Type.java
+ * Asn1Type.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -41,7 +41,7 @@ package org.bluezoo.gumdrop.ldap.asn1;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class ASN1Type {
+public final class Asn1Type {
 
     // Tag classes (bits 7-6)
     /** Universal class (00). */
@@ -124,7 +124,7 @@ public final class ASN1Type {
     private static final int CONSTRUCTED_MASK = 0x20;
     private static final int TAG_MASK = 0x1F;
 
-    private ASN1Type() {
+    private Asn1Type() {
     }
 
     /**

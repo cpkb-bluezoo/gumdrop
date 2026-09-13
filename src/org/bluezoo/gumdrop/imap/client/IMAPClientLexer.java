@@ -1,5 +1,5 @@
 /*
- * IMAPClientLexer.java
+ * ImapClientLexer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,14 +26,14 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 /**
  * Streaming lexer for IMAP server response lines (RFC 9051 section 7):
  * {@code KEYWORD [SP TEXT] CRLF}, structurally identical to {@code
- * IMAPServerLexer} — this lexer, too, knows nothing about IMAP literals.
+ * ImapServerLexer} — this lexer, too, knows nothing about IMAP literals.
  *
  * <p>Unlike the server side, {@link ImapClientProtocolHandler} does not
  * need to distinguish {@code KEYWORD} from {@code TEXT} at all: a
  * response line's leading word (a tag, {@code "*"}, or {@code "+"}) and
  * everything after it are simply concatenated back into one string and
  * handed whole to the existing, unchanged, string-based {@code
- * IMAPResponse.parse(String)} — exactly what the pre-conversion {@code
+ * ImapResponse.parse(String)} — exactly what the pre-conversion {@code
  * LineParser}-buffered line decode produced. A response line's literal
  * marker ({@code {nnn}}, RFC 9051 section 4.3) always appears at the very
  * end of a complete, self-contained line (never embedded mid-line the way
@@ -52,13 +52,13 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ImapClientProtocolHandler
  */
-final class IMAPClientLexer extends ByteStreamLexer<IMAPClientLexer.Token> {
+final class ImapClientLexer extends ByteStreamLexer<ImapClientLexer.Token> {
 
     enum Token { KEYWORD, SP, TEXT, CRLF }
 
     private boolean lastWasCR;
 
-    IMAPClientLexer(Handler<Token> handler, int maxTokenLength) {
+    ImapClientLexer(Handler<Token> handler, int maxTokenLength) {
         super(handler, maxTokenLength, Token.CRLF, Token.TEXT);
     }
 

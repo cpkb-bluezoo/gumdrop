@@ -221,9 +221,9 @@
     </copy>
   </target>
 
-  <!-- LDAPRealm (depends on ldap client in core) -->
+  <!-- LdapRealm (depends on ldap client in core) -->
   <target name='build-ldap' depends='build-core-main'
-          description='Compile gumdrop-ldap module jar (LDAPRealm)'>
+          description='Compile gumdrop-ldap module jar (LdapRealm)'>
     <mkdir dir='${build.ldap}'/>
     <javac srcdir='${src}' destdir='${build.ldap}' debug='true'
            release='${java.release.version}'

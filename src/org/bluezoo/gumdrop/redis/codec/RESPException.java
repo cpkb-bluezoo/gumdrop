@@ -1,5 +1,5 @@
 /*
- * RESPException.java
+ * RespException.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,7 +31,7 @@ package org.bluezoo.gumdrop.redis.codec;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class RESPException extends Exception {
+public class RespException extends Exception {
 
     private static final long serialVersionUID = 1L;
 
@@ -40,7 +40,7 @@ public class RESPException extends Exception {
      *
      * @param message the error message
      */
-    public RESPException(String message) {
+    public RespException(String message) {
         super(message);
     }
 
@@ -50,7 +50,7 @@ public class RESPException extends Exception {
      * @param message the error message
      * @param cause the underlying cause
      */
-    public RESPException(String message, Throwable cause) {
+    public RespException(String message, Throwable cause) {
         super(message, cause);
     }
 

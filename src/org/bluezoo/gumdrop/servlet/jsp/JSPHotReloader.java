@@ -1,5 +1,5 @@
 /*
- * JSPHotReloader.java
+ * JspHotReloader.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -61,9 +61,9 @@ import org.bluezoo.gumdrop.servlet.Context;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class JSPHotReloader extends Thread {
+public final class JspHotReloader extends Thread {
 
-    private static final Logger LOGGER = Logger.getLogger(JSPHotReloader.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(JspHotReloader.class.getName());
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
     
@@ -71,14 +71,14 @@ public final class JSPHotReloader extends Thread {
     private final File webappRoot;
     private final WatchService watchService;
     private final Map<WatchKey, Path> watchKeys;
-    private final JSPReloadCallback callback;
+    private final JspReloadCallback callback;
     
     private volatile boolean running = true;
     
     /**
      * Callback interface for JSP reload events.
      */
-    public interface JSPReloadCallback {
+    public interface JspReloadCallback {
         /**
          * Called when a JSP file has been modified.
          * 
@@ -96,7 +96,7 @@ public final class JSPHotReloader extends Thread {
      * @param callback callback for reload events
      * @throws IOException if the watch service cannot be created
      */
-    public JSPHotReloader(Context context, File webappRoot, JSPReloadCallback callback) 
+    public JspHotReloader(Context context, File webappRoot, JspReloadCallback callback) 
             throws IOException {
         super("jsp-hot-reload-" + context.getContextPath());
         this.context = context;

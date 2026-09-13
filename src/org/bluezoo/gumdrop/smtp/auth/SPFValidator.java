@@ -1,5 +1,5 @@
 /*
- * SPFValidator.java
+ * SpfValidator.java
  * Copyright (C) 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
-import org.bluezoo.gumdrop.util.CIDRNetwork;
+import org.bluezoo.gumdrop.util.CidrNetwork;
 
 /**
  * SPF (Sender Policy Framework) validator as defined in RFC 7208.
@@ -60,14 +60,14 @@ import org.bluezoo.gumdrop.util.CIDRNetwork;
  * resolver.useSystemResolvers();
  * resolver.open();
  *
- * SPFValidator spf = new SPFValidator(resolver);
+ * SpfValidator spf = new SpfValidator(resolver);
  * InetAddress clientIP = InetAddress.getByName("192.0.2.1");
  *
  * spf.check("sender@example.com", clientIP, "mail.example.com",
- *     new SPFCallback() {
+ *     new SpfCallback() {
  *         &#64;Override
- *         public void onResult(SPFResult result, String explanation) {
- *             if (result == SPFResult.PASS) {
+ *         public void onResult(SpfResult result, String explanation) {
+ *             if (result == SpfResult.PASS) {
  *                 // Sender is authorized
  *             }
  *         }
@@ -78,9 +78,9 @@ import org.bluezoo.gumdrop.util.CIDRNetwork;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208#section-4">RFC 7208 §4</a> — check_host()
  */
-public class SPFValidator {
+public class SpfValidator {
 
-    private static final Logger LOGGER = Logger.getLogger(SPFValidator.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(SpfValidator.class.getName());
 
     /** Maximum number of DNS lookups allowed (RFC 7208 section 4.6.4) */
     private static final int MAX_DNS_LOOKUPS = 10;
@@ -95,7 +95,7 @@ public class SPFValidator {
      *
      * @param resolver the DNS resolver to use for lookups
      */
-    public SPFValidator(DnsResolver resolver) {
+    public SpfValidator(DnsResolver resolver) {
         this.resolver = resolver;
     }
 
@@ -109,7 +109,7 @@ public class SPFValidator {
      * @param callback the callback to receive the result
      */
     public void check(EmailAddress sender, InetAddress clientIP, String heloHost,
-                      SPFCallback callback) {
+                      SpfCallback callback) {
 
         // Get domain from sender, or use HELO for null sender (bounce messages)
         String domain;
@@ -120,7 +120,7 @@ public class SPFValidator {
         }
 
         if (domain == null || domain.isEmpty()) {
-            callback.spfResult(SPFResult.NONE, null);
+            callback.spfResult(SpfResult.NONE, null);
             return;
         }
 
@@ -134,7 +134,7 @@ public class SPFValidator {
      */
     private void lookupSPF(final CheckContext ctx, final String domain) {
         if (ctx.dnsLookups >= MAX_DNS_LOOKUPS) {
-            ctx.callback.spfResult(SPFResult.PERMERROR, "Too many DNS lookups");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "Too many DNS lookups");
             return;
         }
 
@@ -148,7 +148,7 @@ public class SPFValidator {
 
             @Override
             public void onError(String error) {
-                ctx.callback.spfResult(SPFResult.TEMPERROR, error);
+                ctx.callback.spfResult(SpfResult.TEMPERROR, error);
             }
         });
     }
@@ -160,12 +160,12 @@ public class SPFValidator {
         // Check for NXDOMAIN
         int rcode = response.getRcode();
         if (rcode == DnsMessage.RCODE_NXDOMAIN) {
-            ctx.callback.spfResult(SPFResult.NONE, null);
+            ctx.callback.spfResult(SpfResult.NONE, null);
             return;
         }
 
         if (rcode != DnsMessage.RCODE_NOERROR) {
-            ctx.callback.spfResult(SPFResult.TEMPERROR, "DNS error: " + rcode);
+            ctx.callback.spfResult(SpfResult.TEMPERROR, "DNS error: " + rcode);
             return;
         }
 
@@ -179,7 +179,7 @@ public class SPFValidator {
                 if (txt != null && txt.startsWith("v=spf1 ")) {
                     if (spfRecord != null) {
                         // Multiple SPF records is a permanent error
-                        ctx.callback.spfResult(SPFResult.PERMERROR, "Multiple SPF records");
+                        ctx.callback.spfResult(SpfResult.PERMERROR, "Multiple SPF records");
                         return;
                     }
                     spfRecord = txt;
@@ -188,7 +188,7 @@ public class SPFValidator {
         }
 
         if (spfRecord == null) {
-            ctx.callback.spfResult(SPFResult.NONE, null);
+            ctx.callback.spfResult(SpfResult.NONE, null);
             return;
         }
 
@@ -230,7 +230,7 @@ public class SPFValidator {
 
             if (part.startsWith("redirect=")) {
                 if (redirect != null) {
-                    ctx.callback.spfResult(SPFResult.PERMERROR, "Duplicate redirect modifier");
+                    ctx.callback.spfResult(SpfResult.PERMERROR, "Duplicate redirect modifier");
                     return false;
                 }
                 redirect = expandMacros(part.substring(9), ctx, domain);
@@ -239,7 +239,7 @@ public class SPFValidator {
 
             if (part.startsWith("exp=")) {
                 if (explanation != null) {
-                    ctx.callback.spfResult(SPFResult.PERMERROR, "Duplicate exp modifier");
+                    ctx.callback.spfResult(SpfResult.PERMERROR, "Duplicate exp modifier");
                     return false;
                 }
                 explanation = part.substring(4);
@@ -278,11 +278,11 @@ public class SPFValidator {
             }
 
             // Evaluate synchronous mechanisms first
-            SPFResult mechResult = evaluateMechanism(ctx, domain, part);
+            SpfResult mechResult = evaluateMechanism(ctx, domain, part);
 
             if (mechResult != null) {
                 // Mechanism matched
-                SPFResult result = qualifierToResult(qualifier);
+                SpfResult result = qualifierToResult(qualifier);
                 deliverResult(ctx, domain, result);
                 return;
             }
@@ -323,16 +323,16 @@ public class SPFValidator {
         }
 
         // Default result is neutral
-        ctx.callback.spfResult(SPFResult.NEUTRAL, null);
+        ctx.callback.spfResult(SpfResult.NEUTRAL, null);
     }
 
     /**
      * Delivers a result, fetching explanation if needed.
      */
     private void deliverResult(final CheckContext ctx, final String domain, 
-                                final SPFResult result) {
+                                final SpfResult result) {
         // For FAIL results, try to fetch explanation if exp= was present
-        if (result == SPFResult.FAIL && ctx.explanation != null) {
+        if (result == SpfResult.FAIL && ctx.explanation != null) {
             String expDomain = expandMacros(ctx.explanation, ctx, domain);
             fetchExplanation(ctx, expDomain, result);
         } else {
@@ -345,7 +345,7 @@ public class SPFValidator {
      * RFC 7208 §6.2 — exp modifier (explanation string).
      */
     private void fetchExplanation(final CheckContext ctx, String expDomain,
-                                   final SPFResult result) {
+                                   final SpfResult result) {
         // Don't count this as a mechanism lookup (it's optional)
         resolver.queryTXT(expDomain, new DnsQueryCallback() {
             @Override
@@ -375,22 +375,22 @@ public class SPFValidator {
      * RFC 7208 §5.1 — all; §5.6 — ip4/ip6.
      * Returns non-null if the mechanism matches, null otherwise.
      */
-    private SPFResult evaluateMechanism(CheckContext ctx, String domain, String mechanism) {
+    private SpfResult evaluateMechanism(CheckContext ctx, String domain, String mechanism) {
         if ("all".equals(mechanism)) {
-            return SPFResult.PASS; // "all" always matches
+            return SpfResult.PASS; // "all" always matches
         }
 
         if (mechanism.startsWith("ip4:")) {
             String network = mechanism.substring(4);
             if (matchesIP4(ctx.clientIP, network)) {
-                return SPFResult.PASS;
+                return SpfResult.PASS;
             }
         }
 
         if (mechanism.startsWith("ip6:")) {
             String network = mechanism.substring(4);
             if (matchesIP6(ctx.clientIP, network)) {
-                return SPFResult.PASS;
+                return SpfResult.PASS;
             }
         }
 
@@ -405,7 +405,7 @@ public class SPFValidator {
      */
     private boolean matchesIP4(InetAddress ip, String network) {
         try {
-            CIDRNetwork cidr = new CIDRNetwork(network);
+            CidrNetwork cidr = new CidrNetwork(network);
             return cidr.matches(ip);
         } catch (Exception e) {
             return false;
@@ -418,7 +418,7 @@ public class SPFValidator {
      */
     private boolean matchesIP6(InetAddress ip, String network) {
         try {
-            CIDRNetwork cidr = new CIDRNetwork(network);
+            CidrNetwork cidr = new CidrNetwork(network);
             return cidr.matches(ip);
         } catch (Exception e) {
             return false;
@@ -433,7 +433,7 @@ public class SPFValidator {
                                 final String[] parts, final int currentIndex,
                                 final String includeDomain, final char qualifier) {
         if (ctx.dnsLookups >= MAX_DNS_LOOKUPS) {
-            ctx.callback.spfResult(SPFResult.PERMERROR, "Too many DNS lookups");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "Too many DNS lookups");
             return;
         }
 
@@ -448,7 +448,7 @@ public class SPFValidator {
 
             @Override
             public void onError(String error) {
-                ctx.callback.spfResult(SPFResult.TEMPERROR, error);
+                ctx.callback.spfResult(SpfResult.TEMPERROR, error);
             }
         });
     }
@@ -465,10 +465,10 @@ public class SPFValidator {
         if (rcode == DnsMessage.RCODE_NXDOMAIN) {
             ctx.voidLookups++;
             if (ctx.voidLookups > MAX_VOID_LOOKUPS) {
-                ctx.callback.spfResult(SPFResult.PERMERROR, "Too many void lookups");
+                ctx.callback.spfResult(SpfResult.PERMERROR, "Too many void lookups");
                 return;
             }
-            ctx.callback.spfResult(SPFResult.PERMERROR, "Included domain does not exist");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "Included domain does not exist");
             return;
         }
 
@@ -481,7 +481,7 @@ public class SPFValidator {
                 String txt = rr.getText();
                 if (txt != null && txt.startsWith("v=spf1 ")) {
                     if (spfRecord != null) {
-                        ctx.callback.spfResult(SPFResult.PERMERROR, "Multiple SPF records");
+                        ctx.callback.spfResult(SpfResult.PERMERROR, "Multiple SPF records");
                         return;
                     }
                     spfRecord = txt;
@@ -491,7 +491,7 @@ public class SPFValidator {
 
         if (spfRecord == null) {
             // Include with no SPF record is a permanent error
-            ctx.callback.spfResult(SPFResult.PERMERROR, "No SPF record for included domain");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "No SPF record for included domain");
             return;
         }
 
@@ -511,9 +511,9 @@ public class SPFValidator {
                                       String includeDomain, String spfRecord, 
                                       final char qualifier) {
         // Create a sub-callback that interprets include results correctly
-        final SPFCallback includeCallback = new SPFCallback() {
+        final SpfCallback includeCallback = new SpfCallback() {
             @Override
-            public void spfResult(SPFResult result, String explanation) {
+            public void spfResult(SpfResult result, String explanation) {
                 switch (result) {
                     case PASS:
                         // Include matched - apply qualifier
@@ -584,7 +584,7 @@ public class SPFValidator {
         targetDomain = expandMacros(targetDomain, ctx, originalDomain);
 
         if (ctx.dnsLookups >= MAX_DNS_LOOKUPS) {
-            ctx.callback.spfResult(SPFResult.PERMERROR, "Too many DNS lookups");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "Too many DNS lookups");
             return;
         }
 
@@ -605,7 +605,7 @@ public class SPFValidator {
 
             @Override
             public void onError(String error) {
-                ctx.callback.spfResult(SPFResult.TEMPERROR, error);
+                ctx.callback.spfResult(SpfResult.TEMPERROR, error);
             }
         });
     }
@@ -621,7 +621,7 @@ public class SPFValidator {
         if (rcode == DnsMessage.RCODE_NXDOMAIN) {
             ctx.voidLookups++;
             if (ctx.voidLookups > MAX_VOID_LOOKUPS) {
-                ctx.callback.spfResult(SPFResult.PERMERROR, "Too many void lookups");
+                ctx.callback.spfResult(SpfResult.PERMERROR, "Too many void lookups");
                 return;
             }
         }
@@ -644,7 +644,7 @@ public class SPFValidator {
                     }
 
                     if (match) {
-                        SPFResult result = qualifierToResult(qualifier);
+                        SpfResult result = qualifierToResult(qualifier);
                         deliverResult(ctx, originalDomain, result);
                         return;
                     }
@@ -672,7 +672,7 @@ public class SPFValidator {
         }
 
         if (ctx.dnsLookups >= MAX_DNS_LOOKUPS) {
-            ctx.callback.spfResult(SPFResult.PERMERROR, "Too many DNS lookups");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "Too many DNS lookups");
             return;
         }
 
@@ -742,7 +742,7 @@ public class SPFValidator {
         }
 
         if (ctx.dnsLookups >= MAX_DNS_LOOKUPS) {
-            ctx.callback.spfResult(SPFResult.PERMERROR, "Too many DNS lookups");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "Too many DNS lookups");
             return;
         }
 
@@ -774,7 +774,7 @@ public class SPFValidator {
                         InetAddress addr = rr.getAddress();
                         if (addr != null && addr.equals(ctx.clientIP)) {
                             // Valid forward-confirmed reverse DNS
-                            SPFResult result = qualifierToResult(qualifier);
+                            SpfResult result = qualifierToResult(qualifier);
                             deliverResult(ctx, originalDomain, result);
                             return;
                         }
@@ -855,7 +855,7 @@ public class SPFValidator {
         targetDomain = expandMacros(targetDomain, ctx, originalDomain);
 
         if (ctx.dnsLookups >= MAX_DNS_LOOKUPS) {
-            ctx.callback.spfResult(SPFResult.PERMERROR, "Too many DNS lookups");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "Too many DNS lookups");
             return;
         }
 
@@ -873,7 +873,7 @@ public class SPFValidator {
 
             @Override
             public void onError(String error) {
-                ctx.callback.spfResult(SPFResult.TEMPERROR, error);
+                ctx.callback.spfResult(SpfResult.TEMPERROR, error);
             }
         });
     }
@@ -890,7 +890,7 @@ public class SPFValidator {
         if (rcode == DnsMessage.RCODE_NXDOMAIN) {
             ctx.voidLookups++;
             if (ctx.voidLookups > MAX_VOID_LOOKUPS) {
-                ctx.callback.spfResult(SPFResult.PERMERROR, "Too many void lookups");
+                ctx.callback.spfResult(SpfResult.PERMERROR, "Too many void lookups");
                 return;
             }
         }
@@ -933,7 +933,7 @@ public class SPFValidator {
         }
 
         if (ctx.dnsLookups >= MAX_DNS_LOOKUPS) {
-            ctx.callback.spfResult(SPFResult.PERMERROR, "Too many DNS lookups");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "Too many DNS lookups");
             return;
         }
 
@@ -981,7 +981,7 @@ public class SPFValidator {
                     }
 
                     if (match) {
-                        SPFResult result = qualifierToResult(qualifier);
+                        SpfResult result = qualifierToResult(qualifier);
                         deliverResult(ctx, originalDomain, result);
                         return;
                     }
@@ -1002,7 +1002,7 @@ public class SPFValidator {
                                final String[] parts, final int currentIndex,
                                final String existsDomain, final char qualifier) {
         if (ctx.dnsLookups >= MAX_DNS_LOOKUPS) {
-            ctx.callback.spfResult(SPFResult.PERMERROR, "Too many DNS lookups");
+            ctx.callback.spfResult(SpfResult.PERMERROR, "Too many DNS lookups");
             return;
         }
 
@@ -1017,7 +1017,7 @@ public class SPFValidator {
                     DnsResourceRecord rr = answers.get(i);
                     if (rr.getType() == DnsType.A) {
                         // Match - apply qualifier
-                        SPFResult result = qualifierToResult(qualifier);
+                        SpfResult result = qualifierToResult(qualifier);
                         deliverResult(ctx, originalDomain, result);
                         return;
                     }
@@ -1028,7 +1028,7 @@ public class SPFValidator {
 
             @Override
             public void onError(String error) {
-                ctx.callback.spfResult(SPFResult.TEMPERROR, error);
+                ctx.callback.spfResult(SpfResult.TEMPERROR, error);
             }
         });
     }
@@ -1038,18 +1038,18 @@ public class SPFValidator {
     /**
      * Converts an SPF qualifier to a result.
      */
-    private SPFResult qualifierToResult(char qualifier) {
+    private SpfResult qualifierToResult(char qualifier) {
         switch (qualifier) {
             case '+':
-                return SPFResult.PASS;
+                return SpfResult.PASS;
             case '-':
-                return SPFResult.FAIL;
+                return SpfResult.FAIL;
             case '~':
-                return SPFResult.SOFTFAIL;
+                return SpfResult.SOFTFAIL;
             case '?':
-                return SPFResult.NEUTRAL;
+                return SpfResult.NEUTRAL;
             default:
-                return SPFResult.PASS;
+                return SpfResult.PASS;
         }
     }
 
@@ -1396,7 +1396,7 @@ public class SPFValidator {
         final InetAddress clientIP;
         final EmailAddress sender;
         final String heloHost;
-        final SPFCallback callback;
+        final SpfCallback callback;
 
         int dnsLookups;
         int voidLookups;
@@ -1404,7 +1404,7 @@ public class SPFValidator {
         String explanation; // exp= modifier value
 
         CheckContext(String domain, InetAddress clientIP, EmailAddress sender,
-                     String heloHost, SPFCallback callback) {
+                     String heloHost, SpfCallback callback) {
             this.domain = domain;
             this.clientIP = clientIP;
             this.sender = sender;

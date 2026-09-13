@@ -1,5 +1,5 @@
 /*
- * SASLClientMechanism.java
+ * SaslClientMechanism.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,15 +28,15 @@ import java.io.IOException;
  *
  * <p>Unlike {@code javax.security.sasl.SaslClient}, this interface is
  * non-blocking and uses only gumdrop's own cryptographic primitives
- * ({@link SASLUtils}), making it safe to call from the NIO event loop.
+ * ({@link SaslUtils}), making it safe to call from the NIO event loop.
  *
- * <p>Obtain instances via {@link SASLUtils#createClient}.
+ * <p>Obtain instances via {@link SaslUtils#createClient}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SASLUtils#createClient
+ * @see SaslUtils#createClient
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL</a>
  */
-public interface SASLClientMechanism {
+public interface SaslClientMechanism {
 
     /**
      * Returns the IANA-registered mechanism name (e.g. {@code "DIGEST-MD5"}).

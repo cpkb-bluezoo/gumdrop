@@ -29,8 +29,8 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.http.doh.DoHClientTransport;
 import org.bluezoo.gumdrop.dns.client.DoQClientTransport;
-import org.bluezoo.gumdrop.dns.client.TcpDNSClientTransport;
-import org.bluezoo.gumdrop.dns.client.UdpDNSClientTransport;
+import org.bluezoo.gumdrop.dns.client.TcpDnsClientTransport;
+import org.bluezoo.gumdrop.dns.client.UdpDnsClientTransport;
 
 import org.junit.After;
 import org.junit.Before;
@@ -139,7 +139,7 @@ public class AdGuardDnsClientIntegrationTest {
     public void testPlainUdpResolves() throws Exception {
         DnsResolver resolver = new DnsResolver();
         resolver.setSelectorLoop(loop());
-        resolver.setTransport(new UdpDNSClientTransport());
+        resolver.setTransport(new UdpDnsClientTransport());
         resolver.addServer(InetAddress.getByName(AdGuardTestSupport.HOST), AdGuardTestSupport.PLAIN_PORT);
         assertResolvesToTestAnswer(resolver);
     }
@@ -150,7 +150,7 @@ public class AdGuardDnsClientIntegrationTest {
     public void testPlainTcpResolves() throws Exception {
         DnsResolver resolver = new DnsResolver();
         resolver.setSelectorLoop(loop());
-        resolver.setTransport(new TcpDNSClientTransport());
+        resolver.setTransport(new TcpDnsClientTransport());
         resolver.addServer(InetAddress.getByName(AdGuardTestSupport.HOST), AdGuardTestSupport.PLAIN_PORT);
         assertResolvesToTestAnswer(resolver);
     }
@@ -162,7 +162,7 @@ public class AdGuardDnsClientIntegrationTest {
         X509Certificate serverCert = AdGuardTestSupport.loadServerCertificate();
         String pin = AdGuardTestSupport.computeSpkiSha256Pin(serverCert);
 
-        TcpDNSClientTransport transport = new TcpDNSClientTransport();
+        TcpDnsClientTransport transport = new TcpDnsClientTransport();
         transport.setSecure(true);
         transport.setPinnedSPKIFingerprints(Collections.singleton(pin));
 

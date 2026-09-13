@@ -66,7 +66,7 @@ import org.bluezoo.gumdrop.dns.DnsType;
  *
  * <p>It can also query for other hosts' records via {@link #query} and
  * read them back via {@link #lookup}: answers are kept in an
- * {@link MDNSCache} that actively re-queries each record before it
+ * {@link MdnsCache} that actively re-queries each record before it
  * expires (section 5.2), so a lookup stays populated without the
  * caller needing to re-query.
  *
@@ -135,7 +135,7 @@ public class MdnsServer implements Server {
     private List<DnsResourceRecord> currentRecords = Collections.emptyList();
     private MdnsListener.TimerHandleWrapper timerHandle;
 
-    private final MDNSCache cache = new MDNSCache(new MDNSCache.Refresher() {
+    private final MdnsCache cache = new MdnsCache(new MdnsCache.Refresher() {
         @Override
         public void sendRefreshQuery(String name, DnsType type) {
             sendQuery(name, type, true);
@@ -462,7 +462,7 @@ public class MdnsServer implements Server {
         if (advertiseServices) {
             String hostLabel = currentName.substring(
                     0, currentName.length() - ".local".length());
-            records.addAll(DNSSDAdvertiser.buildRecords(
+            records.addAll(DnssdAdvertiser.buildRecords(
                     Gumdrop.getInstance().getServers(), hostLabel,
                     RECORD_TTL, excludedDescriptions));
         }

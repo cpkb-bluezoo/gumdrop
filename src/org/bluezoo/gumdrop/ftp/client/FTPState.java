@@ -1,5 +1,5 @@
 /*
- * FTPState.java
+ * FtpState.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ package org.bluezoo.gumdrop.ftp.client;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a> (FTP)
  */
-enum FTPState {
+enum FtpState {
 
     /** Not connected to any server. */
     DISCONNECTED,

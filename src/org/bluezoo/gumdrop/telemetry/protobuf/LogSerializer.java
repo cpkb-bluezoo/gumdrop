@@ -112,7 +112,7 @@ public class LogSerializer {
      */
     public void serialize(LogRecord record, WritableByteChannel channel) throws IOException {
         ProtobufWriter writer = new ProtobufWriter(channel);
-        writer.writeMessageField(OTLPFieldNumbers.LOGS_DATA_RESOURCE_LOGS,
+        writer.writeMessageField(OtlpFieldNumbers.LOGS_DATA_RESOURCE_LOGS,
                 new ResourceLogsWriter(record));
     }
 
@@ -131,7 +131,7 @@ public class LogSerializer {
 
     private void writeLogsData(ProtobufWriter writer, List<LogRecord> records) throws IOException {
         // LogsData { repeated ResourceLogs resource_logs = 1; }
-        writer.writeMessageField(OTLPFieldNumbers.LOGS_DATA_RESOURCE_LOGS,
+        writer.writeMessageField(OtlpFieldNumbers.LOGS_DATA_RESOURCE_LOGS,
                 new ResourceLogsListWriter(records));
     }
 
@@ -147,15 +147,15 @@ public class LogSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // Resource resource = 1
-            writer.writeMessageField(OTLPFieldNumbers.RESOURCE_LOGS_RESOURCE,
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_LOGS_RESOURCE,
                     new ResourceWriter());
 
             // repeated ScopeLogs scope_logs = 2
-            writer.writeMessageField(OTLPFieldNumbers.RESOURCE_LOGS_SCOPE_LOGS,
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_LOGS_SCOPE_LOGS,
                     new ScopeLogsWriter(record));
 
             // string schema_url = 3
-            writer.writeStringField(OTLPFieldNumbers.RESOURCE_LOGS_SCHEMA_URL, SCHEMA_URL);
+            writer.writeStringField(OtlpFieldNumbers.RESOURCE_LOGS_SCHEMA_URL, SCHEMA_URL);
         }
     }
 
@@ -169,15 +169,15 @@ public class LogSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // Resource resource = 1
-            writer.writeMessageField(OTLPFieldNumbers.RESOURCE_LOGS_RESOURCE,
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_LOGS_RESOURCE,
                     new ResourceWriter());
 
             // repeated ScopeLogs scope_logs = 2
-            writer.writeMessageField(OTLPFieldNumbers.RESOURCE_LOGS_SCOPE_LOGS,
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_LOGS_SCOPE_LOGS,
                     new ScopeLogsListWriter(records));
 
             // string schema_url = 3
-            writer.writeStringField(OTLPFieldNumbers.RESOURCE_LOGS_SCHEMA_URL, SCHEMA_URL);
+            writer.writeStringField(OtlpFieldNumbers.RESOURCE_LOGS_SCHEMA_URL, SCHEMA_URL);
         }
     }
 
@@ -185,22 +185,22 @@ public class LogSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // repeated KeyValue attributes = 1
-            writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+            writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                     "service.name", serviceName);
 
             if (serviceVersion != null) {
-                writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+                writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                         "service.version", serviceVersion);
             }
 
             if (serviceNamespace != null) {
-                writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+                writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                         "service.namespace", serviceNamespace);
             }
 
             if (resourceAttributes != null) {
                 for (Map.Entry<String, String> entry : resourceAttributes.entrySet()) {
-                    writeKeyValue(writer, OTLPFieldNumbers.RESOURCE_ATTRIBUTES,
+                    writeKeyValue(writer, OtlpFieldNumbers.RESOURCE_ATTRIBUTES,
                             entry.getKey(), entry.getValue());
                 }
             }
@@ -217,11 +217,11 @@ public class LogSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // InstrumentationScope scope = 1
-            writer.writeMessageField(OTLPFieldNumbers.SCOPE_LOGS_SCOPE,
+            writer.writeMessageField(OtlpFieldNumbers.SCOPE_LOGS_SCOPE,
                     new InstrumentationScopeWriter());
 
             // repeated LogRecord log_records = 2
-            writer.writeMessageField(OTLPFieldNumbers.SCOPE_LOGS_LOG_RECORDS,
+            writer.writeMessageField(OtlpFieldNumbers.SCOPE_LOGS_LOG_RECORDS,
                     new LogRecordWriter(record));
         }
     }
@@ -236,12 +236,12 @@ public class LogSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // InstrumentationScope scope = 1
-            writer.writeMessageField(OTLPFieldNumbers.SCOPE_LOGS_SCOPE,
+            writer.writeMessageField(OtlpFieldNumbers.SCOPE_LOGS_SCOPE,
                     new InstrumentationScopeWriter());
 
             // repeated LogRecord log_records = 2
             for (LogRecord record : records) {
-                writer.writeMessageField(OTLPFieldNumbers.SCOPE_LOGS_LOG_RECORDS,
+                writer.writeMessageField(OtlpFieldNumbers.SCOPE_LOGS_LOG_RECORDS,
                         new LogRecordWriter(record));
             }
         }
@@ -251,9 +251,9 @@ public class LogSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // string name = 1
-            writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_NAME, "gumdrop");
+            writer.writeStringField(OtlpFieldNumbers.INSTRUMENTATION_SCOPE_NAME, "gumdrop");
             // string version = 2
-            writer.writeStringField(OTLPFieldNumbers.INSTRUMENTATION_SCOPE_VERSION, Gumdrop.VERSION);
+            writer.writeStringField(OtlpFieldNumbers.INSTRUMENTATION_SCOPE_VERSION, Gumdrop.VERSION);
         }
     }
 
@@ -267,40 +267,40 @@ public class LogSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // fixed64 time_unix_nano = 1
-            writer.writeFixed64Field(OTLPFieldNumbers.LOG_RECORD_TIME_UNIX_NANO,
+            writer.writeFixed64Field(OtlpFieldNumbers.LOG_RECORD_TIME_UNIX_NANO,
                     record.getTimeUnixNano());
 
             // fixed64 observed_time_unix_nano = 11
-            writer.writeFixed64Field(OTLPFieldNumbers.LOG_RECORD_OBSERVED_TIME_UNIX_NANO,
+            writer.writeFixed64Field(OtlpFieldNumbers.LOG_RECORD_OBSERVED_TIME_UNIX_NANO,
                     record.getTimeUnixNano());
 
             // SeverityNumber severity_number = 2
-            writer.writeVarintField(OTLPFieldNumbers.LOG_RECORD_SEVERITY_NUMBER,
+            writer.writeVarintField(OtlpFieldNumbers.LOG_RECORD_SEVERITY_NUMBER,
                     record.getSeverityNumber());
 
             // string severity_text = 3
-            writer.writeStringField(OTLPFieldNumbers.LOG_RECORD_SEVERITY_TEXT,
+            writer.writeStringField(OtlpFieldNumbers.LOG_RECORD_SEVERITY_TEXT,
                     record.getSeverityText());
 
             // AnyValue body = 5
             if (record.getBody() != null) {
-                writer.writeMessageField(OTLPFieldNumbers.LOG_RECORD_BODY,
+                writer.writeMessageField(OtlpFieldNumbers.LOG_RECORD_BODY,
                         new StringAnyValueWriter(record.getBody()));
             }
 
             // repeated KeyValue attributes = 6
             for (Attribute attr : record.getAttributes()) {
-                writer.writeMessageField(OTLPFieldNumbers.LOG_RECORD_ATTRIBUTES,
+                writer.writeMessageField(OtlpFieldNumbers.LOG_RECORD_ATTRIBUTES,
                         new AttributeWriter(attr));
             }
 
             // bytes trace_id = 9
             if (record.hasSpanContext()) {
-                writer.writeBytesField(OTLPFieldNumbers.LOG_RECORD_TRACE_ID,
+                writer.writeBytesField(OtlpFieldNumbers.LOG_RECORD_TRACE_ID,
                         record.getTraceId().getBytes());
 
                 // bytes span_id = 10
-                writer.writeBytesField(OTLPFieldNumbers.LOG_RECORD_SPAN_ID,
+                writer.writeBytesField(OtlpFieldNumbers.LOG_RECORD_SPAN_ID,
                         record.getSpanId().getBytes());
             }
         }
@@ -316,10 +316,10 @@ public class LogSerializer {
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // string key = 1
-            writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, attr.getKey());
+            writer.writeStringField(OtlpFieldNumbers.KEY_VALUE_KEY, attr.getKey());
 
             // AnyValue value = 2
-            writer.writeMessageField(OTLPFieldNumbers.KEY_VALUE_VALUE,
+            writer.writeMessageField(OtlpFieldNumbers.KEY_VALUE_VALUE,
                     new AnyValueWriter(attr));
         }
     }
@@ -335,19 +335,19 @@ public class LogSerializer {
         public void writeTo(ProtobufWriter writer) throws IOException {
             switch (attr.getType()) {
                 case Attribute.TYPE_STRING:
-                    writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE,
+                    writer.writeStringField(OtlpFieldNumbers.ANY_VALUE_STRING_VALUE,
                             attr.getStringValue());
                     break;
                 case Attribute.TYPE_BOOL:
-                    writer.writeBoolField(OTLPFieldNumbers.ANY_VALUE_BOOL_VALUE,
+                    writer.writeBoolField(OtlpFieldNumbers.ANY_VALUE_BOOL_VALUE,
                             attr.getBoolValue());
                     break;
                 case Attribute.TYPE_INT:
-                    writer.writeVarintField(OTLPFieldNumbers.ANY_VALUE_INT_VALUE,
+                    writer.writeVarintField(OtlpFieldNumbers.ANY_VALUE_INT_VALUE,
                             attr.getIntValue());
                     break;
                 case Attribute.TYPE_DOUBLE:
-                    writer.writeDoubleField(OTLPFieldNumbers.ANY_VALUE_DOUBLE_VALUE,
+                    writer.writeDoubleField(OtlpFieldNumbers.ANY_VALUE_DOUBLE_VALUE,
                             attr.getDoubleValue());
                     break;
             }
@@ -372,8 +372,8 @@ public class LogSerializer {
 
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
-            writer.writeStringField(OTLPFieldNumbers.KEY_VALUE_KEY, key);
-            writer.writeMessageField(OTLPFieldNumbers.KEY_VALUE_VALUE,
+            writer.writeStringField(OtlpFieldNumbers.KEY_VALUE_KEY, key);
+            writer.writeMessageField(OtlpFieldNumbers.KEY_VALUE_VALUE,
                     new StringAnyValueWriter(value));
         }
     }
@@ -387,7 +387,7 @@ public class LogSerializer {
 
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
-            writer.writeStringField(OTLPFieldNumbers.ANY_VALUE_STRING_VALUE, value);
+            writer.writeStringField(OtlpFieldNumbers.ANY_VALUE_STRING_VALUE, value);
         }
     }
 }

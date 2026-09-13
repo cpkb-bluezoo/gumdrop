@@ -1,5 +1,5 @@
 /*
- * QPACKConstants.java
+ * QpackConstants.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.http.HeaderTableIndex;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9204">RFC 9204</a>
  */
-abstract class QPACKConstants {
+abstract class QpackConstants {
 
     /**
      * RFC 9204 Appendix A: Static Table Definition.

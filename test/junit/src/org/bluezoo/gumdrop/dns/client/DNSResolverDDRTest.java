@@ -57,12 +57,12 @@ public class DNSResolverDDRTest {
 
     @Before
     public void setUp() {
-        DNSServerCapabilityCache.clear();
+        DnsServerCapabilityCache.clear();
     }
 
     @After
     public void tearDown() {
-        DNSServerCapabilityCache.clear();
+        DnsServerCapabilityCache.clear();
     }
 
     @Test
@@ -100,7 +100,7 @@ public class DNSResolverDDRTest {
         resolver.addServer("203.0.113.1");
         resolver.open();
 
-        assertEquals(Collections.singletonList(DNSTransportType.PLAIN), resolver.attempted);
+        assertEquals(Collections.singletonList(DnsTransportType.PLAIN), resolver.attempted);
 
         Map<Integer, byte[]> params = new LinkedHashMap<>();
         params.put(DnsResourceRecord.SVCB_PARAM_ALPN,
@@ -109,13 +109,13 @@ public class DNSResolverDDRTest {
         resolver.ddrTransport.handler.onReceive(ddrResponse(svcb).serialize());
 
         InetSocketAddress server = server("203.0.113.1");
-        DNSServerCapabilities caps = DNSServerCapabilityCache.get(server);
+        DnsServerCapabilities caps = DnsServerCapabilityCache.get(server);
         assertTrue(caps.isDoqSupported());
         assertTrue(caps.isDotSupported());
         assertFalse(caps.isDohSupported());
 
         // The upgrade re-runs transport selection; DOQ (first preference) wins.
-        assertEquals(Arrays.asList(DNSTransportType.PLAIN, DNSTransportType.DOQ), resolver.attempted);
+        assertEquals(Arrays.asList(DnsTransportType.PLAIN, DnsTransportType.DOQ), resolver.attempted);
         assertTrue("the discovery transport should be closed once handled", resolver.ddrTransport.closed);
         resolver.close();
     }
@@ -135,7 +135,7 @@ public class DNSResolverDDRTest {
         DnsResourceRecord svcb = DnsResourceRecord.svcb("_dns.resolver.arpa", 300, 1, ".", withPath);
         resolver.ddrTransport.handler.onReceive(ddrResponse(svcb).serialize());
 
-        DNSServerCapabilities caps = DNSServerCapabilityCache.get(server("203.0.113.1"));
+        DnsServerCapabilities caps = DnsServerCapabilityCache.get(server("203.0.113.1"));
         assertTrue(caps.isDohSupported());
         assertEquals("the {?dns} URI Template suffix is not usable by DoHClientTransport's POST-only client",
                 "/custom-doh", caps.getDohPath());
@@ -159,9 +159,9 @@ public class DNSResolverDDRTest {
                 Collections.<DnsResourceRecord>emptyList());
         resolver.ddrTransport.handler.onReceive(response.serialize());
 
-        assertEquals(DNSServerCapabilities.UNKNOWN, describeUnknown(server("203.0.113.1")));
+        assertEquals(DnsServerCapabilities.UNKNOWN, describeUnknown(server("203.0.113.1")));
         // No upgrade attempted -- resolver stays on its original PLAIN transport.
-        assertEquals(Collections.singletonList(DNSTransportType.PLAIN), resolver.attempted);
+        assertEquals(Collections.singletonList(DnsTransportType.PLAIN), resolver.attempted);
         resolver.close();
     }
 
@@ -177,8 +177,8 @@ public class DNSResolverDDRTest {
                 "_dns.resolver.arpa", 300, 0, "target.example.net", null);
         resolver.ddrTransport.handler.onReceive(ddrResponse(alias).serialize());
 
-        assertFalse(DNSServerCapabilityCache.get(server("203.0.113.1")).isDoqSupported());
-        assertEquals(Collections.singletonList(DNSTransportType.PLAIN), resolver.attempted);
+        assertFalse(DnsServerCapabilityCache.get(server("203.0.113.1")).isDoqSupported());
+        assertEquals(Collections.singletonList(DnsTransportType.PLAIN), resolver.attempted);
         resolver.close();
     }
 
@@ -192,9 +192,9 @@ public class DNSResolverDDRTest {
         assertNotNull(resolver.ddrTransport.onTimeoutCallback);
         resolver.ddrTransport.onTimeoutCallback.run();
 
-        assertFalse(DNSServerCapabilityCache.get(server("203.0.113.1")).isDoqSupported());
+        assertFalse(DnsServerCapabilityCache.get(server("203.0.113.1")).isDoqSupported());
         assertTrue(resolver.ddrTransport.closed);
-        assertEquals(Collections.singletonList(DNSTransportType.PLAIN), resolver.attempted);
+        assertEquals(Collections.singletonList(DnsTransportType.PLAIN), resolver.attempted);
         resolver.close();
     }
 
@@ -229,8 +229,8 @@ public class DNSResolverDDRTest {
         return new InetSocketAddress(InetAddress.getByName(address), 53);
     }
 
-    private static DNSServerCapabilities describeUnknown(InetSocketAddress server) {
-        return DNSServerCapabilityCache.get(server);
+    private static DnsServerCapabilities describeUnknown(InetSocketAddress server) {
+        return DnsServerCapabilityCache.get(server);
     }
 
     private static DnsMessage ddrResponse(DnsResourceRecord... answers) {
@@ -284,13 +284,13 @@ public class DNSResolverDDRTest {
      * inject mocks instead of real network transports.
      */
     private static class TestableResolver extends DnsResolver {
-        final Map<DNSTransportType, DnsClientTransport> transports =
-                new EnumMap<>(DNSTransportType.class);
-        final List<DNSTransportType> attempted = new ArrayList<>();
+        final Map<DnsTransportType, DnsClientTransport> transports =
+                new EnumMap<>(DnsTransportType.class);
+        final List<DnsTransportType> attempted = new ArrayList<>();
         final RecordingTransport ddrTransport = new RecordingTransport();
 
         @Override
-        DnsClientTransport newTransportInstance(DNSTransportType type, DNSServerCapabilities caps) {
+        DnsClientTransport newTransportInstance(DnsTransportType type, DnsServerCapabilities caps) {
             attempted.add(type);
             DnsClientTransport transport = transports.get(type);
             return transport != null ? transport : new RecordingTransport();

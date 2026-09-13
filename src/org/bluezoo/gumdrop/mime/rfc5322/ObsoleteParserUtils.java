@@ -22,8 +22,8 @@
 package org.bluezoo.gumdrop.mime.rfc5322;
 
 import org.bluezoo.gumdrop.mime.ContentID;
-import org.bluezoo.gumdrop.mime.MIMEParser;
-import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
+import org.bluezoo.gumdrop.mime.MimeParser;
+import org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Decoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharsetDecoder;
 import java.util.ArrayList;
@@ -65,12 +65,12 @@ public class ObsoleteParserUtils {
 			List<EmailAddress> addresses = new ArrayList<>();
 			int limit = value.limit();
 			while (value.position() < limit) {
-				int comma = MIMEParser.indexOf(value, (byte) ',');
+				int comma = MimeParser.indexOf(value, (byte) ',');
 				int end = comma >= 0 ? comma : limit;
 				if (end > value.position()) {
 					ByteBuffer segment = value.duplicate();
 					segment.limit(end);
-					String part = RFC2047Decoder.decodeUnstructuredHeaderValue(segment, decoder, true, false);
+					String part = Rfc2047Decoder.decodeUnstructuredHeaderValue(segment, decoder, true, false);
 					if (!part.trim().isEmpty()) {
 						EmailAddress addr = parseObsoleteAddress(part);
 						if (addr != null) {
@@ -242,7 +242,7 @@ public class ObsoleteParserUtils {
 					if (pos > segmentStart) {
 						int savedLimit = value.limit();
 						value.position(segmentStart).limit(pos);
-						String part = MIMEParser.decodeSlice(value, decoder);
+						String part = MimeParser.decodeSlice(value, decoder);
 						value.limit(savedLimit);
 						if (!part.trim().isEmpty()) {
 							ContentID id = parseObsoleteMessageID(part);

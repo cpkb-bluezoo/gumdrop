@@ -1,5 +1,5 @@
 /*
- * DSNRecipientParameters.java
+ * DsnRecipientParameters.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -45,14 +45,14 @@ import java.util.Set;
  * automatically decoded when parsed.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DSNNotify
+ * @see DsnNotify
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.1">RFC 3461 §4.1</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.2">RFC 3461 §4.2</a>
  */
-public class DSNRecipientParameters {
+public class DsnRecipientParameters {
 
-    private final Set<DSNNotify> notify;
+    private final Set<DsnNotify> notify;
     private final String orcptType;
     private final String orcptAddress;
 
@@ -63,7 +63,7 @@ public class DSNRecipientParameters {
      * @param orcptType the original recipient address type (e.g., "rfc822"), may be null
      * @param orcptAddress the original recipient address, may be null
      */
-    public DSNRecipientParameters(Set<DSNNotify> notify, String orcptType, String orcptAddress) {
+    public DsnRecipientParameters(Set<DsnNotify> notify, String orcptType, String orcptAddress) {
         if (notify != null && !notify.isEmpty()) {
             this.notify = Collections.unmodifiableSet(EnumSet.copyOf(notify));
         } else {
@@ -81,7 +81,7 @@ public class DSNRecipientParameters {
      * 
      * @return an unmodifiable set of notification conditions
      */
-    public Set<DSNNotify> getNotify() {
+    public Set<DsnNotify> getNotify() {
         return notify;
     }
 
@@ -91,7 +91,7 @@ public class DSNRecipientParameters {
      * @return true if no DSN should ever be sent for this recipient
      */
     public boolean isNotifyNever() {
-        return notify.contains(DSNNotify.NEVER);
+        return notify.contains(DsnNotify.NEVER);
     }
 
     /**
@@ -100,7 +100,7 @@ public class DSNRecipientParameters {
      * @return true if DSN should be sent on successful delivery
      */
     public boolean isNotifySuccess() {
-        return notify.contains(DSNNotify.SUCCESS);
+        return notify.contains(DsnNotify.SUCCESS);
     }
 
     /**
@@ -109,7 +109,7 @@ public class DSNRecipientParameters {
      * @return true if DSN should be sent on delivery failure
      */
     public boolean isNotifyFailure() {
-        return notify.contains(DSNNotify.FAILURE);
+        return notify.contains(DsnNotify.FAILURE);
     }
 
     /**
@@ -118,7 +118,7 @@ public class DSNRecipientParameters {
      * @return true if DSN should be sent on delivery delay
      */
     public boolean isNotifyDelay() {
-        return notify.contains(DSNNotify.DELAY);
+        return notify.contains(DsnNotify.DELAY);
     }
 
     /**
@@ -165,7 +165,7 @@ public class DSNRecipientParameters {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder("DSNRecipientParameters[");
+        StringBuilder sb = new StringBuilder("DsnRecipientParameters[");
         boolean first = true;
         if (!notify.isEmpty()) {
             sb.append("NOTIFY=").append(notify);

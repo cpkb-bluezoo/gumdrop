@@ -1,5 +1,5 @@
 /*
- * UdpDNSClientTransport.java
+ * UdpDnsClientTransport.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.UdpTransportFactory;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DnsClientTransport
  */
-public class UdpDNSClientTransport implements DnsClientTransport {
+public class UdpDnsClientTransport implements DnsClientTransport {
 
     private UdpEndpoint endpoint;
 
@@ -59,7 +59,7 @@ public class UdpDNSClientTransport implements DnsClientTransport {
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
         this.endpoint = factory.connect(server, port,
-                new UDPProtocolHandler(handler), loop);
+                new UdpProtocolHandler(handler), loop);
     }
 
     @Override
@@ -83,11 +83,11 @@ public class UdpDNSClientTransport implements DnsClientTransport {
      * Adapts the Gumdrop {@link ProtocolHandler} callbacks to
      * {@link DnsClientTransportHandler}.
      */
-    private static class UDPProtocolHandler implements ProtocolHandler {
+    private static class UdpProtocolHandler implements ProtocolHandler {
 
         private final DnsClientTransportHandler handler;
 
-        UDPProtocolHandler(DnsClientTransportHandler handler) {
+        UdpProtocolHandler(DnsClientTransportHandler handler) {
             this.handler = handler;
         }
 

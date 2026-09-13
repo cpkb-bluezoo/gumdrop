@@ -50,7 +50,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.TokenErrorRecovery;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.quota.Quota;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.QuotaPolicy;
@@ -68,7 +68,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses a streaming {@link FTPServerLexer} (issue #85):
+ * <li>Line parsing uses a streaming {@link FtpServerLexer} (issue #85):
  *     bytes are tokenised as they arrive rather than buffered into whole
  *     lines — see {@link ByteStreamLexer}</li>
  * <li>TLS upgrade uses {@link Endpoint#startTLS()}</li>
@@ -77,13 +77,13 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see FTPServerLexer
+ * @see FtpServerLexer
  * @see FtpListener
  * @see https://www.rfc-editor.org/rfc/rfc959
  */
 public final class FtpProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<FTPServerLexer.Token>,
-                   FTPControlConnection {
+        implements ProtocolHandler, ByteStreamLexer.Handler<FtpServerLexer.Token>,
+                   FtpControlConnection {
 
     private static final Logger LOGGER =
             Logger.getLogger(FtpProtocolHandler.class.getName());
@@ -98,7 +98,7 @@ public final class FtpProtocolHandler
     // RFC 959/2228/2428/3659/etc. — recognised command verbs. Resolved
     // once, directly from the KEYWORD token's bytes (issue #85), rather
     // than buffered as a String and re-compared later.
-    private enum FTPCommand {
+    private enum FtpCommand {
         USER, PASS, ACCT, CWD, CDUP, SMNT, REIN, QUIT,
         PORT, PASV, EPRT, EPSV, TYPE, STRU, MODE,
         RETR, STOR, STOU, APPE, ALLO, REST, RNFR, RNTO, ABOR, DELE,
@@ -127,10 +127,10 @@ public final class FtpProtocolHandler
     private boolean utf8Enabled = false;
 
     // Streaming lexer (issue #85) and per-line parse state
-    private final FTPServerLexer lexer;
-    private final TokenErrorRecovery<FTPServerLexer.Token> lexerRecovery =
-            new TokenErrorRecovery<FTPServerLexer.Token>(FTPServerLexer.Token.CRLF);
-    private FTPCommand pendingCommand = FTPCommand.UNKNOWN;
+    private final FtpServerLexer lexer;
+    private final TokenErrorRecovery<FtpServerLexer.Token> lexerRecovery =
+            new TokenErrorRecovery<FtpServerLexer.Token>(FtpServerLexer.Token.CRLF);
+    private FtpCommand pendingCommand = FtpCommand.UNKNOWN;
     private String pendingUnknownText = "";
     private boolean pendingHasSp;
     private final StringBuilder argsBuilder = new StringBuilder();
@@ -179,7 +179,7 @@ public final class FtpProtocolHandler
         this.metadata = tempMetadata;
         this.dataCoordinator = new FtpDataConnectionCoordinator(this);
         ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
-        this.lexer = new FTPServerLexer(this, MAX_LINE_LENGTH);
+        this.lexer = new FtpServerLexer(this, MAX_LINE_LENGTH);
     }
 
     // ── ProtocolHandler implementation ──
@@ -265,7 +265,7 @@ public final class FtpProtocolHandler
             Realm realm = server.getRealm();
             if (realm != null) {
                 Realm.CertificateAuthenticationResult result =
-                        SASLUtils.authenticateExternal(
+                        SaslUtils.authenticateExternal(
                                 endpoint, realm, null);
                 if (result != null && result.valid) {
                     user = result.username;
@@ -297,13 +297,13 @@ public final class FtpProtocolHandler
     // ── ByteStreamLexer.Handler implementation (issue #85) ──
 
     // RFC 959 section 4: KEYWORD [SP TEXT] CRLF. TEXT is delivered in
-    // zero-copy chunks by the lexer (see FTPServerLexer / ByteStreamLexer);
+    // zero-copy chunks by the lexer (see FtpServerLexer / ByteStreamLexer);
     // this dispatcher accumulates only what it needs to retain (the args
     // string, which may itself contain spaces, e.g. pathnames) and
     // enforces the combined line-length budget itself, since free-form
     // text is intentionally exempt from the lexer's own cap.
     @Override
-    public boolean token(FTPServerLexer.Token type, ByteBuffer window) {
+    public boolean token(FtpServerLexer.Token type, ByteBuffer window) {
         if (lexerRecovery.handleToken(type)) {
             // Discarding the remainder of a line already rejected by
             // tokenTooLong(); the error reply was already sent there.
@@ -319,7 +319,7 @@ public final class FtpProtocolHandler
                     // for the (rare) unrecognised-verb case, where the
                     // exact text is needed for the error reply.
                     pendingCommand = matchCommand(window);
-                    if (pendingCommand == FTPCommand.UNKNOWN) {
+                    if (pendingCommand == FtpCommand.UNKNOWN) {
                         try {
                             pendingUnknownText = decodeAscii(window).toUpperCase();
                         } catch (CharacterCodingException e) {
@@ -383,7 +383,7 @@ public final class FtpProtocolHandler
     }
 
     private void resetLineState() {
-        pendingCommand = FTPCommand.UNKNOWN;
+        pendingCommand = FtpCommand.UNKNOWN;
         pendingUnknownText = "";
         pendingHasSp = false;
         argsBuilder.setLength(0);
@@ -404,114 +404,114 @@ public final class FtpProtocolHandler
      * verb's packed value.
      *
      * @param window the KEYWORD token's bytes
-     * @return the matched command, or {@link FTPCommand#UNKNOWN}
+     * @return the matched command, or {@link FtpCommand#UNKNOWN}
      */
-    private static FTPCommand matchCommand(ByteBuffer window) {
+    private static FtpCommand matchCommand(ByteBuffer window) {
         int len = window.remaining();
         int base = window.position();
         if (len == 4) {
             switch (pack4(window, base)) {
                 case ('U' << 24) | ('S' << 16) | ('E' << 8) | 'R':
-                    return FTPCommand.USER;
+                    return FtpCommand.USER;
                 case ('P' << 24) | ('A' << 16) | ('S' << 8) | 'S':
-                    return FTPCommand.PASS;
+                    return FtpCommand.PASS;
                 case ('A' << 24) | ('C' << 16) | ('C' << 8) | 'T':
-                    return FTPCommand.ACCT;
+                    return FtpCommand.ACCT;
                 case ('C' << 24) | ('D' << 16) | ('U' << 8) | 'P':
-                    return FTPCommand.CDUP;
+                    return FtpCommand.CDUP;
                 case ('S' << 24) | ('M' << 16) | ('N' << 8) | 'T':
-                    return FTPCommand.SMNT;
+                    return FtpCommand.SMNT;
                 case ('R' << 24) | ('E' << 16) | ('I' << 8) | 'N':
-                    return FTPCommand.REIN;
+                    return FtpCommand.REIN;
                 case ('Q' << 24) | ('U' << 16) | ('I' << 8) | 'T':
-                    return FTPCommand.QUIT;
+                    return FtpCommand.QUIT;
                 case ('P' << 24) | ('O' << 16) | ('R' << 8) | 'T':
-                    return FTPCommand.PORT;
+                    return FtpCommand.PORT;
                 case ('P' << 24) | ('A' << 16) | ('S' << 8) | 'V':
-                    return FTPCommand.PASV;
+                    return FtpCommand.PASV;
                 case ('E' << 24) | ('P' << 16) | ('R' << 8) | 'T':
-                    return FTPCommand.EPRT;
+                    return FtpCommand.EPRT;
                 case ('E' << 24) | ('P' << 16) | ('S' << 8) | 'V':
-                    return FTPCommand.EPSV;
+                    return FtpCommand.EPSV;
                 case ('T' << 24) | ('Y' << 16) | ('P' << 8) | 'E':
-                    return FTPCommand.TYPE;
+                    return FtpCommand.TYPE;
                 case ('S' << 24) | ('T' << 16) | ('R' << 8) | 'U':
-                    return FTPCommand.STRU;
+                    return FtpCommand.STRU;
                 case ('M' << 24) | ('O' << 16) | ('D' << 8) | 'E':
-                    return FTPCommand.MODE;
+                    return FtpCommand.MODE;
                 case ('R' << 24) | ('E' << 16) | ('T' << 8) | 'R':
-                    return FTPCommand.RETR;
+                    return FtpCommand.RETR;
                 case ('S' << 24) | ('T' << 16) | ('O' << 8) | 'R':
-                    return FTPCommand.STOR;
+                    return FtpCommand.STOR;
                 case ('S' << 24) | ('T' << 16) | ('O' << 8) | 'U':
-                    return FTPCommand.STOU;
+                    return FtpCommand.STOU;
                 case ('A' << 24) | ('P' << 16) | ('P' << 8) | 'E':
-                    return FTPCommand.APPE;
+                    return FtpCommand.APPE;
                 case ('A' << 24) | ('L' << 16) | ('L' << 8) | 'O':
-                    return FTPCommand.ALLO;
+                    return FtpCommand.ALLO;
                 case ('R' << 24) | ('E' << 16) | ('S' << 8) | 'T':
-                    return FTPCommand.REST;
+                    return FtpCommand.REST;
                 case ('R' << 24) | ('N' << 16) | ('F' << 8) | 'R':
-                    return FTPCommand.RNFR;
+                    return FtpCommand.RNFR;
                 case ('R' << 24) | ('N' << 16) | ('T' << 8) | 'O':
-                    return FTPCommand.RNTO;
+                    return FtpCommand.RNTO;
                 case ('A' << 24) | ('B' << 16) | ('O' << 8) | 'R':
-                    return FTPCommand.ABOR;
+                    return FtpCommand.ABOR;
                 case ('D' << 24) | ('E' << 16) | ('L' << 8) | 'E':
-                    return FTPCommand.DELE;
+                    return FtpCommand.DELE;
                 case ('L' << 24) | ('I' << 16) | ('S' << 8) | 'T':
-                    return FTPCommand.LIST;
+                    return FtpCommand.LIST;
                 case ('N' << 24) | ('L' << 16) | ('S' << 8) | 'T':
-                    return FTPCommand.NLST;
+                    return FtpCommand.NLST;
                 case ('S' << 24) | ('I' << 16) | ('T' << 8) | 'E':
-                    return FTPCommand.SITE;
+                    return FtpCommand.SITE;
                 case ('S' << 24) | ('Y' << 16) | ('S' << 8) | 'T':
-                    return FTPCommand.SYST;
+                    return FtpCommand.SYST;
                 case ('S' << 24) | ('T' << 16) | ('A' << 8) | 'T':
-                    return FTPCommand.STAT;
+                    return FtpCommand.STAT;
                 case ('H' << 24) | ('E' << 16) | ('L' << 8) | 'P':
-                    return FTPCommand.HELP;
+                    return FtpCommand.HELP;
                 case ('N' << 24) | ('O' << 16) | ('O' << 8) | 'P':
-                    return FTPCommand.NOOP;
+                    return FtpCommand.NOOP;
                 case ('A' << 24) | ('U' << 16) | ('T' << 8) | 'H':
-                    return FTPCommand.AUTH;
+                    return FtpCommand.AUTH;
                 case ('P' << 24) | ('B' << 16) | ('S' << 8) | 'Z':
-                    return FTPCommand.PBSZ;
+                    return FtpCommand.PBSZ;
                 case ('P' << 24) | ('R' << 16) | ('O' << 8) | 'T':
-                    return FTPCommand.PROT;
+                    return FtpCommand.PROT;
                 case ('S' << 24) | ('I' << 16) | ('Z' << 8) | 'E':
-                    return FTPCommand.SIZE;
+                    return FtpCommand.SIZE;
                 case ('M' << 24) | ('D' << 16) | ('T' << 8) | 'M':
-                    return FTPCommand.MDTM;
+                    return FtpCommand.MDTM;
                 case ('M' << 24) | ('L' << 16) | ('S' << 8) | 'T':
-                    return FTPCommand.MLST;
+                    return FtpCommand.MLST;
                 case ('M' << 24) | ('L' << 16) | ('S' << 8) | 'D':
-                    return FTPCommand.MLSD;
+                    return FtpCommand.MLSD;
                 case ('O' << 24) | ('P' << 16) | ('T' << 8) | 'S':
-                    return FTPCommand.OPTS;
+                    return FtpCommand.OPTS;
                 case ('F' << 24) | ('E' << 16) | ('A' << 8) | 'T':
-                    return FTPCommand.FEAT;
+                    return FtpCommand.FEAT;
                 default:
-                    return FTPCommand.UNKNOWN;
+                    return FtpCommand.UNKNOWN;
             }
         }
         if (len == 3) {
             switch (pack3(window, base)) {
                 case ('C' << 16) | ('W' << 8) | 'D':
-                    return FTPCommand.CWD;
+                    return FtpCommand.CWD;
                 case ('R' << 16) | ('M' << 8) | 'D':
-                    return FTPCommand.RMD;
+                    return FtpCommand.RMD;
                 case ('M' << 16) | ('K' << 8) | 'D':
-                    return FTPCommand.MKD;
+                    return FtpCommand.MKD;
                 case ('P' << 16) | ('W' << 8) | 'D':
-                    return FTPCommand.PWD;
+                    return FtpCommand.PWD;
                 case ('C' << 16) | ('C' << 8) | 'C':
-                    return FTPCommand.CCC;
+                    return FtpCommand.CCC;
                 default:
-                    return FTPCommand.UNKNOWN;
+                    return FtpCommand.UNKNOWN;
             }
         }
-        return FTPCommand.UNKNOWN;
+        return FtpCommand.UNKNOWN;
     }
 
     private static int pack4(ByteBuffer window, int base) {
@@ -541,7 +541,7 @@ public final class FtpProtocolHandler
     // RFC 959 section 4 — a complete command line has been lexed; dispatch
     // it exactly as the pre-streaming lineRead(String) did.
     private void dispatchLine() {
-        FTPCommand command = pendingCommand;
+        FtpCommand command = pendingCommand;
         String unknownText = pendingUnknownText;
         String args = pendingHasSp ? argsBuilder.toString() : null;
         String error = lineErrorMessage;
@@ -563,7 +563,7 @@ public final class FtpProtocolHandler
         }
     }
 
-    // ── FTPControlConnection implementation ──
+    // ── FtpControlConnection implementation ──
 
     @Override
     public FtpListener getServer() {
@@ -841,7 +841,7 @@ public final class FtpProtocolHandler
     // Unlike POP3, no FTP command is gated by connection state — each
     // doXxx method checks `authenticated` itself where required — so
     // there is no nested state switch here.
-    private void dispatchCommand(FTPCommand command, String unknownText, String args)
+    private void dispatchCommand(FtpCommand command, String unknownText, String args)
             throws IOException {
         switch (command) {
             case USER:

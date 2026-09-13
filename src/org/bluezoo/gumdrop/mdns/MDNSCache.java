@@ -1,5 +1,5 @@
 /*
- * MDNSCache.java
+ * MdnsCache.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -62,7 +62,7 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MdnsServer
  */
-final class MDNSCache {
+final class MdnsCache {
 
     // RFC 6762 section 5.2: active refresh schedule, as fractions of
     // the record's original TTL. The final entry (1.0) is expiry, not
@@ -118,7 +118,7 @@ final class MDNSCache {
     private final Map<Key, List<CachedRecord>> entries = new LinkedHashMap<Key, List<CachedRecord>>();
     private final Refresher refresher;
 
-    MDNSCache(Refresher refresher) {
+    MdnsCache(Refresher refresher) {
         this.refresher = refresher;
     }
 

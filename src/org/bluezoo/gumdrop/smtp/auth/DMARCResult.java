@@ -1,5 +1,5 @@
 /*
- * DMARCResult.java
+ * DmarcResult.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,7 +31,7 @@ package org.bluezoo.gumdrop.smtp.auth;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
-public enum DMARCResult {
+public enum DmarcResult {
 
     /**
      * The message passes DMARC authentication.
@@ -62,7 +62,7 @@ public enum DMARCResult {
 
     private final String value;
 
-    DMARCResult(String value) {
+    DmarcResult(String value) {
         this.value = value;
     }
 

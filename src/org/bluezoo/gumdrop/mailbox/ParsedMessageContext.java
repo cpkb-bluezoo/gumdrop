@@ -24,9 +24,9 @@ package org.bluezoo.gumdrop.mailbox;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentID;
 import org.bluezoo.gumdrop.mime.ContentType;
-import org.bluezoo.gumdrop.mime.MIMELocator;
-import org.bluezoo.gumdrop.mime.MIMEParseException;
-import org.bluezoo.gumdrop.mime.MIMEVersion;
+import org.bluezoo.gumdrop.mime.MimeLocator;
+import org.bluezoo.gumdrop.mime.MimeParseException;
+import org.bluezoo.gumdrop.mime.MimeVersion;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
@@ -181,7 +181,7 @@ public class ParsedMessageContext implements MessageContext {
                 buffer.clear();
             }
             parser.close();
-        } catch (MIMEParseException e) {
+        } catch (MimeParseException e) {
             throw new IOException("Failed to parse message", e);
         }
 
@@ -206,57 +206,57 @@ public class ParsedMessageContext implements MessageContext {
         private ContentType currentContentType;
         private boolean inHeaders = true;
 
-        // MIMEHandler methods
+        // MimeHandler methods
 
         @Override
-        public void setLocator(MIMELocator locator) {
+        public void setLocator(MimeLocator locator) {
             // Not needed for search
         }
 
         @Override
-        public void startEntity(String boundary) throws MIMEParseException {
+        public void startEntity(String boundary) throws MimeParseException {
             inHeaders = true;
         }
 
         @Override
-        public void contentType(ContentType contentType) throws MIMEParseException {
+        public void contentType(ContentType contentType) throws MimeParseException {
             currentContentType = contentType;
             addHeader("Content-Type", contentType.toHeaderValue());
         }
 
         @Override
-        public void contentDisposition(ContentDisposition contentDisposition) throws MIMEParseException {
+        public void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException {
             addHeader("Content-Disposition", contentDisposition.toHeaderValue());
         }
 
         @Override
-        public void contentTransferEncoding(String encoding) throws MIMEParseException {
+        public void contentTransferEncoding(String encoding) throws MimeParseException {
             addHeader("Content-Transfer-Encoding", encoding);
         }
 
         @Override
-        public void contentID(ContentID contentID) throws MIMEParseException {
+        public void contentID(ContentID contentID) throws MimeParseException {
             addHeader("Content-ID", "<" + contentID.getLocalPart() + "@" + contentID.getDomain() + ">");
         }
 
         @Override
-        public void contentDescription(String description) throws MIMEParseException {
+        public void contentDescription(String description) throws MimeParseException {
             addHeader("Content-Description", description);
         }
 
         @Override
-        public void mimeVersion(MIMEVersion version) throws MIMEParseException {
+        public void mimeVersion(MimeVersion version) throws MimeParseException {
             addHeader("MIME-Version", version.toString());
         }
 
         @Override
-        public void endHeaders() throws MIMEParseException {
+        public void endHeaders() throws MimeParseException {
             inHeaders = false;
             headersText.append("\r\n"); // Blank line after headers
         }
 
         @Override
-        public void bodyContent(ByteBuffer content) throws MIMEParseException {
+        public void bodyContent(ByteBuffer content) throws MimeParseException {
             // Only collect text content for search
             if (isTextContent()) {
                 Charset charset = getCharset();
@@ -267,30 +267,30 @@ public class ParsedMessageContext implements MessageContext {
         }
 
         @Override
-        public void unexpectedContent(ByteBuffer content) throws MIMEParseException {
+        public void unexpectedContent(ByteBuffer content) throws MimeParseException {
             // Ignore unexpected content
         }
 
         @Override
-        public void endEntity(String boundary) throws MIMEParseException {
+        public void endEntity(String boundary) throws MimeParseException {
             currentContentType = null;
         }
 
         // MessageHandler methods
 
         @Override
-        public void header(String name, String value) throws MIMEParseException {
+        public void header(String name, String value) throws MimeParseException {
             addHeader(name, value);
         }
 
         @Override
-        public void unexpectedHeader(String name, String value) throws MIMEParseException {
+        public void unexpectedHeader(String name, String value) throws MimeParseException {
             // Still store malformed headers
             addHeader(name, value);
         }
 
         @Override
-        public void dateHeader(String name, OffsetDateTime date) throws MIMEParseException {
+        public void dateHeader(String name, OffsetDateTime date) throws MimeParseException {
             // Store as regular header too
             addHeader(name, date != null ? date.toString() : "");
 
@@ -301,7 +301,7 @@ public class ParsedMessageContext implements MessageContext {
         }
 
         @Override
-        public void addressHeader(String name, List<EmailAddress> addresses) throws MIMEParseException {
+        public void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException {
             // Convert addresses to string and store
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < addresses.size(); i++) {
@@ -314,7 +314,7 @@ public class ParsedMessageContext implements MessageContext {
         }
 
         @Override
-        public void messageIDHeader(String name, List<ContentID> messageIDs) throws MIMEParseException {
+        public void messageIDHeader(String name, List<ContentID> messageIDs) throws MimeParseException {
             // Convert message IDs to string and store
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < messageIDs.size(); i++) {
@@ -328,7 +328,7 @@ public class ParsedMessageContext implements MessageContext {
         }
 
         @Override
-        public void obsoleteStructure(ObsoleteStructureType type) throws MIMEParseException {
+        public void obsoleteStructure(ObsoleteStructureType type) throws MimeParseException {
             // Ignore for search purposes
         }
 

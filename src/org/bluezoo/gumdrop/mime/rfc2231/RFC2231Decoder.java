@@ -1,5 +1,5 @@
 /*
- * RFC2231Decoder.java
+ * Rfc2231Decoder.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,9 +34,9 @@ import java.nio.charset.UnsupportedCharsetException;
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2231'>RFC 2231</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class RFC2231Decoder {
+public final class Rfc2231Decoder {
 
-	private RFC2231Decoder() {
+	private Rfc2231Decoder() {
 	}
 
 	/**

@@ -1,5 +1,5 @@
 /*
- * IMAPState.java
+ * ImapState.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,7 +26,7 @@ package org.bluezoo.gumdrop.imap.client;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-enum IMAPState {
+enum ImapState {
 
     DISCONNECTED,
     CONNECTING,

@@ -1,5 +1,5 @@
 /*
- * SOCKSBindRelay.java
+ * SocksBindRelay.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -57,10 +57,10 @@ import org.bluezoo.gumdrop.TimerHandle;
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928#section-4">
  *      RFC 1928 §4</a>
  */
-class SOCKSBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
+class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
 
     private static final Logger LOGGER =
-            Logger.getLogger(SOCKSBindRelay.class.getName());
+            Logger.getLogger(SocksBindRelay.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -97,7 +97,7 @@ class SOCKSBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
      *        request's DST.ADDR, or null if any peer is accepted
      * @param callback the protocol handler callback
      */
-    SOCKSBindRelay(Endpoint controlEndpoint, SocksServer service,
+    SocksBindRelay(Endpoint controlEndpoint, SocksServer service,
                    long idleTimeoutMs,
                    InetAddress expectedPeerAddress,
                    Callback callback) {

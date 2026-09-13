@@ -478,7 +478,7 @@ public abstract class ByteStreamLexer<T extends Enum<T>> {
      * entirely — for example, a client handing off to a separate
      * dot-unstuffing state machine for message content whose length isn't
      * known up front and isn't a fixed delimiter search either (see
-     * {@code POP3ClientLexer}'s class Javadoc for why that case doesn't
+     * {@code Pop3ClientLexer}'s class Javadoc for why that case doesn't
      * fit {@link #enterRaw(long)} or {@link #enterRawUntil(byte[])}).
      *
      * <p>{@link #feed(ByteBuffer)} returns as soon as this takes effect,

@@ -1,5 +1,5 @@
 /*
- * LDAPResultCode.java
+ * LdapResultCode.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,7 +27,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#appendix-A">RFC 4511 Appendix A</a>
  */
-public enum LDAPResultCode {
+public enum LdapResultCode {
 
     /** The operation completed successfully. */
     SUCCESS(0, "success"),
@@ -152,7 +152,7 @@ public enum LDAPResultCode {
     private final int code;
     private final String name;
 
-    LDAPResultCode(int code, String name) {
+    LdapResultCode(int code, String name) {
         this.code = code;
         this.name = name;
     }
@@ -185,13 +185,13 @@ public enum LDAPResultCode {
     }
 
     /**
-     * Returns the LDAPResultCode for the given numeric code.
+     * Returns the LdapResultCode for the given numeric code.
      *
      * @param code the numeric code
      * @return the result code, or OTHER if unknown
      */
-    public static LDAPResultCode fromCode(int code) {
-        for (LDAPResultCode rc : values()) {
+    public static LdapResultCode fromCode(int code) {
+        for (LdapResultCode rc : values()) {
             if (rc.code == code) {
                 return rc;
             }

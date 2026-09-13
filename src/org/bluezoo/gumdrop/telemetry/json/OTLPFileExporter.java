@@ -1,5 +1,5 @@
 /*
- * OTLPFileExporter.java
+ * OtlpFileExporter.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -81,9 +81,9 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class OTLPFileExporter implements TelemetryExporter {
+public class OtlpFileExporter implements TelemetryExporter {
 
-    private static final Logger logger = Logger.getLogger(OTLPFileExporter.class.getName());
+    private static final Logger logger = Logger.getLogger(OtlpFileExporter.class.getName());
 
     private static final byte[] NEWLINE = "\n".getBytes(StandardCharsets.UTF_8);
 
@@ -108,7 +108,7 @@ public class OTLPFileExporter implements TelemetryExporter {
      *
      * @param config the telemetry configuration
      */
-    public OTLPFileExporter(TelemetryConfig config) {
+    public OtlpFileExporter(TelemetryConfig config) {
         this(config, null, null, null);
     }
 
@@ -121,7 +121,7 @@ public class OTLPFileExporter implements TelemetryExporter {
      * @param logsPath path for logs JSONL file, or null for stdout
      * @param metricsPath path for metrics JSONL file, or null for stdout
      */
-    public OTLPFileExporter(TelemetryConfig config,
+    public OtlpFileExporter(TelemetryConfig config,
                             Path tracesPath, Path logsPath, Path metricsPath) {
         this.config = config;
 
@@ -270,7 +270,7 @@ public class OTLPFileExporter implements TelemetryExporter {
         private volatile boolean flushRequested;
 
         ExportThread() {
-            super("OTLPFileExporter");
+            super("OtlpFileExporter");
             setDaemon(true);
         }
 

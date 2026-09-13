@@ -50,7 +50,7 @@ final class QueueMethods {
         buf.putShort((short) AmqpMethod.QUEUE_DECLARE);
         buf.putShort((short) 0);
         FieldTable.putShortString(buf, queue);
-        buf.put(AMQPBits.pack(passive, durable, exclusive, autoDelete, noWait));
+        buf.put(AmqpBits.pack(passive, durable, exclusive, autoDelete, noWait));
         ByteBuffer encodedArgs = args.encode();
         buf.putInt(encodedArgs.remaining());
         buf.put(encodedArgs);
@@ -109,9 +109,9 @@ final class QueueMethods {
         payload.getShort(); // reserved-1 (ticket)
         String queue = FieldTable.getShortString(payload);
         byte bits = payload.get();
-        boolean durable = AMQPBits.unpack(bits, 1);
-        boolean exclusive = AMQPBits.unpack(bits, 2);
-        boolean autoDelete = AMQPBits.unpack(bits, 3);
+        boolean durable = AmqpBits.unpack(bits, 1);
+        boolean exclusive = AmqpBits.unpack(bits, 2);
+        boolean autoDelete = AmqpBits.unpack(bits, 3);
         int argsLen = payload.getInt();
         FieldTable.decode(payload, argsLen); // arguments, discarded
         return new Declare(queue, durable, exclusive, autoDelete);
@@ -135,7 +135,7 @@ final class QueueMethods {
         FieldTable.putShortString(buf, queue);
         FieldTable.putShortString(buf, exchange);
         FieldTable.putShortString(buf, routingKey);
-        buf.put(AMQPBits.pack(noWait));
+        buf.put(AmqpBits.pack(noWait));
         ByteBuffer encodedArgs = args.encode();
         buf.putInt(encodedArgs.remaining());
         buf.put(encodedArgs);

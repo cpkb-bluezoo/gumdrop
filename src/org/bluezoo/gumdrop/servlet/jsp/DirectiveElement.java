@@ -45,7 +45,7 @@ import java.util.Map;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class DirectiveElement implements JSPElement {
+public class DirectiveElement implements JspElement {
     
     /**
      * Standard JSP directive names.
@@ -156,7 +156,7 @@ public class DirectiveElement implements JSPElement {
     }
     
     @Override
-    public void accept(JSPElementVisitor visitor) throws Exception {
+    public void accept(JspElementVisitor visitor) throws Exception {
         visitor.visitDirective(this);
     }
     

@@ -1,5 +1,5 @@
 /*
- * DMARCForensicReport.java
+ * DmarcForensicReport.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -57,7 +57,7 @@ import java.util.TimeZone;
  *
  * <h4>Usage</h4>
  * <pre>{@code
- * DMARCForensicReport report = new DMARCForensicReport();
+ * DmarcForensicReport report = new DmarcForensicReport();
  * report.setReporterDomain("receiver.example.com");
  * report.setReporterEmail("postmaster@receiver.example.com");
  * report.setSourceIP("192.0.2.1");
@@ -65,23 +65,23 @@ import java.util.TimeZone;
  * report.setEnvelopeFrom("bounce@sender.example.com");
  * report.setEnvelopeTo("user@receiver.example.com");
  * report.setAuthResults("dmarc=fail (p=reject) header.from=sender.example.com");
- * report.setDmarcResult(DMARCResult.FAIL);
- * report.setDmarcPolicy(DMARCPolicy.REJECT);
- * report.setSpfResult(SPFResult.FAIL);
- * report.setDkimResult(DKIMResult.FAIL);
- * report.setOriginalHeaders(headerBytes); // as delivered by MIMEHandler.bodyContent
+ * report.setDmarcResult(DmarcResult.FAIL);
+ * report.setDmarcPolicy(DmarcPolicy.REJECT);
+ * report.setSpfResult(SpfResult.FAIL);
+ * report.setDkimResult(DkimResult.FAIL);
+ * report.setOriginalHeaders(headerBytes); // as delivered by MimeHandler.bodyContent
  *
  * report.writeMIME(writableByteChannel, boundary);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DMARCValidator
- * @see DMARCAggregateReport
+ * @see DmarcValidator
+ * @see DmarcAggregateReport
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489#section-7.2">RFC 7489 §7.2</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5965">RFC 5965 — ARF</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6591">RFC 6591 — ARF Extensions for Auth Failures</a>
  */
-public class DMARCForensicReport {
+public class DmarcForensicReport {
 
     private static final String CRLF = "\r\n";
 
@@ -90,7 +90,7 @@ public class DMARCForensicReport {
     // RFC 5322 dates, enum tokens) -- none of it is free text that
     // could require RFC 2047 encoding, so plain ASCII is sufficient
     // here. A field that did need to carry arbitrary text would use
-    // org.bluezoo.gumdrop.mime.rfc2047.RFC2047Encoder rather than
+    // org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Encoder rather than
     // hand-rolled encoding.
     private static final Charset ASCII = StandardCharsets.US_ASCII;
 
@@ -101,10 +101,10 @@ public class DMARCForensicReport {
     private String envelopeFrom;
     private String envelopeTo;
     private String authResults;
-    private DMARCResult dmarcResult;
-    private DMARCPolicy dmarcPolicy;
-    private SPFResult spfResult;
-    private DKIMResult dkimResult;
+    private DmarcResult dmarcResult;
+    private DmarcPolicy dmarcPolicy;
+    private SpfResult spfResult;
+    private DkimResult dkimResult;
     private String dkimDomain;
     /** FEAT-002: explicit alignment state for the Identity-Alignment field; null if not set. */
     private Boolean spfAligned;
@@ -154,22 +154,22 @@ public class DMARCForensicReport {
     }
 
     /** Sets the DMARC evaluation result. */
-    public void setDmarcResult(DMARCResult result) {
+    public void setDmarcResult(DmarcResult result) {
         this.dmarcResult = result;
     }
 
     /** Sets the DMARC policy from the domain's record. */
-    public void setDmarcPolicy(DMARCPolicy policy) {
+    public void setDmarcPolicy(DmarcPolicy policy) {
         this.dmarcPolicy = policy;
     }
 
     /** Sets the SPF evaluation result. */
-    public void setSpfResult(SPFResult result) {
+    public void setSpfResult(SpfResult result) {
         this.spfResult = result;
     }
 
     /** Sets the DKIM verification result. */
-    public void setDkimResult(DKIMResult result) {
+    public void setDkimResult(DkimResult result) {
         this.dkimResult = result;
     }
 
@@ -183,7 +183,7 @@ public class DMARCForensicReport {
      * checking separately.
      *
      * @param aligned true if SPF passed and aligned
-     * @see DMARCValidator#isLastSpfAligned()
+     * @see DmarcValidator#isLastSpfAligned()
      */
     public void setSpfAligned(boolean aligned) {
         this.spfAligned = aligned;
@@ -194,7 +194,7 @@ public class DMARCForensicReport {
      * identifier for this message. See {@link #setSpfAligned(boolean)}.
      *
      * @param aligned true if DKIM passed and aligned
-     * @see DMARCValidator#isLastDkimAligned()
+     * @see DmarcValidator#isLastDkimAligned()
      */
     public void setDkimAligned(boolean aligned) {
         this.dkimAligned = aligned;
@@ -210,7 +210,7 @@ public class DMARCForensicReport {
      * {@code text/rfc822-headers} (third MIME part).
      *
      * <p>This is verbatim wire content -- the exact bytes as received
-     * (e.g. from {@link org.bluezoo.gumdrop.mime.MIMEHandler#bodyContent}
+     * (e.g. from {@link org.bluezoo.gumdrop.mime.MimeHandler#bodyContent}
      * or an equivalent raw capture of the failing message), not text to
      * decode. A forensic report exists to show the analyst exactly what
      * was received, so the bytes are copied through unchanged rather
@@ -283,8 +283,8 @@ public class DMARCForensicReport {
      * @param dmarc the DMARC result for this message
      * @return true if a forensic report should be generated
      */
-    public static boolean shouldReport(String foTag, SPFResult spf,
-                                       DKIMResult dkim, DMARCResult dmarc) {
+    public static boolean shouldReport(String foTag, SpfResult spf,
+                                       DkimResult dkim, DmarcResult dmarc) {
         if (foTag == null || foTag.isEmpty()) {
             foTag = "0";
         }
@@ -297,25 +297,25 @@ public class DMARCForensicReport {
             switch (c) {
                 case '0':
                     // All mechanisms fail to produce an aligned pass
-                    if (dmarc == DMARCResult.FAIL) {
+                    if (dmarc == DmarcResult.FAIL) {
                         return true;
                     }
                     break;
                 case '1':
                     // Any mechanism fails
-                    if (spf != SPFResult.PASS || dkim != DKIMResult.PASS) {
+                    if (spf != SpfResult.PASS || dkim != DkimResult.PASS) {
                         return true;
                     }
                     break;
                 case 'd':
                     // DKIM signature fails verification
-                    if (dkim == DKIMResult.FAIL) {
+                    if (dkim == DkimResult.FAIL) {
                         return true;
                     }
                     break;
                 case 's':
                     // SPF fails
-                    if (spf == SPFResult.FAIL) {
+                    if (spf == SpfResult.FAIL) {
                         return true;
                     }
                     break;
@@ -417,7 +417,7 @@ public class DMARCForensicReport {
         write(out, "Version: 1" + CRLF, ASCII);
 
         // RFC 6591 §3 — Auth-Failure field
-        if (dmarcResult == DMARCResult.FAIL) {
+        if (dmarcResult == DmarcResult.FAIL) {
             write(out, "Auth-Failure: dmarc" + CRLF, ASCII);
         }
 
@@ -496,14 +496,14 @@ public class DMARCForensicReport {
      *
      * <p>Uses the explicit {@link #setSpfAligned}/{@link #setDkimAligned}
      * state if set (the correct source — see
-     * {@link DMARCValidator#isLastSpfAligned()}); otherwise approximates
+     * {@link DmarcValidator#isLastSpfAligned()}); otherwise approximates
      * from the raw {@link #setSpfResult}/{@link #setDkimResult} pass/fail,
      * which is only accurate when alignment wasn't checked separately
      * from the mechanism's own pass/fail.
      */
     private String computeIdentityAlignment() {
-        boolean dkimOk = dkimAligned != null ? dkimAligned : dkimResult == DKIMResult.PASS;
-        boolean spfOk = spfAligned != null ? spfAligned : spfResult == SPFResult.PASS;
+        boolean dkimOk = dkimAligned != null ? dkimAligned : dkimResult == DkimResult.PASS;
+        boolean spfOk = spfAligned != null ? spfAligned : spfResult == SpfResult.PASS;
 
         if (dkimOk && spfOk) {
             return "none";

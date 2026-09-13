@@ -98,13 +98,13 @@ import jakarta.servlet.annotation.WebListener;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.descriptor.JspConfigDescriptor;
 import org.bluezoo.gumdrop.servlet.jsp.InMemoryJavaCompiler;
-import org.bluezoo.gumdrop.servlet.jsp.JSPCodeGenerator;
-import org.bluezoo.gumdrop.servlet.jsp.JSPDependencyTracker;
-import org.bluezoo.gumdrop.servlet.jsp.JSPPage;
-import org.bluezoo.gumdrop.servlet.jsp.JSPParseException;
-import org.bluezoo.gumdrop.servlet.jsp.JSPParserFactory;
-import org.bluezoo.gumdrop.servlet.jsp.JSPPropertyGroupResolver;
-import org.bluezoo.gumdrop.servlet.jsp.JSPServlet;
+import org.bluezoo.gumdrop.servlet.jsp.JspCodeGenerator;
+import org.bluezoo.gumdrop.servlet.jsp.JspDependencyTracker;
+import org.bluezoo.gumdrop.servlet.jsp.JspPage;
+import org.bluezoo.gumdrop.servlet.jsp.JspParseException;
+import org.bluezoo.gumdrop.servlet.jsp.JspParserFactory;
+import org.bluezoo.gumdrop.servlet.jsp.JspPropertyGroupResolver;
+import org.bluezoo.gumdrop.servlet.jsp.JspServlet;
 import org.bluezoo.gumdrop.servlet.jsp.TaglibRegistry;
 import javax.tools.JavaCompiler;
 import javax.tools.JavaFileObject;
@@ -367,13 +367,13 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     Map<String,? extends ServletRegistration> servletRegistrations = new LinkedHashMap<>();
 
     // JSP parser factory
-    private JSPParserFactory jspParserFactory;
+    private JspParserFactory jspParserFactory;
     
     // In-memory JSP compiler (eliminates temp file I/O)
     private InMemoryJavaCompiler jspCompiler;
     
     // JSP dependency tracker for incremental compilation
-    private JSPDependencyTracker jspDependencyTracker;
+    private JspDependencyTracker jspDependencyTracker;
     
     Map<String,? extends FilterRegistration> filterRegistrations = new LinkedHashMap<>();
 
@@ -717,7 +717,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             jspServletDef.context = this;
             jspServletDef.displayName = L10N.getString("jsp_servlet_display_name");
             jspServletDef.name = "jsp";
-            jspServletDef.className = JSPServlet.class.getName();
+            jspServletDef.className = JspServlet.class.getName();
             jspServletDef.loadOnStartup = 3;
             servletDefs.put("jsp", jspServletDef);
             
@@ -2981,15 +2981,15 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             }
 
             // Step 3: Resolve comprehensive JSP properties from configuration
-            JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties = 
-                JSPPropertyGroupResolver.resolve(path, jspConfig);
+            JspPropertyGroupResolver.ResolvedJSPProperties jspProperties = 
+                JspPropertyGroupResolver.resolve(path, jspConfig);
             String encoding = jspProperties.getPageEncoding();
 
             // Step 4: Parse JSP file using parser factory with resolved properties
-            JSPPage jspPage;
+            JspPage jspPage;
             try {
                 jspPage = jspParserFactory.parseJSP(jspInputStream, encoding, path, jspProperties);
-            } catch (JSPParseException e) {
+            } catch (JspParseException e) {
                 throw new RuntimeException("Failed to parse JSP file: " + path, e);
             } finally {
                 try {
@@ -3006,7 +3006,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             String className = generateClassNameFromPath(path);
             
             ByteArrayOutputStream sourceOut = new ByteArrayOutputStream();
-            JSPCodeGenerator generator = new JSPCodeGenerator(jspPage, sourceOut, taglibRegistry, jspProperties);
+            JspCodeGenerator generator = new JspCodeGenerator(jspPage, sourceOut, taglibRegistry, jspProperties);
             generator.setClassName(className);
             generator.generateCode();
             String sourceCode = sourceOut.toString("UTF-8");
@@ -3056,7 +3056,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      */
     private synchronized void initializeJSPInfrastructure() {
         if (jspParserFactory == null) {
-            jspParserFactory = new JSPParserFactory();
+            jspParserFactory = new JspParserFactory();
         }
         
         if (jspCompiler == null) {
@@ -3075,7 +3075,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         }
         
         if (jspDependencyTracker == null) {
-            jspDependencyTracker = new JSPDependencyTracker(this, root);
+            jspDependencyTracker = new JspDependencyTracker(this, root);
         }
     }
     
@@ -3085,7 +3085,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * @param jspPage the parsed JSP page
      * @return set of included file paths
      */
-    private Set<String> extractDependencies(JSPPage jspPage) {
+    private Set<String> extractDependencies(JspPage jspPage) {
         Set<String> dependencies = new HashSet<String>();
         
         // Add static includes
@@ -3095,7 +3095,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         }
         
         // Add taglib TLD references
-        // Note: JSPPage would need to track these - simplified for now
+        // Note: JspPage would need to track these - simplified for now
         
         return dependencies;
     }

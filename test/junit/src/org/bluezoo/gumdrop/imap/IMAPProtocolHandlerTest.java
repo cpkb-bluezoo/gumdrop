@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
@@ -170,7 +170,7 @@ public class IMAPProtocolHandlerTest {
     @Test(timeout = 15000)
     public void testAuthCramMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
         StubRealm realm = new StubRealm();
-        realm.supportedMechanisms.add(SASLMechanism.CRAM_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
         listener.setRealm(realm);
         connect();
         endpoint.sentData.clear();
@@ -193,7 +193,7 @@ public class IMAPProtocolHandlerTest {
     @Test(timeout = 15000)
     public void testAuthDigestMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
         StubRealm realm = new StubRealm();
-        realm.supportedMechanisms.add(SASLMechanism.DIGEST_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.DIGEST_MD5);
         listener.setRealm(realm);
         connect();
         endpoint.sentData.clear();
@@ -487,7 +487,7 @@ public class IMAPProtocolHandlerTest {
     }
 
     static class StubRealm implements Realm {
-        Set<SASLMechanism> supportedMechanisms = new HashSet<SASLMechanism>();
+        Set<SaslMechanism> supportedMechanisms = new HashSet<SaslMechanism>();
 
         @Override
         public Realm forSelectorLoop(SelectorLoop loop) {
@@ -495,7 +495,7 @@ public class IMAPProtocolHandlerTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return Collections.unmodifiableSet(supportedMechanisms);
         }
 

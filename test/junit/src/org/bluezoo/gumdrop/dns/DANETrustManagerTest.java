@@ -34,7 +34,7 @@ import javax.net.ssl.X509TrustManager;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DANETrustManager}.
+ * Unit tests for {@link DaneTrustManager}.
  * RFC 6698 (DANE), RFC 7671 (usage semantics).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -46,11 +46,11 @@ public class DANETrustManagerTest {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-1");
         List<DnsResourceRecord> tlsa = Collections.singletonList(
                 DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
-                        DANEVerifier.USAGE_DANE_EE,
-                        DANEVerifier.SELECTOR_FULL_CERT,
-                        DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
+                        DaneVerifier.USAGE_DANE_EE,
+                        DaneVerifier.SELECTOR_FULL_CERT,
+                        DaneVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
 
-        DANETrustManager tm = new DANETrustManager(null, tlsa);
+        DaneTrustManager tm = new DaneTrustManager(null, tlsa);
         tm.checkServerTrusted(new X509Certificate[]{ cert }, "RSA");
     }
 
@@ -59,11 +59,11 @@ public class DANETrustManagerTest {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-2");
         List<DnsResourceRecord> tlsa = Collections.singletonList(
                 DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
-                        DANEVerifier.USAGE_DANE_TA,
-                        DANEVerifier.SELECTOR_FULL_CERT,
-                        DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
+                        DaneVerifier.USAGE_DANE_TA,
+                        DaneVerifier.SELECTOR_FULL_CERT,
+                        DaneVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
 
-        DANETrustManager tm = new DANETrustManager(null, tlsa);
+        DaneTrustManager tm = new DaneTrustManager(null, tlsa);
         tm.checkServerTrusted(new X509Certificate[]{ cert }, "RSA");
     }
 
@@ -72,11 +72,11 @@ public class DANETrustManagerTest {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-3");
         List<DnsResourceRecord> tlsa = Collections.singletonList(
                 DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
-                        DANEVerifier.USAGE_PKIX_EE,
-                        DANEVerifier.SELECTOR_FULL_CERT,
-                        DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
+                        DaneVerifier.USAGE_PKIX_EE,
+                        DaneVerifier.SELECTOR_FULL_CERT,
+                        DaneVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
 
-        DANETrustManager tm = new DANETrustManager(
+        DaneTrustManager tm = new DaneTrustManager(
                 new EmptyX509TrustManager(), tlsa);
         tm.checkServerTrusted(new X509Certificate[]{ cert }, "RSA");
     }
@@ -86,13 +86,13 @@ public class DANETrustManagerTest {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-4");
         List<DnsResourceRecord> tlsa = Collections.singletonList(
                 DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
-                        DANEVerifier.USAGE_PKIX_EE,
-                        DANEVerifier.SELECTOR_FULL_CERT,
-                        DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
+                        DaneVerifier.USAGE_PKIX_EE,
+                        DaneVerifier.SELECTOR_FULL_CERT,
+                        DaneVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
 
         // Even though the TLSA record matches, PKIX-EE requires a
         // WebPKI delegate that was never supplied.
-        DANETrustManager tm = new DANETrustManager(null, tlsa);
+        DaneTrustManager tm = new DaneTrustManager(null, tlsa);
         tm.checkServerTrusted(new X509Certificate[]{ cert }, "RSA");
     }
 
@@ -101,9 +101,9 @@ public class DANETrustManagerTest {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-5");
         List<DnsResourceRecord> tlsa = Collections.singletonList(
                 DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
-                        DANEVerifier.USAGE_PKIX_TA,
-                        DANEVerifier.SELECTOR_FULL_CERT,
-                        DANEVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
+                        DaneVerifier.USAGE_PKIX_TA,
+                        DaneVerifier.SELECTOR_FULL_CERT,
+                        DaneVerifier.MATCHING_TYPE_FULL, cert.getEncoded()));
 
         X509TrustManager rejectingDelegate = new X509TrustManager() {
             @Override
@@ -122,7 +122,7 @@ public class DANETrustManagerTest {
             }
         };
 
-        DANETrustManager tm = new DANETrustManager(rejectingDelegate, tlsa);
+        DaneTrustManager tm = new DaneTrustManager(rejectingDelegate, tlsa);
         tm.checkServerTrusted(new X509Certificate[]{ cert }, "RSA");
     }
 
@@ -131,32 +131,32 @@ public class DANETrustManagerTest {
         X509Certificate cert = DANEVerifierTest.generateSelfSignedCert("tm-6");
         List<DnsResourceRecord> tlsa = Collections.singletonList(
                 DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
-                        DANEVerifier.USAGE_DANE_EE,
-                        DANEVerifier.SELECTOR_FULL_CERT,
-                        DANEVerifier.MATCHING_TYPE_FULL, new byte[]{ 1, 2, 3 }));
+                        DaneVerifier.USAGE_DANE_EE,
+                        DaneVerifier.SELECTOR_FULL_CERT,
+                        DaneVerifier.MATCHING_TYPE_FULL, new byte[]{ 1, 2, 3 }));
 
-        DANETrustManager tm = new DANETrustManager(null, tlsa);
+        DaneTrustManager tm = new DaneTrustManager(null, tlsa);
         tm.checkServerTrusted(new X509Certificate[]{ cert }, "RSA");
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testConstructorRejectsEmptyRecords() {
-        new DANETrustManager(null, Collections.<DnsResourceRecord>emptyList());
+        new DaneTrustManager(null, Collections.<DnsResourceRecord>emptyList());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testConstructorRejectsNullRecords() {
-        new DANETrustManager(null, null);
+        new DaneTrustManager(null, null);
     }
 
     @Test
     public void testGetAcceptedIssuersFallsBackToEmptyWithoutDelegate() {
         List<DnsResourceRecord> tlsa = Collections.singletonList(
                 DnsResourceRecord.tlsa("_25._tcp.mail.example.com", 3600,
-                        DANEVerifier.USAGE_DANE_EE,
-                        DANEVerifier.SELECTOR_FULL_CERT,
-                        DANEVerifier.MATCHING_TYPE_FULL, new byte[32]));
-        DANETrustManager tm = new DANETrustManager(null, tlsa);
+                        DaneVerifier.USAGE_DANE_EE,
+                        DaneVerifier.SELECTOR_FULL_CERT,
+                        DaneVerifier.MATCHING_TYPE_FULL, new byte[32]));
+        DaneTrustManager tm = new DaneTrustManager(null, tlsa);
         assertEquals(0, tm.getAcceptedIssuers().length);
     }
 }

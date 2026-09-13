@@ -1,5 +1,5 @@
 /*
- * OTLPGrpcResponseHandler.java
+ * OtlpGrpcResponseHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,20 +39,20 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class OTLPGrpcResponseHandler extends DefaultHttpResponseHandler {
+class OtlpGrpcResponseHandler extends DefaultHttpResponseHandler {
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
-    private static final Logger logger = Logger.getLogger(OTLPGrpcResponseHandler.class.getName());
+    private static final Logger logger = Logger.getLogger(OtlpGrpcResponseHandler.class.getName());
 
     private final String endpointName;
-    private final OTLPGrpcExporter exporter;
+    private final OtlpGrpcExporter exporter;
 
     private volatile boolean complete;
     private volatile boolean success;
     private HttpStatus status;
 
-    OTLPGrpcResponseHandler(String endpointName, OTLPGrpcExporter exporter) {
+    OtlpGrpcResponseHandler(String endpointName, OtlpGrpcExporter exporter) {
         this.endpointName = endpointName;
         this.exporter = exporter;
     }
@@ -109,6 +109,6 @@ class OTLPGrpcResponseHandler extends DefaultHttpResponseHandler {
 
     @Override
     public String toString() {
-        return "OTLPGrpcResponseHandler[" + endpointName + ", complete=" + complete + ", success=" + success + "]";
+        return "OtlpGrpcResponseHandler[" + endpointName + ", complete=" + complete + ", success=" + success + "]";
     }
 }

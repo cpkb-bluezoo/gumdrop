@@ -1,5 +1,5 @@
 /*
- * MIMEVersion.java
+ * MimeVersion.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,13 +27,13 @@ package org.bluezoo.gumdrop.mime;
  * @see <a href='https://www.rfc-editor.org/rfc/rfc2045#section-4'>RFC 2045</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum MIMEVersion {
+public enum MimeVersion {
 
 	VERSION_1_0("1.0");
 
 	private final String value;
 
-	private MIMEVersion(String value) {
+	private MimeVersion(String value) {
 		this.value = value;
 	}
 
@@ -45,9 +45,9 @@ public enum MIMEVersion {
 	/**
 	 * Parses a MIME-Version header value.
 	 * @param s the header value string
-	 * @return the MIMEVersion, or null if not recognized
+	 * @return the MimeVersion, or null if not recognized
 	 */
-	public static MIMEVersion parse(String s) {
+	public static MimeVersion parse(String s) {
 		if (s == null) {
 			return null;
 		}

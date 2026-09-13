@@ -38,9 +38,9 @@ import org.bluezoo.gumdrop.dns.DnsType;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSSDAdvertiser}, exercised against fake
+ * Unit tests for {@link DnssdAdvertiser}, exercised against fake
  * {@link Server}/{@link Listener} implementations rather than a real
- * {@code Gumdrop} instance -- the point of {@link DNSSDAdvertiser}
+ * {@code Gumdrop} instance -- the point of {@link DnssdAdvertiser}
  * taking its server list as a plain parameter.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -50,7 +50,7 @@ public class DNSSDAdvertiserTest {
     private static final Set<String> NO_EXCLUSIONS = Collections.<String>emptySet();
 
     private static List<DnsResourceRecord> build(List<Server> servers) {
-        return DNSSDAdvertiser.buildRecords(servers, "gumdrop", 4500, NO_EXCLUSIONS);
+        return DnssdAdvertiser.buildRecords(servers, "gumdrop", 4500, NO_EXCLUSIONS);
     }
 
     private static List<DnsResourceRecord> ofType(List<DnsResourceRecord> records, DnsType type) {
@@ -83,7 +83,7 @@ public class DNSSDAdvertiserTest {
         assertNotNull(serviceTypePtr);
         assertEquals("gumdrop._http._tcp.local", serviceTypePtr.getTargetName());
 
-        DnsResourceRecord metaPtr = findByName(ptrs, DNSSDAdvertiser.DNS_SD_META_QUERY_NAME);
+        DnsResourceRecord metaPtr = findByName(ptrs, DnssdAdvertiser.DNS_SD_META_QUERY_NAME);
         assertNotNull(metaPtr);
         assertEquals("_http._tcp.local", metaPtr.getTargetName());
 
@@ -107,7 +107,7 @@ public class DNSSDAdvertiserTest {
                 Arrays.<Listener>asList(new FakeListener("http", 8080)));
         Set<String> excluded = new HashSet<String>(Arrays.asList("http"));
 
-        List<DnsResourceRecord> records = DNSSDAdvertiser.buildRecords(
+        List<DnsResourceRecord> records = DnssdAdvertiser.buildRecords(
                 Collections.singletonList(server), "gumdrop", 4500, excluded);
 
         assertTrue(records.isEmpty());
@@ -155,7 +155,7 @@ public class DNSSDAdvertiserTest {
 
         List<DnsResourceRecord> metaPtrs = new ArrayList<DnsResourceRecord>();
         for (DnsResourceRecord rr : ofType(records, DnsType.PTR)) {
-            if (rr.getName().equals(DNSSDAdvertiser.DNS_SD_META_QUERY_NAME)) {
+            if (rr.getName().equals(DnssdAdvertiser.DNS_SD_META_QUERY_NAME)) {
                 metaPtrs.add(rr);
             }
         }

@@ -1,5 +1,5 @@
 /*
- * LDAPConnectionReady.java
+ * LdapConnectionReady.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,21 +27,21 @@ import org.bluezoo.gumdrop.ClientHandler;
  * Handler interface for receiving the initial LDAP connection ready event.
  * 
  * <p>This is the entry point for LDAP client handlers. When connecting to an
- * LDAP server, the handler passed to {@link LDAPClient#connect(LDAPConnectionReady)}
+ * LDAP server, the handler passed to {@link LdapClient#connect(LdapConnectionReady)}
  * must implement this interface to receive notification that the connection is ready.
  * 
  * <p>Unlike SMTP which has a server greeting, LDAP clients initiate the
- * conversation. The handler receives an {@link LDAPConnected} interface
+ * conversation. The handler receives an {@link LdapConnected} interface
  * immediately upon connection (and TLS/QUIC handshake for LDAPS).
  * 
  * <p><strong>Example usage:</strong>
  * <pre>{@code
- * public class MyLDAPHandler implements LDAPConnectionReady {
+ * public class MyLDAPHandler implements LdapConnectionReady {
  *     
- *     public void handleReady(LDAPConnected connection) {
+ *     public void handleReady(LdapConnected connection) {
  *         // Upgrade to TLS first (for ldap:// connections)
  *         connection.startTLS(new StartTLSResultHandler() {
- *             public void handleTLSEstablished(LDAPPostTLS postTLS) {
+ *             public void handleTLSEstablished(LdapPostTLS postTLS) {
  *                 postTLS.bind("cn=admin,dc=example,dc=com", "secret", 
  *                              new MyBindHandler());
  *             }
@@ -55,14 +55,14 @@ import org.bluezoo.gumdrop.ClientHandler;
  * 
  * <p><strong>Simple bind example:</strong>
  * <pre>{@code
- * public void handleReady(LDAPConnected connection) {
+ * public void handleReady(LdapConnected connection) {
  *     connection.bind("cn=admin,dc=example,dc=com", "secret",
  *         new BindResultHandler() {
- *             public void handleBindSuccess(LDAPSession session) {
+ *             public void handleBindSuccess(LdapSession session) {
  *                 // Perform searches, modifications, etc.
  *                 session.search(request, new MySearchHandler());
  *             }
- *             public void handleBindFailure(LDAPResult result, LDAPConnected conn) {
+ *             public void handleBindFailure(LdapResult result, LdapConnected conn) {
  *                 log.error("Bind failed: {}", result.getDiagnosticMessage());
  *                 conn.unbind();
  *             }
@@ -71,11 +71,11 @@ import org.bluezoo.gumdrop.ClientHandler;
  * }</pre>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPConnected
+ * @see LdapConnected
  * @see ClientHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511">RFC 4511 — LDAPv3</a>
  */
-public interface LDAPConnectionReady extends ClientHandler {
+public interface LdapConnectionReady extends ClientHandler {
 
     /**
      * Called when the LDAP connection is ready for operations.
@@ -90,7 +90,7 @@ public interface LDAPConnectionReady extends ClientHandler {
      * 
      * @param connection operations available to begin the session
      */
-    void handleReady(LDAPConnected connection);
+    void handleReady(LdapConnected connection);
 
 }
 

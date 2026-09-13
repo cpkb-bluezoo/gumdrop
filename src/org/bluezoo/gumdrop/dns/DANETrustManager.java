@@ -1,5 +1,5 @@
 /*
- * DANETrustManager.java
+ * DaneTrustManager.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -47,10 +47,10 @@ import javax.net.ssl.X509TrustManager;
  * ignored, as if no TLSA records existed.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DANEVerifier
+ * @see DaneVerifier
  * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
  */
-public class DANETrustManager implements X509TrustManager {
+public class DaneTrustManager implements X509TrustManager {
 
     private final X509TrustManager delegate;
     private final List<DnsResourceRecord> tlsaRecords;
@@ -64,7 +64,7 @@ public class DANETrustManager implements X509TrustManager {
      * @param tlsaRecords the DNSSEC-validated TLSA records to match
      *                    against; must not be empty
      */
-    public DANETrustManager(X509TrustManager delegate,
+    public DaneTrustManager(X509TrustManager delegate,
                             List<DnsResourceRecord> tlsaRecords) {
         if (tlsaRecords == null || tlsaRecords.isEmpty()) {
             throw new IllegalArgumentException(
@@ -92,7 +92,7 @@ public class DANETrustManager implements X509TrustManager {
             throws CertificateException {
         DnsResourceRecord match;
         try {
-            match = DANEVerifier.findMatch(chain, tlsaRecords);
+            match = DaneVerifier.findMatch(chain, tlsaRecords);
         } catch (CertificateEncodingException e) {
             throw new CertificateException(
                     "Failed to re-encode certificate for DANE matching",
@@ -104,8 +104,8 @@ public class DANETrustManager implements X509TrustManager {
                             + "certificate chain");
         }
         int usage = match.getTLSACertUsage();
-        if (usage == DANEVerifier.USAGE_PKIX_TA
-                || usage == DANEVerifier.USAGE_PKIX_EE) {
+        if (usage == DaneVerifier.USAGE_PKIX_TA
+                || usage == DaneVerifier.USAGE_PKIX_EE) {
             if (delegate == null) {
                 throw new CertificateException(
                         "TLSA usage " + usage + " requires WebPKI "

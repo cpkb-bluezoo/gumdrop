@@ -25,7 +25,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
 import org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
@@ -174,7 +174,7 @@ public class FTPPasswordOffloadTest {
         private final String user;
         private final byte[] salt;
         private final byte[] expectedHash;
-        private static final Set<SASLMechanism> SUPPORTED =
+        private static final Set<SaslMechanism> SUPPORTED =
                 Collections.emptySet();
 
         Pbkdf2PasswordRealm(String user, String password) throws Exception {
@@ -192,7 +192,7 @@ public class FTPPasswordOffloadTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
 

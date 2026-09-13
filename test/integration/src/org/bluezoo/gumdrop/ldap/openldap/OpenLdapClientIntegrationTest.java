@@ -26,13 +26,13 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.ldap.client.AddResultHandler;
 import org.bluezoo.gumdrop.ldap.client.BindResultHandler;
 import org.bluezoo.gumdrop.ldap.client.DeleteResultHandler;
-import org.bluezoo.gumdrop.ldap.client.LDAPClient;
-import org.bluezoo.gumdrop.ldap.client.LDAPConnected;
-import org.bluezoo.gumdrop.ldap.client.LDAPConnectionReady;
-import org.bluezoo.gumdrop.ldap.client.LDAPPostTLS;
-import org.bluezoo.gumdrop.ldap.client.LDAPResult;
-import org.bluezoo.gumdrop.ldap.client.LDAPResultCode;
-import org.bluezoo.gumdrop.ldap.client.LDAPSession;
+import org.bluezoo.gumdrop.ldap.client.LdapClient;
+import org.bluezoo.gumdrop.ldap.client.LdapConnected;
+import org.bluezoo.gumdrop.ldap.client.LdapConnectionReady;
+import org.bluezoo.gumdrop.ldap.client.LdapPostTLS;
+import org.bluezoo.gumdrop.ldap.client.LdapResult;
+import org.bluezoo.gumdrop.ldap.client.LdapResultCode;
+import org.bluezoo.gumdrop.ldap.client.LdapSession;
 import org.bluezoo.gumdrop.ldap.client.Modification;
 import org.bluezoo.gumdrop.ldap.client.ModifyResultHandler;
 import org.bluezoo.gumdrop.ldap.client.SearchRequest;
@@ -81,15 +81,15 @@ public class OpenLdapClientIntegrationTest {
         assumeTrue(OpenLdapTestSupport.NOT_REACHABLE_MESSAGE, OpenLdapTestSupport.isReachable());
     }
 
-    private LDAPClient newClient() {
-        return new LDAPClient(OpenLdapTestSupport.HOST, OpenLdapTestSupport.PORT);
+    private LdapClient newClient() {
+        return new LdapClient(OpenLdapTestSupport.HOST, OpenLdapTestSupport.PORT);
     }
 
     // ── Plaintext bind + search ──
 
     @Test
     public void testAdminBindAndSearchFindsTestUser() throws Exception {
-        LDAPClient client = newClient();
+        LdapClient client = newClient();
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
@@ -97,11 +97,11 @@ public class OpenLdapClientIntegrationTest {
 
         client.connect(new TestConnectionReady(error, doneLatch) {
             @Override
-            public void handleReady(LDAPConnected connection) {
+            public void handleReady(LdapConnected connection) {
                 connection.bind(OpenLdapTestSupport.ADMIN_DN, OpenLdapTestSupport.ADMIN_PASSWORD,
                         new TestBindHandler(error, doneLatch) {
                             @Override
-                            public void handleBindSuccess(LDAPSession session) {
+                            public void handleBindSuccess(LdapSession session) {
                                 SearchRequest request = new SearchRequest();
                                 request.setBaseDN(OpenLdapTestSupport.BASE_DN);
                                 request.setFilter("(uid=jdoe)");
@@ -116,7 +116,7 @@ public class OpenLdapClientIntegrationTest {
                                     }
 
                                     @Override
-                                    public void handleDone(LDAPResult result, LDAPSession s) {
+                                    public void handleDone(LdapResult result, LdapSession s) {
                                         if (!result.isSuccess()) {
                                             fail(error, doneLatch, "search failed: " + result);
                                             return;
@@ -143,7 +143,7 @@ public class OpenLdapClientIntegrationTest {
 
     @Test
     public void testAddModifyDeleteRoundTrip() throws Exception {
-        LDAPClient client = newClient();
+        LdapClient client = newClient();
         String dn = "uid=temp-" + System.nanoTime() + ",ou=people," + OpenLdapTestSupport.BASE_DN;
 
         CountDownLatch doneLatch = new CountDownLatch(1);
@@ -151,11 +151,11 @@ public class OpenLdapClientIntegrationTest {
 
         client.connect(new TestConnectionReady(error, doneLatch) {
             @Override
-            public void handleReady(LDAPConnected connection) {
+            public void handleReady(LdapConnected connection) {
                 connection.bind(OpenLdapTestSupport.ADMIN_DN, OpenLdapTestSupport.ADMIN_PASSWORD,
                         new TestBindHandler(error, doneLatch) {
                             @Override
-                            public void handleBindSuccess(LDAPSession session) {
+                            public void handleBindSuccess(LdapSession session) {
                                 Map<String, List<byte[]>> attrs = new HashMap<>();
                                 attrs.put("objectClass", List.of(
                                         "inetOrgPerson".getBytes(java.nio.charset.StandardCharsets.US_ASCII)));
@@ -163,7 +163,7 @@ public class OpenLdapClientIntegrationTest {
                                 attrs.put("sn", List.of("User".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
                                 session.add(dn, attrs, new AddResultHandler() {
                                     @Override
-                                    public void handleAddResult(LDAPResult result, LDAPSession s) {
+                                    public void handleAddResult(LdapResult result, LdapSession s) {
                                         if (!result.isSuccess()) {
                                             fail(error, doneLatch, "add failed: " + result);
                                             return;
@@ -173,14 +173,14 @@ public class OpenLdapClientIntegrationTest {
                                                 List.of("Modified".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
                                         s.modify(dn, mods, new ModifyResultHandler() {
                                             @Override
-                                            public void handleModifyResult(LDAPResult result2, LDAPSession s2) {
+                                            public void handleModifyResult(LdapResult result2, LdapSession s2) {
                                                 if (!result2.isSuccess()) {
                                                     fail(error, doneLatch, "modify failed: " + result2);
                                                     return;
                                                 }
                                                 s2.delete(dn, new DeleteResultHandler() {
                                                     @Override
-                                                    public void handleDeleteResult(LDAPResult result3, LDAPSession s3) {
+                                                    public void handleDeleteResult(LdapResult result3, LdapSession s3) {
                                                         if (!result3.isSuccess()) {
                                                             fail(error, doneLatch, "delete failed: " + result3);
                                                             return;
@@ -209,7 +209,7 @@ public class OpenLdapClientIntegrationTest {
     public void testStartTlsThenBindAsTestUser() throws Exception {
         X509Certificate serverCert = OpenLdapTestSupport.loadServerCertificate();
 
-        LDAPClient client = newClient();
+        LdapClient client = newClient();
         client.setTrustManager(pinningTrustManager(serverCert));
 
         CountDownLatch doneLatch = new CountDownLatch(1);
@@ -218,22 +218,22 @@ public class OpenLdapClientIntegrationTest {
 
         client.connect(new TestConnectionReady(error, doneLatch) {
             @Override
-            public void handleReady(LDAPConnected connection) {
+            public void handleReady(LdapConnected connection) {
                 connection.startTLS(new StartTLSResultHandler() {
                     @Override
-                    public void handleTLSEstablished(LDAPPostTLS postTLS) {
+                    public void handleTLSEstablished(LdapPostTLS postTLS) {
                         tlsEstablished.set(true);
                         postTLS.bind(OpenLdapTestSupport.TEST_USER_DN, OpenLdapTestSupport.TEST_USER_PASSWORD,
                                 new TestBindHandler(error, doneLatch) {
                                     @Override
-                                    public void handleBindSuccess(LDAPSession session) {
+                                    public void handleBindSuccess(LdapSession session) {
                                         doneLatch.countDown();
                                     }
                                 });
                     }
 
                     @Override
-                    public void handleStartTLSFailure(LDAPResult result, LDAPConnected connection2) {
+                    public void handleStartTLSFailure(LdapResult result, LdapConnected connection2) {
                         fail(error, doneLatch, "StartTLS failed: " + result);
                     }
                 });
@@ -251,24 +251,24 @@ public class OpenLdapClientIntegrationTest {
 
     @Test
     public void testInvalidCredentialsRejected() throws Exception {
-        LDAPClient client = newClient();
+        LdapClient client = newClient();
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
-        AtomicReference<LDAPResultCode> failureCode = new AtomicReference<>();
+        AtomicReference<LdapResultCode> failureCode = new AtomicReference<>();
 
         client.connect(new TestConnectionReady(error, doneLatch) {
             @Override
-            public void handleReady(LDAPConnected connection) {
+            public void handleReady(LdapConnected connection) {
                 connection.bind(OpenLdapTestSupport.TEST_USER_DN, "wrong-password",
                         new BindResultHandler() {
                             @Override
-                            public void handleBindSuccess(LDAPSession session) {
+                            public void handleBindSuccess(LdapSession session) {
                                 fail(error, doneLatch, "bind should not have succeeded with wrong password");
                             }
 
                             @Override
-                            public void handleBindFailure(LDAPResult result, LDAPConnected conn) {
+                            public void handleBindFailure(LdapResult result, LdapConnected conn) {
                                 failureCode.set(result.getResultCode());
                                 conn.unbind();
                                 doneLatch.countDown();
@@ -281,7 +281,7 @@ public class OpenLdapClientIntegrationTest {
         if (error.get() != null) {
             throw error.get();
         }
-        assertEquals(LDAPResultCode.INVALID_CREDENTIALS, failureCode.get());
+        assertEquals(LdapResultCode.INVALID_CREDENTIALS, failureCode.get());
     }
 
     // ── Shared plumbing ──
@@ -308,7 +308,7 @@ public class OpenLdapClientIntegrationTest {
 
     // ── Test handler base classes (default: fail on unexpected callback) ──
 
-    private abstract class TestConnectionReady implements LDAPConnectionReady {
+    private abstract class TestConnectionReady implements LdapConnectionReady {
         final AtomicReference<Exception> error;
         final CountDownLatch latch;
 
@@ -346,7 +346,7 @@ public class OpenLdapClientIntegrationTest {
         }
 
         @Override
-        public void handleBindFailure(LDAPResult result, LDAPConnected connection) {
+        public void handleBindFailure(LdapResult result, LdapConnected connection) {
             fail(error, latch, "bind failed: " + result);
         }
     }

@@ -1,5 +1,5 @@
 /*
- * ASN1Element.java
+ * Asn1Element.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -35,11 +35,11 @@ import java.util.List;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class ASN1Element {
+public final class Asn1Element {
 
     private final int tag;
     private final byte[] value;
-    private final List<ASN1Element> children;
+    private final List<Asn1Element> children;
 
     /**
      * Creates a primitive element.
@@ -47,7 +47,7 @@ public final class ASN1Element {
      * @param tag the tag byte
      * @param value the raw value bytes
      */
-    public ASN1Element(int tag, byte[] value) {
+    public Asn1Element(int tag, byte[] value) {
         this.tag = tag;
         this.value = value;
         this.children = null;
@@ -59,10 +59,10 @@ public final class ASN1Element {
      * @param tag the tag byte
      * @param children the child elements
      */
-    public ASN1Element(int tag, List<ASN1Element> children) {
+    public Asn1Element(int tag, List<Asn1Element> children) {
         this.tag = tag;
         this.value = null;
-        this.children = new ArrayList<ASN1Element>(children);
+        this.children = new ArrayList<Asn1Element>(children);
     }
 
     /**
@@ -80,7 +80,7 @@ public final class ASN1Element {
      * @return CLASS_UNIVERSAL, CLASS_APPLICATION, CLASS_CONTEXT, or CLASS_PRIVATE
      */
     public int getTagClass() {
-        return ASN1Type.getTagClass(tag);
+        return Asn1Type.getTagClass(tag);
     }
 
     /**
@@ -89,7 +89,7 @@ public final class ASN1Element {
      * @return the tag number (0-30)
      */
     public int getTagNumber() {
-        return ASN1Type.getTagNumber(tag);
+        return Asn1Type.getTagNumber(tag);
     }
 
     /**
@@ -98,7 +98,7 @@ public final class ASN1Element {
      * @return true if constructed, false if primitive
      */
     public boolean isConstructed() {
-        return ASN1Type.isConstructed(tag);
+        return Asn1Type.isConstructed(tag);
     }
 
     /**
@@ -115,7 +115,7 @@ public final class ASN1Element {
      *
      * @return unmodifiable list of children, or null for primitive elements
      */
-    public List<ASN1Element> getChildren() {
+    public List<Asn1Element> getChildren() {
         return children != null ? Collections.unmodifiableList(children) : null;
     }
 
@@ -135,7 +135,7 @@ public final class ASN1Element {
      * @return the child element
      * @throws IndexOutOfBoundsException if index is out of range
      */
-    public ASN1Element getChild(int index) {
+    public Asn1Element getChild(int index) {
         if (children == null) {
             throw new IndexOutOfBoundsException("Primitive element has no children");
         }
@@ -148,11 +148,11 @@ public final class ASN1Element {
      * Returns the value as a boolean.
      *
      * @return the boolean value
-     * @throws ASN1Exception if not a valid boolean
+     * @throws Asn1Exception if not a valid boolean
      */
-    public boolean asBoolean() throws ASN1Exception {
+    public boolean asBoolean() throws Asn1Exception {
         if (value == null || value.length != 1) {
-            throw new ASN1Exception("Invalid BOOLEAN encoding");
+            throw new Asn1Exception("Invalid BOOLEAN encoding");
         }
         return value[0] != 0;
     }
@@ -161,11 +161,11 @@ public final class ASN1Element {
      * Returns the value as an integer.
      *
      * @return the integer value
-     * @throws ASN1Exception if not a valid integer
+     * @throws Asn1Exception if not a valid integer
      */
-    public int asInt() throws ASN1Exception {
+    public int asInt() throws Asn1Exception {
         if (value == null || value.length == 0 || value.length > 4) {
-            throw new ASN1Exception("Invalid INTEGER encoding");
+            throw new Asn1Exception("Invalid INTEGER encoding");
         }
         int result = 0;
         for (int i = 0; i < value.length; i++) {
@@ -184,11 +184,11 @@ public final class ASN1Element {
      * Returns the value as a long integer.
      *
      * @return the long value
-     * @throws ASN1Exception if not a valid integer
+     * @throws Asn1Exception if not a valid integer
      */
-    public long asLong() throws ASN1Exception {
+    public long asLong() throws Asn1Exception {
         if (value == null || value.length == 0 || value.length > 8) {
-            throw new ASN1Exception("Invalid INTEGER encoding");
+            throw new Asn1Exception("Invalid INTEGER encoding");
         }
         long result = 0;
         for (int i = 0; i < value.length; i++) {
@@ -235,10 +235,10 @@ public final class ASN1Element {
         for (int i = 0; i < indent; i++) {
             sb.append("  ");
         }
-        sb.append(ASN1Type.getTagName(tag));
+        sb.append(Asn1Type.getTagName(tag));
         if (isConstructed() && children != null) {
             sb.append(" {\n");
-            for (ASN1Element child : children) {
+            for (Asn1Element child : children) {
                 child.toString(sb, indent + 1);
             }
             for (int i = 0; i < indent; i++) {

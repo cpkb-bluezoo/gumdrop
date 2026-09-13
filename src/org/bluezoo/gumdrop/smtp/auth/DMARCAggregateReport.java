@@ -1,5 +1,5 @@
 /*
- * DMARCAggregateReport.java
+ * DmarcAggregateReport.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -57,7 +57,7 @@ import java.util.Map;
  *
  * <h4>Usage</h4>
  * <pre>{@code
- * DMARCAggregateReport report = new DMARCAggregateReport();
+ * DmarcAggregateReport report = new DmarcAggregateReport();
  * report.setReporterOrgName("example-receiver.com");
  * report.setReporterEmail("dmarc-reports@example-receiver.com");
  * report.setReportId("unique-report-id-12345");
@@ -65,21 +65,21 @@ import java.util.Map;
  *
  * // Record authentication results for each message
  * report.addResult("192.0.2.1", "sender.example.com",
- *     DMARCPolicy.NONE, "r", "r",
- *     DMARCResult.PASS, SPFResult.PASS, "sender.example.com",
- *     DKIMResult.PASS, "sender.example.com", "sel1");
+ *     DmarcPolicy.NONE, "r", "r",
+ *     DmarcResult.PASS, SpfResult.PASS, "sender.example.com",
+ *     DkimResult.PASS, "sender.example.com", "sel1");
  *
  * // Generate the XML report
  * report.writeXML(writableByteChannel);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DMARCValidator
+ * @see DmarcValidator
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489#section-7.1">RFC 7489 §7.1</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489#appendix-C">RFC 7489 Appendix C — XML Schema</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9990">RFC 9990 — DMARCbis Aggregate Reports</a>
  */
-public class DMARCAggregateReport {
+public class DmarcAggregateReport {
 
     private String reporterOrgName;
     private String reporterEmail;
@@ -147,10 +147,10 @@ public class DMARCAggregateReport {
      * <p>Equivalent to calling the FEAT-001/FEAT-002-aware overload with
      * {@code np=null}, {@code testing="n"}, {@code pct=100}, and
      * {@code discoveryMethod=null} — for RFC 9989/9990-aware policy
-     * reporting, use {@link #addResult(String, String, DMARCPolicy, String,
-     * String, DMARCResult, SPFResult, String, DKIMResult, String, String,
-     * DMARCPolicy, String, int, String)} instead, typically passing values
-     * straight from the {@link DMARCValidator} that produced this result
+     * reporting, use {@link #addResult(String, String, DmarcPolicy, String,
+     * String, DmarcResult, SpfResult, String, DkimResult, String, String,
+     * DmarcPolicy, String, int, String)} instead, typically passing values
+     * straight from the {@link DmarcValidator} that produced this result
      * ({@code getLastNp()}, {@code getLastT()}, {@code getLastDiscoveryMethod()}).
      *
      * @param sourceIP the connecting MTA IP address
@@ -166,10 +166,10 @@ public class DMARCAggregateReport {
      * @param dkimSelector the DKIM selector (s=), may be null
      */
     public void addResult(String sourceIP, String headerFrom,
-                       DMARCPolicy policy, String adkim, String aspf,
-                       DMARCResult dmarcResult,
-                       SPFResult spfResult, String spfDomain,
-                       DKIMResult dkimResult, String dkimDomain,
+                       DmarcPolicy policy, String adkim, String aspf,
+                       DmarcResult dmarcResult,
+                       SpfResult spfResult, String spfDomain,
+                       DkimResult dkimResult, String dkimDomain,
                        String dkimSelector) {
         addResult(sourceIP, headerFrom, policy, adkim, aspf, dmarcResult,
                 spfResult, spfDomain, dkimResult, dkimDomain, dkimSelector,
@@ -196,19 +196,19 @@ public class DMARCAggregateReport {
      * @param pct the pct= sampling percentage (0-100, RFC 7489 backward
      *        compatibility only — see the class Javadoc)
      * @param discoveryMethod how the record was found ("author", "psl", or
-     *        "treewalk" — see {@link DMARCValidator#getLastDiscoveryMethod()}),
+     *        "treewalk" — see {@link DmarcValidator#getLastDiscoveryMethod()}),
      *        may be null
      * @throws IllegalStateException if {@code headerFrom} differs from the
      *         Policy Domain already established by an earlier call (RFC
      *         9990 requires a single report to cover exactly one domain)
      */
     public void addResult(String sourceIP, String headerFrom,
-                       DMARCPolicy policy, String adkim, String aspf,
-                       DMARCResult dmarcResult,
-                       SPFResult spfResult, String spfDomain,
-                       DKIMResult dkimResult, String dkimDomain,
+                       DmarcPolicy policy, String adkim, String aspf,
+                       DmarcResult dmarcResult,
+                       SpfResult spfResult, String spfDomain,
+                       DkimResult dkimResult, String dkimDomain,
                        String dkimSelector,
-                       DMARCPolicy np, String testing, int pct, String discoveryMethod) {
+                       DmarcPolicy np, String testing, int pct, String discoveryMethod) {
 
         if (reportDomain == null) {
             reportDomain = headerFrom;
@@ -216,7 +216,7 @@ public class DMARCAggregateReport {
             throw new IllegalStateException("RFC 9990 requires a single aggregate report to "
                     + "cover exactly one Policy Domain; this report already covers '"
                     + reportDomain + "', got '" + headerFrom + "' - use a separate "
-                    + "DMARCAggregateReport instance per domain");
+                    + "DmarcAggregateReport instance per domain");
         }
 
         DomainReport dr = domainReports.get(headerFrom);
@@ -395,14 +395,14 @@ public class DMARCAggregateReport {
         return false;
     }
 
-    private static String dispositionFor(DMARCResult result, DMARCPolicy policy) {
-        if (result == DMARCResult.PASS || policy == null || policy == DMARCPolicy.NONE) {
+    private static String dispositionFor(DmarcResult result, DmarcPolicy policy) {
+        if (result == DmarcResult.PASS || policy == null || policy == DmarcPolicy.NONE) {
             return "none";
         }
-        if (policy == DMARCPolicy.REJECT) {
+        if (policy == DmarcPolicy.REJECT) {
             return "reject";
         }
-        if (policy == DMARCPolicy.QUARANTINE) {
+        if (policy == DmarcPolicy.QUARANTINE) {
             return "quarantine";
         }
         return "none";
@@ -422,17 +422,17 @@ public class DMARCAggregateReport {
 
     private static class DomainReport {
         final String domain;
-        final DMARCPolicy policy;
+        final DmarcPolicy policy;
         final String adkim;
         final String aspf;
-        final DMARCPolicy np;
+        final DmarcPolicy np;
         final String testing;
         final int pct;
         final String discoveryMethod;
         final Map<String, RecordRow> rows = new HashMap<>();
 
-        DomainReport(String domain, DMARCPolicy policy, String adkim, String aspf,
-                     DMARCPolicy np, String testing, int pct, String discoveryMethod) {
+        DomainReport(String domain, DmarcPolicy policy, String adkim, String aspf,
+                     DmarcPolicy np, String testing, int pct, String discoveryMethod) {
             this.domain = domain;
             this.policy = policy;
             this.adkim = adkim != null ? adkim : "r";
@@ -447,7 +447,7 @@ public class DMARCAggregateReport {
     private static class RecordRow {
         String sourceIP;
         String disposition;
-        DMARCResult dmarcResult;
+        DmarcResult dmarcResult;
         int count;
         final List<AuthResult> spfResults = new ArrayList<>();
         final List<AuthResult> dkimResults = new ArrayList<>();

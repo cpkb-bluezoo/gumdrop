@@ -56,13 +56,13 @@ public final class ContentDispositionParser {
 			return null;
 		}
 		value.position(start + 3);
-		int semicolonIndex = MIMEParser.indexOf(value, (byte) ';');
+		int semicolonIndex = MimeParser.indexOf(value, (byte) ';');
 		int typeEnd = semicolonIndex < 0 ? end : semicolonIndex;
 		value.position(start);
 		value.limit(typeEnd);
-		String dispositionType = MIMEParser.decodeSlice(value, decoder);
+		String dispositionType = MimeParser.decodeSlice(value, decoder);
 		value.limit(end);
-		if (dispositionType == null || !MIMEUtils.isToken(dispositionType)) {
+		if (dispositionType == null || !MimeUtils.isToken(dispositionType)) {
 			value.position(start);
 			return null;
 		}

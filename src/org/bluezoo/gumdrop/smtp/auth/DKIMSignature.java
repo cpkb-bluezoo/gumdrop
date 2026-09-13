@@ -1,5 +1,5 @@
 /*
- * DKIMSignature.java
+ * DkimSignature.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -33,7 +33,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  */
-public class DKIMSignature {
+public class DkimSignature {
 
     /** Version (v=) - always "1" for DKIM */
     private String version;
@@ -80,7 +80,7 @@ public class DKIMSignature {
     /**
      * Creates an empty DKIM signature for parsing.
      */
-    public DKIMSignature() {
+    public DkimSignature() {
         this.signedHeaders = new ArrayList<>();
         this.bodyLength = -1;
         this.timestamp = -1;
@@ -93,12 +93,12 @@ public class DKIMSignature {
      * @param headerValue the header value (after "DKIM-Signature:")
      * @return the parsed signature, or null if invalid
      */
-    public static DKIMSignature parse(String headerValue) {
+    public static DkimSignature parse(String headerValue) {
         if (headerValue == null) {
             return null;
         }
 
-        DKIMSignature sig = new DKIMSignature();
+        DkimSignature sig = new DkimSignature();
         sig.rawHeader = headerValue;
 
         // Parse tag=value pairs

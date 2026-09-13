@@ -24,16 +24,16 @@
  * (simple strings {@code +}, errors {@code -}, integers {@code :}, bulk
  * strings {@code $}, arrays {@code *}) and RESP3.
  *
- * <p>{@link org.bluezoo.gumdrop.redis.codec.RESPDecoder} is a streaming
+ * <p>{@link org.bluezoo.gumdrop.redis.codec.RespDecoder} is a streaming
  * decoder: if a complete value isn't yet available, {@code next()}
  * returns null and the partial data is retained across calls to {@code
- * receive()}. {@link org.bluezoo.gumdrop.redis.codec.RESPEncoder} writes
+ * receive()}. {@link org.bluezoo.gumdrop.redis.codec.RespEncoder} writes
  * commands in the corresponding wire format; encoder instances are
  * thread-safe, decoder instances are not (each is meant for one
  * connection's SelectorLoop thread). {@link
- * org.bluezoo.gumdrop.redis.codec.RESPValue} is the decoded value,
- * {@link org.bluezoo.gumdrop.redis.codec.RESPType} its type tag, and
- * {@link org.bluezoo.gumdrop.redis.codec.RESPException} reports
+ * org.bluezoo.gumdrop.redis.codec.RespValue} is the decoded value,
+ * {@link org.bluezoo.gumdrop.redis.codec.RespType} its type tag, and
+ * {@link org.bluezoo.gumdrop.redis.codec.RespException} reports
  * malformed input.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

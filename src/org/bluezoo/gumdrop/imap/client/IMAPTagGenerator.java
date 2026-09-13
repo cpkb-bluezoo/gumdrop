@@ -1,5 +1,5 @@
 /*
- * IMAPTagGenerator.java
+ * ImapTagGenerator.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,7 +27,7 @@ package org.bluezoo.gumdrop.imap.client;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class IMAPTagGenerator {
+class ImapTagGenerator {
 
     private char prefix = 'A';
     private int counter = 0;

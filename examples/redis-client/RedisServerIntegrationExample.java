@@ -32,7 +32,7 @@ import org.bluezoo.gumdrop.redis.client.IntegerResultHandler;
 import org.bluezoo.gumdrop.redis.client.RedisClient;
 import org.bluezoo.gumdrop.redis.client.RedisConnectionReady;
 import org.bluezoo.gumdrop.redis.client.RedisSession;
-import org.bluezoo.gumdrop.redis.codec.RESPValue;
+import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -372,7 +372,7 @@ public class RedisServerIntegrationExample {
 
             redis.hgetall("session:" + clientIP, new ArrayResultHandler() {
                 @Override
-                public void handleResult(List<RESPValue> array, RedisSession session) {
+                public void handleResult(List<RespValue> array, RedisSession session) {
                     if (array.isEmpty()) {
                         sendMessage("No history recorded\r\n");
                         return;

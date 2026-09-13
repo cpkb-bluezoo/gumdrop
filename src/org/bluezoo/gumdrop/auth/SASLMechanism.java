@@ -1,5 +1,5 @@
 /*
- * SASLMechanism.java
+ * SaslMechanism.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -39,7 +39,7 @@ package org.bluezoo.gumdrop.auth;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.iana.org/assignments/sasl-mechanisms/">IANA SASL Mechanisms</a>
  */
-public enum SASLMechanism {
+public enum SaslMechanism {
 
     /** Simple Authentication and Security Layer - plain credentials (RFC 4616) */
     PLAIN("PLAIN", false, true),
@@ -69,7 +69,7 @@ public enum SASLMechanism {
     private final boolean challengeResponse;
     private final boolean requiresTLS;
 
-    SASLMechanism(String mechanismName, boolean challengeResponse, boolean requiresTLS) {
+    SaslMechanism(String mechanismName, boolean challengeResponse, boolean requiresTLS) {
         this.mechanismName = mechanismName;
         this.challengeResponse = challengeResponse;
         this.requiresTLS = requiresTLS;
@@ -110,11 +110,11 @@ public enum SASLMechanism {
      * @param name the mechanism name (case-insensitive)
      * @return the mechanism, or null if not recognized
      */
-    public static SASLMechanism fromName(String name) {
+    public static SaslMechanism fromName(String name) {
         if (name == null) {
             return null;
         }
-        for (SASLMechanism mech : values()) {
+        for (SaslMechanism mech : values()) {
             if (mech.mechanismName.equalsIgnoreCase(name)) {
                 return mech;
             }

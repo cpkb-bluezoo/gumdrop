@@ -1,5 +1,5 @@
 /*
- * OTLPFieldNumbers.java
+ * OtlpFieldNumbers.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,9 +27,9 @@ package org.bluezoo.gumdrop.telemetry.protobuf;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class OTLPFieldNumbers {
+final class OtlpFieldNumbers {
 
-    private OTLPFieldNumbers() {
+    private OtlpFieldNumbers() {
     }
 
     // TracesData

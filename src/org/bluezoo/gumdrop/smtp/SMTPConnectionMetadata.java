@@ -130,10 +130,10 @@ public interface SmtpConnectionMetadata {
      * </ul>
      *
      * @return DSN envelope parameters, or null if none were specified
-     * @see DSNEnvelopeParameters
+     * @see DsnEnvelopeParameters
      * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.3">RFC 3461 §4.3</a>
      */
-    DSNEnvelopeParameters getDSNEnvelopeParameters();
+    DsnEnvelopeParameters getDSNEnvelopeParameters();
 
     /**
      * Returns the DSN recipient parameters for a specific recipient.
@@ -147,10 +147,10 @@ public interface SmtpConnectionMetadata {
      *
      * @param recipient the recipient to get DSN parameters for
      * @return DSN recipient parameters, or null if none were specified
-     * @see DSNRecipientParameters
+     * @see DsnRecipientParameters
      * @see <a href="https://www.rfc-editor.org/rfc/rfc3461#section-4.1">RFC 3461 §4.1</a>
      */
-    DSNRecipientParameters getDSNRecipientParameters(EmailAddress recipient);
+    DsnRecipientParameters getDSNRecipientParameters(EmailAddress recipient);
 
     /**
      * Returns whether REQUIRETLS was specified for this message.

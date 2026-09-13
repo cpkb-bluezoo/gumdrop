@@ -138,13 +138,13 @@ public class FtpDataConnectionCoordinator {
         public FtpConnectionMetadata getMetadata() { return metadata; }
     }
     
-    private final FTPControlConnection controlConnection;
+    private final FtpControlConnection controlConnection;
     private DataConnectionMode mode = DataConnectionMode.NONE;
     
     // Passive mode state
-    private FTPDataServer passiveConnector;
+    private FtpDataServer passiveConnector;
     private int passivePort = -1;
-    private final BlockingQueue<FTPDataConnection> incomingDataConnections;
+    private final BlockingQueue<FtpDataConnection> incomingDataConnections;
     
     // Active mode state  
     private String activeHost;
@@ -152,7 +152,7 @@ public class FtpDataConnectionCoordinator {
     
     // Transfer state
     private PendingTransfer pendingTransfer;
-    private FTPDataConnection activeDataConnection;
+    private FtpDataConnection activeDataConnection;
     private long transferStartTime;
     private long totalBytesTransferred;
 
@@ -179,7 +179,7 @@ public class FtpDataConnectionCoordinator {
     // RFC 4217 section 10: control connection client address for verification
     private InetAddress controlClientAddress;
     
-    public FtpDataConnectionCoordinator(FTPControlConnection controlConnection) {
+    public FtpDataConnectionCoordinator(FtpControlConnection controlConnection) {
         this.controlConnection = controlConnection;
         this.incomingDataConnections = new LinkedBlockingQueue<>();
     }
@@ -216,7 +216,7 @@ public class FtpDataConnectionCoordinator {
     public synchronized int setupPassiveMode(int port) throws IOException {
         cleanup(); // Clean up any existing setup
 
-        passiveConnector = new FTPDataServer(controlConnection, port, this);
+        passiveConnector = new FtpDataServer(controlConnection, port, this);
 
         // Bind the socket synchronously so we know the port immediately
         ServerSocketChannel ssc = ServerSocketChannel.open();
@@ -343,13 +343,13 @@ public class FtpDataConnectionCoordinator {
     }
 
     /**
-     * Called by FTPDataServer when a client connects in passive mode.
+     * Called by FtpDataServer when a client connects in passive mode.
      * Per RFC 4217 section 10, the data connection source IP is verified
      * against the control connection client IP to prevent hijacking.
      *
      * @param dataConnection the established data connection
      */
-    public void acceptDataConnection(FTPDataConnection dataConnection) {
+    public void acceptDataConnection(FtpDataConnection dataConnection) {
         try {
             // RFC 4217 section 10: verify data connection IP matches control
             if (controlClientAddress != null) {
@@ -477,7 +477,7 @@ public class FtpDataConnectionCoordinator {
         }
         
         // Clear queued connections
-        FTPDataConnection conn;
+        FtpDataConnection conn;
         while ((conn = incomingDataConnections.poll()) != null) {
             try {
                 conn.close();
@@ -533,7 +533,7 @@ public class FtpDataConnectionCoordinator {
      * connection.
      */
     private interface DataConnectionReady {
-        void ready(FTPDataConnection connection) throws IOException;
+        void ready(FtpDataConnection connection) throws IOException;
     }
 
     /**
@@ -562,7 +562,7 @@ public class FtpDataConnectionCoordinator {
             TransferCallback callback, DataConnectionReady continuation) {
         switch (mode) {
             case PASSIVE: {
-                FTPDataConnection existing;
+                FtpDataConnection existing;
                 synchronized (this) {
                     existing = incomingDataConnections.poll();
                     if (existing == null) {
@@ -602,7 +602,7 @@ public class FtpDataConnectionCoordinator {
      */
     private void deliverDataConnection(Endpoint controlEndpoint,
             TransferCallback callback, DataConnectionReady continuation,
-            FTPDataConnection connection) {
+            FtpDataConnection connection) {
         activeDataConnection = connection;
         try {
             continuation.ready(connection);
@@ -642,18 +642,18 @@ public class FtpDataConnectionCoordinator {
                     "Server not started; cannot open active data connection"));
             return;
         }
-        exec.submit(controlEndpoint, new Callable<FTPDataConnection>() {
+        exec.submit(controlEndpoint, new Callable<FtpDataConnection>() {
             @Override
-            public FTPDataConnection call() throws IOException {
+            public FtpDataConnection call() throws IOException {
                 SocketChannel channel = SocketChannel.open();
                 channel.socket().connect(new InetSocketAddress(host, port),
                         (int) DATA_CONNECTION_TIMEOUT_MS);
-                return new FTPDataConnection(channel,
+                return new FtpDataConnection(channel,
                         FtpDataConnectionCoordinator.this);
             }
-        }, new StorageExecutor.Callback<FTPDataConnection>() {
+        }, new StorageExecutor.Callback<FtpDataConnection>() {
             @Override
-            public void completed(FTPDataConnection connection) {
+            public void completed(FtpDataConnection connection) {
                 deliverDataConnection(controlEndpoint, callback,
                         continuation, connection);
             }
@@ -746,7 +746,7 @@ public class FtpDataConnectionCoordinator {
         acquireDataConnection(controlEndpoint, callback,
                 new DataConnectionReady() {
                     @Override
-                    public void ready(FTPDataConnection connection)
+                    public void ready(FtpDataConnection connection)
                             throws IOException {
                         beginDownload(controlEndpoint, transfer, callback);
                     }
@@ -908,7 +908,7 @@ public class FtpDataConnectionCoordinator {
         acquireDataConnection(controlEndpoint, callback,
                 new DataConnectionReady() {
                     @Override
-                    public void ready(FTPDataConnection connection)
+                    public void ready(FtpDataConnection connection)
                             throws IOException {
                         beginListing(controlEndpoint, transfer, callback);
                     }
@@ -1016,7 +1016,7 @@ public class FtpDataConnectionCoordinator {
         acquireDataConnection(controlEndpoint, callback,
                 new DataConnectionReady() {
                     @Override
-                    public void ready(FTPDataConnection connection)
+                    public void ready(FtpDataConnection connection)
                             throws IOException {
                         beginUpload(controlEndpoint, transfer, callback);
                     }
@@ -1304,7 +1304,7 @@ public class FtpDataConnectionCoordinator {
         private final AsynchronousFileChannel asyncChannel;
         private final PendingTransfer transfer;
         private final TransferCallback callback;
-        private final FTPAsciiLineEndings asciiCodec;
+        private final FtpAsciiLineEndings asciiCodec;
         private long filePosition;
         private Endpoint dataEndpoint;
 
@@ -1315,7 +1315,7 @@ public class FtpDataConnectionCoordinator {
             this.transfer = transfer;
             this.callback = callback;
             this.asciiCodec = isAsciiType(transfer)
-                    ? new FTPAsciiLineEndings() : null;
+                    ? new FtpAsciiLineEndings() : null;
             this.filePosition = transfer.getRestartOffset();
         }
 
@@ -1505,7 +1505,7 @@ public class FtpDataConnectionCoordinator {
             }
             ByteBuffer buf;
             if (asciiMode) {
-                buf = FTPAsciiLineEndings.decode(data);
+                buf = FtpAsciiLineEndings.decode(data);
                 if (!buf.hasRemaining()) {
                     // Chunk was only CR bytes; nothing to write.
                     ByteBufferPool.release(buf);

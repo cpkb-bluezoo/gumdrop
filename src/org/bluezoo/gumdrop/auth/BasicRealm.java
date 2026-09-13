@@ -59,7 +59,7 @@ import org.xml.sax.helpers.DefaultHandler;
  *
  * <p><strong>Production use:</strong> BasicRealm with plaintext passwords is
  * intended for development and testing only. For production, use
- * {@link org.bluezoo.gumdrop.auth.ldap.LDAPRealm} or {@link org.bluezoo.gumdrop.auth.oauth.OAuthRealm}. When hashed passwords are used
+ * {@link org.bluezoo.gumdrop.auth.ldap.LdapRealm} or {@link org.bluezoo.gumdrop.auth.oauth.OAuthRealm}. When hashed passwords are used
  * (RFC 2307 format), only PLAIN and LOGIN SASL mechanisms are supported.
  *
  * <h4>Hashed Passwords</h4>
@@ -362,18 +362,18 @@ public class BasicRealm extends DefaultHandler implements Realm {
      * Since BasicRealm stores plaintext passwords, it supports all
      * password-based mechanisms.
      */
-    private static final Set<SASLMechanism> SUPPORTED_MECHANISMS =
+    private static final Set<SaslMechanism> SUPPORTED_MECHANISMS =
             Collections.unmodifiableSet(EnumSet.of(
-                    SASLMechanism.PLAIN,
-                    SASLMechanism.LOGIN,
-                    SASLMechanism.CRAM_MD5,
-                    SASLMechanism.DIGEST_MD5,
-                    SASLMechanism.SCRAM_SHA_256,
-                    SASLMechanism.EXTERNAL
+                    SaslMechanism.PLAIN,
+                    SaslMechanism.LOGIN,
+                    SaslMechanism.CRAM_MD5,
+                    SaslMechanism.DIGEST_MD5,
+                    SaslMechanism.SCRAM_SHA_256,
+                    SaslMechanism.EXTERNAL
             ));
 
     @Override
-    public Set<SASLMechanism> getSupportedSASLMechanisms() {
+    public Set<SaslMechanism> getSupportedSASLMechanisms() {
         return SUPPORTED_MECHANISMS;
     }
 
@@ -389,7 +389,7 @@ public class BasicRealm extends DefaultHandler implements Realm {
         if (password == null || isHashedPassword(password)) {
             return null; // User doesn't exist or hashed (requires plaintext)
         }
-        return SASLUtils.computeCramMD5Response(password, challenge);
+        return SaslUtils.computeCramMD5Response(password, challenge);
     }
 
     @Override

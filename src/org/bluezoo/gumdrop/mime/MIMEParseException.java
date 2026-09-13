@@ -1,5 +1,5 @@
 /*
- * MIMEParseException.java
+ * MimeParseException.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,7 +28,7 @@ package org.bluezoo.gumdrop.mime;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2045">RFC 2045: MIME Part One</a>
  */
-public class MIMEParseException extends Exception {
+public class MimeParseException extends Exception {
 
 	private static final long serialVersionUID = 1L;
 
@@ -40,7 +40,7 @@ public class MIMEParseException extends Exception {
 	 * Constructs a new exception with the specified message.
 	 * @param message the detail message
 	 */
-	public MIMEParseException(String message) {
+	public MimeParseException(String message) {
 		super(message);
 		this.offset = -1;
 		this.lineNumber = -1;
@@ -52,7 +52,7 @@ public class MIMEParseException extends Exception {
 	 * @param message the detail message
 	 * @param locator the locator providing position information
 	 */
-	public MIMEParseException(String message, MIMELocator locator) {
+	public MimeParseException(String message, MimeLocator locator) {
 		super(formatMessage(message, locator));
 		if (locator != null) {
 			this.offset = locator.getOffset();
@@ -69,7 +69,7 @@ public class MIMEParseException extends Exception {
 	 * Constructs a new exception with the specified cause.
 	 * @param cause the cause of this exception
 	 */
-	public MIMEParseException(Throwable cause) {
+	public MimeParseException(Throwable cause) {
 		super(cause);
 		this.offset = -1;
 		this.lineNumber = -1;
@@ -81,7 +81,7 @@ public class MIMEParseException extends Exception {
 	 * @param message the detail message
 	 * @param cause the cause of this exception
 	 */
-	public MIMEParseException(String message, Throwable cause) {
+	public MimeParseException(String message, Throwable cause) {
 		super(message, cause);
 		this.offset = -1;
 		this.lineNumber = -1;
@@ -112,7 +112,7 @@ public class MIMEParseException extends Exception {
 		return columnNumber;
 	}
 
-	private static String formatMessage(String message, MIMELocator locator) {
+	private static String formatMessage(String message, MimeLocator locator) {
 		if (locator == null) {
 			return message;
 		}

@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.pop3.Pop3Listener;
 import org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
 import org.junit.After;
@@ -466,7 +466,7 @@ public class AsyncDiskOffloadBoundaryTest {
         Class<?> handlerClass =
                 Class.forName("org.bluezoo.gumdrop.webdav.FileHandler");
         Class<?> lockClass =
-                Class.forName("org.bluezoo.gumdrop.webdav.WebDAVLockManager");
+                Class.forName("org.bluezoo.gumdrop.webdav.WebdavLockManager");
         Class<?> deadClass =
                 Class.forName("org.bluezoo.gumdrop.webdav.DeadPropertyStore");
         Constructor<?> ctor = handlerClass.getDeclaredConstructor(
@@ -509,9 +509,9 @@ public class AsyncDiskOffloadBoundaryTest {
     private static final class AcceptingRealm implements Realm {
         private final String user;
         private final String pass;
-        private static final Set<SASLMechanism> SUPPORTED =
+        private static final Set<SaslMechanism> SUPPORTED =
                 Collections.unmodifiableSet(
-                        EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN));
+                        EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
 
         AcceptingRealm(String user, String pass) {
             this.user = user;
@@ -524,7 +524,7 @@ public class AsyncDiskOffloadBoundaryTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
 

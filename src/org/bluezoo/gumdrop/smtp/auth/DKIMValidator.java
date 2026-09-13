@@ -1,5 +1,5 @@
 /*
- * DKIMValidator.java
+ * DkimValidator.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * that the message content has not been modified. This implementation
  * is fully asynchronous, using callbacks for DNS lookups.
  *
- * <p>The validator uses a {@link DKIMMessageParser} to capture raw header
+ * <p>The validator uses a {@link DkimMessageParser} to capture raw header
  * bytes for proper DKIM canonicalization. The body hash is computed
  * separately from the raw message bytes.
  *
@@ -61,20 +61,20 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * resolver.useSystemResolvers();
  * resolver.open();
  *
- * // Parse message with DKIMMessageParser
- * DKIMMessageParser parser = new DKIMMessageParser();
+ * // Parse message with DkimMessageParser
+ * DkimMessageParser parser = new DkimMessageParser();
  * parser.receive(messageData);
  * parser.close();
  *
- * DKIMValidator dkim = new DKIMValidator(resolver);
+ * DkimValidator dkim = new DkimValidator(resolver);
  * dkim.setMessageParser(parser);
  * dkim.setBodyHash(computedBodyHash);
  *
  * // Verify
- * dkim.verify(new DKIMCallback() {
+ * dkim.verify(new DkimCallback() {
  *     &#64;Override
- *     public void dkimResult(DKIMResult result, String domain, String selector) {
- *         if (result == DKIMResult.PASS) {
+ *     public void dkimResult(DkimResult result, String domain, String selector) {
+ *         if (result == DkimResult.PASS) {
  *             // Signature verified
  *         }
  *     }
@@ -82,19 +82,19 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * </code></pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DKIMMessageParser
+ * @see DkimMessageParser
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>
  */
-public class DKIMValidator {
+public class DkimValidator {
 
-    private static final Logger LOGGER = Logger.getLogger(DKIMValidator.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(DkimValidator.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.auth.L10N");
 
     private final DnsResolver resolver;
 
-    private DKIMMessageParser messageParser;
-    private DKIMSignature signature;
+    private DkimMessageParser messageParser;
+    private DkimSignature signature;
     private byte[] bodyHash;
 
     /**
@@ -102,7 +102,7 @@ public class DKIMValidator {
      *
      * @param resolver the DNS resolver to use for public key lookups
      */
-    public DKIMValidator(DnsResolver resolver) {
+    public DkimValidator(DnsResolver resolver) {
         this.resolver = resolver;
     }
 
@@ -115,7 +115,7 @@ public class DKIMValidator {
      *
      * @param parser the DKIM message parser with captured headers
      */
-    public void setMessageParser(DKIMMessageParser parser) {
+    public void setMessageParser(DkimMessageParser parser) {
         this.messageParser = parser;
         // Get the signature from the parser
         if (this.signature == null) {
@@ -139,7 +139,7 @@ public class DKIMValidator {
      *
      * @return the DKIM signature
      */
-    public DKIMSignature getSignature() {
+    public DkimSignature getSignature() {
         if (signature == null && messageParser != null) {
             signature = messageParser.getDKIMSignature();
         }
@@ -152,31 +152,31 @@ public class DKIMValidator {
      *
      * @param callback the callback to receive the result
      */
-    public void verify(final DKIMCallback callback) {
+    public void verify(final DkimCallback callback) {
         // Get signature from parser if not already set
         if (signature == null && messageParser != null) {
             signature = messageParser.getDKIMSignature();
         }
 
         if (signature == null) {
-            callback.dkimResult(DKIMResult.NONE, null, null);
+            callback.dkimResult(DkimResult.NONE, null, null);
             return;
         }
 
         if (messageParser == null) {
             // No raw header bytes available
-            callback.dkimResult(DKIMResult.PERMERROR, signature.getDomain(),
+            callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
             return;
         }
 
         // RFC 6376 does not require h= to cover From, but a PASS here is
-        // relied on elsewhere (DMARCValidator) to authenticate the message's
+        // relied on elsewhere (DmarcValidator) to authenticate the message's
         // From domain. A signature that never covers From can be replayed
         // unmodified under an arbitrary From address at the same signing
         // domain, so treat it as unusable rather than PASS.
         if (!signature.getSignedHeaders().contains("from")) {
-            callback.dkimResult(DKIMResult.PERMERROR, signature.getDomain(),
+            callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
             return;
         }
@@ -184,7 +184,7 @@ public class DKIMValidator {
         // Check if signature has expired
         long now = System.currentTimeMillis() / 1000;
         if (signature.getExpiration() > 0 && now > signature.getExpiration()) {
-            callback.dkimResult(DKIMResult.FAIL, signature.getDomain(),
+            callback.dkimResult(DkimResult.FAIL, signature.getDomain(),
                     signature.getSelector());
             return;
         }
@@ -194,7 +194,7 @@ public class DKIMValidator {
             String expectedHash = signature.getBodyHash();
             if (!ByteArrays.equalsConstantTime(
                     Base64.getDecoder().decode(expectedHash), bodyHash)) {
-                callback.dkimResult(DKIMResult.FAIL, signature.getDomain(),
+                callback.dkimResult(DkimResult.FAIL, signature.getDomain(),
                         signature.getSelector());
                 return;
             }
@@ -210,7 +210,7 @@ public class DKIMValidator {
 
             @Override
             public void onError(String error) {
-                callback.dkimResult(DKIMResult.TEMPERROR, signature.getDomain(),
+                callback.dkimResult(DkimResult.TEMPERROR, signature.getDomain(),
                         signature.getSelector());
             }
         });
@@ -220,17 +220,17 @@ public class DKIMValidator {
      * Handles the DNS response for the public key lookup.
      * RFC 6376 §6.1.2 — key retrieval via DNS TXT.
      */
-    private void handleKeyResponse(DnsMessage response, DKIMCallback callback) {
+    private void handleKeyResponse(DnsMessage response, DkimCallback callback) {
         // Check for errors
         int rcode = response.getRcode();
         if (rcode == DnsMessage.RCODE_NXDOMAIN) {
-            callback.dkimResult(DKIMResult.PERMERROR, signature.getDomain(),
+            callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
             return;
         }
 
         if (rcode != DnsMessage.RCODE_NOERROR) {
-            callback.dkimResult(DKIMResult.TEMPERROR, signature.getDomain(),
+            callback.dkimResult(DkimResult.TEMPERROR, signature.getDomain(),
                     signature.getSelector());
             return;
         }
@@ -250,7 +250,7 @@ public class DKIMValidator {
         }
 
         if (keyRecord == null) {
-            callback.dkimResult(DKIMResult.PERMERROR, signature.getDomain(),
+            callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
             return;
         }
@@ -258,7 +258,7 @@ public class DKIMValidator {
         // Parse the key record
         PublicKey publicKey = parsePublicKey(keyRecord);
         if (publicKey == null) {
-            callback.dkimResult(DKIMResult.PERMERROR, signature.getDomain(),
+            callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
             return;
         }
@@ -266,11 +266,11 @@ public class DKIMValidator {
         // Verify the signature
         try {
             boolean verified = verifySignature(publicKey);
-            DKIMResult result = verified ? DKIMResult.PASS : DKIMResult.FAIL;
+            DkimResult result = verified ? DkimResult.PASS : DkimResult.FAIL;
             callback.dkimResult(result, signature.getDomain(), signature.getSelector());
         } catch (Exception e) {
             LOGGER.log(Level.FINE, L10N.getString("debug.dkim_verify_error"), e);
-            callback.dkimResult(DKIMResult.PERMERROR, signature.getDomain(),
+            callback.dkimResult(DkimResult.PERMERROR, signature.getDomain(),
                     signature.getSelector());
         }
     }
@@ -384,7 +384,7 @@ public class DKIMValidator {
      * Builds the header data for signature verification.
      * RFC 6376 §3.4 — canonicalization.
      *
-     * <p>This uses the raw header bytes captured by {@link DKIMMessageParser}
+     * <p>This uses the raw header bytes captured by {@link DkimMessageParser}
      * and applies the appropriate canonicalization (simple or relaxed).
      */
     private String buildHeaderHash() {
@@ -398,7 +398,7 @@ public class DKIMValidator {
 
         for (int i = 0; i < signedHeaders.size(); i++) {
             String headerName = signedHeaders.get(i);
-            List<DKIMMessageParser.RawHeader> rawHeaders = 
+            List<DkimMessageParser.RawHeader> rawHeaders = 
                     messageParser.getAllRawHeaders(headerName);
 
             if (rawHeaders.isEmpty()) {
@@ -413,7 +413,7 @@ public class DKIMValidator {
             }
             usedCount.put(headerName, idx);
 
-            DKIMMessageParser.RawHeader rawHeader = rawHeaders.get(idx);
+            DkimMessageParser.RawHeader rawHeader = rawHeaders.get(idx);
             String line = canonicalizeRawHeader(rawHeader, relaxed);
             sb.append(line);
         }
@@ -433,7 +433,7 @@ public class DKIMValidator {
      * @param relaxed true for relaxed canonicalization, false for simple
      * @return the canonicalized header string
      */
-    private String canonicalizeRawHeader(DKIMMessageParser.RawHeader rawHeader, boolean relaxed) {
+    private String canonicalizeRawHeader(DkimMessageParser.RawHeader rawHeader, boolean relaxed) {
         if (relaxed) {
             // Relaxed: unfold, lowercase name, compress whitespace
             String unfolded = rawHeader.asStringUnfolded();
@@ -475,7 +475,7 @@ public class DKIMValidator {
      */
     private String canonicalizeDKIMHeader(boolean relaxed) {
         // Get the raw DKIM-Signature header
-        DKIMMessageParser.RawHeader rawHeader = messageParser.getRawHeader("dkim-signature");
+        DkimMessageParser.RawHeader rawHeader = messageParser.getRawHeader("dkim-signature");
         if (rawHeader == null) {
             return "";
         }

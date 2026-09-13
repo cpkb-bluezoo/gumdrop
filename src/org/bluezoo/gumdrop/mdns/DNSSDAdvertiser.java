@@ -1,5 +1,5 @@
 /*
- * DNSSDAdvertiser.java
+ * DnssdAdvertiser.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
  * parameter rather than reading {@code Gumdrop.getInstance().getServers()}
  * itself, so it's independently unit-testable against fake servers
  * without needing a running {@code Gumdrop} instance &mdash; the same
- * reasoning behind {@link MDNSCache} taking its scheduling capability
+ * reasoning behind {@link MdnsCache} taking its scheduling capability
  * through a small interface instead of reaching into {@link MdnsListener}
  * directly. {@link MdnsServer} is what supplies the real server list.
  *
@@ -70,7 +70,7 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see MdnsServer
  */
-final class DNSSDAdvertiser {
+final class DnssdAdvertiser {
 
     /** RFC 6763 section 9: the meta-query name used to browse all advertised service types. */
     static final String DNS_SD_META_QUERY_NAME = "_services._dns-sd._udp.local";
@@ -96,7 +96,7 @@ final class DNSSDAdvertiser {
         return Collections.unmodifiableMap(m);
     }
 
-    private DNSSDAdvertiser() {
+    private DnssdAdvertiser() {
     }
 
     /**

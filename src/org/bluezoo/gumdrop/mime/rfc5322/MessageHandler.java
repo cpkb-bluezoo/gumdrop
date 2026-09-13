@@ -25,15 +25,15 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 import org.bluezoo.gumdrop.mime.ContentID;
-import org.bluezoo.gumdrop.mime.MIMEHandler;
-import org.bluezoo.gumdrop.mime.MIMEParseException;
+import org.bluezoo.gumdrop.mime.MimeHandler;
+import org.bluezoo.gumdrop.mime.MimeParseException;
 
 /**
  * Receive notification of the logical content of an RFC 5322 email message.
- * This interface extends MIMEHandler to add email-specific callbacks for
+ * This interface extends MimeHandler to add email-specific callbacks for
  * structured headers defined in RFC 5322.
  * <p>
- * In addition to the MIME-level events from MIMEHandler, this interface
+ * In addition to the MIME-level events from MimeHandler, this interface
  * provides callbacks for:
  * <ul>
  * <li>Unstructured headers (Subject, Comments, etc.)</li>
@@ -46,7 +46,7 @@ import org.bluezoo.gumdrop.mime.MIMEParseException;
  * @see <a href='https://datatracker.ietf.org/doc/html/rfc5322'>RFC 5322</a>
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public interface MessageHandler extends MIMEHandler {
+public interface MessageHandler extends MimeHandler {
 
 	/**
 	 * Receive notification of an unstructured header in the message.
@@ -60,10 +60,10 @@ public interface MessageHandler extends MIMEHandler {
 	 * </p>
 	 * @param name the name of the header (field-name, cannot be null)
 	 * @param value the header value (field-body, may be null)
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void header(String name, String value) throws MIMEParseException;
+	void header(String name, String value) throws MimeParseException;
 
 	/**
 	 * Receive notification of a structured header field for which the value
@@ -71,19 +71,19 @@ public interface MessageHandler extends MIMEHandler {
 	 * choose to log or ignore these events instead of throwing an exception.
 	 * @param name the name of the header (field-name, cannot be null)
 	 * @param value the header value (field-body, may be null)
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void unexpectedHeader(String name, String value) throws MIMEParseException;
+	void unexpectedHeader(String name, String value) throws MimeParseException;
 
 	/**
 	 * Receive notification of a date header in the message.
 	 * @param name the name of the header field, e.g. "Date"
 	 * @param date the parsed date value of the header with timezone preserved
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void dateHeader(String name, OffsetDateTime date) throws MIMEParseException;
+	void dateHeader(String name, OffsetDateTime date) throws MimeParseException;
 
 	/**
 	 * Receive notification of an address header in the message.
@@ -94,10 +94,10 @@ public interface MessageHandler extends MIMEHandler {
 	 * unexpectedHeader.
 	 * @param name the name of the header field, e.g. "From", "To"
 	 * @param addresses a non-empty list of parsed email addresses
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void addressHeader(String name, List<EmailAddress> addresses) throws MIMEParseException;
+	void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException;
 
 	/**
 	 * Receive notification of a message-id header in the message.
@@ -108,10 +108,10 @@ public interface MessageHandler extends MIMEHandler {
 	 * unexpectedHeader.
 	 * @param name the name of the header field, e.g. "Message-ID", "References"
 	 * @param contentIDs the parsed message-id values (same structure as Content-ID)
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void messageIDHeader(String name, List<ContentID> contentIDs) throws MIMEParseException;
+	void messageIDHeader(String name, List<ContentID> contentIDs) throws MimeParseException;
 
 	/**
 	 * Receive notification of an obsolete but recoverable message structure.
@@ -119,10 +119,10 @@ public interface MessageHandler extends MIMEHandler {
 	 * to allow handlers to gather statistics on obsolete structures while
 	 * still processing the message content normally.
 	 * @param type the type of obsolete structure detected
-	 * @exception MIMEParseException if the processor encountered a fatal
+	 * @exception MimeParseException if the processor encountered a fatal
 	 * condition during parsing and wishes to cancel the parse process
 	 */
-	void obsoleteStructure(ObsoleteStructureType type) throws MIMEParseException;
+	void obsoleteStructure(ObsoleteStructureType type) throws MimeParseException;
 
 }
 

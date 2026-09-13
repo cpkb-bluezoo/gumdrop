@@ -41,7 +41,7 @@
  *       for creating per-session FTP handlers</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp.FtpFileSystem} - Interface for
  *       filesystem operations</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FTPDataConnection} - Handles the
+ *   <li>{@link org.bluezoo.gumdrop.ftp.FtpDataConnection} - Handles the
  *       data connection for file transfers</li>
  * </ul>
  *

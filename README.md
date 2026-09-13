@@ -447,7 +447,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - OAUTHBEARER (requires TLS)
         - GSSAPI/Kerberos (RFC 4752) — keytab-based, event-loop safe
         - EXTERNAL for TLS client certificates
-- LDAP client and LDAPRealm
+- LDAP client and LdapRealm
     - fully asynchronous LDAPv3 client (RFC 4511)
     - simple bind (RFC 4513 §5.1) and SASL bind (RFC 4513 §5.2)
         - PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL — all non-blocking
@@ -456,7 +456,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - search, modify, add, delete, compare, modifyDN, extended operations
     - abandon, controls (request/response), unsolicited notifications
     - intermediate response handling, full search filter support (~=, :=)
-    - LDAPRealm for LDAP-backed authentication across all protocols
+    - LdapRealm for LDAP-backed authentication across all protocols
         - search-then-bind pattern with configurable user filter
         - role/group membership via memberOf attribute
         - certificate-to-user mapping (binary or subject DN mode)

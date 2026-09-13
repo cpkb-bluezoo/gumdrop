@@ -1,5 +1,5 @@
 /*
- * OTLPGrpcExporter.java
+ * OtlpGrpcExporter.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -59,7 +59,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class OTLPGrpcExporter implements TelemetryExporter {
+public class OtlpGrpcExporter implements TelemetryExporter {
 
     private static final String TRACE_SERVICE_PATH =
             "/opentelemetry.proto.collector.trace.v1.TraceService/Export";
@@ -70,7 +70,7 @@ public class OTLPGrpcExporter implements TelemetryExporter {
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
-    private static final Logger logger = Logger.getLogger(OTLPGrpcExporter.class.getName());
+    private static final Logger logger = Logger.getLogger(OtlpGrpcExporter.class.getName());
 
     private final TelemetryConfig config;
     private final TraceSerializer traceSerializer;
@@ -81,11 +81,11 @@ public class OTLPGrpcExporter implements TelemetryExporter {
     private final BlockingQueue<LogRecord> logQueue;
     private final BlockingQueue<List<MetricData>> metricQueue;
 
-    private final OTLPGrpcEndpoint tracesEndpoint;
-    private final OTLPGrpcEndpoint logsEndpoint;
-    private final OTLPGrpcEndpoint metricsEndpoint;
+    private final OtlpGrpcEndpoint tracesEndpoint;
+    private final OtlpGrpcEndpoint logsEndpoint;
+    private final OtlpGrpcEndpoint metricsEndpoint;
 
-    private final Set<OTLPGrpcResponseHandler> pendingExports;
+    private final Set<OtlpGrpcResponseHandler> pendingExports;
     private final Object exportLock = new Object();
 
     private final ExportThread exportThread;
@@ -96,7 +96,7 @@ public class OTLPGrpcExporter implements TelemetryExporter {
      *
      * @param config the telemetry configuration
      */
-    public OTLPGrpcExporter(TelemetryConfig config) {
+    public OtlpGrpcExporter(TelemetryConfig config) {
         this.config = config;
 
         Map<String, String> resourceAttrs = config.getResourceAttributes();
@@ -130,11 +130,11 @@ public class OTLPGrpcExporter implements TelemetryExporter {
         this.metricQueue = new ArrayBlockingQueue<>(config.getMaxQueueSize());
 
         Map<String, String> headers = config.getParsedHeaders();
-        this.tracesEndpoint = OTLPGrpcEndpoint.create("traces", config.getTracesEndpoint(),
+        this.tracesEndpoint = OtlpGrpcEndpoint.create("traces", config.getTracesEndpoint(),
                 TRACE_SERVICE_PATH, headers, config);
-        this.logsEndpoint = OTLPGrpcEndpoint.create("logs", config.getLogsEndpoint(),
+        this.logsEndpoint = OtlpGrpcEndpoint.create("logs", config.getLogsEndpoint(),
                 LOGS_SERVICE_PATH, headers, config);
-        this.metricsEndpoint = OTLPGrpcEndpoint.create("metrics", config.getMetricsEndpoint(),
+        this.metricsEndpoint = OtlpGrpcEndpoint.create("metrics", config.getMetricsEndpoint(),
                 METRICS_SERVICE_PATH, headers, config);
 
         this.pendingExports = ConcurrentHashMap.newKeySet();
@@ -249,11 +249,11 @@ public class OTLPGrpcExporter implements TelemetryExporter {
         return allConnected;
     }
 
-    void onExportComplete(OTLPGrpcResponseHandler handler) {
+    void onExportComplete(OtlpGrpcResponseHandler handler) {
         removePendingExport(handler);
     }
 
-    private void removePendingExport(OTLPGrpcResponseHandler handler) {
+    private void removePendingExport(OtlpGrpcResponseHandler handler) {
         synchronized (exportLock) {
             pendingExports.remove(handler);
             if (pendingExports.isEmpty()) {
@@ -285,7 +285,7 @@ public class OTLPGrpcExporter implements TelemetryExporter {
         private volatile boolean flushRequested;
 
         ExportThread() {
-            super("OTLPGrpcExporter");
+            super("OtlpGrpcExporter");
             setDaemon(true);
         }
 
@@ -405,7 +405,7 @@ public class OTLPGrpcExporter implements TelemetryExporter {
             }
 
             for (Trace trace : traces) {
-                OTLPGrpcResponseHandler handler = new OTLPGrpcResponseHandler("traces", OTLPGrpcExporter.this);
+                OtlpGrpcResponseHandler handler = new OtlpGrpcResponseHandler("traces", OtlpGrpcExporter.this);
                 pendingExports.add(handler);
 
                 try {
@@ -424,7 +424,7 @@ public class OTLPGrpcExporter implements TelemetryExporter {
                 return;
             }
 
-            OTLPGrpcResponseHandler handler = new OTLPGrpcResponseHandler("logs", OTLPGrpcExporter.this);
+            OtlpGrpcResponseHandler handler = new OtlpGrpcResponseHandler("logs", OtlpGrpcExporter.this);
             pendingExports.add(handler);
 
             try {
@@ -442,7 +442,7 @@ public class OTLPGrpcExporter implements TelemetryExporter {
             }
 
             for (List<MetricData> metrics : batches) {
-                OTLPGrpcResponseHandler handler = new OTLPGrpcResponseHandler("metrics", OTLPGrpcExporter.this);
+                OtlpGrpcResponseHandler handler = new OtlpGrpcResponseHandler("metrics", OtlpGrpcExporter.this);
                 pendingExports.add(handler);
 
                 try {

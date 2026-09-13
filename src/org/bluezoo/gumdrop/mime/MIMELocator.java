@@ -1,5 +1,5 @@
 /*
- * MIMELocator.java
+ * MimeLocator.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -24,14 +24,14 @@ package org.bluezoo.gumdrop.mime;
 /**
  * A locator enables the recipient of parsing events to be informed of where
  * within the MIME entity a parsing event has occurred.
- * The parser will notify a MIMEHandler with an instance of this interface
+ * The parser will notify a MimeHandler with an instance of this interface
  * before parsing begins. The instance's state will change during the parsing
  * process so it is not suitable for permanent association with any resulting
  * artifacts.
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2045">RFC 2045: MIME Part One</a>
  */
-public interface MIMELocator {
+public interface MimeLocator {
 
 	/**
 	 * Returns the current byte offset within the overall entity.

@@ -1,5 +1,5 @@
 /*
- * LDAPPostTLS.java
+ * LdapPostTLS.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.ldap.client;
 
-import org.bluezoo.gumdrop.auth.SASLClientMechanism;
+import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 
 /**
  * Operations available after STARTTLS upgrade completes.
@@ -38,17 +38,17 @@ import org.bluezoo.gumdrop.auth.SASLClientMechanism;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see StartTLSResultHandler#handleTLSEstablished
- * @see LDAPSession
+ * @see LdapSession
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.14">RFC 4511 §4.14 — STARTTLS</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4513#section-3">RFC 4513 §3 — TLS</a>
  */
-public interface LDAPPostTLS {
+public interface LdapPostTLS {
 
     /**
      * Performs a simple bind (authentication) with DN and password.
      * 
      * <p>Credentials are now protected by TLS. After a successful bind,
-     * the handler receives an {@link LDAPSession} for performing
+     * the handler receives an {@link LdapSession} for performing
      * directory operations.
      * 
      * @param dn the distinguished name to bind as
@@ -61,13 +61,13 @@ public interface LDAPPostTLS {
      * Performs a SASL bind (RFC 4513 section 5.2).
      *
      * <p>Credentials are now protected by TLS. The provided
-     * {@link SASLClientMechanism} drives the multi-step
+     * {@link SaslClientMechanism} drives the multi-step
      * challenge-response exchange.
      *
      * @param saslClient the pre-created SASL client mechanism
      * @param callback receives the bind result
      */
-    void bindSASL(SASLClientMechanism saslClient, BindResultHandler callback);
+    void bindSASL(SaslClientMechanism saslClient, BindResultHandler callback);
 
     /**
      * Performs an anonymous bind.

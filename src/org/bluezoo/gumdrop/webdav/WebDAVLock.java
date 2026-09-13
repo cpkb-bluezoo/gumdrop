@@ -1,5 +1,5 @@
 /*
- * WebDAVLock.java
+ * WebdavLock.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ import java.util.UUID;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-class WebDAVLock {
+class WebdavLock {
 
     /** Lock scope: exclusive (§14.13) or shared (§14.26) */
     enum Scope { EXCLUSIVE, SHARED }
@@ -48,9 +48,9 @@ class WebDAVLock {
     private final long createdAt;
     private long expiresAt;
 
-    WebDAVLock(Path path, Scope scope, Type type, int depth,
+    WebdavLock(Path path, Scope scope, Type type, int depth,
                String owner, long timeoutSeconds) {
-        this.token = DAVConstants.LOCK_TOKEN_SCHEME + UUID.randomUUID().toString();
+        this.token = DavConstants.LOCK_TOKEN_SCHEME + UUID.randomUUID().toString();
         this.path = path;
         this.scope = scope;
         this.type = type;
@@ -112,10 +112,10 @@ class WebDAVLock {
         if (path.equals(targetPath)) {
             return true;
         }
-        if (depth == DAVConstants.DEPTH_INFINITY) {
+        if (depth == DavConstants.DEPTH_INFINITY) {
             return targetPath.startsWith(path);
         }
-        if (depth == DAVConstants.DEPTH_1) {
+        if (depth == DavConstants.DEPTH_1) {
             Path parent = targetPath.getParent();
             return parent != null && parent.equals(path);
         }
@@ -124,7 +124,7 @@ class WebDAVLock {
 
     @Override
     public String toString() {
-        return "WebDAVLock{token=" + token + ", path=" + path + 
+        return "WebdavLock{token=" + token + ", path=" + path + 
                ", scope=" + scope + ", depth=" + depth + "}";
     }
 }

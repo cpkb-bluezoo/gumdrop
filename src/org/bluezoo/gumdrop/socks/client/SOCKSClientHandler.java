@@ -981,7 +981,7 @@ public class SocksClientHandler implements ProtocolHandler {
         }
         try {
             udpTransportFactory.connect(addr, port,
-                    new UDPRelayHandler(relayAddress), endpoint.getSelectorLoop());
+                    new UdpRelayHandler(relayAddress), endpoint.getSelectorLoop());
         } catch (IOException e) {
             udpAssociateListener.error(e);
             endpoint.close();
@@ -1045,11 +1045,11 @@ public class SocksClientHandler implements ProtocolHandler {
      * proxy's relay address, unwraps the RFC 1928 §7 header, and
      * forwards the payload to {@link #udpAssociateListener}.
      */
-    private final class UDPRelayHandler implements ProtocolHandler {
+    private final class UdpRelayHandler implements ProtocolHandler {
 
         private final InetSocketAddress relayAddress;
 
-        UDPRelayHandler(InetSocketAddress relayAddress) {
+        UdpRelayHandler(InetSocketAddress relayAddress) {
             this.relayAddress = relayAddress;
         }
 

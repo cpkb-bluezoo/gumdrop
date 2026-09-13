@@ -1,5 +1,5 @@
 /*
- * DNSTransportType.java
+ * DnsTransportType.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,9 +28,9 @@ package org.bluezoo.gumdrop.dns.client;
  * DnsResolver#setTransport}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSServerCapabilityCache
+ * @see DnsServerCapabilityCache
  */
-enum DNSTransportType {
+enum DnsTransportType {
 
     /** RFC 9250: DNS-over-QUIC. */
     DOQ,

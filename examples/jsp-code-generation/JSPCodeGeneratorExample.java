@@ -25,11 +25,11 @@ import java.io.IOException;
 import java.io.InputStream;
 
 // Import the JSP classes from the Gumdrop servlet package
-import org.bluezoo.gumdrop.servlet.jsp.JSPPage;
-import org.bluezoo.gumdrop.servlet.jsp.JSPParser;
-import org.bluezoo.gumdrop.servlet.jsp.JSPParserFactory;
-import org.bluezoo.gumdrop.servlet.jsp.JSPParseException;
-import org.bluezoo.gumdrop.servlet.jsp.JSPCodeGenerator;
+import org.bluezoo.gumdrop.servlet.jsp.JspPage;
+import org.bluezoo.gumdrop.servlet.jsp.JspParser;
+import org.bluezoo.gumdrop.servlet.jsp.JspParserFactory;
+import org.bluezoo.gumdrop.servlet.jsp.JspParseException;
+import org.bluezoo.gumdrop.servlet.jsp.JspCodeGenerator;
 import org.bluezoo.gumdrop.servlet.jsp.TaglibRegistry;
 
 /**
@@ -37,8 +37,8 @@ import org.bluezoo.gumdrop.servlet.jsp.TaglibRegistry;
  * 
  * <p>This example shows the complete workflow:
  * <ol>
- *   <li>Parse a JSP file using {@link JSPParserFactory}</li>
- *   <li>Generate Java servlet source code using {@link JSPCodeGenerator}</li>
+ *   <li>Parse a JSP file using {@link JspParserFactory}</li>
+ *   <li>Generate Java servlet source code using {@link JspCodeGenerator}</li>
  *   <li>Write the generated code to a file or stream</li>
  * </ol>
  * 
@@ -53,20 +53,20 @@ public class JSPCodeGeneratorExample {
      * @param javaFilePath   Path to the output Java file
      * @param encoding       Character encoding (e.g., "UTF-8")
      * @throws IOException   If an I/O error occurs
-     * @throws JSPParseException If the JSP file cannot be parsed
+     * @throws JspParseException If the JSP file cannot be parsed
      */
     public static void convertJSPToJava(String jspFilePath, String javaFilePath, String encoding) 
-            throws IOException, JSPParseException {
+            throws IOException, JspParseException {
         
         // Step 1: Parse the JSP file
         try (InputStream jspInput = new FileInputStream(jspFilePath)) {
-            JSPPage jspPage = JSPParserFactory.parseJSP(jspInput, encoding, jspFilePath);
+            JspPage jspPage = JspParserFactory.parseJSP(jspInput, encoding, jspFilePath);
             
             // Step 2: Generate Java servlet source code
             try (FileOutputStream javaOutput = new FileOutputStream(javaFilePath)) {
                 // For this example, we use null for TaglibRegistry to keep it simple
                 // In a real servlet context, this would be properly initialized
-                JSPCodeGenerator generator = new JSPCodeGenerator(jspPage, javaOutput, null);
+                JspCodeGenerator generator = new JspCodeGenerator(jspPage, javaOutput, null);
                 generator.generateCode();
                 
                 System.out.println("Generated servlet class: " + generator.getGeneratedClassName());
@@ -83,17 +83,17 @@ public class JSPCodeGeneratorExample {
      * @param encoding    Character encoding (e.g., "UTF-8")
      * @return The generated Java source code
      * @throws IOException   If an I/O error occurs
-     * @throws JSPParseException If the JSP file cannot be parsed
+     * @throws JspParseException If the JSP file cannot be parsed
      */
     public static String convertJSPToString(String jspFilePath, String encoding) 
-            throws IOException, JSPParseException {
+            throws IOException, JspParseException {
         
         try (InputStream jspInput = new FileInputStream(jspFilePath)) {
-            JSPPage jspPage = JSPParserFactory.parseJSP(jspInput, encoding, jspFilePath);
+            JspPage jspPage = JspParserFactory.parseJSP(jspInput, encoding, jspFilePath);
             
             ByteArrayOutputStream byteOutput = new ByteArrayOutputStream();
             // For this example, we use null for TaglibRegistry to keep it simple
-            JSPCodeGenerator generator = new JSPCodeGenerator(jspPage, byteOutput, null);
+            JspCodeGenerator generator = new JspCodeGenerator(jspPage, byteOutput, null);
             generator.generateCode();
             
             return byteOutput.toString("UTF-8");
@@ -162,7 +162,7 @@ public class JSPCodeGeneratorExample {
             System.err.println("✗ I/O error: " + e.getMessage());
             System.exit(1);
             
-        } catch (JSPParseException e) {
+        } catch (JspParseException e) {
             System.err.println("✗ JSP parsing error: " + e.getMessage());
             System.exit(1);
         }

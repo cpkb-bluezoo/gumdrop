@@ -17,7 +17,7 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Unit tests for RFC2047Decoder.
+ * Unit tests for Rfc2047Decoder.
  */
 public class RFC2047DecoderTest {
 
@@ -27,7 +27,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeSimpleBase64() {
 		// =?UTF-8?B?SGVsbG8=?= is "Hello" in Base64
 		String encoded = "=?UTF-8?B?SGVsbG8=?=";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Hello", decoded);
 	}
 
@@ -35,7 +35,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeSimpleQuotedPrintable() {
 		// =?UTF-8?Q?Hello?= should decode to "Hello"
 		String encoded = "=?UTF-8?Q?Hello?=";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Hello", decoded);
 	}
 
@@ -43,7 +43,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeQEncodingWithUnderscore() {
 		// In Q-encoding, underscore represents space
 		String encoded = "=?UTF-8?Q?Hello_World?=";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Hello World", decoded);
 	}
 
@@ -51,7 +51,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeQEncodingWithHex() {
 		// =XX hex escapes in Q-encoding
 		String encoded = "=?UTF-8?Q?Caf=C3=A9?=";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Café", decoded);
 	}
 
@@ -60,15 +60,15 @@ public class RFC2047DecoderTest {
 		// Lowercase 'b' and 'q' should work
 		String encodedB = "=?UTF-8?b?SGVsbG8=?=";
 		String encodedQ = "=?UTF-8?q?Hello?=";
-		assertEquals("Hello", RFC2047Decoder.decodeEncodedWords(encodedB));
-		assertEquals("Hello", RFC2047Decoder.decodeEncodedWords(encodedQ));
+		assertEquals("Hello", Rfc2047Decoder.decodeEncodedWords(encodedB));
+		assertEquals("Hello", Rfc2047Decoder.decodeEncodedWords(encodedQ));
 	}
 
 	@Test
 	public void testDecodeMixedPlainAndEncoded() {
 		// Plain text before and after encoded word
 		String encoded = "Subject: =?UTF-8?B?SGVsbG8=?= World";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Subject: Hello World", decoded);
 	}
 
@@ -76,7 +76,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeAdjacentEncodedWords() {
 		// Adjacent encoded words with whitespace between should be concatenated
 		String encoded = "=?UTF-8?B?SGVs?= =?UTF-8?B?bG8=?=";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Hello", decoded);
 	}
 
@@ -84,7 +84,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeISO88591() {
 		// ISO-8859-1 encoded word
 		String encoded = "=?ISO-8859-1?Q?Caf=E9?=";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Café", decoded);
 	}
 
@@ -92,7 +92,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeWindows1252() {
 		// Windows-1252 charset
 		String encoded = "=?windows-1252?Q?=93Hello=94?=";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		// Windows-1252 has smart quotes at 0x93 and 0x94
 		assertTrue(decoded.contains("Hello"));
 	}
@@ -102,28 +102,28 @@ public class RFC2047DecoderTest {
 		// Japanese text in UTF-8 Base64
 		// "日本語" = E6 97 A5 E6 9C AC E8 AA 9E
 		String encoded = "=?UTF-8?B?5pel5pys6Kqe?=";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("日本語", decoded);
 	}
 
 	@Test
 	public void testDecodeEmptyString() {
-		assertEquals("", RFC2047Decoder.decodeEncodedWords(""));
-		assertNull(RFC2047Decoder.decodeEncodedWords(null));
+		assertEquals("", Rfc2047Decoder.decodeEncodedWords(""));
+		assertNull(Rfc2047Decoder.decodeEncodedWords(null));
 	}
 
 	@Test
 	public void testDecodePlainASCII() {
 		// Plain ASCII without any encoding should pass through unchanged
 		String plain = "Hello World";
-		assertEquals(plain, RFC2047Decoder.decodeEncodedWords(plain));
+		assertEquals(plain, Rfc2047Decoder.decodeEncodedWords(plain));
 	}
 
 	@Test
 	public void testDecodeInvalidEncodedWord() {
 		// Invalid encoded word should be left as-is
 		String invalid = "=?UTF-8?X?Invalid?="; // X is not a valid encoding
-		String decoded = RFC2047Decoder.decodeEncodedWords(invalid);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(invalid);
 		assertEquals(invalid, decoded);
 	}
 
@@ -131,7 +131,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeIncompleteEncodedWord() {
 		// Incomplete encoded word
 		String incomplete = "=?UTF-8?B?SGVsbG8";
-		String decoded = RFC2047Decoder.decodeEncodedWords(incomplete);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(incomplete);
 		assertEquals(incomplete, decoded);
 	}
 
@@ -140,21 +140,21 @@ public class RFC2047DecoderTest {
 	@Test
 	public void testDecodeHeaderValueSimple() {
 		byte[] header = "Hello World".getBytes(StandardCharsets.US_ASCII);
-		String decoded = RFC2047Decoder.decodeHeaderValue(header);
+		String decoded = Rfc2047Decoder.decodeHeaderValue(header);
 		assertEquals("Hello World", decoded);
 	}
 
 	@Test
 	public void testDecodeHeaderValueWithEncodedWord() {
 		byte[] header = "=?UTF-8?B?SGVsbG8=?= World".getBytes(StandardCharsets.US_ASCII);
-		String decoded = RFC2047Decoder.decodeHeaderValue(header);
+		String decoded = Rfc2047Decoder.decodeHeaderValue(header);
 		assertEquals("Hello World", decoded);
 	}
 
 	@Test
 	public void testDecodeHeaderValueEmpty() {
-		assertEquals("", RFC2047Decoder.decodeHeaderValue(new byte[0]));
-		assertEquals("", RFC2047Decoder.decodeHeaderValue((byte[]) null));
+		assertEquals("", Rfc2047Decoder.decodeHeaderValue(new byte[0]));
+		assertEquals("", Rfc2047Decoder.decodeHeaderValue((byte[]) null));
 	}
 
 	// ========== decodeRFC2231Parameter tests ==========
@@ -163,7 +163,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeRFC2231Simple() {
 		// RFC 2231 format: charset'language'encoded-value
 		String param = "filename*=UTF-8''Hello%20World";
-		String decoded = RFC2047Decoder.decodeRFC2231Parameter(param);
+		String decoded = Rfc2047Decoder.decodeRFC2231Parameter(param);
 		assertEquals("Hello World", decoded);
 	}
 
@@ -171,7 +171,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeRFC2231Japanese() {
 		// Japanese filename in RFC 2231
 		String param = "filename*=UTF-8''%E6%97%A5%E6%9C%AC%E8%AA%9E.txt";
-		String decoded = RFC2047Decoder.decodeRFC2231Parameter(param);
+		String decoded = Rfc2047Decoder.decodeRFC2231Parameter(param);
 		assertEquals("日本語.txt", decoded);
 	}
 
@@ -179,7 +179,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeRFC2231WithLanguage() {
 		// With language tag
 		String param = "filename*=UTF-8'en'Hello%20World";
-		String decoded = RFC2047Decoder.decodeRFC2231Parameter(param);
+		String decoded = Rfc2047Decoder.decodeRFC2231Parameter(param);
 		assertEquals("Hello World", decoded);
 	}
 
@@ -187,15 +187,15 @@ public class RFC2047DecoderTest {
 	public void testDecodeRFC2231NotEncoded() {
 		// Plain value without encoding
 		String param = "filename=test.txt";
-		String decoded = RFC2047Decoder.decodeRFC2231Parameter(param);
+		String decoded = Rfc2047Decoder.decodeRFC2231Parameter(param);
 		// Should return as-is since it's not RFC 2231 format
 		assertEquals(param, decoded);
 	}
 
 	@Test
 	public void testDecodeRFC2231Empty() {
-		assertEquals("", RFC2047Decoder.decodeRFC2231Parameter(""));
-		assertNull(RFC2047Decoder.decodeRFC2231Parameter(null));
+		assertEquals("", Rfc2047Decoder.decodeRFC2231Parameter(""));
+		assertNull(Rfc2047Decoder.decodeRFC2231Parameter(null));
 	}
 
 	// ========== Edge cases ==========
@@ -204,14 +204,14 @@ public class RFC2047DecoderTest {
 	public void testDecodeMultipleEncodedWordsInSubject() {
 		// Common real-world scenario: long subject split across multiple encoded words
 		String encoded = "=?UTF-8?Q?This_is_a?= =?UTF-8?Q?_long_subject?=";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("This is a long subject", decoded);
 	}
 
 	@Test
 	public void testDecodeEncodedWordInMiddle() {
 		String encoded = "Re: =?UTF-8?B?SGVsbG8=?= message";
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Re: Hello message", decoded);
 	}
 
@@ -219,7 +219,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeSpecialCharactersInQ() {
 		// Q-encoding of special characters
 		String encoded = "=?UTF-8?Q?test=3F=3D?="; // =3F is ?, =3D is =
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("test?=", decoded);
 	}
 
@@ -228,8 +228,8 @@ public class RFC2047DecoderTest {
 		// Various charset name formats should be normalized
 		String encoded1 = "=?utf8?B?SGVsbG8=?=";
 		String encoded2 = "=?UTF8?B?SGVsbG8=?=";
-		assertEquals("Hello", RFC2047Decoder.decodeEncodedWords(encoded1));
-		assertEquals("Hello", RFC2047Decoder.decodeEncodedWords(encoded2));
+		assertEquals("Hello", Rfc2047Decoder.decodeEncodedWords(encoded1));
+		assertEquals("Hello", Rfc2047Decoder.decodeEncodedWords(encoded2));
 	}
 
 	// ========== ByteBuffer-in API (Phase A) ==========
@@ -243,7 +243,7 @@ public class RFC2047DecoderTest {
 	@Test
 	public void testDecodeUnstructuredHeaderValueSimple() {
 		ByteBuffer buf = ByteBuffer.wrap("Hello".getBytes(StandardCharsets.ISO_8859_1));
-		String out = RFC2047Decoder.decodeUnstructuredHeaderValue(buf, isoDecoder(), true, false);
+		String out = Rfc2047Decoder.decodeUnstructuredHeaderValue(buf, isoDecoder(), true, false);
 		assertEquals("Hello", out);
 		assertFalse(buf.hasRemaining());
 	}
@@ -251,7 +251,7 @@ public class RFC2047DecoderTest {
 	@Test
 	public void testDecodeUnstructuredHeaderValueWithFolding() {
 		ByteBuffer buf = ByteBuffer.wrap("Hello\r\n world".getBytes(StandardCharsets.ISO_8859_1));
-		String out = RFC2047Decoder.decodeUnstructuredHeaderValue(buf, isoDecoder(), true, false);
+		String out = Rfc2047Decoder.decodeUnstructuredHeaderValue(buf, isoDecoder(), true, false);
 		assertEquals("Hello world", out);
 		assertFalse(buf.hasRemaining());
 	}
@@ -259,7 +259,7 @@ public class RFC2047DecoderTest {
 	@Test
 	public void testDecodeUnstructuredHeaderValueWithEncodedWord() {
 		ByteBuffer buf = ByteBuffer.wrap("Subject: =?UTF-8?B?SGVsbG8=?=".getBytes(StandardCharsets.ISO_8859_1));
-		String out = RFC2047Decoder.decodeUnstructuredHeaderValue(buf, isoDecoder(), true, false);
+		String out = Rfc2047Decoder.decodeUnstructuredHeaderValue(buf, isoDecoder(), true, false);
 		assertEquals("Subject: Hello", out);
 		assertFalse(buf.hasRemaining());
 	}
@@ -268,7 +268,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeDisplayNameStopsAtAngle() {
 		ByteBuffer buf = ByteBuffer.wrap("John Doe <j@x.org>".getBytes(StandardCharsets.ISO_8859_1));
 		byte[] stop = new byte[] { '<' };
-		String out = RFC2047Decoder.decodeDisplayName(buf, isoDecoder(), false, stop);
+		String out = Rfc2047Decoder.decodeDisplayName(buf, isoDecoder(), false, stop);
 		assertEquals("John Doe", out.trim());
 		assertEquals('<', buf.get(buf.position()));
 	}
@@ -277,7 +277,7 @@ public class RFC2047DecoderTest {
 	public void testDecodeDisplayNameWithEncodedWord() {
 		ByteBuffer buf = ByteBuffer.wrap("=?UTF-8?B?Sm9obiBEb2U=?= <j@x.org>".getBytes(StandardCharsets.ISO_8859_1));
 		byte[] stop = new byte[] { '<' };
-		String out = RFC2047Decoder.decodeDisplayName(buf, isoDecoder(), false, stop);
+		String out = Rfc2047Decoder.decodeDisplayName(buf, isoDecoder(), false, stop);
 		assertEquals("John Doe", out);
 		assertEquals('<', buf.get(buf.position()));
 	}
@@ -285,7 +285,7 @@ public class RFC2047DecoderTest {
 	@Test
 	public void testDecodeParameterValueToken() {
 		ByteBuffer buf = ByteBuffer.wrap("utf-8".getBytes(StandardCharsets.ISO_8859_1));
-		String out = RFC2047Decoder.decodeParameterValue(buf, isoDecoder(), false);
+		String out = Rfc2047Decoder.decodeParameterValue(buf, isoDecoder(), false);
 		assertEquals("utf-8", out);
 		assertFalse(buf.hasRemaining());
 	}
@@ -293,7 +293,7 @@ public class RFC2047DecoderTest {
 	@Test
 	public void testDecodeParameterValueQuoted() {
 		ByteBuffer buf = ByteBuffer.wrap("\"hello world\"".getBytes(StandardCharsets.ISO_8859_1));
-		String out = RFC2047Decoder.decodeParameterValue(buf, isoDecoder(), false);
+		String out = Rfc2047Decoder.decodeParameterValue(buf, isoDecoder(), false);
 		assertEquals("hello world", out);
 		assertFalse(buf.hasRemaining());
 	}

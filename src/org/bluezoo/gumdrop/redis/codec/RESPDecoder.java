@@ -1,5 +1,5 @@
 /*
- * RESPDecoder.java
+ * RespDecoder.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -47,12 +47,12 @@ import java.util.ResourceBundle;
  *
  * <h4>Usage Pattern</h4>
  * <pre>{@code
- * RESPDecoder decoder = new RESPDecoder();
+ * RespDecoder decoder = new RespDecoder();
  *
  * // In receive callback:
  * decoder.receive(buffer);
  *
- * RESPValue value;
+ * RespValue value;
  * while ((value = decoder.next()) != null) {
  *     // Process complete value
  *     if (value.isError()) {
@@ -69,7 +69,7 @@ import java.util.ResourceBundle;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
-public class RESPDecoder {
+public class RespDecoder {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.redis.codec.L10N");
 
@@ -92,7 +92,7 @@ public class RESPDecoder {
     /**
      * Creates a new RESP decoder with default buffer size.
      */
-    public RESPDecoder() {
+    public RespDecoder() {
         this(DEFAULT_BUFFER_SIZE);
     }
 
@@ -101,7 +101,7 @@ public class RESPDecoder {
      *
      * @param initialCapacity the initial buffer capacity
      */
-    public RESPDecoder(int initialCapacity) {
+    public RespDecoder(int initialCapacity) {
         this.buffer = ByteBufferPool.acquire(initialCapacity);
         this.buffer.flip(); // Start in read mode with no data
         this.parsePosition = 0;
@@ -115,7 +115,7 @@ public class RESPDecoder {
      *
      * @param data the data to decode
      */
-    public void receive(ByteBuffer data) throws RESPException {
+    public void receive(ByteBuffer data) throws RespException {
         if (!data.hasRemaining()) {
             return;
         }
@@ -123,7 +123,7 @@ public class RESPDecoder {
         int remaining = buffer.remaining();
         int needed = remaining + data.remaining();
         if (needed > MAX_ACCUMULATOR_BYTES) {
-            throw new RESPException(MessageFormat.format(
+            throw new RespException(MessageFormat.format(
                     L10N.getString("err.buffer_too_large"), needed));
         }
         if (needed > buffer.capacity()) {
@@ -165,14 +165,14 @@ public class RESPDecoder {
      * the data is preserved for the next call.
      *
      * @return the next decoded value, or null if incomplete
-     * @throws RESPException if the data is malformed
+     * @throws RespException if the data is malformed
      */
-    public RESPValue next() throws RESPException {
+    public RespValue next() throws RespException {
         if (!buffer.hasRemaining()) {
             return null;
         }
         buffer.position(parsePosition);
-        RESPValue result = tryParse();
+        RespValue result = tryParse();
         if (result != null) {
             // Successfully parsed, update parse position
             parsePosition = buffer.position();
@@ -183,17 +183,17 @@ public class RESPDecoder {
         return result;
     }
 
-    private void checkCollectionCount(int count) throws RESPException {
+    private void checkCollectionCount(int count) throws RespException {
         if (count > MAX_COLLECTION_ELEMENTS) {
-            throw new RESPException(MessageFormat.format(
+            throw new RespException(MessageFormat.format(
                     L10N.getString("err.collection_too_large"), count));
         }
     }
 
-    private void enterCompound() throws RESPException {
+    private void enterCompound() throws RespException {
         nestingDepth++;
         if (nestingDepth > MAX_NESTING_DEPTH) {
-            throw new RESPException(MessageFormat.format(
+            throw new RespException(MessageFormat.format(
                     L10N.getString("err.nesting_too_deep"), nestingDepth));
         }
     }
@@ -202,9 +202,9 @@ public class RESPDecoder {
         nestingDepth--;
     }
 
-    private void checkBulkLength(int length) throws RESPException {
+    private void checkBulkLength(int length) throws RespException {
         if (length > MAX_BULK_LENGTH) {
-            throw new RESPException(MessageFormat.format(
+            throw new RespException(MessageFormat.format(
                     L10N.getString("err.bulk_too_large"), length));
         }
     }
@@ -213,14 +213,14 @@ public class RESPDecoder {
      * Attempts to parse a RESP value from the current buffer position.
      * Returns null if incomplete.
      */
-    private RESPValue tryParse() throws RESPException {
+    private RespValue tryParse() throws RespException {
         if (!buffer.hasRemaining()) {
             return null;
         }
         int startPos = buffer.position();
         byte prefix = buffer.get();
-        RESPType type = RESPType.fromPrefix(prefix);
-        RESPValue result;
+        RespType type = RespType.fromPrefix(prefix);
+        RespValue result;
         switch (type) {
             case SIMPLE_STRING:
                 result = parseSimpleString();
@@ -267,7 +267,7 @@ public class RESPDecoder {
                 break;
             default:
                 String msg = MessageFormat.format(L10N.getString("err.unknown_type"), type);
-                throw new RESPException(msg);
+                throw new RespException(msg);
         }
         if (result == null) {
             // Incomplete, reset to start
@@ -279,46 +279,46 @@ public class RESPDecoder {
     /**
      * Parses a simple string (+...\r\n).
      */
-    private RESPValue parseSimpleString() throws RESPException {
+    private RespValue parseSimpleString() throws RespException {
         String line = readLine();
         if (line == null) {
             return null;
         }
-        return RESPValue.simpleString(line);
+        return RespValue.simpleString(line);
     }
 
     /**
      * Parses an error (-...\r\n).
      */
-    private RESPValue parseError() throws RESPException {
+    private RespValue parseError() throws RespException {
         String line = readLine();
         if (line == null) {
             return null;
         }
-        return RESPValue.error(line);
+        return RespValue.error(line);
     }
 
     /**
      * Parses an integer (:...\r\n).
      */
-    private RESPValue parseInteger() throws RESPException {
+    private RespValue parseInteger() throws RespException {
         String line = readLine();
         if (line == null) {
             return null;
         }
         try {
             long value = Long.parseLong(line);
-            return RESPValue.integer(value);
+            return RespValue.integer(value);
         } catch (NumberFormatException e) {
             String msg = MessageFormat.format(L10N.getString("err.invalid_integer"), line);
-            throw new RESPException(msg, e);
+            throw new RespException(msg, e);
         }
     }
 
     /**
      * Parses a bulk string ($length\r\ndata\r\n).
      */
-    private RESPValue parseBulkString() throws RESPException {
+    private RespValue parseBulkString() throws RespException {
         String lengthLine = readLine();
         if (lengthLine == null) {
             return null;
@@ -328,11 +328,11 @@ public class RESPDecoder {
             length = Integer.parseInt(lengthLine);
         } catch (NumberFormatException e) {
             String msg = MessageFormat.format(L10N.getString("err.invalid_bulk_string_length"), lengthLine);
-            throw new RESPException(msg, e);
+            throw new RespException(msg, e);
         }
         // Null bulk string
         if (length < 0) {
-            return RESPValue.nullValue();
+            return RespValue.nullValue();
         }
         checkBulkLength(length);
         // Check if we have enough data
@@ -349,15 +349,15 @@ public class RESPDecoder {
         byte cr = buffer.get();
         byte lf = buffer.get();
         if (cr != '\r' || lf != '\n') {
-            throw new RESPException(L10N.getString("err.no_crlf_after_bulk_string"));
+            throw new RespException(L10N.getString("err.no_crlf_after_bulk_string"));
         }
-        return RESPValue.bulkString(data);
+        return RespValue.bulkString(data);
     }
 
     /**
      * Parses an array (*count\r\n...).
      */
-    private RESPValue parseArray() throws RESPException {
+    private RespValue parseArray() throws RespException {
         String countLine = readLine();
         if (countLine == null) {
             return null;
@@ -367,28 +367,28 @@ public class RESPDecoder {
             count = Integer.parseInt(countLine);
         } catch (NumberFormatException e) {
             String msg = MessageFormat.format(L10N.getString("err.invalid_array_count"), countLine);
-            throw new RESPException(msg, e);
+            throw new RespException(msg, e);
         }
         // Null array
         if (count < 0) {
-            return RESPValue.nullValue();
+            return RespValue.nullValue();
         }
         checkCollectionCount(count);
         // Empty array
         if (count == 0) {
-            return RESPValue.array(new ArrayList<RESPValue>(0));
+            return RespValue.array(new ArrayList<RespValue>(0));
         }
         enterCompound();
         try {
-            List<RESPValue> elements = new ArrayList<RESPValue>(count);
+            List<RespValue> elements = new ArrayList<RespValue>(count);
             for (int i = 0; i < count; i++) {
-                RESPValue element = tryParse();
+                RespValue element = tryParse();
                 if (element == null) {
                     return null; // Incomplete
                 }
                 elements.add(element);
             }
-            return RESPValue.array(elements);
+            return RespValue.array(elements);
         } finally {
             leaveCompound();
         }
@@ -399,7 +399,7 @@ public class RESPDecoder {
     // ─────────────────────────────────────────────────────────────────────────
 
     // RESP3 — Map type: %count\r\n key1 value1 key2 value2 ...
-    private RESPValue parseMap() throws RESPException {
+    private RespValue parseMap() throws RespException {
         String countLine = readLine();
         if (countLine == null) {
             return null;
@@ -408,34 +408,34 @@ public class RESPDecoder {
         try {
             count = Integer.parseInt(countLine);
         } catch (NumberFormatException e) {
-            throw new RESPException("Invalid map count: " + countLine, e);
+            throw new RespException("Invalid map count: " + countLine, e);
         }
         if (count < 0) {
-            return RESPValue.nullValue();
+            return RespValue.nullValue();
         }
         checkCollectionCount(count);
         enterCompound();
         try {
-            Map<RESPValue, RESPValue> entries = new LinkedHashMap<RESPValue, RESPValue>(count);
+            Map<RespValue, RespValue> entries = new LinkedHashMap<RespValue, RespValue>(count);
             for (int i = 0; i < count; i++) {
-                RESPValue key = tryParse();
+                RespValue key = tryParse();
                 if (key == null) {
                     return null;
                 }
-                RESPValue val = tryParse();
+                RespValue val = tryParse();
                 if (val == null) {
                     return null;
                 }
                 entries.put(key, val);
             }
-            return RESPValue.map(entries);
+            return RespValue.map(entries);
         } finally {
             leaveCompound();
         }
     }
 
     // RESP3 — Set type: ~count\r\n elem1 elem2 ...
-    private RESPValue parseSet() throws RESPException {
+    private RespValue parseSet() throws RespException {
         String countLine = readLine();
         if (countLine == null) {
             return null;
@@ -444,30 +444,30 @@ public class RESPDecoder {
         try {
             count = Integer.parseInt(countLine);
         } catch (NumberFormatException e) {
-            throw new RESPException("Invalid set count: " + countLine, e);
+            throw new RespException("Invalid set count: " + countLine, e);
         }
         if (count < 0) {
-            return RESPValue.nullValue();
+            return RespValue.nullValue();
         }
         checkCollectionCount(count);
         enterCompound();
         try {
-            List<RESPValue> elements = new ArrayList<RESPValue>(count);
+            List<RespValue> elements = new ArrayList<RespValue>(count);
             for (int i = 0; i < count; i++) {
-                RESPValue element = tryParse();
+                RespValue element = tryParse();
                 if (element == null) {
                     return null;
                 }
                 elements.add(element);
             }
-            return RESPValue.set(elements);
+            return RespValue.set(elements);
         } finally {
             leaveCompound();
         }
     }
 
     // RESP3 — Double type: ,value\r\n (supports "inf", "-inf", "nan")
-    private RESPValue parseDouble() throws RESPException {
+    private RespValue parseDouble() throws RespException {
         String line = readLine();
         if (line == null) {
             return null;
@@ -483,37 +483,37 @@ public class RESPDecoder {
             try {
                 val = Double.parseDouble(line);
             } catch (NumberFormatException e) {
-                throw new RESPException("Invalid double value: " + line, e);
+                throw new RespException("Invalid double value: " + line, e);
             }
         }
-        return RESPValue.doubleValue(val);
+        return RespValue.doubleValue(val);
     }
 
     // RESP3 — Boolean type: #t\r\n or #f\r\n
-    private RESPValue parseBoolean() throws RESPException {
+    private RespValue parseBoolean() throws RespException {
         String line = readLine();
         if (line == null) {
             return null;
         }
         if ("t".equals(line)) {
-            return RESPValue.booleanValue(true);
+            return RespValue.booleanValue(true);
         } else if ("f".equals(line)) {
-            return RESPValue.booleanValue(false);
+            return RespValue.booleanValue(false);
         }
-        throw new RESPException("Invalid boolean value: " + line);
+        throw new RespException("Invalid boolean value: " + line);
     }
 
     // RESP3 — Null type: _\r\n
-    private RESPValue parseNull() throws RESPException {
+    private RespValue parseNull() throws RespException {
         String line = readLine();
         if (line == null) {
             return null;
         }
-        return RESPValue.resp3Null();
+        return RespValue.resp3Null();
     }
 
     // RESP3 — Push type: >count\r\n elem1 elem2 ... (same structure as Array)
-    private RESPValue parsePush() throws RESPException {
+    private RespValue parsePush() throws RespException {
         String countLine = readLine();
         if (countLine == null) {
             return null;
@@ -522,30 +522,30 @@ public class RESPDecoder {
         try {
             count = Integer.parseInt(countLine);
         } catch (NumberFormatException e) {
-            throw new RESPException("Invalid push count: " + countLine, e);
+            throw new RespException("Invalid push count: " + countLine, e);
         }
         if (count < 0) {
-            return RESPValue.nullValue();
+            return RespValue.nullValue();
         }
         checkCollectionCount(count);
         enterCompound();
         try {
-            List<RESPValue> elements = new ArrayList<RESPValue>(count);
+            List<RespValue> elements = new ArrayList<RespValue>(count);
             for (int i = 0; i < count; i++) {
-                RESPValue element = tryParse();
+                RespValue element = tryParse();
                 if (element == null) {
                     return null;
                 }
                 elements.add(element);
             }
-            return RESPValue.push(elements);
+            return RespValue.push(elements);
         } finally {
             leaveCompound();
         }
     }
 
     // RESP3 — Verbatim string: =length\r\nenc:data\r\n (3-char encoding + ':' + data)
-    private RESPValue parseVerbatimString() throws RESPException {
+    private RespValue parseVerbatimString() throws RespException {
         String lengthLine = readLine();
         if (lengthLine == null) {
             return null;
@@ -554,10 +554,10 @@ public class RESPDecoder {
         try {
             length = Integer.parseInt(lengthLine);
         } catch (NumberFormatException e) {
-            throw new RESPException("Invalid verbatim string length: " + lengthLine, e);
+            throw new RespException("Invalid verbatim string length: " + lengthLine, e);
         }
         if (length < 0) {
-            return RESPValue.nullValue();
+            return RespValue.nullValue();
         }
         checkBulkLength(length);
         if (buffer.remaining() < length + 2) {
@@ -568,7 +568,7 @@ public class RESPDecoder {
         byte cr = buffer.get();
         byte lf = buffer.get();
         if (cr != '\r' || lf != '\n') {
-            throw new RESPException("Missing CRLF after verbatim string");
+            throw new RespException("Missing CRLF after verbatim string");
         }
         String encoding = "txt";
         byte[] data = raw;
@@ -577,20 +577,20 @@ public class RESPDecoder {
             data = new byte[length - 4];
             System.arraycopy(raw, 4, data, 0, data.length);
         }
-        return RESPValue.verbatimString(encoding, data);
+        return RespValue.verbatimString(encoding, data);
     }
 
     // RESP3 — Big number: (value\r\n
-    private RESPValue parseBigNumber() throws RESPException {
+    private RespValue parseBigNumber() throws RespException {
         String line = readLine();
         if (line == null) {
             return null;
         }
-        return RESPValue.bigNumber(line);
+        return RespValue.bigNumber(line);
     }
 
     // RESP3 — Blob error: !length\r\ndata\r\n (same structure as Bulk String)
-    private RESPValue parseBlobError() throws RESPException {
+    private RespValue parseBlobError() throws RespException {
         String lengthLine = readLine();
         if (lengthLine == null) {
             return null;
@@ -599,10 +599,10 @@ public class RESPDecoder {
         try {
             length = Integer.parseInt(lengthLine);
         } catch (NumberFormatException e) {
-            throw new RESPException("Invalid blob error length: " + lengthLine, e);
+            throw new RespException("Invalid blob error length: " + lengthLine, e);
         }
         if (length < 0) {
-            return RESPValue.nullValue();
+            return RespValue.nullValue();
         }
         checkBulkLength(length);
         if (buffer.remaining() < length + 2) {
@@ -613,9 +613,9 @@ public class RESPDecoder {
         byte cr = buffer.get();
         byte lf = buffer.get();
         if (cr != '\r' || lf != '\n') {
-            throw new RESPException("Missing CRLF after blob error");
+            throw new RespException("Missing CRLF after blob error");
         }
-        return RESPValue.blobError(data);
+        return RespValue.blobError(data);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -626,7 +626,7 @@ public class RESPDecoder {
      * Reads a line terminated by CRLF.
      * Returns null if incomplete.
      */
-    private String readLine() throws RESPException {
+    private String readLine() throws RespException {
         int start = buffer.position();
         int limit = buffer.limit();
         for (int i = start; i < limit - 1; i++) {
@@ -635,7 +635,7 @@ public class RESPDecoder {
                 int length = i - start;
                 if (length > MAX_INLINE_LENGTH) {
                     String msg = MessageFormat.format(L10N.getString("err.line_too_long"), length);
-                    throw new RESPException(msg);
+                    throw new RespException(msg);
                 }
                 byte[] lineBytes = new byte[length];
                 buffer.get(lineBytes);

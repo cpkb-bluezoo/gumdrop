@@ -1,5 +1,5 @@
 /*
- * GSSAPIClientMechanism.java
+ * GssapiClientMechanism.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -40,7 +40,7 @@ import org.ietf.jgss.Oid;
  * Client-side GSSAPI SASL mechanism (RFC 4752) for driving Kerberos
  * authentication exchanges with remote servers.
  *
- * <p>Implements the {@link SASLClientMechanism} interface using
+ * <p>Implements the {@link SaslClientMechanism} interface using
  * {@code org.ietf.jgss} directly. The mechanism has two phases:
  * <ol>
  *   <li>Context establishment — exchange of GSS-API tokens via
@@ -55,10 +55,10 @@ import org.ietf.jgss.Oid;
  * worker thread.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SASLUtils#createClient
+ * @see SaslUtils#createClient
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4752">RFC 4752: GSSAPI SASL</a>
  */
-public final class GSSAPIClientMechanism implements SASLClientMechanism {
+public final class GssapiClientMechanism implements SaslClientMechanism {
 
     /** RFC 4752 §3.1 — security layer: no security layer */
     private static final byte SECURITY_LAYER_NONE = 0x01;
@@ -89,7 +89,7 @@ public final class GSSAPIClientMechanism implements SASLClientMechanism {
      * @see <a href="https://www.rfc-editor.org/rfc/rfc4752#section-3.2">
      *      RFC 4752 §3.2 — Service Name</a>
      */
-    public GSSAPIClientMechanism(String servicePrincipal, Subject subject)
+    public GssapiClientMechanism(String servicePrincipal, Subject subject)
             throws IOException {
         this.subject = subject;
         try {

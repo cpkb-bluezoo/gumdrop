@@ -34,7 +34,7 @@ import java.util.Base64;
 import java.util.List;
 
 /**
- * Unit tests for {@link DKIMSigner} — DKIM signing (RFC 6376 §5)
+ * Unit tests for {@link DkimSigner} — DKIM signing (RFC 6376 §5)
  * and Ed25519-SHA256 (RFC 8463).
  */
 public class DKIMSignerTest {
@@ -44,7 +44,7 @@ public class DKIMSignerTest {
     @Test
     public void testSignProducesValidHeader() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "sel1");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "sel1");
         signer.setAlgorithm("rsa-sha256");
         signer.setSignedHeaders(Arrays.asList("from", "to", "subject"));
 
@@ -73,7 +73,7 @@ public class DKIMSignerTest {
     @Test
     public void testSignatureContainsNonEmptyBValue() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "test.org", "key2");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "test.org", "key2");
         signer.setSignedHeaders(Arrays.asList("from", "date"));
 
         byte[] body = "Body content\r\n".getBytes(StandardCharsets.US_ASCII);
@@ -85,7 +85,7 @@ public class DKIMSignerTest {
         headers.add("Date: Mon, 01 Jan 2026 00:00:00 +0000\r\n");
 
         String dkimHeader = signer.sign(headers);
-        DKIMSignature parsed = DKIMSignature.parse(
+        DkimSignature parsed = DkimSignature.parse(
                 dkimHeader.substring("DKIM-Signature: ".length()).trim());
 
         assertNotNull(parsed);
@@ -101,7 +101,7 @@ public class DKIMSignerTest {
         gen.initialize(2048);
         KeyPair kp = gen.generateKeyPair();
 
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "sel1");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "sel1");
         signer.setAlgorithm("rsa-sha256");
         signer.setHeaderCanonicalization("relaxed");
         signer.setBodyCanonicalization("relaxed");
@@ -116,7 +116,7 @@ public class DKIMSignerTest {
         headers.add("Subject: Hello\r\n");
 
         String dkimHeader = signer.sign(headers);
-        DKIMSignature sig = DKIMSignature.parse(
+        DkimSignature sig = DkimSignature.parse(
                 dkimHeader.substring("DKIM-Signature: ".length()).trim());
 
         assertNotNull(sig);
@@ -134,7 +134,7 @@ public class DKIMSignerTest {
     public void testCanonicalizationTags() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
 
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "sel1");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "sel1");
         signer.setHeaderCanonicalization("simple");
         signer.setBodyCanonicalization("simple");
         signer.setSignedHeaders(Arrays.asList("from"));
@@ -154,7 +154,7 @@ public class DKIMSignerTest {
     public void testRelaxedCanonicalizationTag() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
 
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "s");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "s");
         signer.setHeaderCanonicalization("relaxed");
         signer.setBodyCanonicalization("relaxed");
         signer.setSignedHeaders(Arrays.asList("from"));
@@ -176,7 +176,7 @@ public class DKIMSignerTest {
     public void testEmptyBodySimple() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
 
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "s");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "s");
         signer.setBodyCanonicalization("simple");
         signer.setSignedHeaders(Arrays.asList("from"));
         signer.endBody();
@@ -185,7 +185,7 @@ public class DKIMSignerTest {
         headers.add("From: x@example.com\r\n");
 
         String dkimHeader = signer.sign(headers);
-        DKIMSignature sig = DKIMSignature.parse(
+        DkimSignature sig = DkimSignature.parse(
                 dkimHeader.substring("DKIM-Signature: ".length()).trim());
         assertNotNull(sig);
         // Empty body with simple canonicalization: body is CRLF → specific SHA-256 hash
@@ -196,7 +196,7 @@ public class DKIMSignerTest {
     public void testEmptyBodyRelaxed() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
 
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "s");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "s");
         signer.setBodyCanonicalization("relaxed");
         signer.setSignedHeaders(Arrays.asList("from"));
         signer.endBody();
@@ -205,7 +205,7 @@ public class DKIMSignerTest {
         headers.add("From: x@example.com\r\n");
 
         String dkimHeader = signer.sign(headers);
-        DKIMSignature sig = DKIMSignature.parse(
+        DkimSignature sig = DkimSignature.parse(
                 dkimHeader.substring("DKIM-Signature: ".length()).trim());
         assertNotNull(sig);
         // Empty body with relaxed canonicalization: body is "" → SHA-256 of empty string
@@ -217,7 +217,7 @@ public class DKIMSignerTest {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
 
         // Signer with trailing empty lines
-        DKIMSigner signer1 = new DKIMSigner(kp.getPrivate(), "example.com", "s");
+        DkimSigner signer1 = new DkimSigner(kp.getPrivate(), "example.com", "s");
         signer1.setBodyCanonicalization("simple");
         signer1.setSignedHeaders(Arrays.asList("from"));
 
@@ -231,18 +231,18 @@ public class DKIMSignerTest {
         List<String> headers = new ArrayList<>();
         headers.add("From: x@example.com\r\n");
         String h1 = signer1.sign(headers);
-        DKIMSignature sig1 = DKIMSignature.parse(
+        DkimSignature sig1 = DkimSignature.parse(
                 h1.substring("DKIM-Signature: ".length()).trim());
 
         // Signer without trailing empty lines
-        DKIMSigner signer2 = new DKIMSigner(kp.getPrivate(), "example.com", "s");
+        DkimSigner signer2 = new DkimSigner(kp.getPrivate(), "example.com", "s");
         signer2.setBodyCanonicalization("simple");
         signer2.setSignedHeaders(Arrays.asList("from"));
         signer2.bodyLine(content, 0, content.length);
         signer2.endBody();
 
         String h2 = signer2.sign(headers);
-        DKIMSignature sig2 = DKIMSignature.parse(
+        DkimSignature sig2 = DkimSignature.parse(
                 h2.substring("DKIM-Signature: ".length()).trim());
 
         assertNotNull(sig1);
@@ -255,7 +255,7 @@ public class DKIMSignerTest {
     @Test
     public void testTimestampAndExpiration() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "s");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "s");
         signer.setSignedHeaders(Arrays.asList("from"));
         signer.setTimestamp(1700000000L);
         signer.setExpiration(1700086400L);
@@ -275,7 +275,7 @@ public class DKIMSignerTest {
     @Test
     public void testIdentityTag() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "s");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "s");
         signer.setSignedHeaders(Arrays.asList("from"));
         signer.setIdentity("@example.com");
 
@@ -295,7 +295,7 @@ public class DKIMSignerTest {
     @Test
     public void testEd25519SignatureHeader() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "ed");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "ed");
         signer.setAlgorithm("ed25519-sha256");
         signer.setSignedHeaders(Arrays.asList("from"));
 
@@ -311,7 +311,7 @@ public class DKIMSignerTest {
         assertTrue(dkimHeader.contains("d=example.com"));
         assertTrue(dkimHeader.contains("s=ed"));
 
-        DKIMSignature sig = DKIMSignature.parse(
+        DkimSignature sig = DkimSignature.parse(
                 dkimHeader.substring("DKIM-Signature: ".length()).trim());
         assertNotNull(sig);
         assertFalse(sig.getSignature().isEmpty());
@@ -320,7 +320,7 @@ public class DKIMSignerTest {
     @Test
     public void testEd25519SignatureVerifiable() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "ed");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "ed");
         signer.setAlgorithm("ed25519-sha256");
         signer.setHeaderCanonicalization("relaxed");
         signer.setBodyCanonicalization("relaxed");
@@ -334,7 +334,7 @@ public class DKIMSignerTest {
         headers.add("From: x@example.com\r\n");
 
         String dkimHeader = signer.sign(headers);
-        DKIMSignature sig = DKIMSignature.parse(
+        DkimSignature sig = DkimSignature.parse(
                 dkimHeader.substring("DKIM-Signature: ".length()).trim());
         assertNotNull(sig);
 
@@ -348,7 +348,7 @@ public class DKIMSignerTest {
     @Test
     public void testMissingHeaderGracefullySkipped() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "s");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "s");
         signer.setSignedHeaders(Arrays.asList("from", "x-nonexistent"));
 
         byte[] body = "body\r\n".getBytes(StandardCharsets.US_ASCII);
@@ -367,7 +367,7 @@ public class DKIMSignerTest {
     @Test
     public void testVersionIsAlwaysOne() throws Exception {
         KeyPair kp = KeyPairGenerator.getInstance("RSA").generateKeyPair();
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "s");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "s");
         signer.setSignedHeaders(Arrays.asList("from"));
 
         byte[] body = "body\r\n".getBytes(StandardCharsets.US_ASCII);

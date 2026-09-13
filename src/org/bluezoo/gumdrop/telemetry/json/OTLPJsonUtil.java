@@ -1,5 +1,5 @@
 /*
- * OTLPJsonUtil.java
+ * OtlpJsonUtil.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,9 +36,9 @@ import java.util.List;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class OTLPJsonUtil {
+final class OtlpJsonUtil {
 
-    private OTLPJsonUtil() {
+    private OtlpJsonUtil() {
     }
 
     /**

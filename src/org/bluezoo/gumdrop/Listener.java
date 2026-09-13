@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
 import org.bluezoo.gumdrop.tls.TlsVersion;
-import org.bluezoo.gumdrop.util.CIDRNetwork;
+import org.bluezoo.gumdrop.util.CidrNetwork;
 
 /**
  * Common base class for all server endpoint types (TCP and UDP).
@@ -117,8 +117,8 @@ public abstract class Listener {
     private long connectionTimeoutMs = DEFAULT_CONNECTION_TIMEOUT_MS;
     private ConnectionRateLimiter connectionRateLimiter;
     private AuthenticationRateLimiter authRateLimiter;
-    private List<CIDRNetwork> allowedNetworks;
-    private List<CIDRNetwork> blockedNetworks;
+    private List<CidrNetwork> allowedNetworks;
+    private List<CidrNetwork> blockedNetworks;
 
     /**
      * Global (per-listener) cap on the number of simultaneously accepted
@@ -568,13 +568,13 @@ public abstract class Listener {
 
     public void setAllowedNetworks(String allowedNetworks) {
         if (allowedNetworks != null && !allowedNetworks.isEmpty()) {
-            this.allowedNetworks = CIDRNetwork.parseList(allowedNetworks);
+            this.allowedNetworks = CidrNetwork.parseList(allowedNetworks);
         }
     }
 
     public void setBlockedNetworks(String blockedNetworks) {
         if (blockedNetworks != null && !blockedNetworks.isEmpty()) {
-            this.blockedNetworks = CIDRNetwork.parseList(blockedNetworks);
+            this.blockedNetworks = CidrNetwork.parseList(blockedNetworks);
         }
     }
 
@@ -797,7 +797,7 @@ public abstract class Listener {
                 ((InetSocketAddress) remoteAddress).getAddress();
 
         if (blockedNetworks != null) {
-            for (Iterator<CIDRNetwork> it = blockedNetworks.iterator();
+            for (Iterator<CidrNetwork> it = blockedNetworks.iterator();
                  it.hasNext(); ) {
                 if (it.next().matches(addr)) {
                     if (LOGGER.isLoggable(Level.FINE)) {
@@ -810,7 +810,7 @@ public abstract class Listener {
 
         if (allowedNetworks != null) {
             boolean allowed = false;
-            for (Iterator<CIDRNetwork> it = allowedNetworks.iterator();
+            for (Iterator<CidrNetwork> it = allowedNetworks.iterator();
                  it.hasNext(); ) {
                 if (it.next().matches(addr)) {
                     allowed = true;

@@ -1,5 +1,5 @@
 /*
- * JSPPrecompiler.java
+ * JspPrecompiler.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -52,7 +52,7 @@ import java.util.logging.Logger;
  * 
  * <p>Usage:</p>
  * <pre>
- * java org.bluezoo.gumdrop.servlet.jsp.JSPPrecompiler \
+ * java org.bluezoo.gumdrop.servlet.jsp.JspPrecompiler \
  *     -webapp /path/to/webapp \
  *     -output /path/to/classes \
  *     -package org.example.jsp
@@ -67,9 +67,9 @@ import java.util.logging.Logger;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class JSPPrecompiler {
+public class JspPrecompiler {
 
-    private static final Logger LOGGER = Logger.getLogger(JSPPrecompiler.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(JspPrecompiler.class.getName());
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.jsp.L10N");
     
@@ -80,7 +80,7 @@ public class JSPPrecompiler {
     private boolean failOnError = true;
     private int threadCount = 1;
     
-    private JSPParserFactory parserFactory;
+    private JspParserFactory parserFactory;
     private InMemoryJavaCompiler compiler;
     
     private int successCount = 0;
@@ -90,9 +90,9 @@ public class JSPPrecompiler {
     /**
      * Creates a new JSP precompiler.
      */
-    public JSPPrecompiler() {
+    public JspPrecompiler() {
         // Initialize parser factory
-        this.parserFactory = new JSPParserFactory();
+        this.parserFactory = new JspParserFactory();
         
         // Initialize compiler
         this.compiler = new InMemoryJavaCompiler();
@@ -265,7 +265,7 @@ public class JSPPrecompiler {
         try {
             // Parse JSP
             InputStream input = new FileInputStream(jspFile);
-            JSPPage jspPage;
+            JspPage jspPage;
             try {
                 jspPage = parserFactory.parseJSP(input, "UTF-8", jspPath, null);
             } finally {
@@ -278,7 +278,7 @@ public class JSPPrecompiler {
             
             ByteArrayOutputStream sourceOut = new ByteArrayOutputStream();
             TaglibRegistry taglibRegistry = null; // No taglib support in precompilation
-            JSPCodeGenerator generator = new JSPCodeGenerator(jspPage, sourceOut, taglibRegistry);
+            JspCodeGenerator generator = new JspCodeGenerator(jspPage, sourceOut, taglibRegistry);
             generator.setClassName(className);
             generator.generateCode();
             
@@ -415,7 +415,7 @@ public class JSPPrecompiler {
      * Command-line entry point.
      */
     public static void main(String[] args) {
-        JSPPrecompiler precompiler = new JSPPrecompiler();
+        JspPrecompiler precompiler = new JspPrecompiler();
         
         // Parse arguments
         for (int i = 0; i < args.length; i++) {

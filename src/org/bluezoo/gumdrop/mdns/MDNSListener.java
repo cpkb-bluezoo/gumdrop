@@ -162,7 +162,7 @@ public class MdnsListener extends Listener {
             }
 
             endpoint = transportFactory.createServerEndpoint(
-                    channel, new MDNSDatagramHandler());
+                    channel, new MdnsDatagramHandler());
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE,
                     "Failed to bind mDNS datagram endpoint on port " + port,
@@ -305,7 +305,7 @@ public class MdnsListener extends Listener {
      * Inner handler that dispatches received datagrams to the owning
      * {@link MdnsServer}.
      */
-    private class MDNSDatagramHandler implements ProtocolHandler {
+    private class MdnsDatagramHandler implements ProtocolHandler {
 
         @Override
         public void connected(Endpoint ep) {

@@ -1,5 +1,5 @@
 /*
- * BEREncoder.java
+ * BerEncoder.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -35,7 +35,7 @@ import java.util.List;
  *
  * <h4>Usage Example</h4>
  * <pre>{@code
- * BEREncoder encoder = new BEREncoder();
+ * BerEncoder encoder = new BerEncoder();
  *
  * // Encode an LDAP message sequence
  * encoder.beginSequence();
@@ -55,7 +55,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-5.1">RFC 4511 §5.1 — Protocol Encoding</a>
  */
-public class BEREncoder {
+public class BerEncoder {
 
     private final ByteArrayOutputStream output;
     
@@ -67,7 +67,7 @@ public class BEREncoder {
     /**
      * Creates a new BER encoder.
      */
-    public BEREncoder() {
+    public BerEncoder() {
         output = new ByteArrayOutputStream();
         stack = new ByteArrayOutputStream[MAX_DEPTH];
         stackDepth = 0;
@@ -100,16 +100,16 @@ public class BEREncoder {
     }
 
     /**
-     * Writes a complete ASN1Element to the output.
+     * Writes a complete Asn1Element to the output.
      *
      * @param element the element to encode
      */
-    public void write(ASN1Element element) {
+    public void write(Asn1Element element) {
         if (element.isConstructed()) {
-            List<ASN1Element> children = element.getChildren();
+            List<Asn1Element> children = element.getChildren();
             beginConstruct(element.getTag());
             if (children != null) {
-                for (ASN1Element child : children) {
+                for (Asn1Element child : children) {
                     write(child);
                 }
             }
@@ -128,7 +128,7 @@ public class BEREncoder {
      * @param value the boolean value
      */
     public void writeBoolean(boolean value) {
-        writeRaw(ASN1Type.BOOLEAN, new byte[] { (byte) (value ? 0xFF : 0x00) });
+        writeRaw(Asn1Type.BOOLEAN, new byte[] { (byte) (value ? 0xFF : 0x00) });
     }
 
     /**
@@ -138,7 +138,7 @@ public class BEREncoder {
      */
     public void writeInteger(int value) {
         byte[] bytes = encodeInteger(value);
-        writeRaw(ASN1Type.INTEGER, bytes);
+        writeRaw(Asn1Type.INTEGER, bytes);
     }
 
     /**
@@ -148,7 +148,7 @@ public class BEREncoder {
      */
     public void writeInteger(long value) {
         byte[] bytes = encodeLong(value);
-        writeRaw(ASN1Type.INTEGER, bytes);
+        writeRaw(Asn1Type.INTEGER, bytes);
     }
 
     /**
@@ -158,7 +158,7 @@ public class BEREncoder {
      */
     public void writeEnumerated(int value) {
         byte[] bytes = encodeInteger(value);
-        writeRaw(ASN1Type.ENUMERATED, bytes);
+        writeRaw(Asn1Type.ENUMERATED, bytes);
     }
 
     /**
@@ -167,7 +167,7 @@ public class BEREncoder {
      * @param value the byte array
      */
     public void writeOctetString(byte[] value) {
-        writeRaw(ASN1Type.OCTET_STRING, value);
+        writeRaw(Asn1Type.OCTET_STRING, value);
     }
 
     /**
@@ -183,7 +183,7 @@ public class BEREncoder {
      * Writes a null value.
      */
     public void writeNull() {
-        writeRaw(ASN1Type.NULL, new byte[0]);
+        writeRaw(Asn1Type.NULL, new byte[0]);
     }
 
     // Constructed type support
@@ -192,7 +192,7 @@ public class BEREncoder {
      * Begins a SEQUENCE.
      */
     public void beginSequence() {
-        beginConstruct(ASN1Type.SEQUENCE);
+        beginConstruct(Asn1Type.SEQUENCE);
     }
 
     /**
@@ -206,7 +206,7 @@ public class BEREncoder {
      * Begins a SET.
      */
     public void beginSet() {
-        beginConstruct(ASN1Type.SET);
+        beginConstruct(Asn1Type.SET);
     }
 
     /**
@@ -223,7 +223,7 @@ public class BEREncoder {
      * @param constructed whether this is constructed (contains other elements)
      */
     public void beginContext(int tagNumber, boolean constructed) {
-        int tag = ASN1Type.contextTag(tagNumber, constructed);
+        int tag = Asn1Type.contextTag(tagNumber, constructed);
         beginConstruct(tag);
     }
 
@@ -241,7 +241,7 @@ public class BEREncoder {
      * @param constructed whether this is constructed
      */
     public void beginApplication(int tagNumber, boolean constructed) {
-        int tag = ASN1Type.applicationTag(tagNumber, constructed);
+        int tag = Asn1Type.applicationTag(tagNumber, constructed);
         beginConstruct(tag);
     }
 
@@ -259,7 +259,7 @@ public class BEREncoder {
      * @param value the value bytes
      */
     public void writeApplication(int tagNumber, byte[] value) {
-        int tag = ASN1Type.applicationTag(tagNumber, false);
+        int tag = Asn1Type.applicationTag(tagNumber, false);
         writeRaw(tag, value);
     }
 
@@ -270,7 +270,7 @@ public class BEREncoder {
      * @param value the value bytes
      */
     public void writeContext(int tagNumber, byte[] value) {
-        int tag = ASN1Type.contextTag(tagNumber, false);
+        int tag = Asn1Type.contextTag(tagNumber, false);
         writeRaw(tag, value);
     }
 

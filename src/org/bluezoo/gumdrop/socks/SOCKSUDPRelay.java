@@ -1,5 +1,5 @@
 /*
- * SOCKSUDPRelay.java
+ * SocksUdpRelay.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -71,10 +71,10 @@ import static org.bluezoo.gumdrop.socks.SocksConstants.*;
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928#section-7">
  *      RFC 1928 §7</a>
  */
-class SOCKSUDPRelay {
+class SocksUdpRelay {
 
     private static final Logger LOGGER =
-            Logger.getLogger(SOCKSUDPRelay.class.getName());
+            Logger.getLogger(SocksUdpRelay.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
@@ -105,7 +105,7 @@ class SOCKSUDPRelay {
      *        the TCP connection's remote address if DST.ADDR was
      *        0.0.0.0)
      */
-    SOCKSUDPRelay(Endpoint tcpEndpoint, SocksServer service,
+    SocksUdpRelay(Endpoint tcpEndpoint, SocksServer service,
                   SocksServerMetrics metrics, long idleTimeoutMs,
                   InetAddress expectedClientAddress) {
         this.tcpControlEndpoint = tcpEndpoint;
@@ -226,7 +226,7 @@ class SOCKSUDPRelay {
 
         @Override
         public void connected(Endpoint endpoint) {
-            // No action needed — relay is managed by SOCKSUDPRelay
+            // No action needed — relay is managed by SocksUdpRelay
         }
 
         @Override
@@ -315,7 +315,7 @@ class SOCKSUDPRelay {
 
         @Override
         public void connected(Endpoint endpoint) {
-            // No action needed — relay is managed by SOCKSUDPRelay
+            // No action needed — relay is managed by SocksUdpRelay
         }
 
         @Override

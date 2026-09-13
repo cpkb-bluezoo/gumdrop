@@ -1,5 +1,5 @@
 /*
- * DMARCCallback.java
+ * DmarcCallback.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -29,11 +29,11 @@ package org.bluezoo.gumdrop.smtp.auth;
  * the SPF and DKIM results.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DMARCValidator
- * @see DMARCResult
+ * @see DmarcValidator
+ * @see DmarcResult
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7489">RFC 7489 - DMARC</a>
  */
-public interface DMARCCallback {
+public interface DmarcCallback {
 
     /**
      * Called when a DMARC evaluation completes.
@@ -43,7 +43,7 @@ public interface DMARCCallback {
      * @param fromDomain the RFC5322.From domain that was evaluated
      * @param verdict the combined authentication verdict based on DMARC policy
      */
-    void dmarcResult(DMARCResult result, DMARCPolicy policy, String fromDomain, AuthVerdict verdict);
+    void dmarcResult(DmarcResult result, DmarcPolicy policy, String fromDomain, AuthVerdict verdict);
 
 }
 
