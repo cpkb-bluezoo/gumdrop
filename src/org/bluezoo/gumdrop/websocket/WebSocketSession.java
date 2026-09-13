@@ -95,7 +95,7 @@ public interface WebSocketSession {
      *
      * <p>When the WebSocket upgrade request included a valid
      * {@code Authorization} header that was verified by the
-     * configured {@link org.bluezoo.gumdrop.http.HTTPAuthenticationProvider},
+     * configured {@link org.bluezoo.gumdrop.http.HttpAuthenticationProvider},
      * this method returns the resulting principal. Otherwise it
      * returns {@code null}.
      *

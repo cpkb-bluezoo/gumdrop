@@ -1,5 +1,5 @@
 /*
- * HTTPRequestHandler.java
+ * HttpRequestHandler.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -29,7 +29,7 @@ import java.nio.ByteBuffer;
  * <p>This interface provides an event-driven API for handling HTTP requests.
  * Each instance handles exactly one request/response exchange (one stream).
  * Implementations receive request events and use the provided
- * {@link HTTPResponseState} to send the response.
+ * {@link HttpResponseState} to send the response.
  *
  * <h2>Event Sequence</h2>
  *
@@ -60,7 +60,7 @@ import java.nio.ByteBuffer;
  * <h2>Response Sending</h2>
  *
  * <p>The handler can send the response at any point using the
- * {@link HTTPResponseState} provided to each callback. Common patterns:
+ * {@link HttpResponseState} provided to each callback. Common patterns:
  * <ul>
  *   <li>Respond immediately in {@code headers()} for simple requests</li>
  *   <li>Accumulate body data and respond in {@code endRequestBody()}</li>
@@ -70,13 +70,13 @@ import java.nio.ByteBuffer;
  * <h2>Example Implementation</h2>
  *
  * <pre>{@code
- * public class HelloHandler extends DefaultHTTPRequestHandler {
+ * public class HelloHandler extends DefaultHttpRequestHandler {
  *     
  *     @Override
- *     public void headers(HTTPResponseState state, Headers headers) {
+ *     public void headers(HttpResponseState state, Headers headers) {
  *         if ("GET".equals(headers.getMethod())) {
  *             Headers response = new Headers();
- *             response.status(HTTPStatus.OK);
+ *             response.status(HttpStatus.OK);
  *             response.add("content-type", "text/plain");
  *             state.headers(response);
  *             state.startResponseBody();
@@ -89,11 +89,11 @@ import java.nio.ByteBuffer;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DefaultHTTPRequestHandler
- * @see HTTPResponseState
- * @see HTTPRequestHandlerFactory
+ * @see DefaultHttpRequestHandler
+ * @see HttpResponseState
+ * @see HttpRequestHandlerFactory
  */
-public interface HTTPRequestHandler {
+public interface HttpRequestHandler {
 
     /**
      * Headers received.
@@ -114,7 +114,7 @@ public interface HTTPRequestHandler {
      * @param state the response state for sending the response
      * @param headers the headers (pseudo-headers normalized for all HTTP versions)
      */
-    void headers(HTTPResponseState state, Headers headers);
+    void headers(HttpResponseState state, Headers headers);
 
     /**
      * Request body is starting.
@@ -124,7 +124,7 @@ public interface HTTPRequestHandler {
      *
      * @param state the response state
      */
-    void startRequestBody(HTTPResponseState state);
+    void startRequestBody(HttpResponseState state);
 
     /**
      * Request body data received.
@@ -136,7 +136,7 @@ public interface HTTPRequestHandler {
      * @param state the response state
      * @param data the body data (position and limit define valid range)
      */
-    void requestBodyContent(HTTPResponseState state, ByteBuffer data);
+    void requestBodyContent(HttpResponseState state, ByteBuffer data);
 
     /**
      * Request body complete.
@@ -147,7 +147,7 @@ public interface HTTPRequestHandler {
      *
      * @param state the response state
      */
-    void endRequestBody(HTTPResponseState state);
+    void endRequestBody(HttpResponseState state);
 
     /**
      * Request stream closed from client side.
@@ -158,7 +158,7 @@ public interface HTTPRequestHandler {
      *
      * @param state the response state
      */
-    void requestComplete(HTTPResponseState state);
+    void requestComplete(HttpResponseState state);
 
     /**
      * The request failed due to a transport or protocol-level error
@@ -172,13 +172,13 @@ public interface HTTPRequestHandler {
      * <p>Default implementation does nothing, so existing implementations
      * are unaffected by this method's addition; override to react to
      * abnormal termination the way {@link
-     * org.bluezoo.gumdrop.http.client.HTTPResponseHandler#failed} already
+     * org.bluezoo.gumdrop.http.client.HttpResponseHandler#failed} already
      * lets client code do for the client side.
      *
      * @param state the response state
      * @param cause the error
      */
-    default void failed(HTTPResponseState state, Exception cause) {
+    default void failed(HttpResponseState state, Exception cause) {
         // Default: do nothing
     }
 
@@ -201,7 +201,7 @@ public interface HTTPRequestHandler {
      * @param state the response state
      * @param data the datagram payload; valid only during this call
      */
-    default void datagramReceived(HTTPResponseState state, ByteBuffer data) {
+    default void datagramReceived(HttpResponseState state, ByteBuffer data) {
         // Default: do nothing
     }
 
@@ -213,7 +213,7 @@ public interface HTTPRequestHandler {
      * @param type the Capsule Type
      * @param value the Capsule Value; valid only during this call
      */
-    default void capsuleReceived(HTTPResponseState state, long type, ByteBuffer value) {
+    default void capsuleReceived(HttpResponseState state, long type, ByteBuffer value) {
         // Default: do nothing
     }
 

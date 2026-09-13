@@ -35,7 +35,7 @@ import static org.junit.Assert.*;
 
 /**
  * Regression tests for HTTP Digest authentication verification in
- * {@link HTTPAuthenticationProvider}.
+ * {@link HttpAuthenticationProvider}.
  */
 public class HTTPAuthenticationProviderDigestTest {
 
@@ -45,7 +45,7 @@ public class HTTPAuthenticationProviderDigestTest {
     private static final String HA1 = SASLUtils.computeDigestHA1(
             USERNAME, REALM, PASSWORD);
 
-    private static final class TestProvider extends HTTPAuthenticationProvider {
+    private static final class TestProvider extends HttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.DIGEST_AUTH;
         }
@@ -119,15 +119,15 @@ public class HTTPAuthenticationProviderDigestTest {
         String authHeader = buildAuthorizationHeader(
                 nonce, "POST", "/admin", "clientnonce1", "00000001");
 
-        HTTPAuthenticationProvider.AuthenticationResult ok =
+        HttpAuthenticationProvider.AuthenticationResult ok =
                 provider.authenticate(authHeader, "POST", "/admin");
         assertTrue(ok.success);
 
-        HTTPAuthenticationProvider.AuthenticationResult wrongMethod =
+        HttpAuthenticationProvider.AuthenticationResult wrongMethod =
                 provider.authenticate(authHeader, "GET", "/admin");
         assertFalse(wrongMethod.success);
 
-        HTTPAuthenticationProvider.AuthenticationResult wrongUri =
+        HttpAuthenticationProvider.AuthenticationResult wrongUri =
                 provider.authenticate(authHeader, "POST", "/");
         assertFalse(wrongUri.success);
     }

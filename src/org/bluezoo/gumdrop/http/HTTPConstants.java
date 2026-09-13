@@ -1,5 +1,5 @@
 /*
- * HTTPConstants.java
+ * HttpConstants.java
  * Copyright (C) 2005 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -30,7 +30,7 @@ import java.util.TreeMap;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class HTTPConstants {
+public final class HttpConstants {
 
     public static final Map<Integer, String> messages;
 

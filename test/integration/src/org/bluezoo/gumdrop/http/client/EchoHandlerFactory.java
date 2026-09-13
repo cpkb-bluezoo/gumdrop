@@ -21,12 +21,12 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
+import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -48,7 +48,7 @@ import java.nio.charset.StandardCharsets;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class EchoHandlerFactory implements HTTPRequestHandlerFactory {
+public class EchoHandlerFactory implements HttpRequestHandlerFactory {
 
     /**
      * Creates a new echo handler factory.
@@ -57,14 +57,14 @@ public class EchoHandlerFactory implements HTTPRequestHandlerFactory {
     }
 
     @Override
-    public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
+    public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
         return new EchoHandler();
     }
 
     /**
      * Handler that echoes back request content.
      */
-    private static class EchoHandler extends DefaultHTTPRequestHandler {
+    private static class EchoHandler extends DefaultHttpRequestHandler {
 
         private String method;
         private String path;
@@ -73,7 +73,7 @@ public class EchoHandlerFactory implements HTTPRequestHandlerFactory {
         private ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
         @Override
-        public void headers(HTTPResponseState state, Headers headers) {
+        public void headers(HttpResponseState state, Headers headers) {
             this.method = headers.getMethod();
             this.path = headers.getPath();
             this.contentType = headers.getValue("content-type");
@@ -91,12 +91,12 @@ public class EchoHandlerFactory implements HTTPRequestHandlerFactory {
         }
 
         @Override
-        public void startRequestBody(HTTPResponseState state) {
+        public void startRequestBody(HttpResponseState state) {
             // Ready to receive body
         }
 
         @Override
-        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
             byte[] bytes = new byte[data.remaining()];
             data.get(bytes);
             try {
@@ -107,13 +107,13 @@ public class EchoHandlerFactory implements HTTPRequestHandlerFactory {
         }
 
         @Override
-        public void endRequestBody(HTTPResponseState state) {
+        public void endRequestBody(HttpResponseState state) {
             // Body complete
         }
 
         @Override
-        public void requestComplete(HTTPResponseState state) {
-            HTTPStatus status = HTTPStatus.OK;
+        public void requestComplete(HttpResponseState state) {
+            HttpStatus status = HttpStatus.OK;
 
             // RFC 9110 section 9.3.2: HEAD responses have no message body
             if ("HEAD".equals(method)) {

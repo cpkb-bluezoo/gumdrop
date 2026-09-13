@@ -82,7 +82,7 @@ of concerns:
 handlers for incoming connections. It implements the <code>Service</code>
 interface and knows nothing about HTTP.</li>
 <li><b>WebSocketListener</b> &ndash; a transport listener that extends
-<code>HTTPListener</code> and encapsulates the HTTP-to-WebSocket upgrade
+<code>HttpListener</code> and encapsulates the HTTP-to-WebSocket upgrade
 handshake. All HTTP machinery is confined to this layer.</li>
 <li><b>WebSocketClient</b> &ndash; a client-side facade that connects to a
 WebSocket server. It uses the same <code>WebSocketEventHandler</code>
@@ -620,7 +620,7 @@ A complete gumdroprc for running a Nostr relay:
 <h4>WebSocketListener Properties</h4>
 
 <p>
-<code>WebSocketListener</code> extends <code>HTTPListener</code> and inherits
+<code>WebSocketListener</code> extends <code>HttpListener</code> and inherits
 all of its properties:
 </p>
 
@@ -659,21 +659,21 @@ Access via <code>WebSocketListener.getWebSocketMetrics()</code>.
 If you are building an HTTP service with
 <a href="http.html#server-handler">the HTTP server handler API</a> and want to
 support WebSocket alongside regular HTTP requests, you can perform the upgrade
-manually using <code>HTTPResponseState.upgradeToWebSocket()</code>:
+manually using <code>HttpResponseState.upgradeToWebSocket()</code>:
 </p>
 
 <pre>
-public class MyHandler extends DefaultHTTPRequestHandler {
+public class MyHandler extends DefaultHttpRequestHandler {
 
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
             String protocol = headers.getValue("Sec-WebSocket-Protocol");
             state.upgradeToWebSocket(protocol, new EchoWebSocketHandler());
         } else {
             // Handle as regular HTTP request
             Headers response = new Headers();
-            response.status(HTTPStatus.OK);
+            response.status(HttpStatus.OK);
             response.add("content-type", "text/plain");
             state.headers(response);
             state.startResponseBody();

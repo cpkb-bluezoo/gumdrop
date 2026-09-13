@@ -44,7 +44,7 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * Wire-level regression test for issue #394: a real {@link
- * HTTPProtocolHandler} parsing a real, HPACK-encoded HTTP/2 Extended
+ * HttpProtocolHandler} parsing a real, HPACK-encoded HTTP/2 Extended
  * CONNECT request (RFC 9113 section 8.5, RFC 9484 section 4: {@code
  * :method: CONNECT}, {@code :protocol: connect-ip}, {@code
  * Capsule-Protocol: ?1}) must reach {@link ConnectIpRequestHandler#headers}
@@ -104,7 +104,7 @@ public class ConnectIpH2WireTest {
         @Override public boolean isSessionResumed() { return false; }
     }
 
-    private HTTPProtocolHandler connection;
+    private HttpProtocolHandler connection;
     private CountingEndpoint endpoint;
     private SelectorLoop loop;
 
@@ -113,7 +113,7 @@ public class ConnectIpH2WireTest {
         loop = new SelectorLoop(0);
         loop.start();
 
-        HTTPListener listener = new HTTPListener();
+        HttpListener listener = new HttpListener();
         ConnectIpPolicy permissive = new ConnectIpPolicy() {
             @Override
             public boolean isRequestAllowed(ConnectIpTarget target) {
@@ -130,7 +130,7 @@ public class ConnectIpH2WireTest {
         };
         listener.setHandlerFactory((state, headers) -> new ConnectIpRequestHandler(permissive, noopPacketHandler));
 
-        connection = new HTTPProtocolHandler(listener);
+        connection = new HttpProtocolHandler(listener);
         endpoint = new CountingEndpoint();
         endpoint.loop = loop;
         connection.connected(endpoint);
@@ -147,7 +147,7 @@ public class ConnectIpH2WireTest {
     }
 
     private ByteBuffer encodeConnectIpHeaders(String target, String ipProto) throws Exception {
-        Encoder encoder = new Encoder(4096, HTTPListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+        Encoder encoder = new Encoder(4096, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
         Headers request = new Headers();
         request.add(new Header(":method", "CONNECT"));
         request.add(new Header(":protocol", "connect-ip"));

@@ -47,13 +47,13 @@ import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
-import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
-import org.bluezoo.gumdrop.http.HTTPPrincipal;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPServerMetrics;
-import org.bluezoo.gumdrop.http.HTTPUtils;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
+import org.bluezoo.gumdrop.http.HttpPrincipal;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpServerMetrics;
+import org.bluezoo.gumdrop.http.HttpUtils;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.Capsule;
@@ -72,8 +72,8 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  *
  * <p>This is the HTTP/3 equivalent of the HTTP/2 {@code Stream} class.
  * Each instance manages one request/response lifecycle (RFC 9114
- * section 4.1) and implements {@link HTTPResponseState} so that
- * {@link HTTPRequestHandler} implementations can send responses
+ * section 4.1) and implements {@link HttpResponseState} so that
+ * {@link HttpRequestHandler} implementations can send responses
  * identically to HTTP/2.
  *
  * <p>This class is itself the QUIC stream's {@link ProtocolHandler} and
@@ -81,16 +81,16 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * from {@link #receive}, and decodes/encodes header blocks itself via the
  * connection-shared {@link Decoder}/{@link Encoder} (RFC 9204's full
  * dynamic-table QPACK codec); any resulting encoder/decoder-stream
- * instructions are flushed back through {@link HTTP3ServerHandler}, which
+ * instructions are flushed back through {@link Http3ServerHandler}, which
  * owns the actual QPACK stream endpoints. Response-body flow-control
  * buffering is handled once, generically, by {@link Endpoint#send} itself,
  * the same as every other protocol running over QUIC.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTP3ServerHandler
- * @see HTTPRequestHandler
+ * @see Http3ServerHandler
+ * @see HttpRequestHandler
  */
-class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
+class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
 
     private static final Logger LOGGER = Logger.getLogger(H3Stream.class.getName());
 
@@ -121,7 +121,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         CLOSED
     }
 
-    private final HTTP3ServerHandler connection;
+    private final Http3ServerHandler connection;
     private final H3Parser parser = new H3Parser(this);
     private final Encoder qpackEncoder;
     private final Decoder qpackDecoder;
@@ -133,7 +133,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     private long streamId;
 
     private State state;
-    private HTTPRequestHandler handler;
+    private HttpRequestHandler handler;
     private Headers requestHeaders;
     private String method;
     private String requestTarget;
@@ -171,7 +171,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     private int responseStatusCode;
     private long responseBodyBytes;
 
-    H3Stream(HTTP3ServerHandler connection, Encoder qpackEncoder, Decoder qpackDecoder) {
+    H3Stream(Http3ServerHandler connection, Encoder qpackEncoder, Decoder qpackDecoder) {
         this.connection = connection;
         this.qpackEncoder = qpackEncoder;
         this.qpackDecoder = qpackDecoder;
@@ -221,7 +221,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
 
     private void handlePeerSendFinished() {
         // connection is only ever null when a test constructs this class
-        // directly without going through HTTP3ServerHandler (see
+        // directly without going through Http3ServerHandler (see
         // H3StreamTest) -- never in production.
         if (!headersDecoded && connection != null) {
             connection.cancelQpackStream(streamId);
@@ -345,15 +345,15 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
                 return;
             }
 
-            HTTPVersion.stripHttp1FramingHeaders(headers);
+            HttpVersion.stripHttp1FramingHeaders(headers);
 
-            HTTPAuthenticationProvider authProvider = connection.getAuthenticationProvider();
+            HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
                 String authHeader = headers.getValue("authorization");
-                HTTPAuthenticationProvider.AuthenticationResult result =
+                HttpAuthenticationProvider.AuthenticationResult result =
                         authProvider.authenticate(authHeader, method, requestTarget);
                 if (result.success) {
-                    authenticatedPrincipal = new HTTPPrincipal(result.username);
+                    authenticatedPrincipal = new HttpPrincipal(result.username);
                 } else if (authProvider.isAuthenticationRequired()) {
                     sendUnauthorized(authProvider);
                     return;
@@ -475,7 +475,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         if (value == null) {
             return true;
         }
-        long parsed = HTTPUtils.validateContentLength(value);
+        long parsed = HttpUtils.validateContentLength(value);
         if (parsed < 0) {
             abortMessageError("invalid Content-Length");
             return false;
@@ -566,7 +566,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         connection.closeWithApplicationError(errorCode, message);
     }
 
-    // ── HTTPResponseState Implementation ──
+    // ── HttpResponseState Implementation ──
 
     @Override
     public SocketAddress getRemoteAddress() {
@@ -589,8 +589,8 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     }
 
     @Override
-    public HTTPVersion getVersion() {
-        return HTTPVersion.HTTP_3;
+    public HttpVersion getVersion() {
+        return HttpVersion.HTTP_3;
     }
 
     @Override
@@ -821,7 +821,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPResponseState.acceptConnectUdp/acceptConnectIp Implementation
+    // HttpResponseState.acceptConnectUdp/acceptConnectIp Implementation
     // (RFC 9298, RFC 9484)
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -833,7 +833,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
      * accepting the tunnel and leaves the stream open in both directions
      * -- unlike {@link #upgradeToWebSocketInternal}, there is nothing to
      * bridge to here: datagrams already reach {@link
-     * HTTPRequestHandler#datagramReceived} (via native H3 Datagram,
+     * HttpRequestHandler#datagramReceived} (via native H3 Datagram,
      * {@link #httpDatagramReceived}, or the Capsule Protocol fallback,
      * {@link #dispatchCapsules}) whether this stream is CONNECT-UDP,
      * CONNECT-IP, some other Context ID-aware protocol, or nothing in
@@ -1079,7 +1079,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
     private void initTelemetrySpan() {
         timestampStarted = System.currentTimeMillis();
 
-        HTTPServerMetrics metrics = connection.getMetrics();
+        HttpServerMetrics metrics = connection.getMetrics();
         if (metrics != null) {
             metrics.requestStarted(method != null ? method : "UNKNOWN");
         }
@@ -1137,7 +1137,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
      * @param statusCode the HTTP response status code
      */
     private void endTelemetrySpan(int statusCode) {
-        HTTPServerMetrics metrics = connection.getMetrics();
+        HttpServerMetrics metrics = connection.getMetrics();
         if (metrics != null && timestampStarted > 0) {
             double durationMs = System.currentTimeMillis() - timestampStarted;
             metrics.requestCompleted(method != null ? method : "UNKNOWN", statusCode, durationMs, 0, responseBodyBytes);
@@ -1177,7 +1177,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
      * Sends a 401 Unauthorized response with a WWW-Authenticate challenge
      * (RFC 9110 section 11.6.1).
      */
-    private void sendUnauthorized(HTTPAuthenticationProvider authProvider) {
+    private void sendUnauthorized(HttpAuthenticationProvider authProvider) {
         pendingResponseHeaders = new ArrayList<Header>();
         pendingResponseHeaders.add(new Header(":status", "401"));
         String challenge = authProvider.generateChallenge();
@@ -1224,7 +1224,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HTTPResponseState {
         }
 
         // Strip headers that are illegal in HTTP/3 (RFC 9114 section 4.2)
-        HTTPVersion.stripHttp1FramingHeaders(pendingResponseHeaders);
+        HttpVersion.stripHttp1FramingHeaders(pendingResponseHeaders);
 
         // Inject traceparent for distributed trace propagation
         if (span != null) {

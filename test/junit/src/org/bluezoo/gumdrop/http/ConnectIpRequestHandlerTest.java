@@ -46,7 +46,7 @@ import static org.junit.Assert.assertTrue;
  * Transport-agnostic regression test for issue #394's server-side RFC
  * 9484 CONNECT-IP support: a real {@link ConnectIpRequestHandler}
  * driving a real (loopback) {@link IpPacketHandler} against a minimal
- * {@link HTTPResponseState} fake -- accept/reject, inbound IP packet
+ * {@link HttpResponseState} fake -- accept/reject, inbound IP packet
  * delivery, the {@code ADDRESS_REQUEST}/{@code ADDRESS_ASSIGN} round
  * trip, and {@code ROUTE_ADVERTISEMENT}, none of which need a kernel TUN
  * (see {@link IpPacketHandler}'s own documentation for why gumdrop
@@ -275,7 +275,7 @@ public class ConnectIpRequestHandlerTest {
         }
     }
 
-    private static final class CapturingResponseState implements HTTPResponseState {
+    private static final class CapturingResponseState implements HttpResponseState {
         final List<byte[]> sentDatagrams = new ArrayList<byte[]>();
         final List<SentCapsule> sentCapsules = new ArrayList<SentCapsule>();
         volatile boolean accepted;
@@ -307,7 +307,7 @@ public class ConnectIpRequestHandlerTest {
         @Override public SocketAddress getLocalAddress() { return null; }
         @Override public boolean isSecure() { return true; }
         @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public HTTPVersion getVersion() { return HTTPVersion.HTTP_3; }
+        @Override public HttpVersion getVersion() { return HttpVersion.HTTP_3; }
         @Override public String getScheme() { return "https"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }

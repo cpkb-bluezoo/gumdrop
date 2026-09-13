@@ -43,7 +43,7 @@ import static org.junit.Assert.*;
  * Regression test for issue #322: {@code sendResponseHeaders} and {@code
  * sendResponseBody} each called {@code h2Writer.flush()} independently, so
  * a small HTTP/2 response answered synchronously (headers, one body
- * chunk, then the empty END_STREAM DATA frame {@link HTTPResponseState#complete()}
+ * chunk, then the empty END_STREAM DATA frame {@link HttpResponseState#complete()}
  * sends once no headers remain buffered) produced three separate {@code
  * EndpointChannel.write()} calls -- three separate TLS records for a
  * secure connection -- instead of coalescing what the writer had already
@@ -53,13 +53,13 @@ import static org.junit.Assert.*;
  */
 public class HTTPProtocolHandlerH2FlushCoalescingTest {
 
-    /** Answers entirely within headers(), like the DefaultHTTPRequestHandler javadoc example. */
-    private static final class SynchronousGetHandler extends DefaultHTTPRequestHandler {
+    /** Answers entirely within headers(), like the DefaultHttpRequestHandler javadoc example. */
+    private static final class SynchronousGetHandler extends DefaultHttpRequestHandler {
         @Override
-        public void headers(HTTPResponseState state, Headers headers) {
+        public void headers(HttpResponseState state, Headers headers) {
             if ("GET".equals(headers.getMethod())) {
                 Headers response = new Headers();
-                response.status(HTTPStatus.OK);
+                response.status(HttpStatus.OK);
                 response.add("content-type", "text/plain");
                 state.headers(response);
                 state.startResponseBody();
@@ -105,15 +105,15 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
         @Override public boolean isSessionResumed() { return false; }
     }
 
-    private HTTPProtocolHandler connection;
+    private HttpProtocolHandler connection;
     private CountingEndpoint endpoint;
 
     @Before
     public void setUp() {
-        HTTPListener listener = new HTTPListener();
+        HttpListener listener = new HttpListener();
         listener.setHandlerFactory((state, headers) -> new SynchronousGetHandler());
 
-        connection = new HTTPProtocolHandler(listener);
+        connection = new HttpProtocolHandler(listener);
         endpoint = new CountingEndpoint();
         connection.connected(endpoint);
         // Negotiate HTTP/2 via ALPN, then receive the client's initial
@@ -125,7 +125,7 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
     }
 
     private ByteBuffer encodeGetHeaders(String path) throws Exception {
-        Encoder encoder = new Encoder(4096, HTTPListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+        Encoder encoder = new Encoder(4096, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
         Headers request = new Headers();
         request.add(new Header(":method", "GET"));
         request.add(new Header(":scheme", "https"));

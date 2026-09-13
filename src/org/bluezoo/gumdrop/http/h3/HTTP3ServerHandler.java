@@ -1,5 +1,5 @@
 /*
- * HTTP3ServerHandler.java
+ * Http3ServerHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,10 +36,10 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
-import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPServerMetrics;
+import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpServerMetrics;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.PriorityParams;
@@ -79,27 +79,27 @@ import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
  *       |
  *   QuicConnection  (QUIC connection lifecycle, per-stream dispatch)
  *       |
- *   HTTP3ServerHandler  (per-connection setup: control stream, SETTINGS)
+ *   Http3ServerHandler  (per-connection setup: control stream, SETTINGS)
  *       |
- *   H3Stream  (per-request HTTPResponseState)
+ *   H3Stream  (per-request HttpResponseState)
  *       |
- *   HTTPRequestHandler  (application logic, same as HTTP/2)
+ *   HttpRequestHandler  (application logic, same as HTTP/2)
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see H3Stream
  * @see QuicConnection
  */
-public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlStream.Listener {
+public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlStream.Listener {
 
-    private static final Logger LOGGER = Logger.getLogger(HTTP3ServerHandler.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(Http3ServerHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     private final QuicConnection quicConnection;
-    private final HTTPRequestHandlerFactory handlerFactory;
-    private final HTTPAuthenticationProvider authenticationProvider;
-    private final HTTPServerMetrics metrics;
+    private final HttpRequestHandlerFactory handlerFactory;
+    private final HttpAuthenticationProvider authenticationProvider;
+    private final HttpServerMetrics metrics;
     private final TelemetryConfig telemetryConfig;
     private final boolean addSecurityHeaders;
 
@@ -164,10 +164,10 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
      * @param telemetryConfig telemetry configuration (may be null)
      * @param addSecurityHeaders whether to add default security headers
      */
-    public HTTP3ServerHandler(QuicConnection quicConnection,
-                              HTTPRequestHandlerFactory handlerFactory,
-                              HTTPAuthenticationProvider authProvider,
-                              HTTPServerMetrics metrics,
+    public Http3ServerHandler(QuicConnection quicConnection,
+                              HttpRequestHandlerFactory handlerFactory,
+                              HttpAuthenticationProvider authProvider,
+                              HttpServerMetrics metrics,
                               TelemetryConfig telemetryConfig,
                               boolean addSecurityHeaders) {
         this.quicConnection = quicConnection;
@@ -185,7 +185,7 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
         quicConnection.setUnidirectionalStreamAcceptHandler(new StreamAcceptHandler() {
             @Override
             public ProtocolHandler acceptStream(Endpoint stream) {
-                return new H3ControlStream(quicConnection, HTTP3ServerHandler.this, qpackEncoder, qpackDecoder,
+                return new H3ControlStream(quicConnection, Http3ServerHandler.this, qpackEncoder, qpackDecoder,
                         false);
             }
         });
@@ -593,13 +593,13 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     // ── Accessors for H3Stream ──
 
     /**
-     * Creates an {@link HTTPRequestHandler} for a new stream.
+     * Creates an {@link HttpRequestHandler} for a new stream.
      *
-     * @param stream the H3Stream acting as HTTPResponseState
+     * @param stream the H3Stream acting as HttpResponseState
      * @param headers the initial request headers
      * @return the created handler, or null
      */
-    HTTPRequestHandler createHandler(H3Stream stream, Headers headers) {
+    HttpRequestHandler createHandler(H3Stream stream, Headers headers) {
         if (handlerFactory == null) {
             return null;
         }
@@ -652,7 +652,7 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
      * Returns the authentication provider, or null if authentication
      * is not configured.
      */
-    HTTPAuthenticationProvider getAuthenticationProvider() {
+    HttpAuthenticationProvider getAuthenticationProvider() {
         return authenticationProvider;
     }
 
@@ -694,7 +694,7 @@ public final class HTTP3ServerHandler implements StreamAcceptHandler, H3ControlS
     /**
      * Returns the HTTP server metrics, or null.
      */
-    HTTPServerMetrics getMetrics() {
+    HttpServerMetrics getMetrics() {
         return metrics;
     }
 

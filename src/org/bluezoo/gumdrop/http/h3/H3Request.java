@@ -29,39 +29,39 @@ import java.util.concurrent.CancellationException;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.PriorityParams;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 /**
- * An HTTP/3 request that sends via {@link HTTP3ClientHandler}.
+ * An HTTP/3 request that sends via {@link Http3ClientHandler}.
  *
- * <p>Implements the {@link HTTPRequest} interface so that application code
- * using {@link org.bluezoo.gumdrop.http.client.HTTPClient} works
+ * <p>Implements the {@link HttpRequest} interface so that application code
+ * using {@link org.bluezoo.gumdrop.http.client.HttpClient} works
  * identically regardless of whether the underlying transport is
  * HTTP/1.1, HTTP/2, or HTTP/3.
  *
  * <p>Pseudo-headers are constructed per RFC 9114 section 4.3.1:
  * {@code :method}, {@code :scheme}, {@code :authority}, {@code :path}.
  *
- * <p>{@code HTTPRequest} carries no thread-affinity contract of its own --
+ * <p>{@code HttpRequest} carries no thread-affinity contract of its own --
  * an application may call {@link #startRequestBody}/{@link #requestBodyContent}/
  * {@link #endRequestBody} from whatever thread it likes, in separate calls
  * with real time between them. The underlying {@link org.bluezoo.gumdrop.quic.QuicConnection}
  * has the opposite contract (touched only from its own {@code SelectorLoop}
  * thread), so every method here that actually sends anything does its
  * QUIC-connection-touching work inside a task handed to
- * {@link HTTP3ClientHandler#execute}, snapshotting any caller-owned mutable
+ * {@link Http3ClientHandler#execute}, snapshotting any caller-owned mutable
  * state (header lists, the body {@link ByteBuffer}'s remaining bytes)
  * synchronously first so the caller is free to reuse/refill its buffer the
  * moment the call returns, before the snapshot has necessarily been sent.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTP3ClientHandler
+ * @see Http3ClientHandler
  */
-public class H3Request implements HTTPRequest {
+public class H3Request implements HttpRequest {
 
-    private final HTTP3ClientHandler h3Handler;
+    private final Http3ClientHandler h3Handler;
     private final String method;
     private final String path;
     private final String authority;
@@ -87,13 +87,13 @@ public class H3Request implements HTTPRequest {
     // volatile: set from the application's calling thread in send()/
     // startRequestBody(), read from cancel() which may be called from a
     // different thread (e.g. a timeout watchdog).
-    private volatile HTTPResponseHandler responseHandler;
+    private volatile HttpResponseHandler responseHandler;
     // Unlike streamId, checked from whatever thread the application calls
     // send/startRequestBody/requestBodyContent/endRequestBody/cancel from,
     // so this one does need cross-thread visibility.
     private volatile boolean cancelled;
 
-    public H3Request(HTTP3ClientHandler h3Handler, String method,
+    public H3Request(Http3ClientHandler h3Handler, String method,
                      String path, String authority, String scheme,
                      Trace traceContext) {
         this.h3Handler = h3Handler;
@@ -121,7 +121,7 @@ public class H3Request implements HTTPRequest {
     }
 
     @Override
-    public void dependency(HTTPRequest parent) {
+    public void dependency(HttpRequest parent) {
         // Not applicable to HTTP/3
     }
 
@@ -131,7 +131,7 @@ public class H3Request implements HTTPRequest {
     }
 
     @Override
-    public void send(final HTTPResponseHandler handler) {
+    public void send(final HttpResponseHandler handler) {
         if (cancelled) {
             handler.failed(new CancellationException("Request cancelled"));
             return;
@@ -161,7 +161,7 @@ public class H3Request implements HTTPRequest {
     }
 
     @Override
-    public void startRequestBody(final HTTPResponseHandler handler) {
+    public void startRequestBody(final HttpResponseHandler handler) {
         if (cancelled) {
             handler.failed(new CancellationException("Request cancelled"));
             return;
@@ -256,7 +256,7 @@ public class H3Request implements HTTPRequest {
     @Override
     public void cancel() {
         cancelled = true;
-        final HTTPResponseHandler handler = responseHandler;
+        final HttpResponseHandler handler = responseHandler;
         if (handler != null) {
             h3Handler.execute(new Runnable() {
                 @Override

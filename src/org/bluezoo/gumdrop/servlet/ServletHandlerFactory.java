@@ -22,9 +22,9 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpResponseState;
 
 import java.util.Set;
 
@@ -33,7 +33,7 @@ import java.util.Set;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class ServletHandlerFactory implements HTTPRequestHandlerFactory {
+class ServletHandlerFactory implements HttpRequestHandlerFactory {
 
     private final ServletService service;
     private final Container container;
@@ -44,7 +44,7 @@ class ServletHandlerFactory implements HTTPRequestHandlerFactory {
     }
 
     @Override
-    public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
+    public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
         return new ServletHandler(service, container, service.getBufferSize());
     }
 

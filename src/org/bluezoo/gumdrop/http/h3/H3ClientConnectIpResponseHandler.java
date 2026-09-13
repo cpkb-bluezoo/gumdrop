@@ -31,16 +31,16 @@ import org.bluezoo.gumdrop.http.ConnectIpRoute;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.client.ConnectIpClientSession;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 /**
  * RFC 9484 -- bridges a generic HTTP/3 Extended CONNECT response ({@link
- * org.bluezoo.gumdrop.http.client.HTTPResponseHandler}) to a {@link
+ * org.bluezoo.gumdrop.http.client.HttpResponseHandler}) to a {@link
  * ConnectIpEventHandler}/{@link ConnectIpClientSession} pair.
  *
  * <p>{@link H3ClientStream} has no notion of CONNECT-IP at all -- it
- * always calls the ordinary {@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler}
+ * always calls the ordinary {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler}
  * callback sequence, and this class is what reinterprets that sequence as
  * an IP tunnel: {@link #startResponseBody} signals acceptance (called as
  * soon as headers are known complete -- see {@link H3ClientStream}'s own
@@ -58,14 +58,14 @@ import org.bluezoo.gumdrop.http.client.HTTPResponse;
  * nested class -- see that class's own documentation for why.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTP3ClientHandler#connectIp
+ * @see Http3ClientHandler#connectIp
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9484">RFC 9484</a>
  */
-class H3ClientConnectIpResponseHandler extends DefaultHTTPResponseHandler {
+class H3ClientConnectIpResponseHandler extends DefaultHttpResponseHandler {
 
     private final ConnectIpEventHandler eventHandler;
 
-    // Bound by HTTP3ClientHandler.connectIp immediately after both this
+    // Bound by Http3ClientHandler.connectIp immediately after both this
     // handler and its H3ClientStream are constructed -- see
     // H3ClientWebSocketResponseHandler.bindStream's own documentation for
     // why construction can't just take this in the constructor.
@@ -83,13 +83,13 @@ class H3ClientConnectIpResponseHandler extends DefaultHTTPResponseHandler {
     }
 
     @Override
-    public void ok(HTTPResponse response) {
+    public void ok(HttpResponse response) {
         // Nothing to do yet -- acceptance is signalled from
         // startResponseBody(), once headers are known complete.
     }
 
     @Override
-    public void error(HTTPResponse response) {
+    public void error(HttpResponse response) {
         failed = true;
         eventHandler.error(new IOException(
                 "CONNECT-IP request failed: " + response.getStatus()));

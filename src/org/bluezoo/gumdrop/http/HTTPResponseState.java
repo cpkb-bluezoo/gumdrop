@@ -1,5 +1,5 @@
 /*
- * HTTPResponseState.java
+ * HttpResponseState.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 /**
  * State interface for sending an HTTP response.
  *
- * <p>This interface is provided to {@link HTTPRequestHandler} callbacks and
+ * <p>This interface is provided to {@link HttpRequestHandler} callbacks and
  * allows the handler to send the response. Methods should be called in order:
  *
  * <pre>
@@ -109,9 +109,9 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
  * factory/handler mechanism.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPRequestHandler
+ * @see HttpRequestHandler
  */
-public interface HTTPResponseState {
+public interface HttpResponseState {
 
     // ─────────────────────────────────────────────────────────────────────────
     // Connection Info
@@ -154,7 +154,7 @@ public interface HTTPResponseState {
      *
      * @return the HTTP version
      */
-    HTTPVersion getVersion();
+    HttpVersion getVersion();
 
     /**
      * Returns the URL scheme ("http" or "https").
@@ -210,7 +210,7 @@ public interface HTTPResponseState {
      * Returns the current trace for distributed tracing, or null if none.
      *
      * <p>When making outbound HTTP calls to other services, pass this trace
-     * to {@link org.bluezoo.gumdrop.http.client.HTTPClient#setTrace} so that
+     * to {@link org.bluezoo.gumdrop.http.client.HttpClient#setTrace} so that
      * the traceparent header is automatically propagated and the distributed
      * trace remains connected.
      *
@@ -357,7 +357,7 @@ public interface HTTPResponseState {
 
     /**
      * Pauses delivery of request body events
-     * ({@link HTTPRequestHandler#requestBodyContent}).
+     * ({@link HttpRequestHandler#requestBodyContent}).
      *
      * <p>When paused, the transport stops reading data from the network
      * for this stream.  Backpressure propagates to the client, causing
@@ -412,7 +412,7 @@ public interface HTTPResponseState {
      * state.sendInformational(103, hints);
      *
      * Headers response = new Headers();
-     * response.status(HTTPStatus.OK);
+     * response.status(HttpStatus.OK);
      * response.add("content-type", "text/html");
      * state.headers(response);
      * // ... body and complete() ...
@@ -444,7 +444,7 @@ public interface HTTPResponseState {
      * {@code :method}, {@code :path}, {@code :scheme}, {@code :authority}.
      *
      * <p>The pushed request will be processed through the normal
-     * {@link HTTPRequestHandlerFactory} mechanism, creating a new handler
+     * {@link HttpRequestHandlerFactory} mechanism, creating a new handler
      * for the pushed stream.
      *
      * <p>For HTTP/1.x connections, this method returns false and has no effect.
@@ -502,7 +502,7 @@ public interface HTTPResponseState {
      * section 3: {@code :method: CONNECT}, {@code :protocol: connect-udp},
      * {@code Capsule-Protocol: ?1}, a path matching the URI Template) and
      * for having a UDP relay ready to receive datagrams via {@link
-     * HTTPRequestHandler#datagramReceived} before calling this -- unlike
+     * HttpRequestHandler#datagramReceived} before calling this -- unlike
      * {@link #upgradeToWebSocket}, this method does not itself bridge to
      * anything; it only performs the HTTP-level accept.
      *
@@ -526,7 +526,7 @@ public interface HTTPResponseState {
      * section 4: {@code :method: CONNECT}, {@code :protocol: connect-ip},
      * {@code Capsule-Protocol: ?1}, a path matching the URI Template) and
      * for having an {@link IpPacketHandler} ready to receive packets via
-     * {@link HTTPRequestHandler#datagramReceived} before calling this --
+     * {@link HttpRequestHandler#datagramReceived} before calling this --
      * like {@link #acceptConnectUdp}, this method does not itself bridge
      * to anything; it only performs the HTTP-level accept.
      *
@@ -563,7 +563,7 @@ public interface HTTPResponseState {
      *
      * <p>Example usage:
      * <pre>{@code
-     * public void headers(HTTPResponseState state, Headers headers) {
+     * public void headers(HttpResponseState state, Headers headers) {
      *     if (WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
      *         String protocol = headers.getValue("Sec-WebSocket-Protocol");
      *         state.upgradeToWebSocket(protocol, new DefaultWebSocketEventHandler() {

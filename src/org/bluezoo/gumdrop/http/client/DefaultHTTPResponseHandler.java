@@ -1,5 +1,5 @@
 /*
- * DefaultHTTPResponseHandler.java
+ * DefaultHttpResponseHandler.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,15 +26,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Default implementation of {@link HTTPResponseHandler} with no-op methods.
+ * Default implementation of {@link HttpResponseHandler} with no-op methods.
  *
  * <p>This class provides sensible default behaviour for all handler methods,
  * making it easy to override only the methods you care about.
  *
  * <p><strong>Default Behaviours:</strong>
  * <ul>
- *   <li>{@link #ok(HTTPResponse)} - no action</li>
- *   <li>{@link #error(HTTPResponse)} - no action</li>
+ *   <li>{@link #ok(HttpResponse)} - no action</li>
+ *   <li>{@link #error(HttpResponse)} - no action</li>
  *   <li>{@link #header(String, String)} - ignored</li>
  *   <li>{@link #startResponseBody()} - no action</li>
  *   <li>{@link #responseBodyContent(ByteBuffer)} - data discarded</li>
@@ -46,30 +46,30 @@ import java.util.logging.Logger;
  *
  * <p><strong>Example:</strong>
  * <pre>
- * request.send(new DefaultHTTPResponseHandler() {
+ * request.send(new DefaultHttpResponseHandler() {
  *     &#64;Override
- *     public void ok(HTTPResponse response) {
+ *     public void ok(HttpResponse response) {
  *         System.out.println("Success: " + response.getStatus());
  *     }
  *
  *     &#64;Override
- *     public void error(HTTPResponse response) {
+ *     public void error(HttpResponse response) {
  *         System.err.println("Error: " + response.getStatus());
  *     }
  * });
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPResponseHandler
+ * @see HttpResponseHandler
  */
-public class DefaultHTTPResponseHandler implements HTTPResponseHandler {
+public class DefaultHttpResponseHandler implements HttpResponseHandler {
 
-    private static final Logger logger = Logger.getLogger(DefaultHTTPResponseHandler.class.getName());
+    private static final Logger logger = Logger.getLogger(DefaultHttpResponseHandler.class.getName());
 
     /**
      * Creates a new default response handler.
      */
-    public DefaultHTTPResponseHandler() {
+    public DefaultHttpResponseHandler() {
     }
 
     /**
@@ -80,7 +80,7 @@ public class DefaultHTTPResponseHandler implements HTTPResponseHandler {
      * @param response the response status
      */
     @Override
-    public void ok(HTTPResponse response) {
+    public void ok(HttpResponse response) {
         // Override to handle success
     }
 
@@ -92,7 +92,7 @@ public class DefaultHTTPResponseHandler implements HTTPResponseHandler {
      * @param response the error response
      */
     @Override
-    public void error(HTTPResponse response) {
+    public void error(HttpResponse response) {
         // Override to handle errors
     }
 

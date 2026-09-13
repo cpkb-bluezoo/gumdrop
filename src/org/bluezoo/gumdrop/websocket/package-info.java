@@ -76,7 +76,7 @@
  * <ul>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketListener} —
  *       TCP transport (HTTP/1.1 upgrade, HTTP/2 Extended CONNECT)</li>
- *   <li>{@link org.bluezoo.gumdrop.websocket.HTTP3WebSocketListener} —
+ *   <li>{@link org.bluezoo.gumdrop.websocket.Http3WebSocketListener} —
  *       QUIC transport (HTTP/3 Extended CONNECT per RFC 9220)</li>
  * </ul>
  *

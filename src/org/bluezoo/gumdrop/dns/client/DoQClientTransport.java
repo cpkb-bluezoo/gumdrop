@@ -75,7 +75,7 @@ public class DoQClientTransport implements DNSClientTransport {
     // fires first (see open()) -- used to check isEstablished() so send()
     // can gate non-eligible-opcode queries behind full establishment (RFC
     // 9250 section 4.5) via QuicTransportFactory's shared SessionTicketCache/
-    // 0-RTT machinery, the same as HTTP3ClientHandler does for HTTP methods.
+    // 0-RTT machinery, the same as Http3ClientHandler does for HTTP methods.
     private QuicConnection quicConnection;
     // Queries deferred because their opcode isn't 0-RTT-eligible and the
     // connection isn't yet established -- drained once it is (see
@@ -205,7 +205,7 @@ public class DoQClientTransport implements DNSClientTransport {
             // RFC 9250 section 4.5: only QUERY/NOTIFY may ride 0-RTT --
             // snapshot now (the caller may reuse/refill data once this
             // call returns) and defer until the connection is fully
-            // established, mirroring HTTP3ClientHandler's method-safety
+            // established, mirroring Http3ClientHandler's method-safety
             // gating for HTTP/3 requests.
             final byte[] snapshot = new byte[data.remaining()];
             data.get(snapshot);

@@ -30,11 +30,11 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.AltSvcListener;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClientProtocolHandler;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpClientProtocolHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -44,7 +44,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
 /**
  * Protocol handler for WebSocket client connections (RFC 6455 §4.1).
  *
- * <p>Extends {@link HTTPClientProtocolHandler} to add WebSocket upgrade
+ * <p>Extends {@link HttpClientProtocolHandler} to add WebSocket upgrade
  * handling. Before the upgrade, HTTP parsing proceeds normally. Once a
  * 101 Switching Protocols response is received and validated (§4.1 step 5),
  * this handler switches to WebSocket mode (§5) and routes all subsequent
@@ -56,9 +56,9 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketClient
- * @see HTTPClientProtocolHandler
+ * @see HttpClientProtocolHandler
  */
-class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
+class WebSocketClientProtocolHandler extends HttpClientProtocolHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketClientProtocolHandler.class.getName());
@@ -81,7 +81,7 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
      * @param port the target port
      * @param secure whether this is a secure (TLS) connection
      */
-    WebSocketClientProtocolHandler(HTTPClientHandler clientHandler,
+    WebSocketClientProtocolHandler(HttpClientHandler clientHandler,
                                    WebSocketEventHandler eventHandler,
                                    String host, int port,
                                    boolean secure) {
@@ -112,7 +112,7 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
     /**
      * Exposes the inherited Alt-Svc listener hook to {@link WebSocketClient},
      * in the same package but not a subclass of
-     * {@link HTTPClientProtocolHandler}. An override cannot narrow the
+     * {@link HttpClientProtocolHandler}. An override cannot narrow the
      * inherited method's access, so this stays {@code protected} -- callers
      * in this package (like {@link WebSocketClient}) can still reach it.
      *
@@ -135,7 +135,7 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
 
     /** RFC 6455 §4.1 — validates the server's 101 response and switches to WebSocket mode. */
     @Override
-    protected boolean handleProtocolSwitch(HTTPStatus status, Headers headers) {
+    protected boolean handleProtocolSwitch(HttpStatus status, Headers headers) {
         if (websocketKey == null) {
             return false;
         }
@@ -166,7 +166,7 @@ class WebSocketClientProtocolHandler extends HTTPClientProtocolHandler {
 
         // Drain any pipelined WebSocket bytes left in the current
         // receive() call's buffer beyond what the lexer has consumed so
-        // far (see HTTPClientProtocolHandler#currentReceiveBuffer) — the
+        // far (see HttpClientProtocolHandler#currentReceiveBuffer) — the
         // zero-copy design has no persistent accumulation buffer the way
         // the removed parseBuffer field used to provide.
         if (currentReceiveBuffer != null && currentReceiveBuffer.hasRemaining()) {

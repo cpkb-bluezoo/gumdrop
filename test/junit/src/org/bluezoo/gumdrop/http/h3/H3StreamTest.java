@@ -23,9 +23,9 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
+import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
+import org.bluezoo.gumdrop.http.HttpResponseState;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
@@ -160,7 +160,7 @@ public class H3StreamTest {
      * A QUIC-level error close (e.g. the peer's CONNECTION_CLOSE, or a
      * local transport error) on a plain (non-WebSocket) request must
      * reach the application's {@link
-     * org.bluezoo.gumdrop.http.HTTPRequestHandler#failed} rather than
+     * org.bluezoo.gumdrop.http.HttpRequestHandler#failed} rather than
      * being silently dropped.
      */
     @Test
@@ -273,29 +273,29 @@ public class H3StreamTest {
         f.set(stream, value);
     }
 
-    private static class StubRequestHandler extends DefaultHTTPRequestHandler {
-        HTTPResponseState failedState;
+    private static class StubRequestHandler extends DefaultHttpRequestHandler {
+        HttpResponseState failedState;
         Exception failedCause;
         boolean requestCompleteCalled;
 
         @Override
-        public void failed(HTTPResponseState state, Exception cause) {
+        public void failed(HttpResponseState state, Exception cause) {
             failedState = state;
             failedCause = cause;
         }
 
         @Override
-        public void requestComplete(HTTPResponseState state) {
+        public void requestComplete(HttpResponseState state) {
             requestCompleteCalled = true;
         }
     }
 
     private H3Stream createStream() throws Exception {
         // connection is null: this test exercises request validation in
-        // isolation, without a real HTTP3ServerHandler/QuicConnection
+        // isolation, without a real Http3ServerHandler/QuicConnection
         // stack -- H3Stream tolerates this (see its own source).
         Constructor<H3Stream> ctor = H3Stream.class.getDeclaredConstructor(
-                HTTP3ServerHandler.class, Encoder.class, Decoder.class);
+                Http3ServerHandler.class, Encoder.class, Decoder.class);
         ctor.setAccessible(true);
         H3Stream stream = ctor.newInstance(null, new Encoder(4096), new Decoder(4096));
         setField(stream, "streamId", 1L);

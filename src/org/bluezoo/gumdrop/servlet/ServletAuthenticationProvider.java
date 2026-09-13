@@ -25,18 +25,18 @@ import java.util.Set;
 
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
-import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
+import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
 
 /**
  * HTTP authentication provider for servlet applications.
  * 
- * This class extends HTTPAuthenticationProvider to provide authentication
+ * This class extends HttpAuthenticationProvider to provide authentication
  * services for servlet-based HTTP servers. It delegates to the servlet Context
  * and Realm for credential verification and configuration.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class ServletAuthenticationProvider extends HTTPAuthenticationProvider {
+public class ServletAuthenticationProvider extends HttpAuthenticationProvider {
 
     private final Context context;
 

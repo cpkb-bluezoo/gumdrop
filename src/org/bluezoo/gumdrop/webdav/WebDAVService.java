@@ -29,8 +29,8 @@ import java.text.MessageFormat;
 import java.util.ResourceBundle;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPService;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpServer;
 
 /**
  * HTTP service for serving files from a filesystem root with optional
@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.http.HTTPService;
  * @see HTTPService
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-public class WebDAVService extends HTTPService {
+public class WebDAVService extends HttpServer {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebDAVService.class.getName());
@@ -152,7 +152,7 @@ public class WebDAVService extends HTTPService {
                 : "auto";
     }
 
-    // ── HTTPService hooks ──
+    // ── HttpServer hooks ──
 
     /**
      * Builds the handler factory on startup.
@@ -185,7 +185,7 @@ public class WebDAVService extends HTTPService {
     }
 
     @Override
-    protected HTTPRequestHandlerFactory getHandlerFactory() {
+    protected HttpRequestHandlerFactory getHandlerFactory() {
         return handlerFactory;
     }
 

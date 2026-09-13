@@ -36,11 +36,11 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
-import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import javax.net.ssl.X509TrustManager;
@@ -80,7 +80,7 @@ public class DoHClientTransport implements DNSClientTransport {
     private static final ScheduledExecutorService TIMER =
             createTimerExecutor();
 
-    private HTTPClient httpClient;
+    private HttpClient httpClient;
     private DNSClientTransportHandler handler;
     private volatile boolean connected;
 
@@ -145,7 +145,7 @@ public class DoHClientTransport implements DNSClientTransport {
         if (port <= 0) {
             port = DEFAULT_DOH_PORT;
         }
-        httpClient = new HTTPClient(server.getHostAddress(), port);
+        httpClient = new HttpClient(server.getHostAddress(), port);
         httpClient.setSecure(true);
         if (clientCredentials != null) {
             httpClient.setClientCredentials(clientCredentials);
@@ -153,7 +153,7 @@ public class DoHClientTransport implements DNSClientTransport {
         if (trustManager != null) {
             httpClient.setTrustManager(trustManager);
         }
-        httpClient.connect(new HTTPClientHandler() {
+        httpClient.connect(new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 connected = true;
@@ -188,7 +188,7 @@ public class DoHClientTransport implements DNSClientTransport {
         byte[] queryBytes = new byte[data.remaining()];
         data.get(queryBytes);
 
-        HTTPRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path);
         // RFC 8484 section 4.1
         request.header("Content-Type", DNS_MESSAGE_CONTENT_TYPE);
         request.header("Accept", DNS_MESSAGE_CONTENT_TYPE);
@@ -228,7 +228,7 @@ public class DoHClientTransport implements DNSClientTransport {
      * Accumulates the HTTP response body (the DNS wire-format response)
      * and delivers it to the transport handler on completion.
      */
-    private static class DoHResponseHandler implements HTTPResponseHandler {
+    private static class DoHResponseHandler implements HttpResponseHandler {
 
         private final DNSClientTransportHandler handler;
         private final ByteArrayOutputStream accumulator =
@@ -241,12 +241,12 @@ public class DoHClientTransport implements DNSClientTransport {
 
         // RFC 8484 section 4.2.1: a successful response uses HTTP 200
         @Override
-        public void ok(HTTPResponse response) {
+        public void ok(HttpResponse response) {
             success = true;
         }
 
         @Override
-        public void error(HTTPResponse response) {
+        public void error(HttpResponse response) {
             handler.onError(new IOException(
                     "DoH server returned HTTP error: " + response));
         }

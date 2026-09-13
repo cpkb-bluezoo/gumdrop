@@ -34,12 +34,12 @@ import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 
 /**
- * A ready-to-use {@link HTTPRequestHandler} implementing RFC 9298
+ * A ready-to-use {@link HttpRequestHandler} implementing RFC 9298
  * (Proxying UDP in HTTP): accepts a CONNECT-UDP request whose target is
  * approved by a {@link ConnectUdpPolicy}, and relays UDP datagrams
  * between the client and that target for the life of the request.
  *
- * <p>An {@link HTTPRequestHandlerFactory} returns an instance of this
+ * <p>An {@link HttpRequestHandlerFactory} returns an instance of this
  * class (constructed with a policy) for any request it wants handled as
  * CONNECT-UDP -- typically after checking {@code :method}/{@code
  * :protocol} itself, though this class also re-validates those and the
@@ -47,15 +47,15 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
  * anything with a UDP socket.
  *
  * <p>Works identically over HTTP/1.1, HTTP/2, and HTTP/3: {@link
- * HTTPResponseState#acceptConnectUdp} and {@link
- * HTTPRequestHandler#datagramReceived} are the only per-transport
+ * HttpResponseState#acceptConnectUdp} and {@link
+ * HttpRequestHandler#datagramReceived} are the only per-transport
  * mechanics this class relies on, both already implemented per
  * transport.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9298">RFC 9298</a>
  */
-public class ConnectUdpRequestHandler extends DefaultHTTPRequestHandler {
+public class ConnectUdpRequestHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ConnectUdpRequestHandler.class.getName());
     private static final ResourceBundle L10N =
@@ -92,7 +92,7 @@ public class ConnectUdpRequestHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void headers(final HTTPResponseState state, Headers headers) {
+    public void headers(final HttpResponseState state, Headers headers) {
         if (!isConnectUdpRequest(state, headers)) {
             rejectRequest(state, 400);
             return;
@@ -144,10 +144,10 @@ public class ConnectUdpRequestHandler extends DefaultHTTPRequestHandler {
      * over HTTP/2 or later, so HTTP/1.1 instead sends a literal {@code
      * Upgrade: connect-udp} request (typically {@code GET}, not {@code
      * CONNECT}) -- mirroring {@code Stream#isConnectUdpRequest}, which
-     * this class's caller ({@link HTTPResponseState#acceptConnectUdp})
+     * this class's caller ({@link HttpResponseState#acceptConnectUdp})
      * re-validates independently.
      */
-    private static boolean isConnectUdpRequest(HTTPResponseState state, Headers headers) {
+    private static boolean isConnectUdpRequest(HttpResponseState state, Headers headers) {
         if (state.getVersion().supportsMultiplexing()) {
             return "CONNECT".equals(headers.getMethod())
                     && "connect-udp".equalsIgnoreCase(headers.getValue(":protocol"));
@@ -155,7 +155,7 @@ public class ConnectUdpRequestHandler extends DefaultHTTPRequestHandler {
         return "connect-udp".equalsIgnoreCase(headers.getValue("upgrade"));
     }
 
-    private void accept(HTTPResponseState state, InetSocketAddress resolvedTarget) {
+    private void accept(HttpResponseState state, InetSocketAddress resolvedTarget) {
         relay = new ConnectUdpRelay(state, idleTimeoutMs);
         try {
             relay.start(resolvedTarget);
@@ -171,9 +171,9 @@ public class ConnectUdpRequestHandler extends DefaultHTTPRequestHandler {
         }
     }
 
-    private void rejectRequest(HTTPResponseState state, int statusCode) {
+    private void rejectRequest(HttpResponseState state, int statusCode) {
         Headers response = new Headers();
-        response.status(HTTPStatus.fromCode(statusCode));
+        response.status(HttpStatus.fromCode(statusCode));
         state.headers(response);
         state.complete();
     }
@@ -184,14 +184,14 @@ public class ConnectUdpRequestHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void datagramReceived(HTTPResponseState state, ByteBuffer data) {
+    public void datagramReceived(HttpResponseState state, ByteBuffer data) {
         if (relay != null) {
             relay.receiveDatagram(data);
         }
     }
 
     @Override
-    public void failed(HTTPResponseState state, Exception cause) {
+    public void failed(HttpResponseState state, Exception cause) {
         if (relay != null) {
             relay.close();
             relay = null;

@@ -13,7 +13,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Tests for server-side HTTP/2 features in {@link HTTPProtocolHandler},
+ * Tests for server-side HTTP/2 features in {@link HttpProtocolHandler},
  * including RFC 9113 cipher suite validation.
  */
 public class HTTPProtocolHandlerTest {
@@ -23,21 +23,21 @@ public class HTTPProtocolHandlerTest {
     public void testGCMCipherAllowed() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256");
-        assertFalse(HTTPProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testChaCha20CipherAllowed() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256");
-        assertFalse(HTTPProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testCCMCipherAllowed() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_ECDHE_ECDSA_WITH_AES_128_CCM");
-        assertFalse(HTTPProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     // RFC 9113 section 9.2.2: CBC suites (non-AEAD) are blocked
@@ -45,14 +45,14 @@ public class HTTPProtocolHandlerTest {
     public void testCBCCipherBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_RSA_WITH_AES_128_CBC_SHA");
-        assertTrue(HTTPProtocolHandler.isBlockedH2CipherSuite(info));
+        assertTrue(HttpProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testRC4CipherBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_RSA_WITH_RC4_128_SHA");
-        assertTrue(HTTPProtocolHandler.isBlockedH2CipherSuite(info));
+        assertTrue(HttpProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     // TLS 1.3 only has AEAD suites — never blocked
@@ -60,27 +60,27 @@ public class HTTPProtocolHandlerTest {
     public void testTLS13NeverBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.3",
                 "TLS_AES_256_GCM_SHA384");
-        assertFalse(HTTPProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testTLS13CBCNameNeverBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.3",
                 "TLS_RSA_WITH_AES_128_CBC_SHA");
-        assertFalse(HTTPProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testNullProtocolNotBlocked() {
         SecurityInfo info = new StubSecurityInfo(null,
                 "TLS_RSA_WITH_AES_128_CBC_SHA");
-        assertFalse(HTTPProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testNullCipherNotBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2", null);
-        assertFalse(HTTPProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     private static class StubSecurityInfo implements SecurityInfo {

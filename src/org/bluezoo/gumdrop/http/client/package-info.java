@@ -24,13 +24,13 @@
  * automatic transport negotiation (DNS HTTPS-record discovery, cached
  * Alt-Svc, ALPN) choosing between them.
  *
- * <p>{@link org.bluezoo.gumdrop.http.client.HTTPClient} is the facade
+ * <p>{@link org.bluezoo.gumdrop.http.client.HttpClient} is the facade
  * applications use to make requests; {@link
- * org.bluezoo.gumdrop.http.client.HTTPRequest} represents one request,
- * {@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler} the
+ * org.bluezoo.gumdrop.http.client.HttpRequest} represents one request,
+ * {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler} the
  * callback interface for response events (status, headers including
  * trailers, streamed body, completion), and {@link
- * org.bluezoo.gumdrop.http.client.HTTPResponse} carries status and
+ * org.bluezoo.gumdrop.http.client.HttpResponse} carries status and
  * redirect information. {@link org.bluezoo.gumdrop.http.client.PushPromise}
  * exposes HTTP/2 server push. Request and response bodies are streamed
  * rather than buffered, with backpressure support for large uploads.
@@ -40,8 +40,8 @@
  * cancellation, and Basic/Bearer/Digest/OAuth authentication.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.http.client.HTTPClient
- * @see org.bluezoo.gumdrop.http.client.HTTPResponseHandler
+ * @see org.bluezoo.gumdrop.http.client.HttpClient
+ * @see org.bluezoo.gumdrop.http.client.HttpResponseHandler
  * @see org.bluezoo.gumdrop.http.h3
  */
 package org.bluezoo.gumdrop.http.client;

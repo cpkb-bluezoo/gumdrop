@@ -43,13 +43,13 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * Wire-level regression test for issue #393: a real {@link
- * HTTPProtocolHandler} parsing a real HTTP/1.1 Upgrade request (RFC 9110
+ * HttpProtocolHandler} parsing a real HTTP/1.1 Upgrade request (RFC 9110
  * section 7.8, RFC 9298 section 3: {@code Upgrade: connect-udp}, {@code
  * Capsule-Protocol: ?1}) must reach {@link ConnectUdpRequestHandler#headers}
  * and, once the target resolves and the policy allows it, get a real
  * {@code 101 Switching Protocols} response back over the wire, then hand
  * the connection's remaining bytes to the stream via {@link
- * HTTPConnectionLike#switchToStreamTunnelMode} -- unlike HTTP/2 (covered by
+ * HttpConnectionLike#switchToStreamTunnelMode} -- unlike HTTP/2 (covered by
  * {@link ConnectUdpH2WireTest}), this dispatch path ({@link
  * Stream#acceptConnectUdp}'s HTTP/1.1 branch) is new code not otherwise
  * exercised by any pre-existing test.
@@ -91,7 +91,7 @@ public class ConnectUdpH1WireTest {
         @Override public TelemetryConfig getTelemetryConfig() { return null; }
     }
 
-    private HTTPProtocolHandler connection;
+    private HttpProtocolHandler connection;
     private CountingEndpoint endpoint;
     private SelectorLoop loop;
 
@@ -100,7 +100,7 @@ public class ConnectUdpH1WireTest {
         loop = new SelectorLoop(0);
         loop.start();
 
-        HTTPListener listener = new HTTPListener();
+        HttpListener listener = new HttpListener();
         ConnectUdpPolicy permissive = new ConnectUdpPolicy() {
             @Override
             public boolean isTargetAllowed(InetAddress address, int port) {
@@ -109,7 +109,7 @@ public class ConnectUdpH1WireTest {
         };
         listener.setHandlerFactory((state, headers) -> new ConnectUdpRequestHandler(permissive) { });
 
-        connection = new HTTPProtocolHandler(listener);
+        connection = new HttpProtocolHandler(listener);
         endpoint = new CountingEndpoint();
         endpoint.loop = loop;
         connection.connected(endpoint);

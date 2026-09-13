@@ -43,7 +43,7 @@ import static org.junit.Assert.*;
  * entry across sequential HTTP/1.1 requests instead of accumulating one
  * per request. {@code getStream()} and {@code streams} are relaxed from
  * {@code private} to package-private for this (see {@link
- * HTTPProtocolHandler#streamCountForTesting()}).
+ * HttpProtocolHandler#streamCountForTesting()}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -51,8 +51,8 @@ public class HTTPProtocolHandlerStreamMapTest {
 
     @Test
     public void testCompletedHttp1StreamEvictedImmediatelyOnNextRequest() {
-        HTTPListener listener = new HTTPListener();
-        HTTPProtocolHandler connection = new HTTPProtocolHandler(listener);
+        HttpListener listener = new HttpListener();
+        HttpProtocolHandler connection = new HttpProtocolHandler(listener);
         // Default state (REQUEST_LINE) and version (HTTP_1_0) are already
         // the plain, sequential HTTP/1.x case this fix targets.
 
@@ -72,8 +72,8 @@ public class HTTPProtocolHandlerStreamMapTest {
 
     @Test
     public void testFirstStreamOnFreshConnectionIsNotAffectedByEviction() {
-        HTTPListener listener = new HTTPListener();
-        HTTPProtocolHandler connection = new HTTPProtocolHandler(listener);
+        HttpListener listener = new HttpListener();
+        HttpProtocolHandler connection = new HttpProtocolHandler(listener);
 
         Stream first = connection.getStream(1);
 

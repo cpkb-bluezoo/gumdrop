@@ -42,13 +42,13 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * Wire-level regression test for issue #394: a real {@link
- * HTTPProtocolHandler} parsing a real HTTP/1.1 Upgrade request (RFC 9110
+ * HttpProtocolHandler} parsing a real HTTP/1.1 Upgrade request (RFC 9110
  * section 7.8, RFC 9484 section 4: {@code Upgrade: connect-ip}, {@code
  * Capsule-Protocol: ?1}) must reach {@link ConnectIpRequestHandler#headers}
  * and, once the policy allows it, get a real {@code 101 Switching
  * Protocols} response back over the wire, then hand the connection's
  * remaining bytes to the stream via {@link
- * HTTPConnectionLike#switchToStreamTunnelMode} -- unlike HTTP/2 (covered
+ * HttpConnectionLike#switchToStreamTunnelMode} -- unlike HTTP/2 (covered
  * by {@link ConnectIpH2WireTest}), this dispatch path ({@link
  * Stream#acceptConnectIp}'s HTTP/1.1 branch) is new code not otherwise
  * exercised by any pre-existing test.
@@ -90,7 +90,7 @@ public class ConnectIpH1WireTest {
         @Override public TelemetryConfig getTelemetryConfig() { return null; }
     }
 
-    private HTTPProtocolHandler connection;
+    private HttpProtocolHandler connection;
     private CountingEndpoint endpoint;
     private SelectorLoop loop;
 
@@ -99,7 +99,7 @@ public class ConnectIpH1WireTest {
         loop = new SelectorLoop(0);
         loop.start();
 
-        HTTPListener listener = new HTTPListener();
+        HttpListener listener = new HttpListener();
         ConnectIpPolicy permissive = new ConnectIpPolicy() {
             @Override
             public boolean isRequestAllowed(ConnectIpTarget target) {
@@ -116,7 +116,7 @@ public class ConnectIpH1WireTest {
         };
         listener.setHandlerFactory((state, headers) -> new ConnectIpRequestHandler(permissive, noopPacketHandler));
 
-        connection = new HTTPProtocolHandler(listener);
+        connection = new HttpProtocolHandler(listener);
         endpoint = new CountingEndpoint();
         endpoint.loop = loop;
         connection.connected(endpoint);

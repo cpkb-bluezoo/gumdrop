@@ -42,7 +42,7 @@ import static org.junit.Assert.fail;
 public class Gumdrop3NamingConventionTest {
 
     private static final Pattern PUBLIC_TYPE = Pattern.compile(
-            "^\\s*public (?:final )?(?:class|interface|enum) (\\w+)",
+            "^\\s*public (?:abstract |final )?(?:class|interface|enum) (\\w+)",
             Pattern.MULTILINE);
 
     private static final String INVENTORY = "gumdrop3-legacy-type-renames.properties";

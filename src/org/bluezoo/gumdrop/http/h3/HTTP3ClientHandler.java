@@ -1,5 +1,5 @@
 /*
- * HTTP3ClientHandler.java
+ * Http3ClientHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -46,8 +46,8 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
-import org.bluezoo.gumdrop.http.client.HTTPMethodSafety;
-import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpMethodSafety;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.Encoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
@@ -66,11 +66,11 @@ import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
  * {@link H3ControlStream} to receive the peer's control stream events.
  *
  * <p>This class provides
- * {@link #sendRequest(Headers, HTTPResponseHandler)} to initiate
+ * {@link #sendRequest(Headers, HttpResponseHandler)} to initiate
  * HTTP/3 requests: each request opens a new bidirectional stream
  * handled by its own {@link H3ClientStream}, which owns its own
  * {@link H3Parser} and translates response frames into
- * {@link HTTPResponseHandler} callbacks directly as they arrive, rather
+ * {@link HttpResponseHandler} callbacks directly as they arrive, rather
  * than through any polling loop. Public send entry points marshal onto
  * the connection's {@code SelectorLoop} so callers need not share that
  * thread affinity.
@@ -79,9 +79,9 @@ import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
  * @see H3ClientStream
  * @see QuicConnection
  */
-public final class HTTP3ClientHandler implements H3ControlStream.Listener {
+public final class Http3ClientHandler implements H3ControlStream.Listener {
 
-    private static final Logger LOGGER = Logger.getLogger(HTTP3ClientHandler.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(Http3ClientHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
@@ -142,13 +142,13 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      *
      * @param quicConnection the underlying QUIC connection
      */
-    public HTTP3ClientHandler(QuicConnection quicConnection) {
+    public Http3ClientHandler(QuicConnection quicConnection) {
         this.quicConnection = quicConnection;
 
         quicConnection.setUnidirectionalStreamAcceptHandler(new StreamAcceptHandler() {
             @Override
             public ProtocolHandler acceptStream(Endpoint stream) {
-                return new H3ControlStream(quicConnection, HTTP3ClientHandler.this, qpackEncoder, qpackDecoder,
+                return new H3ControlStream(quicConnection, Http3ClientHandler.this, qpackEncoder, qpackDecoder,
                         true);
             }
         });
@@ -352,7 +352,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * own {@code SelectorLoop} thread -- the only thread that may safely
      * touch its state (see {@code QuicConnection}'s class documentation).
      * {@link H3Request} uses this so that application callers of
-     * {@link org.bluezoo.gumdrop.http.client.HTTPRequest} on an arbitrary
+     * {@link org.bluezoo.gumdrop.http.client.HttpRequest} on an arbitrary
      * thread don't race the connection's own I/O thread.
      *
      * @param task the task to run
@@ -376,7 +376,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * @return true if the request may be sent immediately
      */
     boolean isSafeToSendNow(String method) {
-        return quicConnection.isEstablished() || HTTPMethodSafety.isEarlyDataEligible(method);
+        return quicConnection.isEstablished() || HttpMethodSafety.isEarlyDataEligible(method);
     }
 
     /**
@@ -453,7 +453,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * @param handler the handler to receive response events
      * @return the stream ID, or -1 on failure
      */
-    public long sendRequest(Headers headers, HTTPResponseHandler handler) {
+    public long sendRequest(Headers headers, HttpResponseHandler handler) {
         return sendRequest(headers, handler, true);
     }
 
@@ -481,7 +481,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * @return the stream ID, or -1 on failure or if the open is still
      *         queued behind peer MAX_STREAMS credit
      */
-    public long sendRequest(final Headers headers, final HTTPResponseHandler handler,
+    public long sendRequest(final Headers headers, final HttpResponseHandler handler,
             final boolean fin) {
         final long[] streamId = new long[] { -1L };
         final CountDownLatch done = new CountDownLatch(1);
@@ -522,7 +522,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * @return the stream object; {@link H3ClientStream#getStreamId} is
      *         {@code -1} until the open completes
      */
-    H3ClientStream startRequest(Headers headers, HTTPResponseHandler handler, boolean fin) {
+    H3ClientStream startRequest(Headers headers, HttpResponseHandler handler, boolean fin) {
         H3ClientStream clientStream = new H3ClientStream(this, qpackDecoder, handler);
         if (goaway) {
             handler.failed(new IOException("Connection received GOAWAY"));
@@ -591,7 +591,7 @@ public final class HTTP3ClientHandler implements H3ControlStream.Listener {
      * (see {@link #execute}).
      *
      * @param streamId the stream ID returned by
-     *                 {@link #sendRequest(Headers, HTTPResponseHandler, boolean)}
+     *                 {@link #sendRequest(Headers, HttpResponseHandler, boolean)}
      * @param data the body data
      * @param fin true if this is the last body data
      */

@@ -1,5 +1,5 @@
 /*
- * HTTPClientHandler.java
+ * HttpClientHandler.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,14 +32,14 @@ import org.bluezoo.gumdrop.ClientHandler;
  * session callbacks.
  *
  * <p>Once a connection is established (via {@link #onConnected}), the client
- * can immediately begin making HTTP requests through the {@link HTTPClient}
+ * can immediately begin making HTTP requests through the {@link HttpClient}
  * request factory methods.
  *
  * <h4>Basic Usage</h4>
  * <pre>{@code
- * HTTPClient client = new HTTPClient("api.example.com", 443);
+ * HttpClient client = new HttpClient("api.example.com", 443);
  * client.setSecure(true);
- * client.connect(new HTTPClientHandler() {
+ * client.connect(new HttpClientHandler() {
  *     public void onConnected(Endpoint endpoint) {
  *         // Connection ready - can now make requests
  *         client.get("/users").send(responseHandler);
@@ -64,16 +64,16 @@ import org.bluezoo.gumdrop.ClientHandler;
  * <p>For secure connections, the HTTP version is negotiated during the TLS
  * handshake via ALPN. The {@link #onSecurityEstablished} callback indicates
  * when this negotiation is complete. After this callback,
- * {@link HTTPClient#getVersion()} returns the negotiated version.
+ * {@link HttpClient#getVersion()} returns the negotiated version.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPClient
+ * @see HttpClient
  * @see ClientHandler
  */
-public interface HTTPClientHandler extends ClientHandler {
+public interface HttpClientHandler extends ClientHandler {
 
     // No additional methods required.
-    // HTTP is stateless - once connected, requests are made via HTTPClient methods.
+    // HTTP is stateless - once connected, requests are made via HttpClient methods.
 
 }
 

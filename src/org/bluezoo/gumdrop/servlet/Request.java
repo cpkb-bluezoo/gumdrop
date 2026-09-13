@@ -24,10 +24,10 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
-import org.bluezoo.gumdrop.http.HTTPDateFormat;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
+import org.bluezoo.gumdrop.http.HttpDateFormat;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 import org.bluezoo.gumdrop.mime.ContentType;
 import org.bluezoo.gumdrop.mime.ContentTypeParser;
@@ -74,7 +74,7 @@ class Request implements HttpServletRequest {
         GET_PARTS_CALLED;
     }
 
-    static final DateFormat dateFormat = new HTTPDateFormat();
+    static final DateFormat dateFormat = new HttpDateFormat();
     private static final byte COLON = 0x3a;
 
     final ServletHandler handler;
@@ -125,7 +125,7 @@ class Request implements HttpServletRequest {
             queryString = uri.getRawQuery();
         }
         
-        HTTPResponseState state = handler.getState();
+        HttpResponseState state = handler.getState();
         this.secure = state.isSecure();
         this.requestId = Long.toHexString(REQUEST_SEQ.incrementAndGet());
         this.connectionId = state.getConnectionId();
@@ -171,7 +171,7 @@ class Request implements HttpServletRequest {
 
     // Helper methods for accessing connection info
 
-    private HTTPVersion getHTTPVersion() {
+    private HttpVersion getHTTPVersion() {
         return handler.getState().getVersion();
     }
 
@@ -499,7 +499,7 @@ class Request implements HttpServletRequest {
         // Create an authentication provider for this context and use it directly
         ServletAuthenticationProvider authProvider = new ServletAuthenticationProvider(context);
         String authHeader = getHeader("Authorization");
-        HTTPAuthenticationProvider.AuthenticationResult result = authProvider.authenticate(
+        HttpAuthenticationProvider.AuthenticationResult result = authProvider.authenticate(
                 authHeader, getMethod(), getRequestURI());
 
         if (!result.success) {

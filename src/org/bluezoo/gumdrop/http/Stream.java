@@ -82,7 +82,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9112">RFC 9112</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9113#section-5">RFC 9113 section 5</a>
  */
-class Stream implements HTTPResponseState {
+class Stream implements HttpResponseState {
 
     private static final Logger LOGGER = Logger.getLogger(Stream.class.getName());
     private static final ResourceBundle L10N =
@@ -116,10 +116,10 @@ class Stream implements HTTPResponseState {
         HALF_CLOSED_REMOTE;  // RFC 9113 section 5.1: remote END_STREAM received
     }
 
-    final HTTPConnectionLike connection;
+    final HttpConnectionLike connection;
     final int streamId;
 
-    Stream(HTTPConnectionLike connection, int streamId) {
+    Stream(HttpConnectionLike connection, int streamId) {
         this.connection = connection;
         this.streamId = streamId;
     }
@@ -153,7 +153,7 @@ class Stream implements HTTPResponseState {
     private boolean responseChunked = false;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPResponseState implementation
+    // HttpResponseState implementation
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
@@ -169,7 +169,7 @@ class Stream implements HTTPResponseState {
 
     private ResponseState responseState = ResponseState.INITIAL;
     private Headers bufferedResponseHeaders;
-    private HTTPRequestHandler handler;
+    private HttpRequestHandler handler;
     private Principal authenticatedPrincipal;
 
     // Request body state tracking for handler dispatch
@@ -209,7 +209,7 @@ class Stream implements HTTPResponseState {
 
     @Override
     public String getProtocolConnectionId() {
-        if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+        if (connection.getVersion() == HttpVersion.HTTP_2_0) {
             return Integer.toString(streamId);
         }
         return "";
@@ -233,7 +233,7 @@ class Stream implements HTTPResponseState {
     /**
      * Returns the version of the connection.
      */
-    public HTTPVersion getVersion() {
+    public HttpVersion getVersion() {
         return connection.getVersion();
     }
 
@@ -258,7 +258,7 @@ class Stream implements HTTPResponseState {
      */
     private boolean sendServerPush(String method, String uri, Headers headers) {
         // Only HTTP/2 connections support server push
-        if (connection.getVersion() != HTTPVersion.HTTP_2_0) {
+        if (connection.getVersion() != HttpVersion.HTTP_2_0) {
             return false;
         }
         
@@ -431,7 +431,7 @@ class Stream implements HTTPResponseState {
         }
         // RFC 9113 section 8.2: validate pseudo-headers and
         // connection-specific header constraints
-        if (connection.getVersion() == HTTPVersion.HTTP_2_0
+        if (connection.getVersion() == HttpVersion.HTTP_2_0
                 && headers != null && !validateH2Headers()) {
             connection.sendRstStream(streamId, H2FrameHandler.ERROR_PROTOCOL_ERROR);
             state = State.CLOSED;
@@ -464,7 +464,7 @@ class Stream implements HTTPResponseState {
                     if (isNoBodyMethod(value)) {
                         contentLength = 0;
                     }
-                } else if (connection.getVersion() != HTTPVersion.HTTP_2_0) { // HTTP/1
+                } else if (connection.getVersion() != HttpVersion.HTTP_2_0) { // HTTP/1
                     // RFC 9112 section 9.6: Connection header field
                     if ("Connection".equalsIgnoreCase(name)) {
                         if ("close".equalsIgnoreCase(value)) {
@@ -502,7 +502,7 @@ class Stream implements HTTPResponseState {
                         // reparsed as the start of a smuggled request. RFC
                         // 9112 section 6.3 requires rejecting the request
                         // instead.
-                        long parsed = HTTPUtils.validateContentLength(value);
+                        long parsed = HttpUtils.validateContentLength(value);
                         if (parsed < 0) {
                             LOGGER.warning(MessageFormat.format(
                                     "Rejecting invalid Content-Length: {0}",
@@ -535,7 +535,7 @@ class Stream implements HTTPResponseState {
                         }
                         }
                     } else if ("Transfer-Encoding".equalsIgnoreCase(name)) {
-                        if (HTTPUtils.isChunkedTransferEncoding(value)) {
+                        if (HttpUtils.isChunkedTransferEncoding(value)) {
                         // RFC 9112 section 6.3: Transfer-Encoding overrides Content-Length
                         contentLength = Integer.MAX_VALUE;
                         chunked = true;
@@ -594,7 +594,7 @@ class Stream implements HTTPResponseState {
             headers.removeAll("Content-Length");
         }
         long maxBody = connection.getMaxRequestBodySize();
-        if (maxBody > 0 && connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
+        if (maxBody > 0 && connection.getVersion() == HttpVersion.HTTP_2_0 && headers != null) {
             // Check Content-Length before stripHttp1FramingHeaders removes it.
             String cl = headers.getValue("content-length");
             if (cl != null) {
@@ -609,8 +609,8 @@ class Stream implements HTTPResponseState {
                 }
             }
         }
-        if (connection.getVersion() == HTTPVersion.HTTP_2_0 && headers != null) {
-            HTTPVersion.stripHttp1FramingHeaders(headers);
+        if (connection.getVersion() == HttpVersion.HTTP_2_0 && headers != null) {
+            HttpVersion.stripHttp1FramingHeaders(headers);
         }
         if (maxBody > 0) {
             if (!chunked && contentLength > maxBody) {
@@ -619,7 +619,7 @@ class Stream implements HTTPResponseState {
             }
         }
         // RFC 9110 section 10.1.1: Expect: 100-continue
-        if (connection.getVersion() != HTTPVersion.HTTP_2_0
+        if (connection.getVersion() != HttpVersion.HTTP_2_0
                 && headers != null && contentLength != 0) {
             String expect = headers.getValue("expect");
             if (expect != null && "100-continue".equalsIgnoreCase(expect.trim())) {
@@ -636,13 +636,13 @@ class Stream implements HTTPResponseState {
         // no HTTP/1.1 or HTTP/2 request was ever rejected regardless of
         // whether credentials were supplied.
         if (handler == null) {
-            HTTPAuthenticationProvider authProvider = connection.getAuthenticationProvider();
+            HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
                 String authHeader = headers != null ? headers.getValue("authorization") : null;
-                HTTPAuthenticationProvider.AuthenticationResult result =
+                HttpAuthenticationProvider.AuthenticationResult result =
                         authProvider.authenticate(authHeader, method, requestTarget);
                 if (result.success) {
-                    authenticatedPrincipal = new HTTPPrincipal(result.username);
+                    authenticatedPrincipal = new HttpPrincipal(result.username);
                 } else if (authProvider.isAuthenticationRequired()) {
                     try {
                         sendUnauthorized(authProvider);
@@ -671,7 +671,7 @@ class Stream implements HTTPResponseState {
             // No handler yet - try to create one via factory
             // Note: We create the handler even for h2c upgrade requests, because
             // the request body (if any) arrives before the protocol switch.
-            HTTPRequestHandlerFactory factory = connection.getHandlerFactory();
+            HttpRequestHandlerFactory factory = connection.getHandlerFactory();
             if (factory != null) {
                 String path = headers.getPath();
                 if (Boolean.getBoolean("gumdrop.http.debug")) {
@@ -711,7 +711,7 @@ class Stream implements HTTPResponseState {
         timestampStarted = System.currentTimeMillis();
 
         // Record metrics for request start
-        HTTPServerMetrics metrics = getServerMetrics();
+        HttpServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.requestStarted(method != null ? method : "UNKNOWN");
         }
@@ -988,13 +988,13 @@ class Stream implements HTTPResponseState {
         // until the idle/drain timeout and the connection slot leaks.
         boolean closeAfterResponse = responseAlreadySent
                 && closeConnection
-                && connection.getVersion() != HTTPVersion.HTTP_2_0;
+                && connection.getVersion() != HttpVersion.HTTP_2_0;
 
         if (responseAlreadySent) {
             state = State.CLOSED;
             timestampCompleted = System.currentTimeMillis();
-            if (connection instanceof HTTPProtocolHandler) {
-                ((HTTPProtocolHandler) connection).streamResponseCompleted(streamId);
+            if (connection instanceof HttpProtocolHandler) {
+                ((HttpProtocolHandler) connection).streamResponseCompleted(streamId);
             }
         } else if (state != State.CLOSED) {
             state = State.HALF_CLOSED_REMOTE;
@@ -1068,29 +1068,29 @@ class Stream implements HTTPResponseState {
 
         // RFC 9110 section 10.2.4: Server header field
         //
-        // These values are the exact HTTPProtocolHandler.*_VALUE constants
+        // These values are the exact HttpProtocolHandler.*_VALUE constants
         // (not just equal-looking literals) so that writeWellKnownLine's
         // reference-equality fast path there actually applies: it exists
         // specifically to bulk-write these framework-fixed lines instead of
         // encoding their characters again on every single response.
-        headers.add(new Header("Server", HTTPProtocolHandler.SERVER_HEADER_VALUE));
+        headers.add(new Header("Server", HttpProtocolHandler.SERVER_HEADER_VALUE));
         // RFC 9110 section 6.6.1: origin server SHOULD send Date in responses
-        headers.add(new Header("Date", HTTPDateCache.get()));
+        headers.add(new Header("Date", HttpDateCache.get()));
         // RFC 9112 section 9.6: Connection: close signals end of persistence
         if (closeConnection) {
-            headers.add(new Header("Connection", HTTPProtocolHandler.CONNECTION_CLOSE_VALUE));
+            headers.add(new Header("Connection", HttpProtocolHandler.CONNECTION_CLOSE_VALUE));
         }
 
         // Add default security headers if enabled and not already set
-        if (connection instanceof HTTPProtocolHandler) {
-            HTTPListener listener =
-                    ((HTTPProtocolHandler) connection).getListener();
+        if (connection instanceof HttpProtocolHandler) {
+            HttpListener listener =
+                    ((HttpProtocolHandler) connection).getListener();
             if (listener != null && listener.getAddSecurityHeaders()) {
                 if (!hasXFrameOptions) {
-                    headers.add(new Header("X-Frame-Options", HTTPProtocolHandler.X_FRAME_OPTIONS_VALUE));
+                    headers.add(new Header("X-Frame-Options", HttpProtocolHandler.X_FRAME_OPTIONS_VALUE));
                 }
                 if (!hasXContentTypeOptions) {
-                    headers.add(new Header("X-Content-Type-Options", HTTPProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE));
+                    headers.add(new Header("X-Content-Type-Options", HttpProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE));
                 }
             }
         }
@@ -1102,12 +1102,12 @@ class Stream implements HTTPResponseState {
 
         // RFC 9112 section 6.3: for HTTP/1.1 responses with a body, use
         // Transfer-Encoding: chunked when Content-Length is not set
-        if (connection.getVersion() == HTTPVersion.HTTP_1_1
+        if (connection.getVersion() == HttpVersion.HTTP_1_1
                 && statusCode >= 200 && statusCode != 204 && statusCode != 304
                 && !"HEAD".equals(method)
                 && !hasContentLength
                 && !hasTransferEncoding) {
-            headers.add("Transfer-Encoding", HTTPProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE);
+            headers.add("Transfer-Encoding", HttpProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE);
             responseChunked = true;
         }
 
@@ -1119,11 +1119,11 @@ class Stream implements HTTPResponseState {
             if (state == State.HALF_CLOSED_REMOTE) {
                 state = State.CLOSED; // normal request termination
                 timestampCompleted = System.currentTimeMillis();
-                if (connection instanceof HTTPProtocolHandler) {
-                    ((HTTPProtocolHandler) connection).streamResponseCompleted(streamId);
+                if (connection instanceof HttpProtocolHandler) {
+                    ((HttpProtocolHandler) connection).streamResponseCompleted(streamId);
                 }
                 // Close TCP connection if Connection: close was set
-                if (closeConnection && connection.getVersion() != HTTPVersion.HTTP_2_0) {
+                if (closeConnection && connection.getVersion() != HttpVersion.HTTP_2_0) {
                     connection.send(null);
                 }
             } else {
@@ -1141,7 +1141,7 @@ class Stream implements HTTPResponseState {
      */
     private void endTelemetrySpan(int statusCode) {
         // Record metrics for request completion
-        HTTPServerMetrics metrics = getServerMetrics();
+        HttpServerMetrics metrics = getServerMetrics();
         if (metrics != null && timestampStarted > 0) {
             double durationMs = System.currentTimeMillis() - timestampStarted;
             metrics.requestCompleted(
@@ -1175,7 +1175,7 @@ class Stream implements HTTPResponseState {
         span.end();
     }
 
-    private HTTPServerMetrics getServerMetrics() {
+    private HttpServerMetrics getServerMetrics() {
         return connection != null ? connection.getServerMetrics() : null;
     }
 
@@ -1194,7 +1194,7 @@ class Stream implements HTTPResponseState {
         sendResponseBodyInternal(bytesToAdd, endStream);
         // RFC 9110 section 9.3.2: suppress body content for HEAD responses
         if ("HEAD".equals(method)) {
-            if (endStream && connection.getVersion() == HTTPVersion.HTTP_2_0) {
+            if (endStream && connection.getVersion() == HttpVersion.HTTP_2_0) {
                 connection.sendResponseBody(streamId, EMPTY_BUFFER.duplicate(), true);
             }
             return;
@@ -1259,11 +1259,11 @@ class Stream implements HTTPResponseState {
             if (state == State.HALF_CLOSED_REMOTE) {
                 state = State.CLOSED;
                 timestampCompleted = System.currentTimeMillis();
-                if (connection instanceof HTTPProtocolHandler) {
-                    ((HTTPProtocolHandler) connection).streamResponseCompleted(streamId);
+                if (connection instanceof HttpProtocolHandler) {
+                    ((HttpProtocolHandler) connection).streamResponseCompleted(streamId);
                 }
                 // Close TCP connection if Connection: close was set
-                if (closeConnection && connection.getVersion() != HTTPVersion.HTTP_2_0) {
+                if (closeConnection && connection.getVersion() != HttpVersion.HTTP_2_0) {
                     connection.send(null);
                 }
             } else {
@@ -1348,7 +1348,7 @@ class Stream implements HTTPResponseState {
         // (:method CONNECT, :protocol websocket) instead of the RFC 6455
         // Upgrade: handshake, which HTTP/2 forbids as a connection-specific
         // header field.
-        if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+        if (connection.getVersion() == HttpVersion.HTTP_2_0) {
             return "CONNECT".equals(headers.getValue(":method"))
                     && "websocket".equalsIgnoreCase(headers.getValue(":protocol"));
         }
@@ -1356,7 +1356,7 @@ class Stream implements HTTPResponseState {
     }
     
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPResponseState.upgradeToWebSocket Implementation
+    // HttpResponseState.upgradeToWebSocket Implementation
     // RFC 9110 section 15.2.2: 101 Switching Protocols
     // ─────────────────────────────────────────────────────────────────────────
     
@@ -1390,7 +1390,7 @@ class Stream implements HTTPResponseState {
         }
         
         try {
-            boolean h2 = connection.getVersion() == HTTPVersion.HTTP_2_0;
+            boolean h2 = connection.getVersion() == HttpVersion.HTTP_2_0;
             if (h2) {
                 // RFC 8441 section 4 -- accept the upgrade with a 200
                 // response; there is no Sec-WebSocket-Key/-Accept exchange
@@ -1419,9 +1419,9 @@ class Stream implements HTTPResponseState {
 
             // Resolve WebSocket metrics from the listener (if available)
             WebSocketServerMetrics wsMetrics = null;
-            if (connection instanceof HTTPProtocolHandler) {
-                HTTPListener listener =
-                        ((HTTPProtocolHandler) connection).getListener();
+            if (connection instanceof HttpProtocolHandler) {
+                HttpListener listener =
+                        ((HttpProtocolHandler) connection).getListener();
                 if (listener instanceof WebSocketListener) {
                     wsMetrics = ((WebSocketListener) listener)
                             .getWebSocketMetrics();
@@ -1462,7 +1462,7 @@ class Stream implements HTTPResponseState {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPResponseState.acceptConnectUdp/acceptConnectIp Implementation
+    // HttpResponseState.acceptConnectUdp/acceptConnectIp Implementation
     // (RFC 9298, RFC 9484)
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -1483,7 +1483,7 @@ class Stream implements HTTPResponseState {
         if (headers == null) {
             return false;
         }
-        if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+        if (connection.getVersion() == HttpVersion.HTTP_2_0) {
             return "CONNECT".equals(headers.getValue(":method"))
                     && protocolToken.equalsIgnoreCase(headers.getValue(":protocol"));
         }
@@ -1507,7 +1507,7 @@ class Stream implements HTTPResponseState {
             return false;
         }
         try {
-            if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+            if (connection.getVersion() == HttpVersion.HTTP_2_0) {
                 // RFC 9298 section 3 / RFC 9484 section 4: a 2xx response
                 // accepts the tunnel, the same shape RFC 8441 WebSocket uses.
                 sendResponseHeaders(200, new Headers(), false);
@@ -1638,7 +1638,7 @@ class Stream implements HTTPResponseState {
         Headers headers = new Headers();
         // For HTTP/1.x, add Content-Length: 0 so clients know there's no body
         // Also close connection on error to prevent keep-alive issues
-        if (connection.getVersion() != HTTPVersion.HTTP_2_0) {
+        if (connection.getVersion() != HttpVersion.HTTP_2_0) {
             headers.add("Content-Length", "0");
             closeConnection = true; // Close connection after error
         }
@@ -1652,7 +1652,7 @@ class Stream implements HTTPResponseState {
      * authentication handshake and a client may legitimately retry with
      * credentials on the same persistent connection.
      */
-    private void sendUnauthorized(HTTPAuthenticationProvider authProvider) throws ProtocolException {
+    private void sendUnauthorized(HttpAuthenticationProvider authProvider) throws ProtocolException {
         if (state == State.IDLE) {
             state = State.OPEN;
         }
@@ -1661,7 +1661,7 @@ class Stream implements HTTPResponseState {
         if (challenge != null) {
             headers.add("WWW-Authenticate", challenge);
         }
-        if (connection.getVersion() != HTTPVersion.HTTP_2_0) {
+        if (connection.getVersion() != HttpVersion.HTTP_2_0) {
             headers.add("Content-Length", "0");
         }
         sendResponseHeaders(401, headers, true);
@@ -1696,7 +1696,7 @@ class Stream implements HTTPResponseState {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPResponseState implementation
+    // HttpResponseState implementation
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
@@ -1738,7 +1738,7 @@ class Stream implements HTTPResponseState {
                     "Cannot send informational response in state: " + responseState);
         }
         // RFC 9110 section 15.2: 1xx not defined for HTTP/1.0
-        if (connection.getVersion() == HTTPVersion.HTTP_1_0) {
+        if (connection.getVersion() == HttpVersion.HTTP_1_0) {
             return;
         }
         try {
@@ -1919,7 +1919,7 @@ class Stream implements HTTPResponseState {
     // RFC 9113 section 8.4: server push
     @Override
     public boolean pushPromise(Headers headers) {
-        if (connection.getVersion() != HTTPVersion.HTTP_2_0) {
+        if (connection.getVersion() != HttpVersion.HTTP_2_0) {
             return false;
         }
         // RFC 9113 section 6.5.2: MUST NOT send PUSH_PROMISE if
@@ -1947,7 +1947,7 @@ class Stream implements HTTPResponseState {
         try {
             // For HTTP/2, send RST_STREAM
             // For HTTP/1, close connection
-            if (connection.getVersion() == HTTPVersion.HTTP_2_0) {
+            if (connection.getVersion() == HttpVersion.HTTP_2_0) {
                 connection.sendRstStream(streamId, 0x8); // CANCEL error code
             } else {
                 closeConnection = true;

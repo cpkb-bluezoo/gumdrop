@@ -33,7 +33,7 @@ Treat each protocol acronym as one word with **only the first letter capitalised
 | `TLS` / `QUIC` / `UDP` / `TCP` | `Tls` / `Quic` / `Udp` / `Tcp` |
 
 Examples: `HTTPService` → `HttpServer`, `AMQPClient` → `AmqpClient`,
-`DNSMessage` → `DnsMessage`, `HTTP3Listener` → `Http3Listener`.
+`DNSMessage` → `DnsMessage`, `Http3Listener` → `Http3Listener`.
 
 ### 2. Application tier: `*Server`, not `*Service`
 
@@ -74,7 +74,7 @@ Keep `{Protocol}Listener` with camelCase acronyms: `HttpListener`, `SmtpListener
 ### 6. Metrics
 
 Move toward `{protocol}.server.ServerMetrics` (or neutral names in role
-subpackages). Legacy `HTTPServerMetrics` → `HttpServerMetrics` as an interim step.
+subpackages). Legacy `HttpServerMetrics` → `HttpServerMetrics` as an interim step.
 
 ### 7. Top-level facade re-exports (§C.2 — decided)
 
@@ -94,7 +94,7 @@ lands (remove its line so the guard test tracks remaining work).
 |-------|--------|-------|
 | **C.1.0** | Convention + inventory | CONTRIBUTING, this doc, guard test *(done)* |
 | **C.1.1** | Core lifecycle names | `Server` contract; `Gumdrop` server registry *(done)* |
-| **C.1.2** | HTTP stack | `HTTPService` → `HttpServer`; `HTTPClient` → `HttpClient`; handlers, listeners, metrics |
+| **C.1.2** | HTTP stack | `HttpServer`, `HttpClient`, handlers, listeners, metrics; `http/server/` facade *(done)* |
 | **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `ServletService`, `WebDAVService`, `WebSocketService` |
 | **C.1.4** | Mail protocols | SMTP, IMAP, POP3 servers, clients, **client reply handler renames** |
 | **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, … |

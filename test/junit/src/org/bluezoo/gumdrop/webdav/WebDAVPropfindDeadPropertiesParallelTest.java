@@ -25,9 +25,9 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
@@ -134,7 +134,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         assertTrue("PROPFIND did not complete: " + state.status(),
                 state.await(20, TimeUnit.SECONDS));
 
-        assertEquals(HTTPStatus.MULTI_STATUS.code, state.status());
+        assertEquals(HttpStatus.MULTI_STATUS.code, state.status());
         String xml = new String(state.body(), StandardCharsets.UTF_8);
         for (int i = 0; i < RESOURCE_COUNT; i++) {
             assertTrue("response must include file" + i,
@@ -203,7 +203,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         Files.deleteIfExists(p);
     }
 
-    private static final class RecordingState implements HTTPResponseState {
+    private static final class RecordingState implements HttpResponseState {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut = new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);
@@ -318,8 +318,8 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         }
 
         @Override
-        public HTTPVersion getVersion() {
-            return HTTPVersion.HTTP_1_1;
+        public HttpVersion getVersion() {
+            return HttpVersion.HTTP_1_1;
         }
 
         @Override

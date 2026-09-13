@@ -30,8 +30,8 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFileParser;
 import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
 import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
 
@@ -76,8 +76,8 @@ public class PyGrpcClientIntegrationTest {
         protoFile = ProtoFileParser.parse(PyGrpcTestSupport.ECHO_PROTO);
     }
 
-    private HTTPClient newHttpClient() {
-        HTTPClient client = new HTTPClient(PyGrpcTestSupport.HOST, PyGrpcTestSupport.PORT);
+    private HttpClient newHttpClient() {
+        HttpClient client = new HttpClient(PyGrpcTestSupport.HOST, PyGrpcTestSupport.PORT);
         client.setH2WithPriorKnowledge(true);
         return client;
     }
@@ -107,7 +107,7 @@ public class PyGrpcClientIntegrationTest {
 
     @Test
     public void testSayEchoRoundTrip() throws Exception {
-        HTTPClient httpClient = newHttpClient();
+        HttpClient httpClient = newHttpClient();
         GrpcClient grpcClient = new GrpcClient(protoFile);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
@@ -149,7 +149,7 @@ public class PyGrpcClientIntegrationTest {
 
     @Test
     public void testAlwaysFailSurfacesGrpcStatus() throws Exception {
-        HTTPClient httpClient = newHttpClient();
+        HttpClient httpClient = newHttpClient();
         GrpcClient grpcClient = new GrpcClient(protoFile);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
@@ -223,7 +223,7 @@ public class PyGrpcClientIntegrationTest {
         }
     }
 
-    private abstract class TestHttpHandler implements HTTPClientHandler {
+    private abstract class TestHttpHandler implements HttpClientHandler {
         final AtomicReference<Exception> error;
         final CountDownLatch latch;
 

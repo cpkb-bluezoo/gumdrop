@@ -1,5 +1,5 @@
 /*
- * HTTPRequestHandlerFactory.java
+ * HttpRequestHandlerFactory.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.http;
 import java.util.Set;
 
 /**
- * Factory for creating {@link HTTPRequestHandler} instances.
+ * Factory for creating {@link HttpRequestHandler} instances.
  *
  * <p>Provided by an {@link HTTPService} and wired to its listeners.
  * The factory is called once per stream (request) when the initial headers
@@ -36,9 +36,9 @@ import java.util.Set;
  * based on {@code :method}, {@code :path}, {@code :authority}, etc.:
  *
  * <pre>{@code
- * public class MyFactory implements HTTPRequestHandlerFactory {
+ * public class MyFactory implements HttpRequestHandlerFactory {
  *     
- *     public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
+ *     public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
  *         String path = headers.getValue(":path");
  *         
  *         if (path.startsWith("/api/")) {
@@ -57,13 +57,13 @@ import java.util.Set;
  * <p>If a {@link org.bluezoo.gumdrop.auth.Realm} is configured on the server,
  * authentication is performed automatically before the factory is called.
  * The authenticated principal is available via
- * {@link HTTPResponseState#getPrincipal()}.
+ * {@link HttpResponseState#getPrincipal()}.
  *
  * <p>If no Realm is configured, the factory or handler is responsible for
  * authentication. The factory can reject unauthenticated requests:
  *
  * <pre>{@code
- * public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
+ * public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
  *     String auth = headers.getValue("authorization");
  *     if (!isValidAuth(auth)) {
  *         // Send 401 and return null
@@ -87,10 +87,10 @@ import java.util.Set;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPRequestHandler
- * @see HTTPListener#setHandlerFactory
+ * @see HttpRequestHandler
+ * @see HttpListener#setHandlerFactory
  */
-public interface HTTPRequestHandlerFactory {
+public interface HttpRequestHandlerFactory {
 
     /**
      * Creates a handler for a new request.
@@ -98,7 +98,7 @@ public interface HTTPRequestHandlerFactory {
      * <p>Called when the initial headers for a stream are received. The factory
      * can examine the headers to decide which handler implementation to return.
      *
-     * <p>The returned handler will receive a {@link HTTPRequestHandler#headers}
+     * <p>The returned handler will receive a {@link HttpRequestHandler#headers}
      * callback with the same headers - the factory is for routing/creation,
      * the handler performs the actual request processing.
      *
@@ -109,7 +109,7 @@ public interface HTTPRequestHandlerFactory {
      * @return a handler for this request, or null to reject (sends 404 if
      *         no response was sent via state)
      */
-    HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers);
+    HttpRequestHandler createHandler(HttpResponseState state, Headers headers);
 
     /**
      * Returns the set of HTTP methods supported by this factory.

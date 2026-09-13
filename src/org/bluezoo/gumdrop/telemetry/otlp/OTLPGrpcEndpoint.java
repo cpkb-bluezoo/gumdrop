@@ -25,9 +25,9 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
+import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
 
 import org.bluezoo.gumdrop.util.TLSUtils;
 
@@ -77,7 +77,7 @@ class OTLPGrpcEndpoint {
     private String truststoreFormat = "PKCS12";
     private volatile X509TrustManager trustManager;
 
-    private HTTPClient client;
+    private HttpClient client;
     private volatile boolean connecting;
     private volatile boolean connected;
     private volatile CountDownLatch pendingConnectLatch;
@@ -217,11 +217,11 @@ class OTLPGrpcEndpoint {
         }
     }
 
-    HTTPClient getClient() {
+    HttpClient getClient() {
         return getClient(null);
     }
 
-    HTTPClient getClient(CountDownLatch connectLatch) {
+    HttpClient getClient(CountDownLatch connectLatch) {
         if (connected && client != null && client.isOpen()) {
             if (connectLatch != null) {
                 connectLatch.countDown();
@@ -237,7 +237,7 @@ class OTLPGrpcEndpoint {
             connecting = true;
             connected = false;
 
-            client = new HTTPClient(host, port);
+            client = new HttpClient(host, port);
             if (secure) {
                 client.setSecure(true);
                 X509TrustManager tm = getOrCreateTrustManager();
@@ -262,7 +262,7 @@ class OTLPGrpcEndpoint {
         }
     }
 
-    private class OTLPGrpcConnectionHandler implements HTTPClientHandler {
+    private class OTLPGrpcConnectionHandler implements HttpClientHandler {
 
         private final CountDownLatch connectLatch;
 
@@ -309,7 +309,7 @@ class OTLPGrpcEndpoint {
      * @param handler the response handler
      */
     void send(ByteBuffer data, OTLPGrpcResponseHandler handler) {
-        HTTPClient httpClient = getClient();
+        HttpClient httpClient = getClient();
         if (httpClient == null) {
             handler.failed(new IOException("No connection to " + name + " endpoint"));
             return;
@@ -317,7 +317,7 @@ class OTLPGrpcEndpoint {
 
         ByteBuffer framed = GrpcFraming.frame(data);
 
-        HTTPRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path);
         request.header("Content-Type", CONTENT_TYPE_GRPC);
         request.header("Te", "trailers");
 

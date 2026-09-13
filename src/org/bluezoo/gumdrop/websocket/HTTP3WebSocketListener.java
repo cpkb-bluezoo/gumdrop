@@ -1,5 +1,5 @@
 /*
- * HTTP3WebSocketListener.java
+ * Http3WebSocketListener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,26 +26,26 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.h3.HTTP3Listener;
-import org.bluezoo.gumdrop.http.h3.HTTP3ServerHandler;
+import org.bluezoo.gumdrop.http.h3.Http3Listener;
+import org.bluezoo.gumdrop.http.h3.Http3ServerHandler;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 
 /**
  * QUIC transport listener for WebSocket connections over HTTP/3 (RFC 9220).
  *
  * <p>This is the HTTP/3 equivalent of {@link WebSocketListener}. It extends
- * {@link HTTP3Listener} and installs a handler factory that detects
+ * {@link Http3Listener} and installs a handler factory that detects
  * Extended CONNECT requests with {@code :protocol = "websocket"}
  * (RFC 9220 section 3) and upgrades them to WebSocket connections.
  *
  * <p>The HTTP/3 layer advertises {@code SETTINGS_ENABLE_CONNECT_PROTOCOL = 1}
- * in the SETTINGS frame (handled by {@link HTTP3ServerHandler}), enabling
+ * in the SETTINGS frame (handled by {@link Http3ServerHandler}), enabling
  * clients to send Extended CONNECT requests. Unlike HTTP/1.1 WebSocket
  * upgrades (RFC 6455), there is no {@code Sec-WebSocket-Key} exchange;
  * the server responds with {@code :status 200} to accept.
@@ -54,7 +54,7 @@ import org.bluezoo.gumdrop.quic.QuicConnection;
  *
  * <pre>{@code
  * <service class="my.EchoService">
- *   <listener class="org.bluezoo.gumdrop.websocket.HTTP3WebSocketListener">
+ *   <listener class="org.bluezoo.gumdrop.websocket.Http3WebSocketListener">
  *     <property name="port">443</property>
  *     <property name="cert-file">/path/to/cert.pem</property>
  *     <property name="key-file">/path/to/key.pem</property>
@@ -65,12 +65,12 @@ import org.bluezoo.gumdrop.quic.QuicConnection;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220</a>
  * @see WebSocketService
- * @see HTTP3Listener
+ * @see Http3Listener
  */
-public class HTTP3WebSocketListener extends HTTP3Listener {
+public class Http3WebSocketListener extends Http3Listener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(HTTP3WebSocketListener.class.getName());
+            Logger.getLogger(Http3WebSocketListener.class.getName());
 
     private WebSocketService service;
     private WebSocketServerMetrics wsMetrics;
@@ -136,7 +136,7 @@ public class HTTP3WebSocketListener extends HTTP3Listener {
 
     @Override
     public void connectionAccepted(QuicConnection connection) {
-        HTTP3ServerHandler handler = new HTTP3ServerHandler(
+        Http3ServerHandler handler = new Http3ServerHandler(
                 connection, getHandlerFactory(),
                 getAuthenticationProvider(), getMetrics(),
                 getTelemetryConfig(), getAddSecurityHeaders());
@@ -150,10 +150,10 @@ public class HTTP3WebSocketListener extends HTTP3Listener {
      * HTTP/3 request.
      */
     private class ExtendedConnectHandlerFactory
-            implements HTTPRequestHandlerFactory {
+            implements HttpRequestHandlerFactory {
 
         @Override
-        public HTTPRequestHandler createHandler(HTTPResponseState state,
+        public HttpRequestHandler createHandler(HttpResponseState state,
                                                 Headers headers) {
             return new ExtendedConnectUpgradeHandler();
         }
@@ -165,16 +165,16 @@ public class HTTP3WebSocketListener extends HTTP3Listener {
      * and delegates to the owning service's connection handler factory.
      */
     private class ExtendedConnectUpgradeHandler
-            extends DefaultHTTPRequestHandler {
+            extends DefaultHttpRequestHandler {
 
         @Override
-        public void headers(HTTPResponseState state, Headers headers) {
+        public void headers(HttpResponseState state, Headers headers) {
             String method = headers.getValue(":method");
             String proto = headers.getValue(":protocol");
 
             if (!"CONNECT".equals(method)
                     || !"websocket".equalsIgnoreCase(proto)) {
-                sendError(state, HTTPStatus.BAD_REQUEST);
+                sendError(state, HttpStatus.BAD_REQUEST);
                 return;
             }
 
@@ -186,7 +186,7 @@ public class HTTP3WebSocketListener extends HTTP3Listener {
             WebSocketEventHandler handler =
                     service.createConnectionHandler(path, headers);
             if (handler == null) {
-                sendError(state, HTTPStatus.FORBIDDEN);
+                sendError(state, HttpStatus.FORBIDDEN);
                 return;
             }
 
@@ -204,12 +204,12 @@ public class HTTP3WebSocketListener extends HTTP3Listener {
             } catch (IllegalStateException e) {
                 LOGGER.log(Level.WARNING,
                         "WebSocket over HTTP/3 upgrade failed", e);
-                sendError(state, HTTPStatus.BAD_REQUEST);
+                sendError(state, HttpStatus.BAD_REQUEST);
             }
         }
 
-        private void sendError(HTTPResponseState state,
-                               HTTPStatus status) {
+        private void sendError(HttpResponseState state,
+                               HttpStatus status) {
             Headers response = new Headers();
             response.status(status);
             state.headers(response);

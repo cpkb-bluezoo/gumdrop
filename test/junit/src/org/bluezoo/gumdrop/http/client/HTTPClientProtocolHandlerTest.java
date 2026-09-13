@@ -22,7 +22,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Tests for HTTP/2 client features in {@link HTTPClientProtocolHandler},
+ * Tests for HTTP/2 client features in {@link HttpClientProtocolHandler},
  * including RFC 9113 cipher suite validation.
  */
 public class HTTPClientProtocolHandlerTest {
@@ -40,23 +40,23 @@ public class HTTPClientProtocolHandlerTest {
 
     @Test
     public void testIsConnectProtocolEnabledDefaultsFalse() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         assertFalse(handler.isConnectProtocolEnabled());
     }
 
     @Test
     public void testIsConnectProtocolEnabledTrueAfterSettingsSaySo() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         receiveSettings(handler, H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
         assertTrue(handler.isConnectProtocolEnabled());
     }
 
     @Test
     public void testIsConnectProtocolEnabledFalseWhenSettingsOmitIt() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         // A real SETTINGS frame carrying only some other identifier --
         // the absence of SETTINGS_ENABLE_CONNECT_PROTOCOL must leave the
         // default (false) alone, not be misread as "explicitly disabled".
@@ -66,8 +66,8 @@ public class HTTPClientProtocolHandlerTest {
 
     @Test
     public void testWhenConnectProtocolKnownFiresImmediatelyOnceAlreadyReceived() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         receiveSettings(handler, H2FrameHandler.SETTINGS_ENABLE_CONNECT_PROTOCOL, 1);
 
         AtomicBoolean fired = new AtomicBoolean(false);
@@ -82,8 +82,8 @@ public class HTTPClientProtocolHandlerTest {
 
     @Test
     public void testWhenConnectProtocolKnownDefersUntilSettingsArrive() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
 
         AtomicBoolean fired = new AtomicBoolean(false);
         handler.whenConnectProtocolKnown(new Runnable() {
@@ -101,8 +101,8 @@ public class HTTPClientProtocolHandlerTest {
 
     @Test
     public void testWhenConnectProtocolKnownCallbackRunsOnlyOnce() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
 
         final int[] callCount = { 0 };
         handler.whenConnectProtocolKnown(new Runnable() {
@@ -120,7 +120,7 @@ public class HTTPClientProtocolHandlerTest {
         assertEquals(1, callCount[0]);
     }
 
-    private static void receiveSettings(HTTPClientProtocolHandler handler, int identifier, int value) {
+    private static void receiveSettings(HttpClientProtocolHandler handler, int identifier, int value) {
         Map<Integer, Integer> settings = new HashMap<Integer, Integer>();
         settings.put(Integer.valueOf(identifier), Integer.valueOf(value));
         try {
@@ -135,21 +135,21 @@ public class HTTPClientProtocolHandlerTest {
     public void testGCMCipherAllowed() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256");
-        assertFalse(HTTPClientProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpClientProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testChaCha20CipherAllowed() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256");
-        assertFalse(HTTPClientProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpClientProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testCCMCipherAllowed() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_ECDHE_ECDSA_WITH_AES_128_CCM");
-        assertFalse(HTTPClientProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpClientProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     // RFC 9113 section 9.2.2: CBC suites (non-AEAD) are blocked
@@ -157,14 +157,14 @@ public class HTTPClientProtocolHandlerTest {
     public void testCBCCipherBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_RSA_WITH_AES_128_CBC_SHA");
-        assertTrue(HTTPClientProtocolHandler.isBlockedH2CipherSuite(info));
+        assertTrue(HttpClientProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testRC4CipherBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2",
                 "TLS_RSA_WITH_RC4_128_SHA");
-        assertTrue(HTTPClientProtocolHandler.isBlockedH2CipherSuite(info));
+        assertTrue(HttpClientProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     // TLS 1.3 only has AEAD suites — never blocked
@@ -172,39 +172,39 @@ public class HTTPClientProtocolHandlerTest {
     public void testTLS13NeverBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.3",
                 "TLS_AES_256_GCM_SHA384");
-        assertFalse(HTTPClientProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpClientProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testTLS13CBCNameNeverBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.3",
                 "TLS_RSA_WITH_AES_128_CBC_SHA");
-        assertFalse(HTTPClientProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpClientProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testNullProtocolNotBlocked() {
         SecurityInfo info = new StubSecurityInfo(null, "TLS_RSA_WITH_AES_128_CBC_SHA");
-        assertFalse(HTTPClientProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpClientProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testNullCipherNotBlocked() {
         SecurityInfo info = new StubSecurityInfo("TLSv1.2", null);
-        assertFalse(HTTPClientProtocolHandler.isBlockedH2CipherSuite(info));
+        assertFalse(HttpClientProtocolHandler.isBlockedH2CipherSuite(info));
     }
 
     @Test
     public void testIdleTimeoutDefaults() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         assertEquals(0, handler.getIdleTimeoutMs());
     }
 
     @Test
     public void testSetIdleTimeout() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         handler.setIdleTimeoutMs(30000);
         assertEquals(30000, handler.getIdleTimeoutMs());
     }
@@ -212,15 +212,15 @@ public class HTTPClientProtocolHandlerTest {
     // RFC 9112 section 5: max response header size
     @Test
     public void testMaxResponseHeaderSizeDefaults() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 80, false);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 80, false);
         assertEquals(1024 * 1024, handler.getMaxResponseHeaderSize());
     }
 
     @Test
     public void testSetMaxResponseHeaderSize() {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 80, false);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 80, false);
         handler.setMaxResponseHeaderSize(64 * 1024);
         assertEquals(64 * 1024, handler.getMaxResponseHeaderSize());
     }
@@ -228,42 +228,42 @@ public class HTTPClientProtocolHandlerTest {
     // RFC 9110 section 8.6: Content-Length validation
     @Test
     public void testValidateContentLengthSimple() {
-        assertEquals(100, HTTPClientProtocolHandler.validateContentLength("100"));
+        assertEquals(100, HttpClientProtocolHandler.validateContentLength("100"));
     }
 
     @Test
     public void testValidateContentLengthZero() {
-        assertEquals(0, HTTPClientProtocolHandler.validateContentLength("0"));
+        assertEquals(0, HttpClientProtocolHandler.validateContentLength("0"));
     }
 
     @Test
     public void testValidateContentLengthWithSpaces() {
-        assertEquals(42, HTTPClientProtocolHandler.validateContentLength("  42  "));
+        assertEquals(42, HttpClientProtocolHandler.validateContentLength("  42  "));
     }
 
     @Test
     public void testValidateContentLengthMultipleEqual() {
-        assertEquals(200, HTTPClientProtocolHandler.validateContentLength("200, 200"));
+        assertEquals(200, HttpClientProtocolHandler.validateContentLength("200, 200"));
     }
 
     @Test
     public void testValidateContentLengthMultipleDifferent() {
-        assertEquals(-1, HTTPClientProtocolHandler.validateContentLength("100, 200"));
+        assertEquals(-1, HttpClientProtocolHandler.validateContentLength("100, 200"));
     }
 
     @Test
     public void testValidateContentLengthNegative() {
-        assertEquals(-1, HTTPClientProtocolHandler.validateContentLength("-5"));
+        assertEquals(-1, HttpClientProtocolHandler.validateContentLength("-5"));
     }
 
     @Test
     public void testValidateContentLengthNonNumeric() {
-        assertEquals(-1, HTTPClientProtocolHandler.validateContentLength("abc"));
+        assertEquals(-1, HttpClientProtocolHandler.validateContentLength("abc"));
     }
 
     @Test
     public void testValidateContentLengthNull() {
-        assertEquals(-1, HTTPClientProtocolHandler.validateContentLength(null));
+        assertEquals(-1, HttpClientProtocolHandler.validateContentLength(null));
     }
 
     // closeWhenIdle()/maybeCloseWhenIdle(): when an Alt-Svc-triggered h3
@@ -280,8 +280,8 @@ public class HTTPClientProtocolHandlerTest {
 
     @Test
     public void testCloseWhenIdleClosesImmediatelyWhenNothingActive() throws Exception {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         setPrivateField(handler, "open", Boolean.TRUE);
 
         handler.closeWhenIdle();
@@ -292,10 +292,10 @@ public class HTTPClientProtocolHandlerTest {
 
     @Test
     public void testCloseWhenIdleDefersUntilActiveStreamDrains() throws Exception {
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         setPrivateField(handler, "open", Boolean.TRUE);
-        handler.activeStreams.put(Integer.valueOf(1), new HTTPStream(handler, "POST", "/pay"));
+        handler.activeStreams.put(Integer.valueOf(1), new HttpStream(handler, "POST", "/pay"));
 
         handler.closeWhenIdle();
         assertTrue("a still-active stream (e.g. an unconfirmed POST) must not be aborted",
@@ -314,10 +314,10 @@ public class HTTPClientProtocolHandlerTest {
         // SETTINGS_MAX_CONCURRENT_STREAMS before it ever becomes an
         // active stream -- that queue must drain too before this
         // connection is considered idle, not just activeStreams.
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         setPrivateField(handler, "open", Boolean.TRUE);
-        addPendingRequest(handler, new HTTPStream(handler, "GET", "/queued"));
+        addPendingRequest(handler, new HttpStream(handler, "GET", "/queued"));
 
         handler.closeWhenIdle();
         assertTrue("a queued-but-not-yet-active request must also block the deferred close",
@@ -335,11 +335,11 @@ public class HTTPClientProtocolHandlerTest {
         // cancelRequest is one of the real, public completion paths
         // maybeCloseWhenIdle is wired into -- exercised directly here,
         // not just via the private method under reflection.
-        HTTPClientProtocolHandler handler =
-                new HTTPClientProtocolHandler(null, "localhost", 443, true);
+        HttpClientProtocolHandler handler =
+                new HttpClientProtocolHandler(null, "localhost", 443, true);
         setPrivateField(handler, "open", Boolean.TRUE);
 
-        HTTPStream stream = new HTTPStream(handler, "GET", "/only");
+        HttpStream stream = new HttpStream(handler, "GET", "/only");
         handler.activeStreams.put(Integer.valueOf(1), stream);
         setStreamIdByRequest(handler, stream, Integer.valueOf(1));
 
@@ -352,42 +352,42 @@ public class HTTPClientProtocolHandlerTest {
                 + "deferred close", getPrivateField(handler, "open", Boolean.class));
     }
 
-    private static void invokeMaybeCloseWhenIdle(HTTPClientProtocolHandler handler) throws Exception {
-        Method method = HTTPClientProtocolHandler.class.getDeclaredMethod("maybeCloseWhenIdle");
+    private static void invokeMaybeCloseWhenIdle(HttpClientProtocolHandler handler) throws Exception {
+        Method method = HttpClientProtocolHandler.class.getDeclaredMethod("maybeCloseWhenIdle");
         method.setAccessible(true);
         method.invoke(handler);
     }
 
     @SuppressWarnings("unchecked")
-    private static void addPendingRequest(HTTPClientProtocolHandler handler, HTTPStream request) throws Exception {
+    private static void addPendingRequest(HttpClientProtocolHandler handler, HttpStream request) throws Exception {
         Class<?> pendingRequestClass = null;
-        for (Class<?> inner : HTTPClientProtocolHandler.class.getDeclaredClasses()) {
+        for (Class<?> inner : HttpClientProtocolHandler.class.getDeclaredClasses()) {
             if (inner.getSimpleName().equals("PendingRequest")) {
                 pendingRequestClass = inner;
                 break;
             }
         }
-        Constructor<?> ctor = pendingRequestClass.getDeclaredConstructor(HTTPStream.class, boolean.class);
+        Constructor<?> ctor = pendingRequestClass.getDeclaredConstructor(HttpStream.class, boolean.class);
         ctor.setAccessible(true);
         Object pendingRequest = ctor.newInstance(request, Boolean.FALSE);
 
-        Field field = HTTPClientProtocolHandler.class.getDeclaredField("pendingRequests");
+        Field field = HttpClientProtocolHandler.class.getDeclaredField("pendingRequests");
         field.setAccessible(true);
         ((java.util.Deque<Object>) field.get(handler)).add(pendingRequest);
     }
 
-    private static void clearPendingRequests(HTTPClientProtocolHandler handler) throws Exception {
-        Field field = HTTPClientProtocolHandler.class.getDeclaredField("pendingRequests");
+    private static void clearPendingRequests(HttpClientProtocolHandler handler) throws Exception {
+        Field field = HttpClientProtocolHandler.class.getDeclaredField("pendingRequests");
         field.setAccessible(true);
         ((java.util.Deque<?>) field.get(handler)).clear();
     }
 
     @SuppressWarnings("unchecked")
-    private static void setStreamIdByRequest(HTTPClientProtocolHandler handler, HTTPStream request, Integer streamId)
+    private static void setStreamIdByRequest(HttpClientProtocolHandler handler, HttpStream request, Integer streamId)
             throws Exception {
-        Field field = HTTPClientProtocolHandler.class.getDeclaredField("streamIdByRequest");
+        Field field = HttpClientProtocolHandler.class.getDeclaredField("streamIdByRequest");
         field.setAccessible(true);
-        ((Map<HTTPStream, Integer>) field.get(handler)).put(request, streamId);
+        ((Map<HttpStream, Integer>) field.get(handler)).put(request, streamId);
     }
 
     @SuppressWarnings("unchecked")

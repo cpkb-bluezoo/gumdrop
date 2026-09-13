@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.telemetry.otlp;
 
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -29,14 +29,14 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.WritableByteChannel;
 
 /**
- * A {@link WritableByteChannel} that writes to an {@link HTTPRequest} body.
+ * A {@link WritableByteChannel} that writes to an {@link HttpRequest} body.
  *
  * <p>This allows protobuf serializers to stream directly to an HTTP request,
  * enabling true streaming for HTTP/2 or chunked HTTP/1.1 transfers.
  *
  * <p>Usage:
  * <pre>
- * HTTPRequest request = client.post("/v1/traces");
+ * HttpRequest request = client.post("/v1/traces");
  * request.header("Content-Type", "application/x-protobuf");
  * request.header("Transfer-Encoding", "chunked");
  * request.startRequestBody(handler);
@@ -50,7 +50,7 @@ import java.nio.channels.WritableByteChannel;
  */
 class HTTPRequestChannel implements WritableByteChannel {
 
-    private final HTTPRequest request;
+    private final HttpRequest request;
     private boolean open;
 
     /**
@@ -60,7 +60,7 @@ class HTTPRequestChannel implements WritableByteChannel {
      *
      * @param request the HTTP request
      */
-    HTTPRequestChannel(HTTPRequest request) {
+    HTTPRequestChannel(HttpRequest request) {
         this.request = request;
         this.open = true;
     }

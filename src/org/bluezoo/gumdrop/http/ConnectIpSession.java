@@ -27,7 +27,7 @@ import java.util.List;
 /**
  * A live RFC 9484 CONNECT-IP tunnel, handed to an {@link
  * IpPacketHandler} once {@link ConnectIpRequestHandler} accepts the
- * request. Wraps the underlying {@link HTTPResponseState} with the
+ * request. Wraps the underlying {@link HttpResponseState} with the
  * typed send operations a forwarding backend needs: IP packets (Context
  * ID 0, RFC 9484 section 6) and the two server-to-client capsule types
  * (RFC 9484 section 4.7.1/4.7.3) -- {@code ADDRESS_REQUEST} is
@@ -40,9 +40,9 @@ import java.util.List;
  */
 public final class ConnectIpSession {
 
-    private final HTTPResponseState state;
+    private final HttpResponseState state;
 
-    ConnectIpSession(HTTPResponseState state) {
+    ConnectIpSession(HttpResponseState state) {
         this.state = state;
     }
 

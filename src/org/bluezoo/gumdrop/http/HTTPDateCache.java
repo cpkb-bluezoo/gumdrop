@@ -1,5 +1,5 @@
 /*
- * HTTPDateCache.java
+ * HttpDateCache.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -44,16 +44,16 @@ import java.util.logging.Logger;
  * initialization) and its thread is a daemon, so it never prevents JVM
  * shutdown.
  */
-public final class HTTPDateCache {
+public final class HttpDateCache {
 
-    private static final Logger LOGGER = Logger.getLogger(HTTPDateCache.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(HttpDateCache.class.getName());
 
     private static final byte[] DATE_HEADER_PREFIX =
             "Date: ".getBytes(StandardCharsets.US_ASCII);
     private static final byte[] CRLF = { (byte) 0x0d, (byte) 0x0a };
 
-    /** Shared thread-safe formatter (see HTTPDateFormat). */
-    private static final HTTPDateFormat DATE_FORMAT = new HTTPDateFormat();
+    /** Shared thread-safe formatter (see HttpDateFormat). */
+    private static final HttpDateFormat DATE_FORMAT = new HttpDateFormat();
 
     /** Cached IMF-fixdate string for the Date header, refreshed once per second. */
     private static volatile String cachedDate;
@@ -98,7 +98,7 @@ public final class HTTPDateCache {
         }, 1, 1, TimeUnit.SECONDS);
     }
 
-    private HTTPDateCache() {
+    private HttpDateCache() {
     }
 
     /**
@@ -120,7 +120,7 @@ public final class HTTPDateCache {
     }
 
     private static void refresh() {
-        // System.currentTimeMillis() feeds HTTPDateFormat.format(long)
+        // System.currentTimeMillis() feeds HttpDateFormat.format(long)
         // directly - no Date object is allocated just to carry this
         // instant through to the formatter.
         String date = DATE_FORMAT.format(System.currentTimeMillis());

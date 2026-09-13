@@ -24,12 +24,12 @@ package org.bluezoo.gumdrop.dns.client;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
 import org.junit.After;
@@ -82,17 +82,17 @@ public class DNSResolutionIntegrationTest {
      */
     @Test
     public void testHTTPSGetWithDNSResolution() throws Exception {
-        HTTPClient client = new HTTPClient(TEST_HOST, TEST_PORT);
+        HttpClient client = new HttpClient(TEST_HOST, TEST_PORT);
         client.setSecure(true);
         client.setTrustManager(new EmptyX509TrustManager());
 
         CountDownLatch readyLatch = new CountDownLatch(1);
         CountDownLatch responseLatch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        client.connect(new HTTPClientHandler() {
+        client.connect(new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 readyLatch.countDown();
@@ -122,15 +122,15 @@ public class DNSResolutionIntegrationTest {
         assertNull("Connection should not error: " + error.get(),
                 error.get());
 
-        HTTPRequest request = client.get("/get");
-        request.send(new DefaultHTTPResponseHandler() {
+        HttpRequest request = client.get("/get");
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -162,7 +162,7 @@ public class DNSResolutionIntegrationTest {
         assertNull("Request should not fail: " + error.get(),
                 error.get());
         assertEquals("Should receive 200 OK",
-                HTTPStatus.OK, status.get());
+                HttpStatus.OK, status.get());
 
         String body = new String(bodyBuffer.toByteArray(),
                 StandardCharsets.UTF_8);

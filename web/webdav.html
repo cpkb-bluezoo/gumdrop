@@ -76,7 +76,7 @@ file extension</li>
   &lt;property name="root-path"&gt;/var/www/html&lt;/property&gt;
   &lt;property name="welcome-file"&gt;index.html&lt;/property&gt;
   &lt;property name="allow-write"&gt;false&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;8080&lt;/property&gt;
   &lt;/listener&gt;
 &lt;/service&gt;
@@ -121,19 +121,19 @@ multiplexing when serving mixed content (HTML, CSS, JavaScript, images).
 
 <p>
 To serve files over HTTP/3 as well as HTTP/2 and HTTP/1.1, add both an
-<code>HTTPListener</code> and an <code>HTTP3Listener</code>:
+<code>HttpListener</code> and an <code>Http3Listener</code>:
 </p>
 
 <pre>
 &lt;service id="files" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
   &lt;property name="root-path"&gt;/var/www/html&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
     &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
     &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
   &lt;/listener&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
     &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
@@ -162,7 +162,7 @@ Cyberduck to access the file server as a network drive.
   &lt;property name="root-path"&gt;/var/www/dav&lt;/property&gt;
   &lt;property name="allow-write"&gt;true&lt;/property&gt;
   &lt;property name="webdav-enabled"&gt;true&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;8080&lt;/property&gt;
   &lt;/listener&gt;
 &lt;/service&gt;
@@ -259,7 +259,7 @@ The dead property storage mode is configurable:
   &lt;property name="allow-write"&gt;true&lt;/property&gt;
   &lt;property name="webdav-enabled"&gt;true&lt;/property&gt;
   &lt;property name="dead-property-storage"&gt;auto&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;8080&lt;/property&gt;
   &lt;/listener&gt;
 &lt;/service&gt;

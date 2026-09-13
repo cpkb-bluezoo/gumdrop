@@ -47,7 +47,7 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * Wire-level regression test for issue #393: a real {@link
- * HTTPProtocolHandler} parsing a real, HPACK-encoded HTTP/2 Extended
+ * HttpProtocolHandler} parsing a real, HPACK-encoded HTTP/2 Extended
  * CONNECT request (RFC 9113 section 8.5, RFC 9298 section 3: {@code
  * :method: CONNECT}, {@code :protocol: connect-udp}, {@code
  * Capsule-Protocol: ?1}) must reach {@link
@@ -109,7 +109,7 @@ public class ConnectUdpH2WireTest {
         @Override public boolean isSessionResumed() { return false; }
     }
 
-    private HTTPProtocolHandler connection;
+    private HttpProtocolHandler connection;
     private CountingEndpoint endpoint;
     private SelectorLoop loop;
 
@@ -118,7 +118,7 @@ public class ConnectUdpH2WireTest {
         loop = new SelectorLoop(0);
         loop.start();
 
-        HTTPListener listener = new HTTPListener();
+        HttpListener listener = new HttpListener();
         ConnectUdpPolicy permissive = new ConnectUdpPolicy() {
             @Override
             public boolean isTargetAllowed(InetAddress address, int port) {
@@ -127,7 +127,7 @@ public class ConnectUdpH2WireTest {
         };
         listener.setHandlerFactory((state, headers) -> new ConnectUdpRequestHandler(permissive) { });
 
-        connection = new HTTPProtocolHandler(listener);
+        connection = new HttpProtocolHandler(listener);
         endpoint = new CountingEndpoint();
         endpoint.loop = loop;
         connection.connected(endpoint);
@@ -144,7 +144,7 @@ public class ConnectUdpH2WireTest {
     }
 
     private ByteBuffer encodeConnectUdpHeaders(String targetHost, int targetPort) throws Exception {
-        Encoder encoder = new Encoder(4096, HTTPListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+        Encoder encoder = new Encoder(4096, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
         Headers request = new Headers();
         request.add(new Header(":method", "CONNECT"));
         request.add(new Header(":protocol", "connect-udp"));

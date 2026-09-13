@@ -34,7 +34,7 @@ import static org.junit.Assert.*;
 
 /**
  * Regression tests for Digest authentication nonce generation in
- * {@link HTTPAuthenticationProvider}.
+ * {@link HttpAuthenticationProvider}.
  *
  * <p>Locks in the fix that replaced the non-cryptographic {@code Math.random()}
  * nonce source with {@link java.security.SecureRandom}; verifies that generated
@@ -45,7 +45,7 @@ import static org.junit.Assert.*;
 public class HTTPAuthenticationProviderNonceTest {
 
     /** Minimal Digest provider for exercising challenge/nonce generation. */
-    private static final class TestProvider extends HTTPAuthenticationProvider {
+    private static final class TestProvider extends HttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.DIGEST_AUTH;
         }

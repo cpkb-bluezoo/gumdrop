@@ -1,5 +1,5 @@
 /*
- * HTTPVersion.java
+ * HttpVersion.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,7 +36,7 @@ import java.util.List;
  *
  * @author Chris Burdess
  */
-public enum HTTPVersion {
+public enum HttpVersion {
 
     UNKNOWN(null, null),
     HTTP_1_0("HTTP/1.0", "http/1.0"),
@@ -53,7 +53,7 @@ public enum HTTPVersion {
      * @param versionString the HTTP version string (e.g., "HTTP/1.1")
      * @param alpnIdentifier the ALPN negotiation identifier (e.g., "h2")
      */
-    private HTTPVersion(String versionString, String alpnIdentifier) {
+    private HttpVersion(String versionString, String alpnIdentifier) {
         this.versionString = versionString;
         this.alpnIdentifier = alpnIdentifier;
     }
@@ -81,14 +81,14 @@ public enum HTTPVersion {
      * Parses an HTTP version from a version string (e.g., "HTTP/1.1", "HTTP/2.0").
      * 
      * @param versionString the HTTP version string to parse
-     * @return the corresponding HTTPVersion, or UNKNOWN if not recognized
+     * @return the corresponding HttpVersion, or UNKNOWN if not recognized
      */
-    public static HTTPVersion fromVersionString(String versionString) {
+    public static HttpVersion fromVersionString(String versionString) {
         if (versionString == null) {
             return UNKNOWN;
         }
         
-        for (HTTPVersion v : values()) {
+        for (HttpVersion v : values()) {
             if (versionString.equals(v.versionString)) {
                 return v;
             }
@@ -104,9 +104,9 @@ public enum HTTPVersion {
      * by RFC 9113 but intentionally supported for backwards compatibility).
      * 
      * @param alpnIdentifier the ALPN identifier to parse
-     * @return the corresponding HTTPVersion, or UNKNOWN if not recognized
+     * @return the corresponding HttpVersion, or UNKNOWN if not recognized
      */
-    public static HTTPVersion fromAlpnIdentifier(String alpnIdentifier) {
+    public static HttpVersion fromAlpnIdentifier(String alpnIdentifier) {
         if (alpnIdentifier == null) {
             return UNKNOWN;
         }
@@ -116,7 +116,7 @@ public enum HTTPVersion {
             return HTTP_2_0;
         }
         
-        for (HTTPVersion v : values()) {
+        for (HttpVersion v : values()) {
             if (alpnIdentifier.equals(v.alpnIdentifier)) {
                 return v;
             }
@@ -132,11 +132,11 @@ public enum HTTPVersion {
      * be either format.
      * 
      * @param s the string to parse (version string or ALPN identifier)
-     * @return the corresponding HTTPVersion, or UNKNOWN if not recognized
+     * @return the corresponding HttpVersion, or UNKNOWN if not recognized
      */
-    public static HTTPVersion fromString(String s) {
+    public static HttpVersion fromString(String s) {
         // Try ALPN identifier first (more common in modern usage)
-        HTTPVersion alpnResult = fromAlpnIdentifier(s);
+        HttpVersion alpnResult = fromAlpnIdentifier(s);
         if (alpnResult != UNKNOWN) {
             return alpnResult;
         }

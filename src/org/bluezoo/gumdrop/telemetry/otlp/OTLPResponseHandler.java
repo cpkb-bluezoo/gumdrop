@@ -21,9 +21,9 @@
 
 package org.bluezoo.gumdrop.telemetry.otlp;
 
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 import java.text.MessageFormat;
 import java.util.ResourceBundle;
@@ -42,7 +42,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class OTLPResponseHandler extends DefaultHTTPResponseHandler {
+class OTLPResponseHandler extends DefaultHttpResponseHandler {
 
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
@@ -53,7 +53,7 @@ class OTLPResponseHandler extends DefaultHTTPResponseHandler {
 
     private volatile boolean complete;
     private volatile boolean success;
-    private HTTPStatus status;
+    private HttpStatus status;
 
     /**
      * Creates an OTLP response handler.
@@ -67,7 +67,7 @@ class OTLPResponseHandler extends DefaultHTTPResponseHandler {
     }
 
     @Override
-    public void ok(HTTPResponse response) {
+    public void ok(HttpResponse response) {
         this.status = response.getStatus();
         this.success = true;
 
@@ -77,7 +77,7 @@ class OTLPResponseHandler extends DefaultHTTPResponseHandler {
     }
 
     @Override
-    public void error(HTTPResponse response) {
+    public void error(HttpResponse response) {
         this.status = response.getStatus();
         this.success = false;
 
@@ -134,7 +134,7 @@ class OTLPResponseHandler extends DefaultHTTPResponseHandler {
      *
      * @return the status, or null if no response was received
      */
-    HTTPStatus getStatus() {
+    HttpStatus getStatus() {
         return status;
     }
 
@@ -153,7 +153,7 @@ class OTLPResponseHandler extends DefaultHTTPResponseHandler {
      * @param status the HTTP status
      * @return true if the error is retryable
      */
-    private boolean isRetryable(HTTPStatus status) {
+    private boolean isRetryable(HttpStatus status) {
         if (status == null) {
             return false;
         }

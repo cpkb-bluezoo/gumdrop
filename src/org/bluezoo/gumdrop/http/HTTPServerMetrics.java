@@ -1,5 +1,5 @@
 /*
- * HTTPServerMetrics.java
+ * HttpServerMetrics.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -48,7 +48,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://opentelemetry.io/docs/specs/semconv/http/http-metrics/">HTTP Metrics Semantic Conventions</a>
  */
-public class HTTPServerMetrics {
+public class HttpServerMetrics {
 
     private static final String METER_NAME = "org.bluezoo.gumdrop.http";
 
@@ -67,7 +67,7 @@ public class HTTPServerMetrics {
      *
      * @param config the telemetry configuration
      */
-    public HTTPServerMetrics(TelemetryConfig config) {
+    public HttpServerMetrics(TelemetryConfig config) {
         Meter meter = config.getMeter(METER_NAME, Gumdrop.VERSION);
 
         // Request counter - total requests

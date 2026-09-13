@@ -81,7 +81,7 @@ For a pure async microservice without servlets:
 <?xml version='1.0' standalone='yes'?>
 <gumdrop>
 	<service id="myservice" class="com.example.myservice.MyService">
-		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+		<listener class="org.bluezoo.gumdrop.http.HttpListener">
 			<property name="port" value="443"/>
 			<property name="secure" value="true"/>
 			<property name="keystore-file" path="myserver.p12"/>
@@ -100,7 +100,7 @@ For a pure async microservice without servlets:
 		<property name="container" ref="#mainContainer"/>
 		<property name="hot-deploy" value="true"/>
 		<context path="" root="myservice.war" distributable="true"/>
-		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+		<listener class="org.bluezoo.gumdrop.http.HttpListener">
 			<property name="port" value="443"/>
 			<property name="secure" value="true"/>
 			<property name="keystore-file" path="myserver.p12"/>

@@ -24,9 +24,9 @@ package org.bluezoo.gumdrop.telemetry.otlp;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
+import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
 
 import org.bluezoo.gumdrop.util.TLSUtils;
 
@@ -72,7 +72,7 @@ class OTLPEndpoint {
     private String truststoreFormat = "PKCS12";
     private volatile X509TrustManager trustManager;
 
-    private HTTPClient client;
+    private HttpClient client;
     private volatile boolean connecting;
     private volatile boolean connected;
     private volatile CountDownLatch pendingConnectLatch;
@@ -281,7 +281,7 @@ class OTLPEndpoint {
      *
      * @return the HTTP client, or null if connection failed or not yet connected
      */
-    HTTPClient getClient() {
+    HttpClient getClient() {
         return getClient(null);
     }
 
@@ -291,7 +291,7 @@ class OTLPEndpoint {
      * @param connectLatch if non-null, counted down when connection is established
      * @return the HTTP client, or null if connection failed or not yet connected
      */
-    HTTPClient getClient(CountDownLatch connectLatch) {
+    HttpClient getClient(CountDownLatch connectLatch) {
         if (connected && client != null && client.isOpen()) {
             if (connectLatch != null) {
                 connectLatch.countDown();
@@ -308,7 +308,7 @@ class OTLPEndpoint {
             connecting = true;
             connected = false;
 
-            client = new HTTPClient(host, port);
+            client = new HttpClient(host, port);
             if (secure) {
                 client.setSecure(true);
                 X509TrustManager tm = getOrCreateTrustManager();
@@ -339,7 +339,7 @@ class OTLPEndpoint {
     /**
      * Handler for OTLP connection lifecycle events.
      */
-    private class OTLPConnectionHandler implements HTTPClientHandler {
+    private class OTLPConnectionHandler implements HttpClientHandler {
 
         private final CountDownLatch connectLatch;
 
@@ -387,13 +387,13 @@ class OTLPEndpoint {
      * @param handler the response handler
      */
     void send(ByteBuffer data, OTLPResponseHandler handler) {
-        HTTPClient httpClient = getClient();
+        HttpClient httpClient = getClient();
         if (httpClient == null) {
             handler.failed(new IOException("No connection to " + name + " endpoint"));
             return;
         }
 
-        HTTPRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path);
 
         // Set standard headers
         request.header("Content-Type", "application/x-protobuf");
@@ -426,13 +426,13 @@ class OTLPEndpoint {
      * @return the channel, or null if connection failed
      */
     HTTPRequestChannel openStream(OTLPResponseHandler handler) {
-        HTTPClient httpClient = getClient();
+        HttpClient httpClient = getClient();
         if (httpClient == null) {
             handler.failed(new IOException("No connection to " + name + " endpoint"));
             return null;
         }
 
-        HTTPRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path);
 
         // Set standard headers - use chunked encoding for streaming
         request.header("Content-Type", "application/x-protobuf");

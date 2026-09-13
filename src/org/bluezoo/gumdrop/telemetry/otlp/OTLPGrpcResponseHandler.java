@@ -21,9 +21,9 @@
 
 package org.bluezoo.gumdrop.telemetry.otlp;
 
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 import java.text.MessageFormat;
 import java.util.ResourceBundle;
@@ -39,7 +39,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class OTLPGrpcResponseHandler extends DefaultHTTPResponseHandler {
+class OTLPGrpcResponseHandler extends DefaultHttpResponseHandler {
 
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
@@ -50,7 +50,7 @@ class OTLPGrpcResponseHandler extends DefaultHTTPResponseHandler {
 
     private volatile boolean complete;
     private volatile boolean success;
-    private HTTPStatus status;
+    private HttpStatus status;
 
     OTLPGrpcResponseHandler(String endpointName, OTLPGrpcExporter exporter) {
         this.endpointName = endpointName;
@@ -58,7 +58,7 @@ class OTLPGrpcResponseHandler extends DefaultHTTPResponseHandler {
     }
 
     @Override
-    public void ok(HTTPResponse response) {
+    public void ok(HttpResponse response) {
         this.status = response.getStatus();
         this.success = true;
 
@@ -68,7 +68,7 @@ class OTLPGrpcResponseHandler extends DefaultHTTPResponseHandler {
     }
 
     @Override
-    public void error(HTTPResponse response) {
+    public void error(HttpResponse response) {
         this.status = response.getStatus();
         this.success = false;
 
@@ -103,7 +103,7 @@ class OTLPGrpcResponseHandler extends DefaultHTTPResponseHandler {
         return success;
     }
 
-    HTTPStatus getStatus() {
+    HttpStatus getStatus() {
         return status;
     }
 

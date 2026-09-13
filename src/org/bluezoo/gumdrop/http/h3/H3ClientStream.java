@@ -38,12 +38,12 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.HTTPUtils;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpUtils;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
-import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 
 /**
@@ -52,14 +52,14 @@ import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
  * <p>This is the client-side counterpart of {@link H3Stream}. Each
  * instance is itself the QUIC stream's {@link ProtocolHandler}, owning
  * its own {@link H3Parser} fed directly from {@link #receive}, and
- * translates HTTP/3 response frames into {@link HTTPResponseHandler}
+ * translates HTTP/3 response frames into {@link HttpResponseHandler}
  * callbacks per RFC 9114 section 4.1 (HTTP message exchanges) -- uniformly,
  * whether the request is a plain HTTP request or an Extended CONNECT
  * (RFC 8441/9220 WebSocket, RFC 9298 CONNECT-UDP, and future RFC 9484
  * CONNECT-IP). This class has no notion of any of those upgrade
  * protocols itself: it always holds exactly one {@code responseHandler},
  * and callers that need upgrade-specific behaviour (see {@link
- * H3ClientWebSocketResponseHandler}) supply an {@link HTTPResponseHandler}
+ * H3ClientWebSocketResponseHandler}) supply an {@link HttpResponseHandler}
  * that reinterprets the ordinary {@code responseBodyContent}/{@code
  * wantsDatagrams}/{@code datagramReceived}/{@code capsuleReceived}
  * callbacks accordingly -- exactly how {@code H2WebSocketResponseHandler}
@@ -73,7 +73,7 @@ import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
  * will follow the way {@code H2WebSocketResponseHandler}'s caller can.
  * Since an Extended CONNECT accept has no HTTP body at all -- the
  * "body" bytes it sees, if any, are already tunnelled-protocol framing --
- * {@link #onHeaders} calls {@link HTTPResponseHandler#startResponseBody}
+ * {@link #onHeaders} calls {@link HttpResponseHandler#startResponseBody}
  * immediately for such a request, rather than waiting for a first DATA
  * frame that may never come.
  *
@@ -83,8 +83,8 @@ import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
  * {@code :status} pseudo-header determines the response status code.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTP3ClientHandler
- * @see HTTPResponseHandler
+ * @see Http3ClientHandler
+ * @see HttpResponseHandler
  */
 class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
@@ -107,9 +107,9 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     }
 
     private final H3Parser parser = new H3Parser(this);
-    private final HTTP3ClientHandler connection;
+    private final Http3ClientHandler connection;
     private final Decoder qpackDecoder;
-    private final HTTPResponseHandler responseHandler;
+    private final HttpResponseHandler responseHandler;
     private Endpoint endpoint;
     // Mirrors ((QuicStreamEndpoint) endpoint).getStreamId(), captured
     // once in connected() so QPACK bookkeeping doesn't depend on
@@ -152,7 +152,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     // :method/:protocol.
     private boolean extendedConnect;
 
-    // Set by HTTP3ClientHandler.sendRequest / connectWebSocket before
+    // Set by Http3ClientHandler.sendRequest / connectWebSocket before
     // openStream, then flushed from connected() once a stream ID is
     // granted -- including when the open was queued behind MAX_STREAMS
     // credit (RFC 9000 section 4.6).
@@ -161,7 +161,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     private final List<byte[]> pendingBody = new ArrayList<byte[]>();
     private boolean pendingBodyFin;
 
-    H3ClientStream(HTTP3ClientHandler connection, Decoder qpackDecoder, HTTPResponseHandler responseHandler) {
+    H3ClientStream(Http3ClientHandler connection, Decoder qpackDecoder, HttpResponseHandler responseHandler) {
         this.connection = connection;
         this.qpackDecoder = qpackDecoder;
         this.responseHandler = responseHandler;
@@ -236,7 +236,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     /**
      * Writes {@code frameData} as a DATA frame (RFC 9114 section 7.2.1)
-     * directly to this stream's endpoint. For an {@link HTTPResponseHandler}
+     * directly to this stream's endpoint. For an {@link HttpResponseHandler}
      * that reinterprets response body bytes as some other framing --
      * {@link H3ClientWebSocketResponseHandler}'s RFC 6455 frames, or
      * {@link H3ClientConnectUdpResponseHandler}'s capsule-framed HTTP
@@ -293,7 +293,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
 
     private void handlePeerSendFinished() {
         // connection is only ever null when a test constructs this class
-        // directly without going through HTTP3ClientHandler (see
+        // directly without going through Http3ClientHandler (see
         // H3ClientStreamTest) -- never in production.
         if (!headersDecoded && connection != null) {
             connection.cancelQpackStream(streamId);
@@ -314,7 +314,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
      * Aborts this stream with {@link H3ErrorCode#H3_EXCESSIVE_LOAD}
      * (RFC 9114 section 4.2.2) and notifies the response handler.
      *
-     * @param reason a human-readable reason for {@link HTTPResponseHandler#failed}
+     * @param reason a human-readable reason for {@link HttpResponseHandler#failed}
      */
     void abortExcessiveLoad(String reason) {
         state = State.CLOSED;
@@ -394,8 +394,8 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             }
 
             state = State.HEADERS_RECEIVED;
-            HTTPStatus status = HTTPStatus.fromCode(statusCode);
-            HTTPResponse response = new HTTPResponse(status);
+            HttpStatus status = HttpStatus.fromCode(statusCode);
+            HttpResponse response = new HttpResponse(status);
             if (statusCode >= 200 && statusCode < 400) {
                 responseHandler.ok(response);
             } else {
@@ -408,7 +408,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
             if (!captureContentLength(hdrs)) {
                 return;
             }
-            HTTPVersion.stripHttp1FramingHeaders(hdrs);
+            HttpVersion.stripHttp1FramingHeaders(hdrs);
             for (Header field : hdrs) {
                 if (!field.getName().startsWith(":")) {
                     responseHandler.header(field.getName(), field.getValue());
@@ -445,7 +445,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
      */
     private void deliverStrippedHeaders(List<Header> fields) {
         Headers hdrs = toHeaders(fields);
-        HTTPVersion.stripHttp1FramingHeaders(hdrs);
+        HttpVersion.stripHttp1FramingHeaders(hdrs);
         for (Header field : hdrs) {
             if (!field.getName().startsWith(":")) {
                 responseHandler.header(field.getName(), field.getValue());
@@ -564,7 +564,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         if (value == null) {
             return true;
         }
-        long parsed = HTTPUtils.validateContentLength(value);
+        long parsed = HttpUtils.validateContentLength(value);
         if (parsed < 0) {
             abortMessageError("invalid Content-Length");
             return false;
@@ -651,7 +651,7 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         String formatted = MessageFormat.format(L10N.getString("warn.frame_error"), message);
         LOGGER.warning(formatted);
         // connection is only ever null when a test constructs this class
-        // directly without going through HTTP3ClientHandler.
+        // directly without going through Http3ClientHandler.
         if (connection != null) {
             connection.closeWithApplicationError(errorCode, message);
         }

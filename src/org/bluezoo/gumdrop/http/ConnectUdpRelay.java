@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.UDPTransportFactory;
  * exchange and one fixed UDP target -- the version-agnostic core {@link
  * ConnectUdpRequestHandler} drives, shared by HTTP/1.1, HTTP/2, and
  * HTTP/3 alike, since all three ultimately deliver Context ID-prefixed
- * HTTP Datagram payloads to {@link HTTPRequestHandler#datagramReceived}
+ * HTTP Datagram payloads to {@link HttpRequestHandler#datagramReceived}
  * the same way (RFC 9297; RFC 9298 section 5's Context ID layer is
  * {@link HttpDatagramContext}).
  *
@@ -76,18 +76,18 @@ final class ConnectUdpRelay {
      */
     static final long DEFAULT_IDLE_TIMEOUT_MS = 5L * 60L * 1000L;
 
-    private final HTTPResponseState state;
+    private final HttpResponseState state;
     private final long idleTimeoutMs;
 
     private UDPEndpoint upstream;
     private boolean closed;
     private TimerHandle idleTimer;
 
-    ConnectUdpRelay(HTTPResponseState state) {
+    ConnectUdpRelay(HttpResponseState state) {
         this(state, DEFAULT_IDLE_TIMEOUT_MS);
     }
 
-    ConnectUdpRelay(HTTPResponseState state, long idleTimeoutMs) {
+    ConnectUdpRelay(HttpResponseState state, long idleTimeoutMs) {
         this.state = state;
         this.idleTimeoutMs = idleTimeoutMs;
     }

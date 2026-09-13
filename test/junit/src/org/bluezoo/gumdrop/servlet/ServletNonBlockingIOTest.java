@@ -8,8 +8,8 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpVersion;
 
 import org.junit.Test;
 
@@ -296,7 +296,7 @@ public class ServletNonBlockingIOTest {
         return new Request(handler, 8192, "GET", "/test", new Headers(), body);
     }
 
-    private static void bindHandlerState(ServletHandler handler, HTTPResponseState state,
+    private static void bindHandlerState(ServletHandler handler, HttpResponseState state,
             Request request, Response response) throws Exception {
         java.lang.reflect.Field stateField = ServletHandler.class.getDeclaredField("state");
         stateField.setAccessible(true);
@@ -310,15 +310,15 @@ public class ServletNonBlockingIOTest {
     }
 
     private static final class StubServletHandler extends ServletHandler {
-        private final HTTPResponseState stubState;
+        private final HttpResponseState stubState;
 
-        StubServletHandler(ServletService service, HTTPResponseState stubState) {
+        StubServletHandler(ServletService service, HttpResponseState stubState) {
             super(service, service.getContainer(), 8192);
             this.stubState = stubState;
         }
 
         @Override
-        HTTPResponseState getState() {
+        HttpResponseState getState() {
             return stubState;
         }
     }
@@ -336,7 +336,7 @@ public class ServletNonBlockingIOTest {
         }
     }
 
-    private static class StubHTTPResponseState implements HTTPResponseState {
+    private static class StubHTTPResponseState implements HttpResponseState {
         @Override public java.net.SocketAddress getRemoteAddress() {
             return new java.net.InetSocketAddress("127.0.0.1", 54321);
         }
@@ -345,7 +345,7 @@ public class ServletNonBlockingIOTest {
         }
         @Override public boolean isSecure() { return false; }
         @Override public org.bluezoo.gumdrop.SecurityInfo getSecurityInfo() { return null; }
-        @Override public HTTPVersion getVersion() { return HTTPVersion.HTTP_2_0; }
+        @Override public HttpVersion getVersion() { return HttpVersion.HTTP_2_0; }
         @Override public String getScheme() { return "http"; }
         @Override public org.bluezoo.gumdrop.SelectorLoop getSelectorLoop() { return null; }
         @Override public java.security.Principal getPrincipal() { return null; }

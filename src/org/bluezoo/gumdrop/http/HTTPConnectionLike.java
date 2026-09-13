@@ -1,5 +1,5 @@
 /*
- * HTTPConnectionLike.java
+ * HttpConnectionLike.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -34,19 +34,19 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 /**
  * Interface for HTTP connection abstractions used by {@link Stream}.
  *
- * <p>{@link HTTPProtocolHandler} implements this interface so that
+ * <p>{@link HttpProtocolHandler} implements this interface so that
  * {@link Stream} can interact with the HTTP protocol handler uniformly.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-interface HTTPConnectionLike {
+interface HttpConnectionLike {
 
     String getScheme();
-    HTTPVersion getVersion();
+    HttpVersion getVersion();
     SocketAddress getRemoteSocketAddress();
     SocketAddress getLocalSocketAddress();
     SecurityInfo getSecurityInfoForStream();
-    HTTPRequestHandlerFactory getHandlerFactory();
+    HttpRequestHandlerFactory getHandlerFactory();
     void sendResponseHeaders(int streamId, int statusCode, Headers headers, boolean endStream);
     void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream);
     void send(ByteBuffer buf);
@@ -60,9 +60,9 @@ interface HTTPConnectionLike {
     Trace getTrace();
     void setTrace(Trace trace);
     boolean isTelemetryEnabled();
-    HTTPServerMetrics getServerMetrics();
+    HttpServerMetrics getServerMetrics();
     boolean isEnablePush();
-    Stream newStream(HTTPConnectionLike connection, int streamId);
+    Stream newStream(HttpConnectionLike connection, int streamId);
     int getNextServerStreamId();
     byte[] encodeHeaders(Headers headers);
     void sendPushPromise(int streamId, int promisedStreamId, ByteBuffer headerBlock, boolean endHeaders);
@@ -78,7 +78,7 @@ interface HTTPConnectionLike {
      *
      * @return the authentication provider, or null
      */
-    HTTPAuthenticationProvider getAuthenticationProvider();
+    HttpAuthenticationProvider getAuthenticationProvider();
 
     /**
      * Registers a one-shot callback invoked when the transport is ready

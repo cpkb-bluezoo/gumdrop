@@ -1,5 +1,5 @@
 /*
- * HTTPDateFormat.java
+ * HttpDateFormat.java
  * Copyright (C) 2004 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -48,7 +48,7 @@ import java.util.*;
  *
  * @author <a href="mailto:dog@gnu.org">Chris Burdess</a>
  */
-public class HTTPDateFormat extends DateFormat {
+public class HttpDateFormat extends DateFormat {
 
     private static final long serialVersionUID = 1L;
 
@@ -71,7 +71,7 @@ public class HTTPDateFormat extends DateFormat {
             }
         };
 
-    public HTTPDateFormat() {
+    public HttpDateFormat() {
         // Satisfy DateFormat's contract (getCalendar/clone/equals); the hot
         // format/parse paths use the per-thread CALENDAR above instead.
         calendar = new GregorianCalendar(TimeZone.getTimeZone("GMT"));

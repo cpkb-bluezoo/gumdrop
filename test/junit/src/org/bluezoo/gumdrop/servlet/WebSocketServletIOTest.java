@@ -8,8 +8,8 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
@@ -440,20 +440,20 @@ public class WebSocketServletIOTest {
     }
 
     private static final class StubServletHandler extends ServletHandler {
-        private final HTTPResponseState stubState;
+        private final HttpResponseState stubState;
 
-        StubServletHandler(ServletService service, HTTPResponseState stubState) {
+        StubServletHandler(ServletService service, HttpResponseState stubState) {
             super(service, service.getContainer(), 8192);
             this.stubState = stubState;
         }
 
         @Override
-        HTTPResponseState getState() {
+        HttpResponseState getState() {
             return stubState;
         }
     }
 
-    private static class StubHTTPResponseState implements HTTPResponseState {
+    private static class StubHTTPResponseState implements HttpResponseState {
         @Override public java.net.SocketAddress getRemoteAddress() {
             return new java.net.InetSocketAddress("127.0.0.1", 54321);
         }
@@ -462,7 +462,7 @@ public class WebSocketServletIOTest {
         }
         @Override public boolean isSecure() { return false; }
         @Override public org.bluezoo.gumdrop.SecurityInfo getSecurityInfo() { return null; }
-        @Override public HTTPVersion getVersion() { return HTTPVersion.HTTP_2_0; }
+        @Override public HttpVersion getVersion() { return HttpVersion.HTTP_2_0; }
         @Override public String getScheme() { return "http"; }
         @Override public org.bluezoo.gumdrop.SelectorLoop getSelectorLoop() { return null; }
         @Override public java.security.Principal getPrincipal() { return null; }

@@ -914,7 +914,7 @@ public class DNSService implements Service {
         if (effectiveLoop == null) {
             // No natural loop available (e.g. a query submitted
             // directly rather than via a bound listener) -- fall back
-            // to a worker loop, the same way SMTPClient/HTTPClient do
+            // to a worker loop, the same way SMTPClient/HttpClient do
             // for outbound connections with no inherited loop.
             Gumdrop gumdrop = Gumdrop.getInstance();
             gumdrop.start();

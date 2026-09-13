@@ -192,7 +192,7 @@ secure domains on a single IP address and port.
 
 <pre>
 &lt;service id="https" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
         &lt;property name="port"&gt;443&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
         &lt;property name="keystore-file"&gt;multi-domain.p12&lt;/property&gt;
@@ -305,7 +305,7 @@ on both:
     &lt;property name="container" ref="#mainContainer"/&gt;
 
     &lt;!-- HTTPS on TCP --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
         &lt;property name="port"&gt;8443&lt;/property&gt;
         &lt;property name="secure"&gt;true&lt;/property&gt;
         &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
@@ -313,7 +313,7 @@ on both:
     &lt;/listener&gt;
 
     &lt;!-- HTTP/3 on UDP (same keystore) --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
         &lt;property name="port"&gt;8443&lt;/property&gt;
         &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
         &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
@@ -339,7 +339,7 @@ See <a href="tls.html#ciphers">TLS &amp; DTLS &mdash; cipher suites</a>.
 </p>
 
 <pre>
-&lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+&lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
     &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
@@ -366,7 +366,7 @@ is rejected.
 <p>
 All client classes support certificate pinning via
 <code>setTrustManager(X509TrustManager)</code>:
-<code>HTTPClient</code>, <code>SMTPClient</code>, <code>IMAPClient</code>,
+<code>HttpClient</code>, <code>SMTPClient</code>, <code>IMAPClient</code>,
 <code>POP3Client</code>, <code>WebSocketClient</code>, <code>RedisClient</code>,
 <code>LDAPClient</code>.
 </p>

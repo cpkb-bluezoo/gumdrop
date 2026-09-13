@@ -1,5 +1,5 @@
 /*
- * DefaultHTTPAuthenticationProvider.java
+ * DefaultHttpAuthenticationProvider.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,7 +27,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.auth.SASLMechanism;
 
 /**
- * An {@link HTTPAuthenticationProvider} that delegates to a
+ * An {@link HttpAuthenticationProvider} that delegates to a
  * {@link Realm} for credential verification.
  *
  * <p>This bridges the SASL/mail-protocol {@code Realm} abstraction to
@@ -45,11 +45,11 @@ import org.bluezoo.gumdrop.auth.SASLMechanism;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPAuthenticationProvider
+ * @see HttpAuthenticationProvider
  * @see Realm
  */
-public class DefaultHTTPAuthenticationProvider
-        extends HTTPAuthenticationProvider {
+public class DefaultHttpAuthenticationProvider
+        extends HttpAuthenticationProvider {
 
     private final Realm realm;
     private final String realmName;
@@ -61,7 +61,7 @@ public class DefaultHTTPAuthenticationProvider
      * @param realm the authentication realm
      * @param realmName the realm name to include in HTTP challenges
      */
-    public DefaultHTTPAuthenticationProvider(Realm realm,
+    public DefaultHttpAuthenticationProvider(Realm realm,
                                             String realmName) {
         this.realm = realm;
         this.realmName = realmName;
@@ -74,14 +74,14 @@ public class DefaultHTTPAuthenticationProvider
      *
      * @param realm the authentication realm
      */
-    public DefaultHTTPAuthenticationProvider(Realm realm) {
+    public DefaultHttpAuthenticationProvider(Realm realm) {
         this(realm, "gumdrop");
     }
 
     private static String detectAuthMethod(Realm realm) {
         if (realm.getSupportedSASLMechanisms()
                 .contains(SASLMechanism.OAUTHBEARER)) {
-            return HTTPAuthenticationMethods.BEARER_AUTH;
+            return HttpAuthenticationMethods.BEARER_AUTH;
         }
         if (realm.getSupportedSASLMechanisms()
                 .contains(SASLMechanism.DIGEST_MD5)) {

@@ -28,7 +28,7 @@
         </container>
 
         <!-- HTTPS listener -->
-        <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+        <listener class="org.bluezoo.gumdrop.http.HttpListener">
             <property name="port">8443</property>
             <property name="addresses">0.0.0.0</property>
             <property name="secure">true</property>
@@ -48,7 +48,7 @@
         </container>
 
         <!-- HTTP listener -->
-        <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+        <listener class="org.bluezoo.gumdrop.http.HttpListener">
             <property name="port">8080</property>
             <property name="addresses">0.0.0.0</property>
         </listener>

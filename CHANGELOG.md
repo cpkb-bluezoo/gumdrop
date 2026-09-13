@@ -307,7 +307,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 ### Fixed
 
-- **`HTTP3Listener` NullPointerException** on certain startup configurations
+- **`Http3Listener` NullPointerException** on certain startup configurations
   (#108).
 - **HTTP/2 `Content-Length` validation ordering** corrected so a mismatched
   length is rejected before the affected body is processed (#67).
@@ -374,12 +374,12 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   deserialization vector in cluster session replication.
 
 - **Conflicting `Content-Length` headers not rejected on HTTP/1**: 
-  `HTTPProtocolHandler`, `Stream`, and
-  `HTTPVersion` now reject requests carrying multiple/conflicting
+  `HttpProtocolHandler`, `Stream`, and
+  `HttpVersion` now reject requests carrying multiple/conflicting
   `Content-Length` headers instead of picking one.
 
 - **`Transfer-Encoding` header with multiple codings not rejected**: 
-  `HTTPUtils` now rejects a
+  `HttpUtils` now rejects a
   `Transfer-Encoding` header listing multiple codings.
 
 - **SOCKS NO-AUTH/SOCKS4 accepted despite configured realm**: 
@@ -420,12 +420,12 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   minimum) and caches derived credentials to offset the added cost.
 
 - **Digest authentication nonce hardened**: HTTP Digest nonce
-  generation in `HTTPAuthenticationProvider` no longer uses
+  generation in `HttpAuthenticationProvider` no longer uses
   `Math.random()`; it now mixes the current time with `SecureRandom` bytes
   so nonces are unpredictable.
 
 - **HTTP Digest replay guard and request binding weak**:
-  `HTTPAuthenticationProvider`'s Digest authentication lacked adequate
+  `HttpAuthenticationProvider`'s Digest authentication lacked adequate
   replay protection and binding to the specific request; fixed with
   nonce/request-binding checks.
 
@@ -448,7 +448,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   for it, and raise a new `WebSocketMessageTooBigException`.
 
 - **No configurable maximum HTTP request body size**:
-  `HTTPListener`, `HTTPProtocolHandler`, and `Stream` now support an
+  `HttpListener`, `HttpProtocolHandler`, and `Stream` now support an
   enforceable maximum body size.
 
 - **gRPC bodies buffered fully in memory instead of streamed**: 
@@ -467,12 +467,12 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   address.
 
 - **HTTP/2 concurrency slot released before the response actually
-  completed**: `HTTPProtocolHandler`/`Stream` now hold
+  completed**: `HttpProtocolHandler`/`Stream` now hold
   the HTTP/2 concurrency slot until the response completes, closing a
   concurrency-limit-bypass window.
 
 - **Client-sent `PUSH_PROMISE` accepted instead of rejected**: 
-  `HTTPProtocolHandler` now rejects a
+  `HttpProtocolHandler` now rejects a
   client-sent `PUSH_PROMISE` frame with `PROTOCOL_ERROR` and `GOAWAY`
   instead of accepting it — servers are never a valid recipient of this
   frame per RFC 9113 §6.6.
@@ -510,12 +510,12 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   replay/timestamp validation unconditionally.
 
 - **Timing-unsafe MAC/digest comparisons**: 
-  `HTTPAuthenticationProvider`, `IMAPProtocolHandler`,
+  `HttpAuthenticationProvider`, `IMAPProtocolHandler`,
   `POP3ProtocolHandler`, and `DKIMValidator` now use constant-time
   comparison for credential/digest checks.
 
 - **No HTTP/1.1 header-count limit**:
-  `HTTPProtocolHandler` now enforces a maximum header count per request.
+  `HttpProtocolHandler` now enforces a maximum header count per request.
 
 - **No maximum line length enforced in `LineParser`**: 
   `LineParser` (and the FTP/HTTP/IMAP/POP3/SMTP handlers built on
@@ -523,7 +523,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   exhaustion.
 
 - **Non-PRI input accepted after an h2c 101 Switching Protocols upgrade**: 
-  `HTTPProtocolHandler` now
+  `HttpProtocolHandler` now
   rejects non-conforming input following an h2c upgrade.
 
 - **FTP unique-name generation not re-validated against path policy**: 
@@ -542,11 +542,11 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   `DKIMValidator` no longer accepts `rsa-sha1` signatures.
 
 - **TLS peer-verification disable flag not applied to TCP/TLS**: 
-  `HTTPClient.setVerifyPeer(false)` previously only affected
+  `HttpClient.setVerifyPeer(false)` previously only affected
   QUIC connections; it now applies to TCP/TLS connections too.
 
-- **No SSRF protection option on `HTTPClient`**: 
-  `HTTPClient` gains an opt-in SSRF protection mode that
+- **No SSRF protection option on `HttpClient`**: 
+  `HttpClient` gains an opt-in SSRF protection mode that
   blocks requests/redirects to internal address ranges.
 
 - **WebDAV XML parsing hardened against XXE/DoS**:
@@ -569,7 +569,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   resolution as the existing FTP/WebDAV fix above.
 
 - **Host header syntax not validated; malformed port crashed the request**: 
-  `HTTPProtocolHandler`, `HTTPUtils`, and `Request`
+  `HttpProtocolHandler`, `HttpUtils`, and `Request`
   now validate `Host` header syntax and guard `getServerPort()` against a
   crash on malformed input.
 
@@ -582,14 +582,14 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   containing CR/LF) and drops the header with a warning instead of
   propagating an exception, preventing HTTP response splitting from becoming
   a server error. The `Header` constructor already rejects CR/LF via
-  `HTTPUtils.isValidHeaderValue`; a regression test was added.
+  `HttpUtils.isValidHeaderValue`; a regression test was added.
 
 - **Clarified `sendRedirect` open-redirect documentation**:
   `Response.sendRedirect()` javadoc now accurately states that the method does
   not restrict the redirect target and that same-origin/allowlist validation
   is the application's responsibility.
 
-- **Clarified HTTP client `-k` flag**: The command-line `HTTPClient`
+- **Clarified HTTP client `-k` flag**: The command-line `HttpClient`
   `-k` (skip TLS certificate verification) flag is documented as insecure and
   debugging-only; certificate verification remains enabled by default.
 
@@ -611,9 +611,9 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   native library (BoringSSL + quiche JNI bindings). Servers advertise HTTP/3
   availability through `Alt-Svc` headers; clients can connect directly over
   QUIC or discover HTTP/3 transparently via Alt-Svc upgrade.
-  - `HTTPClient` supports `--http3` for direct QUIC connections with optional
+  - `HttpClient` supports `--http3` for direct QUIC connections with optional
     client certificates and SNI for alternate-host Alt-Svc targets
-  - `HTTPClient` CLI (`main()`) for debugging HTTP connections across all
+  - `HttpClient` CLI (`main()`) for debugging HTTP connections across all
     protocol versions (HTTP/1.1, HTTP/2, HTTP/3), similar to curl
 
 - **MQTT broker and client**: MQTT 3.1.1 and MQTT 5.0 over TCP and WebSocket,
@@ -624,8 +624,8 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 ### Fixed
 
-- `HTTPClientProtocolHandler` now fires `onConnected` and
-  `onSecurityEstablished` callbacks on the `HTTPClientHandler`
+- `HttpClientProtocolHandler` now fires `onConnected` and
+  `onSecurityEstablished` callbacks on the `HttpClientHandler`
 - TLS client handshake is now initiated after TCP connect completes
 - HEAD responses no longer hang waiting for a body that will never arrive
 
@@ -655,7 +655,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   </container>
   <service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
       <property name="container" ref="#mainContainer"/>
-      <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+      <listener class="org.bluezoo.gumdrop.http.HttpListener">
           <property name="port" value="8080"/>
       </listener>
   </service>
@@ -666,7 +666,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   <service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
       <property name="hot-deploy" value="true"/>
       <context path="" root="../web"/>
-      <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+      <listener class="org.bluezoo.gumdrop.http.HttpListener">
           <property name="port" value="8080"/>
       </listener>
   </service>

@@ -37,7 +37,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import static org.junit.Assert.*;
 
 /**
- * Regression tests for issue #192: {@link HTTPAuthenticationProvider}'s
+ * Regression tests for issue #192: {@link HttpAuthenticationProvider}'s
  * Digest nonce/cnonce tracking previously grew without bound and
  * {@code seenCnonce} contended on a single global lock across every
  * request the provider instance served.
@@ -47,7 +47,7 @@ import static org.junit.Assert.*;
 public class HTTPAuthenticationProviderEvictionTest {
 
     /** Minimal Digest provider for exercising nonce issuance directly. */
-    private static final class TestProvider extends HTTPAuthenticationProvider {
+    private static final class TestProvider extends HttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.DIGEST_AUTH;
         }
@@ -69,21 +69,21 @@ public class HTTPAuthenticationProviderEvictionTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> nonces(HTTPAuthenticationProvider provider) throws Exception {
-        Field field = HTTPAuthenticationProvider.class.getDeclaredField("nonces");
+    private static Map<String, Object> nonces(HttpAuthenticationProvider provider) throws Exception {
+        Field field = HttpAuthenticationProvider.class.getDeclaredField("nonces");
         field.setAccessible(true);
         return (Map<String, Object>) field.get(provider);
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Long> cnonces(HTTPAuthenticationProvider provider) throws Exception {
-        Field field = HTTPAuthenticationProvider.class.getDeclaredField("cnonces");
+    private static Map<String, Long> cnonces(HttpAuthenticationProvider provider) throws Exception {
+        Field field = HttpAuthenticationProvider.class.getDeclaredField("cnonces");
         field.setAccessible(true);
         return (Map<String, Long>) field.get(provider);
     }
 
     /** Backdates a tracked nonce's issue time so it reads as already expired. */
-    private static void ageNonce(HTTPAuthenticationProvider provider, String nonce, long ageMs) throws Exception {
+    private static void ageNonce(HttpAuthenticationProvider provider, String nonce, long ageMs) throws Exception {
         Object entry = nonces(provider).get(nonce);
         assertNotNull("nonce must be tracked before it can be aged", entry);
         Field createdAtField = entry.getClass().getDeclaredField("createdAt");
@@ -109,7 +109,7 @@ public class HTTPAuthenticationProviderEvictionTest {
         // Older than NONCE_TTL_MS (5 minutes) -- must now read as invalid.
         ageNonce(provider, nonce, 6L * 60L * 1000L);
 
-        Method method = HTTPAuthenticationProvider.class.getDeclaredMethod("getNonceCount", String.class);
+        Method method = HttpAuthenticationProvider.class.getDeclaredMethod("getNonceCount", String.class);
         method.setAccessible(true);
         int count = (Integer) method.invoke(provider, nonce);
         assertEquals("an expired nonce must be reported as unknown (-1)", -1, count);
@@ -152,7 +152,7 @@ public class HTTPAuthenticationProviderEvictionTest {
         final boolean[] allNew = new boolean[threadCount];
 
         final Method seenCnonce =
-                HTTPAuthenticationProvider.class.getDeclaredMethod("seenCnonce", String.class);
+                HttpAuthenticationProvider.class.getDeclaredMethod("seenCnonce", String.class);
         seenCnonce.setAccessible(true);
 
         ExecutorService pool = Executors.newFixedThreadPool(threadCount);

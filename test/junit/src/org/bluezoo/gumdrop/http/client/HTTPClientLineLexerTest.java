@@ -33,9 +33,9 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link HTTPClientLineLexer}. Structurally identical to
- * the server-side {@code org.bluezoo.gumdrop.http.HTTPLineLexer}: a
- * single token type ({@link HTTPClientLineLexer.Token#LINE}) spanning a
+ * Unit tests for {@link HttpClientLineLexer}. Structurally identical to
+ * the server-side {@code org.bluezoo.gumdrop.http.HttpLineLexer}: a
+ * single token type ({@link HttpClientLineLexer.Token#LINE}) spanning a
  * whole line <em>including its CRLF</em>, matching the pre-conversion
  * bespoke {@code findCRLF}/{@code parseBuffer} path's own line-extraction
  * shape.
@@ -45,20 +45,20 @@ import static org.junit.Assert.*;
 public class HTTPClientLineLexerTest {
 
     static class Event {
-        final HTTPClientLineLexer.Token type;
+        final HttpClientLineLexer.Token type;
         final String text;
-        Event(HTTPClientLineLexer.Token type, String text) {
+        Event(HttpClientLineLexer.Token type, String text) {
             this.type = type;
             this.text = text;
         }
     }
 
-    static class RecordingHandler implements ByteStreamLexer.Handler<HTTPClientLineLexer.Token> {
+    static class RecordingHandler implements ByteStreamLexer.Handler<HttpClientLineLexer.Token> {
         final List<Event> events = new ArrayList<Event>();
         int tokenTooLongCount;
 
         @Override
-        public boolean token(HTTPClientLineLexer.Token type, ByteBuffer window) {
+        public boolean token(HttpClientLineLexer.Token type, ByteBuffer window) {
             byte[] copy = new byte[window.remaining()];
             window.get(copy);
             events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
@@ -67,7 +67,7 @@ public class HTTPClientLineLexerTest {
 
         @Override
         public void rawBytes(ByteBuffer slice) {
-            fail("HTTPClientLineLexer should never enter raw mode itself");
+            fail("HttpClientLineLexer should never enter raw mode itself");
         }
 
         @Override
@@ -83,17 +83,17 @@ public class HTTPClientLineLexerTest {
     @Test
     public void testStatusLineIncludesCrlf() {
         RecordingHandler handler = new RecordingHandler();
-        HTTPClientLineLexer lexer = new HTTPClientLineLexer(handler, 1024);
+        HttpClientLineLexer lexer = new HttpClientLineLexer(handler, 1024);
         lexer.feed(bytesOf("HTTP/1.1 200 OK\r\n"));
         assertEquals(1, handler.events.size());
-        assertEquals(HTTPClientLineLexer.Token.LINE, handler.events.get(0).type);
+        assertEquals(HttpClientLineLexer.Token.LINE, handler.events.get(0).type);
         assertEquals("HTTP/1.1 200 OK\r\n", handler.events.get(0).text);
     }
 
     @Test
     public void testMultipleLinesEachIncludeCrlf() {
         RecordingHandler handler = new RecordingHandler();
-        HTTPClientLineLexer lexer = new HTTPClientLineLexer(handler, 1024);
+        HttpClientLineLexer lexer = new HttpClientLineLexer(handler, 1024);
         lexer.feed(bytesOf("Content-Type: text/plain\r\nContent-Length: 5\r\n\r\n"));
         assertEquals(3, handler.events.size());
         assertEquals("Content-Type: text/plain\r\n", handler.events.get(0).text);
@@ -104,7 +104,7 @@ public class HTTPClientLineLexerTest {
     @Test
     public void testBareEmptyLineEmittedUnconditionally() {
         RecordingHandler handler = new RecordingHandler();
-        HTTPClientLineLexer lexer = new HTTPClientLineLexer(handler, 1024);
+        HttpClientLineLexer lexer = new HttpClientLineLexer(handler, 1024);
         lexer.feed(bytesOf("\r\n"));
         assertEquals(1, handler.events.size());
         assertEquals("\r\n", handler.events.get(0).text);
@@ -113,7 +113,7 @@ public class HTTPClientLineLexerTest {
     @Test
     public void testCapEnforcedOnWholeLine() {
         RecordingHandler handler = new RecordingHandler();
-        HTTPClientLineLexer lexer = new HTTPClientLineLexer(handler, 10);
+        HttpClientLineLexer lexer = new HttpClientLineLexer(handler, 10);
         StringBuilder longHeader = new StringBuilder("X-Long: ");
         for (int i = 0; i < 20; i++) {
             longHeader.append('a');
@@ -129,11 +129,11 @@ public class HTTPClientLineLexerTest {
         byte[] wire = data.getBytes(StandardCharsets.US_ASCII);
 
         RecordingHandler whole = new RecordingHandler();
-        new HTTPClientLineLexer(whole, 1024).feed(bytesOf(data));
+        new HttpClientLineLexer(whole, 1024).feed(bytesOf(data));
 
         for (int chunkSize = 1; chunkSize <= wire.length; chunkSize++) {
             RecordingHandler handler = new RecordingHandler();
-            HTTPClientLineLexer lexer = new HTTPClientLineLexer(handler, 1024);
+            HttpClientLineLexer lexer = new HttpClientLineLexer(handler, 1024);
             ByteBuffer netIn = ByteBuffer.allocate(256);
             int offset = 0;
             while (offset < wire.length) {
@@ -155,14 +155,14 @@ public class HTTPClientLineLexerTest {
     @Test
     public void testEnterRawBodyThenResumeLineScanning() {
         final List<String> rawChunks = new ArrayList<String>();
-        final HTTPClientLineLexer[] lexerHolder = new HTTPClientLineLexer[1];
-        ByteStreamLexer.Handler<HTTPClientLineLexer.Token> handler =
-                new ByteStreamLexer.Handler<HTTPClientLineLexer.Token>() {
+        final HttpClientLineLexer[] lexerHolder = new HttpClientLineLexer[1];
+        ByteStreamLexer.Handler<HttpClientLineLexer.Token> handler =
+                new ByteStreamLexer.Handler<HttpClientLineLexer.Token>() {
             boolean enteredRaw;
             final List<Event> events = new ArrayList<Event>();
 
             @Override
-            public boolean token(HTTPClientLineLexer.Token type, ByteBuffer window) {
+            public boolean token(HttpClientLineLexer.Token type, ByteBuffer window) {
                 byte[] copy = new byte[window.remaining()];
                 window.get(copy);
                 events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
@@ -185,7 +185,7 @@ public class HTTPClientLineLexerTest {
                 fail("unexpected tokenTooLong");
             }
         };
-        lexerHolder[0] = new HTTPClientLineLexer(handler, 1024);
+        lexerHolder[0] = new HttpClientLineLexer(handler, 1024);
         // "hello" (5 raw bytes) immediately followed by another line.
         lexerHolder[0].feed(bytesOf("X-Len: 5\r\nhelloNEXT: line\r\n"));
         assertEquals(1, rawChunks.size());

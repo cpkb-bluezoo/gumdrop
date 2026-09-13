@@ -1,5 +1,5 @@
 /*
- * HTTPListener.java
+ * HttpListener.java
  * Copyright (C) 2005, 2013, 2025, 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.TransportFactory;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class HTTPListener extends TCPListener {
+public class HttpListener extends TCPListener {
 
     protected static final int HTTP_DEFAULT_PORT = 80;
     protected static final int HTTPS_DEFAULT_PORT = 443;
@@ -83,13 +83,13 @@ public class HTTPListener extends TCPListener {
     /**
      * Authentication provider for HTTP connections created by this endpoint.
      */
-    private HTTPAuthenticationProvider authenticationProvider;
+    private HttpAuthenticationProvider authenticationProvider;
 
     /**
      * Handler factory for creating request handlers.
      * If null, the default 404 behaviour is used.
      */
-    private HTTPRequestHandlerFactory handlerFactory;
+    private HttpRequestHandlerFactory handlerFactory;
 
     /**
      * Alt-Svc header value to inject into responses, or null.
@@ -128,7 +128,7 @@ public class HTTPListener extends TCPListener {
     /**
      * Metrics for this endpoint (null if telemetry is not enabled).
      */
-    private HTTPServerMetrics metrics;
+    private HttpServerMetrics metrics;
 
     /**
      * Whether to add default security headers to responses. Default: true.
@@ -153,7 +153,7 @@ public class HTTPListener extends TCPListener {
             port = secure ? HTTPS_DEFAULT_PORT : HTTP_DEFAULT_PORT;
         }
         if (isMetricsEnabled()) {
-            metrics = new HTTPServerMetrics(getTelemetryConfig());
+            metrics = new HttpServerMetrics(getTelemetryConfig());
         }
     }
 
@@ -163,7 +163,7 @@ public class HTTPListener extends TCPListener {
      *
      * @return the HTTP server metrics
      */
-    public HTTPServerMetrics getMetrics() {
+    public HttpServerMetrics getMetrics() {
         return metrics;
     }
 
@@ -276,7 +276,7 @@ public class HTTPListener extends TCPListener {
      * @param provider the authentication provider, or null to disable
      */
     public void setAuthenticationProvider(
-            HTTPAuthenticationProvider provider) {
+            HttpAuthenticationProvider provider) {
         this.authenticationProvider = provider;
     }
 
@@ -285,7 +285,7 @@ public class HTTPListener extends TCPListener {
      *
      * @return the authentication provider, or null if not configured
      */
-    public HTTPAuthenticationProvider getAuthenticationProvider() {
+    public HttpAuthenticationProvider getAuthenticationProvider() {
         return authenticationProvider;
     }
 
@@ -296,9 +296,9 @@ public class HTTPListener extends TCPListener {
      * request headers are received.
      *
      * @param factory the handler factory, or null for default 404
-     * @see HTTPRequestHandlerFactory
+     * @see HttpRequestHandlerFactory
      */
-    public void setHandlerFactory(HTTPRequestHandlerFactory factory) {
+    public void setHandlerFactory(HttpRequestHandlerFactory factory) {
         this.handlerFactory = factory;
     }
 
@@ -322,7 +322,7 @@ public class HTTPListener extends TCPListener {
      *
      * @return the handler factory, or null if not configured
      */
-    public HTTPRequestHandlerFactory getHandlerFactory() {
+    public HttpRequestHandlerFactory getHandlerFactory() {
         return handlerFactory;
     }
 
@@ -415,7 +415,7 @@ public class HTTPListener extends TCPListener {
 
     @Override
     protected ProtocolHandler createHandler() {
-        return new HTTPProtocolHandler(this, framePadding, maxConcurrentStreams,
+        return new HttpProtocolHandler(this, framePadding, maxConcurrentStreams,
                 maxHeaderListSize);
     }
 

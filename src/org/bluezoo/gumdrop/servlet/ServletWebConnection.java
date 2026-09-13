@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
-import org.bluezoo.gumdrop.http.HTTPResponseState;
+import org.bluezoo.gumdrop.http.HttpResponseState;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
@@ -50,7 +50,7 @@ import java.util.logging.Logger;
  * <p>Incoming WebSocket messages are delivered through a non-blocking
  * {@link RequestBodyStream} (replacing a pipe that could block the
  * SelectorLoop thread when the servlet read side was slow). Backpressure
- * is applied via {@link HTTPResponseState#pauseRequestBody()} when the
+ * is applied via {@link HttpResponseState#pauseRequestBody()} when the
  * buffer reaches its high-water mark. {@link HttpUpgradeHandler#init} and
  * {@link HttpUpgradeHandler#destroy} are dispatched to the servlet worker pool
  * so handler lifecycle never blocks the SelectorLoop thread. Outbound messages
@@ -65,7 +65,7 @@ class ServletWebConnection implements WebConnection {
     private static final Logger LOGGER = Logger.getLogger(ServletWebConnection.class.getName());
 
     private final HttpUpgradeHandler upgradeHandler;
-    private final HTTPResponseState state;
+    private final HttpResponseState state;
     private final ServletHandler handler;
     private final RequestBodyStream messageStream;
     private final WebSocketServletInputStream inputStream;
@@ -89,7 +89,7 @@ class ServletWebConnection implements WebConnection {
      * @param handler the servlet handler for container callback dispatch
      */
     ServletWebConnection(HttpUpgradeHandler upgradeHandler,
-            HTTPResponseState state, ServletHandler handler) {
+            HttpResponseState state, ServletHandler handler) {
         this.upgradeHandler = upgradeHandler;
         this.state = state;
         this.handler = handler;

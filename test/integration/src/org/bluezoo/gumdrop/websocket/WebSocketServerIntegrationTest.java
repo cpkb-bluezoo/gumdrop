@@ -50,7 +50,7 @@ import static org.junit.Assert.*;
  * {@code WebSocketListener} at all, which is how two pre-existing bugs in
  * the post-upgrade data path went undetected:
  * <ul>
- *   <li>{@code HTTPProtocolHandler.processHeaderLine()}'s bodyless-request
+ *   <li>{@code HttpProtocolHandler.processHeaderLine()}'s bodyless-request
  *       handling unconditionally reset connection state back to
  *       {@code REQUEST_LINE} after the upgrade callback returned,
  *       clobbering the {@code WEBSOCKET} state {@code switchToWebSocketMode()}

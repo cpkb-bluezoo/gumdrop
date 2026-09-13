@@ -406,7 +406,7 @@ public class QuicTransportFactory extends TransportFactory {
      * Sets whether this server requires address validation via a Retry
      * packet (RFC 9000 section 8.1.2) before accepting a new connection.
      * Default {@code false} on the factory itself so programmatic and
-     * test engines stay opt-in; {@code HTTP3Listener} and
+     * test engines stay opt-in; {@code Http3Listener} and
      * {@code DoQListener} turn Retry <em>on</em> by default and expose
      * {@code require-retry} to opt into a more permissive (no-Retry)
      * mode for trusted networks. Has no effect on client-mode engines.
@@ -784,7 +784,7 @@ public class QuicTransportFactory extends TransportFactory {
         // 4.6.1) -- rather than later, asynchronously, from this
         // engine's own SelectorLoop thread the way ConnectionAcceptedHandler
         // always does. Calling connect() from any other thread (the
-        // normal case -- e.g. HTTPClient.connect() is typically called
+        // normal case -- e.g. HttpClient.connect() is typically called
         // by application code, not from a SelectorLoop thread) would
         // otherwise let earlyDataHandler's own QuicConnection-touching
         // work run concurrently with this engine's own packet processing

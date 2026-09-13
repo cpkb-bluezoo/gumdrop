@@ -25,12 +25,12 @@
  * <p>{@link org.bluezoo.gumdrop.websocket.client.WebSocketClient} is the
  * high-level facade for connecting to WebSocket servers, with the same
  * automatic transport negotiation as {@link
- * org.bluezoo.gumdrop.http.client.HTTPClient}. It uses the same {@link
+ * org.bluezoo.gumdrop.http.client.HttpClient}. It uses the same {@link
  * org.bluezoo.gumdrop.websocket.WebSocketEventHandler} interface as the
  * server side, so application code can be reused in both roles.
  *
  * <p>Over HTTP/1.1, a {@code WebSocketClientProtocolHandler} extending
- * {@link org.bluezoo.gumdrop.http.client.HTTPClientProtocolHandler}
+ * {@link org.bluezoo.gumdrop.http.client.HttpClientProtocolHandler}
  * handles the RFC 6455 upgrade handshake; once the server responds with
  * 101 Switching Protocols, it switches to WebSocket mode and all
  * subsequent I/O bypasses HTTP parsing entirely. Over HTTP/2 and HTTP/3,

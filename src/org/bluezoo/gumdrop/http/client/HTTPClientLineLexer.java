@@ -1,5 +1,5 @@
 /*
- * HTTPClientLineLexer.java
+ * HttpClientLineLexer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -27,12 +27,12 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * Streaming lexer for HTTP/1.1 response lines (RFC 9112 sections 4, 5,
  * 7): status-line, field-lines, chunk-size lines, and trailer-section
  * lines. Structurally identical to the server-side {@code
- * org.bluezoo.gumdrop.http.HTTPLineLexer}: a single token type, {@link
+ * org.bluezoo.gumdrop.http.HttpLineLexer}: a single token type, {@link
  * Token#LINE}, spanning a whole line <strong>including its CRLF
  * terminator</strong>, deliberately matching the pre-conversion bespoke
  * {@code findCRLF}/{@code parseBuffer} path's own line-extraction shape
  * (line bytes, followed by two explicit CRLF byte reads) — so {@link
- * HTTPClientProtocolHandler}'s per-line-type decode (US-ASCII for the
+ * HttpClientProtocolHandler}'s per-line-type decode (US-ASCII for the
  * status-line/chunk-size line, UTF-8 for header/trailer lines) and string
  * parsing needed no changes beyond being called once per line instead of
  * in a loop pulling from a shared accumulation buffer.
@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * <p>Unlike the server, this lexer has no fixed per-token cap suitable
  * for construction time: {@code maxResponseHeaderSize} is public,
  * mutable, mutable-after-construction API. {@link
- * HTTPClientProtocolHandler} tracks the cumulative header-section byte
+ * HttpClientProtocolHandler} tracks the cumulative header-section byte
  * count itself (mirroring the pre-conversion buffer-growth check) and
  * this lexer's own {@code maxTokenLength} is set to the current {@code
  * maxResponseHeaderSize} value at {@code connected()} time purely as a
@@ -56,19 +56,19 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * parseState} only ever becomes {@code BODY} once {@code contentLength >
  * 0} has already been validated, but preserved defensively) are handled
  * entirely outside this lexer; {@link #stopForHandoff()} hands control
- * back to {@code HTTPClientProtocolHandler.receive()}'s own dispatch for
+ * back to {@code HttpClientProtocolHandler.receive()}'s own dispatch for
  * those.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPClientProtocolHandler
+ * @see HttpClientProtocolHandler
  */
-final class HTTPClientLineLexer extends ByteStreamLexer<HTTPClientLineLexer.Token> {
+final class HttpClientLineLexer extends ByteStreamLexer<HttpClientLineLexer.Token> {
 
     enum Token { LINE, TEXT }
 
     private boolean lastWasCR;
 
-    HTTPClientLineLexer(Handler<Token> handler, int maxTokenLength) {
+    HttpClientLineLexer(Handler<Token> handler, int maxTokenLength) {
         super(handler, maxTokenLength, Token.LINE, Token.TEXT);
     }
 
@@ -89,7 +89,7 @@ final class HTTPClientLineLexer extends ByteStreamLexer<HTTPClientLineLexer.Toke
 
     /**
      * Hands control of the connection's raw bytes to {@code
-     * HTTPClientProtocolHandler.receive()}'s own dispatch (HTTP/2
+     * HttpClientProtocolHandler.receive()}'s own dispatch (HTTP/2
      * framing, the read-until-close body, or simply nothing further to
      * do while idle between responses) — see {@link
      * ByteStreamLexer#requestStop()}. Wraps the base class's {@code

@@ -25,9 +25,9 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.HTTPVersion;
-import org.bluezoo.gumdrop.http.h3.HTTP3Listener;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.http.h3.Http3Listener;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -45,11 +45,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * HTTP/3 integration tests for the public {@link HTTPClient} facade.
+ * HTTP/3 integration tests for the public {@link HttpClient} facade.
  *
- * <p>Drives {@code HTTPClient} with {@link HTTPClient#setH3Enabled(boolean)}
- * against a real {@link HTTP3Listener} echo server over QUIC, asserting that
- * the negotiated version is {@link HTTPVersion#HTTP_3} and that GET/POST
+ * <p>Drives {@code HttpClient} with {@link HttpClient#setH3Enabled(boolean)}
+ * against a real {@link Http3Listener} echo server over QUIC, asserting that
+ * the negotiated version is {@link HttpVersion#HTTP_3} and that GET/POST
  * request/response bodies round-trip. Both client and server run on the
  * pure-Java QUIC/HTTP-3 stack ({@code org.bluezoo.gumdrop.quic}); no native
  * library is required.
@@ -78,7 +78,7 @@ public class HTTP3ClientIntegrationTest {
             .build();
 
     private static Gumdrop gumdrop;
-    private static HTTP3Listener listener;
+    private static Http3Listener listener;
 
     @BeforeClass
     public static void startServer() throws Exception {
@@ -101,7 +101,7 @@ public class HTTP3ClientIntegrationTest {
 
         System.setProperty("gumdrop.workers", "2");
 
-        listener = new HTTP3Listener();
+        listener = new Http3Listener();
         listener.setPort(H3_PORT);
         listener.setAddresses(TEST_HOST);
         listener.setCertFile(pemCert.getAbsolutePath());
@@ -133,16 +133,16 @@ public class HTTP3ClientIntegrationTest {
     @Test
     public void testHttp3Get() throws Exception {
         Result r = exchange("GET", "/test", null);
-        assertEquals("Should negotiate HTTP/3", HTTPVersion.HTTP_3, r.version);
-        assertEquals("Should return 200 OK", HTTPStatus.OK, r.status);
+        assertEquals("Should negotiate HTTP/3", HttpVersion.HTTP_3, r.version);
+        assertEquals("Should return 200 OK", HttpStatus.OK, r.status);
         assertTrue("Echo body should report the GET method", r.body.contains("Method: GET"));
     }
 
     @Test
     public void testHttp3Post() throws Exception {
         Result r = exchange("POST", "/echo", TEST_PAYLOAD);
-        assertEquals("Should negotiate HTTP/3", HTTPVersion.HTTP_3, r.version);
-        assertEquals("Should return 200 OK", HTTPStatus.OK, r.status);
+        assertEquals("Should negotiate HTTP/3", HttpVersion.HTTP_3, r.version);
+        assertEquals("Should return 200 OK", HttpStatus.OK, r.status);
         assertTrue("Echo body should contain the uploaded payload",
                 r.body.contains(TEST_PAYLOAD));
     }
@@ -161,7 +161,7 @@ public class HTTP3ClientIntegrationTest {
      */
     @Test
     public void testManySequentialRequestsOverOneConnectionDoNotHang() throws Exception {
-        HTTPClient client = connect();
+        HttpClient client = connect();
         try {
             int requestCount = 150; // comfortably past the default 100-stream limit
             for (int i = 0; i < requestCount; i++) {
@@ -180,13 +180,13 @@ public class HTTP3ClientIntegrationTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     private static final class Result {
-        HTTPVersion version;
-        HTTPStatus status;
+        HttpVersion version;
+        HttpStatus status;
         String body;
     }
 
     private Result exchange(String method, String path, String payload) throws Exception {
-        HTTPClient client = connect();
+        HttpClient client = connect();
         try {
             Result result = new Result();
 
@@ -194,14 +194,14 @@ public class HTTP3ClientIntegrationTest {
             final AtomicReference<Exception> error = new AtomicReference<>();
             final ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-            DefaultHTTPResponseHandler handler = new DefaultHTTPResponseHandler() {
+            DefaultHttpResponseHandler handler = new DefaultHttpResponseHandler() {
                 @Override
-                public void ok(HTTPResponse response) {
+                public void ok(HttpResponse response) {
                     result.status = response.getStatus();
                 }
 
                 @Override
-                public void error(HTTPResponse response) {
+                public void error(HttpResponse response) {
                     result.status = response.getStatus();
                 }
 
@@ -224,7 +224,7 @@ public class HTTP3ClientIntegrationTest {
                 }
             };
 
-            HTTPRequest request = client.request(method, path);
+            HttpRequest request = client.request(method, path);
             if (payload != null) {
                 byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
                 request.header("Content-Type", "text/plain; charset=UTF-8");
@@ -254,12 +254,12 @@ public class HTTP3ClientIntegrationTest {
      * this does not connect or close the client - the caller reuses the
      * same connection across many calls.
      */
-    private String exchangeOn(HTTPClient client, String method, String path) throws Exception {
+    private String exchangeOn(HttpClient client, String method, String path) throws Exception {
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Exception> error = new AtomicReference<>();
         final ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        DefaultHTTPResponseHandler handler = new DefaultHTTPResponseHandler() {
+        DefaultHttpResponseHandler handler = new DefaultHttpResponseHandler() {
             @Override
             public void responseBodyContent(ByteBuffer data) {
                 byte[] bytes = new byte[data.remaining()];
@@ -287,8 +287,8 @@ public class HTTP3ClientIntegrationTest {
         return new String(bodyBuffer.toByteArray(), StandardCharsets.UTF_8);
     }
 
-    private HTTPClient connect() throws Exception {
-        HTTPClient client = new HTTPClient(TEST_HOST, H3_PORT);
+    private HttpClient connect() throws Exception {
+        HttpClient client = new HttpClient(TEST_HOST, H3_PORT);
         client.setH3Enabled(true);
         // The test server presents a certificate signed by our throwaway test
         // CA; the client is not configured to trust it, so disable verification.
@@ -297,7 +297,7 @@ public class HTTP3ClientIntegrationTest {
 
         final CountDownLatch connected = new CountDownLatch(1);
         final AtomicReference<Exception> error = new AtomicReference<>();
-        client.connect(new HTTPClientHandler() {
+        client.connect(new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
             }

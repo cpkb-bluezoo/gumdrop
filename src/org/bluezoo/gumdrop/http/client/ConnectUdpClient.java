@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
@@ -117,7 +117,7 @@ public class ConnectUdpClient implements AltSvcListener {
     private ConnectUdpSession h2Session;
 
     // Internal transport components (created at connect time) -- HTTP/3 path
-    private HTTPClient httpClient;
+    private HttpClient httpClient;
     private ConnectUdpSession h3Session;
 
     /**
@@ -341,7 +341,7 @@ public class ConnectUdpClient implements AltSvcListener {
      * connection with no negotiation at all: the client sends the h2
      * connection preface immediately and assumes the proxy already speaks
      * h2, by prior arrangement (matching {@link
-     * HTTPClient#setH2WithPriorKnowledge(boolean)}, the equivalent
+     * HttpClient#setH2WithPriorKnowledge(boolean)}, the equivalent
      * setting for plain HTTP requests, and {@code
      * WebSocketClient#setH2WithPriorKnowledge}, the equivalent for
      * WebSocket). Combined with {@link #setSecure(boolean)}{@code
@@ -526,11 +526,11 @@ public class ConnectUdpClient implements AltSvcListener {
         }
         transportFactory.start();
 
-        HTTPClientHandler internalHandler = new HTTPClientHandler() {
+        HttpClientHandler internalHandler = new HttpClientHandler() {
 
             @Override
             public void onConnected(Endpoint endpoint) {
-                if (protocolHandler.getVersion() == HTTPVersion.HTTP_2_0) {
+                if (protocolHandler.getVersion() == HttpVersion.HTTP_2_0) {
                     // RFC 9298 section 3: must not attempt Extended CONNECT
                     // before knowing the proxy advertised support for it --
                     // which, unlike this onConnected callback itself, isn't
@@ -550,7 +550,7 @@ public class ConnectUdpClient implements AltSvcListener {
                     return;
                 }
                 // RFC 9110 section 7.8 -- HTTP/1.1 Upgrade handshake
-                HTTPRequest request = protocolHandler.get(path);
+                HttpRequest request = protocolHandler.get(path);
                 request.header("connection", "upgrade");
                 request.header("upgrade", "connect-udp");
                 request.header(Capsule.PROTOCOL_HEADER, "?1");
@@ -575,7 +575,7 @@ public class ConnectUdpClient implements AltSvcListener {
 
         // RFC 9110 section 7.2 / RFC 9113 section 8.3.1: a UNIX domain
         // socket has no hostname of its own -- "localhost" matches
-        // HTTPClient's own default for the same case.
+        // HttpClient's own default for the same case.
         protocolHandler = (socketPath != null)
                 ? new ConnectUdpClientProtocolHandler(
                         internalHandler, handler, "localhost", secure ? 443 : 80, secure)
@@ -632,7 +632,7 @@ public class ConnectUdpClient implements AltSvcListener {
 
     /**
      * Populates {@link AltSvcCache} for later, separate {@code connect()}
-     * calls (from this class or {@link HTTPClient}) to the same origin.
+     * calls (from this class or {@link HttpClient}) to the same origin.
      *
      * @param value the raw Alt-Svc header value
      */
@@ -664,13 +664,13 @@ public class ConnectUdpClient implements AltSvcListener {
      * the CONNECT-UDP tunnel over HTTP/2, via {@link
      * H2ConnectUdpResponseHandler}.
      *
-     * <p>Builds the request through the same generic {@link HTTPRequest}
+     * <p>Builds the request through the same generic {@link HttpRequest}
      * API any other h2 request uses -- {@code :protocol} is just another
      * header from this layer's perspective, matching {@code
      * WebSocketClient#connectExtendedConnect}.
      */
     private void connectExtendedConnect(String path, final ConnectUdpEventHandler handler) {
-        HTTPRequest request = protocolHandler.request("CONNECT", path);
+        HttpRequest request = protocolHandler.request("CONNECT", path);
         request.header(":protocol", "connect-udp");
         request.header(Capsule.PROTOCOL_HEADER, "?1");
         request.startRequestBody(new H2ConnectUdpResponseHandler(
@@ -716,25 +716,25 @@ public class ConnectUdpClient implements AltSvcListener {
     /**
      * RFC 9298 section 3 -- connects and requests the CONNECT-UDP tunnel
      * over HTTP/3 Extended CONNECT, via an internally-managed {@link
-     * HTTPClient}.
+     * HttpClient}.
      */
     private void connectH3(final String targetHost, final int targetPort, final ConnectUdpEventHandler handler) {
         if (host != null) {
             httpClient = (selectorLoop != null)
-                    ? new HTTPClient(selectorLoop, host, port) : new HTTPClient(host, port);
+                    ? new HttpClient(selectorLoop, host, port) : new HttpClient(host, port);
         } else {
             httpClient = (selectorLoop != null)
-                    ? new HTTPClient(selectorLoop, hostAddress, port) : new HTTPClient(hostAddress, port);
+                    ? new HttpClient(selectorLoop, hostAddress, port) : new HttpClient(hostAddress, port);
         }
         httpClient.setH3Enabled(true);
-        // Note: HTTPClient's QUIC/H3 path (unlike its TCP/H1.1 path)
+        // Note: HttpClient's QUIC/H3 path (unlike its TCP/H1.1 path)
         // doesn't consult a custom X509TrustManager at all today, only
         // verifyPeer -- trustManager/keystoreFile are therefore not wired
         // through here; matches the same, pre-existing gap in
         // WebSocketClient#connectH3.
         httpClient.setVerifyPeer(verifyPeer);
 
-        httpClient.connect(new HTTPClientHandler() {
+        httpClient.connect(new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
             }
@@ -846,7 +846,7 @@ public class ConnectUdpClient implements AltSvcListener {
      * these callbacks fire. This handler only exists to catch non-101
      * responses (proxy refused the tunnel) and errors.
      */
-    private static class UpgradeResponseHandler extends DefaultHTTPResponseHandler {
+    private static class UpgradeResponseHandler extends DefaultHttpResponseHandler {
 
         private final ConnectUdpEventHandler handler;
 
@@ -855,7 +855,7 @@ public class ConnectUdpClient implements AltSvcListener {
         }
 
         @Override
-        public void ok(HTTPResponse response) {
+        public void ok(HttpResponse response) {
             // A 2xx response means the proxy did not upgrade
             handler.error(new IOException(
                     "Proxy did not upgrade to connect-udp: "
@@ -863,7 +863,7 @@ public class ConnectUdpClient implements AltSvcListener {
         }
 
         @Override
-        public void error(HTTPResponse response) {
+        public void error(HttpResponse response) {
             handler.error(new IOException(
                     "CONNECT-UDP upgrade failed: " + response.getStatus()));
         }

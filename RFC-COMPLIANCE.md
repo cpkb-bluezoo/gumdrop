@@ -538,27 +538,27 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Request-line format: method SP request-target SP HTTP-version | 3 | Compliant | `processRequestLine()` in `HTTPProtocolHandler` |
+| Request-line format: method SP request-target SP HTTP-version | 3 | Compliant | `processRequestLine()` in `HttpProtocolHandler` |
 | US-ASCII decoding of request-line | 2.1 | Compliant | `US_ASCII_DECODER` used |
 | 414 URI Too Long for oversized request-target | 3 | Compliant | `MAX_LINE_LENGTH` check |
 | 400 Bad Request for malformed request-line | 3 | Compliant | Multiple validation checks |
 | 501 Not Implemented for unrecognised method | 3 | Compliant | `isMethodSupported()` |
-| 505 HTTP Version Not Supported | 3 | Compliant | `HTTPVersion.UNKNOWN` case |
-| HTTP-version parsing | 2.3 | Compliant | `HTTPVersion.fromString()` |
+| 505 HTTP Version Not Supported | 3 | Compliant | `HttpVersion.UNKNOWN` case |
+| HTTP-version parsing | 2.3 | Compliant | `HttpVersion.fromString()` |
 
 #### Section 5 — Field Syntax
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | field-line = field-name ":" OWS field-value OWS | 5.1 | Compliant | `processHeaderLine()` |
-| No whitespace between field-name and colon | 5.1 | Compliant | `Header` constructor validates via `HTTPUtils.isValidHeaderName()` |
+| No whitespace between field-name and colon | 5.1 | Compliant | `Header` constructor validates via `HttpUtils.isValidHeaderName()` |
 | obs-fold handling: reject or replace with SP | 5.2 | Compliant | Replaces obs-fold with SP (replaces leading HTAB with SP) |
 | ISO-8859-1 decoding for field values | 5.5 | Compliant | `ISO_8859_1_DECODER` used |
 | 431 Request Header Fields Too Large | 5 | Compliant | `MAX_LINE_LENGTH` check |
 | Host header MUST be present in HTTP/1.1 | 3.2 | Compliant | `endHeaders()` validates |
 | Duplicate Host header MUST be rejected (400) | 3.2 | Compliant | `endHeaders()` checks `hostCount != 1` |
 | Case-insensitive header name lookup | 5.1 | Compliant | `Headers.getValue()` uses `equalsIgnoreCase()` |
-| Token character validation | 5.6.2 | Compliant | `HTTPUtils.TOKEN_CHARS` lookup table (updated to RFC 9110) |
+| Token character validation | 5.6.2 | Compliant | `HttpUtils.TOKEN_CHARS` lookup table (updated to RFC 9110) |
 
 #### Section 6-7 — Message Body and Transfer Coding
 
@@ -578,7 +578,7 @@ practices.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | status-line = HTTP-version SP status-code SP reason-phrase CRLF | 4 | Compliant | `writeStatusLineAndHeaders()` |
-| Reason phrases per RFC 9110 | 4 | Compliant | `HTTPConstants.messages` (updated to RFC 9110 section 15) |
+| Reason phrases per RFC 9110 | 4 | Compliant | `HttpConstants.messages` (updated to RFC 9110 section 15) |
 
 #### Section 9 — Connection Management
 
@@ -590,7 +590,7 @@ practices.
 | Pipelining: respond in order | 9.3.2 | Compliant | Sequential state machine ensures order |
 | Connection: close echoed in response | 9.6 | Compliant | Added in `sendResponseHeaders()` |
 | Graceful shutdown via Connection: close | 9.6 | Compliant | `maxRequestsPerConnection` triggers `closeConnection` after configured limit |
-| Idle connection timeout | 9.8 | Compliant | Configurable `idleTimeoutMs` in `HTTPListener`; timer resets on each `receive()` |
+| Idle connection timeout | 9.8 | Compliant | Configurable `idleTimeoutMs` in `HttpListener`; timer resets on each `receive()` |
 
 ---
 
@@ -601,8 +601,8 @@ practices.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | field-name is case-insensitive | 5.1 | Compliant | `Headers` class uses `equalsIgnoreCase()` |
-| token = 1*tchar | 5.6.2 | Compliant | `HTTPUtils.TOKEN_CHARS` (updated reference from RFC 7230) |
-| field-value validation | 5.5 | Compliant | `HTTPUtils.HEADER_VALUE_CHARS` |
+| token = 1*tchar | 5.6.2 | Compliant | `HttpUtils.TOKEN_CHARS` (updated reference from RFC 7230) |
+| field-value validation | 5.5 | Compliant | `HttpUtils.HEADER_VALUE_CHARS` |
 
 #### Section 6.6 — Date and Server
 
@@ -610,14 +610,14 @@ practices.
 |-------------|---------|--------|-------|
 | Date header SHOULD be sent in responses | 6.6.1 | Compliant | Added in `Stream.sendResponseHeaders()` |
 | Server header | 10.2.4 | Compliant | "gumdrop/VERSION" added in responses |
-| IMF-fixdate format for Date header | 5.6.7 | Compliant | `HTTPDateFormat` outputs "GMT" (fixed from numeric offset) |
+| IMF-fixdate format for Date header | 5.6.7 | Compliant | `HttpDateFormat` outputs "GMT" (fixed from numeric offset) |
 | Parse all three date formats | 5.6.7 | Compliant | IMF-fixdate, RFC 850, asctime all parsed |
 
 #### Section 9 — Methods
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Method = token | 9.1 | Compliant | `HTTPUtils.isValidMethod()` |
+| Method = token | 9.1 | Compliant | `HttpUtils.isValidMethod()` |
 | GET (safe, idempotent) | 9.3.1 | Compliant | |
 | HEAD: response MUST NOT contain a body | 9.3.2 | Compliant | `sendResponseBody()` suppresses body data when method is HEAD |
 | POST | 9.3.3 | Compliant | |
@@ -646,7 +646,7 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| 401 MUST include WWW-Authenticate | 11.6.1 | Compliant | `HTTPAuthenticationProvider.generateChallenge()` produces challenge |
+| 401 MUST include WWW-Authenticate | 11.6.1 | Compliant | `HttpAuthenticationProvider.generateChallenge()` produces challenge |
 | Basic authentication | 11.7.1 | Compliant | RFC 7617 |
 | Digest authentication | 11.7.1 | Compliant | RFC 7616 |
 | Bearer authentication | 11.7.1 | Compliant | RFC 6750 |
@@ -657,16 +657,16 @@ practices.
 |-------------|---------|--------|-------|
 | Upgrade header field | 7.8 | Compliant | Parsed in `Stream.streamEndHeaders()` |
 | 101 Switching Protocols | 15.2.2 | Compliant | Sent for h2c and WebSocket upgrades |
-| h2c upgrade | 7.8 | Compliant | `completeH2cUpgrade()` in `HTTPProtocolHandler` |
+| h2c upgrade | 7.8 | Compliant | `completeH2cUpgrade()` in `HttpProtocolHandler` |
 | WebSocket upgrade (RFC 6455) | 7.8 | Compliant | `Stream.upgradeToWebSocket()` |
 
 #### Section 15 — Status Codes
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| All standard status codes defined | 15 | Compliant | `HTTPStatus` enum covers all RFC 9110 codes |
-| Reason phrases match RFC 9110 | 15 | Compliant | `HTTPConstants` updated (413, 414, 416, 422 reason phrases corrected) |
-| 103 Early Hints (RFC 8297) | 15.2 | Compliant | `HTTPResponseState.sendInformational()` sends 1xx responses before the final response; implemented for HTTP/1.1, HTTP/2, and HTTP/3; 1xx headers skip Server/Date/Connection per RFC 9110 section 15.2; HTTP/1.0 silently no-ops |
+| All standard status codes defined | 15 | Compliant | `HttpStatus` enum covers all RFC 9110 codes |
+| Reason phrases match RFC 9110 | 15 | Compliant | `HttpConstants` updated (413, 414, 416, 422 reason phrases corrected) |
+| 103 Early Hints (RFC 8297) | 15.2 | Compliant | `HttpResponseState.sendInformational()` sends 1xx responses before the final response; implemented for HTTP/1.1, HTTP/2, and HTTP/3; 1xx headers skip Server/Date/Connection per RFC 9110 section 15.2; HTTP/1.0 silently no-ops |
 | 418 I'm a Teapot | 15.5.19 | Compliant | |
 
 ---
@@ -679,7 +679,7 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| ALPN negotiation with "h2" | 3.2 | Compliant | `HTTPListener.configureTransportFactory()` sets ALPN |
+| ALPN negotiation with "h2" | 3.2 | Compliant | `HttpListener.configureTransportFactory()` sets ALPN |
 | h2c cleartext upgrade | 3.1 | Compliant | `completeH2cUpgrade()` — deprecated by RFC 9113, intentionally retained |
 | Prior knowledge (cleartext) | 3.3 | Compliant | PRI preface parsed in `processRequestLine()` |
 | Client connection preface (24-octet magic) | 3.4 | Compliant | Validated in `receivePri()` and `receiveFrameData()` |
@@ -775,7 +775,7 @@ practices.
 | TLS 1.2+ required for h2 | 9.2 | Compliant | Listeners pin `TlsVersion.TLS_1_2` or `TLS_1_3`; only AEAD suites offered |
 | TLS 1.3 RECOMMENDED | 9.2 | Compliant | Default TCP TLS version is TLS 1.3 |
 | TLS 1.2 cipher suite blocklist (server) | 9.2.2 | Compliant | `isBlockedH2CipherSuite()` in `securityEstablished()`; GOAWAY INADEQUATE_SECURITY |
-| ALPN configured in HTTPListener | 3.2 | Compliant | `setApplicationProtocols("h2", "http/1.1")` |
+| ALPN configured in HttpListener | 3.2 | Compliant | `setApplicationProtocols("h2", "http/1.1")` |
 | Idle connection timeout (server) | 9.1 | Compliant | Graceful GOAWAY for HTTP/2; configurable via `idleTimeoutMs` |
 
 ## HTTP/2 Client — RFC 9113
@@ -908,7 +908,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| ALPN "h3" negotiation | 3.1 | Compliant | `HTTP3Listener.createTransportFactory()` sets ALPN "h3" |
+| ALPN "h3" negotiation | 3.1 | Compliant | `Http3Listener.createTransportFactory()` sets ALPN "h3" |
 | TLS 1.3 mandatory | 3 | Compliant | QUIC mandates TLS 1.3 via the in-tree engine |
 | SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | SETTINGS_MAX_FIELD_SECTION_SIZE | 4.2.2 / 7.2.4.1 | Compliant | Advertised as 8192 (matching HTTP/2); inbound HEADERS over the ceiling abort the stream with `H3_EXCESSIVE_LOAD`; outbound HEADERS honour the peer's advertised value |
@@ -920,9 +920,9 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| HEADERS frame initiates request | 4.1 | Compliant | `HTTP3ServerHandler.onHeaders()` creates `H3Stream` |
-| DATA frame carries body | 4.1 | Compliant | `HTTP3ServerHandler.onData()` dispatches to `H3Stream` |
-| FIN completes message | 4.1 | Compliant | `HTTP3ServerHandler.onFinished()` calls `handler.requestComplete()` |
+| HEADERS frame initiates request | 4.1 | Compliant | `Http3ServerHandler.onHeaders()` creates `H3Stream` |
+| DATA frame carries body | 4.1 | Compliant | `Http3ServerHandler.onData()` dispatches to `H3Stream` |
+| FIN completes message | 4.1 | Compliant | `Http3ServerHandler.onFinished()` calls `handler.requestComplete()` |
 | Request pseudo-headers (:method, :scheme, :path) | 4.3.1 | Compliant | `H3Stream.onHeaders()` validates mandatory pseudo-headers; CONNECT exempted from :scheme/:path |
 | Malformed request detection | 4.1.2 | Compliant | Missing pseudo-headers return 400 and close the stream |
 | Connection-specific header stripping | 4.2 | Compliant | `H3Stream.flushHeaders()` strips Connection, Keep-Alive, Proxy-Connection, Transfer-Encoding, Upgrade |
@@ -944,7 +944,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 |-------------|---------|--------|-------|
 | Server push (PUSH_PROMISE) | 4.6 | Not implemented | `H3Stream.pushPromise()` returns false |
 | GOAWAY reception (from client) | 5.2 | Compliant | Records the ID, rejects a later GOAWAY with a greater identifier (`H3_ID_ERROR`), rejects new streams beyond the announced ID, sends a server GOAWAY in response |
-| GOAWAY sending (graceful shutdown) | 5.2 | Compliant | `HTTP3ServerHandler.close()` sends GOAWAY with highest client-initiated stream ID before resetting streams |
+| GOAWAY sending (graceful shutdown) | 5.2 | Compliant | `Http3ServerHandler.close()` sends GOAWAY with highest client-initiated stream ID before resetting streams |
 | Stream reset handling | 8 | Compliant | `onReset()` ends span and cleans up stream |
 | Request cancellation | 8 | Compliant | `H3Stream.cancel()` resets stream |
 | HTTP/3 error codes | 8.1 | Compliant | `H3ErrorCode` constants; unpermitted push frames and premature control/QPACK closure use the RFC 9114 codes |
@@ -954,11 +954,11 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| WebSocket over HTTP/3 | RFC 9220 | Implemented | Extended CONNECT with `:protocol = "websocket"`, `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, `H3Stream.upgradeToWebSocket()` bridges to `WebSocketConnection`, `HTTP3WebSocketListener` for service integration |
+| WebSocket over HTTP/3 | RFC 9220 | Implemented | Extended CONNECT with `:protocol = "websocket"`, `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, `H3Stream.upgradeToWebSocket()` bridges to `WebSocketConnection`, `Http3WebSocketListener` for service integration |
 | 103 Early Hints (RFC 8297) | RFC 9114 s4 | Implemented | `H3Stream.sendInformational()` sends 1xx HEADERS; state tracked by `responseStarted`; `flushHeaders()` sends the final response after 1xx |
 | Extensible priorities (server) | RFC 9218 4 | Compliant | `Priority` header passed through to handler in request headers |
-| QUIC transport parameter tuning | RFC 9000 18 | Compliant | `HTTP3Listener` exposes `setQuicMax*()` setters that delegate to `QuicTransportFactory` |
-| Authentication | RFC 9110 11 | Compliant | `H3Stream.onHeaders()` checks Authorization header via `HTTPAuthenticationProvider` |
+| QUIC transport parameter tuning | RFC 9000 18 | Compliant | `Http3Listener` exposes `setQuicMax*()` setters that delegate to `QuicTransportFactory` |
+| Authentication | RFC 9110 11 | Compliant | `H3Stream.onHeaders()` checks Authorization header via `HttpAuthenticationProvider` |
 | Telemetry / tracing | — | Compliant | `H3Stream.initTelemetrySpan()` / `endTelemetrySpan()` with OpenTelemetry attributes |
 | HTTP Datagrams | RFC 9297 | Compliant | `SETTINGS_H3_DATAGRAM=1`; quarter-stream-ID demux of QUIC DATAGRAM; Capsule Protocol (`DATAGRAM` capsule + `Capsule-Protocol`) on H1/H2/H3 data streams |
 
@@ -970,20 +970,20 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| ALPN "h3" negotiation | 3.1 | Compliant | `HTTPClient.connectH3()` sets ALPN "h3" on `QuicTransportFactory` |
+| ALPN "h3" negotiation | 3.1 | Compliant | `HttpClient.connectH3()` sets ALPN "h3" on `QuicTransportFactory` |
 | TLS 1.3 mandatory | 3 | Compliant | QUIC mandates TLS 1.3 via the in-tree engine |
 | SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | SETTINGS_MAX_FIELD_SECTION_SIZE | 4.2.2 / 7.2.4.1 | Compliant | Advertised as 8192; inbound response HEADERS over the ceiling abort the stream with `H3_EXCESSIVE_LOAD`; outbound request HEADERS honour the peer's advertised value |
 | SETTINGS_H3_DATAGRAM | RFC 9297 2.1.1 | Compliant | Always advertised as 1; same SETTINGS validation as the server |
 | QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` in `H3ControlStream` |
-| Alt-Svc discovery | 3.1 | Compliant | `HTTPClient.altSvcReceived()` parses `h3="host:port"` and initiates QUIC connection |
+| Alt-Svc discovery | 3.1 | Compliant | `HttpClient.altSvcReceived()` parses `h3="host:port"` and initiates QUIC connection |
 
 ### HTTP/3 Client Request Sending — RFC 9114 section 4
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Request pseudo-headers (:method, :scheme, :authority, :path) | 4.3.1 | Compliant | `H3Request.buildHeaders()` emits all four pseudo-headers in order |
-| HEADERS frame sent on new stream | 4.1 | Compliant | `HTTP3ClientHandler.sendRequest()` |
+| HEADERS frame sent on new stream | 4.1 | Compliant | `Http3ClientHandler.sendRequest()` |
 | DATA frames for request body | 4.1 | Compliant | `sendRequestBody()` via `H3Stream.sendBody()`; buffers in `PendingWrite` when send window is exhausted and drains in `resumePendingWrites()` |
 | FIN to complete request | 4.1 | Compliant | `H3Request.endRequestBody()` sends empty buffer with fin=true |
 | GOAWAY rejection of new requests | 5.2 | Compliant | `sendRequest()` returns -1 with IOException when goaway is set |
@@ -1006,7 +1006,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | GOAWAY reception | 5.2 | Compliant | Validates client-initiated bidi stream ID and monotonicity (`H3_ID_ERROR`); fails unprocessed streams (ID > last) with retryable IOException |
-| Connection readiness callback | 3 | Compliant | `HTTP3ClientHandler.onConnectionReady()` fires readyCallback then polls |
+| Connection readiness callback | 3 | Compliant | `Http3ClientHandler.onConnectionReady()` fires readyCallback then polls |
 | Resource cleanup | — | Compliant | `close()` resets all streams and closes the QUIC connection |
 
 ---
@@ -1028,7 +1028,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | QUIC v2 support | RFC 9369 | Not implemented | Only QUIC version 1 is supported |
 | Handshake (server accepts) | 7 | Compliant | `QuicEngine` constructs `QuicTlsServerEngine` + `QuicConnection` per Initial |
 | Handshake (client initiates) | 7 | Compliant | `QuicEngine.connectTo()` sends Initial packet |
-| Retry-based address validation | 8.1.2 | Compliant | `QuicEngine.sendRetry`; `HTTP3Listener` / `DoQListener` enable Retry by default; `require-retry=false` opts into the permissive (no-Retry) mode for trusted networks |
+| Retry-based address validation | 8.1.2 | Compliant | `QuicEngine.sendRetry`; `Http3Listener` / `DoQListener` enable Retry by default; `require-retry=false` opts into the permissive (no-Retry) mode for trusted networks |
 | HANDSHAKE_DONE confirmation | 7.3 | Compliant | `QuicConnection.checkEstablished()` detects established state |
 | TLS 1.3 via in-tree engine | RFC 9001 | Compliant | `HandshakeEngine` integrated via `QuicTlsClientEngine`/`QuicTlsServerEngine` |
 | Idle timeout | 10.1 | Compliant | `QuicConnection` idle timeout handling |
@@ -1076,7 +1076,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | `SETTINGS_H3_DATAGRAM` (0x33) | 2.1.1 / 4 | Compliant | Always advertised as 1 (client and server) so the setting does not stick out; value > 1 is `H3_SETTINGS_ERROR` |
 | Require QUIC DATAGRAM support | 2.1.1 | Compliant | `SETTINGS_H3_DATAGRAM=1` without peer `max_datagram_frame_size > 0` is `H3_SETTINGS_ERROR` |
 | HTTP/3 Datagram format | 2.1 | Compliant | QUIC DATAGRAM payload is Quarter Stream ID varint + HTTP Datagram payload (`H3Datagram`); stream ID must be client-initiated bidi (0 mod 4) |
-| Demultiplex by stream ID | 2.1 | Compliant | `HTTP3ServerHandler` / `HTTP3ClientHandler` `setDatagramHandler`; unknown stream ID is dropped; a known stream whose handler does not `wantsDatagrams()` is reset with `H3_DATAGRAM_ERROR` |
+| Demultiplex by stream ID | 2.1 | Compliant | `Http3ServerHandler` / `Http3ClientHandler` `setDatagramHandler`; unknown stream ID is dropped; a known stream whose handler does not `wantsDatagrams()` is reset with `H3_DATAGRAM_ERROR` |
 | Datagrams before SETTINGS | 2.1.1 | Compliant | HTTP Datagram received before `SETTINGS_H3_DATAGRAM=1` closes the connection with `H3_DATAGRAM_ERROR` |
 | Capsule Protocol | 3 | Compliant | `Capsule-Protocol: ?1` (`?1` / `1` / `true`) parses DATA as capsules; `DATAGRAM` capsule type 0x00; other types via `capsuleReceived`; truncated capsule on FIN is a stream error |
 | Send path | 2.1 / 3.5 | Compliant | HTTP/3 uses QUIC DATAGRAM when the peer advertised SETTINGS; otherwise a DATAGRAM capsule if capsule mode is on. HTTP/1.1 and HTTP/2 send capsules only |
@@ -1897,7 +1897,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Sec-WebSocket-Key validation | §4.2.1 | **Compliant** | 16-byte base64 nonce verified |
 | Sec-WebSocket-Version: 13 | §4.2.1 | **Compliant** | Exact match required |
 | Sec-WebSocket-Accept calculation | §4.2.2 | **Compliant** | GUID + SHA-1 + Base64 |
-| 101 Switching Protocols response | §4.2.2 | **Compliant** | Via HTTPResponseState.upgradeToWebSocket() |
+| 101 Switching Protocols response | §4.2.2 | **Compliant** | Via HttpResponseState.upgradeToWebSocket() |
 | Sec-WebSocket-Protocol negotiation | §4.2.2 | **Compliant** | Via WebSocketService.selectSubprotocol() |
 | Sec-WebSocket-Extensions | §9.1 | **Compliant** | Extension negotiation framework; permessage-deflate (RFC 7692) |
 
@@ -2281,7 +2281,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 Server-side and client-side, across HTTP/1.1, HTTP/2, and HTTP/3. The
 client is available both as a low-level API per transport
-(`HTTP3ClientHandler#connectUdp`, `HTTPClient#connectUdp`) and as the
+(`Http3ClientHandler#connectUdp`, `HttpClient#connectUdp`) and as the
 high-level `ConnectUdpClient` facade, which negotiates the transport
 automatically (DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN,
 HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
@@ -2295,7 +2295,7 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 | URI Template `/.well-known/masque/udp/{target_host}/{target_port}/` | §3 | **Compliant** | `ConnectUdpTarget.parse()` / `.encode()` |
 | Percent-encoding of target_host (e.g. IPv6 literals) | §3 | **Compliant** | `ConnectUdpTarget` strict percent-decode/encode |
 | HTTP/2 and HTTP/3: Extended CONNECT (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `Stream.acceptConnectUdp()` (H2), `H3Stream.acceptConnectUdp()` (H3); mirrors RFC 8441 WebSocket |
-| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-udp` (RFC 9110 §7.8) | §3 | **Compliant** | `Stream.acceptConnectUdp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HTTPConnectionLike.switchToStreamTunnelMode()` |
+| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-udp` (RFC 9110 §7.8) | §3 | **Compliant** | `Stream.acceptConnectUdp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HttpConnectionLike.switchToStreamTunnelMode()` |
 | 2xx response accepts the request (H2/H3) | §3 | **Compliant** | `200` sent via `sendResponseHeaders`/`flushHeaders` before any datagram relay begins |
 | `Capsule-Protocol: ?1` request header required | §3 | **Compliant** | `Capsule.capsuleProtocolEnabled()`; missing/false header rejected with `400` |
 | Non-2xx / malformed request rejected | §3 | **Compliant** | `ConnectUdpRequestHandler.rejectRequest()`: `400` (malformed), `403` (policy-denied target), `502` (DNS failure or upstream socket error) |
@@ -2304,11 +2304,11 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| HTTP/3: Extended CONNECT request (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `HTTP3ClientHandler.connectUdp()`; mirrors `connectWebSocket()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
-| HTTP/2: Extended CONNECT request | §3 | **Compliant** | `ConnectUdpClient` sends via the generic `HTTPRequest` API (`:protocol` is just another header at that layer), same as `WebSocketClient#connectExtendedConnect`; response handled by `H2ConnectUdpResponseHandler` |
+| HTTP/3: Extended CONNECT request (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `Http3ClientHandler.connectUdp()`; mirrors `connectWebSocket()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
+| HTTP/2: Extended CONNECT request | §3 | **Compliant** | `ConnectUdpClient` sends via the generic `HttpRequest` API (`:protocol` is just another header at that layer), same as `WebSocketClient#connectExtendedConnect`; response handled by `H2ConnectUdpResponseHandler` |
 | HTTP/1.1: HTTP Upgrade request (`Upgrade: connect-udp`, RFC 9110 §7.8) | §3 | **Compliant** | `ConnectUdpClientProtocolHandler.handleProtocolSwitch()`, mirroring `WebSocketClientProtocolHandler`'s use of the same extension hook |
 | `Capsule-Protocol: ?1` request header | §3 | **Compliant** | Sent on every transport's request |
-| `2xx`/`101` response accepted, rejection reported as a failure | §3 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler` (ordinary `HTTPResponseHandler`s), `ConnectUdpClientProtocolHandler` (H1.1) |
+| `2xx`/`101` response accepted, rejection reported as a failure | §3 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler` (ordinary `HttpResponseHandler`s), `ConnectUdpClientProtocolHandler` (H1.1) |
 | Automatic transport negotiation | §3 | **Compliant** | `ConnectUdpClient`: DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN, HTTP/1.1 fallback — mirrors `WebSocketClient` |
 
 #### Section 4 — Context IDs and Capsules
@@ -2323,7 +2323,7 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Client-to-target datagram relay | §5 | **Compliant** | `ConnectUdpRelay.receiveDatagram()` forwards decoded payload to a connected `UDPEndpoint` |
-| Target-to-client datagram relay | §5 | **Compliant** | `ConnectUdpRelay.UpstreamHandler.receive()` re-encodes with Context ID 0 and calls `HTTPResponseState.sendDatagram()` |
+| Target-to-client datagram relay | §5 | **Compliant** | `ConnectUdpRelay.UpstreamHandler.receive()` re-encodes with Context ID 0 and calls `HttpResponseState.sendDatagram()` |
 | Client-side outbound datagrams | §5 | **Compliant** | `ConnectUdpSession.sendDatagram()`, capsule-framed (RFC 9297 §3.5) on every transport — for HTTP/3 this works whether or not native QUIC DATAGRAM is negotiated |
 | Client-side inbound datagrams | §5 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler`/`ConnectUdpClientProtocolHandler`'s `datagramReceived()`; HTTP/3 delivers via either native QUIC DATAGRAM or the capsule fallback — `H3ClientStream` dispatches both identically |
 | Target address/port fixed for the life of the request (single target, not per-datagram) | §5 | **Compliant** | One `UDPTransportFactory.connect()` upstream socket per accepted request |
@@ -2342,7 +2342,7 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 
 Server-side and client-side, across HTTP/1.1, HTTP/2, and HTTP/3. The
 client is available both as a low-level API per transport
-(`HTTP3ClientHandler#connectIp`, `HTTPClient#connectIp`) and as the
+(`Http3ClientHandler#connectIp`, `HttpClient#connectIp`) and as the
 high-level `ConnectIpClient` facade, which negotiates the transport
 automatically the same way `ConnectUdpClient`/`WebSocketClient` do.
 
@@ -2362,7 +2362,7 @@ automatically the same way `ConnectUdpClient`/`WebSocketClient` do.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | HTTP/2 and HTTP/3: Extended CONNECT (`:method: CONNECT`, `:protocol: connect-ip`) | §4.4/§4.5 | **Compliant** | `Stream.acceptConnectIp()` (H2), `H3Stream.acceptConnectIp()` (H3) — both share their implementation with `acceptConnectUdp()`, differing only in the `:protocol`/`Upgrade` token |
-| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-ip` (RFC 9110 §7.8) | §4.2 | **Compliant** | `Stream.acceptConnectIp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HTTPConnectionLike.switchToStreamTunnelMode()` |
+| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-ip` (RFC 9110 §7.8) | §4.2 | **Compliant** | `Stream.acceptConnectIp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HttpConnectionLike.switchToStreamTunnelMode()` |
 | 2xx response accepts the request (H2/H3) | §4.4/§4.5 | **Compliant** | `200` sent via `sendResponseHeaders`/`flushHeaders` before any packet forwarding begins |
 | `Capsule-Protocol: ?1` request header required | §4.2–4.5 | **Compliant** | `Capsule.capsuleProtocolEnabled()`; missing/false header rejected with `400` |
 | Non-2xx / malformed request rejected | §4 | **Compliant** | `ConnectIpRequestHandler`: `400` (malformed), `403` (policy-denied target) |
@@ -2371,11 +2371,11 @@ automatically the same way `ConnectUdpClient`/`WebSocketClient` do.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| HTTP/3: Extended CONNECT request | §4.4 | **Compliant** | `HTTP3ClientHandler.connectIp()`; mirrors `connectUdp()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
-| HTTP/2: Extended CONNECT request | §4.4 | **Compliant** | `ConnectIpClient` sends via the generic `HTTPRequest` API, same as `ConnectUdpClient#connectExtendedConnect`; response handled by `H2ConnectIpResponseHandler` |
+| HTTP/3: Extended CONNECT request | §4.4 | **Compliant** | `Http3ClientHandler.connectIp()`; mirrors `connectUdp()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
+| HTTP/2: Extended CONNECT request | §4.4 | **Compliant** | `ConnectIpClient` sends via the generic `HttpRequest` API, same as `ConnectUdpClient#connectExtendedConnect`; response handled by `H2ConnectIpResponseHandler` |
 | HTTP/1.1: HTTP Upgrade request (`Upgrade: connect-ip`) | §4.2 | **Compliant** | `ConnectIpClientProtocolHandler.handleProtocolSwitch()`, mirroring `ConnectUdpClientProtocolHandler`'s use of the same extension hook |
 | `Capsule-Protocol: ?1` request header | §4.2–4.5 | **Compliant** | Sent on every transport's request |
-| `2xx`/`101` response accepted, rejection reported as a failure | §4 | **Compliant** | `H3ClientConnectIpResponseHandler`/`H2ConnectIpResponseHandler` (ordinary `HTTPResponseHandler`s), `ConnectIpClientProtocolHandler` (H1.1) |
+| `2xx`/`101` response accepted, rejection reported as a failure | §4 | **Compliant** | `H3ClientConnectIpResponseHandler`/`H2ConnectIpResponseHandler` (ordinary `HttpResponseHandler`s), `ConnectIpClientProtocolHandler` (H1.1) |
 | Automatic transport negotiation | §4 | **Compliant** | `ConnectIpClient`: DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN, HTTP/1.1 fallback — mirrors `ConnectUdpClient`/`WebSocketClient` |
 
 #### Section 4.7 — Capsules
@@ -2383,10 +2383,10 @@ automatically the same way `ConnectUdpClient`/`WebSocketClient` do.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | `ADDRESS_ASSIGN` (0x01): server-to-client, zero or more `Address` records | §4.7.1 | **Compliant** | `ConnectIpAddress.TYPE_ADDRESS_ASSIGN`, `.encodeList()`/`.decodeList()`; sent via `ConnectIpSession.sendAddressAssign()` |
-| `ADDRESS_REQUEST` (0x02): client-to-server, one or more `Address` records, non-zero unique Request ID | §4.7.2 | **Compliant** | `ConnectIpAddress.TYPE_ADDRESS_REQUEST`; delivered to `IpPacketHandler.addressRequested()` via `ConnectIpRequestHandler.capsuleReceived()`, using `HTTPRequestHandler`'s already-generic capsule-delivery path (RFC 9297) |
+| `ADDRESS_REQUEST` (0x02): client-to-server, one or more `Address` records, non-zero unique Request ID | §4.7.2 | **Compliant** | `ConnectIpAddress.TYPE_ADDRESS_REQUEST`; delivered to `IpPacketHandler.addressRequested()` via `ConnectIpRequestHandler.capsuleReceived()`, using `HttpRequestHandler`'s already-generic capsule-delivery path (RFC 9297) |
 | `ROUTE_ADVERTISEMENT` (0x03): server-to-client, zero or more non-overlapping `IP Address Range` records | §4.7.3 | **Compliant** | `ConnectIpRoute.TYPE_ROUTE_ADVERTISEMENT`, `.encodeList()`/`.decodeList()`; sent via `ConnectIpSession.sendRouteAdvertisement()` |
 | `Address`/`IP Address Range` wire format (Request ID varint, IP Version octet, 32/128-bit address, prefix length/protocol octet) | §4.7.1–4.7.3 | **Compliant** | Exact field widths/order per the RFC's packet diagrams |
-| Unknown capsule types ignored | RFC 9297 §3.2 | **Compliant** | `ConnectIpRequestHandler.capsuleReceived()` only reacts to `ADDRESS_REQUEST`; `HTTPRequestHandler.capsuleReceived()`'s own default is a no-op |
+| Unknown capsule types ignored | RFC 9297 §3.2 | **Compliant** | `ConnectIpRequestHandler.capsuleReceived()` only reacts to `ADDRESS_REQUEST`; `HttpRequestHandler.capsuleReceived()`'s own default is a no-op |
 | Client-side `ADDRESS_ASSIGN`/`ROUTE_ADVERTISEMENT` delivery | §4.7.1/§4.7.3 | **Compliant** | `H3ClientConnectIpResponseHandler.capsuleReceived()` (via `H3ClientStream`'s already-generic per-capsule dispatch), `H2ConnectIpResponseHandler`/`ConnectIpClientProtocolHandler` (manual `CapsuleParser`, since H1.1/H2 have no such generic dispatch) |
 | Client-side `ADDRESS_REQUEST` sending | §4.7.2 | **Compliant** | `ConnectIpClientSession.sendAddressRequest()` on every transport |
 

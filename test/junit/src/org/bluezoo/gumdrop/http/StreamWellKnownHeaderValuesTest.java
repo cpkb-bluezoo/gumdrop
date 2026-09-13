@@ -29,7 +29,7 @@ import static org.junit.Assert.*;
  * Verifies that {@code Stream.sendResponseHeaders} adds its framework-fixed
  * headers (Server, Connection: close, X-Frame-Options, X-Content-Type-Options,
  * Transfer-Encoding: chunked) using the exact same object references as
- * {@link HTTPProtocolHandler}'s {@code *_VALUE} constants.
+ * {@link HttpProtocolHandler}'s {@code *_VALUE} constants.
  *
  * <p>This is the one thing {@link HTTPProtocolHandlerHeaderWriteTest}'s
  * byte-output checks cannot catch: those construct headers directly from
@@ -47,12 +47,12 @@ public class StreamWellKnownHeaderValuesTest {
 
     @Test
     public void testFrameworkHeaderValuesAreTheSharedConstants() throws Exception {
-        HTTPListener listener = new HTTPListener();
+        HttpListener listener = new HttpListener();
         listener.setAddSecurityHeaders(true);
-        listener.setHandlerFactory((state, headers) -> new DefaultHTTPRequestHandler());
+        listener.setHandlerFactory((state, headers) -> new DefaultHttpRequestHandler());
 
-        HTTPProtocolHandler connection = new HTTPProtocolHandler(listener);
-        connection.version = HTTPVersion.HTTP_1_1;
+        HttpProtocolHandler connection = new HttpProtocolHandler(listener);
+        connection.version = HttpVersion.HTTP_1_1;
 
         Stream stream = new Stream(connection, 1);
         stream.addHeader(new Header(":method", "GET"));
@@ -63,27 +63,27 @@ public class StreamWellKnownHeaderValuesTest {
         stream.closeConnection = true;
 
         Headers responseHeaders = new Headers();
-        responseHeaders.status(HTTPStatus.OK);
+        responseHeaders.status(HttpStatus.OK);
         stream.sendResponseHeaders(200, responseHeaders, false);
 
         assertSame("Server header value must be the shared constant "
                 + "writeWellKnownLine matches against, not just an equal string",
-                HTTPProtocolHandler.SERVER_HEADER_VALUE,
+                HttpProtocolHandler.SERVER_HEADER_VALUE,
                 responseHeaders.getValue("Server"));
         assertSame("Connection header value must be the shared constant",
-                HTTPProtocolHandler.CONNECTION_CLOSE_VALUE,
+                HttpProtocolHandler.CONNECTION_CLOSE_VALUE,
                 responseHeaders.getValue("Connection"));
         assertSame("X-Frame-Options header value must be the shared constant",
-                HTTPProtocolHandler.X_FRAME_OPTIONS_VALUE,
+                HttpProtocolHandler.X_FRAME_OPTIONS_VALUE,
                 responseHeaders.getValue("X-Frame-Options"));
         assertSame("X-Content-Type-Options header value must be the shared constant",
-                HTTPProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE,
+                HttpProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE,
                 responseHeaders.getValue("X-Content-Type-Options"));
         assertSame("Transfer-Encoding header value must be the shared constant",
-                HTTPProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE,
+                HttpProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE,
                 responseHeaders.getValue("Transfer-Encoding"));
-        assertSame("Date header value must be HTTPDateCache's cached instance",
-                HTTPDateCache.get(),
+        assertSame("Date header value must be HttpDateCache's cached instance",
+                HttpDateCache.get(),
                 responseHeaders.getValue("Date"));
     }
 }

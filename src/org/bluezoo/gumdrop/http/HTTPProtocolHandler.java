@@ -1,5 +1,5 @@
 /*
- * HTTPProtocolHandler.java
+ * HttpProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -79,7 +79,7 @@ import org.bluezoo.gumdrop.util.IntObjectHashMap;
  * <ul>
  * <li>Transport operations delegate to an {@link Endpoint} reference
  *     received in {@link #connected(Endpoint)}</li>
- * <li>Line parsing uses a streaming {@link HTTPLineLexer} (issue #85):
+ * <li>Line parsing uses a streaming {@link HttpLineLexer} (issue #85):
  *     bytes are tokenised as they arrive rather than buffered into whole
  *     lines — see {@link ByteStreamLexer}. Content-Length and chunked
  *     bodies use {@link ByteStreamLexer#enterRaw(long)}; HTTP/2 framing,
@@ -89,8 +89,8 @@ import org.bluezoo.gumdrop.util.IntObjectHashMap;
  * <li>Security info uses {@link Endpoint#getSecurityInfo()}</li>
  * </ul>
  *
- * <p>Implements {@link HTTPConnectionLike} so that {@link Stream} can
- * work with either HTTPConnection or HTTPProtocolHandler.
+ * <p>Implements {@link HttpConnectionLike} so that {@link Stream} can
+ * work with either HTTPConnection or HttpProtocolHandler.
  *
  * <p>HTTP/1.1 message syntax and routing per RFC 9112:
  * <ul>
@@ -121,17 +121,17 @@ import org.bluezoo.gumdrop.util.IntObjectHashMap;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ProtocolHandler
- * @see HTTPLineLexer
- * @see HTTPConnectionLike
+ * @see HttpLineLexer
+ * @see HttpConnectionLike
  */
-public final class HTTPProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<HTTPLineLexer.Token>,
-                   H2FrameHandler, HTTPConnectionLike {
+public final class HttpProtocolHandler
+        implements ProtocolHandler, ByteStreamLexer.Handler<HttpLineLexer.Token>,
+                   H2FrameHandler, HttpConnectionLike {
 
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
     static final Logger LOGGER =
-            Logger.getLogger(HTTPProtocolHandler.class.getName());
+            Logger.getLogger(HttpProtocolHandler.class.getName());
 
     // RFC 9112 section 2.1: HTTP/1.1 messages are parsed as a sequence of
     // octets in a superset of US-ASCII.
@@ -207,7 +207,7 @@ public final class HTTPProtocolHandler
 
     private Endpoint endpoint;
 
-    private final HTTPListener server;
+    private final HttpListener server;
     private final int framePadding;
     private final int serverMaxConcurrentStreams;
     private final int serverMaxHeaderListSize;
@@ -220,10 +220,10 @@ public final class HTTPProtocolHandler
     private int rstStreamCount;
     private long rstStreamWindowStartMs;
 
-    private HTTPAuthenticationProvider authenticationProvider;
-    private HTTPRequestHandlerFactory handlerFactory;
+    private HttpAuthenticationProvider authenticationProvider;
+    private HttpRequestHandlerFactory handlerFactory;
 
-    HTTPVersion version = HTTPVersion.HTTP_1_0;
+    HttpVersion version = HttpVersion.HTTP_1_0;
 
     private State state = State.REQUEST_LINE;
     private CharBuffer charBuffer;
@@ -233,7 +233,7 @@ public final class HTTPProtocolHandler
     // state (BODY, BODY_CHUNKED_DATA) is driven through this lexer;
     // BODY_UNTIL_CLOSE, H2C_PREFACE, PRI, and the HTTP/2/WebSocket states
     // are handled entirely outside it — see stopForHandoff() call sites.
-    private final HTTPLineLexer lexer = new HTTPLineLexer(this, MAX_LINE_LENGTH);
+    private final HttpLineLexer lexer = new HttpLineLexer(this, MAX_LINE_LENGTH);
     // Set by tokenTooLong() (see its Javadoc for why); once true, receive()
     // stops feeding this connection anything further.
     private boolean fatalParseError;
@@ -264,7 +264,7 @@ public final class HTTPProtocolHandler
     // a server does not have any impact" -- it's the client, not the
     // server, that must not attempt Extended CONNECT before receiving
     // this setting FROM the server (enforced client-side, see
-    // HTTPClientProtocolHandler#whenConnectProtocolKnown/
+    // HttpClientProtocolHandler#whenConnectProtocolKnown/
     // WebSocketClient#connectExtendedConnect). RFC 9220 section 3
     // states HTTP/3's semantics for this setting are identical.
     boolean clientEnablesConnectProtocol;
@@ -272,7 +272,7 @@ public final class HTTPProtocolHandler
     int initialWindowSize = DEFAULT_INITIAL_WINDOW_SIZE;
     int maxFrameSize = DEFAULT_MAX_FRAME_SIZE;
     int maxHeaderListSize = DEFAULT_MAX_HEADER_LIST_SIZE;
-    long maxRequestBodySize = HTTPListener.DEFAULT_MAX_REQUEST_BODY_SIZE;
+    long maxRequestBodySize = HttpListener.DEFAULT_MAX_REQUEST_BODY_SIZE;
 
     Decoder hpackDecoder;
     Encoder hpackEncoder;
@@ -316,7 +316,7 @@ public final class HTTPProtocolHandler
     private int clientStreamId = INITIAL_CLIENT_STREAM_ID;
     private int serverStreamId = INITIAL_SERVER_STREAM_ID;
     private int lastClientStreamId;
-    // Not a ConcurrentHashMap: every access to an HTTPProtocolHandler
+    // Not a ConcurrentHashMap: every access to an HttpProtocolHandler
     // instance - HTTP/1.x request handling and HTTP/2 frame processing
     // alike - happens on this connection's own SelectorLoop thread only
     // (see ScheduledTimer's class javadoc: even timer callbacks are
@@ -357,8 +357,8 @@ public final class HTTPProtocolHandler
      *
      * @param server the HTTP server configuration
      */
-    public HTTPProtocolHandler(HTTPListener server) {
-        this(server, 0, 100, HTTPListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+    public HttpProtocolHandler(HttpListener server) {
+        this(server, 0, 100, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
     }
 
     /**
@@ -367,8 +367,8 @@ public final class HTTPProtocolHandler
      * @param server the HTTP server endpoint configuration
      * @param framePadding HTTP/2 frame padding (0-255)
      */
-    public HTTPProtocolHandler(HTTPListener server, int framePadding) {
-        this(server, framePadding, 100, HTTPListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+    public HttpProtocolHandler(HttpListener server, int framePadding) {
+        this(server, framePadding, 100, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
     }
 
     /**
@@ -379,7 +379,7 @@ public final class HTTPProtocolHandler
      * @param framePadding HTTP/2 frame padding (0-255)
      * @param serverMaxConcurrentStreams max concurrent streams to advertise
      */
-    public HTTPProtocolHandler(HTTPListener server, int framePadding,
+    public HttpProtocolHandler(HttpListener server, int framePadding,
             int serverMaxConcurrentStreams) {
         this(server, framePadding, serverMaxConcurrentStreams,
                 server.getMaxHeaderListSize());
@@ -388,7 +388,7 @@ public final class HTTPProtocolHandler
     /**
      * Creates a new HTTP endpoint handler with HTTP/2 limits.
      */
-    public HTTPProtocolHandler(HTTPListener server, int framePadding,
+    public HttpProtocolHandler(HttpListener server, int framePadding,
             int serverMaxConcurrentStreams, int serverMaxHeaderListSize) {
         this.server = server;
         this.framePadding = framePadding;
@@ -405,14 +405,14 @@ public final class HTTPProtocolHandler
     /**
      * Sets the authentication provider.
      */
-    public void setAuthenticationProvider(HTTPAuthenticationProvider provider) {
+    public void setAuthenticationProvider(HttpAuthenticationProvider provider) {
         this.authenticationProvider = provider;
     }
 
     /**
      * Sets the handler factory.
      */
-    public void setHandlerFactory(HTTPRequestHandlerFactory factory) {
+    public void setHandlerFactory(HttpRequestHandlerFactory factory) {
         this.handlerFactory = factory;
     }
 
@@ -422,7 +422,7 @@ public final class HTTPProtocolHandler
     public void connected(Endpoint endpoint) {
         this.endpoint = endpoint;
 
-        HTTPServerMetrics metrics = getServerMetrics();
+        HttpServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.connectionOpened();
         }
@@ -491,7 +491,7 @@ public final class HTTPProtocolHandler
 
     @Override
     public void disconnected() {
-        HTTPServerMetrics metrics = getServerMetrics();
+        HttpServerMetrics metrics = getServerMetrics();
         if (metrics != null) {
             metrics.connectionClosed();
         }
@@ -510,7 +510,7 @@ public final class HTTPProtocolHandler
                         L10N.getString("warn.blocked_h2_cipher_suite"), info.getCipherSuite()));
                 h2Parser = new H2Parser(this);
                 h2Writer = new H2Writer(new EndpointChannel());
-                version = HTTPVersion.HTTP_2_0;
+                version = HttpVersion.HTTP_2_0;
                 sendGoaway(H2FrameHandler.ERROR_INADEQUATE_SECURITY,
                         info.getCipherSuite());
                 return;
@@ -519,7 +519,7 @@ public final class HTTPProtocolHandler
             h2Parser.setMaxFrameSize(maxFrameSize);
             h2Writer = new H2Writer(new EndpointChannel());
             h2FlowControl = new H2FlowControl();
-            version = HTTPVersion.HTTP_2_0;
+            version = HttpVersion.HTTP_2_0;
             state = State.PRI_SETTINGS;
             // RFC 9113 section 3.4: server connection preface MUST be
             // a SETTINGS frame as the first frame sent
@@ -564,8 +564,8 @@ public final class HTTPProtocolHandler
     // RFC 9112 section 2: message = start-line CRLF *( field-line CRLF ) CRLF [ message-body ]
 
     @Override
-    public boolean token(HTTPLineLexer.Token type, ByteBuffer window) {
-        if (type != HTTPLineLexer.Token.LINE) {
+    public boolean token(HttpLineLexer.Token type, ByteBuffer window) {
+        if (type != HttpLineLexer.Token.LINE) {
             return false;
         }
         switch (state) {
@@ -682,7 +682,7 @@ public final class HTTPProtocolHandler
      * Handles Content-Length-delimited body bytes (RFC 9112 section 6.2):
      * the body of the pre-conversion {@code receiveBody}, minus the "how
      * much do I take from this buffer" arithmetic — {@code slice} is
-     * already bounded to at most what {@link HTTPLineLexer#enterRawBody}
+     * already bounded to at most what {@link HttpLineLexer#enterRawBody}
      * still needs.
      */
     private void handleBodyBytes(ByteBuffer slice) {
@@ -735,7 +735,7 @@ public final class HTTPProtocolHandler
         }
     }
 
-    // ── HTTPConnectionLike implementation ──
+    // ── HttpConnectionLike implementation ──
 
     @Override
     public String getScheme() {
@@ -743,7 +743,7 @@ public final class HTTPProtocolHandler
     }
 
     @Override
-    public HTTPVersion getVersion() {
+    public HttpVersion getVersion() {
         return version;
     }
 
@@ -766,7 +766,7 @@ public final class HTTPProtocolHandler
     }
 
     @Override
-    public HTTPRequestHandlerFactory getHandlerFactory() {
+    public HttpRequestHandlerFactory getHandlerFactory() {
         return handlerFactory;
     }
 
@@ -782,7 +782,7 @@ public final class HTTPProtocolHandler
         switch (state) {
             case HTTP2:
                 // RFC 9113 section 8.2.2: do not send HTTP/1 framing headers
-                HTTPVersion.stripHttp1FramingHeaders(headers);
+                HttpVersion.stripHttp1FramingHeaders(headers);
                 // RFC 9113 section 8.3.2: :status is the only response pseudo-header
                 headers.add(0, new Header(":status", Integer.toString(statusCode)));
                 int streamDependency = 0;
@@ -1234,7 +1234,7 @@ public final class HTTPProtocolHandler
 
     @Override
     public void switchToWebSocketMode(int streamId) {
-        if (version == HTTPVersion.HTTP_2_0) {
+        if (version == HttpVersion.HTTP_2_0) {
             // RFC 8441 section 5: unlike RFC 6455 over HTTP/1.1 (where the
             // single stream *is* the whole connection, so upgrading means
             // the entire connection stops being parsed as HTTP), WebSocket
@@ -1260,7 +1260,7 @@ public final class HTTPProtocolHandler
 
     @Override
     public void switchToStreamTunnelMode(int streamId) {
-        if (version == HTTPVersion.HTTP_2_0) {
+        if (version == HttpVersion.HTTP_2_0) {
             // See switchToWebSocketMode's identical HTTP/2 branch: HTTP/2
             // framing never stops for any upgraded stream, since every
             // other concurrent stream on the connection is unaffected by
@@ -1318,7 +1318,7 @@ public final class HTTPProtocolHandler
     }
 
     @Override
-    public HTTPAuthenticationProvider getAuthenticationProvider() {
+    public HttpAuthenticationProvider getAuthenticationProvider() {
         return authenticationProvider;
     }
 
@@ -1370,11 +1370,11 @@ public final class HTTPProtocolHandler
     }
 
     @Override
-    public HTTPServerMetrics getServerMetrics() {
+    public HttpServerMetrics getServerMetrics() {
         return server != null ? server.getMetrics() : null;
     }
 
-    HTTPListener getListener() {
+    HttpListener getListener() {
         return server;
     }
 
@@ -1384,7 +1384,7 @@ public final class HTTPProtocolHandler
     }
 
     @Override
-    public Stream newStream(HTTPConnectionLike connection, int streamId) {
+    public Stream newStream(HttpConnectionLike connection, int streamId) {
         return new Stream(connection, streamId);
     }
 
@@ -1453,7 +1453,7 @@ public final class HTTPProtocolHandler
         }
     }
 
-    // ── Backpressure / flow control (HTTPConnectionLike) ──
+    // ── Backpressure / flow control (HttpConnectionLike) ──
 
     @Override
     public void onWritable(int streamId, Runnable callback) {
@@ -1535,7 +1535,7 @@ public final class HTTPProtocolHandler
                                 + timeoutMs + "ms");
                     }
                     // RFC 9113 section 9.1: use graceful GOAWAY for HTTP/2
-                    if (version == HTTPVersion.HTTP_2_0) {
+                    if (version == HttpVersion.HTTP_2_0) {
                         sendGracefulGoaway("idle timeout");
                     } else {
                         closeEndpoint();
@@ -1556,7 +1556,7 @@ public final class HTTPProtocolHandler
     private void startPingKeepAlive() {
         long intervalMs = server.getPingIntervalMs();
         if (intervalMs > 0 && endpoint != null
-                && version == HTTPVersion.HTTP_2_0) {
+                && version == HttpVersion.HTTP_2_0) {
             schedulePing(intervalMs);
         }
     }
@@ -1859,9 +1859,9 @@ public final class HTTPProtocolHandler
         String requestTarget = lineStr.substring(mi + 1, ui);
         String versionStr = lineStr.substring(ui + 1);
         // RFC 9112 section 2.3: HTTP-version = HTTP-name "/" DIGIT "." DIGIT
-        this.version = HTTPVersion.fromString(versionStr);
+        this.version = HttpVersion.fromString(versionStr);
         // RFC 9110 section 5.6.2: method = token
-        if (!HTTPUtils.isValidMethod(method)) {
+        if (!HttpUtils.isValidMethod(method)) {
             sendStreamError(stream, 400);
             return;
         }
@@ -1870,7 +1870,7 @@ public final class HTTPProtocolHandler
             sendStreamError(stream, 501);
             return;
         }
-        if (!HTTPUtils.isValidRequestTarget(requestTarget)) {
+        if (!HttpUtils.isValidRequestTarget(requestTarget)) {
             sendStreamError(stream, 400);
             return;
         }
@@ -1946,7 +1946,7 @@ public final class HTTPProtocolHandler
             } else {
                 // RFC 9112 section 5.1: field-name ":" OWS field-value OWS
                 // No whitespace allowed between field-name and colon;
-                // Header constructor validates via HTTPUtils.isValidHeaderName().
+                // Header constructor validates via HttpUtils.isValidHeaderName().
                 int ci = lineStr.indexOf(':');
                 if (ci < 1) {
                     sendStreamError(stream, 400);
@@ -1982,7 +1982,7 @@ public final class HTTPProtocolHandler
         // HTTP/1.1 request that lacks a Host header field and to any request
         // that contains more than one Host header field line or a Host header
         // field with an invalid field-value.
-        if (this.version == HTTPVersion.HTTP_1_1) {
+        if (this.version == HttpVersion.HTTP_1_1) {
             int hostCount = 0;
             for (Header header : stream.getHeaders()) {
                 if (header.getName().equalsIgnoreCase("host")
@@ -1998,7 +1998,7 @@ public final class HTTPProtocolHandler
             if (hostValue == null) {
                 hostValue = stream.getHeaders().getValue(":authority");
             }
-            if (!HTTPUtils.isValidHost(hostValue)) {
+            if (!HttpUtils.isValidHost(hostValue)) {
                 sendStreamError(stream, 400);
                 return;
             }
@@ -2018,7 +2018,7 @@ public final class HTTPProtocolHandler
         stream.streamEndHeaders();
         // RFC 6455 section 4.1: an application's headers() callback may
         // synchronously switch this connection into WEBSOCKET mode (via
-        // switchToWebSocketMode(), called from HTTPResponseState.
+        // switchToWebSocketMode(), called from HttpResponseState.
         // upgradeToWebSocket()) — a bodyless upgrade request otherwise
         // falls straight into the contentLength == 0L branch below, which
         // would clobber that transition back to REQUEST_LINE before the
@@ -2076,7 +2076,7 @@ public final class HTTPProtocolHandler
             state = State.BODY_CHUNKED_SIZE;
         } else if (contentLength > 0L) {
             state = State.BODY;
-        } else if (this.version == HTTPVersion.HTTP_1_0) {
+        } else if (this.version == HttpVersion.HTTP_1_0) {
             state = State.BODY_UNTIL_CLOSE;
         } else {
             // RFC 9110 section 15.5.12: 411 Length Required
@@ -2493,7 +2493,7 @@ public final class HTTPProtocolHandler
             buf.put((byte) ('0' + statusCode / 10 % 10));
             buf.put((byte) ('0' + statusCode % 10));
             buf.put((byte) ' ');
-            buf.put(HTTPConstants.getMessageBytes(statusCode));
+            buf.put(HttpConstants.getMessageBytes(statusCode));
             buf.put(CRLF);
             for (Header header : headers) {
                 String name = header.getName();
@@ -2573,13 +2573,13 @@ public final class HTTPProtocolHandler
         return (name + ": " + value + "\r\n").getBytes(US_ASCII);
     }
 
-    // Indexed by HTTPVersion.ordinal(); avoids converting version.toString()
+    // Indexed by HttpVersion.ordinal(); avoids converting version.toString()
     // char-by-char on every response for what is, in practice, one of two
     // fixed tokens (HTTP/1.0, HTTP/1.1 - HTTP/2 and HTTP/3 responses never
     // reach this HTTP/1.x status-line writer).
     private static final byte[][] VERSION_TOKEN_BYTES;
     static {
-        HTTPVersion[] versions = HTTPVersion.values();
+        HttpVersion[] versions = HttpVersion.values();
         VERSION_TOKEN_BYTES = new byte[versions.length][];
         for (int i = 0; i < versions.length; i++) {
             VERSION_TOKEN_BYTES[i] = versions[i].toString().getBytes(US_ASCII);
@@ -2593,13 +2593,13 @@ public final class HTTPProtocolHandler
      * chunked, Connection: close) in one bulk put, instead of the
      * generic per-character path. Matches by reference, not content, so a
      * false match is structurally impossible (see the constants above and
-     * HTTPDateCache's own javadoc for Date specifically). Returns false
+     * HttpDateCache's own javadoc for Date specifically). Returns false
      * (writes nothing) for any other header, which the caller then writes
      * via the generic path.
      */
     private static boolean writeWellKnownLine(ByteBuffer buf, String name, String value) {
-        if (value == HTTPDateCache.get() && "Date".equals(name)) {
-            buf.put(HTTPDateCache.getLineBytes());
+        if (value == HttpDateCache.get() && "Date".equals(name)) {
+            buf.put(HttpDateCache.getLineBytes());
             return true;
         }
         if (value == SERVER_HEADER_VALUE && "Server".equals(name)) {

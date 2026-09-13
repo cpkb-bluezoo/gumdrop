@@ -39,11 +39,11 @@ import static org.junit.Assert.*;
  * distinct header name) three times instead of the once its own caching is
  * designed for.
  *
- * <p>This drives a real {@link HTTPProtocolHandler} (not just a minimal
- * {@link HTTPConnectionLike} stub, as in {@code
+ * <p>This drives a real {@link HttpProtocolHandler} (not just a minimal
+ * {@link HttpConnectionLike} stub, as in {@code
  * StreamContentLengthValidationTest}) because the security-headers checks
  * that cause the repeated rebuilds are gated on {@code instanceof
- * HTTPProtocolHandler} plus the listener's {@code getAddSecurityHeaders()} -
+ * HttpProtocolHandler} plus the listener's {@code getAddSecurityHeaders()} -
  * a lighter stub would skip exactly the code path under test. Asserts the
  * rebuild count directly via {@link Headers#indexBuildCountForTesting}, since
  * the interleaving is a pure efficiency defect: the response headers sent
@@ -56,15 +56,15 @@ public class StreamResponseHeadersIndexTest {
 
     @Test
     public void testHeadersIndexNotRebuiltPerContainsNameCall() throws Exception {
-        HTTPListener listener = new HTTPListener();
+        HttpListener listener = new HttpListener();
         // Default true, but explicit so this test keeps exercising the
         // X-Frame-Options/X-Content-Type-Options branch even if that
         // default ever changes.
         listener.setAddSecurityHeaders(true);
-        listener.setHandlerFactory((state, headers) -> new DefaultHTTPRequestHandler());
+        listener.setHandlerFactory((state, headers) -> new DefaultHttpRequestHandler());
 
-        HTTPProtocolHandler connection = new HTTPProtocolHandler(listener);
-        connection.version = HTTPVersion.HTTP_1_1;
+        HttpProtocolHandler connection = new HttpProtocolHandler(listener);
+        connection.version = HttpVersion.HTTP_1_1;
 
         Stream stream = new Stream(connection, 1);
         stream.addHeader(new Header(":method", "GET"));
@@ -74,7 +74,7 @@ public class StreamResponseHeadersIndexTest {
         stream.streamEndHeaders();
 
         Headers responseHeaders = new Headers();
-        responseHeaders.status(HTTPStatus.OK);
+        responseHeaders.status(HttpStatus.OK);
         responseHeaders.add("content-type", "text/plain");
 
         stream.sendResponseHeaders(200, responseHeaders, true);

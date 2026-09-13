@@ -25,10 +25,10 @@ import org.bluezoo.gumdrop.ftp.FTPListener;
 import org.bluezoo.gumdrop.ftp.FTPProtocolHandler;
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
 import org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.imap.IMAPListener;
 import org.bluezoo.gumdrop.imap.IMAPProtocolHandler;
@@ -128,7 +128,7 @@ public class AsyncDiskOffloadBoundaryTest {
             }
         };
 
-        HTTPRequestHandler handler = newFileHandler(tempRoot, true);
+        HttpRequestHandler handler = newFileHandler(tempRoot, true);
         RecordingState st = new RecordingState();
         Headers req = new Headers();
         req.add(":method", "GET");
@@ -139,7 +139,7 @@ public class AsyncDiskOffloadBoundaryTest {
                 observed.await(5, TimeUnit.SECONDS));
         assertTrue("response did not complete",
                 st.await(5, TimeUnit.SECONDS));
-        assertEquals(HTTPStatus.OK.code, st.status());
+        assertEquals(HttpStatus.OK.code, st.status());
         assertEquals("Hello", new String(st.body(), StandardCharsets.UTF_8));
         assertTrue("WebDAV offload must run on gumdrop-storage-*, was "
                         + workThread.get(),
@@ -369,7 +369,7 @@ public class AsyncDiskOffloadBoundaryTest {
                 }
             };
 
-            HTTPRequestHandler handler = newFileHandler(tempRoot, true);
+            HttpRequestHandler handler = newFileHandler(tempRoot, true);
             RecordingState st = new RecordingState();
             Headers req = new Headers();
             req.add(":method", "GET");
@@ -379,7 +379,7 @@ public class AsyncDiskOffloadBoundaryTest {
             assertTrue("saturated GET must still complete (error path)",
                     st.await(5, TimeUnit.SECONDS));
             assertEquals("saturated offload should surface as 500",
-                    HTTPStatus.INTERNAL_SERVER_ERROR.code, st.status());
+                    HttpStatus.INTERNAL_SERVER_ERROR.code, st.status());
             assertFalse("rejected WebDAV work must not run on any thread",
                     rejectedWorkRan.get());
         } finally {
@@ -461,7 +461,7 @@ public class AsyncDiskOffloadBoundaryTest {
 
     // ── helpers ──
 
-    private static HTTPRequestHandler newFileHandler(Path root,
+    private static HttpRequestHandler newFileHandler(Path root,
             boolean allowWrite) throws Exception {
         Class<?> handlerClass =
                 Class.forName("org.bluezoo.gumdrop.webdav.FileHandler");
@@ -478,7 +478,7 @@ public class AsyncDiskOffloadBoundaryTest {
         Object lockManager = lockCtor.newInstance();
         Map<String, String> types = new HashMap<String, String>();
         types.put("txt", "text/plain");
-        return (HTTPRequestHandler) ctor.newInstance(root, allowWrite, true,
+        return (HttpRequestHandler) ctor.newInstance(root, allowWrite, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types, lockManager, null);
     }
@@ -624,7 +624,7 @@ public class AsyncDiskOffloadBoundaryTest {
         }
     }
 
-    private static final class RecordingState implements HTTPResponseState {
+    private static final class RecordingState implements HttpResponseState {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut =
                 new ByteArrayOutputStream();
@@ -702,8 +702,8 @@ public class AsyncDiskOffloadBoundaryTest {
         @Override public SocketAddress getLocalAddress() { return null; }
         @Override public boolean isSecure() { return false; }
         @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public HTTPVersion getVersion() {
-            return HTTPVersion.HTTP_1_1;
+        @Override public HttpVersion getVersion() {
+            return HttpVersion.HTTP_1_1;
         }
         @Override public String getScheme() { return "http"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }

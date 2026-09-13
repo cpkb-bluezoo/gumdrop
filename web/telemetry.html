@@ -178,7 +178,7 @@ To enable telemetry for a server, reference the configuration:
 
 &lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
         &lt;property name="port"&gt;8080&lt;/property&gt;
     &lt;/listener&gt;
 &lt;/service&gt;
@@ -745,11 +745,11 @@ manual header handling:
 </p>
 
 <pre>
-HTTPClient client = new HTTPClient(loop, downstreamHost, downstreamPort);
+HttpClient client = new HttpClient(loop, downstreamHost, downstreamPort);
 client.setTrace(state.getTrace());  // Propagates traceparent automatically
-client.connect(new HTTPClientHandler() {
+client.connect(new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
-        HTTPRequest request = client.post("/api");
+        HttpRequest request = client.post("/api");
         request.header("Content-Type", "application/json");
         request.send(responseHandler);
     }
@@ -929,7 +929,7 @@ For authenticated endpoints, use the <code>headers</code> property:
 &lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
     &lt;property name="telemetry-config" ref="#telemetry"/&gt;
     &lt;property name="web-app" ref="#webapp"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
         &lt;property name="port"&gt;8080&lt;/property&gt;
     &lt;/listener&gt;
 &lt;/service&gt;

@@ -26,7 +26,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Regression coverage for issue #299: {@code HTTPProtocolHandler}'s
+ * Regression coverage for issue #299: {@code HttpProtocolHandler}'s
  * {@code h2Priority} map moved from {@code Map<Integer, PriorityParams>} to
  * {@link org.bluezoo.gumdrop.util.IntObjectHashMap} to avoid a boxed-key
  * lookup on every RFC 9218 priority read. These exercise the storage and
@@ -42,13 +42,13 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
 
     @Test
     public void testUnsetStreamReturnsDefaultPriority() {
-        HTTPProtocolHandler connection = new HTTPProtocolHandler(new HTTPListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
         assertEquals(PriorityParams.DEFAULT, connection.h2PriorityOf(1));
     }
 
     @Test
     public void testPriorityHeaderIsStoredAndRetrievable() {
-        HTTPProtocolHandler connection = new HTTPProtocolHandler(new HTTPListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
         Headers headers = new Headers();
         headers.add(new Header(PriorityParams.PRIORITY_HEADER, "u=1"));
 
@@ -60,7 +60,7 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
 
     @Test
     public void testDifferentStreamsTrackIndependentPriorities() {
-        HTTPProtocolHandler connection = new HTTPProtocolHandler(new HTTPListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
         Headers urgent = new Headers();
         urgent.add(new Header(PriorityParams.PRIORITY_HEADER, "u=0"));
         Headers background = new Headers();
@@ -79,7 +79,7 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
         // RFC 9218 section 4.1: an incoming Priority header (fromUpdate =
         // false) sets the stream's initial priority only; it must not
         // override a value already recorded for that stream.
-        HTTPProtocolHandler connection = new HTTPProtocolHandler(new HTTPListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
         Headers first = new Headers();
         first.add(new Header(PriorityParams.PRIORITY_HEADER, "u=2"));
         Headers second = new Headers();
@@ -96,7 +96,7 @@ public class HTTPProtocolHandlerH2PriorityStorageTest {
     public void testPriorityUpdateFrameOverridesAnExistingPriority() {
         // RFC 9218 section 7.1: a PRIORITY_UPDATE frame (fromUpdate =
         // true) always takes effect, unlike a Priority header.
-        HTTPProtocolHandler connection = new HTTPProtocolHandler(new HTTPListener());
+        HttpProtocolHandler connection = new HttpProtocolHandler(new HttpListener());
         Headers initial = new Headers();
         initial.add(new Header(PriorityParams.PRIORITY_HEADER, "u=2"));
         connection.applyRfc9218Priority(1, initial);

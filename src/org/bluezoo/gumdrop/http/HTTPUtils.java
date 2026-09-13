@@ -1,5 +1,5 @@
 /*
- * HTTPUtils.java
+ * HttpUtils.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -33,7 +33,7 @@ package org.bluezoo.gumdrop.http;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class HTTPUtils {
+public final class HttpUtils {
 
     // RFC 9110 section 5.6.2: token = 1*tchar
     // tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
@@ -154,7 +154,7 @@ public final class HTTPUtils {
         HEADER_VALUE_CHARS['\t'] = true;
     }
 
-    private HTTPUtils() {
+    private HttpUtils() {
         // Utility class - prevent instantiation
     }
 

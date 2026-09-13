@@ -1,5 +1,5 @@
 /*
- * HTTPAuthenticationMethods.java
+ * HttpAuthenticationMethods.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -31,7 +31,7 @@ import jakarta.servlet.http.HttpServletRequest;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class HTTPAuthenticationMethods {
+public final class HttpAuthenticationMethods {
 
     // Standard servlet authentication methods (for convenience)
     
@@ -76,7 +76,7 @@ public final class HTTPAuthenticationMethods {
     public static final String JWT_AUTH = "JWT";
 
     // Private constructor to prevent instantiation
-    private HTTPAuthenticationMethods() {
+    private HttpAuthenticationMethods() {
     }
 
     /**

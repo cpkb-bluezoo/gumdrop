@@ -97,19 +97,20 @@ gravity.
 
 ### C.1 Naming and taxonomy
 
-**Status (branch `v3-taxonomy`):** slice **C.1.0** complete; **C.1.1** complete — see
+**Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.2** complete — see
 [Server.java](../src/org/bluezoo/gumdrop/Server.java), deprecated
 [Service.java](../src/org/bluezoo/gumdrop/Service.java),
-`Gumdrop#addServer` / `#getServers`, `ParseResult#getServers`. Next slice:
-**C.1.2** HTTP vertical rename.
+[HttpServer.java](../src/org/bluezoo/gumdrop/http/server/HttpServer.java),
+`HttpClient`, `Gumdrop#addServer` / `#getServers`. Next slice:
+**C.1.3** Servlet / WebDAV / WebSocket on HTTP.
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
 | `HTTPService`, `SMTPService` | `HttpServer`, `SmtpServer` | “Server” = collection of listeners + app wiring; not a `Service` lifecycle contract |
 | `Service` interface | Retire or narrow | Lifecycle moves to `Runtime` + optional `Server`/`Client` facades |
 | `HTTPServer`, `AMQPClient` | `HttpServer`, `AmqpClient` | **CamelCase acronyms** throughout (hopf precedent) |
-| `HTTPRequestHandler` | `http.server.HttpRequestHandler` | Handler interfaces live under role subpackages |
-| `HTTPClient` | `http.client.HttpClient` | Client facades mirror server naming |
+| `HttpRequestHandler` | `http.server.HttpRequestHandler` | Handler interfaces live under role subpackages |
+| `HttpClient` | `http.client.HttpClient` | Client facades mirror server naming |
 | `smtp/client/handler/ServerEhloReplyHandler` | Rename to client-side reply handlers | “Server*” in client packages is confusing |
 
 **Name churn:** expect a **mass rename** across `src/`, tests, examples, web
@@ -156,7 +157,7 @@ abstract classes you must extend.
 |--------------|--------|
 | Subclass `HTTPService` / `WebDAVService` / `ServletService` for app logic | Compose `HttpServer` with `HttpRequestHandlerFactory` / decorators |
 | Override methods on protocol base classes | Implement staged handler interfaces or wrap factories |
-| Client already OK (`HTTPClient` works without subclassing) | Extend that pattern to all protocols |
+| Client already OK (`HttpClient` works without subclassing) | Extend that pattern to all protocols |
 
 **Keep and promote:** staged handler interfaces (SMTP, IMAP, POP3, FTP, etc.)
 as the **primary implementer API** — this is a Gumdrop strength.
@@ -500,7 +501,7 @@ consistent” public API:
 | This plan | Draft |
 | CHANGELOG 3.0.0 section | Draft (TLS/modularity) |
 | TLS cert compression #445 | Spec refined |
-| Role-agnostic refactor | C.1.1 core lifecycle *(branch `v3-taxonomy`)* |
+| Role-agnostic refactor | C.1.2 HTTP stack *(branch `v3-taxonomy`)* |
 | Servlet 6.1 | Not started |
 | Runtime introduction | Not started |
 | Telemetry / jprotobuf spin-off | Not started |

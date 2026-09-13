@@ -2105,7 +2105,7 @@ public class QuicProductionEndToEndTest {
 
     /**
      * The genuine end-to-end proof of Part 3 of the 0-RTT work: a real
-     * second {@link HTTPClient}-shaped connection (production {@link
+     * second {@link HttpClient}-shaped connection (production {@link
      * QuicTransportFactory}/{@link QuicEngine} client, not the
      * hand-driven {@link QuicTestPeer} the earlier 0-RTT tests use)
      * automatically presents a cached session ticket and sends data from

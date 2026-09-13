@@ -1,5 +1,5 @@
 /*
- * HTTPStream.java
+ * HttpStream.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,25 +28,25 @@ import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.PriorityParams;
 
 /**
- * Internal implementation of {@link HTTPRequest} representing an HTTP stream.
+ * Internal implementation of {@link HttpRequest} representing an HTTP stream.
  *
  * <p>In HTTP/2 (RFC 9113 section 5.1), each request/response exchange occurs
  * on a separate stream identified by a client-initiated odd stream ID.
  * In HTTP/1.1, there is logically one stream per request on the connection.
  * This class encapsulates the request state and delegates actual I/O to
- * the owning {@link HTTPClientProtocolHandler}.
+ * the owning {@link HttpClientProtocolHandler}.
  *
  * <p>Instances are created internally via factory methods like
- * {@link HTTPClient#get(String)}.
+ * {@link HttpClient#get(String)}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class HTTPStream implements HTTPRequest {
+class HttpStream implements HttpRequest {
 
     private static final ResourceBundle L10N = 
         ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
 
-    private final HTTPClientConnectionOps connection;
+    private final HttpClientConnectionOps connection;
     private final String method;
     private final String path;
     private final Headers headers;
@@ -56,11 +56,11 @@ class HTTPStream implements HTTPRequest {
     
     // HTTP/2 priority settings (RFC 9113 section 5.3: deprecated)
     private int priority = 16;  // Default weight
-    private HTTPRequest dependency;
+    private HttpRequest dependency;
     private boolean exclusive;
     
     // State
-    private HTTPResponseHandler handler;
+    private HttpResponseHandler handler;
     private boolean headersSent;
     private boolean bodySent;
     private boolean cancelled;
@@ -72,7 +72,7 @@ class HTTPStream implements HTTPRequest {
      * @param method the HTTP method
      * @param path the request path
      */
-    HTTPStream(HTTPClientConnectionOps connection, String method, String path) {
+    HttpStream(HttpClientConnectionOps connection, String method, String path) {
         this.connection = connection;
         this.method = method;
         this.path = path;
@@ -111,7 +111,7 @@ class HTTPStream implements HTTPRequest {
      *
      * @return the handler
      */
-    HTTPResponseHandler getHandler() {
+    HttpResponseHandler getHandler() {
         return handler;
     }
 
@@ -129,7 +129,7 @@ class HTTPStream implements HTTPRequest {
      *
      * @return the dependency, or null
      */
-    HTTPRequest getDependency() {
+    HttpRequest getDependency() {
         return dependency;
     }
 
@@ -158,7 +158,7 @@ class HTTPStream implements HTTPRequest {
     }
 
     @Override
-    public void dependency(HTTPRequest parent) {
+    public void dependency(HttpRequest parent) {
         this.dependency = parent;
     }
 
@@ -168,7 +168,7 @@ class HTTPStream implements HTTPRequest {
     }
 
     @Override
-    public void send(HTTPResponseHandler handler) {
+    public void send(HttpResponseHandler handler) {
         if (this.handler != null) {
             throw new IllegalStateException(L10N.getString("err.request_already_sent"));
         }
@@ -182,7 +182,7 @@ class HTTPStream implements HTTPRequest {
     }
 
     @Override
-    public void startRequestBody(HTTPResponseHandler handler) {
+    public void startRequestBody(HttpResponseHandler handler) {
         if (this.handler != null) {
             throw new IllegalStateException(L10N.getString("err.request_already_sent"));
         }

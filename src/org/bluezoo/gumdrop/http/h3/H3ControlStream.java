@@ -40,8 +40,8 @@ import org.bluezoo.gumdrop.quic.packet.VarInt;
  * section 6.2).
  *
  * <p>An instance of this class is returned for every new peer-initiated
- * unidirectional stream by {@link HTTP3ServerHandler}'s/
- * {@link HTTP3ClientHandler}'s {@code unidirectionalStreamAcceptHandler}
+ * unidirectional stream by {@link Http3ServerHandler}'s/
+ * {@link Http3ClientHandler}'s {@code unidirectionalStreamAcceptHandler}
  * -- the stream's type (a leading varint, RFC 9114 section 6.2) isn't
  * known until its first byte arrives, so a single generic handler
  * fields every peer-initiated uni stream and dispatches once the type

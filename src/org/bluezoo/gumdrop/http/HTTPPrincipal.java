@@ -1,5 +1,5 @@
 /*
- * HTTPPrincipal.java
+ * HttpPrincipal.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,11 +28,11 @@ import java.security.Principal;
  *
  * <p>Created by the HTTP authentication pipeline when a request's
  * {@code Authorization} header is successfully verified against a
- * {@link HTTPAuthenticationProvider}.
+ * {@link HttpAuthenticationProvider}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class HTTPPrincipal implements Principal {
+public class HttpPrincipal implements Principal {
 
     private final String username;
 
@@ -41,7 +41,7 @@ public class HTTPPrincipal implements Principal {
      *
      * @param username the authenticated username
      */
-    public HTTPPrincipal(String username) {
+    public HttpPrincipal(String username) {
         this.username = username;
     }
 
@@ -57,8 +57,8 @@ public class HTTPPrincipal implements Principal {
 
     @Override
     public boolean equals(Object other) {
-        if (other instanceof HTTPPrincipal) {
-            return username.equals(((HTTPPrincipal) other).username);
+        if (other instanceof HttpPrincipal) {
+            return username.equals(((HttpPrincipal) other).username);
         }
         return false;
     }

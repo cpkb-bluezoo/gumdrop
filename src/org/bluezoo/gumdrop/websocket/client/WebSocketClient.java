@@ -46,14 +46,14 @@ import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.client.AltSvcCache;
 import org.bluezoo.gumdrop.http.client.AltSvcListener;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
@@ -140,7 +140,7 @@ public class WebSocketClient implements AltSvcListener {
     private WebSocketConnection h2WebSocketConnection;
 
     // Internal transport components (created at connect time) -- HTTP/3 path
-    private HTTPClient httpClient;
+    private HttpClient httpClient;
     private WebSocketConnection h3WebSocketConnection;
 
     /**
@@ -385,7 +385,7 @@ public class WebSocketClient implements AltSvcListener {
      * connection with no negotiation at all: the client sends the h2
      * connection preface immediately and assumes the server already
      * speaks h2, by prior arrangement (matching
-     * {@link HTTPClient#setH2WithPriorKnowledge(boolean)}, the equivalent
+     * {@link HttpClient#setH2WithPriorKnowledge(boolean)}, the equivalent
      * setting for plain HTTP requests). Combined with
      * {@link #setSecure(boolean)}{@code (false)}, this is what enables
      * WebSocket-over-h2c: {@code onConnected} branches on the negotiated
@@ -403,7 +403,7 @@ public class WebSocketClient implements AltSvcListener {
      * in the same exchange, and building it would mean investing in a
      * mechanism the current spec itself disclaims -- this class has no
      * WebSocket equivalent of {@link org.bluezoo.gumdrop.http.client
-     * .HTTPClientProtocolHandler#setH2cUpgradeEnabled} for that reason
+     * .HttpClientProtocolHandler#setH2cUpgradeEnabled} for that reason
      * and never will; prior knowledge is the supported cleartext path.
      *
      * <p>Has no effect when {@link #setH3Enabled(boolean)} is set, or for
@@ -560,7 +560,7 @@ public class WebSocketClient implements AltSvcListener {
      * Both outcomes are decided from {@code onConnected}, once
      * {@code negotiatedVersion} is known (reliably true there for both
      * secure and cleartext connections, per
-     * {@code HTTPClientProtocolHandler.connected()}/{@code securityEstablished()}).
+     * {@code HttpClientProtocolHandler.connected()}/{@code securityEstablished()}).
      *
      * @param path the request path (e.g. "/ws" or "/chat")
      * @param handler the handler to receive WebSocket events
@@ -595,7 +595,7 @@ public class WebSocketClient implements AltSvcListener {
             transportFactory.setKeystoreFormat(keystoreFormat);
         }
         // RFC 8441 rides the same TCP+TLS attempt as HTTP/1.1 -- offer h2
-        // via ALPN (mirroring HTTPClient.connectTcp's own offer) so the
+        // via ALPN (mirroring HttpClient.connectTcp's own offer) so the
         // already-negotiated version is known by the time onConnected
         // fires below, with no separate discovery tier needed the way h3
         // needs one. Prior knowledge (see setH2WithPriorKnowledge) is a
@@ -605,11 +605,11 @@ public class WebSocketClient implements AltSvcListener {
         }
         transportFactory.start();
 
-        HTTPClientHandler internalHandler = new HTTPClientHandler() {
+        HttpClientHandler internalHandler = new HttpClientHandler() {
 
             @Override
             public void onConnected(Endpoint endpoint) {
-                if (protocolHandler.getVersion() == HTTPVersion.HTTP_2_0) {
+                if (protocolHandler.getVersion() == HttpVersion.HTTP_2_0) {
                     // RFC 8441 section 4: must not attempt Extended CONNECT
                     // before knowing the server advertised support for it --
                     // which, unlike this onConnected callback itself, isn't
@@ -629,7 +629,7 @@ public class WebSocketClient implements AltSvcListener {
                     return;
                 }
                 // RFC 6455 §4.1 -- classic HTTP/1.1 upgrade handshake
-                HTTPRequest request = protocolHandler.get(path);
+                HttpRequest request = protocolHandler.get(path);
                 for (Header h : upgradeHeaders) {
                     request.header(h.getName(), h.getValue());
                 }
@@ -654,7 +654,7 @@ public class WebSocketClient implements AltSvcListener {
 
         // RFC 9110 section 7.2 / RFC 9113 section 8.3.1: a UNIX domain
         // socket has no hostname of its own -- "localhost" matches
-        // HTTPClient's own default for the same case (see its
+        // HttpClient's own default for the same case (see its
         // connectTcp()), with the matching default port keeping the
         // Host header's port-suffix check from adding one.
         protocolHandler = (socketPath != null)
@@ -725,9 +725,9 @@ public class WebSocketClient implements AltSvcListener {
 
     /**
      * Populates {@link AltSvcCache} for later, separate {@code connect()}
-     * calls (from this class or {@link HTTPClient}) to the same origin.
+     * calls (from this class or {@link HttpClient}) to the same origin.
      *
-     * <p>Unlike {@link HTTPClient}, this does not attempt a same-instance
+     * <p>Unlike {@link HttpClient}, this does not attempt a same-instance
      * reactive upgrade -- a WebSocket connection is one long-lived stream,
      * not a reusable request/response client, so there is no "next
      * request" on this instance to upgrade.
@@ -762,16 +762,16 @@ public class WebSocketClient implements AltSvcListener {
      * WebSocket-over-HTTP/2 on the already-established (h2-negotiated)
      * connection, via {@link H2WebSocketResponseHandler}.
      *
-     * <p>Builds the request through the same generic {@link HTTPRequest}
+     * <p>Builds the request through the same generic {@link HttpRequest}
      * API any other h2 request uses -- {@code :protocol} is just another
      * header from this layer's perspective (added before any regular
      * header, so it's HPACK-encoded in the correct pseudo-header position);
      * no dedicated stream-open method was needed in
-     * {@code HTTPClientProtocolHandler} for this.
+     * {@code HttpClientProtocolHandler} for this.
      */
     private void connectExtendedConnect(String path,
             List<WebSocketExtension> allExtensions, final WebSocketEventHandler handler) {
-        HTTPRequest request = protocolHandler.request("CONNECT", path);
+        HttpRequest request = protocolHandler.request("CONNECT", path);
         request.header(":protocol", "websocket");
         if (subprotocol != null && !subprotocol.isEmpty()) {
             request.header("sec-websocket-protocol", subprotocol);
@@ -829,26 +829,26 @@ public class WebSocketClient implements AltSvcListener {
 
     /**
      * RFC 9220 — connects and initiates the WebSocket handshake over
-     * HTTP/3 Extended CONNECT, via an internally-managed {@link HTTPClient}.
+     * HTTP/3 Extended CONNECT, via an internally-managed {@link HttpClient}.
      */
     private void connectH3(String path, final WebSocketEventHandler handler) {
         final List<WebSocketExtension> allExtensions = buildExtensionOffers();
 
         if (host != null) {
             httpClient = (selectorLoop != null)
-                    ? new HTTPClient(selectorLoop, host, port) : new HTTPClient(host, port);
+                    ? new HttpClient(selectorLoop, host, port) : new HttpClient(host, port);
         } else {
             httpClient = (selectorLoop != null)
-                    ? new HTTPClient(selectorLoop, hostAddress, port) : new HTTPClient(hostAddress, port);
+                    ? new HttpClient(selectorLoop, hostAddress, port) : new HttpClient(hostAddress, port);
         }
         httpClient.setH3Enabled(true);
-        // Note: HTTPClient's QUIC/H3 path (unlike its TCP/H1.1 path)
+        // Note: HttpClient's QUIC/H3 path (unlike its TCP/H1.1 path)
         // doesn't consult a custom X509TrustManager at all today, only
         // verifyPeer -- trustManager/keystoreFile are therefore not
-        // wired through here; a follow-up alongside HTTPClient's own gap.
+        // wired through here; a follow-up alongside HttpClient's own gap.
         httpClient.setVerifyPeer(verifyPeer);
 
-        httpClient.connect(new HTTPClientHandler() {
+        httpClient.connect(new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
             }
@@ -981,7 +981,7 @@ public class WebSocketClient implements AltSvcListener {
      * non-101 responses (server refused the upgrade) and errors.
      */
     private static class UpgradeResponseHandler
-            extends DefaultHTTPResponseHandler {
+            extends DefaultHttpResponseHandler {
 
         private final WebSocketEventHandler handler;
 
@@ -990,7 +990,7 @@ public class WebSocketClient implements AltSvcListener {
         }
 
         @Override
-        public void ok(HTTPResponse response) {
+        public void ok(HttpResponse response) {
             // A 2xx response means the server did not upgrade
             handler.error(new IOException(
                     "Server did not upgrade to WebSocket: "
@@ -998,7 +998,7 @@ public class WebSocketClient implements AltSvcListener {
         }
 
         @Override
-        public void error(HTTPResponse response) {
+        public void error(HttpResponse response) {
             handler.error(new IOException(
                     "WebSocket upgrade failed: " + response.getStatus()));
         }

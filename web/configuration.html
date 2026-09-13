@@ -77,7 +77,7 @@ a <code>&lt;listener&gt;</code>:
 <pre>
 &lt;gumdrop&gt;
     &lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
-        &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+        &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
             &lt;property name="port" value="8080"/&gt;
         &lt;/listener&gt;
     &lt;/service&gt;
@@ -312,7 +312,7 @@ secure listeners &mdash; keystore or PEM (see
 </p>
 
 <pre>
-&lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+&lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
     &lt;property name="port" value="443"/&gt;
     &lt;property name="keystore-file" path="certs/keystore.p12"/&gt;
     &lt;property name="keystore-pass" value="secret"/&gt;
@@ -331,12 +331,12 @@ connections on multiple ports and protocols simultaneously:
     &lt;property name="root-path" path="web"/&gt;
 
     &lt;!-- HTTP --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
         &lt;property name="port" value="8080"/&gt;
     &lt;/listener&gt;
 
     &lt;!-- HTTPS --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
         &lt;property name="port" value="8443"/&gt;
         &lt;property name="secure" value="true"/&gt;
         &lt;property name="keystore-file" path="localhost+2.p12"/&gt;
@@ -344,7 +344,7 @@ connections on multiple ports and protocols simultaneously:
     &lt;/listener&gt;
 
     &lt;!-- HTTP/3 (same keystore as HTTPS) --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+    &lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
         &lt;property name="port" value="8443"/&gt;
         &lt;property name="keystore-file" path="localhost+2.p12"/&gt;
         &lt;property name="keystore-pass" value="changeit"/&gt;

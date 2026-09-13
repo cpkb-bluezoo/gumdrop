@@ -1,5 +1,5 @@
 /*
- * HTTP3Listener.java
+ * Http3Listener.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -38,9 +38,9 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TCPListener;
 import org.bluezoo.gumdrop.TransportFactory;
-import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPServerMetrics;
+import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpServerMetrics;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
@@ -49,11 +49,11 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  * QUIC transport listener for HTTP/3 connections.
  *
  * <p>This is the HTTP/3 equivalent of
- * {@link org.bluezoo.gumdrop.http.HTTPListener}. It creates a
+ * {@link org.bluezoo.gumdrop.http.HttpListener}. It creates a
  * {@link QuicTransportFactory} with ALPN "h3" (RFC 9114 section 3.1),
  * binds to the configured UDP port, and installs an
- * {@link HTTP3ServerHandler} on each new QUIC connection to dispatch
- * requests to the gumdrop {@link org.bluezoo.gumdrop.http.HTTPRequestHandler}
+ * {@link Http3ServerHandler} on each new QUIC connection to dispatch
+ * requests to the gumdrop {@link org.bluezoo.gumdrop.http.HttpRequestHandler}
  * API.
  *
  * <p>Per RFC 9114 section 3, HTTP/3 runs exclusively over QUIC
@@ -62,14 +62,14 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  * {@code require-retry} to {@code false} for a trusted path.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTP3ServerHandler
+ * @see Http3ServerHandler
  * @see H3Stream
  */
-public class HTTP3Listener extends TCPListener
+public class Http3Listener extends TCPListener
         implements QuicEngine.ConnectionAcceptedHandler {
 
     private static final Logger LOGGER =
-            Logger.getLogger(HTTP3Listener.class.getName());
+            Logger.getLogger(Http3Listener.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
@@ -77,9 +77,9 @@ public class HTTP3Listener extends TCPListener
 
     private int port = -1;
 
-    private HTTPRequestHandlerFactory handlerFactory;
-    private HTTPAuthenticationProvider authenticationProvider;
-    private HTTPServerMetrics metrics;
+    private HttpRequestHandlerFactory handlerFactory;
+    private HttpAuthenticationProvider authenticationProvider;
+    private HttpServerMetrics metrics;
     private SelectorLoop selectorLoop;
     private boolean addSecurityHeaders = true;
 
@@ -154,7 +154,7 @@ public class HTTP3Listener extends TCPListener
      *
      * @param factory the handler factory, or null
      */
-    public void setHandlerFactory(HTTPRequestHandlerFactory factory) {
+    public void setHandlerFactory(HttpRequestHandlerFactory factory) {
         this.handlerFactory = factory;
     }
 
@@ -163,7 +163,7 @@ public class HTTP3Listener extends TCPListener
      *
      * @return the handler factory, or null if not configured
      */
-    public HTTPRequestHandlerFactory getHandlerFactory() {
+    public HttpRequestHandlerFactory getHandlerFactory() {
         return handlerFactory;
     }
 
@@ -173,7 +173,7 @@ public class HTTP3Listener extends TCPListener
      * @param provider the authentication provider, or null to disable
      */
     public void setAuthenticationProvider(
-            HTTPAuthenticationProvider provider) {
+            HttpAuthenticationProvider provider) {
         this.authenticationProvider = provider;
     }
 
@@ -197,7 +197,7 @@ public class HTTP3Listener extends TCPListener
      *
      * @return the authentication provider, or null if not configured
      */
-    public HTTPAuthenticationProvider getAuthenticationProvider() {
+    public HttpAuthenticationProvider getAuthenticationProvider() {
         return authenticationProvider;
     }
 
@@ -207,7 +207,7 @@ public class HTTP3Listener extends TCPListener
      *
      * @return the HTTP server metrics
      */
-    public HTTPServerMetrics getMetrics() {
+    public HttpServerMetrics getMetrics() {
         return metrics;
     }
 
@@ -305,7 +305,7 @@ public class HTTP3Listener extends TCPListener
         }
         super.start();
         if (isMetricsEnabled()) {
-            metrics = new HTTPServerMetrics(getTelemetryConfig());
+            metrics = new HttpServerMetrics(getTelemetryConfig());
         }
         // Unlike TCP-accept listeners (which register with the accept
         // loop lazily and don't actually bind until Gumdrop.start()
@@ -326,7 +326,7 @@ public class HTTP3Listener extends TCPListener
         if (selectorLoop == null) {
             throw new IllegalStateException(
                     "SelectorLoop must be set before starting "
-                            + "HTTP3Listener");
+                            + "Http3Listener");
         }
         bindEngines();
     }
@@ -371,14 +371,14 @@ public class HTTP3Listener extends TCPListener
 
     @Override
     public void connectionAccepted(QuicConnection connection) {
-        new HTTP3ServerHandler(connection, handlerFactory,
+        new Http3ServerHandler(connection, handlerFactory,
                 authenticationProvider, metrics,
                 getTelemetryConfig(), addSecurityHeaders);
     }
 
     /**
      * Not used for HTTP/3. QUIC connections are handled at the
-     * connection level by {@link HTTP3ServerHandler}.
+     * connection level by {@link Http3ServerHandler}.
      *
      * @return null
      */

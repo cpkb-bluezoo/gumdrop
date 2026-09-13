@@ -1,5 +1,5 @@
 /*
- * HTTPMethodSafety.java
+ * HttpMethodSafety.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -38,11 +38,11 @@ import java.util.Set;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class HTTPMethodSafety {
+public final class HttpMethodSafety {
 
     private static final Set<String> ZERO_RTT_ELIGIBLE = Set.of("GET", "HEAD", "OPTIONS", "TRACE");
 
-    private HTTPMethodSafety() {
+    private HttpMethodSafety() {
     }
 
     /**

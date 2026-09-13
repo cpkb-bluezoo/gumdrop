@@ -27,7 +27,7 @@ import java.nio.ByteBuffer;
  * Receives events for a client-initiated RFC 9298 CONNECT-UDP tunnel.
  * Implement this interface to receive events, and pass an instance to a
  * transport's CONNECT-UDP entry point (e.g. {@code
- * HTTP3ClientHandler#connectUdp}).
+ * Http3ClientHandler#connectUdp}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ConnectUdpSession

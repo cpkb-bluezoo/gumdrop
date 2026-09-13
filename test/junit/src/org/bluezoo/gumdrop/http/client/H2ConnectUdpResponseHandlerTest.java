@@ -15,7 +15,7 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
 import org.junit.Test;
@@ -43,7 +43,7 @@ public class H2ConnectUdpResponseHandlerTest {
         FakeHTTPRequest request = new FakeHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.ok(new HTTPResponse(HTTPStatus.OK));
+        handler.ok(new HttpResponse(HttpStatus.OK));
         handler.startResponseBody();
         assertNotNull("opened() should have been called", eventHandler.session);
 
@@ -68,7 +68,7 @@ public class H2ConnectUdpResponseHandlerTest {
         FakeHTTPRequest request = new FakeHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.ok(new HTTPResponse(HTTPStatus.OK));
+        handler.ok(new HttpResponse(HttpStatus.OK));
         handler.startResponseBody();
         assertNotNull(eventHandler.session);
 
@@ -94,7 +94,7 @@ public class H2ConnectUdpResponseHandlerTest {
         FakeHTTPRequest request = new FakeHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.ok(new HTTPResponse(HTTPStatus.OK));
+        handler.ok(new HttpResponse(HttpStatus.OK));
         handler.startResponseBody();
         eventHandler.session.close();
 
@@ -107,7 +107,7 @@ public class H2ConnectUdpResponseHandlerTest {
         FakeHTTPRequest request = new FakeHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.ok(new HTTPResponse(HTTPStatus.OK));
+        handler.ok(new HttpResponse(HttpStatus.OK));
         handler.startResponseBody();
         handler.endResponseBody();
 
@@ -120,7 +120,7 @@ public class H2ConnectUdpResponseHandlerTest {
         FakeHTTPRequest request = new FakeHTTPRequest();
         H2ConnectUdpResponseHandler handler = new H2ConnectUdpResponseHandler(request, eventHandler);
 
-        handler.error(new HTTPResponse(HTTPStatus.FORBIDDEN));
+        handler.error(new HttpResponse(HttpStatus.FORBIDDEN));
         // A rejected Extended CONNECT still gets a startResponseBody()
         // call whenever the h2 stream isn't immediately closed -- the
         // "failed" guard must suppress opened() even so.
@@ -130,16 +130,16 @@ public class H2ConnectUdpResponseHandlerTest {
         assertNull("opened() should not have been called", eventHandler.session);
     }
 
-    private static class FakeHTTPRequest implements HTTPRequest {
+    private static class FakeHTTPRequest implements HttpRequest {
         final List<byte[]> sentChunks = new ArrayList<byte[]>();
         boolean bodyEnded;
 
         @Override public void header(String name, String value) { }
         @Override public void priority(int weight) { }
-        @Override public void dependency(HTTPRequest parent) { }
+        @Override public void dependency(HttpRequest parent) { }
         @Override public void exclusive(boolean exclusive) { }
-        @Override public void send(HTTPResponseHandler handler) { }
-        @Override public void startRequestBody(HTTPResponseHandler handler) { }
+        @Override public void send(HttpResponseHandler handler) { }
+        @Override public void startRequestBody(HttpResponseHandler handler) { }
 
         @Override
         public int requestBodyContent(ByteBuffer data) {

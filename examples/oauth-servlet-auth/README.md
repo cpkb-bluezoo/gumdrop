@@ -69,7 +69,7 @@ oauth.scope.mapping.readonly=read
                 <property name="docBase">webapps/api</property>
             </context>
         </container>
-        <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+        <listener class="org.bluezoo.gumdrop.http.HttpListener">
             <property name="port">8443</property>
             <property name="secure">true</property>
             <property name="keystore-file">keystore.p12</property>

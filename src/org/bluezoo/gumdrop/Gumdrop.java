@@ -740,7 +740,7 @@ public class Gumdrop {
         }
 
         // Standalone listeners that don't use the TCP accept loop (e.g.
-        // HTTP3Listener's QUIC/UDP bind) can't complete their own start()
+        // Http3Listener's QUIC/UDP bind) can't complete their own start()
         // if addListener() ran before workerLoops existed — their start()
         // call at addListener() time deferred in that case. Give them a
         // second chance now that the worker-loop pool is ready (issue #106).

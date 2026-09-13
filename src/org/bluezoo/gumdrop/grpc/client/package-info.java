@@ -25,8 +25,8 @@
  * <p>{@link org.bluezoo.gumdrop.grpc.client.GrpcClient} takes a proto
  * schema ({@link org.bluezoo.gumdrop.grpc.proto.ProtoFile}) and makes
  * unary calls through the generic {@link
- * org.bluezoo.gumdrop.http.client.HTTPRequest}/{@link
- * org.bluezoo.gumdrop.http.client.HTTPResponseHandler} API, framing and
+ * org.bluezoo.gumdrop.http.client.HttpRequest}/{@link
+ * org.bluezoo.gumdrop.http.client.HttpResponseHandler} API, framing and
  * deframing request/response messages per the gRPC wire format ({@link
  * org.bluezoo.gumdrop.grpc}). {@link
  * org.bluezoo.gumdrop.grpc.client.GrpcResponseHandler} is the callback
@@ -34,6 +34,6 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.grpc
- * @see org.bluezoo.gumdrop.http.client.HTTPClient
+ * @see org.bluezoo.gumdrop.http.client.HttpClient
  */
 package org.bluezoo.gumdrop.grpc.client;

@@ -47,14 +47,14 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
-import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.quic.QuicConnection;
@@ -74,8 +74,8 @@ import static org.junit.Assert.fail;
 /**
  * Drives a real HTTP/3 GET request/response over a real client+server QUIC
  * connection, purely through the production classes ({@link
- * QuicTransportFactory}, {@link QuicEngine}, {@link HTTP3ServerHandler},
- * {@link H3Stream}, {@link HTTP3ClientHandler}, {@link H3ClientStream}) --
+ * QuicTransportFactory}, {@link QuicEngine}, {@link Http3ServerHandler},
+ * {@link H3Stream}, {@link Http3ClientHandler}, {@link H3ClientStream}) --
  * no quiche, no hand-called test harness. Proves the Stage 3 H3 rewire end
  * to end: HTTP/3 framing ({@link H3Parser}/{@link H3Writer}), QPACK
  * (dynamic-table {@link org.bluezoo.gumdrop.http.qpack.Encoder}/
@@ -160,12 +160,12 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
-                    return new HTTPRequestHandler() {
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                    return new HttpRequestHandler() {
                         @Override
-                        public void headers(HTTPResponseState state, Headers headers) {
+                        public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             response.add("content-type", "text/plain");
@@ -178,19 +178,19 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void startRequestBody(HTTPResponseState state) {
+                        public void startRequestBody(HttpResponseState state) {
                         }
 
                         @Override
-                        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+                        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
                         }
 
                         @Override
-                        public void endRequestBody(HTTPResponseState state) {
+                        public void endRequestBody(HttpResponseState state) {
                         }
 
                         @Override
-                        public void requestComplete(HTTPResponseState state) {
+                        public void requestComplete(HttpResponseState state) {
                         }
                     };
                 }
@@ -201,7 +201,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
                         }
                     }, loop);
 
@@ -213,7 +213,7 @@ public class HTTP3ProductionEndToEndTest {
             clientFactory.start();
 
             final CountDownLatch responseLatch = new CountDownLatch(1);
-            final AtomicReference<HTTPResponse> okResponse = new AtomicReference<HTTPResponse>();
+            final AtomicReference<HttpResponse> okResponse = new AtomicReference<HttpResponse>();
             final AtomicReference<Exception> failure = new AtomicReference<Exception>();
             final AtomicReference<String> body = new AtomicReference<String>();
 
@@ -222,7 +222,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            Http3ClientHandler h3 = new Http3ClientHandler(connection);
 
                             Headers requestHeaders = new Headers();
                             requestHeaders.add(":method", "GET");
@@ -230,16 +230,16 @@ public class HTTP3ProductionEndToEndTest {
                             requestHeaders.add(":authority", SERVER_NAME);
                             requestHeaders.add(":path", "/");
 
-                            h3.sendRequest(requestHeaders, new HTTPResponseHandler() {
+                            h3.sendRequest(requestHeaders, new HttpResponseHandler() {
                                 private final StringBuilder buf = new StringBuilder();
 
                                 @Override
-                                public void ok(HTTPResponse response) {
+                                public void ok(HttpResponse response) {
                                     okResponse.set(response);
                                 }
 
                                 @Override
-                                public void error(HTTPResponse response) {
+                                public void error(HttpResponse response) {
                                     failure.set(new IOException("Unexpected error status: " + response.getStatus()));
                                     responseLatch.countDown();
                                 }
@@ -287,7 +287,7 @@ public class HTTP3ProductionEndToEndTest {
                 throw failure.get();
             }
 
-            assertEquals(HTTPStatus.OK, okResponse.get().getStatus());
+            assertEquals(HttpStatus.OK, okResponse.get().getStatus());
             assertEquals("hello h3", body.get());
         } finally {
             // Stop the loop thread first so closing the engines from this
@@ -322,24 +322,24 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
-                    return new HTTPRequestHandler() {
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                    return new HttpRequestHandler() {
                         @Override
                         public boolean wantsDatagrams() {
                             return true;
                         }
 
                         @Override
-                        public void datagramReceived(HTTPResponseState state, ByteBuffer data) {
+                        public void datagramReceived(HttpResponseState state, ByteBuffer data) {
                             byte[] copy = new byte[data.remaining()];
                             data.get(copy);
                             state.sendDatagram(ByteBuffer.wrap(copy));
                         }
 
                         @Override
-                        public void headers(HTTPResponseState state, Headers headers) {
+                        public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             state.headers(response);
@@ -349,19 +349,19 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void startRequestBody(HTTPResponseState state) {
+                        public void startRequestBody(HttpResponseState state) {
                         }
 
                         @Override
-                        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+                        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
                         }
 
                         @Override
-                        public void endRequestBody(HTTPResponseState state) {
+                        public void endRequestBody(HttpResponseState state) {
                         }
 
                         @Override
-                        public void requestComplete(HTTPResponseState state) {
+                        public void requestComplete(HttpResponseState state) {
                         }
                     };
                 }
@@ -372,7 +372,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
                         }
                     }, loop);
 
@@ -387,8 +387,8 @@ public class HTTP3ProductionEndToEndTest {
             final CountDownLatch datagramLatch = new CountDownLatch(1);
             final AtomicReference<byte[]> echoed = new AtomicReference<byte[]>();
             final AtomicReference<Exception> failure = new AtomicReference<Exception>();
-            final AtomicReference<HTTP3ClientHandler> h3Ref =
-                    new AtomicReference<HTTP3ClientHandler>();
+            final AtomicReference<Http3ClientHandler> h3Ref =
+                    new AtomicReference<Http3ClientHandler>();
             final AtomicReference<Long> streamIdRef = new AtomicReference<Long>();
 
             clientEngine = clientFactory.connect(
@@ -396,7 +396,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            final HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            final Http3ClientHandler h3 = new Http3ClientHandler(connection);
                             h3Ref.set(h3);
                             h3.whenConnectProtocolKnown(new Runnable() {
                                 @Override
@@ -407,7 +407,7 @@ public class HTTP3ProductionEndToEndTest {
                                     requestHeaders.add(":authority", SERVER_NAME);
                                     requestHeaders.add(":path", "/dgram");
                                     long streamId = h3.sendRequest(requestHeaders,
-                                            new HTTPResponseHandler() {
+                                            new HttpResponseHandler() {
                                                 @Override
                                                 public boolean wantsDatagrams() {
                                                     return true;
@@ -422,12 +422,12 @@ public class HTTP3ProductionEndToEndTest {
                                                 }
 
                                                 @Override
-                                                public void ok(HTTPResponse response) {
+                                                public void ok(HttpResponse response) {
                                                     headersLatch.countDown();
                                                 }
 
                                                 @Override
-                                                public void error(HTTPResponse response) {
+                                                public void error(HttpResponse response) {
                                                     failure.set(new IOException(
                                                             "Unexpected error status: "
                                                                     + response.getStatus()));
@@ -532,15 +532,15 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.start();
 
             final AtomicBoolean sawTooBig = new AtomicBoolean(false);
-            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
                     if ("/too-big".equals(requestHeaders.getPath())) {
                         sawTooBig.set(true);
                     }
-                    return new HTTPRequestHandler() {
+                    return new HttpRequestHandler() {
                         @Override
-                        public void headers(HTTPResponseState state, Headers headers) {
+                        public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             response.add("content-type", "text/plain");
@@ -553,19 +553,19 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void startRequestBody(HTTPResponseState state) {
+                        public void startRequestBody(HttpResponseState state) {
                         }
 
                         @Override
-                        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+                        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
                         }
 
                         @Override
-                        public void endRequestBody(HTTPResponseState state) {
+                        public void endRequestBody(HttpResponseState state) {
                         }
 
                         @Override
-                        public void requestComplete(HTTPResponseState state) {
+                        public void requestComplete(HttpResponseState state) {
                         }
                     };
                 }
@@ -576,7 +576,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
                         }
                     }, loop);
 
@@ -590,17 +590,17 @@ public class HTTP3ProductionEndToEndTest {
             final CountDownLatch oversizedFailed = new CountDownLatch(1);
             final AtomicReference<Exception> oversizedCause = new AtomicReference<Exception>();
             final CountDownLatch okLatch = new CountDownLatch(1);
-            final AtomicReference<HTTPStatus> okStatus = new AtomicReference<HTTPStatus>();
+            final AtomicReference<HttpStatus> okStatus = new AtomicReference<HttpStatus>();
             final AtomicReference<Exception> okFailure = new AtomicReference<Exception>();
-            final AtomicReference<HTTP3ClientHandler> h3Ref =
-                    new AtomicReference<HTTP3ClientHandler>();
+            final AtomicReference<Http3ClientHandler> h3Ref =
+                    new AtomicReference<Http3ClientHandler>();
 
             clientEngine = clientFactory.connect(
                     InetAddress.getLoopbackAddress(), port,
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            final HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            final Http3ClientHandler h3 = new Http3ClientHandler(connection);
                             h3Ref.set(h3);
                             h3.whenConnectProtocolKnown(new Runnable() {
                                 @Override
@@ -615,13 +615,13 @@ public class HTTP3ProductionEndToEndTest {
                                     oversized.add(":authority", SERVER_NAME);
                                     oversized.add(":path", "/too-big");
                                     oversized.add("x-pad", pad.toString());
-                                    h3.sendRequest(oversized, new HTTPResponseHandler() {
+                                    h3.sendRequest(oversized, new HttpResponseHandler() {
                                         @Override
-                                        public void ok(HTTPResponse response) {
+                                        public void ok(HttpResponse response) {
                                         }
 
                                         @Override
-                                        public void error(HTTPResponse response) {
+                                        public void error(HttpResponse response) {
                                         }
 
                                         @Override
@@ -673,14 +673,14 @@ public class HTTP3ProductionEndToEndTest {
                     okHeaders.add(":scheme", "https");
                     okHeaders.add(":authority", SERVER_NAME);
                     okHeaders.add(":path", "/");
-                    h3Ref.get().sendRequest(okHeaders, new HTTPResponseHandler() {
+                    h3Ref.get().sendRequest(okHeaders, new HttpResponseHandler() {
                         @Override
-                        public void ok(HTTPResponse response) {
+                        public void ok(HttpResponse response) {
                             okStatus.set(response.getStatus());
                         }
 
                         @Override
-                        public void error(HTTPResponse response) {
+                        public void error(HttpResponse response) {
                             okFailure.set(new IOException("Unexpected error status: "
                                     + response.getStatus()));
                             okLatch.countDown();
@@ -725,7 +725,7 @@ public class HTTP3ProductionEndToEndTest {
             if (okFailure.get() != null) {
                 throw okFailure.get();
             }
-            assertEquals(HTTPStatus.OK, okStatus.get());
+            assertEquals(HttpStatus.OK, okStatus.get());
             assertFalse("Server must still not have seen the oversized request", sawTooBig.get());
         } finally {
             loop.shutdown();
@@ -773,12 +773,12 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
-                    return new DefaultHTTPRequestHandler() {
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                    return new DefaultHttpRequestHandler() {
                         @Override
-                        public void headers(HTTPResponseState state, Headers headers) {
+                        public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             state.headers(response);
@@ -788,13 +788,13 @@ public class HTTP3ProductionEndToEndTest {
                 }
             };
 
-            final AtomicReference<HTTP3ServerHandler> serverHandlerRef = new AtomicReference<HTTP3ServerHandler>();
+            final AtomicReference<Http3ServerHandler> serverHandlerRef = new AtomicReference<Http3ServerHandler>();
             serverEngine = serverFactory.createServerEngine(
                     InetAddress.getLoopbackAddress(), 0,
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            serverHandlerRef.set(new HTTP3ServerHandler(
+                            serverHandlerRef.set(new Http3ServerHandler(
                                     connection, handlerFactory, null, null, null, false));
                         }
                     }, loop);
@@ -806,7 +806,7 @@ public class HTTP3ProductionEndToEndTest {
             clientFactory.setVerifyPeer(false);
             clientFactory.start();
 
-            final AtomicReference<HTTP3ClientHandler> h3Ref = new AtomicReference<HTTP3ClientHandler>();
+            final AtomicReference<Http3ClientHandler> h3Ref = new AtomicReference<Http3ClientHandler>();
             final CountDownLatch clientReady = new CountDownLatch(1);
 
             clientEngine = clientFactory.connect(
@@ -814,13 +814,13 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            h3Ref.set(new HTTP3ClientHandler(connection));
+                            h3Ref.set(new Http3ClientHandler(connection));
                             clientReady.countDown();
                         }
                     }, loop, SERVER_NAME);
 
             assertTrue("Client should have connected within 5s", clientReady.await(5, TimeUnit.SECONDS));
-            HTTP3ClientHandler h3 = h3Ref.get();
+            Http3ClientHandler h3 = h3Ref.get();
 
             // Request 1: throwaway, no custom header -- just to force a
             // full round trip before taking the insert-count baseline.
@@ -858,7 +858,7 @@ public class HTTP3ProductionEndToEndTest {
         }
     }
 
-    private static void sendGetAndAwait(HTTP3ClientHandler h3, String path,
+    private static void sendGetAndAwait(Http3ClientHandler h3, String path,
             String extraHeaderName, String extraHeaderValue) throws Exception {
         Headers requestHeaders = new Headers();
         requestHeaders.add(":method", "GET");
@@ -880,8 +880,8 @@ public class HTTP3ProductionEndToEndTest {
         }
     }
 
-    private static Decoder getQpackDecoder(HTTP3ServerHandler serverHandler) throws Exception {
-        Field f = HTTP3ServerHandler.class.getDeclaredField("qpackDecoder");
+    private static Decoder getQpackDecoder(Http3ServerHandler serverHandler) throws Exception {
+        Field f = Http3ServerHandler.class.getDeclaredField("qpackDecoder");
         f.setAccessible(true);
         return (Decoder) f.get(serverHandler);
     }
@@ -901,13 +901,13 @@ public class HTTP3ProductionEndToEndTest {
      * application-level error, not just log a warning and otherwise do
      * nothing (the previous behaviour of {@link H3ControlStream#frameError}).
      *
-     * <p>Deliberately bypasses {@link HTTP3ClientHandler} on the client
+     * <p>Deliberately bypasses {@link Http3ClientHandler} on the client
      * side -- it opens a raw unidirectional stream, writes the RFC 9114
      * section 6.2.1 control-stream type byte (0x00) followed immediately
      * by a HEADERS frame (section 7.2.2), which section 7.2.4 forbids as
      * the first control-stream frame ({@code H3_MISSING_SETTINGS}). The
      * server's real {@link H3ControlStream}
-     * (registered by the real {@link HTTP3ServerHandler}) is the one
+     * (registered by the real {@link Http3ServerHandler}) is the one
      * that detects this and must react.
      */
     @Test
@@ -923,10 +923,10 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
-                    return new DefaultHTTPRequestHandler();
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                    return new DefaultHttpRequestHandler();
                 }
             };
 
@@ -935,7 +935,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
                         }
                     }, loop);
 
@@ -1145,7 +1145,7 @@ public class HTTP3ProductionEndToEndTest {
 
     /**
      * RFC 9114 section 7.2.6: server GOAWAY must be sent on the control
-     * stream (issue #224). {@link HTTP3ServerHandler#close} after a
+     * stream (issue #224). {@link Http3ServerHandler#close} after a
      * completed request must deliver GOAWAY to the client; the previous
      * bug opened a fresh uni stream without a stream-type preamble, so
      * the peer treated the bytes as an unknown uni stream and the client
@@ -1164,12 +1164,12 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
-                    return new DefaultHTTPRequestHandler() {
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                    return new DefaultHttpRequestHandler() {
                         @Override
-                        public void headers(HTTPResponseState state, Headers headers) {
+                        public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             state.headers(response);
@@ -1179,8 +1179,8 @@ public class HTTP3ProductionEndToEndTest {
                 }
             };
 
-            final AtomicReference<HTTP3ServerHandler> serverHandlerRef =
-                    new AtomicReference<HTTP3ServerHandler>();
+            final AtomicReference<Http3ServerHandler> serverHandlerRef =
+                    new AtomicReference<Http3ServerHandler>();
             final AtomicReference<QuicConnection> serverConnRef =
                     new AtomicReference<QuicConnection>();
             serverEngine = serverFactory.createServerEngine(
@@ -1189,7 +1189,7 @@ public class HTTP3ProductionEndToEndTest {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
                             serverConnRef.set(connection);
-                            serverHandlerRef.set(new HTTP3ServerHandler(
+                            serverHandlerRef.set(new Http3ServerHandler(
                                     connection, handlerFactory, null, null, null, false));
                         }
                     }, loop);
@@ -1201,33 +1201,33 @@ public class HTTP3ProductionEndToEndTest {
             clientFactory.setVerifyPeer(false);
             clientFactory.start();
 
-            final AtomicReference<HTTP3ClientHandler> h3Ref =
-                    new AtomicReference<HTTP3ClientHandler>();
+            final AtomicReference<Http3ClientHandler> h3Ref =
+                    new AtomicReference<Http3ClientHandler>();
             final CountDownLatch clientReady = new CountDownLatch(1);
             clientEngine = clientFactory.connect(
                     InetAddress.getLoopbackAddress(), port,
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            h3Ref.set(new HTTP3ClientHandler(connection));
+                            h3Ref.set(new Http3ClientHandler(connection));
                             clientReady.countDown();
                         }
                     }, loop, SERVER_NAME);
 
             assertTrue("Client should have connected within 5s",
                     clientReady.await(5, TimeUnit.SECONDS));
-            HTTP3ClientHandler h3 = h3Ref.get();
+            Http3ClientHandler h3 = h3Ref.get();
             sendGetAndAwait(h3, "/before-goaway", null, null);
             assertFalse("Client must not be in GOAWAY state before server close",
                     h3.isGoaway());
 
-            final HTTP3ServerHandler serverHandler = serverHandlerRef.get();
+            final Http3ServerHandler serverHandler = serverHandlerRef.get();
             assertNotNull(serverHandler);
             assertNotNull(serverConnRef.get());
             // close()/sendGoaway touch the QuicConnection; run on its loop.
             final CountDownLatch closed = new CountDownLatch(1);
             final CountDownLatch goawayReceived = new CountDownLatch(1);
-            HTTP3ClientHandler.goawayReceivedObserver = new Runnable() {
+            Http3ClientHandler.goawayReceivedObserver = new Runnable() {
                 @Override
                 public void run() {
                     goawayReceived.countDown();
@@ -1247,7 +1247,7 @@ public class HTTP3ProductionEndToEndTest {
                             goawayReceived.await(5, TimeUnit.SECONDS));
                 }
             } finally {
-                HTTP3ClientHandler.goawayReceivedObserver = null;
+                Http3ClientHandler.goawayReceivedObserver = null;
             }
             assertTrue("Client must observe GOAWAY state after server close", h3.isGoaway());
         } finally {
@@ -1569,7 +1569,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ClientHandler(connection);
+                            new Http3ClientHandler(connection);
                         }
                     }, loop, SERVER_NAME);
 
@@ -1709,7 +1709,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ClientHandler(connection);
+                            new Http3ClientHandler(connection);
                         }
                     }, loop, SERVER_NAME);
 
@@ -1837,7 +1837,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ClientHandler(connection);
+                            new Http3ClientHandler(connection);
                         }
                     }, loop, SERVER_NAME);
 
@@ -1889,10 +1889,10 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
-                    return new DefaultHTTPRequestHandler();
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                    return new DefaultHttpRequestHandler();
                 }
             };
 
@@ -1901,7 +1901,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
                         }
                     }, loop);
 
@@ -1996,10 +1996,10 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
-                    return new DefaultHTTPRequestHandler();
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                    return new DefaultHttpRequestHandler();
                 }
             };
 
@@ -2008,7 +2008,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
                         }
                     }, loop);
 
@@ -2102,8 +2102,8 @@ public class HTTP3ProductionEndToEndTest {
 
     /**
      * Stage 10 Part 5 (docs/QUIC-AGENT15-MIGRATION-PLAN.md): proves the
-     * actual {@link org.bluezoo.gumdrop.http.client.HTTPMethodSafety}
-     * gating built into {@link H3Request}/{@link HTTP3ClientHandler}, not
+     * actual {@link org.bluezoo.gumdrop.http.client.HttpMethodSafety}
+     * gating built into {@link H3Request}/{@link Http3ClientHandler}, not
      * just the lower-level {@link QuicConnection} 0-RTT mechanism already
      * proven by {@code QuicProductionEndToEndTest#testEarlyDataHandlerSendsBeforeHandshakeCompletes}.
      *
@@ -2111,8 +2111,8 @@ public class HTTP3ProductionEndToEndTest {
      * issues a GET and a POST immediately from {@link
      * QuicEngine.EarlyDataHandler#earlyDataReady}, both via real
      * {@link H3Request} objects -- the same class application code gets
-     * back from {@link org.bluezoo.gumdrop.http.client.HTTPClient#request},
-     * wired up exactly the way {@code HTTPClient.connectH3} wires it
+     * back from {@link org.bluezoo.gumdrop.http.client.HttpClient#request},
+     * wired up exactly the way {@code HttpClient.connectH3} wires it
      * (idempotent {@code connectionAccepted}, {@code runDeferredRequests}
      * once established). Both requests complete successfully, but only
      * the GET's stream should appear in the connection's own {@code
@@ -2138,12 +2138,12 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setEarlyDataEnabled(true);
             serverFactory.start();
 
-            final HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
-                    return new HTTPRequestHandler() {
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                    return new HttpRequestHandler() {
                         @Override
-                        public void headers(HTTPResponseState state, Headers headers) {
+                        public void headers(HttpResponseState state, Headers headers) {
                             Headers response = new Headers();
                             response.add(":status", "200");
                             response.add("content-type", "text/plain");
@@ -2156,19 +2156,19 @@ public class HTTP3ProductionEndToEndTest {
                         }
 
                         @Override
-                        public void startRequestBody(HTTPResponseState state) {
+                        public void startRequestBody(HttpResponseState state) {
                         }
 
                         @Override
-                        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+                        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
                         }
 
                         @Override
-                        public void endRequestBody(HTTPResponseState state) {
+                        public void endRequestBody(HttpResponseState state) {
                         }
 
                         @Override
-                        public void requestComplete(HTTPResponseState state) {
+                        public void requestComplete(HttpResponseState state) {
                         }
                     };
                 }
@@ -2179,7 +2179,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
                         }
                     }, loop);
             int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
@@ -2199,7 +2199,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            Http3ClientHandler h3 = new Http3ClientHandler(connection);
                             Headers requestHeaders = new Headers();
                             requestHeaders.add(":method", "GET");
                             requestHeaders.add(":scheme", "https");
@@ -2219,14 +2219,14 @@ public class HTTP3ProductionEndToEndTest {
 
             // Second connection: 0-RTT-enabled, issuing a GET and a POST
             // immediately from earlyDataReady -- exactly mirroring how
-            // HTTPClient.connectH3 wires this up.
+            // HttpClient.connectH3 wires this up.
             QuicTransportFactory secondClientFactory = new QuicTransportFactory();
             secondClientFactory.setApplicationProtocols("h3");
             secondClientFactory.setVerifyPeer(false);
             secondClientFactory.setEarlyDataEnabled(true);
             secondClientFactory.start();
 
-            final AtomicReference<HTTP3ClientHandler> h3HandlerRef = new AtomicReference<HTTP3ClientHandler>();
+            final AtomicReference<Http3ClientHandler> h3HandlerRef = new AtomicReference<Http3ClientHandler>();
             final AtomicReference<QuicConnection> secondConnectionRef = new AtomicReference<QuicConnection>();
             final AtomicReference<H3Request> getRequestRef = new AtomicReference<H3Request>();
             final AtomicReference<H3Request> postRequestRef = new AtomicReference<H3Request>();
@@ -2242,7 +2242,7 @@ public class HTTP3ProductionEndToEndTest {
                         public void connectionAccepted(QuicConnection connection) {
                             secondConnectionRef.set(connection);
                             if (h3HandlerRef.get() == null) {
-                                h3HandlerRef.set(new HTTP3ClientHandler(connection));
+                                h3HandlerRef.set(new Http3ClientHandler(connection));
                             } else {
                                 h3HandlerRef.get().runDeferredRequests();
                             }
@@ -2251,7 +2251,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.EarlyDataHandler() {
                         @Override
                         public void earlyDataReady(final QuicConnection connection) {
-                            HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            Http3ClientHandler h3 = new Http3ClientHandler(connection);
                             h3HandlerRef.set(h3);
 
                             H3Request getRequest = new H3Request(h3, "GET", "/get", SERVER_NAME, "https", null);
@@ -2317,7 +2317,7 @@ public class HTTP3ProductionEndToEndTest {
      * RFC 9220 section 3 / RFC 8441 section 4: a client must not attempt
      * Extended CONNECT before it knows the peer advertised
      * {@code SETTINGS_ENABLE_CONNECT_PROTOCOL = 1} -- {@link
-     * HTTP3ClientHandler#connectWebSocket} used to have no such gate at
+     * Http3ClientHandler#connectWebSocket} used to have no such gate at
      * all, sending the request unconditionally the moment it was called.
      *
      * <p>Calls {@code connectWebSocket} synchronously from inside the
@@ -2348,12 +2348,12 @@ public class HTTP3ProductionEndToEndTest {
 
             final CountDownLatch serverOpened = new CountDownLatch(1);
 
-            HTTPRequestHandlerFactory handlerFactory = new HTTPRequestHandlerFactory() {
+            HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers requestHeaders) {
-                    return new DefaultHTTPRequestHandler() {
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                    return new DefaultHttpRequestHandler() {
                         @Override
-                        public void headers(HTTPResponseState state, Headers headers) {
+                        public void headers(HttpResponseState state, Headers headers) {
                             if ("CONNECT".equals(headers.getValue(":method"))
                                     && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
                                 state.upgradeToWebSocket(null, new org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler() {
@@ -2373,7 +2373,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new HTTP3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
                         }
                     }, loop);
 
@@ -2394,7 +2394,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            HTTP3ClientHandler h3 = new HTTP3ClientHandler(connection);
+                            Http3ClientHandler h3 = new Http3ClientHandler(connection);
                             try {
                                 settingsAlreadyKnownAtCallTime.set(
                                         getPrivateField(h3, "initialSettingsReceived", Boolean.class));
@@ -2483,7 +2483,7 @@ public class HTTP3ProductionEndToEndTest {
     }
 
     /** Counts down a latch on completion (success or failure), recording any failure. */
-    private static final class LatchResponseHandler implements HTTPResponseHandler {
+    private static final class LatchResponseHandler implements HttpResponseHandler {
         private final CountDownLatch latch;
         private final AtomicReference<Exception> failure;
 
@@ -2493,11 +2493,11 @@ public class HTTP3ProductionEndToEndTest {
         }
 
         @Override
-        public void ok(HTTPResponse response) {
+        public void ok(HttpResponse response) {
         }
 
         @Override
-        public void error(HTTPResponse response) {
+        public void error(HttpResponse response) {
             failure.set(new IOException("Unexpected error status: " + response.getStatus()));
             latch.countDown();
         }

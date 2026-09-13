@@ -1,7 +1,7 @@
 <?xml version='1.0' standalone='yes'?>
 <gumdrop>
     <!-- Raw HTTPS server on port 18443 - no content, just 404s -->
-    <component id="testHttps" class="org.bluezoo.gumdrop.http.HTTPListener">
+    <component id="testHttps" class="org.bluezoo.gumdrop.http.HttpListener">
         <property name="port">18443</property>
         <property name="addresses">::1</property>
         <property name="secure">true</property>

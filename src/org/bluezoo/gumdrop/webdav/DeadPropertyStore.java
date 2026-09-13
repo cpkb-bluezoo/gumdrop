@@ -413,7 +413,7 @@ final class DeadPropertyStore {
             return;
         }
         // Dispatch callbacks on the storage thread: this class has no
-        // HTTPResponseState; FileHandler already tolerates dead-property
+        // HttpResponseState; FileHandler already tolerates dead-property
         // callbacks off the SelectorLoop (same as AFC completions today).
         Executor inline = new Executor() {
             @Override

@@ -1,5 +1,5 @@
 /*
- * HTTPClientConnectionOps.java
+ * HttpClientConnectionOps.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -24,14 +24,14 @@ package org.bluezoo.gumdrop.http.client;
 import java.nio.ByteBuffer;
 
 /**
- * Operations required by {@link HTTPStream} to send requests.
+ * Operations required by {@link HttpStream} to send requests.
  *
- * <p>Implemented by {@link HTTPClientProtocolHandler} so that
- * {@link HTTPStream} can delegate I/O operations.
+ * <p>Implemented by {@link HttpClientProtocolHandler} so that
+ * {@link HttpStream} can delegate I/O operations.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-interface HTTPClientConnectionOps {
+interface HttpClientConnectionOps {
 
     /**
      * Sends a request.
@@ -39,7 +39,7 @@ interface HTTPClientConnectionOps {
      * @param request the request to send
      * @param hasBody true if the request will have a body
      */
-    void sendRequest(HTTPStream request, boolean hasBody);
+    void sendRequest(HttpStream request, boolean hasBody);
 
     /**
      * Sends request body data.
@@ -48,19 +48,19 @@ interface HTTPClientConnectionOps {
      * @param data the body data
      * @return the number of bytes consumed
      */
-    int sendRequestBody(HTTPStream request, ByteBuffer data);
+    int sendRequestBody(HttpStream request, ByteBuffer data);
 
     /**
      * Ends the request body.
      *
      * @param request the request
      */
-    void endRequestBody(HTTPStream request);
+    void endRequestBody(HttpStream request);
 
     /**
      * Cancels a request.
      *
      * @param request the request to cancel
      */
-    void cancelRequest(HTTPStream request);
+    void cancelRequest(HttpStream request);
 }

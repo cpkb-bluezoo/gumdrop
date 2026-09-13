@@ -8,7 +8,7 @@ The Gumdrop HTTP client provides comprehensive authentication support with autom
 Simple username/password authentication with base64 encoding.
 
 ```java
-HTTPClient client = new HTTPClient("api.example.com", 443, true);
+HttpClient client = new HttpClient("api.example.com", 443, true);
 client.setBasicAuth("username", "password");
 
 // Or manually
@@ -21,7 +21,7 @@ client.setAuthentication(new BasicAuthentication("username", "password"));
 Token-based authentication commonly used for API keys and OAuth access tokens.
 
 ```java
-HTTPClient client = new HTTPClient("api.example.com", 443, true);
+HttpClient client = new HttpClient("api.example.com", 443, true);
 client.setBearerAuth("eyJhbGciOiJIUzI1NiJ9...");
 
 // With expiration time
@@ -38,7 +38,7 @@ client.setAuthentication(bearer);
 Secure challenge-response authentication that never transmits passwords.
 
 ```java
-HTTPClient client = new HTTPClient("api.example.com", 80);
+HttpClient client = new HttpClient("api.example.com", 80);
 client.setDigestAuth("username", "password");
 
 // With specific algorithm
@@ -84,7 +84,7 @@ Automatically applies authentication headers before sending requests.
 
 ```java
 // Authentication is applied automatically to all requests
-HTTPRequest request = new HTTPRequest("GET", "/protected");
+HttpRequest request = new HttpRequest("GET", "/protected");
 stream.sendRequest(request); // Auth headers added automatically
 ```
 
@@ -108,7 +108,7 @@ client.getAuthenticationManager().setMaxRetries(3);
 Support for fallback authentication with multiple schemes.
 
 ```java
-HTTPClient client = new HTTPClient("api.example.com", 443, true);
+HttpClient client = new HttpClient("api.example.com", 443, true);
 
 // Add multiple auth schemes in priority order
 client.addAuthentication(new DigestAuthentication("user", "pass"));     // Try digest first
@@ -120,19 +120,19 @@ client.addAuthentication(new BearerAuthentication("backup-token"));     // Final
 
 ### **Basic API Authentication**
 ```java
-HTTPClient client = new HTTPClient("api.github.com", 443, true);
+HttpClient client = new HttpClient("api.github.com", 443, true);
 client.setBearerAuth("ghp_1234567890abcdef");
 
-client.connect(new HTTPClientHandler() {
+client.connect(new HttpClientHandler() {
     @Override
     public void onStreamCreated(HTTPClientStream stream) {
-        HTTPRequest request = new HTTPRequest("GET", "/user");
+        HttpRequest request = new HttpRequest("GET", "/user");
         stream.sendRequest(request);
         stream.completeRequest();
     }
     
     @Override
-    public void onStreamResponse(HTTPClientStream stream, HTTPResponse response) {
+    public void onStreamResponse(HTTPClientStream stream, HttpResponse response) {
         if (response.isSuccess()) {
             System.out.println("Authenticated successfully!");
         }
@@ -143,7 +143,7 @@ client.connect(new HTTPClientHandler() {
 
 ### **Digest Authentication with Challenge**
 ```java
-HTTPClient client = new HTTPClient("secure.example.com", 80);
+HttpClient client = new HttpClient("secure.example.com", 80);
 client.setDigestAuth("alice", "secret123");
 
 // First request will get 401 challenge
@@ -160,7 +160,7 @@ OAuthAuthentication oauth = new OAuthAuthentication(accessToken, refreshToken, e
 
 oauth.setTokenRefreshCallback(refreshToken -> {
     // Make HTTP request to OAuth server
-    HTTPClient tokenClient = new HTTPClient("auth.example.com", 443, true);
+    HttpClient tokenClient = new HttpClient("auth.example.com", 443, true);
     
     Map<String, String> params = new HashMap<>();
     params.put("grant_type", "refresh_token");
@@ -184,7 +184,7 @@ Map<String, String> headers = new HashMap<>();
 headers.put("X-API-Key", "your-api-key");
 headers.put("X-Client-ID", "client-123");
 
-HTTPRequest request = new HTTPRequest("GET", "/api/data", headers);
+HttpRequest request = new HttpRequest("GET", "/api/data", headers);
 ```
 
 ## Configuration Options
@@ -211,7 +211,7 @@ HTTPAuthentication auth = new BasicAuthentication("user", "pass");
 Map<String, String> headers = new HashMap<>();
 auth.applyAuthentication(headers);
 
-HTTPRequest request = new HTTPRequest("GET", "/protected", headers);
+HttpRequest request = new HttpRequest("GET", "/protected", headers);
 ```
 
 ## Security Best Practices
@@ -219,10 +219,10 @@ HTTPRequest request = new HTTPRequest("GET", "/protected", headers);
 ### 🔒 **Always Use HTTPS**
 ```java
 // GOOD: Secure connection
-HTTPClient client = new HTTPClient("api.example.com", 443, true);
+HttpClient client = new HttpClient("api.example.com", 443, true);
 
 // BAD: Credentials exposed over plaintext
-HTTPClient client = new HTTPClient("api.example.com", 80, false);
+HttpClient client = new HttpClient("api.example.com", 80, false);
 ```
 
 ### 🎫 **Token Management**
@@ -256,7 +256,7 @@ public void onError(Exception e) {
 }
 
 @Override
-public void onStreamResponse(HTTPClientStream stream, HTTPResponse response) {
+public void onStreamResponse(HTTPClientStream stream, HttpResponse response) {
     if (response.getStatusCode() == 401) {
         // Authentication failed even after retries
         System.err.println("Authentication failed permanently");
@@ -291,10 +291,10 @@ java -cp ../../dist/server.jar:. AuthenticationTest
 ```java
 @Service
 public class ApiClient {
-    private final HTTPClient httpClient;
+    private final HttpClient httpClient;
     
     public ApiClient(@Value("${api.token}") String apiToken) {
-        this.httpClient = new HTTPClient("api.example.com", 443, true);
+        this.httpClient = new HttpClient("api.example.com", 443, true);
         this.httpClient.setBearerAuth(apiToken);
     }
     
@@ -302,16 +302,16 @@ public class ApiClient {
         CompletableFuture<String> future = new CompletableFuture<>();
         
         try {
-            httpClient.connect(new HTTPClientHandler() {
+            httpClient.connect(new HttpClientHandler() {
                 @Override
                 public void onStreamCreated(HTTPClientStream stream) {
-                    HTTPRequest request = new HTTPRequest("GET", "/users/" + userId);
+                    HttpRequest request = new HttpRequest("GET", "/users/" + userId);
                     stream.sendRequest(request);
                     stream.completeRequest();
                 }
                 
                 @Override
-                public void onStreamResponse(HTTPClientStream stream, HTTPResponse response) {
+                public void onStreamResponse(HTTPClientStream stream, HttpResponse response) {
                     if (!response.isSuccess()) {
                         future.completeExceptionally(new ApiException("Request failed: " + response.getStatusCode()));
                     }

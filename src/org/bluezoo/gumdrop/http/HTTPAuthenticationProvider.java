@@ -1,5 +1,5 @@
 /*
- * HTTPAuthenticationProvider.java
+ * HttpAuthenticationProvider.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -69,7 +69,7 @@ import jakarta.servlet.http.HttpServletRequest;
  * 
  * <h4>Usage Example</h4>
  * <pre>{@code
- * public class MyAuthProvider extends HTTPAuthenticationProvider {
+ * public class MyAuthProvider extends HttpAuthenticationProvider {
  *     private final Realm realm;
  *     
  *     protected String getAuthMethod() {
@@ -93,11 +93,11 @@ import jakarta.servlet.http.HttpServletRequest;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see AuthenticationResult
- * @see HTTPAuthenticationMethods
+ * @see HttpAuthenticationMethods
  */
-public abstract class HTTPAuthenticationProvider {
+public abstract class HttpAuthenticationProvider {
 
-    private static final Logger LOGGER = Logger.getLogger(HTTPAuthenticationProvider.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(HttpAuthenticationProvider.class.getName());
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.http.L10N");
 
     /** Cryptographically strong randomness for Digest nonce generation. */
@@ -219,7 +219,7 @@ public abstract class HTTPAuthenticationProvider {
      * 
      * <p>The return value should be one of the standard authentication
      * method constants from {@link HttpServletRequest} or 
-     * {@link HTTPAuthenticationMethods}.</p>
+     * {@link HttpAuthenticationMethods}.</p>
      * 
      * @return the authentication method (e.g., "BASIC", "DIGEST"), or null if none configured
      */
@@ -361,17 +361,17 @@ public abstract class HTTPAuthenticationProvider {
                         return authenticateDigest(credentials, requestMethod, digestUri);
                     }
                     break;
-                case HTTPAuthenticationMethods.BEARER_AUTH:
+                case HttpAuthenticationMethods.BEARER_AUTH:
                     if ("Bearer".equalsIgnoreCase(scheme)) {
                         return authenticateBearer(credentials);
                     }
                     break;
-                case HTTPAuthenticationMethods.OAUTH_AUTH:
+                case HttpAuthenticationMethods.OAUTH_AUTH:
                     if ("Bearer".equalsIgnoreCase(scheme)) {
                         return authenticateOAuth(credentials);
                     }
                     break;
-                case HTTPAuthenticationMethods.JWT_AUTH:
+                case HttpAuthenticationMethods.JWT_AUTH:
                     if ("Bearer".equalsIgnoreCase(scheme)) {
                         return authenticateJWT(credentials);
                     }
@@ -423,13 +423,13 @@ public abstract class HTTPAuthenticationProvider {
                     return null;
                 }
 
-            case HTTPAuthenticationMethods.BEARER_AUTH:
+            case HttpAuthenticationMethods.BEARER_AUTH:
                 return "Bearer realm=\"" + realmName + "\"";
 
-            case HTTPAuthenticationMethods.OAUTH_AUTH:
+            case HttpAuthenticationMethods.OAUTH_AUTH:
                 return "Bearer realm=\"" + realmName + "\", scope=\"read write\"";
 
-            case HTTPAuthenticationMethods.JWT_AUTH:
+            case HttpAuthenticationMethods.JWT_AUTH:
                 return "Bearer realm=\"" + realmName + "\", token_type=\"JWT\"";
 
             default:
@@ -457,9 +457,9 @@ public abstract class HTTPAuthenticationProvider {
                 return "Basic".equalsIgnoreCase(scheme);
             case HttpServletRequest.DIGEST_AUTH:
                 return "Digest".equalsIgnoreCase(scheme);
-            case HTTPAuthenticationMethods.BEARER_AUTH:
-            case HTTPAuthenticationMethods.OAUTH_AUTH:
-            case HTTPAuthenticationMethods.JWT_AUTH:
+            case HttpAuthenticationMethods.BEARER_AUTH:
+            case HttpAuthenticationMethods.OAUTH_AUTH:
+            case HttpAuthenticationMethods.JWT_AUTH:
                 return "Bearer".equalsIgnoreCase(scheme);
             default:
                 return false;
@@ -482,9 +482,9 @@ public abstract class HTTPAuthenticationProvider {
                 case HttpServletRequest.DIGEST_AUTH:
                     schemes.add("Digest");
                     break;
-                case HTTPAuthenticationMethods.BEARER_AUTH:
-                case HTTPAuthenticationMethods.OAUTH_AUTH:
-                case HTTPAuthenticationMethods.JWT_AUTH:
+                case HttpAuthenticationMethods.BEARER_AUTH:
+                case HttpAuthenticationMethods.OAUTH_AUTH:
+                case HttpAuthenticationMethods.JWT_AUTH:
                     schemes.add("Bearer");
                     break;
             }

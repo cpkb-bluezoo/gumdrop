@@ -1,5 +1,5 @@
 /*
- * HTTPClient.java
+ * HttpClient.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -57,8 +57,8 @@ import org.bluezoo.gumdrop.dns.client.DNSResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
-import org.bluezoo.gumdrop.http.HTTPVersion;
-import org.bluezoo.gumdrop.http.h3.HTTP3ClientHandler;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.http.h3.Http3ClientHandler;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
@@ -74,7 +74,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
  * It internally creates either a {@link TCPTransportFactory} (for
  * HTTP/1.1 and HTTP/2) or a {@link QuicTransportFactory} (for HTTP/3),
  * wiring the appropriate protocol handler and forwarding lifecycle
- * events to the caller's {@link HTTPClientHandler}.
+ * events to the caller's {@link HttpClientHandler}.
  *
  * <p>HTTP/2 connection modes (RFC 9113 section 3):
  * <ul>
@@ -86,11 +86,11 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
  *
  * <h4>Basic Usage</h4>
  * <pre>{@code
- * HTTPClient client = new HTTPClient("api.example.com", 443);
+ * HttpClient client = new HttpClient("api.example.com", 443);
  * client.setSecure(true);
- * client.connect(new HTTPClientHandler() {
+ * client.connect(new HttpClientHandler() {
  *     public void onConnected(Endpoint endpoint) {
- *         HTTPRequest req = client.get("/users");
+ *         HttpRequest req = client.get("/users");
  *         req.send(responseHandler);
  *     }
  *     public void onSecurityEstablished(SecurityInfo info) { }
@@ -101,17 +101,17 @@ import org.bluezoo.gumdrop.websocket.WebSocketExtension;
  *
  * <h4>With explicit SelectorLoop (server integration)</h4>
  * <pre>{@code
- * HTTPClient client = new HTTPClient(selectorLoop, "api.example.com", 443);
+ * HttpClient client = new HttpClient(selectorLoop, "api.example.com", 443);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPClientHandler
- * @see HTTPRequest
+ * @see HttpClientHandler
+ * @see HttpRequest
  */
-public class HTTPClient implements AltSvcListener {
+public class HttpClient implements AltSvcListener {
 
     private static final Logger LOGGER =
-            Logger.getLogger(HTTPClient.class.getName());
+            Logger.getLogger(HttpClient.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
 
@@ -151,16 +151,16 @@ public class HTTPClient implements AltSvcListener {
     // Internal transport components (created at connect time)
     private TCPTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
-    private HTTPClientProtocolHandler endpointHandler;
+    private HttpClientProtocolHandler endpointHandler;
 
     // HTTP/3 transport components (created at connect time)
     private QuicTransportFactory quicTransportFactory;
     private QuicEngine quicEngine;
-    private HTTP3ClientHandler h3Handler;
+    private Http3ClientHandler h3Handler;
 
     // Alt-Svc upgrade state
     private volatile boolean h3UpgradeInProgress;
-    private HTTPClientHandler connectHandler;
+    private HttpClientHandler connectHandler;
 
     /**
      * Creates an HTTP client for the given host and port.
@@ -172,7 +172,7 @@ public class HTTPClient implements AltSvcListener {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public HTTPClient(String host, int port) {
+    public HttpClient(String host, int port) {
         this(null, host, port);
     }
 
@@ -187,7 +187,7 @@ public class HTTPClient implements AltSvcListener {
      * @param host the remote hostname or IP address
      * @param port the remote port
      */
-    public HTTPClient(SelectorLoop selectorLoop, String host, int port) {
+    public HttpClient(SelectorLoop selectorLoop, String host, int port) {
         this.selectorLoop = selectorLoop;
         this.host = host;
         this.port = port;
@@ -200,7 +200,7 @@ public class HTTPClient implements AltSvcListener {
      * @param host the remote host address
      * @param port the remote port
      */
-    public HTTPClient(InetAddress host, int port) {
+    public HttpClient(InetAddress host, int port) {
         this(null, host, port);
     }
 
@@ -211,7 +211,7 @@ public class HTTPClient implements AltSvcListener {
      * @param host the remote host address
      * @param port the remote port
      */
-    public HTTPClient(SelectorLoop selectorLoop, InetAddress host,
+    public HttpClient(SelectorLoop selectorLoop, InetAddress host,
                       int port) {
         this.selectorLoop = selectorLoop;
         this.host = host.getHostAddress();
@@ -237,7 +237,7 @@ public class HTTPClient implements AltSvcListener {
      *
      * @param path the UNIX domain socket path
      */
-    public HTTPClient(String path) {
+    public HttpClient(String path) {
         this(null, path);
     }
 
@@ -246,14 +246,14 @@ public class HTTPClient implements AltSvcListener {
      * selector loop.
      *
      * <p>Use this constructor when integrating with server-side code
-     * that has its own selector loop management. See {@link #HTTPClient(
+     * that has its own selector loop management. See {@link #HttpClient(
      * String)} for the incompatibilities/defaults that apply to every
      * UNIX-domain-socket client.
      *
      * @param selectorLoop the selector loop, or null to use a Gumdrop worker
      * @param path the UNIX domain socket path
      */
-    public HTTPClient(SelectorLoop selectorLoop, String path) {
+    public HttpClient(SelectorLoop selectorLoop, String path) {
         if (path == null) {
             throw new NullPointerException("path");
         }
@@ -395,7 +395,7 @@ public class HTTPClient implements AltSvcListener {
     /**
      * Forces HTTP/3 over QUIC, bypassing automatic transport negotiation.
      *
-     * <p>By default (this not called), {@link #connect(HTTPClientHandler)}
+     * <p>By default (this not called), {@link #connect(HttpClientHandler)}
      * negotiates the transport automatically: a DNS HTTPS record
      * advertising "h3" support (see {@link #setDnsHttpsRecordEnabled(boolean)}),
      * then a cached Alt-Svc discovery ({@link AltSvcCache}), then plain TCP
@@ -434,7 +434,7 @@ public class HTTPClient implements AltSvcListener {
      * Enables or disables DNS HTTPS-record discovery (RFC 9460) of HTTP/3
      * support, checked before connecting.
      *
-     * <p>When enabled (the default), {@link #connect(HTTPClientHandler)}
+     * <p>When enabled (the default), {@link #connect(HttpClientHandler)}
      * queries an HTTPS record for the target host via gumdrop's async
      * {@link DNSResolver} before choosing a transport; if it advertises
      * "h3" ALPN support, the connection uses QUIC directly. This is the
@@ -454,9 +454,9 @@ public class HTTPClient implements AltSvcListener {
      * <p>When enabled, if a session ticket was cached from a previous
      * connection to the same destination ({@link org.bluezoo.gumdrop.quic.SessionTicketCache}),
      * a GET/HEAD/OPTIONS/TRACE request issued immediately after
-     * {@link #connect(HTTPClientHandler)} may ride the very first flight of
+     * {@link #connect(HttpClientHandler)} may ride the very first flight of
      * packets, before the TLS handshake completes -- see
-     * {@link HTTPMethodSafety}. Disabled by default: 0-RTT data has no
+     * {@link HttpMethodSafety}. Disabled by default: 0-RTT data has no
      * anti-replay guarantee at the transport layer, so this is an explicit
      * opt-in.
      *
@@ -576,11 +576,11 @@ public class HTTPClient implements AltSvcListener {
      *
      * @param handler the handler to receive connection lifecycle events
      */
-    public void connect(final HTTPClientHandler handler) {
+    public void connect(final HttpClientHandler handler) {
         this.connectHandler = handler;
         if (Boolean.getBoolean("gumdrop.http.debug")) {
-            Logger.getLogger(HTTPClient.class.getName()).info(
-                "[HTTPClient] connect() "
+            Logger.getLogger(HttpClient.class.getName()).info(
+                "[HttpClient] connect() "
                 + (socketPath != null ? socketPath : (host != null ? host : hostAddress) + ":" + port));
         }
 
@@ -625,7 +625,7 @@ public class HTTPClient implements AltSvcListener {
      * loopback fast-path; a real DNS round trip for loopback targets would
      * otherwise slow down/break every test and tool connecting locally).
      */
-    private void discoverAndConnect(final HTTPClientHandler handler) {
+    private void discoverAndConnect(final HttpClientHandler handler) {
         if (hostAddress != null || host == null) {
             connectTcp(handler);
             return;
@@ -675,7 +675,7 @@ public class HTTPClient implements AltSvcListener {
         });
     }
 
-    private void connectViaAltSvcCacheOrTcp(HTTPClientHandler handler) {
+    private void connectViaAltSvcCacheOrTcp(HttpClientHandler handler) {
         AltSvcCache.Entry cached = AltSvcCache.get(host, port);
         if (cached != null) {
             h3Enabled = true;
@@ -708,7 +708,7 @@ public class HTTPClient implements AltSvcListener {
      * (cleartext), else HTTP/1.1 -- all already automatic, plus the
      * existing reactive Alt-Svc upgrade once connected.
      */
-    private void connectTcp(final HTTPClientHandler handler) {
+    private void connectTcp(final HttpClientHandler handler) {
         transportFactory = new TCPTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
@@ -739,7 +739,7 @@ public class HTTPClient implements AltSvcListener {
         // the server can negotiate "h2". Without this the ClientHello carries
         // no ALPN protocols and the connection always falls back to HTTP/1.1,
         // even against an h2-capable server. "http/1.1" is offered as the
-        // mandatory fallback token. HTTPClientProtocolHandler.securityEstablished()
+        // mandatory fallback token. HttpClientProtocolHandler.securityEstablished()
         // adopts whichever protocol the server selects. (h2c prior knowledge is
         // a cleartext path and does not use ALPN.)
         if (secure && h2Enabled && !h2WithPriorKnowledge) {
@@ -747,7 +747,7 @@ public class HTTPClient implements AltSvcListener {
         }
         transportFactory.start();
 
-        HTTPClientHandler poolAwareHandler = connectionPool != null
+        HttpClientHandler poolAwareHandler = connectionPool != null
                 ? wrapHandlerForPool(handler) : handler;
 
         // RFC 9110 section 7.2 / RFC 9113 section 8.3.1: a UNIX domain
@@ -757,9 +757,9 @@ public class HTTPClient implements AltSvcListener {
         // curl's --unix-socket). The matching default port keeps
         // sendHTTP11Request's port-suffix check from adding one.
         endpointHandler = (socketPath != null)
-                ? new HTTPClientProtocolHandler(
+                ? new HttpClientProtocolHandler(
                         poolAwareHandler, "localhost", secure ? 443 : 80, secure)
-                : new HTTPClientProtocolHandler(
+                : new HttpClientProtocolHandler(
                         poolAwareHandler, host, port, secure);
         if (traceContext != null) {
             endpointHandler.setTraceContext(traceContext);
@@ -810,10 +810,10 @@ public class HTTPClient implements AltSvcListener {
         }
     }
 
-    private HTTPClientHandler wrapHandlerForPool(
-            final HTTPClientHandler delegate) {
+    private HttpClientHandler wrapHandlerForPool(
+            final HttpClientHandler delegate) {
         final AtomicBoolean registered = new AtomicBoolean(false);
-        return new HTTPClientHandler() {
+        return new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 if (registered.compareAndSet(false, true)) {
@@ -877,7 +877,7 @@ public class HTTPClient implements AltSvcListener {
     private void connectH3(final InetAddress targetAddress,
                            final int targetPort,
                            final String serverName,
-                           final HTTPClientHandler handler) {
+                           final HttpClientHandler handler) {
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
             loop = Gumdrop.getInstance().nextWorkerLoop();
@@ -937,7 +937,7 @@ public class HTTPClient implements AltSvcListener {
                             // Either way, this callback is the one place
                             // that reports the handshake itself as done.
                             if (h3Handler == null) {
-                                h3Handler = new HTTP3ClientHandler(connection);
+                                h3Handler = new Http3ClientHandler(connection);
                                 handler.onConnected(null);
                             } else {
                                 h3Handler.runDeferredRequests();
@@ -954,10 +954,10 @@ public class HTTPClient implements AltSvcListener {
                             // Construct h3Handler and let the application
                             // start issuing requests now -- H3Request gates
                             // any non-0-RTT-eligible method behind full
-                            // establishment (see HTTPMethodSafety), so this
+                            // establishment (see HttpMethodSafety), so this
                             // is safe even if the application immediately
                             // issues a POST.
-                            h3Handler = new HTTP3ClientHandler(connection);
+                            h3Handler = new Http3ClientHandler(connection);
                             handler.onConnected(null);
                         }
                     },
@@ -969,7 +969,7 @@ public class HTTPClient implements AltSvcListener {
 
     private void resolveAndConnectH3(final String targetHost,
                                      final int targetPort,
-                                     final HTTPClientHandler handler) {
+                                     final HttpClientHandler handler) {
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
             Gumdrop gumdrop = Gumdrop.getInstance();
@@ -1044,9 +1044,9 @@ public class HTTPClient implements AltSvcListener {
      *
      * @return the HTTP version, or null if not yet negotiated
      */
-    public HTTPVersion getVersion() {
+    public HttpVersion getVersion() {
         if (h3Handler != null) {
-            return HTTPVersion.HTTP_3;
+            return HttpVersion.HTTP_3;
         }
         if (endpointHandler == null) {
             return null;
@@ -1064,7 +1064,7 @@ public class HTTPClient implements AltSvcListener {
      * @param path the request path
      * @return the HTTP request
      */
-    public HTTPRequest get(String path) {
+    public HttpRequest get(String path) {
         return request("GET", path);
     }
 
@@ -1074,7 +1074,7 @@ public class HTTPClient implements AltSvcListener {
      * @param path the request path
      * @return the HTTP request
      */
-    public HTTPRequest post(String path) {
+    public HttpRequest post(String path) {
         return request("POST", path);
     }
 
@@ -1084,7 +1084,7 @@ public class HTTPClient implements AltSvcListener {
      * @param path the request path
      * @return the HTTP request
      */
-    public HTTPRequest put(String path) {
+    public HttpRequest put(String path) {
         return request("PUT", path);
     }
 
@@ -1094,7 +1094,7 @@ public class HTTPClient implements AltSvcListener {
      * @param path the request path
      * @return the HTTP request
      */
-    public HTTPRequest delete(String path) {
+    public HttpRequest delete(String path) {
         return request("DELETE", path);
     }
 
@@ -1104,7 +1104,7 @@ public class HTTPClient implements AltSvcListener {
      * @param path the request path
      * @return the HTTP request
      */
-    public HTTPRequest head(String path) {
+    public HttpRequest head(String path) {
         return request("HEAD", path);
     }
 
@@ -1114,7 +1114,7 @@ public class HTTPClient implements AltSvcListener {
      * @param path the request path
      * @return the HTTP request
      */
-    public HTTPRequest options(String path) {
+    public HttpRequest options(String path) {
         return request("OPTIONS", path);
     }
 
@@ -1124,7 +1124,7 @@ public class HTTPClient implements AltSvcListener {
      * @param path the request path
      * @return the HTTP request
      */
-    public HTTPRequest patch(String path) {
+    public HttpRequest patch(String path) {
         return request("PATCH", path);
     }
 
@@ -1135,7 +1135,7 @@ public class HTTPClient implements AltSvcListener {
      * @param path the request path
      * @return the HTTP request
      */
-    public HTTPRequest request(String method, String path) {
+    public HttpRequest request(String method, String path) {
         if (h3Handler != null) {
             String scheme = "https";
             String authority = host;
@@ -1151,7 +1151,7 @@ public class HTTPClient implements AltSvcListener {
     /**
      * Initiates a WebSocket-over-HTTP/3 connection via Extended CONNECT
      * (RFC 9220 section 3). Requires {@link #setH3Enabled(boolean)} and a
-     * completed connection (called after {@link HTTPClientHandler#onSecurityEstablished}).
+     * completed connection (called after {@link HttpClientHandler#onSecurityEstablished}).
      *
      * @param path the request path
      * @param subprotocol the WebSocket subprotocol to request, or null
@@ -1175,7 +1175,7 @@ public class HTTPClient implements AltSvcListener {
     /**
      * Initiates a CONNECT-UDP tunnel over HTTP/3 Extended CONNECT (RFC
      * 9298 section 3). Requires {@link #setH3Enabled(boolean)} and a
-     * completed connection (called after {@link HTTPClientHandler#onSecurityEstablished}).
+     * completed connection (called after {@link HttpClientHandler#onSecurityEstablished}).
      *
      * @param targetHost the UDP target's host (hostname or literal address)
      * @param targetPort the UDP target's port
@@ -1197,7 +1197,7 @@ public class HTTPClient implements AltSvcListener {
     /**
      * Initiates a CONNECT-IP tunnel over HTTP/3 Extended CONNECT (RFC
      * 9484 section 4.4). Requires {@link #setH3Enabled(boolean)} and a
-     * completed connection (called after {@link HTTPClientHandler#onSecurityEstablished}).
+     * completed connection (called after {@link HttpClientHandler#onSecurityEstablished}).
      *
      * @param target the target scope hint ({@link
      *               org.bluezoo.gumdrop.http.ConnectIpTarget#WILDCARD}
@@ -1273,7 +1273,7 @@ public class HTTPClient implements AltSvcListener {
         // until every stream this connection already accepted has
         // genuinely finished, rather than aborting it out from under a
         // still-in-flight request.
-        HTTPClientHandler upgradeHandler = new AltSvcUpgradeHandler(connectHandler);
+        HttpClientHandler upgradeHandler = new AltSvcUpgradeHandler(connectHandler);
         if (altHost != null) {
             resolveAndConnectH3(altHost, altPort, upgradeHandler);
         } else if (hostAddress != null) {
@@ -1288,11 +1288,11 @@ public class HTTPClient implements AltSvcListener {
     // path, where there is no earlier h1/h2 connection to worry about):
     // once h3 is genuinely ready, tells the old connection it may close
     // once idle, then delegates to the real handler unchanged.
-    private final class AltSvcUpgradeHandler implements HTTPClientHandler {
+    private final class AltSvcUpgradeHandler implements HttpClientHandler {
 
-        private final HTTPClientHandler delegate;
+        private final HttpClientHandler delegate;
 
-        AltSvcUpgradeHandler(HTTPClientHandler delegate) {
+        AltSvcUpgradeHandler(HttpClientHandler delegate) {
             this.delegate = delegate;
         }
 
@@ -1326,7 +1326,7 @@ public class HTTPClient implements AltSvcListener {
 
     private static void printUsage() {
         System.err.println(
-                "Usage: HTTPClient [options] <URL>\n"
+                "Usage: HttpClient [options] <URL>\n"
                 + "\n"
                 + "Options:\n"
                 + "  -X <method>       HTTP method (default: GET)\n"
@@ -1506,8 +1506,8 @@ public class HTTPClient implements AltSvcListener {
             final boolean verbose, final boolean headersOnly)
             throws Exception {
 
-        final HTTPClient client =
-                new HTTPClient(loop, targetHost, targetPort);
+        final HttpClient client =
+                new HttpClient(loop, targetHost, targetPort);
 
         boolean isSecure = "https".equals(scheme);
         client.setSecure(isSecure);
@@ -1540,7 +1540,7 @@ public class HTTPClient implements AltSvcListener {
         final CountDownLatch doneLatch = new CountDownLatch(1);
         final AtomicReference<Exception> connectError = new AtomicReference<Exception>();
 
-        client.connect(new HTTPClientHandler() {
+        client.connect(new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 connectLatch.countDown();
@@ -1572,7 +1572,7 @@ public class HTTPClient implements AltSvcListener {
         }
 
         if (verbose) {
-            HTTPVersion version = client.getVersion();
+            HttpVersion version = client.getVersion();
             if (version != null) {
                 System.err.println("* Connected via " + version);
             }
@@ -1591,7 +1591,7 @@ public class HTTPClient implements AltSvcListener {
         final AtomicReference<Exception> responseError = new AtomicReference<Exception>();
         final CountDownLatch responseLatch = new CountDownLatch(1);
 
-        HTTPRequest req = client.request(method, path);
+        HttpRequest req = client.request(method, path);
 
         for (int i = 0; i < requestHeaders.size(); i++) {
             String hdr = requestHeaders.get(i);
@@ -1644,20 +1644,20 @@ public class HTTPClient implements AltSvcListener {
         }
     }
 
-    private static HTTPResponseHandler createResponseHandler(
+    private static HttpResponseHandler createResponseHandler(
             final WritableByteChannel out,
             final boolean outputToStdout,
             final boolean verbose,
             final boolean headersOnly,
             final CountDownLatch doneLatch,
             final AtomicReference<Exception> errorRef,
-            final HTTPClient client) {
-        return new DefaultHTTPResponseHandler() {
+            final HttpClient client) {
+        return new DefaultHttpResponseHandler() {
 
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 if (verbose || headersOnly) {
-                    HTTPVersion version = client.getVersion();
+                    HttpVersion version = client.getVersion();
                     String versionStr = version != null
                             ? version.toString() : "HTTP/?";
                     System.err.println(versionStr + " "
@@ -1667,9 +1667,9 @@ public class HTTPClient implements AltSvcListener {
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 if (verbose || headersOnly) {
-                    HTTPVersion version = client.getVersion();
+                    HttpVersion version = client.getVersion();
                     String versionStr = version != null
                             ? version.toString() : "HTTP/?";
                     System.err.println(versionStr + " "

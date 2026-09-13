@@ -34,7 +34,7 @@ import static org.junit.Assert.*;
 public class ServletWebSocketIntegrationTest extends AbstractServerIntegrationTest {
 
     private static final String CONNECT_HOST = "::1";
-    /** RFC 9110 Host field; bracketed IPv6 literals are rejected by {@code HTTPUtils.isValidHost}. */
+    /** RFC 9110 Host field; bracketed IPv6 literals are rejected by {@code HttpUtils.isValidHost}. */
     private static final String HTTP_HOST = "localhost";
     private static final int PORT = 19080;
     private static final String WS_PATH = "/test/ws";

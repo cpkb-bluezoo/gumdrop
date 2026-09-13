@@ -19,10 +19,10 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -68,31 +68,31 @@ public class AuthenticationTest {
      * Tests Basic Authentication using httpbin.org/basic-auth endpoint.
      *
      * <p>The client handles 401 challenges automatically when credentials
-     * are configured via {@link HTTPClient#credentials(String, String)}.
+     * are configured via {@link HttpClient#credentials(String, String)}.
      */
     private static void testBasicAuthentication() throws Exception {
         System.out.println("\n=== Testing Basic Authentication ===");
 
         final CountDownLatch latch = new CountDownLatch(1);
 
-        final HTTPClient client = new HTTPClient(TEST_HOST, TEST_PORT);
+        final HttpClient client = new HttpClient(TEST_HOST, TEST_PORT);
 
         // Set credentials for automatic Basic/Digest authentication
         client.credentials("user", "passwd");
 
         // Request protected resource - connection established automatically
-        HTTPRequest request = client.get("/basic-auth/user/passwd");
+        HttpRequest request = client.get("/basic-auth/user/passwd");
         request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
 
-        request.send(new DefaultHTTPResponseHandler() {
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 System.out.println("Response: " + response.getStatus());
                 System.out.println("  Basic authentication successful!");
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 System.out.println("Error: " + response.getStatus());
                 System.out.println("  Basic authentication failed");
             }
@@ -135,19 +135,19 @@ public class AuthenticationTest {
         final CountDownLatch latch = new CountDownLatch(1);
         final StringBuilder responseBody = new StringBuilder();
 
-        final HTTPClient client = new HTTPClient(TEST_HOST, TEST_PORT);
+        final HttpClient client = new HttpClient(TEST_HOST, TEST_PORT);
 
         // Request endpoint that shows headers (to verify Bearer token was sent)
-        HTTPRequest request = client.get("/headers");
+        HttpRequest request = client.get("/headers");
         request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
         request.header("Accept", "application/json");
 
         // Add Bearer token manually
         request.header("Authorization", "Bearer fake-token-12345");
 
-        request.send(new DefaultHTTPResponseHandler() {
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 System.out.println("Response: " + response.getStatus());
             }
 
@@ -199,25 +199,25 @@ public class AuthenticationTest {
 
         final CountDownLatch latch = new CountDownLatch(1);
 
-        final HTTPClient client = new HTTPClient(TEST_HOST, TEST_PORT);
+        final HttpClient client = new HttpClient(TEST_HOST, TEST_PORT);
 
         // Set credentials for automatic Digest authentication
         client.credentials("user", "passwd");
 
         // Request protected resource that requires digest auth
         // This will trigger a 401 challenge that should be handled automatically
-        HTTPRequest request = client.get("/digest-auth/auth/user/passwd");
+        HttpRequest request = client.get("/digest-auth/auth/user/passwd");
         request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
 
-        request.send(new DefaultHTTPResponseHandler() {
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 System.out.println("Response: " + response.getStatus());
                 System.out.println("  Digest authentication successful after challenge!");
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 System.out.println("Error: " + response.getStatus());
                 System.out.println("  Digest authentication failed");
             }

@@ -14,7 +14,7 @@
         <context path="" root="../webapp" distributable="false"/>
 
         <!-- TCP listener -->
-        <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+        <listener class="org.bluezoo.gumdrop.http.HttpListener">
             <property name="port">19080</property>
             <property name="addresses">::1</property>
         </listener>

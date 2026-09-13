@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.http.Headers;
  * receive WebSocket connections and exchange messages. The HTTP
  * upgrade handshake is handled automatically by the transport layer
  * ({@link WebSocketListener} for HTTP/1.1 and HTTP/2, or
- * {@link HTTP3WebSocketListener} for HTTP/3 via RFC 9220) and is
+ * {@link Http3WebSocketListener} for HTTP/3 via RFC 9220) and is
  * invisible to the service.
  *
  * <p>After upgrade, the connection is a raw bidirectional message
@@ -81,7 +81,7 @@ import org.bluezoo.gumdrop.http.Headers;
  *     <property name="port">8080</property>
  *   </listener>
  *   <!-- Optional HTTP/3 WebSocket transport (RFC 9220) -->
- *   <listener class="org.bluezoo.gumdrop.websocket.HTTP3WebSocketListener">
+ *   <listener class="org.bluezoo.gumdrop.websocket.Http3WebSocketListener">
  *     <property name="port">443</property>
  *     <property name="cert-file">/path/to/cert.pem</property>
  *     <property name="key-file">/path/to/key.pem</property>
@@ -104,7 +104,7 @@ import org.bluezoo.gumdrop.http.Headers;
  * @see DefaultWebSocketEventHandler
  * @see WebSocketSession
  * @see WebSocketListener
- * @see HTTP3WebSocketListener
+ * @see Http3WebSocketListener
  */
 public abstract class WebSocketService implements Service {
 
@@ -129,13 +129,13 @@ public abstract class WebSocketService implements Service {
      *
      * @param listener the HTTP/3 WebSocket listener
      */
-    public void addListener(HTTP3WebSocketListener listener) {
+    public void addListener(Http3WebSocketListener listener) {
         listeners.add(listener);
     }
 
     /**
      * Sets the listeners from a configuration list. Each item must
-     * be a {@link WebSocketListener} or {@link HTTP3WebSocketListener}.
+     * be a {@link WebSocketListener} or {@link Http3WebSocketListener}.
      *
      * @param list the list of listener endpoints
      */
@@ -144,8 +144,8 @@ public abstract class WebSocketService implements Service {
             Object item = list.get(i);
             if (item instanceof WebSocketListener) {
                 addListener((WebSocketListener) item);
-            } else if (item instanceof HTTP3WebSocketListener) {
-                addListener((HTTP3WebSocketListener) item);
+            } else if (item instanceof Http3WebSocketListener) {
+                addListener((Http3WebSocketListener) item);
             }
         }
     }
@@ -228,8 +228,8 @@ public abstract class WebSocketService implements Service {
             Object listener = listeners.get(i);
             if (listener instanceof WebSocketListener) {
                 ((WebSocketListener) listener).setService(this);
-            } else if (listener instanceof HTTP3WebSocketListener) {
-                ((HTTP3WebSocketListener) listener).setService(this);
+            } else if (listener instanceof Http3WebSocketListener) {
+                ((Http3WebSocketListener) listener).setService(this);
             }
             startListener(listener);
         }

@@ -38,7 +38,7 @@ import javax.mail.internet.MimeUtility;
 import static org.junit.Assert.*;
 
 /**
- * Characterization tests for {@code HTTPProtocolHandler.writeStatusLineAndHeaders}
+ * Characterization tests for {@code HttpProtocolHandler.writeStatusLineAndHeaders}
  * (issue #280), pinning down the exact bytes written to the wire before
  * replacing its per-header {@code StringBuilder}/{@code String}/{@code byte[]}
  * allocation with direct byte writes into the destination buffer. These pass
@@ -46,7 +46,7 @@ import static org.junit.Assert.*;
  * exact output, just less efficiently) and must keep passing afterwards -
  * the fix is only about how the bytes get there, not what they are.
  *
- * <p>Drives {@link HTTPProtocolHandler#sendResponseHeaders(int, int, Headers,
+ * <p>Drives {@link HttpProtocolHandler#sendResponseHeaders(int, int, Headers,
  * boolean)} directly with a capturing {@link Endpoint} stub, bypassing
  * {@link Stream} entirely - the header-writing code path under test has no
  * dependency on stream state.
@@ -87,14 +87,14 @@ public class HTTPProtocolHandlerHeaderWriteTest {
         }
     }
 
-    private HTTPProtocolHandler connection;
+    private HttpProtocolHandler connection;
     private CapturingEndpoint endpoint;
 
     @Before
     public void setUp() {
-        HTTPListener listener = new HTTPListener();
-        connection = new HTTPProtocolHandler(listener);
-        connection.version = HTTPVersion.HTTP_1_1;
+        HttpListener listener = new HttpListener();
+        connection = new HttpProtocolHandler(listener);
+        connection.version = HttpVersion.HTTP_1_1;
         endpoint = new CapturingEndpoint();
         connection.connected(endpoint);
     }
@@ -113,21 +113,21 @@ public class HTTPProtocolHandlerHeaderWriteTest {
     }
 
     /**
-     * The Date header, when its value is exactly the HTTPDateCache-cached
+     * The Date header, when its value is exactly the HttpDateCache-cached
      * String (as Stream.sendResponseHeaders always sources it), must be
-     * writable via HTTPDateCache's pre-encoded bulk byte line instead of
+     * writable via HttpDateCache's pre-encoded bulk byte line instead of
      * the generic per-character path - and the output must be identical
      * either way.
      */
     @Test
     public void testDateHeaderFromCacheIsWrittenExactly() {
         Headers headers = new Headers();
-        headers.add(new Header("Date", HTTPDateCache.get()));
+        headers.add(new Header("Date", HttpDateCache.get()));
 
         connection.sendResponseHeaders(1, 200, headers, false);
 
         assertEquals("HTTP/1.1 200 OK\r\n"
-                + "Date: " + HTTPDateCache.get() + "\r\n"
+                + "Date: " + HttpDateCache.get() + "\r\n"
                 + "\r\n",
                 endpoint.capturedAscii());
     }
@@ -136,7 +136,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
      * The other framework-fixed headers (Server, the default security
      * headers, Transfer-Encoding: chunked, Connection: close) take the
      * same reference-matched bulk-write path as Date, provided their
-     * value is exactly HTTPProtocolHandler's shared constant for that
+     * value is exactly HttpProtocolHandler's shared constant for that
      * header - which is what Stream.sendResponseHeaders now always uses
      * (see the assertSame check further down: it is this wiring, not just
      * the bytes written here, that Stream.java could silently drift out
@@ -145,12 +145,12 @@ public class HTTPProtocolHandlerHeaderWriteTest {
     @Test
     public void testServerHeaderIsWrittenExactly() {
         Headers headers = new Headers();
-        headers.add(new Header("Server", HTTPProtocolHandler.SERVER_HEADER_VALUE));
+        headers.add(new Header("Server", HttpProtocolHandler.SERVER_HEADER_VALUE));
 
         connection.sendResponseHeaders(1, 200, headers, false);
 
         assertEquals("HTTP/1.1 200 OK\r\n"
-                + "Server: " + HTTPProtocolHandler.SERVER_HEADER_VALUE + "\r\n"
+                + "Server: " + HttpProtocolHandler.SERVER_HEADER_VALUE + "\r\n"
                 + "\r\n",
                 endpoint.capturedAscii());
     }
@@ -158,7 +158,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
     @Test
     public void testConnectionCloseHeaderIsWrittenExactly() {
         Headers headers = new Headers();
-        headers.add(new Header("Connection", HTTPProtocolHandler.CONNECTION_CLOSE_VALUE));
+        headers.add(new Header("Connection", HttpProtocolHandler.CONNECTION_CLOSE_VALUE));
 
         connection.sendResponseHeaders(1, 200, headers, false);
 
@@ -171,8 +171,8 @@ public class HTTPProtocolHandlerHeaderWriteTest {
     @Test
     public void testSecurityHeadersAreWrittenExactly() {
         Headers headers = new Headers();
-        headers.add(new Header("X-Frame-Options", HTTPProtocolHandler.X_FRAME_OPTIONS_VALUE));
-        headers.add(new Header("X-Content-Type-Options", HTTPProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE));
+        headers.add(new Header("X-Frame-Options", HttpProtocolHandler.X_FRAME_OPTIONS_VALUE));
+        headers.add(new Header("X-Content-Type-Options", HttpProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE));
 
         connection.sendResponseHeaders(1, 200, headers, false);
 
@@ -186,7 +186,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
     @Test
     public void testTransferEncodingChunkedIsWrittenExactly() {
         Headers headers = new Headers();
-        headers.add(new Header("Transfer-Encoding", HTTPProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE));
+        headers.add(new Header("Transfer-Encoding", HttpProtocolHandler.TRANSFER_ENCODING_CHUNKED_VALUE));
 
         connection.sendResponseHeaders(1, 200, headers, false);
 
@@ -221,7 +221,7 @@ public class HTTPProtocolHandlerHeaderWriteTest {
      * A "Date" header whose value is NOT the cached instance (however
      * unlikely in practice) must still be written verbatim, not silently
      * replaced by the cache's current bytes - proving the fast path's
-     * value == HTTPDateCache.get() guard, not just its name check, is
+     * value == HttpDateCache.get() guard, not just its name check, is
      * what gates it.
      */
     @Test

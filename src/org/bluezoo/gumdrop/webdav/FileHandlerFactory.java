@@ -21,9 +21,9 @@
 
 package org.bluezoo.gumdrop.webdav;
 
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpResponseState;
 import org.bluezoo.gumdrop.http.Headers;
 
 import java.nio.file.Path;
@@ -39,7 +39,7 @@ import java.util.Map;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-class FileHandlerFactory implements HTTPRequestHandlerFactory {
+class FileHandlerFactory implements HttpRequestHandlerFactory {
 
     private final Path rootPath;
     private final boolean allowWrite;
@@ -131,8 +131,8 @@ class FileHandlerFactory implements HTTPRequestHandlerFactory {
     }
 
     @Override
-    public HTTPRequestHandler createHandler(
-            HTTPResponseState state, Headers headers) {
+    public HttpRequestHandler createHandler(
+            HttpResponseState state, Headers headers) {
         return new FileHandler(rootPath, allowWrite, webdavEnabled,
                 allowedOptions, welcomeFiles, contentTypes,
                 lockManager, deadPropertyStore);

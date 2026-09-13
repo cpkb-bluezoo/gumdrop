@@ -1,5 +1,5 @@
 /*
- * HTTPLineLexer.java
+ * HttpLineLexer.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -28,7 +28,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * request-line, field-lines, chunk-size lines, and trailer-section lines
  * are all, lexically, just "a run of bytes terminated by CRLF" — none of
  * them need to be split into sub-tokens at this layer, since {@link
- * HTTPProtocolHandler}'s existing {@code processRequestLine}/{@code
+ * HttpProtocolHandler}'s existing {@code processRequestLine}/{@code
  * processHeaderLine}/{@code processChunkSizeLine}/{@code
  * processTrailerLine} already do their own whole-line decode (with
  * per-line-type charset choice — US-ASCII vs the historically-allowed
@@ -42,30 +42,30 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
  * changes to keep working against this lexer's token windows. {@code
  * LINE} doubles as this lexer's {@code crlfTokenType}: emitting it always
  * returns to structured token-scanning mode, and since {@link
- * HTTPProtocolHandler} never returns {@code true} from {@link
+ * HttpProtocolHandler} never returns {@code true} from {@link
  * ByteStreamLexer.Handler#token}, latched text mode is never entered —
  * {@code TEXT} exists only to satisfy the constructor's non-null
  * requirement.
  *
  * <p>Message bodies (Content-Length, RFC 9112 section 6.2; chunk-data,
  * section 7.1) are read via {@link #enterRawBody(long)}, triggered by
- * {@link HTTPProtocolHandler} after a {@code LINE} token's dispatch (or a
+ * {@link HttpProtocolHandler} after a {@code LINE} token's dispatch (or a
  * raw body's own completion) transitions {@code state}. HTTP/2 framing,
  * the h2c/prior-knowledge prefaces, the until-close HTTP/1.0 body, and
  * WebSocket data are all read completely outside this lexer — {@link
  * #stopForHandoff()} hands control back to {@code
- * HTTPProtocolHandler.receive()}'s own state dispatch for those.
+ * HttpProtocolHandler.receive()}'s own state dispatch for those.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPProtocolHandler
+ * @see HttpProtocolHandler
  */
-final class HTTPLineLexer extends ByteStreamLexer<HTTPLineLexer.Token> {
+final class HttpLineLexer extends ByteStreamLexer<HttpLineLexer.Token> {
 
     enum Token { LINE, TEXT }
 
     private boolean lastWasCR;
 
-    HTTPLineLexer(Handler<Token> handler, int maxTokenLength) {
+    HttpLineLexer(Handler<Token> handler, int maxTokenLength) {
         super(handler, maxTokenLength, Token.LINE, Token.TEXT);
     }
 
@@ -83,7 +83,7 @@ final class HTTPLineLexer extends ByteStreamLexer<HTTPLineLexer.Token> {
 
     /**
      * Hands control of the connection's raw bytes to {@code
-     * HTTPProtocolHandler.receive()}'s own state-based dispatch (HTTP/2
+     * HttpProtocolHandler.receive()}'s own state-based dispatch (HTTP/2
      * framing, preface matching, until-close bodies, WebSocket) — see
      * {@link ByteStreamLexer#requestStop()}. Wraps the base class's
      * {@code protected final requestStop()} for the parser to call from

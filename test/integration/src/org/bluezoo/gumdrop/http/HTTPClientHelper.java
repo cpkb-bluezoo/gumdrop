@@ -41,14 +41,14 @@ public class HTTPClientHelper {
     /**
      * Result of an HTTP request containing status, headers, and body.
      */
-    public static class HTTPResponse {
+    public static class HttpResponse {
         public final String statusLine;
         public final int statusCode;
         public final String headers;
         public final String body;
         public final String fullResponse;
         
-        public HTTPResponse(String statusLine, int statusCode, String headers, String body, String fullResponse) {
+        public HttpResponse(String statusLine, int statusCode, String headers, String body, String fullResponse) {
             this.statusLine = statusLine;
             this.statusCode = statusCode;
             this.headers = headers;
@@ -83,14 +83,14 @@ public class HTTPClientHelper {
     /**
      * Sends a raw HTTP request and returns the response.
      */
-    public static HTTPResponse sendRequest(String host, int port, String request) throws IOException {
+    public static HttpResponse sendRequest(String host, int port, String request) throws IOException {
         return sendRequest(host, port, request, false, 5000);
     }
     
     /**
      * Sends a raw HTTP request and returns the response.
      */
-    public static HTTPResponse sendRequest(String host, int port, String request, boolean secure, int timeout) 
+    public static HttpResponse sendRequest(String host, int port, String request, boolean secure, int timeout) 
             throws IOException {
         Socket socket = null;
         InputStream in = null;
@@ -218,11 +218,11 @@ public class HTTPClientHelper {
         return false;
     }
     
-    private static HTTPResponse parseResponse(String response) {
+    private static HttpResponse parseResponse(String response) {
         String[] lines = response.split("\r\n", -1);
         
         if (lines.length == 0) {
-            return new HTTPResponse("", 0, "", "", response);
+            return new HttpResponse("", 0, "", "", response);
         }
         
         String statusLine = lines[0];
@@ -259,6 +259,6 @@ public class HTTPClientHelper {
             }
         }
         
-        return new HTTPResponse(statusLine, statusCode, headersBuilder.toString(), body, response);
+        return new HttpResponse(statusLine, statusCode, headersBuilder.toString(), body, response);
     }
 }

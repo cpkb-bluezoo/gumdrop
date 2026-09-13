@@ -24,8 +24,8 @@ package org.bluezoo.gumdrop.servlet;
 import org.bluezoo.gumdrop.NullSecurityInfo;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpVersion;
 
 import org.junit.Test;
 
@@ -119,20 +119,20 @@ public class Servlet61ApiTest {
     }
 
     private static final class StubServletHandler extends ServletHandler {
-        private final HTTPResponseState stubState;
+        private final HttpResponseState stubState;
 
-        StubServletHandler(HTTPResponseState stubState) {
+        StubServletHandler(HttpResponseState stubState) {
             super(null, null, 8192);
             this.stubState = stubState;
         }
 
         @Override
-        HTTPResponseState getState() {
+        HttpResponseState getState() {
             return stubState;
         }
     }
 
-    private static final class StubHTTPResponseState implements HTTPResponseState {
+    private static final class StubHTTPResponseState implements HttpResponseState {
         String connectionId = "stub-conn";
         String protocolConnectionId = "";
         boolean secure;
@@ -146,7 +146,7 @@ public class Servlet61ApiTest {
         }
         @Override public boolean isSecure() { return secure; }
         @Override public SecurityInfo getSecurityInfo() { return securityInfo; }
-        @Override public HTTPVersion getVersion() { return HTTPVersion.HTTP_2_0; }
+        @Override public HttpVersion getVersion() { return HttpVersion.HTTP_2_0; }
         @Override public String getScheme() { return secure ? "https" : "http"; }
         @Override public String getConnectionId() { return connectionId; }
         @Override public String getProtocolConnectionId() { return protocolConnectionId; }

@@ -528,21 +528,21 @@ Because the servlet container is an HTTP service, it inherits Gumdrop&rsquo;s
 full transport and protocol independence layer. This means the servlet
 container can serve applications over <a href="http.html#http3">HTTP/3</a>
 (QUIC), <a href="http.html#http2">HTTP/2</a>, and HTTP/1.1 simply by
-configuring the appropriate listeners. Adding an <code>HTTP3Listener</code>
-alongside an <code>HTTPListener</code> is all that is required to enable
+configuring the appropriate listeners. Adding an <code>Http3Listener</code>
+alongside an <code>HttpListener</code> is all that is required to enable
 HTTP/3 for servlet applications:
 </p>
 
 <pre>
 &lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
   &lt;context path="" root="web"/&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
     &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
     &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
   &lt;/listener&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
     &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
@@ -579,7 +579,7 @@ inside the <code>&lt;service&gt;</code>:
 &lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
   &lt;context path="" root="web"/&gt;
   &lt;context path="/app" root="myapp.war" distributable="true"/&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;8080&lt;/property&gt;
   &lt;/listener&gt;
 &lt;/service&gt;

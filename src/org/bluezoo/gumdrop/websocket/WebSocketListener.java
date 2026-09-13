@@ -27,18 +27,18 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPListener;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpListener;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
 
 /**
  * TCP transport listener for WebSocket connections.
  *
- * <p>Extends {@link HTTPListener} and encapsulates the HTTP-to-WebSocket
+ * <p>Extends {@link HttpListener} and encapsulates the HTTP-to-WebSocket
  * upgrade handshake. Every incoming HTTP request is automatically checked
  * for a valid WebSocket upgrade; if valid, the connection is upgraded and
  * handed off to the owning {@link WebSocketService}'s handler. Non-WebSocket
@@ -46,7 +46,7 @@ import org.bluezoo.gumdrop.http.Headers;
  *
  * <p>The HTTP protocol machinery (request parsing, upgrade negotiation,
  * frame switching) is handled entirely within this listener and the
- * underlying {@link org.bluezoo.gumdrop.http.HTTPProtocolHandler}. The
+ * underlying {@link org.bluezoo.gumdrop.http.HttpProtocolHandler}. The
  * {@link WebSocketService} never sees HTTP types.
  *
  * <h2>Configuration</h2>
@@ -59,15 +59,15 @@ import org.bluezoo.gumdrop.http.Headers;
  * </service>
  * }</pre>
  *
- * <p>All properties inherited from {@link HTTPListener} are available
+ * <p>All properties inherited from {@link HttpListener} are available
  * (port, secure, keystore-file, keystore-pass, etc.).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketService
- * @see HTTPListener
+ * @see HttpListener
  */
-public class WebSocketListener extends HTTPListener {
+public class WebSocketListener extends HttpListener {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebSocketListener.class.getName());
@@ -143,10 +143,10 @@ public class WebSocketListener extends HTTPListener {
      * its inner handler.
      */
     private class UpgradeHandlerFactory
-            implements HTTPRequestHandlerFactory {
+            implements HttpRequestHandlerFactory {
 
         @Override
-        public HTTPRequestHandler createHandler(HTTPResponseState state,
+        public HttpRequestHandler createHandler(HttpResponseState state,
                                                 Headers headers) {
             return new UpgradeHandler();
         }
@@ -157,12 +157,12 @@ public class WebSocketListener extends HTTPListener {
      * upgrade, negotiates extensions (§9), and delegates to the owning
      * service's connection handler factory.
      */
-    private class UpgradeHandler extends DefaultHTTPRequestHandler {
+    private class UpgradeHandler extends DefaultHttpRequestHandler {
 
         @Override
-        public void headers(HTTPResponseState state, Headers headers) {
+        public void headers(HttpResponseState state, Headers headers) {
             if (!WebSocketHandshake.isValidWebSocketUpgrade(headers)) {
-                sendError(state, HTTPStatus.BAD_REQUEST);
+                sendError(state, HttpStatus.BAD_REQUEST);
                 return;
             }
 
@@ -170,7 +170,7 @@ public class WebSocketListener extends HTTPListener {
             WebSocketEventHandler handler =
                     service.createConnectionHandler(path, headers);
             if (handler == null) {
-                sendError(state, HTTPStatus.FORBIDDEN);
+                sendError(state, HttpStatus.FORBIDDEN);
                 return;
             }
 
@@ -187,12 +187,12 @@ public class WebSocketListener extends HTTPListener {
             } catch (IllegalStateException e) {
                 LOGGER.log(Level.WARNING,
                         "WebSocket upgrade failed", e);
-                sendError(state, HTTPStatus.BAD_REQUEST);
+                sendError(state, HttpStatus.BAD_REQUEST);
             }
         }
 
-        private void sendError(HTTPResponseState state,
-                               HTTPStatus status) {
+        private void sendError(HttpResponseState state,
+                               HttpStatus status) {
             Headers response = new Headers();
             response.status(status);
             state.headers(response);

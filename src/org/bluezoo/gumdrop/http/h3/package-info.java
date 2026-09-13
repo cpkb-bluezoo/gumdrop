@@ -25,18 +25,18 @@
  * <p>{@link org.bluezoo.gumdrop.http.h3.H3Parser}/{@link
  * org.bluezoo.gumdrop.http.h3.H3Writer} implement the HTTP/3 frame layer
  * (RFC 9114 section 7) directly. On the server side, {@link
- * org.bluezoo.gumdrop.http.h3.HTTP3Listener} binds the QUIC transport and
- * installs an {@link org.bluezoo.gumdrop.http.h3.HTTP3ServerHandler} per
+ * org.bluezoo.gumdrop.http.h3.Http3Listener} binds the QUIC transport and
+ * installs an {@link org.bluezoo.gumdrop.http.h3.Http3ServerHandler} per
  * connection; each request is a {@link
  * org.bluezoo.gumdrop.http.h3.H3Stream}, itself the QUIC stream's
  * protocol handler, implementing {@link
- * org.bluezoo.gumdrop.http.HTTPResponseState} so request handlers work
+ * org.bluezoo.gumdrop.http.HttpResponseState} so request handlers work
  * identically to HTTP/1.1 and HTTP/2. On the client side, {@link
- * org.bluezoo.gumdrop.http.h3.HTTP3ClientHandler} owns the connection's
+ * org.bluezoo.gumdrop.http.h3.Http3ClientHandler} owns the connection's
  * control stream and SETTINGS exchange, and {@link
  * org.bluezoo.gumdrop.http.h3.H3ClientStream} translates each request's
  * response frames into {@link
- * org.bluezoo.gumdrop.http.client.HTTPResponseHandler} callbacks.
+ * org.bluezoo.gumdrop.http.client.HttpResponseHandler} callbacks.
  *
  * <h2>103 Early Hints (RFC 8297)</h2>
  *
@@ -51,7 +51,7 @@
  * request until it has seen the same setting from the peer. This
  * underpins WebSocket over HTTP/3 ({@link
  * org.bluezoo.gumdrop.http.h3.H3Stream#upgradeToWebSocket} on accept,
- * {@link org.bluezoo.gumdrop.websocket.HTTP3WebSocketListener} for the
+ * {@link org.bluezoo.gumdrop.websocket.Http3WebSocketListener} for the
  * service-level integration, {@link
  * org.bluezoo.gumdrop.http.h3.H3ClientWebSocketResponseHandler} on the
  * client), CONNECT-UDP (RFC 9298, {@link

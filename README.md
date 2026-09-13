@@ -334,7 +334,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - extension negotiation framework (RFC 6455 §9) with permessage-deflate
       compression (RFC 7692)
     - WebSocket over HTTP/3 (RFC 9220) via Extended CONNECT with
-      `HTTP3WebSocketListener`
+      `Http3WebSocketListener`
     - configurable maximum message size with close code 1009 enforcement
     - close code validation (RFC 6455 §7.4) rejecting reserved wire codes
     - SecureRandom masking keys (RFC 6455 §5.3)

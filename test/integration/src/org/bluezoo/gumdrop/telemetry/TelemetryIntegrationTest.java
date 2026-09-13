@@ -29,7 +29,7 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.HTTPListener;
+import org.bluezoo.gumdrop.http.HttpListener;
 import org.bluezoo.gumdrop.smtp.SMTPListener;
 
 import java.io.File;
@@ -72,7 +72,7 @@ public class TelemetryIntegrationTest {
     private TelemetryConfig telemetryConfig;
     private OTLPExporter exporter;
     private Gumdrop gumdrop;
-    private HTTPListener httpServer;
+    private HttpListener httpServer;
     private SMTPListener smtpServer;
 
     private Logger rootLogger;
@@ -115,7 +115,7 @@ public class TelemetryIntegrationTest {
         exporter = (OTLPExporter) telemetryConfig.getExporter();
 
         // Create HTTP server with telemetry enabled
-        httpServer = new HTTPListener();
+        httpServer = new HttpListener();
         httpServer.setPort(HTTP_PORT);
         httpServer.setAddresses("::1");
         httpServer.setTelemetryConfig(telemetryConfig);
@@ -138,7 +138,7 @@ public class TelemetryIntegrationTest {
         waitForPort(SMTP_PORT);
         
         // Wait for OTLP connections to be established
-        // The HTTPClient connects asynchronously, so we use waitForConnections
+        // The HttpClient connects asynchronously, so we use waitForConnections
         // to block until connections are ready
         System.out.println("Waiting for OTLP exporter connections...");
         boolean connected = exporter.waitForConnections(5000);

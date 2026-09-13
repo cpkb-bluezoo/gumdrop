@@ -44,16 +44,16 @@ import static org.junit.Assert.*;
  */
 public class StreamH2WebSocketUpgradeTest {
 
-    private static class StubConnection implements HTTPConnectionLike {
-        HTTPVersion version = HTTPVersion.HTTP_2_0;
+    private static class StubConnection implements HttpConnectionLike {
+        HttpVersion version = HttpVersion.HTTP_2_0;
         int lastStatusCode = -1;
         boolean rstStreamSent = false;
         int lastRstStreamErrorCode = -1;
         boolean switchedToWebSocketMode = false;
-        HTTPRequestHandlerFactory handlerFactory;
+        HttpRequestHandlerFactory handlerFactory;
 
         @Override public String getScheme() { return "https"; }
-        @Override public HTTPVersion getVersion() { return version; }
+        @Override public HttpVersion getVersion() { return version; }
         @Override public SocketAddress getRemoteSocketAddress() {
             return new InetSocketAddress("127.0.0.1", 12345);
         }
@@ -61,7 +61,7 @@ public class StreamH2WebSocketUpgradeTest {
             return new InetSocketAddress("127.0.0.1", 443);
         }
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
-        @Override public HTTPRequestHandlerFactory getHandlerFactory() { return handlerFactory; }
+        @Override public HttpRequestHandlerFactory getHandlerFactory() { return handlerFactory; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
                 Headers headers, boolean endStream) {
             lastStatusCode = statusCode;
@@ -84,9 +84,9 @@ public class StreamH2WebSocketUpgradeTest {
         @Override public Trace getTrace() { return null; }
         @Override public void setTrace(Trace trace) { }
         @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public HTTPServerMetrics getServerMetrics() { return null; }
+        @Override public HttpServerMetrics getServerMetrics() { return null; }
         @Override public boolean isEnablePush() { return false; }
-        @Override public Stream newStream(HTTPConnectionLike connection, int streamId) {
+        @Override public Stream newStream(HttpConnectionLike connection, int streamId) {
             return new Stream(connection, streamId);
         }
         @Override public int getNextServerStreamId() { return 2; }
@@ -98,7 +98,7 @@ public class StreamH2WebSocketUpgradeTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return 0; }
-        @Override public HTTPAuthenticationProvider getAuthenticationProvider() { return null; }
+        @Override public HttpAuthenticationProvider getAuthenticationProvider() { return null; }
         @Override public void onWritable(int streamId, Runnable callback) { }
         @Override public void pauseRead(int streamId) { }
         @Override public void resumeRead(int streamId) { }
@@ -106,13 +106,13 @@ public class StreamH2WebSocketUpgradeTest {
     }
 
     /** A factory whose handler immediately accepts the upgrade. */
-    private static HTTPRequestHandlerFactory upgradingFactory() {
-        return new HTTPRequestHandlerFactory() {
+    private static HttpRequestHandlerFactory upgradingFactory() {
+        return new HttpRequestHandlerFactory() {
             @Override
-            public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
-                return new DefaultHTTPRequestHandler() {
+            public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
+                return new DefaultHttpRequestHandler() {
                     @Override
-                    public void headers(HTTPResponseState state, Headers headers) {
+                    public void headers(HttpResponseState state, Headers headers) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() { });
                     }
                 };

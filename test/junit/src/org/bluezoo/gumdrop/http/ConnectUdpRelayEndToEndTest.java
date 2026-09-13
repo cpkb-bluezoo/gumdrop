@@ -52,7 +52,7 @@ import static org.junit.Assert.assertTrue;
  * resolution and a real policy check, and a real {@link
  * ConnectUdpRelay} underneath it -- the same components a live
  * HTTP/1.1, HTTP/2, or HTTP/3 CONNECT-UDP request would drive, exercised
- * directly against a minimal {@link HTTPResponseState} rather than a
+ * directly against a minimal {@link HttpResponseState} rather than a
  * full client, since the client-side helper is deferred (see the
  * issue's follow-up).
  *
@@ -112,7 +112,7 @@ public class ConnectUdpRelayEndToEndTest {
         }
     }
 
-    private static final class CapturingResponseState implements HTTPResponseState {
+    private static final class CapturingResponseState implements HttpResponseState {
         private final SelectorLoop loop;
         final java.util.List<byte[]> sentDatagrams =
                 java.util.Collections.synchronizedList(new java.util.ArrayList<byte[]>());
@@ -145,7 +145,7 @@ public class ConnectUdpRelayEndToEndTest {
         @Override public SocketAddress getLocalAddress() { return null; }
         @Override public boolean isSecure() { return true; }
         @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public HTTPVersion getVersion() { return HTTPVersion.HTTP_3; }
+        @Override public HttpVersion getVersion() { return HttpVersion.HTTP_3; }
         @Override public String getScheme() { return "https"; }
         @Override public SelectorLoop getSelectorLoop() { return loop; }
         @Override public Principal getPrincipal() { return null; }

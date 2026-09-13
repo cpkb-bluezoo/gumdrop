@@ -61,7 +61,7 @@ This lets a single immutable image be reconfigured per environment
 image:
 
 ```xml
-<listener class="org.bluezoo.gumdrop.http.HTTPListener">
+<listener class="org.bluezoo.gumdrop.http.HttpListener">
     <property name="port" value="${ENV:HTTP_PORT:8080}"/>
     <property name="keystore-pass" value="${ENV:GUMDROP_KEYSTORE_PASS}"/>
 </listener>

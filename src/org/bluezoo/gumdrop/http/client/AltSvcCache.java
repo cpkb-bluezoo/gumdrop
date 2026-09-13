@@ -32,7 +32,7 @@ import java.util.concurrent.ConcurrentMap;
  * Alt-Svc is only visible after already connecting once (it's a response
  * header, not something a client can look up in advance). This cache lets
  * that discovery benefit later, separate connection attempts -- by
- * {@code HTTPClient} or {@code WebSocketClient}, to the same host:port --
+ * {@code HttpClient} or {@code WebSocketClient}, to the same host:port --
  * rather than being wasted on the single connection that happened to see it.
  *
  * <p>Used as the second discovery tier: DNS HTTPS records are checked

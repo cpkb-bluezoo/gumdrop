@@ -1,5 +1,5 @@
 /*
- * HTTPClientProtocolHandler.java
+ * HttpClientProtocolHandler.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -52,8 +52,8 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.h2.H2FlowControl;
 import org.bluezoo.gumdrop.http.h2.H2FrameHandler;
 import org.bluezoo.gumdrop.http.h2.H2Parser;
@@ -86,23 +86,23 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class HTTPClientProtocolHandler
-        implements ProtocolHandler, ByteStreamLexer.Handler<HTTPClientLineLexer.Token>,
-                   H2FrameHandler, HTTPClientConnectionOps {
+public class HttpClientProtocolHandler
+        implements ProtocolHandler, ByteStreamLexer.Handler<HttpClientLineLexer.Token>,
+                   H2FrameHandler, HttpClientConnectionOps {
 
     private static final ResourceBundle L10N =
         ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
-    private static final Logger LOGGER = Logger.getLogger(HTTPClientProtocolHandler.class.getName());
+    private static final Logger LOGGER = Logger.getLogger(HttpClientProtocolHandler.class.getName());
 
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0);
 
-    private final HTTPClientHandler handler;
+    private final HttpClientHandler handler;
     private final String host;
     private final int port;
     private final boolean secure;
 
     protected Endpoint endpoint;
-    private HTTPVersion negotiatedVersion;
+    private HttpVersion negotiatedVersion;
     private volatile boolean open;
 
     // Set by closeWhenIdle() -- an alternative transport (HTTP/3 via
@@ -124,12 +124,12 @@ public class HTTPClientProtocolHandler
     private boolean h2cUpgradeEnabled = true;
     private boolean h2cUpgradeAttempted;
     private boolean h2cUpgradeInFlight;
-    private HTTPStream h2cUpgradeRequest;
+    private HttpStream h2cUpgradeRequest;
     private boolean h2WithPriorKnowledge = false;
 
     // Active streams
-    protected final Map<Integer, HTTPStream> activeStreams = new ConcurrentHashMap<Integer, HTTPStream>();
-    private final Map<HTTPStream, Integer> streamIdByRequest = new ConcurrentHashMap<HTTPStream, Integer>();
+    protected final Map<Integer, HttpStream> activeStreams = new ConcurrentHashMap<Integer, HttpStream>();
+    private final Map<HttpStream, Integer> streamIdByRequest = new ConcurrentHashMap<HttpStream, Integer>();
     private int nextStreamId = 1;
 
     // RFC 9113 section 5.1.2: requests queued when activeStreams.size()
@@ -174,9 +174,9 @@ public class HTTPClientProtocolHandler
     private ByteBuffer headerBlockBuffer;
 
     // HTTP/1.1 parsing state
-    protected HTTPStream currentStream;
+    protected HttpStream currentStream;
     protected ParseState parseState = ParseState.IDLE;
-    private HTTPStatus responseStatus;
+    private HttpStatus responseStatus;
     private Headers responseHeaders;
     private long contentLength = -1;
     private long bytesReceived = 0;
@@ -194,7 +194,7 @@ public class HTTPClientProtocolHandler
     // PENDING, HTTP2, and the (defensively-preserved, confirmed-
     // unreachable-in-practice) read-until-close body are handled entirely
     // outside it — see stopForHandoff() call sites.
-    private HTTPClientLineLexer lexer;
+    private HttpClientLineLexer lexer;
     // Cumulative byte count across the whole status-line + header
     // section, mirroring the pre-conversion buffer-growth check —
     // maxResponseHeaderSize bounds the total, not any single line.
@@ -202,7 +202,7 @@ public class HTTPClientProtocolHandler
     // Set once a fatal parse error (oversized headers) has already
     // reported failure and closed the connection; stops receive() from
     // feeding the lexer anything further in the meantime. See
-    // HTTPProtocolHandler.tokenTooLong()'s server-side analogue and its
+    // HttpProtocolHandler.tokenTooLong()'s server-side analogue and its
     // Javadoc for why this must not force-close synchronously either.
     private boolean fatalParseError;
     // The buffer passed to the current receive() call, exposed so a
@@ -219,7 +219,7 @@ public class HTTPClientProtocolHandler
     // fixed-length raw span, and these two fields track how much of the
     // current raw run is still real chunk-data vs. terminator bytes to be
     // discarded (unlike the server, this client does not validate the
-    // terminator's content — see HTTPClientLineLexer's class Javadoc).
+    // terminator's content — see HttpClientLineLexer's class Javadoc).
     private long chunkDataRemaining;
     private int chunkTerminatorRemaining;
 
@@ -255,7 +255,7 @@ public class HTTPClientProtocolHandler
      * @param port the target port
      * @param secure whether this is a secure (TLS) connection
      */
-    public HTTPClientProtocolHandler(HTTPClientHandler handler,
+    public HttpClientProtocolHandler(HttpClientHandler handler,
                                      String host, int port,
                                      boolean secure) {
         this.handler = handler;
@@ -297,13 +297,13 @@ public class HTTPClientProtocolHandler
         if (!secure) {
             open = true;
             if (h2WithPriorKnowledge) {
-                negotiatedVersion = HTTPVersion.HTTP_2_0;
+                negotiatedVersion = HttpVersion.HTTP_2_0;
                 initializeHTTP2();
                 sendConnectionPreface();
                 parseState = ParseState.H2C_UPGRADE_PENDING;
                 LOGGER.fine("HTTP/2 connection established to " + host + ":" + port + " (prior knowledge)");
             } else {
-                negotiatedVersion = HTTPVersion.HTTP_1_1;
+                negotiatedVersion = HttpVersion.HTTP_1_1;
                 if (h2cUpgradeEnabled) {
                     LOGGER.fine("HTTP/1.1 connection established to " + host + ":" + port + ", will attempt h2c upgrade");
                 } else {
@@ -340,13 +340,13 @@ public class HTTPClientProtocolHandler
                         "blocked cipher suite: " + cipher);
                 return;
             }
-            negotiatedVersion = HTTPVersion.HTTP_2_0;
+            negotiatedVersion = HttpVersion.HTTP_2_0;
             initializeHTTP2();
             sendConnectionPreface();
             parseState = ParseState.H2C_UPGRADE_PENDING;
             LOGGER.fine("HTTP/2 (ALPN) connection established to " + host + ":" + port);
         } else {
-            negotiatedVersion = HTTPVersion.HTTP_1_1;
+            negotiatedVersion = HttpVersion.HTTP_1_1;
             LOGGER.fine("HTTP/1.1 connection established to " + host + ":" + port);
         }
         // RFC 9113 section 9.1: start idle timer after TLS handshake
@@ -389,7 +389,7 @@ public class HTTPClientProtocolHandler
             return;
         }
         if (lexer == null) {
-            lexer = new HTTPClientLineLexer(this, maxResponseHeaderSize);
+            lexer = new HttpClientLineLexer(this, maxResponseHeaderSize);
         }
 
         currentReceiveBuffer = data;
@@ -398,7 +398,7 @@ public class HTTPClientProtocolHandler
                 return;
             }
             if (parseState == ParseState.BODY && contentLength < 0) {
-                // Dead code in practice (see HTTPClientLineLexer's class
+                // Dead code in practice (see HttpClientLineLexer's class
                 // Javadoc) — parseState only ever becomes BODY once
                 // contentLength > 0 has already been validated — but
                 // preserved defensively, matching the pre-conversion
@@ -431,7 +431,7 @@ public class HTTPClientProtocolHandler
     }
 
     private boolean isHttp2State() {
-        return negotiatedVersion == HTTPVersion.HTTP_2_0
+        return negotiatedVersion == HttpVersion.HTTP_2_0
                 || parseState == ParseState.H2C_UPGRADE_PENDING
                 || parseState == ParseState.HTTP2;
     }
@@ -441,7 +441,7 @@ public class HTTPClientProtocolHandler
      * connection's raw bytes outside this class's own state machine (e.g.
      * WebSocket mode after a protocol switch), so {@link #receive} should
      * stop looping for the remainder of the current call. Mirrors the
-     * server-side {@code HTTPProtocolHandler}'s {@code case WEBSOCKET:}
+     * server-side {@code HttpProtocolHandler}'s {@code case WEBSOCKET:}
      * dispatch, but the client's base {@code ParseState} enum has no such
      * state of its own — subclasses that divert must override this.
      */
@@ -473,8 +473,8 @@ public class HTTPClientProtocolHandler
     }
 
     private void failAllStreams(Exception cause) {
-        for (HTTPStream request : activeStreams.values()) {
-            HTTPResponseHandler responseHandler = request.getHandler();
+        for (HttpStream request : activeStreams.values()) {
+            HttpResponseHandler responseHandler = request.getHandler();
             if (responseHandler != null) {
                 try {
                     responseHandler.failed(cause);
@@ -486,7 +486,7 @@ public class HTTPClientProtocolHandler
         activeStreams.clear();
         streamIdByRequest.clear();
         for (PendingRequest pending : pendingRequests) {
-            HTTPResponseHandler responseHandler = pending.request.getHandler();
+            HttpResponseHandler responseHandler = pending.request.getHandler();
             if (responseHandler != null) {
                 try {
                     responseHandler.failed(cause);
@@ -508,7 +508,7 @@ public class HTTPClientProtocolHandler
                     if (LOGGER.isLoggable(Level.FINE)) {
                         LOGGER.fine("Idle timeout (" + idleTimeoutMs + "ms) — closing connection");
                     }
-                    if (negotiatedVersion == HTTPVersion.HTTP_2_0) {
+                    if (negotiatedVersion == HttpVersion.HTTP_2_0) {
                         sendGoaway(H2FrameHandler.ERROR_NO_ERROR, "idle timeout");
                     } else {
                         close();
@@ -545,7 +545,7 @@ public class HTTPClientProtocolHandler
      * @param headers the response headers
      * @return true if the switch was handled, false to log a warning
      */
-    protected boolean handleProtocolSwitch(HTTPStatus status, Headers headers) {
+    protected boolean handleProtocolSwitch(HttpStatus status, Headers headers) {
         return false;
     }
 
@@ -559,7 +559,7 @@ public class HTTPClientProtocolHandler
      * @param path the request path (e.g., "/api/users")
      * @return a new request
      */
-    public HTTPRequest get(String path) {
+    public HttpRequest get(String path) {
         return createRequest("GET", path);
     }
 
@@ -569,7 +569,7 @@ public class HTTPClientProtocolHandler
      * @param path the request path
      * @return a new request
      */
-    public HTTPRequest post(String path) {
+    public HttpRequest post(String path) {
         return createRequest("POST", path);
     }
 
@@ -579,7 +579,7 @@ public class HTTPClientProtocolHandler
      * @param path the request path
      * @return a new request
      */
-    public HTTPRequest put(String path) {
+    public HttpRequest put(String path) {
         return createRequest("PUT", path);
     }
 
@@ -589,7 +589,7 @@ public class HTTPClientProtocolHandler
      * @param path the request path
      * @return a new request
      */
-    public HTTPRequest delete(String path) {
+    public HttpRequest delete(String path) {
         return createRequest("DELETE", path);
     }
 
@@ -599,7 +599,7 @@ public class HTTPClientProtocolHandler
      * @param path the request path
      * @return a new request
      */
-    public HTTPRequest head(String path) {
+    public HttpRequest head(String path) {
         return createRequest("HEAD", path);
     }
 
@@ -609,7 +609,7 @@ public class HTTPClientProtocolHandler
      * @param path the request path
      * @return a new request
      */
-    public HTTPRequest options(String path) {
+    public HttpRequest options(String path) {
         return createRequest("OPTIONS", path);
     }
 
@@ -619,7 +619,7 @@ public class HTTPClientProtocolHandler
      * @param path the request path
      * @return a new request
      */
-    public HTTPRequest patch(String path) {
+    public HttpRequest patch(String path) {
         return createRequest("PATCH", path);
     }
 
@@ -630,7 +630,7 @@ public class HTTPClientProtocolHandler
      * @param path the request path
      * @return a new request
      */
-    public HTTPRequest request(String method, String path) {
+    public HttpRequest request(String method, String path) {
         return createRequest(method, path);
     }
 
@@ -675,7 +675,7 @@ public class HTTPClientProtocolHandler
      *
      * @return the HTTP version, or null if not yet known
      */
-    public HTTPVersion getVersion() {
+    public HttpVersion getVersion() {
         return negotiatedVersion;
     }
 
@@ -844,23 +844,23 @@ public class HTTPClientProtocolHandler
     // Request creation and sending
     // ─────────────────────────────────────────────────────────────────────────
 
-    private HTTPRequest createRequest(String method, String path) {
+    private HttpRequest createRequest(String method, String path) {
         if (!isOpen()) {
             throw new IllegalStateException(L10N.getString("err.connection_not_open"));
         }
-        return new HTTPStream(this, method, path);
+        return new HttpStream(this, method, path);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPClientConnectionOps implementation
+    // HttpClientConnectionOps implementation
     // ─────────────────────────────────────────────────────────────────────────
 
     // RFC 9113 section 5.1.1: client-initiated streams use odd IDs
     @Override
-    public void sendRequest(HTTPStream request, boolean hasBody) {
+    public void sendRequest(HttpStream request, boolean hasBody) {
         // RFC 9113 section 5.1.2: do not exceed the server's
         // SETTINGS_MAX_CONCURRENT_STREAMS for HTTP/2 connections
-        if (negotiatedVersion == HTTPVersion.HTTP_2_0
+        if (negotiatedVersion == HttpVersion.HTTP_2_0
                 && activeStreams.size() >= maxConcurrentStreams) {
             pendingRequests.add(new PendingRequest(request, hasBody));
             return;
@@ -869,7 +869,7 @@ public class HTTPClientProtocolHandler
         dispatchRequest(request, hasBody);
     }
 
-    private void dispatchRequest(HTTPStream request, boolean hasBody) {
+    private void dispatchRequest(HttpStream request, boolean hasBody) {
         int streamId = nextStreamId;
         nextStreamId += 2;
 
@@ -880,7 +880,7 @@ public class HTTPClientProtocolHandler
         }
         currentStream = request;
 
-        if (negotiatedVersion == HTTPVersion.HTTP_2_0) {
+        if (negotiatedVersion == HttpVersion.HTTP_2_0) {
             sendHTTP2Request(request, streamId, hasBody);
         } else {
             sendHTTP11Request(request, hasBody);
@@ -888,8 +888,8 @@ public class HTTPClientProtocolHandler
     }
 
     @Override
-    public int sendRequestBody(HTTPStream request, ByteBuffer data) {
-        if (negotiatedVersion == HTTPVersion.HTTP_2_0) {
+    public int sendRequestBody(HttpStream request, ByteBuffer data) {
+        if (negotiatedVersion == HttpVersion.HTTP_2_0) {
             return sendHTTP2Data(request, data);
         } else {
             return sendHTTP11Data(request, data);
@@ -897,8 +897,8 @@ public class HTTPClientProtocolHandler
     }
 
     @Override
-    public void endRequestBody(HTTPStream request) {
-        if (negotiatedVersion == HTTPVersion.HTTP_2_0) {
+    public void endRequestBody(HttpStream request) {
+        if (negotiatedVersion == HttpVersion.HTTP_2_0) {
             endHTTP2Data(request);
         } else {
             endHTTP11Data(request);
@@ -906,7 +906,7 @@ public class HTTPClientProtocolHandler
     }
 
     @Override
-    public void cancelRequest(HTTPStream request) {
+    public void cancelRequest(HttpStream request) {
         // Also check the pending queue before active streams
         for (Iterator<PendingRequest> it = pendingRequests.iterator();
                 it.hasNext(); ) {
@@ -920,11 +920,11 @@ public class HTTPClientProtocolHandler
         if (streamId != null) {
             activeStreams.remove(streamId);
 
-            if (negotiatedVersion == HTTPVersion.HTTP_2_0) {
+            if (negotiatedVersion == HttpVersion.HTTP_2_0) {
                 sendHTTP2Reset(streamId);
             }
 
-            HTTPResponseHandler responseHandler = request.getHandler();
+            HttpResponseHandler responseHandler = request.getHandler();
             if (responseHandler != null) {
                 responseHandler.failed(new CancellationException("Request cancelled"));
             }
@@ -939,7 +939,7 @@ public class HTTPClientProtocolHandler
 
     // RFC 9112 section 3.1: request-line = method SP request-target SP HTTP-version
     // RFC 9112 section 3.2 / RFC 9110 section 7.2: Host header required
-    private void sendHTTP11Request(HTTPStream request, boolean hasBody) {
+    private void sendHTTP11Request(HttpStream request, boolean hasBody) {
         if (Boolean.getBoolean("gumdrop.http.debug")) {
             LOGGER.info(MessageFormat.format(
                     L10N.getString("info.debug_send_http11_request"), request.getMethod(), request.getPath()));
@@ -1037,7 +1037,7 @@ public class HTTPClientProtocolHandler
     }
 
     // RFC 9112 section 7.1: chunked transfer coding for request body data
-    private int sendHTTP11Data(HTTPStream request, ByteBuffer data) {
+    private int sendHTTP11Data(HttpStream request, ByteBuffer data) {
         int bytes = data.remaining();
 
         if (request.getHeaders().containsName("Transfer-Encoding")) {
@@ -1053,7 +1053,7 @@ public class HTTPClientProtocolHandler
     }
 
     // RFC 9112 section 7.1: final zero-length chunk terminates body
-    private void endHTTP11Data(HTTPStream request) {
+    private void endHTTP11Data(HttpStream request) {
         if (request.getHeaders().containsName("Transfer-Encoding")) {
             endpoint.send(ByteBuffer.wrap("0\r\n\r\n".getBytes(StandardCharsets.US_ASCII)));
         }
@@ -1063,7 +1063,7 @@ public class HTTPClientProtocolHandler
     // HTTP/2 Request Sending
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void sendHTTP2Request(HTTPStream request, int streamId, boolean hasBody) {
+    private void sendHTTP2Request(HttpStream request, int streamId, boolean hasBody) {
         try {
             ByteBuffer headerBlock = encodeRequestHeaders(request);
 
@@ -1072,7 +1072,7 @@ public class HTTPClientProtocolHandler
             endpoint.getSelectorLoop().invokeLater(new SendHeadersTask(fStreamId, headerBlock, fHasBody, request));
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error encoding HTTP/2 request headers", e);
-            HTTPResponseHandler responseHandler = request.getHandler();
+            HttpResponseHandler responseHandler = request.getHandler();
             if (responseHandler != null) {
                 try {
                     responseHandler.failed(e);
@@ -1086,7 +1086,7 @@ public class HTTPClientProtocolHandler
         }
     }
 
-    private int sendHTTP2Data(HTTPStream request, ByteBuffer data) {
+    private int sendHTTP2Data(HttpStream request, ByteBuffer data) {
         int streamId = findStreamId(request);
         if (streamId < 0) {
             LOGGER.warning(L10N.getString("warn.unknown_stream_data"));
@@ -1108,7 +1108,7 @@ public class HTTPClientProtocolHandler
         return written;
     }
 
-    private void endHTTP2Data(HTTPStream request) {
+    private void endHTTP2Data(HttpStream request) {
         int streamId = findStreamId(request);
         if (streamId < 0) {
             return;
@@ -1125,7 +1125,7 @@ public class HTTPClientProtocolHandler
     // RFC 9113 section 8.3.1: request pseudo-headers (:method, :scheme,
     // :authority, :path) before regular headers;
     // RFC 9113 section 8.2.2: connection-specific headers MUST NOT appear
-    private ByteBuffer encodeRequestHeaders(HTTPStream request) throws IOException {
+    private ByteBuffer encodeRequestHeaders(HttpStream request) throws IOException {
         List<Header> headerList = new ArrayList<Header>();
 
         // RFC 9113 section 8.3.1: required request pseudo-headers
@@ -1177,7 +1177,7 @@ public class HTTPClientProtocolHandler
         return buffer;
     }
 
-    private int findStreamId(HTTPStream request) {
+    private int findStreamId(HttpStream request) {
         Integer streamId = streamIdByRequest.get(request);
         return streamId != null ? streamId.intValue() : -1;
     }
@@ -1189,7 +1189,7 @@ public class HTTPClientProtocolHandler
      * we intentionally retain support for it.
      */
     private void completeH2cUpgrade() {
-        negotiatedVersion = HTTPVersion.HTTP_2_0;
+        negotiatedVersion = HttpVersion.HTTP_2_0;
         h2cUpgradeInFlight = false;
 
         initializeHTTP2();
@@ -1219,8 +1219,8 @@ public class HTTPClientProtocolHandler
     // (status-line → headers → body via Content-Length or chunked encoding)
 
     @Override
-    public boolean token(HTTPClientLineLexer.Token type, ByteBuffer window) {
-        if (type != HTTPClientLineLexer.Token.LINE) {
+    public boolean token(HttpClientLineLexer.Token type, ByteBuffer window) {
+        if (type != HttpClientLineLexer.Token.LINE) {
             return false;
         }
         if (parseState == ParseState.STATUS_LINE || parseState == ParseState.HEADERS) {
@@ -1268,7 +1268,7 @@ public class HTTPClientProtocolHandler
 
     @Override
     public void tokenTooLong() {
-        // Defense-in-depth only (see HTTPClientLineLexer's class Javadoc):
+        // Defense-in-depth only (see HttpClientLineLexer's class Javadoc):
         // the pre-conversion code had no protection at all against a
         // single, never-terminated line growing its buffer unboundedly
         // (its own check only fired on buffer *growth*, i.e. once a line
@@ -1291,7 +1291,7 @@ public class HTTPClientProtocolHandler
      * Called after every {@code LINE} token dispatch, and after every raw
      * body/chunk-data completion, to decide what the lexer should do next
      * based on the {@code parseState} transition that dispatch may have
-     * just made — mirrors {@code HTTPProtocolHandler}'s server-side
+     * just made — mirrors {@code HttpProtocolHandler}'s server-side
      * {@code afterStateTransition()}.
      */
     private void afterStateTransition() {
@@ -1320,7 +1320,7 @@ public class HTTPClientProtocolHandler
 
     // RFC 9112 section 4: status-line = HTTP-version SP status-code SP [reason-phrase]
     private void processStatusLine(ByteBuffer window) {
-        // window includes the trailing CRLF (HTTPClientLineLexer's LINE
+        // window includes the trailing CRLF (HttpClientLineLexer's LINE
         // token contract); strip it to get the line content.
         int lineEnd = window.remaining() - 2;
         byte[] lineBytes = new byte[lineEnd];
@@ -1337,7 +1337,7 @@ public class HTTPClientProtocolHandler
 
         if (firstSpace < 0) {
             LOGGER.warning(MessageFormat.format(L10N.getString("warn.invalid_status_line"), line));
-            responseStatus = HTTPStatus.UNKNOWN;
+            responseStatus = HttpStatus.UNKNOWN;
         } else {
             try {
                 String codeStr;
@@ -1347,9 +1347,9 @@ public class HTTPClientProtocolHandler
                     codeStr = line.substring(firstSpace + 1);
                 }
                 int statusCode = Integer.parseInt(codeStr.trim());
-                responseStatus = HTTPStatus.fromCode(statusCode);
+                responseStatus = HttpStatus.fromCode(statusCode);
             } catch (NumberFormatException e) {
-                responseStatus = HTTPStatus.UNKNOWN;
+                responseStatus = HttpStatus.UNKNOWN;
             }
         }
 
@@ -1363,7 +1363,7 @@ public class HTTPClientProtocolHandler
         if (lineEnd == 0) {
 
                 // RFC 9110 section 15.2.2: 101 Switching Protocols
-                if (h2cUpgradeInFlight && responseStatus == HTTPStatus.SWITCHING_PROTOCOLS) {
+                if (h2cUpgradeInFlight && responseStatus == HttpStatus.SWITCHING_PROTOCOLS) {
                     String upgrade = responseHeaders.getValue("upgrade");
                     if (upgrade != null && upgrade.equalsIgnoreCase("h2c")) {
                         LOGGER.fine("h2c upgrade accepted, switching to HTTP/2");
@@ -1373,7 +1373,7 @@ public class HTTPClientProtocolHandler
                         LOGGER.warning(L10N.getString("warn.unexpected_101_response"));
                     }
                     h2cUpgradeInFlight = false;
-                } else if (responseStatus == HTTPStatus.SWITCHING_PROTOCOLS) {
+                } else if (responseStatus == HttpStatus.SWITCHING_PROTOCOLS) {
                     if (handleProtocolSwitch(responseStatus, responseHeaders)) {
                         return;
                     }
@@ -1394,7 +1394,7 @@ public class HTTPClientProtocolHandler
                     return;
                 }
 
-                if (responseStatus == HTTPStatus.UNAUTHORIZED
+                if (responseStatus == HttpStatus.UNAUTHORIZED
                         && username != null && password != null && !authRetryPending) {
 
                     String wwwAuth = responseHeaders.getValue("www-authenticate");
@@ -1407,7 +1407,7 @@ public class HTTPClientProtocolHandler
                 }
 
                 // RFC 9110 section 11.7.1: 407 Proxy Authentication Required
-                if (responseStatus == HTTPStatus.PROXY_AUTHENTICATION_REQUIRED
+                if (responseStatus == HttpStatus.PROXY_AUTHENTICATION_REQUIRED
                         && username != null && password != null && !authRetryPending) {
 
                     String proxyAuth = responseHeaders.getValue("proxy-authenticate");
@@ -1421,12 +1421,12 @@ public class HTTPClientProtocolHandler
 
                 authRetryPending = false;
 
-                HTTPResponseHandler responseHandler = null;
+                HttpResponseHandler responseHandler = null;
                 if (currentStream != null) {
                     responseHandler = currentStream.getHandler();
                 }
                 if (responseHandler != null) {
-                    HTTPResponse response = new HTTPResponse(responseStatus);
+                    HttpResponse response = new HttpResponse(responseStatus);
 
                     if (responseStatus.isSuccess()) {
                         responseHandler.ok(response);
@@ -1453,8 +1453,8 @@ public class HTTPClientProtocolHandler
                         && "HEAD".equals(currentStream.getMethod());
 
                 if (headRequest
-                        || responseStatus == HTTPStatus.NO_CONTENT
-                        || responseStatus == HTTPStatus.NOT_MODIFIED) {
+                        || responseStatus == HttpStatus.NO_CONTENT
+                        || responseStatus == HttpStatus.NOT_MODIFIED) {
                     if (Boolean.getBoolean("gumdrop.http.debug")) {
                         LOGGER.info(L10N.getString("info.debug_no_body"));
                     }
@@ -1561,7 +1561,7 @@ public class HTTPClientProtocolHandler
     // read-until-close case, reachable only defensively, stays outside
     // the lexer — see handleBodyUntilCloseBytes())
     private void handleBodyBytes(ByteBuffer slice) {
-        HTTPResponseHandler responseHandler = null;
+        HttpResponseHandler responseHandler = null;
         if (!discardingBody && currentStream != null) {
             responseHandler = currentStream.getHandler();
         }
@@ -1600,13 +1600,13 @@ public class HTTPClientProtocolHandler
     }
 
     // RFC 9112 section 6.3: read-until-close body — dead code in practice
-    // (see HTTPClientLineLexer's class Javadoc), preserved defensively.
+    // (see HttpClientLineLexer's class Javadoc), preserved defensively.
     // Not lexer-driven: no length is known up front, so there is no
     // enterRawBody() count to give it; consumes whatever is available in
     // the current buffer, exactly as the pre-conversion parseBody()'s own
     // "else" branch did against parseBuffer.
     private void handleBodyUntilCloseBytes(ByteBuffer data) {
-        HTTPResponseHandler responseHandler = null;
+        HttpResponseHandler responseHandler = null;
         if (!discardingBody && currentStream != null) {
             responseHandler = currentStream.getHandler();
         }
@@ -1657,10 +1657,10 @@ public class HTTPClientProtocolHandler
     // afterStateTransition()); this splits each incoming raw slice at the
     // chunkDataRemaining boundary into real data (forwarded) vs.
     // terminator bytes (discarded, unvalidated — see
-    // HTTPClientLineLexer's class Javadoc for why this client, unlike the
+    // HttpClientLineLexer's class Javadoc for why this client, unlike the
     // server, does not check the terminator is actually "\r\n").
     private void handleChunkDataBytes(ByteBuffer slice) {
-        HTTPResponseHandler responseHandler = null;
+        HttpResponseHandler responseHandler = null;
         if (!discardingBody && currentStream != null) {
             responseHandler = currentStream.getHandler();
         }
@@ -1702,7 +1702,7 @@ public class HTTPClientProtocolHandler
             if (discardingBody) {
                 completeBodyDiscard();
             } else {
-                HTTPResponseHandler responseHandler = null;
+                HttpResponseHandler responseHandler = null;
                 if (currentStream != null) {
                     responseHandler = currentStream.getHandler();
                 }
@@ -1718,7 +1718,7 @@ public class HTTPClientProtocolHandler
         window.get(lineBytes);
 
         if (!discardingBody) {
-            HTTPResponseHandler responseHandler = null;
+            HttpResponseHandler responseHandler = null;
             if (currentStream != null) {
                 responseHandler = currentStream.getHandler();
             }
@@ -1734,7 +1734,7 @@ public class HTTPClientProtocolHandler
 
     // RFC 9112 section 9.3: persistent connection ready for reuse after response
     private void completeResponse() {
-        HTTPResponseHandler responseHandler = null;
+        HttpResponseHandler responseHandler = null;
         if (currentStream != null) {
             responseHandler = currentStream.getHandler();
         }
@@ -1824,7 +1824,7 @@ public class HTTPClientProtocolHandler
         if (authHeader != null) {
             authRetryPending = true;
 
-            HTTPStream retryStream = new HTTPStream(this, currentStream.getMethod(), currentStream.getPath());
+            HttpStream retryStream = new HttpStream(this, currentStream.getMethod(), currentStream.getPath());
 
             for (Header h : currentStream.getHeaders()) {
                 retryStream.header(h.getName(), h.getValue());
@@ -1834,7 +1834,7 @@ public class HTTPClientProtocolHandler
             String headerName = pendingProxyAuth ? "Proxy-Authorization" : "Authorization";
             retryStream.header(headerName, authHeader);
 
-            HTTPResponseHandler responseHandler = currentStream.getHandler();
+            HttpResponseHandler responseHandler = currentStream.getHandler();
 
             Integer oldStreamId = streamIdByRequest.remove(currentStream);
             if (oldStreamId != null) {
@@ -2098,7 +2098,7 @@ public class HTTPClientProtocolHandler
     // RFC 9113 section 6.1: DATA frame reception
     @Override
     public void dataFrameReceived(int streamId, boolean endStream, ByteBuffer data) {
-        HTTPStream stream = activeStreams.get(streamId);
+        HttpStream stream = activeStreams.get(streamId);
         if (stream == null) {
             LOGGER.warning(MessageFormat.format(L10N.getString("warn.data_for_unknown_stream"), streamId));
             sendRstStream(streamId, H2FrameHandler.ERROR_STREAM_CLOSED);
@@ -2107,7 +2107,7 @@ public class HTTPClientProtocolHandler
 
         int dataLength = data.remaining();
 
-        HTTPResponseHandler responseHandler = stream.getHandler();
+        HttpResponseHandler responseHandler = stream.getHandler();
         if (responseHandler != null) {
             try {
                 responseHandler.responseBodyContent(data);
@@ -2144,7 +2144,7 @@ public class HTTPClientProtocolHandler
     public void headersFrameReceived(int streamId, boolean endStream, boolean endHeaders,
             int streamDependency, boolean exclusive, int weight,
             ByteBuffer headerBlockFragment) {
-        HTTPStream stream = activeStreams.get(streamId);
+        HttpStream stream = activeStreams.get(streamId);
         if (stream == null) {
             LOGGER.warning(MessageFormat.format(L10N.getString("warn.headers_for_unknown_stream"), streamId));
             sendRstStream(streamId, H2FrameHandler.ERROR_STREAM_CLOSED);
@@ -2175,10 +2175,10 @@ public class HTTPClientProtocolHandler
 
     @Override
     public void rstStreamFrameReceived(int streamId, int errorCode) {
-        HTTPStream stream = activeStreams.remove(streamId);
+        HttpStream stream = activeStreams.remove(streamId);
         if (stream != null) {
             streamIdByRequest.remove(stream);
-            HTTPResponseHandler responseHandler = stream.getHandler();
+            HttpResponseHandler responseHandler = stream.getHandler();
             if (responseHandler != null) {
                 try {
                     String errorName = H2FrameHandler.errorToString(errorCode);
@@ -2309,8 +2309,8 @@ public class HTTPClientProtocolHandler
             headerBlockBuffer = null;
         }
 
-        HTTPStream associatedStream = activeStreams.get(associatedStreamId);
-        HTTPResponseHandler responseHandler = (associatedStream != null)
+        HttpStream associatedStream = activeStreams.get(associatedStreamId);
+        HttpResponseHandler responseHandler = (associatedStream != null)
                 ? associatedStream.getHandler() : null;
 
         if (responseHandler == null) {
@@ -2361,10 +2361,10 @@ public class HTTPClientProtocolHandler
         }
 
         @Override
-        public void accept(HTTPResponseHandler handler) {
+        public void accept(HttpResponseHandler handler) {
             handled = true;
-            HTTPStream promisedStream = new HTTPStream(
-                    HTTPClientProtocolHandler.this,
+            HttpStream promisedStream = new HttpStream(
+                    HttpClientProtocolHandler.this,
                     getMethod() != null ? getMethod() : "GET",
                     getPath() != null ? getPath() : "/");
             promisedStream.send(handler);
@@ -2402,11 +2402,11 @@ public class HTTPClientProtocolHandler
         LOGGER.info(MessageFormat.format(L10N.getString("info.goaway_received"),
                 lastStreamId, H2FrameHandler.errorToString(errorCode)));
 
-        for (Map.Entry<Integer, HTTPStream> entry : activeStreams.entrySet()) {
+        for (Map.Entry<Integer, HttpStream> entry : activeStreams.entrySet()) {
             if (entry.getKey() > lastStreamId) {
-                HTTPStream stream = activeStreams.remove(entry.getKey());
+                HttpStream stream = activeStreams.remove(entry.getKey());
                 if (stream != null) {
-                    HTTPResponseHandler responseHandler = stream.getHandler();
+                    HttpResponseHandler responseHandler = stream.getHandler();
                     if (responseHandler != null) {
                         try {
                             responseHandler.failed(new IOException(L10N.getString("err.connection_closed_by_server")));
@@ -2451,7 +2451,7 @@ public class HTTPClientProtocolHandler
     @Override
     public void continuationFrameReceived(int streamId, boolean endHeaders,
             ByteBuffer headerBlockFragment) {
-        HTTPStream stream = activeStreams.get(streamId);
+        HttpStream stream = activeStreams.get(streamId);
         if (stream == null) {
             LOGGER.warning(MessageFormat.format(L10N.getString("warn.continuation_for_unknown_stream"), streamId));
             return;
@@ -2498,7 +2498,7 @@ public class HTTPClientProtocolHandler
 
     // RFC 7541: HPACK decode; RFC 9113 section 4.3: decompression failure
     // is a connection error of type COMPRESSION_ERROR
-    private void processHeaders(HTTPStream stream, int streamId, boolean endStream) {
+    private void processHeaders(HttpStream stream, int streamId, boolean endStream) {
         if (headerBlockBuffer == null) {
             return;
         }
@@ -2525,11 +2525,11 @@ public class HTTPClientProtocolHandler
         String statusStr = headers.getValue(":status");
         if (statusStr != null) {
             int statusCode = Integer.parseInt(statusStr);
-            HTTPStatus status = HTTPStatus.fromCode(statusCode);
-            HTTPResponseHandler responseHandler = stream.getHandler();
+            HttpStatus status = HttpStatus.fromCode(statusCode);
+            HttpResponseHandler responseHandler = stream.getHandler();
             if (responseHandler != null) {
                 try {
-                    HTTPResponse response = new HTTPResponse(status);
+                    HttpResponse response = new HttpResponse(status);
                     if (status.isSuccess()) {
                         responseHandler.ok(response);
                     } else {
@@ -2565,7 +2565,7 @@ public class HTTPClientProtocolHandler
         }
     }
 
-    private void completeStream(HTTPStream stream, int streamId) {
+    private void completeStream(HttpStream stream, int streamId) {
         activeStreams.remove(streamId);
         streamIdByRequest.remove(stream);
         if (h2FlowControl != null) {
@@ -2575,7 +2575,7 @@ public class HTTPClientProtocolHandler
         if (removed != null) {
             releasePendingData(removed);
         }
-        HTTPResponseHandler responseHandler = stream.getHandler();
+        HttpResponseHandler responseHandler = stream.getHandler();
         if (responseHandler != null) {
             try {
                 responseHandler.endResponseBody();
@@ -2795,9 +2795,9 @@ public class HTTPClientProtocolHandler
         private final int streamId;
         private final ByteBuffer headerBlock;
         private final boolean hasBody;
-        private final HTTPStream request;
+        private final HttpStream request;
 
-        SendHeadersTask(int streamId, ByteBuffer headerBlock, boolean hasBody, HTTPStream request) {
+        SendHeadersTask(int streamId, ByteBuffer headerBlock, boolean hasBody, HttpStream request) {
             this.streamId = streamId;
             this.headerBlock = headerBlock;
             this.hasBody = hasBody;
@@ -2832,7 +2832,7 @@ public class HTTPClientProtocolHandler
                 h2Writer.flush();
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, "Error sending HTTP/2 request", e);
-                HTTPResponseHandler responseHandler = request.getHandler();
+                HttpResponseHandler responseHandler = request.getHandler();
                 if (responseHandler != null) {
                     try {
                         responseHandler.failed(e);
@@ -2978,10 +2978,10 @@ public class HTTPClientProtocolHandler
     }
 
     private static class PendingRequest {
-        final HTTPStream request;
+        final HttpStream request;
         final boolean hasBody;
 
-        PendingRequest(HTTPStream request, boolean hasBody) {
+        PendingRequest(HttpStream request, boolean hasBody) {
             this.request = request;
             this.hasBody = hasBody;
         }

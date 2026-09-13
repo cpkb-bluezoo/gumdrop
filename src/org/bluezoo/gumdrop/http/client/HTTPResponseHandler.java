@@ -1,5 +1,5 @@
 /*
- * HTTPResponseHandler.java
+ * HttpResponseHandler.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,7 +36,7 @@ import java.nio.ByteBuffer;
  *
  * <p>For a successful response with a body:
  * <ol>
- *   <li>{@link #ok(HTTPResponse)} - status received</li>
+ *   <li>{@link #ok(HttpResponse)} - status received</li>
  *   <li>{@link #header(String, String)} - called for each response header</li>
  *   <li>{@link #startResponseBody()} - body begins</li>
  *   <li>{@link #responseBodyContent(ByteBuffer)} - called for each body chunk</li>
@@ -47,14 +47,14 @@ import java.nio.ByteBuffer;
  *
  * <p>For a bodyless response (e.g., 204 No Content):
  * <ol>
- *   <li>{@link #ok(HTTPResponse)} - status received</li>
+ *   <li>{@link #ok(HttpResponse)} - status received</li>
  *   <li>{@link #header(String, String)} - called for each response header</li>
  *   <li>{@link #close()} - response complete</li>
  * </ol>
  *
  * <p>For an error response:
  * <ol>
- *   <li>{@link #error(HTTPResponse)} - error status received</li>
+ *   <li>{@link #error(HttpResponse)} - error status received</li>
  *   <li>{@link #header(String, String)} - called for each response header</li>
  *   <li>(body events if the error response has a body)</li>
  *   <li>{@link #close()} - response complete</li>
@@ -72,10 +72,10 @@ import java.nio.ByteBuffer;
  * a separate handler receives the pushed response.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPRequest
- * @see DefaultHTTPResponseHandler
+ * @see HttpRequest
+ * @see DefaultHttpResponseHandler
  */
-public interface HTTPResponseHandler {
+public interface HttpResponseHandler {
 
     /**
      * Called when a successful response (2xx) status line is received.
@@ -86,26 +86,26 @@ public interface HTTPResponseHandler {
      *
      * @param response the response status
      */
-    void ok(HTTPResponse response);
+    void ok(HttpResponse response);
 
     /**
      * Called when an error response (4xx, 5xx, or client-side pseudo-status) is received.
      *
      * <p>This is called for HTTP error responses and client-detected conditions
-     * like {@link org.bluezoo.gumdrop.http.HTTPStatus#REDIRECT_LOOP}. The response may still have headers
+     * like {@link org.bluezoo.gumdrop.http.HttpStatus#REDIRECT_LOOP}. The response may still have headers
      * and a body (e.g., an HTML error page), which will be delivered via subsequent
      * callbacks before {@link #close()}.
      *
      * @param response the error response
      */
-    void error(HTTPResponse response);
+    void error(HttpResponse response);
 
     /**
      * Called for each HTTP header received.
      *
      * <p>Headers are delivered in the order they are received. This method may be called:
      * <ul>
-     *   <li>After {@link #ok(HTTPResponse)} or {@link #error(HTTPResponse)} for response headers</li>
+     *   <li>After {@link #ok(HttpResponse)} or {@link #error(HttpResponse)} for response headers</li>
      *   <li>After {@link #endResponseBody()} for trailer headers (HTTP/2 or chunked encoding)</li>
      * </ul>
      *
@@ -146,7 +146,7 @@ public interface HTTPResponseHandler {
     /**
      * Called when an HTTP/2 server push promise is received.
      *
-     * <p>The handler must either call {@link PushPromise#accept(HTTPResponseHandler)}
+     * <p>The handler must either call {@link PushPromise#accept(HttpResponseHandler)}
      * to receive the pushed response, or {@link PushPromise#reject()} to cancel it.
      * If neither is called, the push is rejected by default.
      *

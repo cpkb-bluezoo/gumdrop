@@ -38,9 +38,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.http.HTTPAuthenticationProvider;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPService;
+import org.bluezoo.gumdrop.http.HttpAuthenticationProvider;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.servlet.jndi.Resource;
 import org.bluezoo.gumdrop.util.MessageFormatter;
 
@@ -58,10 +58,10 @@ import org.bluezoo.gumdrop.util.MessageFormatter;
  * {@link #start()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPService
+ * @see HttpServer
  * @see Container
  */
-public final class ServletService extends HTTPService {
+public final class ServletService extends HttpServer {
 
     static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
@@ -109,7 +109,7 @@ public final class ServletService extends HTTPService {
 
     private Container container;
     private ServletHandlerFactory handlerFactory;
-    private HTTPAuthenticationProvider authenticationProvider;
+    private HttpAuthenticationProvider authenticationProvider;
     private Logger accessLogger;
     private ThreadPoolExecutor workerThreadPool;
     private AsyncTimeoutScheduler asyncTimeoutScheduler;
@@ -311,13 +311,13 @@ public final class ServletService extends HTTPService {
         }
     }
 
-    // ── HTTPService hooks ──
+    // ── HttpServer hooks ──
 
     /**
      * Returns the servlet handler factory for wiring into listeners.
      */
     @Override
-    protected HTTPRequestHandlerFactory getHandlerFactory() {
+    protected HttpRequestHandlerFactory getHandlerFactory() {
         return handlerFactory;
     }
 
@@ -326,7 +326,7 @@ public final class ServletService extends HTTPService {
      * security configuration, or null if no authentication is configured.
      */
     @Override
-    protected HTTPAuthenticationProvider getAuthenticationProvider() {
+    protected HttpAuthenticationProvider getAuthenticationProvider() {
         return authenticationProvider;
     }
 
@@ -337,7 +337,7 @@ public final class ServletService extends HTTPService {
      *
      * @param provider the authentication provider
      */
-    void setAuthenticationProvider(HTTPAuthenticationProvider provider) {
+    void setAuthenticationProvider(HttpAuthenticationProvider provider) {
         this.authenticationProvider = provider;
     }
 

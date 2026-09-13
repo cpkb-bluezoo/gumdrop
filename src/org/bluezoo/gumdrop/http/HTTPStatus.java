@@ -1,5 +1,5 @@
 /*
- * HTTPStatus.java
+ * HttpStatus.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -35,7 +35,7 @@ import java.util.Map;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public enum HTTPStatus {
+public enum HttpStatus {
 
     // ─────────────────────────────────────────────────────────────────────────
     // Informational (1xx)
@@ -257,10 +257,10 @@ public enum HTTPStatus {
     // Lookup table for fromCode()
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static final Map<Integer, HTTPStatus> BY_CODE = new HashMap<Integer, HTTPStatus>();
+    private static final Map<Integer, HttpStatus> BY_CODE = new HashMap<Integer, HttpStatus>();
 
     static {
-        for (HTTPStatus status : values()) {
+        for (HttpStatus status : values()) {
             if (status.code > 0) {
                 BY_CODE.put(status.code, status);
             }
@@ -276,7 +276,7 @@ public enum HTTPStatus {
      */
     public final int code;
 
-    HTTPStatus(int code) {
+    HttpStatus(int code) {
         this.code = code;
     }
 
@@ -352,13 +352,13 @@ public enum HTTPStatus {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns the HTTPStatus for the given numeric status code.
+     * Returns the HttpStatus for the given numeric status code.
      *
      * @param statusCode the numeric HTTP status code
-     * @return the corresponding HTTPStatus, or {@link #INTERNAL_SERVER_ERROR} if not recognized
+     * @return the corresponding HttpStatus, or {@link #INTERNAL_SERVER_ERROR} if not recognized
      */
-    public static HTTPStatus fromCode(int statusCode) {
-        HTTPStatus status = BY_CODE.get(statusCode);
+    public static HttpStatus fromCode(int statusCode) {
+        HttpStatus status = BY_CODE.get(statusCode);
         if (status != null) {
             return status;
         }

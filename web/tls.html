@@ -346,7 +346,7 @@ properties or configure a factory in client code.
 <h3>Listener and gumdroprc (server)</h3>
 
 <pre>
-&lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+&lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
     &lt;property name="tls-version"&gt;TLS_1_3&lt;/property&gt;
@@ -409,8 +409,8 @@ vs HTTP/1.1, <code>h3</code> on QUIC, <code>dot</code> for DoT, etc.).
 
 <ul>
 <li><b>Server:</b> protocol listeners set defaults &mdash; e.g.
-    <code>HTTPListener</code> offers <code>h2</code> and <code>http/1.1</code>;
-    <code>HTTP3Listener</code> sets <code>h3</code></li>
+    <code>HttpListener</code> offers <code>h2</code> and <code>http/1.1</code>;
+    <code>Http3Listener</code> sets <code>h3</code></li>
 <li><b>Custom service:</b> <code>setApplicationProtocols(String...)</code> on
     <code>TCPTransportFactory</code> / <code>UDPTransportFactory</code></li>
 <li><b>After handshake:</b> negotiated protocol is available from

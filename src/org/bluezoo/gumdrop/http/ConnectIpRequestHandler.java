@@ -29,14 +29,14 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * A ready-to-use {@link HTTPRequestHandler} implementing RFC 9484
+ * A ready-to-use {@link HttpRequestHandler} implementing RFC 9484
  * (Proxying IP in HTTP): accepts a CONNECT-IP request whose target scope
  * is approved by a {@link ConnectIpPolicy}, then hands the accepted
  * tunnel to an {@link IpPacketHandler} for the life of the request --
  * unlike {@link ConnectUdpRequestHandler}, this class does no forwarding
  * of its own (see {@link IpPacketHandler}'s own documentation for why).
  *
- * <p>An {@link HTTPRequestHandlerFactory} returns an instance of this
+ * <p>An {@link HttpRequestHandlerFactory} returns an instance of this
  * class (constructed with a policy and a packet handler) for any request
  * it wants handled as CONNECT-IP -- typically after checking {@code
  * :method}/{@code :protocol} itself, though this class also re-validates
@@ -44,16 +44,16 @@ import java.util.logging.Logger;
  * doing anything else.
  *
  * <p>Works identically over HTTP/1.1, HTTP/2, and HTTP/3: {@link
- * HTTPResponseState#acceptConnectIp} and {@link
- * HTTPRequestHandler#datagramReceived}/{@link
- * HTTPRequestHandler#capsuleReceived} are the only per-transport
+ * HttpResponseState#acceptConnectIp} and {@link
+ * HttpRequestHandler#datagramReceived}/{@link
+ * HttpRequestHandler#capsuleReceived} are the only per-transport
  * mechanics this class relies on, both already implemented per
  * transport.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9484">RFC 9484</a>
  */
-public class ConnectIpRequestHandler extends DefaultHTTPRequestHandler {
+public class ConnectIpRequestHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ConnectIpRequestHandler.class.getName());
     private static final ResourceBundle L10N =
@@ -83,7 +83,7 @@ public class ConnectIpRequestHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         if (!isConnectIpRequest(state, headers)) {
             rejectRequest(state, 400);
             return;
@@ -122,7 +122,7 @@ public class ConnectIpRequestHandler extends DefaultHTTPRequestHandler {
      * {@code Upgrade: connect-ip} request -- the same per-version split
      * {@link ConnectUdpRequestHandler} uses for RFC 9298.
      */
-    private static boolean isConnectIpRequest(HTTPResponseState state, Headers headers) {
+    private static boolean isConnectIpRequest(HttpResponseState state, Headers headers) {
         if (state.getVersion().supportsMultiplexing()) {
             return "CONNECT".equals(headers.getMethod())
                     && "connect-ip".equalsIgnoreCase(headers.getValue(":protocol"));
@@ -130,9 +130,9 @@ public class ConnectIpRequestHandler extends DefaultHTTPRequestHandler {
         return "connect-ip".equalsIgnoreCase(headers.getValue("upgrade"));
     }
 
-    private void rejectRequest(HTTPResponseState state, int statusCode) {
+    private void rejectRequest(HttpResponseState state, int statusCode) {
         Headers response = new Headers();
-        response.status(HTTPStatus.fromCode(statusCode));
+        response.status(HttpStatus.fromCode(statusCode));
         state.headers(response);
         state.complete();
     }
@@ -143,7 +143,7 @@ public class ConnectIpRequestHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void datagramReceived(HTTPResponseState state, ByteBuffer data) {
+    public void datagramReceived(HttpResponseState state, ByteBuffer data) {
         if (session == null) {
             return;
         }
@@ -155,7 +155,7 @@ public class ConnectIpRequestHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void capsuleReceived(HTTPResponseState state, long type, ByteBuffer value) {
+    public void capsuleReceived(HttpResponseState state, long type, ByteBuffer value) {
         if (session == null || type != ConnectIpAddress.TYPE_ADDRESS_REQUEST) {
             return;
         }
@@ -168,7 +168,7 @@ public class ConnectIpRequestHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void requestComplete(HTTPResponseState state) {
+    public void requestComplete(HttpResponseState state) {
         if (session != null) {
             ConnectIpSession closed = session;
             session = null;
@@ -177,7 +177,7 @@ public class ConnectIpRequestHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void failed(HTTPResponseState state, Exception cause) {
+    public void failed(HttpResponseState state, Exception cause) {
         if (session != null) {
             ConnectIpSession failed = session;
             session = null;

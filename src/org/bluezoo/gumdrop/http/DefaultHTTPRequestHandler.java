@@ -1,5 +1,5 @@
 /*
- * DefaultHTTPRequestHandler.java
+ * DefaultHttpRequestHandler.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.http;
 import java.nio.ByteBuffer;
 
 /**
- * Default implementation of {@link HTTPRequestHandler} with empty methods.
+ * Default implementation of {@link HttpRequestHandler} with empty methods.
  *
  * <p>Extend this class to implement only the methods you need, rather than
  * having to implement all methods of the interface.
@@ -32,13 +32,13 @@ import java.nio.ByteBuffer;
  * <h2>Example</h2>
  *
  * <pre>{@code
- * public class HelloHandler extends DefaultHTTPRequestHandler {
+ * public class HelloHandler extends DefaultHttpRequestHandler {
  *     
  *     @Override
- *     public void headers(HTTPResponseState state, Headers headers) {
+ *     public void headers(HttpResponseState state, Headers headers) {
  *         if ("GET".equals(headers.getMethod())) {
  *             Headers response = new Headers();
- *             response.status(HTTPStatus.OK);
+ *             response.status(HttpStatus.OK);
  *             response.add("content-type", "text/plain");
  *             state.headers(response);
  *             state.startResponseBody();
@@ -51,37 +51,37 @@ import java.nio.ByteBuffer;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPRequestHandler
+ * @see HttpRequestHandler
  */
-public class DefaultHTTPRequestHandler implements HTTPRequestHandler {
+public class DefaultHttpRequestHandler implements HttpRequestHandler {
 
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         // Default: do nothing
     }
 
     @Override
-    public void startRequestBody(HTTPResponseState state) {
+    public void startRequestBody(HttpResponseState state) {
         // Default: do nothing
     }
 
     @Override
-    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
         // Default: do nothing
     }
 
     @Override
-    public void endRequestBody(HTTPResponseState state) {
+    public void endRequestBody(HttpResponseState state) {
         // Default: do nothing
     }
 
     @Override
-    public void requestComplete(HTTPResponseState state) {
+    public void requestComplete(HttpResponseState state) {
         // Default: do nothing
     }
 
     @Override
-    public void failed(HTTPResponseState state, Exception cause) {
+    public void failed(HttpResponseState state, Exception cause) {
         // Default: do nothing
     }
 

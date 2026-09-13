@@ -25,13 +25,13 @@ import java.util.Set;
 
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
+import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.HttpResponseState;
 import org.bluezoo.gumdrop.http.Headers;
 
 /**
- * HTTPRequestHandlerFactory that routes gRPC requests to a GrpcHandler.
+ * HttpRequestHandlerFactory that routes gRPC requests to a GrpcHandler.
  *
  * <p>Checks that the path matches /package.Service/Method and content-type
  * is application/grpc, then returns a handler that parses gRPC framing
@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.http.Headers;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class GrpcHandlerFactory implements HTTPRequestHandlerFactory {
+public class GrpcHandlerFactory implements HttpRequestHandlerFactory {
 
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
 
@@ -80,7 +80,7 @@ public class GrpcHandlerFactory implements HTTPRequestHandlerFactory {
     }
 
     @Override
-    public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
+    public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
         String path = headers.getValue(":path");
         String contentType = headers.getValue("content-type");
 

@@ -56,7 +56,7 @@ import static org.junit.Assert.*;
  * {@code :path} into the {@code method}/{@code requestTarget} fields. Two
  * confirmed, concrete symptoms for ordinary (non-pushed) HTTP/2 requests:
  * <ul>
- *   <li>{@code HTTPAuthenticationProvider.authenticateDigest} requires a
+ *   <li>{@code HttpAuthenticationProvider.authenticateDigest} requires a
  *       non-null {@code requestMethod}/{@code digestUri} (RFC 7616 H(A2)
  *       binding) and fails immediately with {@code invalid_digest_format}
  *       when either is null -- so Digest authentication over HTTP/2 always
@@ -82,7 +82,7 @@ public class StreamH2MethodPathTest {
     private static final String HA1 = SASLUtils.computeDigestHA1(
             USERNAME, REALM, PASSWORD);
 
-    private static final class TestDigestProvider extends HTTPAuthenticationProvider {
+    private static final class TestDigestProvider extends HttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.DIGEST_AUTH;
         }
@@ -147,15 +147,15 @@ public class StreamH2MethodPathTest {
                 + cnonce + "\"";
     }
 
-    private static class StubH2Connection implements HTTPConnectionLike {
+    private static class StubH2Connection implements HttpConnectionLike {
         final Decoder hpackDecoder = new Decoder(4096, 8192);
-        HTTPAuthenticationProvider authProvider;
+        HttpAuthenticationProvider authProvider;
         int lastStatusCode = -1;
         boolean bodySuppressed = true;
         boolean bodySendAttempted = false;
 
         @Override public String getScheme() { return "https"; }
-        @Override public HTTPVersion getVersion() { return HTTPVersion.HTTP_2_0; }
+        @Override public HttpVersion getVersion() { return HttpVersion.HTTP_2_0; }
         @Override public SocketAddress getRemoteSocketAddress() {
             return new InetSocketAddress("127.0.0.1", 12345);
         }
@@ -166,11 +166,11 @@ public class StreamH2MethodPathTest {
         // A no-op handler (rather than null) so streamEndHeaders() doesn't
         // auto-send a 404 -- these tests drive sendResponseHeaders/Body
         // manually afterward, like a real application handler would.
-        @Override public HTTPRequestHandlerFactory getHandlerFactory() {
-            return new HTTPRequestHandlerFactory() {
+        @Override public HttpRequestHandlerFactory getHandlerFactory() {
+            return new HttpRequestHandlerFactory() {
                 @Override
-                public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
-                    return new DefaultHTTPRequestHandler();
+                public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
+                    return new DefaultHttpRequestHandler();
                 }
             };
         }
@@ -196,9 +196,9 @@ public class StreamH2MethodPathTest {
         @Override public Trace getTrace() { return null; }
         @Override public void setTrace(Trace trace) { }
         @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public HTTPServerMetrics getServerMetrics() { return null; }
+        @Override public HttpServerMetrics getServerMetrics() { return null; }
         @Override public boolean isEnablePush() { return false; }
-        @Override public Stream newStream(HTTPConnectionLike connection, int streamId) {
+        @Override public Stream newStream(HttpConnectionLike connection, int streamId) {
             return new Stream(connection, streamId);
         }
         @Override public int getNextServerStreamId() { return 2; }
@@ -210,7 +210,7 @@ public class StreamH2MethodPathTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return 0; }
-        @Override public HTTPAuthenticationProvider getAuthenticationProvider() { return authProvider; }
+        @Override public HttpAuthenticationProvider getAuthenticationProvider() { return authProvider; }
         @Override public void onWritable(int streamId, Runnable callback) { }
         @Override public void pauseRead(int streamId) { }
         @Override public void resumeRead(int streamId) { }

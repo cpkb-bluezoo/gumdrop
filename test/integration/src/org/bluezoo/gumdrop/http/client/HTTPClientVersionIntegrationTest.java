@@ -25,8 +25,8 @@ import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -44,11 +44,11 @@ import java.util.logging.Level;
 import static org.junit.Assert.*;
 
 /**
- * Protocol-version integration tests for the public {@link HTTPClient} facade.
+ * Protocol-version integration tests for the public {@link HttpClient} facade.
  *
  * <p>Where {@link HTTPClientIntegrationTest} drives the low-level
- * {@link HTTPClientProtocolHandler} directly, this suite exercises the
- * caller-facing {@code HTTPClient} class end to end against a real echo
+ * {@link HttpClientProtocolHandler} directly, this suite exercises the
+ * caller-facing {@code HttpClient} class end to end against a real echo
  * server and asserts the negotiated wire protocol for each transport:
  *
  * <ul>
@@ -127,16 +127,16 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
     @Test
     public void testHttp11CleartextGet() throws Exception {
         Result r = exchange(HTTP_PORT, false, true, "GET", "/test", null);
-        assertEquals("Should negotiate HTTP/1.1", HTTPVersion.HTTP_1_1, r.version);
-        assertEquals("Should return 200 OK", HTTPStatus.OK, r.status);
+        assertEquals("Should negotiate HTTP/1.1", HttpVersion.HTTP_1_1, r.version);
+        assertEquals("Should return 200 OK", HttpStatus.OK, r.status);
         assertTrue("Echo body should report the GET method", r.body.contains("Method: GET"));
     }
 
     @Test
     public void testHttp11CleartextPost() throws Exception {
         Result r = exchange(HTTP_PORT, false, true, "POST", "/echo", TEST_PAYLOAD);
-        assertEquals("Should negotiate HTTP/1.1", HTTPVersion.HTTP_1_1, r.version);
-        assertEquals("Should return 200 OK", HTTPStatus.OK, r.status);
+        assertEquals("Should negotiate HTTP/1.1", HttpVersion.HTTP_1_1, r.version);
+        assertEquals("Should return 200 OK", HttpStatus.OK, r.status);
         assertTrue("Echo body should contain the uploaded payload",
                 r.body.contains(TEST_PAYLOAD));
     }
@@ -144,16 +144,16 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
     @Test
     public void testHttp11TlsGet() throws Exception {
         Result r = exchange(HTTPS_PORT, true, true, "GET", "/test", null);
-        assertEquals("Forcing http/1.1 over TLS", HTTPVersion.HTTP_1_1, r.version);
-        assertEquals("Should return 200 OK", HTTPStatus.OK, r.status);
+        assertEquals("Forcing http/1.1 over TLS", HttpVersion.HTTP_1_1, r.version);
+        assertEquals("Should return 200 OK", HttpStatus.OK, r.status);
         assertTrue("Echo body should report the GET method", r.body.contains("Method: GET"));
     }
 
     @Test
     public void testHttp11TlsPost() throws Exception {
         Result r = exchange(HTTPS_PORT, true, true, "POST", "/echo", TEST_PAYLOAD);
-        assertEquals("Forcing http/1.1 over TLS", HTTPVersion.HTTP_1_1, r.version);
-        assertEquals("Should return 200 OK", HTTPStatus.OK, r.status);
+        assertEquals("Forcing http/1.1 over TLS", HttpVersion.HTTP_1_1, r.version);
+        assertEquals("Should return 200 OK", HttpStatus.OK, r.status);
         assertTrue("Echo body should contain the uploaded payload",
                 r.body.contains(TEST_PAYLOAD));
     }
@@ -161,16 +161,16 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
     @Test
     public void testHttp2TlsAlpnGet() throws Exception {
         Result r = exchange(HTTPS_PORT, true, false, "GET", "/test", null);
-        assertEquals("ALPN should negotiate h2 over TLS", HTTPVersion.HTTP_2_0, r.version);
-        assertEquals("Should return 200 OK", HTTPStatus.OK, r.status);
+        assertEquals("ALPN should negotiate h2 over TLS", HttpVersion.HTTP_2_0, r.version);
+        assertEquals("Should return 200 OK", HttpStatus.OK, r.status);
         assertTrue("Echo body should report the GET method", r.body.contains("Method: GET"));
     }
 
     @Test
     public void testHttp2TlsAlpnPost() throws Exception {
         Result r = exchange(HTTPS_PORT, true, false, "POST", "/echo", TEST_PAYLOAD);
-        assertEquals("ALPN should negotiate h2 over TLS", HTTPVersion.HTTP_2_0, r.version);
-        assertEquals("Should return 200 OK", HTTPStatus.OK, r.status);
+        assertEquals("ALPN should negotiate h2 over TLS", HttpVersion.HTTP_2_0, r.version);
+        assertEquals("Should return 200 OK", HttpStatus.OK, r.status);
         assertTrue("Echo body should contain the uploaded payload",
                 r.body.contains(TEST_PAYLOAD));
     }
@@ -185,16 +185,16 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
      */
     @Test
     public void testHttp2TlsAlpnSecondRequestOnSameConnection() throws Exception {
-        HTTPClient client = connect(HTTPS_PORT, true, false);
+        HttpClient client = connect(HTTPS_PORT, true, false);
         try {
             Result first = sendOneRequest(client, "GET", "/test", null);
-            assertEquals("First request should negotiate h2", HTTPVersion.HTTP_2_0, first.version);
-            assertEquals("First request should return 200 OK", HTTPStatus.OK, first.status);
+            assertEquals("First request should negotiate h2", HttpVersion.HTTP_2_0, first.version);
+            assertEquals("First request should return 200 OK", HttpStatus.OK, first.status);
 
             Result second = sendOneRequest(client, "GET", "/test2", null);
-            assertEquals("Second request should still be h2", HTTPVersion.HTTP_2_0, second.version);
+            assertEquals("Second request should still be h2", HttpVersion.HTTP_2_0, second.version);
             assertEquals("Second request on the same connection should return 200 OK, "
-                    + "not hang", HTTPStatus.OK, second.status);
+                    + "not hang", HttpStatus.OK, second.status);
             assertTrue("Second request's echo body should report the GET method",
                     second.body.contains("Method: GET"));
         } finally {
@@ -209,7 +209,7 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
      * of the initial 65535-byte receive window (RFC 9113 section 6.9,
      * {@code H2FlowControl.WINDOW_UPDATE_THRESHOLD}), so a first request
      * needs a response over ~32KB to trigger one. Gumdrop's own minimal
-     * {@code HTTPClient} never does this for the tiny bodies the other test
+     * {@code HttpClient} never does this for the tiny bodies the other test
      * above uses, so that test alone would pass even with the
      * WINDOW_UPDATE-triggered slot leak still present - only reproducible
      * (before the fix) with a client that sends stream-level WINDOW_UPDATE
@@ -222,18 +222,18 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
         // the default 65535-byte initial window.
         String largePayload = "x".repeat(50_000);
 
-        HTTPClient client = connect(HTTPS_PORT, true, false);
+        HttpClient client = connect(HTTPS_PORT, true, false);
         try {
             Result first = sendOneRequest(client, "POST", "/echo", largePayload);
-            assertEquals("First request should negotiate h2", HTTPVersion.HTTP_2_0, first.version);
-            assertEquals("First request should return 200 OK", HTTPStatus.OK, first.status);
+            assertEquals("First request should negotiate h2", HttpVersion.HTTP_2_0, first.version);
+            assertEquals("First request should return 200 OK", HttpStatus.OK, first.status);
             assertTrue("Large echoed response should be big enough to cross the "
                     + "WINDOW_UPDATE threshold", first.body.length() > 32_768);
 
             Result second = sendOneRequest(client, "GET", "/test2", null);
-            assertEquals("Second request should still be h2", HTTPVersion.HTTP_2_0, second.version);
+            assertEquals("Second request should still be h2", HttpVersion.HTTP_2_0, second.version);
             assertEquals("Second request after a WINDOW_UPDATE-triggering first response "
-                    + "should return 200 OK, not hang", HTTPStatus.OK, second.status);
+                    + "should return 200 OK, not hang", HttpStatus.OK, second.status);
         } finally {
             client.close();
         }
@@ -245,13 +245,13 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
 
     /** Result of a single request: negotiated version, status and body. */
     private static final class Result {
-        HTTPVersion version;
-        HTTPStatus status;
+        HttpVersion version;
+        HttpStatus status;
         String body;
     }
 
     /**
-     * Connects a fresh {@link HTTPClient}, performs a single request, records
+     * Connects a fresh {@link HttpClient}, performs a single request, records
      * the negotiated version, and closes the connection.
      *
      * @param port the target port
@@ -264,7 +264,7 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
      */
     private Result exchange(int port, boolean secure, boolean forceHttp11,
                             String method, String path, String payload) throws Exception {
-        HTTPClient client = connect(port, secure, forceHttp11);
+        HttpClient client = connect(port, secure, forceHttp11);
         try {
             return sendOneRequest(client, method, path, payload);
         } finally {
@@ -274,11 +274,11 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
 
     /**
      * Performs a single request/response exchange on an already-connected
-     * {@link HTTPClient}, without connecting or closing it - so callers can
+     * {@link HttpClient}, without connecting or closing it - so callers can
      * invoke this more than once on the same client to exercise connection
      * reuse (see {@link #testHttp2TlsAlpnSecondRequestOnSameConnection}).
      */
-    private Result sendOneRequest(HTTPClient client, String method, String path,
+    private Result sendOneRequest(HttpClient client, String method, String path,
                             String payload) throws Exception {
         Result result = new Result();
 
@@ -286,14 +286,14 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
         final AtomicReference<Exception> error = new AtomicReference<>();
         final ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        DefaultHTTPResponseHandler handler = new DefaultHTTPResponseHandler() {
+        DefaultHttpResponseHandler handler = new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 result.status = response.getStatus();
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 result.status = response.getStatus();
             }
 
@@ -316,7 +316,7 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
             }
         };
 
-        HTTPRequest request = client.request(method, path);
+        HttpRequest request = client.request(method, path);
         if (payload != null) {
             byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
             request.header("Content-Type", "text/plain; charset=UTF-8");
@@ -338,11 +338,11 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
     }
 
     /**
-     * Creates and connects an {@link HTTPClient}, waiting until the connection
+     * Creates and connects an {@link HttpClient}, waiting until the connection
      * (and TLS handshake, if secure) is established.
      */
-    private HTTPClient connect(int port, boolean secure, boolean forceHttp11) throws Exception {
-        HTTPClient client = new HTTPClient(TEST_HOST, port);
+    private HttpClient connect(int port, boolean secure, boolean forceHttp11) throws Exception {
+        HttpClient client = new HttpClient(TEST_HOST, port);
         // Keep the negotiated version deterministic: never let Alt-Svc silently
         // migrate the connection to h3 mid-test.
         client.setAltSvcEnabled(false);
@@ -358,7 +358,7 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
         final boolean isSecure = secure;
         final CountDownLatch connected = new CountDownLatch(1);
         final AtomicReference<Exception> error = new AtomicReference<>();
-        client.connect(new HTTPClientHandler() {
+        client.connect(new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 // For cleartext there is no security handshake to await.

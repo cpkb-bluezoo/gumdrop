@@ -31,12 +31,12 @@ import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
 /**
  * RFC 9298 -- bridges a generic HTTP/2 Extended CONNECT response ({@link
- * HTTPResponseHandler}) to a {@link ConnectUdpEventHandler}/{@link
+ * HttpResponseHandler}) to a {@link ConnectUdpEventHandler}/{@link
  * ConnectUdpSession} pair.
  *
  * <p>Unlike the h3 client (which has its own dedicated {@code
  * H3ClientStream}), h2 responses already route generically through
- * {@link HTTPResponseHandler} -- a {@code 200} to an Extended CONNECT is
+ * {@link HttpResponseHandler} -- a {@code 200} to an Extended CONNECT is
  * indistinguishable, at that layer, from a {@code 200} to any other
  * request. This class is what makes it CONNECT-UDP-shaped: {@link
  * #startResponseBody} signals acceptance (called as soon as the server's
@@ -53,28 +53,28 @@ import org.bluezoo.gumdrop.http.HttpDatagramContext;
  * @see ConnectUdpClient
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9298">RFC 9298</a>
  */
-class H2ConnectUdpResponseHandler extends DefaultHTTPResponseHandler {
+class H2ConnectUdpResponseHandler extends DefaultHttpResponseHandler {
 
-    private final HTTPRequest request;
+    private final HttpRequest request;
     private final ConnectUdpEventHandler eventHandler;
     private final CapsuleParser capsuleParser = new CapsuleParser();
 
     private boolean opened;
     private boolean failed;
 
-    H2ConnectUdpResponseHandler(HTTPRequest request, ConnectUdpEventHandler eventHandler) {
+    H2ConnectUdpResponseHandler(HttpRequest request, ConnectUdpEventHandler eventHandler) {
         this.request = request;
         this.eventHandler = eventHandler;
     }
 
     @Override
-    public void ok(HTTPResponse response) {
+    public void ok(HttpResponse response) {
         // Nothing to do yet -- acceptance is signalled from
         // startResponseBody(), once headers are known complete.
     }
 
     @Override
-    public void error(HTTPResponse response) {
+    public void error(HttpResponse response) {
         failed = true;
         eventHandler.error(new IOException(
                 "CONNECT-UDP request failed: " + response.getStatus()));
@@ -136,9 +136,9 @@ class H2ConnectUdpResponseHandler extends DefaultHTTPResponseHandler {
      */
     private static class H2ClientConnectUdpSession implements ConnectUdpSession {
 
-        private final HTTPRequest request;
+        private final HttpRequest request;
 
-        H2ClientConnectUdpSession(HTTPRequest request) {
+        H2ClientConnectUdpSession(HttpRequest request) {
             this.request = request;
         }
 

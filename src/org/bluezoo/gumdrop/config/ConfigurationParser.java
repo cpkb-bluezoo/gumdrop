@@ -85,6 +85,25 @@ public class ConfigurationParser extends DefaultHandler {
         DEFAULT_CLASS_NAMES = map;
     }
 
+    /**
+     * Legacy Gumdrop 2.x class names from {@code gumdroprc} XML. Case-only
+     * renames ({@code HTTPListener} → {@code HttpListener}) cannot use
+     * deprecated sibling types on case-insensitive file systems.
+     */
+    private static final Map<String, String> LEGACY_CLASS_ALIASES;
+    static {
+        Map<String, String> map = new LinkedHashMap<String, String>();
+        map.put("org.bluezoo.gumdrop.http.HTTPListener",
+                "org.bluezoo.gumdrop.http.HttpListener");
+        map.put("org.bluezoo.gumdrop.http.h3.HTTP3Listener",
+                "org.bluezoo.gumdrop.http.h3.Http3Listener");
+        map.put("org.bluezoo.gumdrop.http.client.HTTPClient",
+                "org.bluezoo.gumdrop.http.client.HttpClient");
+        map.put("org.bluezoo.gumdrop.http.HTTPService",
+                "org.bluezoo.gumdrop.http.HttpServer");
+        LEGACY_CLASS_ALIASES = map;
+    }
+
     private ComponentRegistry registry;
     private Locator locator;
     private Deque<ParseContext> contextStack = new ArrayDeque<>();
@@ -226,7 +245,7 @@ public class ConfigurationParser extends DefaultHandler {
         }
         
         try {
-            Class<?> clazz = Class.forName(className);
+            Class<?> clazz = loadClass(className);
             currentComponent = new ComponentDefinition(id, clazz);
             
             // Process simple attributes as properties
@@ -254,7 +273,7 @@ public class ConfigurationParser extends DefaultHandler {
         }
         
         try {
-            Class<?> clazz = Class.forName(className);
+            Class<?> clazz = loadClass(className);
             ComponentDefinition inlineComponent = new ComponentDefinition(null, clazz);
             
             // Process attributes as properties
@@ -310,7 +329,7 @@ public class ConfigurationParser extends DefaultHandler {
         }
 
         try {
-            Class<?> clazz = Class.forName(className);
+            Class<?> clazz = loadClass(className);
             ComponentDefinition listenerDef =
                     new ComponentDefinition(null, clazz);
 
@@ -406,7 +425,7 @@ public class ConfigurationParser extends DefaultHandler {
         }
 
         try {
-            Class<?> clazz = Class.forName(className);
+            Class<?> clazz = loadClass(className);
             ComponentDefinition contextDef =
                     new ComponentDefinition(null, clazz);
 
@@ -682,6 +701,14 @@ public class ConfigurationParser extends DefaultHandler {
             throw new IllegalArgumentException("No default class for element: " + elementName);
         }
         return className;
+    }
+
+    private static Class<?> loadClass(String className) throws ClassNotFoundException {
+        String resolved = LEGACY_CLASS_ALIASES.get(className);
+        if (resolved != null) {
+            className = resolved;
+        }
+        return Class.forName(className);
     }
     
     private String getAttributeName(Attributes atts, int index) {

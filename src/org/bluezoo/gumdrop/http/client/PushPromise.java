@@ -31,8 +31,8 @@ import org.bluezoo.gumdrop.http.Headers;
  * have been sent in a request for that resource. The client can choose
  * to accept or reject the push.
  *
- * <p>This interface is delivered to the {@link HTTPResponseHandler#pushPromise(PushPromise)}
- * callback. The handler must either call {@link #accept(HTTPResponseHandler)} to receive
+ * <p>This interface is delivered to the {@link HttpResponseHandler#pushPromise(PushPromise)}
+ * callback. The handler must either call {@link #accept(HttpResponseHandler)} to receive
  * the pushed response, or {@link #reject()} to cancel it.
  *
  * <p><strong>Example:</strong>
@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.http.Headers;
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPResponseHandler#pushPromise(PushPromise)
+ * @see HttpResponseHandler#pushPromise(PushPromise)
  */
 public interface PushPromise {
 
@@ -98,15 +98,15 @@ public interface PushPromise {
      * Accepts the push promise and provides a handler for the pushed response.
      *
      * <p>The provided handler will receive the same callbacks as a normal response:
-     * {@link HTTPResponseHandler#ok(HTTPResponse)}, {@link HTTPResponseHandler#header(String, String)},
-     * body content callbacks, and {@link HTTPResponseHandler#close()}.
+     * {@link HttpResponseHandler#ok(HttpResponse)}, {@link HttpResponseHandler#header(String, String)},
+     * body content callbacks, and {@link HttpResponseHandler#close()}.
      *
      * <p>This method must be called at most once. After calling this method,
      * {@link #reject()} must not be called.
      *
      * @param handler the handler to receive the pushed response
      */
-    void accept(HTTPResponseHandler handler);
+    void accept(HttpResponseHandler handler);
 
     /**
      * Rejects the push promise.
@@ -116,7 +116,7 @@ public interface PushPromise {
      * will be received for this push.
      *
      * <p>This method must be called at most once. After calling this method,
-     * {@link #accept(HTTPResponseHandler)} must not be called.
+     * {@link #accept(HttpResponseHandler)} must not be called.
      */
     void reject();
 }

@@ -26,11 +26,11 @@ import org.bluezoo.gumdrop.auth.SASLMechanism;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.json.JSONParser;
 import org.bluezoo.json.JSONDefaultHandler;
 import org.bluezoo.json.JSONException;
@@ -617,11 +617,11 @@ public class OAuthRealm implements Realm {
                            "&token_type_hint=access_token";
         byte[] bodyBytes = requestBody.getBytes(StandardCharsets.UTF_8);
         // Create HTTP client
-        HTTPClient client;
+        HttpClient client;
         if (selectorLoop != null) {
-            client = new HTTPClient(selectorLoop, serverHost, serverPort);
+            client = new HttpClient(selectorLoop, serverHost, serverPort);
         } else {
-            client = new HTTPClient(serverHost, serverPort);
+            client = new HttpClient(serverHost, serverPort);
         }
         client.setSecure(useHttps);
         // Use credentials for automatic authentication
@@ -630,7 +630,7 @@ public class OAuthRealm implements Realm {
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<TokenValidationResult> result = new AtomicReference<TokenValidationResult>();
         // Create response handler with streaming JSON parsing
-        DefaultHTTPResponseHandler responseHandler = new DefaultHTTPResponseHandler() {
+        DefaultHttpResponseHandler responseHandler = new DefaultHttpResponseHandler() {
             private final IntrospectionResponseHandler jsonHandler = new IntrospectionResponseHandler();
             private final JSONParser jsonParser = new JSONParser();
             private boolean parserInitialized = false;
@@ -638,13 +638,13 @@ public class OAuthRealm implements Realm {
             private int statusCode = 0;
             
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 statusCode = response.getStatus().code;
                 initParser();
             }
             
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 statusCode = response.getStatus().code;
                 String msg = MessageFormat.format(L10N.getString("err.oauth_token_introspection_error"), statusCode);
                 LOGGER.warning(msg);
@@ -705,13 +705,13 @@ public class OAuthRealm implements Realm {
         };
         
         // Connect and make request
-        client.connect(new HTTPClientHandler() {
+        client.connect(new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 LOGGER.fine(L10N.getString("debug.oauth_connected"));
                 
                 // Create and send the POST request
-                HTTPRequest request = client.post(introspectionEndpoint);
+                HttpRequest request = client.post(introspectionEndpoint);
                 request.header("Content-Type", "application/x-www-form-urlencoded");
                 request.header("Accept", "application/json");
                 request.header("Authorization", basicAuthHeader);

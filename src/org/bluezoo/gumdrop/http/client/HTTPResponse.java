@@ -1,5 +1,5 @@
 /*
- * HTTPResponse.java
+ * HttpResponse.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -21,13 +21,13 @@
 
 package org.bluezoo.gumdrop.http.client;
 
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.HttpStatus;
 
 /**
- * Represents an HTTP response status delivered to an {@link HTTPResponseHandler}.
+ * Represents an HTTP response status delivered to an {@link HttpResponseHandler}.
  *
  * <p>This class provides only the essential status information. Individual headers
- * are delivered separately via the {@link HTTPResponseHandler#header(String, String)}
+ * are delivered separately via the {@link HttpResponseHandler#header(String, String)}
  * callback, which allows for streaming processing and proper handling of trailer
  * headers.
  *
@@ -37,21 +37,21 @@ import org.bluezoo.gumdrop.http.HTTPStatus;
  * <p><strong>Thread Safety:</strong> This class is immutable and thread-safe.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPResponseHandler
- * @see HTTPStatus
+ * @see HttpResponseHandler
+ * @see HttpStatus
  */
-public final class HTTPResponse {
+public final class HttpResponse {
 
-    private final HTTPStatus status;
+    private final HttpStatus status;
     private final String redirectLocation;
-    private final HTTPResponse previousResponse;
+    private final HttpResponse previousResponse;
 
     /**
      * Creates an HTTP response with the specified status.
      *
      * @param status the HTTP status
      */
-    public HTTPResponse(HTTPStatus status) {
+    public HttpResponse(HttpStatus status) {
         this(status, null, null);
     }
 
@@ -61,7 +61,7 @@ public final class HTTPResponse {
      * @param status the HTTP status
      * @param redirectLocation the redirect location (for 3xx responses)
      */
-    public HTTPResponse(HTTPStatus status, String redirectLocation) {
+    public HttpResponse(HttpStatus status, String redirectLocation) {
         this(status, redirectLocation, null);
     }
 
@@ -73,7 +73,7 @@ public final class HTTPResponse {
      * @param redirectLocation the redirect location (for 3xx responses)
      * @param previousResponse the previous response in a redirect chain
      */
-    public HTTPResponse(HTTPStatus status, String redirectLocation, HTTPResponse previousResponse) {
+    public HttpResponse(HttpStatus status, String redirectLocation, HttpResponse previousResponse) {
         if (status == null) {
             throw new NullPointerException("status");
         }
@@ -87,7 +87,7 @@ public final class HTTPResponse {
      *
      * @return the status (never null)
      */
-    public HTTPStatus getStatus() {
+    public HttpStatus getStatus() {
         return status;
     }
 
@@ -112,7 +112,7 @@ public final class HTTPResponse {
      *
      * @return the previous response, or null
      */
-    public HTTPResponse getPreviousResponse() {
+    public HttpResponse getPreviousResponse() {
         return previousResponse;
     }
 
@@ -123,7 +123,7 @@ public final class HTTPResponse {
      */
     public int getRedirectCount() {
         int count = 0;
-        HTTPResponse prev = previousResponse;
+        HttpResponse prev = previousResponse;
         while (prev != null) {
             count++;
             prev = prev.previousResponse;

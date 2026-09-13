@@ -32,9 +32,9 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelAdapter;
 import org.bluezoo.gumdrop.grpc.proto.ProtoParseException;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParseException;
 import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
 
@@ -56,7 +56,7 @@ public class GrpcClient {
         this.protoFile = protoFile;
     }
 
-    public void unaryCall(HTTPClient httpClient, String path,
+    public void unaryCall(HttpClient httpClient, String path,
                           ByteBuffer requestMessage,
                           String responseTypeName,
                           ProtoMessageHandler messageHandler) {
@@ -72,13 +72,13 @@ public class GrpcClient {
         }, responseTypeName);
     }
 
-    private void unaryCall(HTTPClient httpClient, String path,
+    private void unaryCall(HttpClient httpClient, String path,
                            ByteBuffer requestMessage,
                            GrpcResponseHandler handler,
                            String responseTypeName) {
         ByteBuffer framed = GrpcFraming.frame(requestMessage);
 
-        HTTPRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path);
         request.header("Content-Type", CONTENT_TYPE_GRPC);
         request.header("Te", "trailers");
 
@@ -91,7 +91,7 @@ public class GrpcClient {
     /**
      * Performs a unary gRPC call with a pre-serialized request message.
      */
-    public void unaryCall(HTTPClient httpClient, String path,
+    public void unaryCall(HttpClient httpClient, String path,
                           ByteBuffer requestMessage,
                           GrpcResponseHandler handler) {
         RpcDescriptor rpc = protoFile.getRpcByPath(path);
@@ -99,7 +99,7 @@ public class GrpcClient {
         unaryCall(httpClient, path, requestMessage, handler, responseTypeName);
     }
 
-    private static final class StreamingResponseHandler implements HTTPResponseHandler {
+    private static final class StreamingResponseHandler implements HttpResponseHandler {
 
         private final GrpcResponseHandler handler;
         private final ProtoFile protoFile;
@@ -120,11 +120,11 @@ public class GrpcClient {
         }
 
         @Override
-        public void ok(org.bluezoo.gumdrop.http.client.HTTPResponse response) {
+        public void ok(org.bluezoo.gumdrop.http.client.HttpResponse response) {
         }
 
         @Override
-        public void error(org.bluezoo.gumdrop.http.client.HTTPResponse response) {
+        public void error(org.bluezoo.gumdrop.http.client.HttpResponse response) {
             fail(new GrpcException("gRPC error: " + response.getStatus()));
         }
 
@@ -144,7 +144,7 @@ public class GrpcClient {
             // through to endResponseBody()'s generic "Incomplete gRPC
             // response frame" failure, discarding the real status code and
             // message. header() is called for both leading and trailing
-            // headers (see HTTPResponseHandler's Javadoc), so match by
+            // headers (see HttpResponseHandler's Javadoc), so match by
             // name rather than assuming position.
             if ("grpc-status".equalsIgnoreCase(name)) {
                 grpcStatus = value;

@@ -23,9 +23,9 @@ package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
@@ -51,7 +51,7 @@ import java.util.logging.Logger;
 /**
  * JUnit 4 tests for the WebDAV {@link FileHandler}, exercising the request
  * methods end-to-end through {@link FileHandler#headers} with a recording
- * {@link HTTPResponseState} double.
+ * {@link HttpResponseState} double.
  *
  * <p>These tests validate that the {@link org.bluezoo.gumdrop.StorageExecutor}
  * offload refactor preserves response semantics. Because no
@@ -142,13 +142,13 @@ public class FileHandlerTest {
     @Test
     public void testGetMissing() throws Exception {
         RecordingState st = dispatch(newHandler(true), "GET", "/nope.txt", null);
-        assertEquals(HTTPStatus.NOT_FOUND.code, st.status());
+        assertEquals(HttpStatus.NOT_FOUND.code, st.status());
     }
 
     @Test
     public void testHeadFileNoBody() throws Exception {
         RecordingState st = dispatch(newHandler(true), "HEAD", "/hello.txt", null);
-        assertEquals(HTTPStatus.OK.code, st.status());
+        assertEquals(HttpStatus.OK.code, st.status());
         assertEquals(String.valueOf(HELLO.length()),
                 st.header("Content-Length"));
         assertEquals("text/plain", st.header("Content-Type"));
@@ -158,14 +158,14 @@ public class FileHandlerTest {
     @Test
     public void testGetFileBody() throws Exception {
         RecordingState st = dispatch(newHandler(true), "GET", "/hello.txt", null);
-        assertEquals(HTTPStatus.OK.code, st.status());
+        assertEquals(HttpStatus.OK.code, st.status());
         assertEquals(HELLO, new String(st.body(), StandardCharsets.UTF_8));
     }
 
     @Test
     public void testGetDirectoryListing() throws Exception {
         RecordingState st = dispatch(newHandler(true), "GET", "/", null);
-        assertEquals(HTTPStatus.OK.code, st.status());
+        assertEquals(HttpStatus.OK.code, st.status());
         assertTrue(st.header("Content-Type").startsWith("text/html"));
         String html = new String(st.body(), StandardCharsets.UTF_8);
         assertTrue("listing should mention hello.txt",
@@ -178,11 +178,11 @@ public class FileHandlerTest {
     public void testGetNotModified() throws Exception {
         long lm = Files.getLastModifiedTime(helloFile).toMillis();
         // If-Modified-Since at/after the file's mtime -> 304 Not Modified
-        String ims = new org.bluezoo.gumdrop.http.HTTPDateFormat()
+        String ims = new org.bluezoo.gumdrop.http.HttpDateFormat()
                 .format(lm + 60000);
         RecordingState st = dispatch(newHandler(true), "GET", "/hello.txt",
                 headers("If-Modified-Since", ims));
-        assertEquals(HTTPStatus.NOT_MODIFIED.code, st.status());
+        assertEquals(HttpStatus.NOT_MODIFIED.code, st.status());
     }
 
     // ── DELETE ──
@@ -190,20 +190,20 @@ public class FileHandlerTest {
     @Test
     public void testDeleteFile() throws Exception {
         RecordingState st = dispatch(newHandler(true), "DELETE", "/hello.txt", null);
-        assertEquals(HTTPStatus.NO_CONTENT.code, st.status());
+        assertEquals(HttpStatus.NO_CONTENT.code, st.status());
         assertFalse(Files.exists(helloFile));
     }
 
     @Test
     public void testDeleteMissing() throws Exception {
         RecordingState st = dispatch(newHandler(true), "DELETE", "/nope.txt", null);
-        assertEquals(HTTPStatus.NOT_FOUND.code, st.status());
+        assertEquals(HttpStatus.NOT_FOUND.code, st.status());
     }
 
     @Test
     public void testDeleteCollectionRecursive() throws Exception {
         RecordingState st = dispatch(newHandler(true), "DELETE", "/sub", null);
-        assertEquals(HTTPStatus.NO_CONTENT.code, st.status());
+        assertEquals(HttpStatus.NO_CONTENT.code, st.status());
         assertFalse(Files.exists(nestedFile));
         assertFalse(Files.exists(subDir));
     }
@@ -211,7 +211,7 @@ public class FileHandlerTest {
     @Test
     public void testDeleteNotAllowed() throws Exception {
         RecordingState st = dispatch(newHandler(false), "DELETE", "/hello.txt", null);
-        assertEquals(HTTPStatus.METHOD_NOT_ALLOWED.code, st.status());
+        assertEquals(HttpStatus.METHOD_NOT_ALLOWED.code, st.status());
         assertTrue(Files.exists(helloFile));
     }
 
@@ -220,14 +220,14 @@ public class FileHandlerTest {
     @Test
     public void testMkcolCreates() throws Exception {
         RecordingState st = dispatch(newHandler(true), "MKCOL", "/newcol", null);
-        assertEquals(HTTPStatus.CREATED.code, st.status());
+        assertEquals(HttpStatus.CREATED.code, st.status());
         assertTrue(Files.isDirectory(root.resolve("newcol")));
     }
 
     @Test
     public void testMkcolExisting() throws Exception {
         RecordingState st = dispatch(newHandler(true), "MKCOL", "/sub", null);
-        assertEquals(HTTPStatus.METHOD_NOT_ALLOWED.code, st.status());
+        assertEquals(HttpStatus.METHOD_NOT_ALLOWED.code, st.status());
     }
 
     // ── COPY / MOVE ──
@@ -236,7 +236,7 @@ public class FileHandlerTest {
     public void testCopyFile() throws Exception {
         RecordingState st = dispatch(newHandler(true), "COPY", "/hello.txt",
                 headers(DAVConstants.HEADER_DESTINATION, "/copy.txt"));
-        assertEquals(HTTPStatus.CREATED.code, st.status());
+        assertEquals(HttpStatus.CREATED.code, st.status());
         Path copy = root.resolve("copy.txt");
         assertTrue(Files.exists(copy));
         assertEquals(HELLO, new String(Files.readAllBytes(copy),
@@ -248,7 +248,7 @@ public class FileHandlerTest {
     public void testMoveFile() throws Exception {
         RecordingState st = dispatch(newHandler(true), "MOVE", "/hello.txt",
                 headers(DAVConstants.HEADER_DESTINATION, "/moved.txt"));
-        assertEquals(HTTPStatus.CREATED.code, st.status());
+        assertEquals(HttpStatus.CREATED.code, st.status());
         assertFalse("source should be gone after MOVE", Files.exists(helloFile));
         Path moved = root.resolve("moved.txt");
         assertTrue(Files.exists(moved));
@@ -262,7 +262,7 @@ public class FileHandlerTest {
     public void testPropfindFileDepth0() throws Exception {
         RecordingState st = dispatch(newHandler(true), "PROPFIND", "/hello.txt",
                 headers(DAVConstants.HEADER_DEPTH, "0"));
-        assertEquals(HTTPStatus.MULTI_STATUS.code, st.status());
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
         String xml = new String(st.body(), StandardCharsets.UTF_8);
         assertTrue(xml.contains("hello.txt"));
         assertTrue(xml.contains("HTTP/1.1 200 OK"));
@@ -275,7 +275,7 @@ public class FileHandlerTest {
     public void testPropfindDirDepth1() throws Exception {
         RecordingState st = dispatch(newHandler(true), "PROPFIND", "/",
                 headers(DAVConstants.HEADER_DEPTH, "1"));
-        assertEquals(HTTPStatus.MULTI_STATUS.code, st.status());
+        assertEquals(HttpStatus.MULTI_STATUS.code, st.status());
         String xml = new String(st.body(), StandardCharsets.UTF_8);
         assertTrue("depth-1 listing should include hello.txt",
                 xml.contains("hello.txt"));
@@ -287,17 +287,17 @@ public class FileHandlerTest {
     public void testPropfindMissing() throws Exception {
         RecordingState st = dispatch(newHandler(true), "PROPFIND", "/nope",
                 headers(DAVConstants.HEADER_DEPTH, "0"));
-        assertEquals(HTTPStatus.NOT_FOUND.code, st.status());
+        assertEquals(HttpStatus.NOT_FOUND.code, st.status());
     }
 
-    // ── Recording HTTPResponseState double ──
+    // ── Recording HttpResponseState double ──
 
     /**
-     * A minimal {@link HTTPResponseState} that records the response and runs
+     * A minimal {@link HttpResponseState} that records the response and runs
      * {@code execute}/{@code onWritable} callbacks inline (simulating an
      * always-writable transport on the calling thread).
      */
-    private static final class RecordingState implements HTTPResponseState {
+    private static final class RecordingState implements HttpResponseState {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut = new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);
@@ -419,8 +419,8 @@ public class FileHandlerTest {
         }
 
         @Override
-        public HTTPVersion getVersion() {
-            return HTTPVersion.HTTP_1_1;
+        public HttpVersion getVersion() {
+            return HttpVersion.HTTP_1_1;
         }
 
         @Override

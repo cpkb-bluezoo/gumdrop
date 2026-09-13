@@ -25,13 +25,13 @@ import static org.junit.Assert.*;
  */
 public class StreamRequestBodyLimitTest {
 
-    private static class StubConnection implements HTTPConnectionLike {
+    private static class StubConnection implements HttpConnectionLike {
         long maxRequestBodySize = 10;
-        HTTPVersion version = HTTPVersion.HTTP_1_1;
+        HttpVersion version = HttpVersion.HTTP_1_1;
         int lastStatusCode = -1;
 
         @Override public String getScheme() { return "http"; }
-        @Override public HTTPVersion getVersion() { return version; }
+        @Override public HttpVersion getVersion() { return version; }
         @Override public SocketAddress getRemoteSocketAddress() {
             return new InetSocketAddress("127.0.0.1", 12345);
         }
@@ -39,7 +39,7 @@ public class StreamRequestBodyLimitTest {
             return new InetSocketAddress("127.0.0.1", 80);
         }
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
-        @Override public HTTPRequestHandlerFactory getHandlerFactory() { return null; }
+        @Override public HttpRequestHandlerFactory getHandlerFactory() { return null; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
                 Headers headers, boolean endStream) {
             lastStatusCode = statusCode;
@@ -57,9 +57,9 @@ public class StreamRequestBodyLimitTest {
         @Override public Trace getTrace() { return null; }
         @Override public void setTrace(Trace trace) { }
         @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public HTTPServerMetrics getServerMetrics() { return null; }
+        @Override public HttpServerMetrics getServerMetrics() { return null; }
         @Override public boolean isEnablePush() { return false; }
-        @Override public Stream newStream(HTTPConnectionLike connection, int streamId) {
+        @Override public Stream newStream(HttpConnectionLike connection, int streamId) {
             return new Stream(connection, streamId);
         }
         @Override public int getNextServerStreamId() { return 2; }
@@ -71,7 +71,7 @@ public class StreamRequestBodyLimitTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return maxRequestBodySize; }
-        @Override public HTTPAuthenticationProvider getAuthenticationProvider() { return null; }
+        @Override public HttpAuthenticationProvider getAuthenticationProvider() { return null; }
         @Override public void onWritable(int streamId, Runnable callback) { }
         @Override public void pauseRead(int streamId) { }
         @Override public void resumeRead(int streamId) { }
@@ -111,7 +111,7 @@ public class StreamRequestBodyLimitTest {
     @Test
     public void testHttp2ContentLengthExceedsMaxRejectedAtHeaders() throws Exception {
         StubConnection conn = new StubConnection();
-        conn.version = HTTPVersion.HTTP_2_0;
+        conn.version = HttpVersion.HTTP_2_0;
         Stream stream = new Stream(conn, 1);
         stream.addHeader(new Header(":method", "POST"));
         stream.addHeader(new Header(":scheme", "https"));

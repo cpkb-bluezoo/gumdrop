@@ -28,16 +28,16 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpSession;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 /**
  * RFC 9298 -- bridges a generic HTTP/3 Extended CONNECT response ({@link
- * org.bluezoo.gumdrop.http.client.HTTPResponseHandler}) to a {@link
+ * org.bluezoo.gumdrop.http.client.HttpResponseHandler}) to a {@link
  * ConnectUdpEventHandler}/{@link ConnectUdpSession} pair.
  *
  * <p>{@link H3ClientStream} has no notion of CONNECT-UDP at all -- it
- * always calls the ordinary {@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler}
+ * always calls the ordinary {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler}
  * callback sequence, and this class is what reinterprets that sequence as
  * a UDP tunnel: {@link #startResponseBody} signals acceptance (called as
  * soon as headers are known complete -- see {@link H3ClientStream}'s own
@@ -50,21 +50,21 @@ import org.bluezoo.gumdrop.http.client.HTTPResponse;
  * application is a separate nested class -- not this class itself --
  * exactly like {@link H3ClientWebSocketResponseHandler} keeps its
  * WebSocket-session adapter separate from the response handler: {@link
- * ConnectUdpSession} and {@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler}
+ * ConnectUdpSession} and {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler}
  * both declare a no-arg {@code close()} with opposite meanings (an
  * application-requested tunnel close vs. a framework notification that
  * the response is complete), so one class cannot implement both without
  * the two colliding into a single, wrongly-overloaded method.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTP3ClientHandler#connectUdp
+ * @see Http3ClientHandler#connectUdp
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9298">RFC 9298</a>
  */
-class H3ClientConnectUdpResponseHandler extends DefaultHTTPResponseHandler {
+class H3ClientConnectUdpResponseHandler extends DefaultHttpResponseHandler {
 
     private final ConnectUdpEventHandler eventHandler;
 
-    // Bound by HTTP3ClientHandler.connectUdp immediately after both this
+    // Bound by Http3ClientHandler.connectUdp immediately after both this
     // handler and its H3ClientStream are constructed -- see
     // H3ClientWebSocketResponseHandler.bindStream's own documentation for
     // why construction can't just take this in the constructor.
@@ -82,13 +82,13 @@ class H3ClientConnectUdpResponseHandler extends DefaultHTTPResponseHandler {
     }
 
     @Override
-    public void ok(HTTPResponse response) {
+    public void ok(HttpResponse response) {
         // Nothing to do yet -- acceptance is signalled from
         // startResponseBody(), once headers are known complete.
     }
 
     @Override
-    public void error(HTTPResponse response) {
+    public void error(HttpResponse response) {
         failed = true;
         eventHandler.error(new IOException(
                 "CONNECT-UDP request failed: " + response.getStatus()));

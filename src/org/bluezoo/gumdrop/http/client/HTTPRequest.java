@@ -1,5 +1,5 @@
 /*
- * HTTPRequest.java
+ * HttpRequest.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -26,18 +26,18 @@ import java.nio.ByteBuffer;
 /**
  * Represents an HTTP request to be sent by an HTTP client.
  *
- * <p>Instances are obtained from an {@link HTTPClientProtocolHandler} via factory methods
- * like {@link HTTPClientProtocolHandler#get(String)}, {@link HTTPClientProtocolHandler#post(String)}, etc.
- * The request is configured by calling setter methods, then sent via {@link #send(HTTPResponseHandler)}
- * or {@link #startRequestBody(HTTPResponseHandler)}.
+ * <p>Instances are obtained from an {@link HttpClientProtocolHandler} via factory methods
+ * like {@link HttpClientProtocolHandler#get(String)}, {@link HttpClientProtocolHandler#post(String)}, etc.
+ * The request is configured by calling setter methods, then sent via {@link #send(HttpResponseHandler)}
+ * or {@link #startRequestBody(HttpResponseHandler)}.
  *
  * <h3>Simple Request (No Body)</h3>
  * <pre>
- * HTTPRequest request = session.get("/api/users");
+ * HttpRequest request = session.get("/api/users");
  * request.header("Accept", "application/json");
- * request.send(new DefaultHTTPResponseHandler() {
+ * request.send(new DefaultHttpResponseHandler() {
  *     &#64;Override
- *     public void ok(HTTPResponse response) {
+ *     public void ok(HttpResponse response) {
  *         // Handle success
  *     }
  * });
@@ -45,7 +45,7 @@ import java.nio.ByteBuffer;
  *
  * <h3>Request with Body</h3>
  * <pre>
- * HTTPRequest request = session.post("/api/users");
+ * HttpRequest request = session.post("/api/users");
  * request.header("Content-Type", "application/json");
  * request.startRequestBody(handler);
  * request.requestBodyContent(ByteBuffer.wrap(jsonData));
@@ -69,17 +69,17 @@ import java.nio.ByteBuffer;
  *
  * <h3>HTTP/2 Priority (Optional)</h3>
  * <pre>
- * HTTPRequest request = session.get("/style.css");
+ * HttpRequest request = session.get("/style.css");
  * request.setPriority(200);  // Higher priority (1-256)
  * request.setDependency(htmlRequest);  // Depends on HTML request
  * request.send(handler);
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTPClientProtocolHandler
- * @see HTTPResponseHandler
+ * @see HttpClientProtocolHandler
+ * @see HttpResponseHandler
  */
-public interface HTTPRequest {
+public interface HttpRequest {
 
     // ─────────────────────────────────────────────────────────────────────────
     // Request Configuration
@@ -118,7 +118,7 @@ public interface HTTPRequest {
      *
      * @param parent the parent request this depends on
      */
-    void dependency(HTTPRequest parent);
+    void dependency(HttpRequest parent);
 
     /**
      * Sets the exclusive dependency flag for HTTP/2 stream prioritization.
@@ -141,12 +141,12 @@ public interface HTTPRequest {
      * <p>Use this for GET, HEAD, DELETE, and other methods that don't have
      * a request body. The response will be delivered to the provided handler.
      *
-     * <p>This method must not be called if {@link #startRequestBody(HTTPResponseHandler)}
+     * <p>This method must not be called if {@link #startRequestBody(HttpResponseHandler)}
      * has already been called.
      *
      * @param handler the handler to receive response events
      */
-    void send(HTTPResponseHandler handler);
+    void send(HttpResponseHandler handler);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Sending (With Body)
@@ -158,12 +158,12 @@ public interface HTTPRequest {
      * <p>After calling this method, use {@link #requestBodyContent(ByteBuffer)}
      * to send body data, then {@link #endRequestBody()} to complete the request.
      *
-     * <p>This method must not be called if {@link #send(HTTPResponseHandler)}
+     * <p>This method must not be called if {@link #send(HttpResponseHandler)}
      * has already been called.
      *
      * @param handler the handler to receive response events
      */
-    void startRequestBody(HTTPResponseHandler handler);
+    void startRequestBody(HttpResponseHandler handler);
 
     /**
      * Sends request body data.
@@ -200,7 +200,7 @@ public interface HTTPRequest {
      * <p>For HTTP/2, this sends an RST_STREAM frame. For HTTP/1.x, this
      * may close the connection.
      *
-     * <p>The handler's {@link HTTPResponseHandler#failed(Exception)} method
+     * <p>The handler's {@link HttpResponseHandler#failed(Exception)} method
      * will be called with a {@link java.util.concurrent.CancellationException}.
      */
     void cancel();

@@ -42,7 +42,7 @@ import static org.junit.Assert.*;
  * Regression test: an HTTP/2 request with no body (client's HEADERS frame
  * carries END_STREAM) whose handler answers entirely from within its
  * {@code headers()} callback - the common, fast case, and exactly the
- * pattern shown in {@link DefaultHTTPRequestHandler}'s own class Javadoc -
+ * pattern shown in {@link DefaultHttpRequestHandler}'s own class Javadoc -
  * must free its {@code activeStreams} concurrency slot once the exchange is
  * done.
  *
@@ -71,13 +71,13 @@ import static org.junit.Assert.*;
  */
 public class HTTPProtocolHandlerSynchronousH2ResponseTest {
 
-    /** Answers entirely within headers(), like the DefaultHTTPRequestHandler javadoc example. */
-    private static final class SynchronousGetHandler extends DefaultHTTPRequestHandler {
+    /** Answers entirely within headers(), like the DefaultHttpRequestHandler javadoc example. */
+    private static final class SynchronousGetHandler extends DefaultHttpRequestHandler {
         @Override
-        public void headers(HTTPResponseState state, Headers headers) {
+        public void headers(HttpResponseState state, Headers headers) {
             if ("GET".equals(headers.getMethod())) {
                 Headers response = new Headers();
-                response.status(HTTPStatus.OK);
+                response.status(HttpStatus.OK);
                 response.add("content-type", "text/plain");
                 state.headers(response);
                 state.startResponseBody();
@@ -121,14 +121,14 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
         @Override public boolean isSessionResumed() { return false; }
     }
 
-    private HTTPProtocolHandler connection;
+    private HttpProtocolHandler connection;
 
     @Before
     public void setUp() {
-        HTTPListener listener = new HTTPListener();
+        HttpListener listener = new HttpListener();
         listener.setHandlerFactory((state, headers) -> new SynchronousGetHandler());
 
-        connection = new HTTPProtocolHandler(listener);
+        connection = new HttpProtocolHandler(listener);
         connection.connected(new NoopEndpoint());
         // Negotiate HTTP/2 via ALPN, then receive the client's initial
         // SETTINGS frame - the two steps that bring up hpackDecoder/Encoder
@@ -139,7 +139,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
     }
 
     private ByteBuffer encodeGetHeaders(String path) throws Exception {
-        Encoder encoder = new Encoder(4096, HTTPListener.DEFAULT_MAX_HEADER_LIST_SIZE);
+        Encoder encoder = new Encoder(4096, HttpListener.DEFAULT_MAX_HEADER_LIST_SIZE);
         Headers request = new Headers();
         request.add(new Header(":method", "GET"));
         request.add(new Header(":scheme", "https"));
@@ -168,7 +168,7 @@ public class HTTPProtocolHandlerSynchronousH2ResponseTest {
     @Test
     public void testManySequentialBodylessGetsDoNotExhaustConcurrencyLimit() throws Exception {
         // Default SETTINGS_MAX_CONCURRENT_STREAMS is 100 (see the
-        // HTTPProtocolHandler(HTTPListener) constructor); well more than
+        // HttpProtocolHandler(HttpListener) constructor); well more than
         // 100 sequential requests must all succeed rather than the server
         // starting to RST_STREAM(REFUSED_STREAM) once leaked slots pile up
         // to that limit.

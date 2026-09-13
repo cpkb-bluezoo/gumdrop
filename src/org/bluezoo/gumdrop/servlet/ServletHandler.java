@@ -22,11 +22,11 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
+import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -49,12 +49,12 @@ import java.util.logging.Logger;
  * {@code pauseRequestBody()}/{@code resumeRequestBody()} — rather than
  * blocking the SelectorLoop thread when the servlet reads slower than the
  * network delivers), and response body data is streamed to {@link
- * HTTPResponseState} as the servlet writes it, rather than buffered in
+ * HttpResponseState} as the servlet writes it, rather than buffered in
  * full (issue #120).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class ServletHandler extends DefaultHTTPRequestHandler {
+class ServletHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ServletHandler.class.getName());
 
@@ -63,7 +63,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     private final int bufferSize;
 
     // The HTTP response state - provides connection info and response sending
-    private HTTPResponseState state;
+    private HttpResponseState state;
 
     // Non-blocking bridge for delivering request body to the servlet
     private RequestBodyStream bodyStream;
@@ -105,11 +105,11 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPRequestHandler implementation
+    // HttpRequestHandler implementation
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         this.state = state;
 
         // Check if this is trailer headers (after body)
@@ -172,12 +172,12 @@ class ServletHandler extends DefaultHTTPRequestHandler {
         } catch (IOException e) {
             String message = ServletService.L10N.getString("error.create_pipe");
             LOGGER.log(Level.SEVERE, message, e);
-            sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+            sendError(HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
     @Override
-    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
         if (bodyStream == null) {
             return;
         }
@@ -197,12 +197,12 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void endRequestBody(HTTPResponseState state) {
+    public void endRequestBody(HttpResponseState state) {
         requestFinished.set(true);
     }
 
     @Override
-    public void requestComplete(HTTPResponseState state) {
+    public void requestComplete(HttpResponseState state) {
         // Signal EOF to the servlet's InputStream
         if (bodyStream != null) {
             bodyStream.finish();
@@ -218,10 +218,10 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns the HTTPResponseState for this request.
+     * Returns the HttpResponseState for this request.
      * This provides connection info, TLS info, and response sending.
      */
-    HTTPResponseState getState() {
+    HttpResponseState getState() {
         return state;
     }
 
@@ -464,7 +464,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
 
     private Headers buildResponseHeaders() {
         Headers headers = new Headers();
-        headers.status(HTTPStatus.fromCode(statusCode));
+        headers.status(HttpStatus.fromCode(statusCode));
         if (responseHeaders != null) {
             for (Header header : responseHeaders) {
                 headers.add(header);
@@ -528,14 +528,14 @@ class ServletHandler extends DefaultHTTPRequestHandler {
      * providing backpressure instead of unbounded queueing.
      */
     void serviceUnavailable() {
-        sendError(HTTPStatus.SERVICE_UNAVAILABLE);
+        sendError(HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Private methods
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void sendError(HTTPStatus status) {
+    private void sendError(HttpStatus status) {
         Headers headers = new Headers();
         headers.status(status);
         headers.add("Content-Length", "0");
@@ -544,7 +544,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     }
 
     /**
-     * Sends the buffered response via {@link HTTPResponseState}.
+     * Sends the buffered response via {@link HttpResponseState}.
      *
      * <p>If the response state is owned by a SelectorLoop and we are not
      * on that thread, the actual send is marshalled onto the SelectorLoop

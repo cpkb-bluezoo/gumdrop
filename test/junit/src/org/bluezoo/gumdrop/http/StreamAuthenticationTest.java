@@ -39,10 +39,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import static org.junit.Assert.*;
 
 /**
- * Regression tests for issue #115: an {@link HTTPAuthenticationProvider}
+ * Regression tests for issue #115: an {@link HttpAuthenticationProvider}
  * configured on a service (e.g. via {@code HTTPService.setRealm}, which
  * {@code WebDAVService} inherits) was stored on {@code
- * HTTPProtocolHandler}/{@code Stream} but never actually consulted, so no
+ * HttpProtocolHandler}/{@code Stream} but never actually consulted, so no
  * HTTP/1.1 or HTTP/2 request was ever rejected for missing or invalid
  * credentials regardless of configuration.
  *
@@ -55,7 +55,7 @@ public class StreamAuthenticationTest {
     private static final String PASSWORD = "secret";
 
     /** Simple HTTP Basic provider, accepting only USERNAME/PASSWORD. */
-    private static final class TestBasicProvider extends HTTPAuthenticationProvider {
+    private static final class TestBasicProvider extends HttpAuthenticationProvider {
         @Override protected String getAuthMethod() {
             return HttpServletRequest.BASIC_AUTH;
         }
@@ -82,15 +82,15 @@ public class StreamAuthenticationTest {
                 creds.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
     }
 
-    private static class StubConnection implements HTTPConnectionLike {
+    private static class StubConnection implements HttpConnectionLike {
         long maxRequestBodySize = 0; // unlimited
-        HTTPVersion version = HTTPVersion.HTTP_1_1;
-        HTTPAuthenticationProvider authProvider;
+        HttpVersion version = HttpVersion.HTTP_1_1;
+        HttpAuthenticationProvider authProvider;
         int lastStatusCode = -1;
         Headers lastResponseHeaders;
 
         @Override public String getScheme() { return "http"; }
-        @Override public HTTPVersion getVersion() { return version; }
+        @Override public HttpVersion getVersion() { return version; }
         @Override public SocketAddress getRemoteSocketAddress() {
             return new InetSocketAddress("127.0.0.1", 12345);
         }
@@ -98,7 +98,7 @@ public class StreamAuthenticationTest {
             return new InetSocketAddress("127.0.0.1", 80);
         }
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
-        @Override public HTTPRequestHandlerFactory getHandlerFactory() { return null; }
+        @Override public HttpRequestHandlerFactory getHandlerFactory() { return null; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
                 Headers headers, boolean endStream) {
             lastStatusCode = statusCode;
@@ -117,9 +117,9 @@ public class StreamAuthenticationTest {
         @Override public Trace getTrace() { return null; }
         @Override public void setTrace(Trace trace) { }
         @Override public boolean isTelemetryEnabled() { return false; }
-        @Override public HTTPServerMetrics getServerMetrics() { return null; }
+        @Override public HttpServerMetrics getServerMetrics() { return null; }
         @Override public boolean isEnablePush() { return false; }
-        @Override public Stream newStream(HTTPConnectionLike connection, int streamId) {
+        @Override public Stream newStream(HttpConnectionLike connection, int streamId) {
             return new Stream(connection, streamId);
         }
         @Override public int getNextServerStreamId() { return 2; }
@@ -131,7 +131,7 @@ public class StreamAuthenticationTest {
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public int getMaxHeaderListSize() { return 8192; }
         @Override public long getMaxRequestBodySize() { return maxRequestBodySize; }
-        @Override public HTTPAuthenticationProvider getAuthenticationProvider() { return authProvider; }
+        @Override public HttpAuthenticationProvider getAuthenticationProvider() { return authProvider; }
         @Override public void onWritable(int streamId, Runnable callback) { }
         @Override public void pauseRead(int streamId) { }
         @Override public void resumeRead(int streamId) { }
