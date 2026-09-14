@@ -28,8 +28,8 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
@@ -127,8 +127,12 @@ public class Http3WebSocketListener extends Http3Listener {
         if (deflateEnabled) {
             supportedExtensions.add(new PerMessageDeflateExtension());
         }
-        setRequestRouter(HttpRequestHandlers.perRequest(
-                () -> new ExtendedConnectUpgradeHandler()));
+        setStreamHandler(new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState stream) {
+                return new ExtendedConnectUpgradeHandler();
+            }
+        });
         super.start();
         if (isMetricsEnabled()) {
             wsMetrics = new WebSocketServerMetrics(getTelemetryConfig());
@@ -138,7 +142,7 @@ public class Http3WebSocketListener extends Http3Listener {
     @Override
     public void connectionAccepted(QuicConnection connection) {
         Http3ServerHandler handler = new Http3ServerHandler(
-                connection, getRequestRouter(),
+                connection, getStreamHandler(),
                 getAuthenticationProvider(), getMetrics(),
                 getTelemetryConfig(), getAddSecurityHeaders());
         handler.setWebSocketMetrics(wsMetrics);

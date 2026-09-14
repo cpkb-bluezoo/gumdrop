@@ -5,22 +5,21 @@
 
 package org.bluezoo.gumdrop.webdav;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Routes static file and optional WebDAV requests to {@link FileHandler}.
+ * Opens a fresh {@link FileHandler} for each HTTP stream.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-public final class FileRequestRouter implements HttpRequestRouter {
+public final class FileRequestRouter implements HttpStreamHandler {
 
     private final Path rootPath;
     private final boolean allowWrite;
@@ -109,7 +108,7 @@ public final class FileRequestRouter implements HttpRequestRouter {
     }
 
     @Override
-    public HttpRequestHandler route(HttpResponseState state, Headers headers) {
+    public HttpRequestHandler openStream(HttpResponseState stream) {
         return new FileHandler(rootPath, allowWrite, webdavEnabled,
                 allowedOptions, welcomeFiles, contentTypes,
                 lockManager, deadPropertyStore);

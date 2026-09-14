@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.webdav.server;
 
 import org.bluezoo.gumdrop.http.HttpServer;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -163,7 +163,7 @@ public class WebdavServer extends HttpServer {
     }
 
     @Override
-    protected HttpRequestRouter getRequestRouter() {
+    protected HttpStreamHandler getStreamHandler() {
         return requestHandler;
     }
 

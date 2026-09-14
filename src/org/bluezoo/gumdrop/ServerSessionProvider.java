@@ -15,7 +15,7 @@ package org.bluezoo.gumdrop;
  * provider mints a new session-scoped handler set on every accept.
  *
  * <p><strong>Stateless protocols do not use this SPI.</strong> HTTP composes
- * with {@link org.bluezoo.gumdrop.http.server.HttpRequestRouter} /
+ * with {@link org.bluezoo.gumdrop.http.server.HttpStreamHandler} and
  * {@link org.bluezoo.gumdrop.http.server.HttpRequestHandler} (one handler per
  * request stream, no long-lived session pipeline). DNS composes with
  * {@link org.bluezoo.gumdrop.dns.server.DnsQueryHandler} (one handler

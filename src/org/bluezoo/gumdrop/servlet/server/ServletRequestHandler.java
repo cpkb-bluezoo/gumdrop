@@ -7,16 +7,15 @@
 
 package org.bluezoo.gumdrop.servlet.server;
 
-import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpServerServiceHook;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.servlet.Container;
 import org.bluezoo.gumdrop.servlet.ServletHandler;
 
 /**
- * Jakarta Servlet container as an {@link HttpRequestRouter}.
+ * Jakarta Servlet container as an {@link HttpStreamHandler}.
  *
  * <p>Install on {@link org.bluezoo.gumdrop.http.HttpServer} with a
  * pre-configured {@link Container} (contexts, realms, resources). The
@@ -29,7 +28,7 @@ import org.bluezoo.gumdrop.servlet.ServletHandler;
  *
  * HttpServer server = HttpServer.compose()
  *         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
- *         .router(new ServletRequestHandler(container))
+ *         .streamHandler(new ServletRequestHandler(container))
  *         .server();
  * }</pre>
  *
@@ -38,7 +37,7 @@ import org.bluezoo.gumdrop.servlet.ServletHandler;
  * @see docs/COMPOSITION.md
  */
 public final class ServletRequestHandler
-        implements HttpRequestRouter, HttpServerServiceHook {
+        implements HttpStreamHandler, HttpServerServiceHook {
 
     private final Container container;
 
@@ -54,7 +53,7 @@ public final class ServletRequestHandler
     }
 
     @Override
-    public HttpRequestHandler route(HttpResponseState state, Headers headers) {
+    public HttpRequestHandler openStream(HttpResponseState stream) {
         return new ServletHandler(container, container.getBufferSize());
     }
 

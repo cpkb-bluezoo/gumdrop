@@ -19,28 +19,28 @@ import java.util.Set;
 @Deprecated
 public class GrpcHandlerFactory implements HttpRequestHandlerFactory {
 
-    private final GrpcRequestHandler router;
+    private final GrpcRequestHandler streamHandler;
 
     public GrpcHandlerFactory(ProtoFile protoFile, GrpcServer service) {
-        this.router = new GrpcRequestHandler(protoFile, service);
+        this.streamHandler = new GrpcRequestHandler(protoFile, service);
     }
 
     public long getMaxMessageSize() {
-        return router.getMaxMessageSize();
+        return streamHandler.getMaxMessageSize();
     }
 
     public void setMaxMessageSize(long maxMessageSize) {
-        router.maxMessageSize(maxMessageSize);
+        streamHandler.maxMessageSize(maxMessageSize);
     }
 
     @Override
     public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
-        return router.route(state, headers);
+        return streamHandler.openStream(state);
     }
 
     @Override
     public Set<String> getSupportedMethods() {
-        return router.getSupportedMethods();
+        return Set.of("POST");
     }
 
 }

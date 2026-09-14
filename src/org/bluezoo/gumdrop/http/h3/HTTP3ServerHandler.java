@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
@@ -97,7 +97,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
             ResourceBundle.getBundle("org.bluezoo.gumdrop.http.h3.L10N");
 
     private final QuicConnection quicConnection;
-    private final HttpRequestRouter requestRouter;
+    private final HttpStreamHandler streamHandler;
     private final HttpAuthenticationProvider authenticationProvider;
     private final HttpServerMetrics metrics;
     private final TelemetryConfig telemetryConfig;
@@ -158,20 +158,20 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
      * QUIC connection.
      *
      * @param quicConnection the underlying QUIC connection
-     * @param requestRouter router for creating request handlers
+     * @param streamHandler handler binding for new streams
      * @param authProvider authentication provider (may be null)
      * @param metrics server metrics (may be null)
      * @param telemetryConfig telemetry configuration (may be null)
      * @param addSecurityHeaders whether to add default security headers
      */
     public Http3ServerHandler(QuicConnection quicConnection,
-                              HttpRequestRouter requestRouter,
+                              HttpStreamHandler streamHandler,
                               HttpAuthenticationProvider authProvider,
                               HttpServerMetrics metrics,
                               TelemetryConfig telemetryConfig,
                               boolean addSecurityHeaders) {
         this.quicConnection = quicConnection;
-        this.requestRouter = requestRouter;
+        this.streamHandler = streamHandler;
         this.authenticationProvider = authProvider;
         this.metrics = metrics;
         this.telemetryConfig = telemetryConfig;
@@ -502,6 +502,11 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
 
     void registerRequestStream(H3Stream stream) {
         requestStreams.put(Long.valueOf(stream.getStreamId()), stream);
+        stream.openApplicationHandler();
+    }
+
+    HttpStreamHandler getStreamHandler() {
+        return streamHandler;
     }
 
     /**
@@ -593,17 +598,12 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
     // ── Accessors for H3Stream ──
 
     /**
-     * Creates an {@link HttpRequestHandler} for a new stream.
-     *
-     * @param stream the H3Stream acting as HttpResponseState
-     * @param headers the initial request headers
-     * @return the created handler, or null
+     * @deprecated routing belongs in {@link org.bluezoo.gumdrop.http.server.HttpRequestHandler}.
      */
+    @Deprecated
     HttpRequestHandler createHandler(H3Stream stream, Headers headers) {
-        if (requestRouter == null) {
-            return null;
-        }
-        return requestRouter.route(stream, headers);
+        stream.openApplicationHandler();
+        return stream.getHandler();
     }
 
     /**

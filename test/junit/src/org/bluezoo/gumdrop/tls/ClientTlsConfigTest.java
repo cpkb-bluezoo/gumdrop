@@ -6,6 +6,7 @@
 package org.bluezoo.gumdrop.tls;
 
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.client.ClientConnect;
 import org.junit.Test;
 
 import static org.junit.Assert.assertFalse;
@@ -21,7 +22,7 @@ public class ClientTlsConfigTest {
         assertFalse(tls.allowsTlsUpgrade());
 
         TcpTransportFactory factory = new TcpTransportFactory();
-        tls.applyTo(factory);
+        ClientConnect.applyToTcpFactory(tls, factory);
         assertFalse(factory.isSecure());
     }
 
@@ -33,7 +34,7 @@ public class ClientTlsConfigTest {
         assertTrue(tls.allowsTlsUpgrade());
 
         TcpTransportFactory factory = new TcpTransportFactory();
-        tls.applyTo(factory);
+        ClientConnect.applyToTcpFactory(tls, factory);
         assertTrue(factory.isSecure());
     }
 

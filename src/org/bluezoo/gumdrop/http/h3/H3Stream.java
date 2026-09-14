@@ -50,6 +50,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpPrincipal;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.http.HttpUtils;
@@ -134,6 +135,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
 
     private State state;
     private HttpRequestHandler handler;
+    private boolean applicationHandlerOpened;
     private Headers requestHeaders;
     private String method;
     private String requestTarget;
@@ -176,6 +178,22 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         this.qpackEncoder = qpackEncoder;
         this.qpackDecoder = qpackDecoder;
         this.state = State.IDLE;
+    }
+
+    void openApplicationHandler() {
+        if (applicationHandlerOpened || handler != null || connection == null) {
+            return;
+        }
+        HttpStreamHandler streamHandler = connection.getStreamHandler();
+        if (streamHandler == null) {
+            return;
+        }
+        applicationHandlerOpened = true;
+        handler = streamHandler.openStream(this);
+    }
+
+    HttpRequestHandler getHandler() {
+        return handler;
     }
 
     private static boolean containsHeader(List<Header> headers, String name) {
@@ -360,9 +378,9 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                 }
             }
 
-            handler = connection.createHandler(this, headers);
+            openApplicationHandler();
             if (handler == null) {
-                cancel();
+                sendErrorResponse(404);
                 return;
             }
 

@@ -6,13 +6,8 @@
 package org.bluezoo.gumdrop.tls;
 
 import java.nio.file.Path;
-import java.util.logging.Logger;
 
 import javax.net.ssl.X509TrustManager;
-
-import org.bluezoo.gumdrop.TcpTransportFactory;
-import org.bluezoo.gumdrop.quic.QuicTransportFactory;
-import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
 /**
  * Outbound TLS dial settings for client facades — transport identity, trust,
@@ -28,9 +23,6 @@ import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
  * @see docs/COMPOSITION.md
  */
 public final class ClientTlsConfig {
-
-    private static final Logger LOGGER =
-            Logger.getLogger(ClientTlsConfig.class.getName());
 
     private boolean secure;
     private boolean verifyPeer = true;
@@ -162,6 +154,18 @@ public final class ClientTlsConfig {
         return keyFile;
     }
 
+    public Path getKeystoreFile() {
+        return keystoreFile;
+    }
+
+    public String getKeystorePass() {
+        return keystorePass;
+    }
+
+    public String getKeystoreFormat() {
+        return keystoreFormat;
+    }
+
     /**
      * Merges per-client settings with an optional process default. Per-client
      * values win when set; otherwise defaults fill in. {@code secure} comes
@@ -197,73 +201,6 @@ public final class ClientTlsConfig {
         out.keyFile = coalesce(local.keyFile,
                 defaultConfigured ? processDefault.keyFile : null);
         return out;
-    }
-
-    public void applyTo(TcpTransportFactory factory) {
-        if (factory == null) {
-            throw new NullPointerException("factory");
-        }
-        if (!configured) {
-            factory.setSecure(false);
-            return;
-        }
-        factory.setSecure(secure);
-        if (clientCredentials != null) {
-            factory.setClientCredentials(clientCredentials);
-        }
-        if (trustManager != null) {
-            factory.setTrustManager(trustManager);
-        } else if (!verifyPeer) {
-            LOGGER.warning("TLS peer verification disabled");
-            factory.setTrustManager(new EmptyX509TrustManager());
-        }
-        if (keystoreFile != null) {
-            factory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            factory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            factory.setKeystoreFormat(keystoreFormat);
-        }
-        if (certFile != null) {
-            factory.setCertFile(certFile);
-        }
-        if (keyFile != null) {
-            factory.setKeyFile(keyFile);
-        }
-    }
-
-    public void applyTo(QuicTransportFactory factory) {
-        if (factory == null) {
-            throw new NullPointerException("factory");
-        }
-        if (!configured) {
-            factory.setVerifyPeer(false);
-            return;
-        }
-        if (trustManager != null) {
-            factory.setTrustManager(trustManager);
-        } else if (!verifyPeer) {
-            LOGGER.warning("TLS peer verification disabled");
-            factory.setTrustManager(new EmptyX509TrustManager());
-        }
-        if (keystoreFile != null) {
-            factory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            factory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            factory.setKeystoreFormat(keystoreFormat);
-        }
-        if (certFile != null) {
-            factory.setCertFile(certFile);
-        }
-        if (keyFile != null) {
-            factory.setKeyFile(keyFile);
-        }
-        factory.setVerifyPeer(verifyPeer);
     }
 
     /**

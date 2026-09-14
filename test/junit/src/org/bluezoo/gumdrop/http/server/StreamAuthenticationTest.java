@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -102,6 +103,7 @@ public class StreamAuthenticationTest {
             return new InetSocketAddress("127.0.0.1", 80);
         }
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
+        @Override public HttpStreamHandler getStreamHandler() { return null; }
         @Override public HttpRequestHandlerFactory getHandlerFactory() { return null; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
                 Headers headers, boolean endStream) {

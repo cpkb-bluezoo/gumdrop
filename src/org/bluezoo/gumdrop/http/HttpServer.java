@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.http;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -38,8 +37,7 @@ import org.bluezoo.gumdrop.http.server.DefaultHttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
@@ -47,9 +45,8 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  * Abstract base for HTTP protocol servers.
  *
  * <p>An {@code HttpServer} defines the application logic for handling
- * HTTP requests: a {@link HttpRequestRouter} (or legacy
- * {@link HttpRequestHandlerFactory} in subclasses) that selects a
- * handler for each stream, and an optional
+ * HTTP requests: an {@link HttpStreamHandler} that binds an
+ * {@link HttpRequestHandler} per stream, and an optional
  * {@link HttpAuthenticationProvider} for authenticating requests.
  *
  * <p>New applications should use {@link #compose()} rather than
@@ -79,7 +76,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  * <pre>{@code
  * HttpServer server = HttpServer.compose()
  *         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
- *         .handler(new MyHandler())
+ *         .streamHandler(new MyStreamHandler())
  *         .server();
  * gumdrop.addServer(server);
  * }</pre>
@@ -93,7 +90,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  * @see Server
  * @see Http2Listener
  * @see Http3Listener
- * @see HttpRequestRouter
+ * @see HttpStreamHandler
  * @see HttpRequestHandlerFactory
  */
 public abstract class HttpServer implements Server {
@@ -215,22 +212,20 @@ public abstract class HttpServer implements Server {
     // ── Application logic hooks ──
 
     /**
-     * Returns the request router that creates
-     * {@link HttpRequestHandler} instances for each request stream.
-     *
-     * <p>Called during {@link #start()} to wire each listener.
-     * Subclasses must provide their router.
-     *
-     * @return the request router, never null after initialisation
+     * Returns the stream handler that binds {@link HttpRequestHandler}
+     * instances for each new stream, or {@code null} for the handler-less
+     * default (404, built-in method validation).
      */
-    protected abstract HttpRequestRouter getRequestRouter();
+    protected HttpStreamHandler getStreamHandler() {
+        return null;
+    }
 
     /**
-     * @deprecated use {@link #getRequestRouter()}.
+     * @deprecated use {@link #getStreamHandler()}.
      */
     @Deprecated
     protected final HttpRequestHandlerFactory getHandlerFactory() {
-        return HttpRequestHandlers.toFactory(getRequestRouter());
+        return null;
     }
 
     /**
@@ -284,7 +279,7 @@ public abstract class HttpServer implements Server {
     public void start() {
         initService();
 
-        HttpRequestRouter router = getRequestRouter();
+        HttpStreamHandler streamHandler = getStreamHandler();
         HttpAuthenticationProvider authProvider =
                 getAuthenticationProvider();
         if (authProvider == null && realm != null) {
@@ -294,7 +289,7 @@ public abstract class HttpServer implements Server {
 
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
-            wireListener(listener, router, authProvider, altSvc);
+            wireListener(listener, streamHandler, authProvider, altSvc);
             startListener(listener);
         }
     }
@@ -318,12 +313,12 @@ public abstract class HttpServer implements Server {
      * authentication provider, and Alt-Svc header.
      */
     private void wireListener(Object listener,
-                              HttpRequestRouter router,
+                              HttpStreamHandler streamHandler,
                               HttpAuthenticationProvider authProvider,
                               String altSvc) {
         if (listener instanceof Http2Listener) {
             Http2Listener tcp = (Http2Listener) listener;
-            tcp.setRequestRouter(router);
+            tcp.setStreamHandler(streamHandler);
             tcp.setAuthenticationProvider(authProvider);
             tcp.setAddSecurityHeaders(addSecurityHeaders);
             if (altSvc != null) {
@@ -331,7 +326,7 @@ public abstract class HttpServer implements Server {
             }
         } else if (listener instanceof Http3Listener) {
             Http3Listener quic = (Http3Listener) listener;
-            quic.setRequestRouter(router);
+            quic.setStreamHandler(streamHandler);
             quic.setAuthenticationProvider(authProvider);
             quic.setAddSecurityHeaders(addSecurityHeaders);
         }
@@ -417,13 +412,13 @@ public abstract class HttpServer implements Server {
     }
 
     /**
-     * Fluent composition of listeners and a shared request router.
+     * Fluent composition of listeners and a shared stream handler.
      */
     public static final class Composer {
 
         private final List<Http2Listener> tcpListeners = new ArrayList<Http2Listener>();
         private final List<Http3Listener> quicListeners = new ArrayList<Http3Listener>();
-        private HttpRequestRouter router;
+        private HttpStreamHandler streamHandler;
         private Realm realm;
         private boolean addSecurityHeaders = true;
 
@@ -488,19 +483,14 @@ public abstract class HttpServer implements Server {
             return listener(new Http2Listener().port(port));
         }
 
-        public Composer handler(HttpRequestHandler handler) {
-            return router(HttpRequestHandlers.fixed(handler));
-        }
-
-        public Composer handlerPerRequest(Supplier<HttpRequestHandler> supplier) {
-            return router(HttpRequestHandlers.perRequest(supplier));
-        }
-
-        public Composer router(HttpRequestRouter router) {
-            if (router == null) {
-                throw new NullPointerException("router");
+        /**
+         * Binds an {@link HttpStreamHandler} for each new stream.
+         */
+        public Composer streamHandler(HttpStreamHandler streamHandler) {
+            if (streamHandler == null) {
+                throw new NullPointerException("streamHandler");
             }
-            this.router = router;
+            this.streamHandler = streamHandler;
             return this;
         }
 
@@ -518,14 +508,11 @@ public abstract class HttpServer implements Server {
          * Creates the composed server. At least one listener must be configured.
          */
         public HttpServer server() {
-            if (router == null) {
-                router = HttpRequestHandlers.notFound();
-            }
             if (tcpListeners.isEmpty() && quicListeners.isEmpty()) {
                 throw new IllegalStateException(
                         "at least one listener is required");
             }
-            ComposedHttpServer server = new ComposedHttpServer(router);
+            ComposedHttpServer server = new ComposedHttpServer(streamHandler);
             for (int i = 0; i < tcpListeners.size(); i++) {
                 server.addListener(tcpListeners.get(i));
             }

@@ -226,7 +226,7 @@ public abstract class Listener {
         if (tls == null) {
             throw new NullPointerException("tls");
         }
-        tls.applyTo(this);
+        TlsConfigSupport.apply(tls, this);
         return this;
     }
 

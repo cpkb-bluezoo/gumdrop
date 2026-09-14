@@ -21,8 +21,6 @@
 
 package org.bluezoo.gumdrop.tls;
 
-import org.bluezoo.gumdrop.Listener;
-
 import java.nio.file.Path;
 
 /**
@@ -105,27 +103,28 @@ public final class TlsConfig {
         return new TlsConfig(null, null, null, null, null, serverCredentials);
     }
 
-    /**
-     * Applies this configuration to a listener before {@link Listener#start()}.
-     */
-    public void applyTo(Listener listener) {
-        if (listener == null) {
-            throw new NullPointerException("listener");
-        }
-        if (serverCredentials != null) {
-            listener.setServerCredentials(serverCredentials);
-        } else if (certFile != null && keyFile != null) {
-            listener.setCertFile(certFile);
-            listener.setKeyFile(keyFile);
-        } else if (keystoreFile != null && keystorePass != null) {
-            listener.setKeystoreFile(keystoreFile);
-            listener.setKeystorePass(keystorePass);
-            if (keystoreFormat != null) {
-                listener.setKeystoreFormat(keystoreFormat);
-            }
-        } else {
-            throw new IllegalStateException("incomplete TLS configuration");
-        }
+    public Path getCertFile() {
+        return certFile;
+    }
+
+    public Path getKeyFile() {
+        return keyFile;
+    }
+
+    public Path getKeystoreFile() {
+        return keystoreFile;
+    }
+
+    public String getKeystorePass() {
+        return keystorePass;
+    }
+
+    public String getKeystoreFormat() {
+        return keystoreFormat;
+    }
+
+    public ServerCredentials getServerCredentials() {
+        return serverCredentials;
     }
 
 }

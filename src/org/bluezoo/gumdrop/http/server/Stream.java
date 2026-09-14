@@ -178,6 +178,8 @@ class Stream implements HttpResponseState {
     private ResponseState responseState = ResponseState.INITIAL;
     private Headers bufferedResponseHeaders;
     private HttpRequestHandler handler;
+    private boolean applicationHandlerOpened;
+    private boolean requestHeadersDispatched;
     private Principal authenticatedPrincipal;
 
     // Request body state tracking for handler dispatch
@@ -187,6 +189,22 @@ class Stream implements HttpResponseState {
 
     private boolean capsuleMode;
     private final CapsuleParser capsuleParser = new CapsuleParser();
+
+    /**
+     * Binds the application {@link HttpRequestHandler} for this stream via
+     * {@link HttpConnectionLike#getStreamHandler()}, if configured.
+     */
+    void openApplicationHandler() {
+        if (applicationHandlerOpened || handler != null) {
+            return;
+        }
+        HttpStreamHandler streamHandler = connection.getStreamHandler();
+        if (streamHandler == null) {
+            return;
+        }
+        applicationHandlerOpened = true;
+        handler = streamHandler.openStream(this);
+    }
 
     /**
      * Reusable header handler for HPACK decoding. Delegates to
@@ -636,14 +654,9 @@ class Stream implements HttpResponseState {
                                 StandardCharsets.US_ASCII)));
             }
         }
-        // RFC 9110 section 11: HTTP authentication. Only checked on the
-        // first HEADERS frame that will create a handler (handler == null)
-        // — a service (e.g. WebdavServer) that configures a Realm expects
-        // this to gate every request, but the provider was previously
-        // stored on the connection and never actually consulted here, so
-        // no HTTP/1.1 or HTTP/2 request was ever rejected regardless of
-        // whether credentials were supplied.
-        if (handler == null) {
+        // RFC 9110 section 11: HTTP authentication on the first header block
+        // for this stream (handler may already be bound via {@link #openApplicationHandler}).
+        if (!requestHeadersDispatched) {
             HttpAuthenticationProvider authProvider = connection.getAuthenticationProvider();
             if (authProvider != null) {
                 String authHeader = headers != null ? headers.getValue("authorization") : null;
@@ -667,6 +680,7 @@ class Stream implements HttpResponseState {
         initTelemetrySpan();
         
         // Dispatch to handler if present
+        requestHeadersDispatched = true;
         if (handler != null) {
             // Handler already set - this is a continuation or trailer headers
             if (handlerBodyStarted && !handlerBodyEnded) {
@@ -676,43 +690,16 @@ class Stream implements HttpResponseState {
             }
             handler.headers(this, headers);
         } else {
-            // No handler yet - try to create one via factory
-            // Note: We create the handler even for h2c upgrade requests, because
-            // the request body (if any) arrives before the protocol switch.
-            HttpRequestRouter router = connection.getRequestRouter();
-            if (router != null) {
-                String path = headers.getPath();
-                if (Boolean.getBoolean("gumdrop.http.debug")) {
-                    LOGGER.info(MessageFormat.format(
-                            L10N.getString("info.stream_create_handler_path"), path));
-                }
-                handler = router.route(this, headers);
-                if (Boolean.getBoolean("gumdrop.http.debug")) {
-                    LOGGER.info(MessageFormat.format(
-                            L10N.getString("info.stream_create_handler_returned"),
-                            handler != null ? handler.getClass().getSimpleName() : "null"));
-                }
-                if (handler != null) {
-                    handler.headers(this, headers);
-                    capsuleMode = Capsule.capsuleProtocolEnabled(headers);
-                } else if (responseState == ResponseState.INITIAL) {
-                    // Factory returned null without sending a response via state.
-                    try {
-                        sendError(404);
-                    } catch (ProtocolException e) {
-                        LOGGER.warning(MessageFormat.format(
-                                L10N.getString("warn.default_404_failed"), e.getMessage()));
-                    }
-                }
-                // If handler is null and a response was already sent via state,
-                // the factory handled rejection (401, etc.).
-            } else {
-                // No factory configured - send 404 Not Found
+            openApplicationHandler();
+            if (handler != null) {
+                handler.headers(this, headers);
+                capsuleMode = Capsule.capsuleProtocolEnabled(headers);
+            } else if (responseState == ResponseState.INITIAL) {
                 try {
                     sendError(404);
                 } catch (ProtocolException e) {
                     LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.default_404_failed"), e.getMessage()));
+                            L10N.getString("warn.default_404_failed"), e.getMessage()));
                 }
             }
         }

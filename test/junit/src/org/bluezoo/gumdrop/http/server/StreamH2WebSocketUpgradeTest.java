@@ -23,7 +23,10 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.server.HandlerFactoryStreamHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpVersion;
 
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -66,6 +69,10 @@ public class StreamH2WebSocketUpgradeTest {
             return new InetSocketAddress("127.0.0.1", 443);
         }
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
+        @Override public HttpStreamHandler getStreamHandler() {
+            return handlerFactory != null
+                    ? new HandlerFactoryStreamHandler(handlerFactory) : null;
+        }
         @Override public HttpRequestHandlerFactory getHandlerFactory() { return handlerFactory; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
                 Headers headers, boolean endStream) {

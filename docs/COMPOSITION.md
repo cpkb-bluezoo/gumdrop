@@ -15,10 +15,10 @@ not XML configuration files or reflective dependency injection.
    (`HttpRequestHandler`, staged SMTP handlers, `DnsQueryHandler`, …). Do not
    subclass `HttpServer`, `ServletServer`, or `WebdavServer` for application
    logic.
-2. **One entry type per protocol** — e.g. `HttpServer` owns listeners and a
-   single handler (or router/decorator chain). Servlet and WebDAV stacks attach
-   as **`ServletRequestHandler`** and **`WebDAVRequestHandler`**
-   (both done) on `HttpServer.compose()`.
+2. **One entry type per protocol** — e.g. `HttpServer` owns listeners and an
+   **`HttpStreamHandler`** that binds a fresh **`HttpRequestHandler`** per
+   stream. Servlet and WebDAV stacks attach as **`ServletRequestHandler`** and
+   **`WebDAVRequestHandler`** (both done) on `HttpServer.compose()`.
 3. **Default servers do nothing (application layer)** — a composed server with
    no handler wired must not silently pick up relay, upstream, or mailbox
    behaviour. “Do nothing” is protocol-specific (see [Default behaviour](#default-behaviour)).
@@ -64,14 +64,16 @@ maintains session state across many exchanges on one connection.
 |---|---|---|
 | **Examples** | HTTP, DNS | SMTP, FTP, IMAP, POP3, … |
 | **Unit of work** | One request / one query | One control connection, many phases |
-| **Server compose with** | Handler or router | **`ServerSessionProvider`** |
+| **Server compose with** | `HttpStreamHandler` | **`ServerSessionProvider`** |
 | **Client compose with** | Per-request / per-query API | **`ClientSessionProvider`** |
 | **Per-event API** | `HttpRequestHandler`, `DnsQueryHandler` | Staged `{Stage}Handler` + `{Stage}State` |
 | **Per connection** | Fresh handler per stream (HTTP) or shared handler (DNS) | Fresh **session pipeline** per accept / dial |
 
 **Stateless protocols do not implement `ServerSessionProvider` or
-`ClientSessionProvider`.** HTTP's deprecated `HttpRequestHandlerFactory` was
-request **routing**, not session minting — do not conflate the two.
+`ClientSessionProvider`.** HTTP binds one {@link HttpRequestHandler} per stream
+via {@link org.bluezoo.gumdrop.http.server.HttpStreamHandler}; routing and method
+policy belong in the handler (typically via delegation), not in the stream
+binder. Do not conflate this with session minting on SMTP/IMAP/FTP.
 
 ### Stateful server (SMTP reference)
 
@@ -304,6 +306,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.Headers;
 
@@ -316,7 +319,7 @@ public final class EchoMain {
         HttpServer server = HttpServer.compose()
                 .secureEndpoint(443, TlsConfig.pem(
                         Path.of("cert.pem"), Path.of("key.pem")))
-                .handler(new EchoHandler())
+                .streamHandler(new EchoStreamHandler())
                 .server();
 
         gumdrop.addServer(server);
@@ -324,7 +327,13 @@ public final class EchoMain {
         gumdrop.join();
     }
 
-    /** Stateless — safe with {@code .handler(...)}. */
+    private static final class EchoStreamHandler implements HttpStreamHandler {
+        @Override
+        public HttpRequestHandler openStream(HttpResponseState stream) {
+            return new EchoHandler();
+        }
+    }
+
     private static final class EchoHandler implements HttpRequestHandler {
         @Override
         public void headers(HttpResponseState state, Headers headers) {
@@ -369,7 +378,7 @@ Cleartext HTTP/1.1 on a separate port (not the default pattern):
 HttpServer server = HttpServer.compose()
         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
         .plaintextListener(8080)   // legacy / dev only
-        .handler(new EchoHandler())
+        .streamHandler(new EchoStreamHandler())
         .server();
 ```
 
@@ -392,15 +401,15 @@ Http3Listener h3 = new Http3Listener()
 HttpServer server = HttpServer.compose()
         .listener(h2)
         .listener(h3)
-        .handler(new EchoHandler())
+        .streamHandler(new EchoStreamHandler())
         .server();
 ```
 
 ### Handler-less HTTP server
 
-Omitting `.handler()` / `.router()` installs the default
-**`NotFoundHttpRequestHandler`** (`HttpRequestHandlers.notFound()`): valid HTTP,
-every request **404**.
+Omitting `.streamHandler(...)` leaves the server with **no application
+handler**: valid HTTP, every request **404**. The protocol layer still applies
+the built-in method table (**501 Not Implemented** for unknown methods).
 
 ```java
 HttpServer empty = HttpServer.compose()
@@ -408,30 +417,55 @@ HttpServer empty = HttpServer.compose()
         .server();
 ```
 
-### Per-request handlers and routing
+### `HttpStreamHandler` — one handler per stream
+
+`HttpStreamHandler` has a single job: {@code openStream(HttpResponseState)}
+returns the {@link HttpRequestHandler} for that stream. It is called once per
+stream, **before** request headers arrive. Routing, authentication decorators,
+and method policy belong in {@link HttpRequestHandler}, not in
+`HttpStreamHandler`.
 
 ```java
 HttpServer server = HttpServer.compose()
         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
-        .handlerPerRequest(MyHandler::new)   // fresh instance per request
-        .server();
-
-HttpRequestRouter router = (state, headers) -> {
-    if (headers.getPath().startsWith("/api/")) {
-        return new ApiHandler();
-    }
-    return null;   // → 404
-};
-
-HttpServer routed = HttpServer.compose()
-        .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
-        .router(router)
+        .streamHandler(new MyStreamHandler())
         .server();
 ```
 
-Legacy {@link HttpRequestHandlerFactory} implementations can migrate with
-{@link HttpRequestHandlers#fromFactory(HttpRequestHandlerFactory)}; new code
-should implement {@link HttpRequestRouter} directly.
+When a stream handler **is** configured, the protocol layer does **not**
+filter methods — the handler decides validity in {@code headers()}. When **no**
+stream handler is configured, the built-in method table applies before 404.
+
+Path matching, authentication, and method policy belong in
+{@link HttpRequestHandler} — typically by inspecting {@code headers} in
+{@code headers()} and delegating to another handler if you need it:
+
+```java
+public final class ApiStreamHandler implements HttpStreamHandler {
+    @Override
+    public HttpRequestHandler openStream(HttpResponseState stream) {
+        return new ApiPathHandler();
+    }
+}
+
+public final class ApiPathHandler extends DefaultHttpRequestHandler {
+    @Override
+    public void headers(HttpResponseState state, Headers headers) {
+        if (headers.getPath().startsWith("/api/")) {
+            new ApiHandler().headers(state, headers);
+            return;
+        }
+        NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
+    }
+}
+```
+
+### HTTP client — one response handler per request
+
+On the client, attach a fresh {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler}
+per in-flight request ({@code HttpRequest.send(...)} /
+{@code startRequestBody(...)}). Do not share one handler across concurrent
+streams on the same connection.
 
 ---
 
@@ -447,7 +481,7 @@ container.addContext(new Context(container, "/app", appRoot));
 
 HttpServer server = HttpServer.compose()
         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
-        .router(new ServletRequestHandler(container))
+        .streamHandler(new ServletRequestHandler(container))
         .server();
 ```
 
@@ -464,10 +498,10 @@ servers call {@link Container#start()} / {@link Container#destroy()} automatical
 ```java
 HttpServer server = HttpServer.compose()
         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
-        .router(WebDAVRequestHandler.builder()
+        .streamHandler(WebDAVRequestHandler.builder()
                 .rootPath(Path.of("/var/www/html"))
                 .webdavEnabled(true)
-                .server())
+                .build())
         .server();
 ```
 
@@ -598,21 +632,18 @@ installs a {@link MailboxStoreImapSessionProvider} /
 
 ## Cross-cutting concerns
 
-Wrap handlers instead of subclassing servers or factories:
+Wrap request handlers instead of subclassing servers:
 
 ```java
-HttpRequestHandler app = new ServletRequestHandler(container);
-HttpRequestHandler withAuth = BasicAuthHandler.decorate(app, realm);
-HttpRequestHandler withTelemetry = TelemetryHandler.decorate(withAuth, config);
-
 HttpServer server = HttpServer.compose()
         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
-        .handler(withTelemetry)
+        .streamHandler(new TelemetryStreamHandler(realm, config))
         .server();
 ```
 
-Hopf’s `BasicAuthFactory`-style pattern becomes **handler decorators**, not a
-separate factory interface layer.
+Hopf’s `BasicAuthFactory`-style pattern becomes **handler decorators** inside
+your {@link HttpStreamHandler} / {@link HttpRequestHandler} implementations,
+not a separate routing SPI.
 
 ---
 
@@ -650,7 +681,7 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 | `gumdroprc.xml` + `ComponentRegistry` | Java composition (this document) |
 | `<service class="…ServletServer">` | `HttpServer` + `ServletRequestHandler` |
 | `<service class="…WebDAVService">` | `HttpServer` + `WebDAVRequestHandler` |
-| `HttpRequestHandlerFactory` for routing | `HttpRequestRouter` / handler on `HttpServer` |
+| `HttpRequestHandlerFactory` | `HttpStreamHandler` + `HttpRequestHandler` |
 | `SmtpServer#createHandler()` | `SmtpServer#openSession()` / `SmtpServerSessionProvider` |
 | `FtpServer` `createHandler()` | `openSession()` / `FtpServerSessionProvider` |
 | `ImapServer` / `Pop3Server` `createHandler()` | `openSession()` / `{Protocol}ServerSessionProvider` |
@@ -678,7 +709,8 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 | `HttpServer.compose()`, `secureEndpoint()`, `TlsConfig` | **Done** |
 | Fluent listeners (`SmtpListener`, `FtpListener`, …) | **Done** |
 | `Http2Listener.builder()`, `Http3Listener.builder()` | **Deprecated** |
-| `HttpRequestRouter`, `HttpRequestHandlers`, default 404 | **Done** |
+| `HttpStreamHandler`, default 404 | **Done** |
+| `HttpRequestHandlerFactory` (XML legacy) | **Deprecated** |
 | `ServletRequestHandler`, `WebDAVRequestHandler` | **Done** |
 | `DnsServer.compose()`, `DnsQueryHandler`, default empty answers | **Done** |
 | `SmtpServer.compose()`, fluent `SmtpClient`, `DnsResolver.server()` | **Done** |

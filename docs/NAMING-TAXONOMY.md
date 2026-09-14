@@ -73,7 +73,7 @@ Dial-side entry types use the same acronym rules: `HttpClient`, `SmtpClient`,
 | Client response / reply | `{protocol}.client.handler` | `{Stage}ReplyHandler` — **never** `Server*` |
 
 **Stateless protocols do not use `ServerSessionProvider` or
-`ClientSessionProvider`.** HTTP composes with `HttpRequestRouter` /
+`ClientSessionProvider`.** HTTP composes with `HttpStreamHandler` /
 `HttpRequestHandler`; DNS with `DnsQueryHandler`.
 
 **Stateful protocols** compose a session provider on the server (one pipeline

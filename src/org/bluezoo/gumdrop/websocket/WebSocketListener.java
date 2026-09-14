@@ -30,8 +30,8 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
 
@@ -128,8 +128,12 @@ public class WebSocketListener extends Http2Listener {
         if (deflateEnabled) {
             supportedExtensions.add(new PerMessageDeflateExtension());
         }
-        setRequestRouter(HttpRequestHandlers.perRequest(
-                () -> new UpgradeHandler()));
+        setStreamHandler(new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState stream) {
+                return new UpgradeHandler();
+            }
+        });
         super.start();
         if (isMetricsEnabled()) {
             wsMetrics = new WebSocketServerMetrics(getTelemetryConfig());

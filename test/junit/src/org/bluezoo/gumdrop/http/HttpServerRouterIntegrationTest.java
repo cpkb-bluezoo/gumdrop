@@ -14,7 +14,10 @@ import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.http.server.NotFoundHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Headers;
 import org.junit.After;
 import org.junit.Before;
@@ -29,7 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Integration test for path dispatch via {@link org.bluezoo.gumdrop.http.server.HttpRequestRouter}.
+ * Path dispatch belongs in {@link HttpRequestHandler}, not the HTTP protocol SPI.
  */
 public class HttpServerRouterIntegrationTest {
 
@@ -55,12 +58,7 @@ public class HttpServerRouterIntegrationTest {
                 .listener(new Http2Listener()
                         .port(testPort)
                         .addresses(InetAddress.ofLiteral(TEST_HOST)))
-                .router((state, headers) -> {
-                    if ("/api".equals(headers.getPath())) {
-                        return new OkHandler();
-                    }
-                    return null;
-                })
+                .streamHandler(new PathDispatchStreamHandler())
                 .server();
 
         gumdrop.addServer(server);
@@ -79,7 +77,7 @@ public class HttpServerRouterIntegrationTest {
     }
 
     @Test
-    public void testRouterPathDispatch() throws Exception {
+    public void testPathDispatchInRequestHandler() throws Exception {
         HttpClient client = connect(testPort);
         assertStatus(client.get("/api"), 200);
         assertStatus(client.get("/missing"), 404);
@@ -151,13 +149,24 @@ public class HttpServerRouterIntegrationTest {
         return client;
     }
 
-    private static final class OkHandler extends DefaultHttpRequestHandler {
+    private static final class PathDispatchStreamHandler implements HttpStreamHandler {
+        @Override
+        public HttpRequestHandler openStream(HttpResponseState stream) {
+            return new PathDispatchHandler();
+        }
+    }
+
+    private static final class PathDispatchHandler extends DefaultHttpRequestHandler {
         @Override
         public void headers(HttpResponseState state, Headers headers) {
-            Headers response = new Headers();
-            response.add(":status", "200");
-            state.headers(response);
-            state.complete();
+            if ("/api".equals(headers.getPath())) {
+                Headers response = new Headers();
+                response.add(":status", "200");
+                state.headers(response);
+                state.complete();
+                return;
+            }
+            NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
         }
     }
 

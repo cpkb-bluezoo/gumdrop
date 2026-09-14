@@ -8,7 +8,7 @@
 package org.bluezoo.gumdrop.http.server;
 
 /**
- * Optional lifecycle hook for {@link HttpRequestRouter} implementations that
+ * Optional lifecycle hook for {@link HttpStreamHandler} implementations that
  * own resources started by {@link org.bluezoo.gumdrop.http.HttpServer#start()}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -1091,7 +1091,7 @@ public class HttpClient implements AltSvcListener {
         quicTransportFactory = new QuicTransportFactory();
         quicTransportFactory.setApplicationProtocols("h3");
         ClientTlsConfig effective = ClientDefaults.effectiveTls(tls);
-        effective.applyTo(quicTransportFactory);
+        ClientConnect.applyToQuicFactory(effective, quicTransportFactory);
         quicTransportFactory.setEarlyDataEnabled(earlyDataEnabled);
 
         try {

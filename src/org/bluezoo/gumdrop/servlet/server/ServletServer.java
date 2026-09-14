@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet.server;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.servlet.Container;
 import org.bluezoo.gumdrop.servlet.Context;
 import org.bluezoo.gumdrop.servlet.jndi.Resource;
@@ -142,7 +142,7 @@ public class ServletServer extends HttpServer {
     }
 
     @Override
-    protected HttpRequestRouter getRequestRouter() {
+    protected HttpStreamHandler getStreamHandler() {
         return requestHandler;
     }
 

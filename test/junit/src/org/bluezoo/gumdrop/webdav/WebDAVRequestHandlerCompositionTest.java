@@ -66,7 +66,7 @@ public class WebDAVRequestHandlerCompositionTest {
                 .listener(new Http2Listener()
                         .port(testPort)
                         .addresses(InetAddress.ofLiteral(TEST_HOST)))
-                .router(WebDAVRequestHandler.builder()
+                .streamHandler(WebDAVRequestHandler.builder()
                         .rootPath(root)
                         .build())
                 .server();

@@ -40,9 +40,11 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
+import org.bluezoo.gumdrop.http.server.HandlerFactoryStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
+import org.bluezoo.gumdrop.TlsConfigSupport;
 import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
@@ -81,7 +83,7 @@ public class Http3Listener extends TcpListener
 
     private int port = -1;
 
-    private HttpRequestRouter requestRouter;
+    private HttpStreamHandler streamHandler;
     private HttpAuthenticationProvider authenticationProvider;
     private HttpServerMetrics metrics;
     private SelectorLoop selectorLoop;
@@ -200,30 +202,29 @@ public class Http3Listener extends TcpListener
      *
      * @param factory the handler factory, or null
      */
-    public void setRequestRouter(HttpRequestRouter router) {
-        this.requestRouter = router;
+    public void setStreamHandler(HttpStreamHandler streamHandler) {
+        this.streamHandler = streamHandler;
     }
 
-    public HttpRequestRouter getRequestRouter() {
-        return requestRouter;
+    public HttpStreamHandler getStreamHandler() {
+        return streamHandler;
     }
 
     /**
-     * @deprecated use {@link #setRequestRouter(HttpRequestRouter)}.
+     * @deprecated use {@link #setStreamHandler(HttpStreamHandler)}.
      */
     @Deprecated
     public void setHandlerFactory(HttpRequestHandlerFactory factory) {
-        this.requestRouter = factory != null
-                ? org.bluezoo.gumdrop.http.server.HttpRequestHandlers.fromFactory(factory)
-                : null;
+        this.streamHandler = factory != null
+                ? new HandlerFactoryStreamHandler(factory) : null;
     }
 
     /**
-     * @deprecated use {@link #getRequestRouter()}.
+     * @deprecated use {@link #getStreamHandler()}.
      */
     @Deprecated
     public HttpRequestHandlerFactory getHandlerFactory() {
-        return org.bluezoo.gumdrop.http.server.HttpRequestHandlers.toFactory(requestRouter);
+        return null;
     }
 
     /**
@@ -430,7 +431,7 @@ public class Http3Listener extends TcpListener
 
     @Override
     public void connectionAccepted(QuicConnection connection) {
-        new Http3ServerHandler(connection, requestRouter,
+        new Http3ServerHandler(connection, streamHandler,
                 authenticationProvider, metrics,
                 getTelemetryConfig(), addSecurityHeaders);
     }
@@ -520,7 +521,7 @@ public class Http3Listener extends TcpListener
             }
             listener.setRequireRetry(requireRetry);
             if (tls != null) {
-                tls.applyTo(listener);
+                TlsConfigSupport.apply(tls, listener);
             }
             return listener;
         }

@@ -27,6 +27,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TransportFactory;
+import org.bluezoo.gumdrop.TlsConfigSupport;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import java.net.InetAddress;
@@ -96,10 +97,10 @@ public class Http2Listener extends TcpListener {
     private HttpAuthenticationProvider authenticationProvider;
 
     /**
-     * Handler factory for creating request handlers.
+     * Stream handler for binding {@link HttpRequestHandler} instances.
      * If null, the default 404 behaviour is used.
      */
-    private HttpRequestRouter requestRouter;
+    private HttpStreamHandler streamHandler;
 
     /**
      * Alt-Svc header value to inject into responses, or null.
@@ -334,32 +335,21 @@ public class Http2Listener extends TcpListener {
         return authenticationProvider;
     }
 
-    /**
-     * Sets the request router for this endpoint.
-     *
-     * <p>The router is called once per HTTP stream when the initial
-     * request headers are received.
-     *
-     * @param router the request router, or null for default 404
-     */
-    public void setRequestRouter(HttpRequestRouter router) {
-        this.requestRouter = router;
+    public void setStreamHandler(HttpStreamHandler streamHandler) {
+        this.streamHandler = streamHandler;
+    }
+
+    public HttpStreamHandler getStreamHandler() {
+        return streamHandler;
     }
 
     /**
-     * Returns the request router for this endpoint.
-     */
-    public HttpRequestRouter getRequestRouter() {
-        return requestRouter;
-    }
-
-    /**
-     * @deprecated use {@link #setRequestRouter(HttpRequestRouter)}.
+     * @deprecated use {@link #setStreamHandler(HttpStreamHandler)}.
      */
     @Deprecated
     public void setHandlerFactory(HttpRequestHandlerFactory factory) {
-        this.requestRouter = factory != null
-                ? HttpRequestHandlers.fromFactory(factory) : null;
+        this.streamHandler = factory != null
+                ? new HandlerFactoryStreamHandler(factory) : null;
     }
 
     /**
@@ -382,7 +372,7 @@ public class Http2Listener extends TcpListener {
      */
     @Deprecated
     public HttpRequestHandlerFactory getHandlerFactory() {
-        return HttpRequestHandlers.toFactory(requestRouter);
+        return null;
     }
 
     /**
@@ -565,7 +555,7 @@ public class Http2Listener extends TcpListener {
             }
             listener.setSecure(secure);
             if (tls != null) {
-                tls.applyTo(listener);
+                TlsConfigSupport.apply(tls, listener);
             }
             return listener;
         }

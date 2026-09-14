@@ -22,45 +22,45 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.http.server.HttpServerServiceHook;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 
 /**
- * Concrete {@link HttpServer} assembled from listeners and a request router.
+ * Concrete {@link HttpServer} assembled from listeners and a stream handler.
  *
  * <p>Created via {@link HttpServer#compose()}; not intended for subclassing.
  */
 final class ComposedHttpServer extends HttpServer {
 
-    private final HttpRequestRouter router;
+    private final HttpStreamHandler streamHandler;
 
-    ComposedHttpServer(final HttpRequestRouter router) {
-        this.router = router;
+    ComposedHttpServer(final HttpStreamHandler streamHandler) {
+        this.streamHandler = streamHandler;
     }
 
     @Override
     protected void initService() {
-        if (router instanceof HttpServerServiceHook) {
-            ((HttpServerServiceHook) router).initService();
+        if (streamHandler instanceof HttpServerServiceHook) {
+            ((HttpServerServiceHook) streamHandler).initService();
         }
     }
 
     @Override
     protected void destroyService() {
-        if (router instanceof HttpServerServiceHook) {
-            ((HttpServerServiceHook) router).destroyService();
+        if (streamHandler instanceof HttpServerServiceHook) {
+            ((HttpServerServiceHook) streamHandler).destroyService();
         }
     }
 
     @Override
-    protected HttpRequestRouter getRequestRouter() {
-        return router;
+    protected HttpStreamHandler getStreamHandler() {
+        return streamHandler;
     }
 
     @Override
     protected HttpAuthenticationProvider getAuthenticationProvider() {
-        if (router instanceof HttpServerServiceHook) {
-            return ((HttpServerServiceHook) router).getAuthenticationProvider();
+        if (streamHandler instanceof HttpServerServiceHook) {
+            return ((HttpServerServiceHook) streamHandler).getAuthenticationProvider();
         }
         return null;
     }

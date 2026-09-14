@@ -16,7 +16,9 @@ import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.Headers;
 import org.junit.After;
 import org.junit.Before;
@@ -60,7 +62,7 @@ public class HttpServerCompositionTest {
                 .listener(new Http2Listener()
                         .port(testPort)
                         .addresses(InetAddress.ofLiteral(TEST_HOST)))
-                .handlerPerRequest(HelloHandler::new)
+                .streamHandler(new HelloStreamHandler())
                 .server();
 
         gumdrop.addServer(server);
@@ -160,6 +162,13 @@ public class HttpServerCompositionTest {
         assertTrue(connected.await(5, TimeUnit.SECONDS));
         assertNull(error.get());
         return client;
+    }
+
+    private static final class HelloStreamHandler implements HttpStreamHandler {
+        @Override
+        public HttpRequestHandler openStream(HttpResponseState stream) {
+            return new HelloHandler();
+        }
     }
 
     private static final class HelloHandler extends DefaultHttpRequestHandler {

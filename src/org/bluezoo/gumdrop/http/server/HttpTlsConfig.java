@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.server;
 
+import org.bluezoo.gumdrop.TlsConfigSupport;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.TlsConfig;
@@ -87,11 +88,11 @@ public final class HttpTlsConfig {
     }
 
     /**
-     * @deprecated use {@link TlsConfig#applyTo(Listener)}.
+     * @deprecated use {@link TlsConfigSupport#apply(TlsConfig, Listener)}.
      */
     @Deprecated
     public void applyTo(Listener listener) {
-        config.applyTo(listener);
+        TlsConfigSupport.apply(config, listener);
     }
 
 }

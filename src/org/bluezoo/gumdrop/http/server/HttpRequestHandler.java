@@ -32,6 +32,7 @@ import java.nio.ByteBuffer;
  *
  * <p>This interface provides an event-driven API for handling HTTP requests.
  * Each instance handles exactly one request/response exchange (one stream).
+ * The server binds instances via {@link HttpStreamHandler#openStream(HttpResponseState)}.
  * Implementations receive request events and use the provided
  * {@link HttpResponseState} to send the response.
  *
@@ -95,6 +96,7 @@ import java.nio.ByteBuffer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DefaultHttpRequestHandler
  * @see HttpResponseState
+ * @see HttpStreamHandler
  * @see HttpRequestHandlerFactory
  */
 public interface HttpRequestHandler {

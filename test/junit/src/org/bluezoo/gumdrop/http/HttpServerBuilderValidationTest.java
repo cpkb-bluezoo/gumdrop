@@ -6,6 +6,10 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
 import org.junit.Test;
@@ -43,7 +47,12 @@ public class HttpServerBuilderValidationTest {
     @Test(expected = IllegalStateException.class)
     public void testBuildRequiresListener() {
         HttpServer.compose()
-                .handler(new org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler())
+                .streamHandler(new HttpStreamHandler() {
+                    @Override
+                    public HttpRequestHandler openStream(HttpResponseState stream) {
+                        return new DefaultHttpRequestHandler();
+                    }
+                })
                 .server();
     }
 

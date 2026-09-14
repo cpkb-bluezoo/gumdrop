@@ -28,13 +28,15 @@ import java.util.Set;
 /**
  * Factory for creating {@link HttpRequestHandler} instances.
  *
- * @deprecated Replaced by {@link HttpRequestRouter}. Use
- *             {@link HttpRequestHandlers#fromFactory(HttpRequestHandlerFactory)}
- *             only for legacy migration.
+ * @deprecated Replaced by {@link HttpStreamHandler}. Use
+ *             {@link Http2Listener#setStreamHandler(HttpStreamHandler)} for new
+ *             code; {@link Http2Listener#setHandlerFactory(HttpRequestHandlerFactory)}
+ *             remains for XML configuration during migration.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see HttpRequestHandler
- * @see Http2Listener#setRequestRouter
+ * @see HttpStreamHandler
+ * @see Http2Listener#setStreamHandler
  */
 @Deprecated
 public interface HttpRequestHandlerFactory {

@@ -61,7 +61,7 @@ public class FTPProtocolHandlerTest {
     @Before
     public void setUp() {
         listener = new FtpListener();
-        handler = new FtpProtocolHandler(listener, null);
+        handler = new FtpProtocolHandler(listener, (FtpConnectionHandler) null);
         endpoint = new StubEndpoint();
     }
 
@@ -185,7 +185,7 @@ public class FTPProtocolHandlerTest {
     public void testCommandWithArgsSlicedAtEveryChunkSize() {
         for (int chunkSize = 1; chunkSize <= 12; chunkSize++) {
             listener = new FtpListener();
-            handler = new FtpProtocolHandler(listener, null);
+            handler = new FtpProtocolHandler(listener, (FtpConnectionHandler) null);
             endpoint = new StubEndpoint();
 
             connect();
@@ -203,7 +203,7 @@ public class FTPProtocolHandlerTest {
         // multi-space pathname arg) was correctly lexed through to CRLF.
         for (int chunkSize = 1; chunkSize <= 20; chunkSize++) {
             listener = new FtpListener();
-            handler = new FtpProtocolHandler(listener, null);
+            handler = new FtpProtocolHandler(listener, (FtpConnectionHandler) null);
             endpoint = new StubEndpoint();
 
             connect();

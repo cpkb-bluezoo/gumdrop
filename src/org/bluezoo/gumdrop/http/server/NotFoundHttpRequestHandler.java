@@ -17,7 +17,7 @@ import org.bluezoo.gumdrop.http.HttpStatus;
  * without an explicit handler. The protocol stack still accepts standard
  * methods; unknown methods receive {@code 501} from the HTTP layer.
  *
- * @see HttpRequestHandlers#notFound()
+ * @see HttpStreamHandler
  */
 public final class NotFoundHttpRequestHandler extends DefaultHttpRequestHandler {
 

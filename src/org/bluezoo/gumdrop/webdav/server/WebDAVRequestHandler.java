@@ -23,8 +23,8 @@ package org.bluezoo.gumdrop.webdav.server;
 
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestRouter;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.webdav.DeadPropertyStore;
 import org.bluezoo.gumdrop.webdav.FileRequestRouter;
 
@@ -40,12 +40,12 @@ import java.util.logging.Logger;
  * Filesystem HTTP handler with optional RFC 4918 WebDAV authoring.
  *
  * <p>Install on {@link org.bluezoo.gumdrop.http.HttpServer} via
- * {@link org.bluezoo.gumdrop.http.HttpServer.Composer#router(HttpRequestRouter)}:
+ * {@link org.bluezoo.gumdrop.http.HttpServer.Composer#streamHandler(HttpStreamHandler)}:
  *
  * <pre>{@code
  * HttpServer server = HttpServer.compose()
  *         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
- *         .router(WebDAVRequestHandler.builder()
+ *         .streamHandler(WebDAVRequestHandler.builder()
  *                 .rootPath(Path.of("/var/www/html"))
  *                 .webdavEnabled(true)
  *                 .build())
@@ -56,7 +56,7 @@ import java.util.logging.Logger;
  * @see WebdavServer
  * @see docs/COMPOSITION.md
  */
-public final class WebDAVRequestHandler implements HttpRequestRouter {
+public final class WebDAVRequestHandler implements HttpStreamHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(WebDAVRequestHandler.class.getName());
@@ -70,8 +70,8 @@ public final class WebDAVRequestHandler implements HttpRequestRouter {
     }
 
     @Override
-    public HttpRequestHandler route(HttpResponseState state, Headers headers) {
-        return fileRouter.route(state, headers);
+    public HttpRequestHandler openStream(HttpResponseState stream) {
+        return fileRouter.openStream(stream);
     }
 
     /**

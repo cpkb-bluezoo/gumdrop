@@ -232,7 +232,7 @@ public  class HttpProtocolHandler
     private long rstStreamWindowStartMs;
 
     private HttpAuthenticationProvider authenticationProvider;
-    private HttpRequestRouter requestRouter;
+    private HttpStreamHandler streamHandler;
 
     HttpVersion version = HttpVersion.HTTP_1_0;
 
@@ -410,27 +410,20 @@ public  class HttpProtocolHandler
         this.charBuffer = CharBuffer.allocate(MAX_LINE_LENGTH);
         ByteStreamLexer.checkTokenCap(MAX_LINE_LENGTH, server.getMaxNetInSize());
         this.authenticationProvider = server.getAuthenticationProvider();
-        this.requestRouter = server.getRequestRouter();
+        this.streamHandler = server.getStreamHandler();
+    }
+
+    public void setStreamHandler(HttpStreamHandler streamHandler) {
+        this.streamHandler = streamHandler;
     }
 
     /**
-     * Sets the authentication provider.
-     */
-    public void setAuthenticationProvider(HttpAuthenticationProvider provider) {
-        this.authenticationProvider = provider;
-    }
-
-    public void setRequestRouter(HttpRequestRouter router) {
-        this.requestRouter = router;
-    }
-
-    /**
-     * @deprecated use {@link #setRequestRouter(HttpRequestRouter)}.
+     * @deprecated use {@link #setStreamHandler(HttpStreamHandler)}.
      */
     @Deprecated
     public void setHandlerFactory(HttpRequestHandlerFactory factory) {
-        this.requestRouter = factory != null
-                ? HttpRequestHandlers.fromFactory(factory) : null;
+        this.streamHandler = factory != null
+                ? new HandlerFactoryStreamHandler(factory) : null;
     }
 
     // ── ProtocolHandler implementation ──
@@ -782,17 +775,24 @@ public  class HttpProtocolHandler
         return endpoint.getSecurityInfo();
     }
 
+    /**
+     * Sets the authentication provider.
+     */
+    public void setAuthenticationProvider(HttpAuthenticationProvider provider) {
+        this.authenticationProvider = provider;
+    }
+
     @Override
-    public HttpRequestRouter getRequestRouter() {
-        return requestRouter;
+    public HttpStreamHandler getStreamHandler() {
+        return streamHandler;
     }
 
     /**
-     * @deprecated use {@link #getRequestRouter()}.
+     * @deprecated use {@link #getStreamHandler()}.
      */
     @Deprecated
     public HttpRequestHandlerFactory getHandlerFactory() {
-        return HttpRequestHandlers.toFactory(requestRouter);
+        return null;
     }
 
     @Override
@@ -1471,6 +1471,7 @@ public  class HttpProtocolHandler
                 pushedStream.addHeader(header);
             }
             streams.put(streamId, pushedStream);
+            pushedStream.openApplicationHandler();
             return pushedStream;
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Failed to create pushed stream " + streamId, e);
@@ -1689,12 +1690,7 @@ public  class HttpProtocolHandler
     }
 
     private String getAllowedMethods() {
-        Set<String> methods;
-        if (requestRouter != null && requestRouter.getSupportedMethods() != null) {
-            methods = requestRouter.getSupportedMethods();
-        } else {
-            methods = DEFAULT_METHODS;
-        }
+        Set<String> methods = DEFAULT_METHODS;
         StringBuilder sb = new StringBuilder();
         for (String m : methods) {
             if ("PRI".equals(m)) {
@@ -1710,11 +1706,8 @@ public  class HttpProtocolHandler
 
     // RFC 9110 section 15.6.2: 501 Not Implemented if method not recognised
     private boolean isMethodSupported(String method) {
-        if (requestRouter != null) {
-            Set<String> customMethods = requestRouter.getSupportedMethods();
-            if (customMethods != null) {
-                return customMethods.contains(method);
-            }
+        if (streamHandler != null) {
+            return true;
         }
         return DEFAULT_METHODS.contains(method);
     }
@@ -1750,6 +1743,7 @@ public  class HttpProtocolHandler
                 h2FlowControl.openStream(streamId);
             }
             streams.put(streamId, s);
+            s.openApplicationHandler();
         }
         return s;
     }

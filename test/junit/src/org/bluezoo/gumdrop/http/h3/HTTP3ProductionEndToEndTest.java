@@ -48,6 +48,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HandlerFactoryStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
@@ -201,7 +202,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
                         }
                     }, loop);
 
@@ -372,7 +373,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
                         }
                     }, loop);
 
@@ -576,7 +577,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
                         }
                     }, loop);
 
@@ -795,7 +796,8 @@ public class HTTP3ProductionEndToEndTest {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
                             serverHandlerRef.set(new Http3ServerHandler(
-                                    connection, handlerFactory, null, null, null, false));
+                                    connection, new HandlerFactoryStreamHandler(handlerFactory),
+                                    null, null, null, false));
                         }
                     }, loop);
 
@@ -935,7 +937,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
                         }
                     }, loop);
 
@@ -1190,7 +1192,8 @@ public class HTTP3ProductionEndToEndTest {
                         public void connectionAccepted(QuicConnection connection) {
                             serverConnRef.set(connection);
                             serverHandlerRef.set(new Http3ServerHandler(
-                                    connection, handlerFactory, null, null, null, false));
+                                    connection, new HandlerFactoryStreamHandler(handlerFactory),
+                                    null, null, null, false));
                         }
                     }, loop);
 
@@ -1901,7 +1904,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
                         }
                     }, loop);
 
@@ -2008,7 +2011,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
                         }
                     }, loop);
 
@@ -2179,7 +2182,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
                         }
                     }, loop);
             int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
@@ -2373,7 +2376,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, handlerFactory, null, null, null, false);
+                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
                         }
                     }, loop);
 
