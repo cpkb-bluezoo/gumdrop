@@ -416,7 +416,7 @@ public class LdapRealm implements Realm {
         final CountDownLatch latch = new CountDownLatch(1);
 
         LdapClient client = createClient();
-        client.connect(new LdapConnectionReady() {
+        client.connect(selectorLoop.getGumdrop(), new LdapConnectionReady() {
             @Override
             public void handleReady(LdapConnected connection) {
                 BindResultHandler bindHandler = new BindResultHandler() {
@@ -502,7 +502,7 @@ public class LdapRealm implements Realm {
         final CountDownLatch latch = new CountDownLatch(1);
 
         LdapClient client = createClient();
-        client.connect(new LdapConnectionReady() {
+        client.connect(selectorLoop.getGumdrop(), new LdapConnectionReady() {
             @Override
             public void handleReady(LdapConnected connection) {
                 performUserBind(connection, dn, password, new BindResultHandler() {
@@ -567,7 +567,7 @@ public class LdapRealm implements Realm {
         final CountDownLatch latch = new CountDownLatch(1);
 
         LdapClient client = createClient();
-        client.connect(new LdapConnectionReady() {
+        client.connect(selectorLoop.getGumdrop(), new LdapConnectionReady() {
             @Override
             public void handleReady(LdapConnected connection) {
                 BindResultHandler bindHandler = new BindResultHandler() {
@@ -698,7 +698,7 @@ public class LdapRealm implements Realm {
         final CountDownLatch latch = new CountDownLatch(1);
 
         LdapClient client = createClient();
-        client.connect(new LdapConnectionReady() {
+        client.connect(selectorLoop.getGumdrop(), new LdapConnectionReady() {
             @Override
             public void handleReady(LdapConnected connection) {
                 BindResultHandler bindHandler = new BindResultHandler() {

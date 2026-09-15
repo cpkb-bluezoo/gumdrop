@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import org.junit.After;
 import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,6 +40,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
+
 import static org.junit.Assert.*;
 
 /**
@@ -47,6 +51,19 @@ import static org.junit.Assert.*;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class DNSServiceTest {
+
+    private Gumdrop gumdrop;
+
+    @Before
+    public void bootGumdrop() {
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
+    }
+
+    @After
+    public void shutdownGumdrop() throws InterruptedException {
+        gumdrop.shutdown();
+        gumdrop.join();
+    }
 
     /**
      * Drives {@link DnsServer#processQuery} to completion and returns
@@ -165,7 +182,7 @@ public class DNSServiceTest {
             service.setUseSystemResolvers(false);
             service.setCacheEnabled(false);
             service.setUpstreamServers("127.0.0.1:" + mockPort);
-            service.start();
+            service.start(gumdrop);
 
             try {
                 DnsMessage query = DnsMessage.createQuery(42, "example.com", DnsType.A);
@@ -241,7 +258,7 @@ public class DNSServiceTest {
             service.setUseSystemResolvers(false);
             service.setCacheEnabled(false);
             service.setUpstreamServers("127.0.0.1:" + mockPort);
-            service.start();
+            service.start(gumdrop);
 
             try {
                 DnsMessage query = DnsMessage.createQuery(42, "example.com", DnsType.A);
@@ -310,7 +327,7 @@ public class DNSServiceTest {
             service.setUseSystemResolvers(false);
             service.setCacheEnabled(false);
             service.setUpstreamServers("127.0.0.1:" + mockPort);
-            service.start();
+            service.start(gumdrop);
 
             try {
                 DnsMessage query = DnsMessage.createQuery(42, "example.com", DnsType.A);
@@ -411,7 +428,7 @@ public class DNSServiceTest {
             // Upstream forwarding needs the UDP/TCP transport factories
             // start() creates -- unlike testCookieOnlyResponseWithoutServerCookie,
             // this test's second query actually reaches proxyToUpstream.
-            service.start();
+            service.start(gumdrop);
             listener.setService(service);
 
             DnsCookie clientCookie = new DnsCookie();

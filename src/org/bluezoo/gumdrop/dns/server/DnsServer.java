@@ -361,7 +361,7 @@ public class DnsServer implements Server {
     }
 
     @Override
-    public void start() {
+    public void start(Gumdrop gumdrop) {
         initService();
 
         for (int i = 0; i < listeners.size(); i++) {
@@ -380,12 +380,12 @@ public class DnsServer implements Server {
         if (metrics != null && activeHandler instanceof UpstreamRelayHandler) {
             ((UpstreamRelayHandler) activeHandler).setMetrics(metrics);
         }
-        activeHandler.start();
+        activeHandler.start(gumdrop);
 
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
             wireListener(listener);
-            startListener(listener);
+            startListener(gumdrop, listener);
         }
     }
 
@@ -968,17 +968,16 @@ public class DnsServer implements Server {
         }
     }
 
-    private void startListener(Object listener) {
+    private void startListener(Gumdrop gumdrop, Object listener) {
         if (listener instanceof DoQListener) {
             DoQListener doq = (DoQListener) listener;
             if (doq.getSelectorLoop() == null) {
-                doq.setSelectorLoop(
-                        Gumdrop.getInstance().nextWorkerLoop());
+                doq.setSelectorLoop(gumdrop.nextWorkerLoop());
             }
         }
         if (listener instanceof Listener) {
             try {
-                ((Listener) listener).start();
+                ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE,
                         "Failed to start DNS listener: " + listener, e);

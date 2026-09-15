@@ -41,6 +41,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
@@ -67,17 +69,18 @@ import static org.junit.Assert.assertTrue;
  */
 public class ConnectUdpRelayEndToEndTest {
 
+    private Gumdrop gumdrop;
     private SelectorLoop loop;
     private UdpEndpoint echoServer;
 
     @Before
     public void startLoopAndEchoServer() throws Exception {
-        loop = new SelectorLoop(0);
-        loop.start();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        loop = gumdrop.nextWorkerLoop();
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
         echoServer = factory.createServerEndpoint(
-                InetAddress.getLoopbackAddress(), 0, new EchoHandler(), loop);
+                gumdrop, InetAddress.getLoopbackAddress(), 0, new EchoHandler(), loop);
     }
 
     @After
@@ -85,9 +88,9 @@ public class ConnectUdpRelayEndToEndTest {
         if (echoServer != null && echoServer.isOpen()) {
             echoServer.close();
         }
-        if (loop != null) {
-            loop.shutdown();
-            loop.awaitQuiesce(2000);
+        if (gumdrop != null) {
+            gumdrop.shutdown();
+            gumdrop.join();
         }
     }
 

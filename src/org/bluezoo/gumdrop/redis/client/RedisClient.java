@@ -28,6 +28,7 @@ import java.nio.file.Path;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
@@ -203,14 +204,14 @@ public class RedisClient {
     /**
      * Connects to the remote Redis server.
      */
-    public void connect(RedisConnectionReady handler) {
+    public void connect(Gumdrop gumdrop, RedisConnectionReady handler) {
         transportFactory = new TcpTransportFactory();
         endpointHandler = new RedisClientProtocolHandler(handler);
 
         try {
             ClientConnect.prepareTls(secure, tls, transportFactory);
             clientEndpoint = ClientConnect.openAndConnect(
-                    dial, transportFactory, endpointHandler);
+                    gumdrop, dial, transportFactory, endpointHandler);
             connected = true;
         } catch (IOException e) {
             handler.onError(e);

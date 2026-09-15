@@ -141,6 +141,8 @@ public class WebSocketClient implements AltSvcListener {
     private HttpClient httpClient;
     private WebSocketConnection h3WebSocketConnection;
 
+    private Gumdrop gumdrop;
+
     /**
      * Creates a client for fluent dial configuration before {@link #connect}.
      */
@@ -511,10 +513,12 @@ public class WebSocketClient implements AltSvcListener {
      * the connection transitions to WebSocket mode and the handler receives
      * {@link WebSocketEventHandler#opened}.
      *
+     * @param gumdrop the runtime this connection is made under
      * @param path the request path (e.g. "/ws" or "/chat")
      * @param handler the handler to receive WebSocket events
      */
-    public void connect(String path, final WebSocketEventHandler handler) {
+    public void connect(Gumdrop gumdrop, String path, final WebSocketEventHandler handler) {
+        this.gumdrop = gumdrop;
         if (socketPath == null && host == null && hostAddress == null) {
             handler.error(new IllegalStateException(
                     "host, host address, or socketPath is required"));
@@ -566,8 +570,6 @@ public class WebSocketClient implements AltSvcListener {
 
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            gumdrop.start();
             loop = gumdrop.nextWorkerLoop();
         }
         if (loop == null) {
@@ -757,7 +759,7 @@ public class WebSocketClient implements AltSvcListener {
             if (dnsResolver != null) {
                 clientEndpoint.setDnsResolver(dnsResolver);
             }
-            clientEndpoint.connect(protocolHandler);
+            clientEndpoint.connect(gumdrop, protocolHandler);
         } catch (IOException e) {
             handler.error(e);
         }
@@ -900,7 +902,7 @@ public class WebSocketClient implements AltSvcListener {
         }
         httpClient.importTls(tls);
 
-        httpClient.connect(new HttpClientHandler() {
+        httpClient.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
             }

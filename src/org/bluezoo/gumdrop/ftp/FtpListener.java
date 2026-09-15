@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.ftp;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -103,6 +104,24 @@ public class FtpListener extends TcpListener {
 
     // Metrics for this endpoint (null if telemetry is not enabled)
     private FtpServerMetrics metrics;
+
+    private Gumdrop gumdrop;
+
+    @Override
+    public void start(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+        super.start(gumdrop);
+    }
+
+    /**
+     * Returns the runtime this listener is running under, for data
+     * connection coordinators created by accepted connections.
+     *
+     * @return the runtime, or null if not yet started
+     */
+    Gumdrop getGumdrop() {
+        return gumdrop;
+    }
 
     @Override
     public String getDescription() {

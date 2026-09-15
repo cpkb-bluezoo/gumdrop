@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.servlet.session;
 
 import org.bluezoo.gumdrop.UdpEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
@@ -289,7 +290,7 @@ public class Cluster {
         return "cluster";
     }
 
-    public void open() throws IOException {
+    public void open(Gumdrop gumdrop) throws IOException {
         transportFactory = new UdpTransportFactory();
         transportFactory.start();
 
@@ -313,7 +314,7 @@ public class Cluster {
         channel.setOption(StandardSocketOptions.IP_MULTICAST_IF, networkInterface);
         channel.join(group, networkInterface);
 
-        endpoint = transportFactory.createServerEndpoint(channel, new ClusterProtocolHandler());
+        endpoint = transportFactory.createServerEndpoint(gumdrop, channel, new ClusterProtocolHandler());
 
         // Initialize metrics if telemetry is configured
         initializeMetrics();

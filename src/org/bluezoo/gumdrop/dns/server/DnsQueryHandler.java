@@ -7,6 +7,7 @@
 
 package org.bluezoo.gumdrop.dns.server;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
@@ -41,7 +42,17 @@ public interface DnsQueryHandler {
     void handleQuery(DnsMessage query, SelectorLoop loop, DnsQueryCallback callback);
 
     /**
-     * Initialises handler resources. Called from {@link DnsServer#start()}.
+     * Initialises handler resources. Called from {@link DnsServer#start(Gumdrop)}.
+     *
+     * @param gumdrop the runtime the owning {@link DnsServer} is starting under
+     */
+    default void start(Gumdrop gumdrop) {
+        start();
+    }
+
+    /**
+     * Initialises handler resources, using no runtime reference. Prefer
+     * {@link #start(Gumdrop)}; overridden by handlers that don't need one.
      */
     default void start() {
     }

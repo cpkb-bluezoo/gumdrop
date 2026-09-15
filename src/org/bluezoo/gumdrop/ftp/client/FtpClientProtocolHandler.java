@@ -37,6 +37,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.ftp.client.handler.ClientAccountState;
@@ -100,6 +101,7 @@ public final class FtpClientProtocolHandler
     private static final String CRLF = "\r\n";
 
     private final RemoteGreeting handler;
+    private Gumdrop gumdrop;
 
     private Endpoint endpoint;
     private FtpState state = FtpState.DISCONNECTED;
@@ -163,6 +165,17 @@ public final class FtpClientProtocolHandler
     }
 
     /**
+     * Sets the runtime this client connection is made under, so the data
+     * connection coordinator can obtain an accept loop for active mode
+     * (PORT/EPRT) without a singleton.
+     *
+     * @param gumdrop the runtime this client connection is made under
+     */
+    void setGumdrop(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+    }
+
+    /**
      * Sets the client credentials to present on TLS-protected data
      * connections (RFC 4217 §9, PROT P). Typically the same credentials
      * configured for the control connection's AUTH TLS.
@@ -178,7 +191,7 @@ public final class FtpClientProtocolHandler
     @Override
     public void connected(Endpoint ep) {
         this.endpoint = ep;
-        this.dataCoordinator = new FtpClientDataConnectionCoordinator(ep);
+        this.dataCoordinator = new FtpClientDataConnectionCoordinator(gumdrop, ep);
         state = FtpState.CONNECTING;
 
         if (LOGGER.isLoggable(Level.FINE)) {

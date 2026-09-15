@@ -31,6 +31,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Server;
 
 /**
@@ -97,14 +98,14 @@ public class HealthServer implements Server {
     }
 
     @Override
-    public void start() {
+    public void start(Gumdrop gumdrop) {
         HealthListener listener = new HealthListener();
         listener.setName("health");
         listener.setPort(port);
         if (addresses != null && !addresses.isEmpty()) {
             listener.setAddresses(addresses);
         }
-        listener.start();
+        listener.start(gumdrop);
         listeners.add(listener);
         if (LOGGER.isLoggable(Level.INFO)) {
             LOGGER.info(MessageFormat.format(L10N.getString("info.health_listening"), port));

@@ -30,6 +30,7 @@ import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
@@ -292,7 +293,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
     }
 
     @Override
-    public void start() {
+    public void start(Gumdrop gumdrop) {
         initService();
 
         for (int i = 0; i < listeners.size(); i++) {
@@ -306,7 +307,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
                 }
                 ep.setService(this);
             }
-            startListener(listener);
+            startListener(gumdrop, listener);
         }
     }
 
@@ -344,10 +345,10 @@ public class ImapServer implements Server, ImapServerSessionProvider {
         ep.setAllowPlaintextLogin(allowPlaintextLogin);
     }
 
-    private void startListener(Object listener) {
+    private void startListener(Gumdrop gumdrop, Object listener) {
         if (listener instanceof Listener) {
             try {
-                ((Listener) listener).start();
+                ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE,
                         "Failed to start listener: " + listener, e);

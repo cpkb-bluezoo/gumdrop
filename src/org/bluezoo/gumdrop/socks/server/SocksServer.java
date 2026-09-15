@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -384,14 +385,14 @@ public abstract class SocksServer implements Server {
     }
 
     @Override
-    public void start() {
+    public void start(Gumdrop gumdrop) {
         initService();
 
         for (SocksListener ep : listeners) {
             wireListener(ep);
             ep.setService(this);
             try {
-                ep.start();
+                ep.start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE, MessageFormat.format(
                         L10N.getString("log.listener_start_failed"), ep), e);

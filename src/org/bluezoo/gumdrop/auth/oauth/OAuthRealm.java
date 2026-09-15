@@ -616,13 +616,13 @@ public class OAuthRealm implements Realm {
         String requestBody = "token=" + URLEncoder.encode(accessToken, StandardCharsets.UTF_8.name()) +
                            "&token_type_hint=access_token";
         byte[] bodyBytes = requestBody.getBytes(StandardCharsets.UTF_8);
-        // Create HTTP client
-        HttpClient client;
-        if (selectorLoop != null) {
-            client = new HttpClient(selectorLoop, serverHost, serverPort);
-        } else {
-            client = new HttpClient(serverHost, serverPort);
+        if (selectorLoop == null) {
+            throw new IllegalStateException(
+                    "OAuthRealm.performTokenIntrospection requires a SelectorLoop "
+                            + "(bind via forSelectorLoop) to obtain a runtime");
         }
+        // Create HTTP client
+        HttpClient client = new HttpClient(selectorLoop, serverHost, serverPort);
         client.setSecure(useHttps);
         // Use credentials for automatic authentication
         client.credentials(clientId, clientSecret);
@@ -705,7 +705,7 @@ public class OAuthRealm implements Realm {
         };
         
         // Connect and make request
-        client.connect(new HttpClientHandler() {
+        client.connect(selectorLoop.getGumdrop(), new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 LOGGER.fine(L10N.getString("debug.oauth_connected"));

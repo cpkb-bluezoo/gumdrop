@@ -7,6 +7,7 @@ package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
@@ -51,13 +52,7 @@ public class HttpStreamHandlerConcurrentTest {
     @Before
     public void setUp() throws Exception {
         testPort = NEXT_PORT.getAndIncrement();
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
-        if (gumdrop.isStarted()) {
-            gumdrop.shutdown();
-            gumdrop.join();
-            gumdrop = Gumdrop.getInstance();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
 
         server = HttpServer.compose()
                 .listener(new Http2Listener()
@@ -67,7 +62,6 @@ public class HttpStreamHandlerConcurrentTest {
                 .server();
 
         gumdrop.addServer(server);
-        gumdrop.start();
     }
 
     @After
@@ -83,7 +77,7 @@ public class HttpStreamHandlerConcurrentTest {
 
     @Test
     public void concurrentStreamsDoNotCrossContaminateState() throws Exception {
-        HttpClient client = connectH2(testPort);
+        HttpClient client = connectH2(gumdrop, testPort);
 
         CountDownLatch done = new CountDownLatch(2);
         AtomicReference<String> bodyA = new AtomicReference<String>();
@@ -99,7 +93,7 @@ public class HttpStreamHandlerConcurrentTest {
         assertEquals("/b:bbb", bodyB.get());
     }
 
-    private static HttpClient connectH2(int port) throws Exception {
+    private static HttpClient connectH2(Gumdrop gumdrop, int port) throws Exception {
         HttpClient client = new HttpClient(TEST_HOST, port);
         client.setAltSvcEnabled(false);
         client.setH2WithPriorKnowledge(true);
@@ -108,7 +102,7 @@ public class HttpStreamHandlerConcurrentTest {
         CountDownLatch connected = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<Exception>();
 
-        client.connect(new HttpClientHandler() {
+        client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 connected.countDown();

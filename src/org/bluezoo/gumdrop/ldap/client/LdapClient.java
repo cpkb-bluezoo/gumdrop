@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
@@ -148,14 +149,14 @@ public class LdapClient {
         return this;
     }
 
-    public void connect(LdapConnectionReady handler) {
+    public void connect(Gumdrop gumdrop, LdapConnectionReady handler) {
         transportFactory = new TcpTransportFactory();
         endpointHandler = new LdapClientProtocolHandler(handler, secure);
 
         try {
             ClientConnect.prepareTls(secure, tls, transportFactory);
             clientEndpoint = ClientConnect.openAndConnect(
-                    dial, transportFactory, endpointHandler);
+                    gumdrop, dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }

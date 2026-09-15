@@ -128,7 +128,7 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
         InetSocketAddress boundAddress =
                 (InetSocketAddress) serverChannel.getLocalAddress();
 
-        Gumdrop.getInstance().getAcceptLoop()
+        controlEndpoint.getSelectorLoop().getGumdrop().getAcceptLoop()
                 .registerRawAcceptor(serverChannel, this);
 
         startIdleTimer();

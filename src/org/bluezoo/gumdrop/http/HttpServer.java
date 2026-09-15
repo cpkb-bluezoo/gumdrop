@@ -235,14 +235,16 @@ public abstract class HttpServer implements Server {
     /**
      * Initialises server-specific application resources.
      *
-     * <p>Called at the beginning of {@link #start()}, before listeners
-     * are wired and started. Subclasses should initialise containers,
-     * thread pools, caches, or any other application-level resources
-     * here.
+     * <p>Called at the beginning of {@link #start(Gumdrop)}, before
+     * listeners are wired and started. Subclasses should initialise
+     * containers, thread pools, caches, or any other application-level
+     * resources here.
      *
      * <p>The default implementation does nothing.
+     *
+     * @param gumdrop the runtime this server is starting under
      */
-    protected void initService() {
+    protected void initService(Gumdrop gumdrop) {
         // Default: no-op
     }
 
@@ -264,10 +266,12 @@ public abstract class HttpServer implements Server {
     /**
      * Starts this server: initialises application logic, wires
      * listeners, computes Alt-Svc, and starts each listener.
+     *
+     * @param gumdrop the runtime this server is starting under
      */
     @Override
-    public void start() {
-        initService();
+    public void start(Gumdrop gumdrop) {
+        initService(gumdrop);
 
         HttpStreamHandler streamHandler = getStreamHandler();
         HttpAuthenticationProvider authProvider =
@@ -280,7 +284,7 @@ public abstract class HttpServer implements Server {
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
             wireListener(listener, streamHandler, authProvider, altSvc);
-            startListener(listener);
+            startListener(gumdrop, listener);
         }
     }
 
@@ -325,17 +329,16 @@ public abstract class HttpServer implements Server {
     /**
      * Starts a single listener.
      */
-    private void startListener(Object listener) {
+    private void startListener(Gumdrop gumdrop, Object listener) {
         if (listener instanceof Http3Listener) {
             Http3Listener h3 = (Http3Listener) listener;
             if (h3.getSelectorLoop() == null) {
-                h3.setSelectorLoop(
-                        Gumdrop.getInstance().nextWorkerLoop());
+                h3.setSelectorLoop(gumdrop.nextWorkerLoop());
             }
         }
         if (listener instanceof Listener) {
             try {
-                ((Listener) listener).start();
+                ((Listener) listener).start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE,
                         "Failed to start listener: " + listener, e);

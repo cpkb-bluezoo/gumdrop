@@ -560,7 +560,7 @@ public class SimpleRelayHandler implements ClientConnected, HelloHandler,
                         new SmtpClientProtocolHandler(handler);
                 ClientEndpoint endpoint = new ClientEndpoint(
                         factory, host, 25);
-                endpoint.connect(endpointHandler);
+                endpoint.connect(dnsResolver.getSelectorLoop().getGumdrop(), endpointHandler);
             } catch (IOException e) {
                 LOGGER.warning(MessageFormat.format(
                         L10N.getString("warn.cannot_connect"), host, e.getMessage()));

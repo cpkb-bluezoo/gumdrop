@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TransportFactory;
@@ -156,11 +157,13 @@ public final class ClientDial {
 
     /**
      * Opens a {@link ClientEndpoint} and initiates an asynchronous connect.
+     *
+     * @param gumdrop the runtime this connection is made under
      */
-    public ClientEndpoint connect(TransportFactory factory, ProtocolHandler handler)
+    public ClientEndpoint connect(Gumdrop gumdrop, TransportFactory factory, ProtocolHandler handler)
             throws IOException {
         ClientEndpoint endpoint = openEndpoint(factory);
-        endpoint.connect(handler);
+        endpoint.connect(gumdrop, handler);
         return endpoint;
     }
 

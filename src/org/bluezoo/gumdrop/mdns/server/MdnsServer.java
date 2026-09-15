@@ -127,6 +127,7 @@ public class MdnsServer implements Server {
     private String hostname;
     private boolean advertiseServices = true;
     private final Set<String> excludedDescriptions = new HashSet<String>();
+    private Gumdrop gumdrop;
 
     private String hostnameLabel;
     private int nameConflictSuffix = 1;
@@ -206,12 +207,13 @@ public class MdnsServer implements Server {
      * Sets whether to auto-advertise gumdrop's own configured services
      * as DNS-SD (RFC 6763) records once announced. Default true.
      *
-     * <p>Uses {@code Gumdrop.getInstance().getServers()} at
+     * <p>Uses the {@link Gumdrop} runtime's {@code getServers()} at
      * announce-time, so it only sees protocol servers that have already
-     * started -- declare the {@code mdns} server <strong>last</strong>
-     * in {@code gumdroprc.xml} (servers start in document order) so
-     * every other configured server's listeners are already bound and
-     * assigned real ports by the time this runs.
+     * started -- add this server to the {@link Gumdrop} runtime
+     * <strong>last</strong> (e.g. the final {@code gumdrop.addServer(...)}
+     * call in application composition code) so every other server's
+     * listeners are already bound and assigned real ports by the time
+     * this runs.
      *
      * @param advertiseServices true to auto-advertise
      */
@@ -308,7 +310,8 @@ public class MdnsServer implements Server {
     // ── Lifecycle ──
 
     @Override
-    public void start() {
+    public void start(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
         hostnameLabel = resolveHostnameLabel();
         ownAddresses = gatherOwnAddresses();
 
@@ -317,7 +320,7 @@ public class MdnsServer implements Server {
             MdnsListener l = listeners.get(i);
             l.setService(this);
             try {
-                l.start();
+                l.start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE, "Failed to start mDNS listener: " + l, e);
                 continue;
@@ -467,7 +470,7 @@ public class MdnsServer implements Server {
             String hostLabel = currentName.substring(
                     0, currentName.length() - ".local".length());
             records.addAll(DnssdAdvertiser.buildRecords(
-                    Gumdrop.getInstance().getServers(), hostLabel,
+                    gumdrop.getServers(), hostLabel,
                     RECORD_TTL, excludedDescriptions));
         }
         currentRecords = records;

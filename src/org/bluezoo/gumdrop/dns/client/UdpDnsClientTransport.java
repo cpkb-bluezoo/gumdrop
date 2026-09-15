@@ -56,9 +56,13 @@ public class UdpDnsClientTransport implements DnsClientTransport {
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
                      DnsClientTransportHandler handler) throws IOException {
+        if (loop == null || loop.getGumdrop() == null) {
+            throw new IOException(
+                    "UdpDnsClientTransport requires a SelectorLoop owned by a running Gumdrop");
+        }
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
-        this.endpoint = factory.connect(server, port,
+        this.endpoint = factory.connect(loop.getGumdrop(), server, port,
                 new UdpProtocolHandler(handler), loop);
     }
 

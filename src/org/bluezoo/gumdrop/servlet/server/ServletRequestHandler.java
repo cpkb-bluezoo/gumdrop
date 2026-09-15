@@ -7,6 +7,7 @@
 
 package org.bluezoo.gumdrop.servlet.server;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpServerServiceHook;
@@ -57,8 +58,8 @@ public final class ServletRequestHandler
     }
 
     @Override
-    public void initService() {
-        container.start();
+    public void initService(Gumdrop gumdrop) {
+        container.start(gumdrop);
     }
 
     @Override

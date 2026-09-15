@@ -27,6 +27,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.GssapiServer;
@@ -194,6 +195,24 @@ public class SocksListener extends TcpListener {
 
     public void setService(org.bluezoo.gumdrop.socks.server.SocksServer service) {
         this.service = service;
+    }
+
+    private Gumdrop gumdrop;
+
+    @Override
+    public void start(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+        super.start(gumdrop);
+    }
+
+    /**
+     * Returns the runtime this listener is running under, for relays
+     * (UDP ASSOCIATE, BIND) created by accepted connections.
+     *
+     * @return the runtime, or null if not yet started
+     */
+    public Gumdrop getGumdrop() {
+        return gumdrop;
     }
 
     @Override

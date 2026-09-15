@@ -30,6 +30,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
@@ -195,7 +196,7 @@ public class DNSSDAdvertiserTest {
             return listeners;
         }
 
-        @Override public void start() { }
+        @Override public void start(Gumdrop gumdrop) { }
         @Override public void stop() { }
     }
 

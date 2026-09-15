@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpServerServiceHook;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -39,9 +40,9 @@ final class ComposedHttpServer extends HttpServer {
     }
 
     @Override
-    protected void initService() {
+    protected void initService(Gumdrop gumdrop) {
         if (streamHandler instanceof HttpServerServiceHook) {
-            ((HttpServerServiceHook) streamHandler).initService();
+            ((HttpServerServiceHook) streamHandler).initService(gumdrop);
         }
     }
 

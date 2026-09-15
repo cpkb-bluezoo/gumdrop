@@ -129,10 +129,10 @@ class SocksUdpRelay {
         factory.start();
 
         clientFacingEndpoint = factory.createServerEndpoint(
-                null, 0, new ClientFacingHandler(), selectorLoop);
+                selectorLoop.getGumdrop(), null, 0, new ClientFacingHandler(), selectorLoop);
 
         upstreamEndpoint = factory.createServerEndpoint(
-                null, 0, new UpstreamHandler(), selectorLoop);
+                selectorLoop.getGumdrop(), null, 0, new UpstreamHandler(), selectorLoop);
 
         startTimeMillis = System.currentTimeMillis();
         if (metrics != null) {

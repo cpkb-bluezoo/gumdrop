@@ -121,6 +121,8 @@ public class ConnectUdpClient implements AltSvcListener {
     private HttpClient httpClient;
     private ConnectUdpSession h3Session;
 
+    private Gumdrop gumdrop;
+
     /**
      * Creates a CONNECT-UDP client for the given proxy host and port.
      *
@@ -388,9 +390,11 @@ public class ConnectUdpClient implements AltSvcListener {
      *                    address), encoded into the request path per RFC
      *                    9298 section 3's URI Template
      * @param targetPort the UDP target's port
+     * @param gumdrop the runtime this connection is made under
      * @param handler the handler to receive CONNECT-UDP events
      */
-    public void connect(String targetHost, int targetPort, final ConnectUdpEventHandler handler) {
+    public void connect(Gumdrop gumdrop, String targetHost, int targetPort, final ConnectUdpEventHandler handler) {
+        this.gumdrop = gumdrop;
         if (socketPath != null) {
             if (h3Enabled) {
                 handler.error(new IOException(
@@ -432,8 +436,6 @@ public class ConnectUdpClient implements AltSvcListener {
 
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            gumdrop.start();
             loop = gumdrop.nextWorkerLoop();
         }
         if (loop == null) {
@@ -625,7 +627,7 @@ public class ConnectUdpClient implements AltSvcListener {
                             transportFactory, hostAddress, port);
                 }
             }
-            clientEndpoint.connect(protocolHandler);
+            clientEndpoint.connect(gumdrop, protocolHandler);
         } catch (IOException e) {
             handler.error(e);
         }
@@ -735,7 +737,7 @@ public class ConnectUdpClient implements AltSvcListener {
         // WebSocketClient#connectH3.
         httpClient.setVerifyPeer(verifyPeer);
 
-        httpClient.connect(new HttpClientHandler() {
+        httpClient.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
             }

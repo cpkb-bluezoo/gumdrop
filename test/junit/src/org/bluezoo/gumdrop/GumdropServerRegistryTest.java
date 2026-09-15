@@ -93,7 +93,7 @@ public class GumdropServerRegistryTest {
         }
 
         @Override
-        public void start() {
+        public void start(Gumdrop gumdrop) {
             startCount++;
         }
 

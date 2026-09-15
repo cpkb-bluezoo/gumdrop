@@ -63,6 +63,7 @@ public class ClientEndpointUnixSocketTest {
 
     private Path socketPath;
     private SelectorLoop selectorLoop;
+    private Gumdrop gumdrop;
 
     @Before
     public void setUp() throws Exception {
@@ -71,11 +72,14 @@ public class ClientEndpointUnixSocketTest {
         socketPath = tmp;
         selectorLoop = new SelectorLoop(0);
         selectorLoop.start();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
     }
 
     @After
     public void tearDown() throws Exception {
         selectorLoop.shutdown();
+        gumdrop.shutdown();
+        gumdrop.join();
         Files.deleteIfExists(socketPath);
     }
 
@@ -221,7 +225,7 @@ public class ClientEndpointUnixSocketTest {
             assertNotNull(client.getPath());
             assertTrue(client.getPath().equals(socketPath.toString()));
 
-            client.connect(new ProtocolHandler() {
+            client.connect(gumdrop, new ProtocolHandler() {
                 @Override
                 public void connected(Endpoint endpoint) {
                     endpoint.send(ByteBuffer.wrap(payload));
@@ -280,7 +284,7 @@ public class ClientEndpointUnixSocketTest {
             // already do.
             ClientEndpoint client = new ClientEndpoint(factory, socketPath.toString());
 
-            client.connect(new ProtocolHandler() {
+            client.connect(gumdrop, new ProtocolHandler() {
                 @Override
                 public void connected(Endpoint endpoint) {
                     endpoint.send(ByteBuffer.wrap(payload));
@@ -338,7 +342,7 @@ public class ClientEndpointUnixSocketTest {
         ClientEndpoint client = new ClientEndpoint(
                 factory, selectorLoop, missing.toString());
         try {
-            client.connect(new ProtocolHandler() {
+            client.connect(gumdrop, new ProtocolHandler() {
                 @Override
                 public void connected(Endpoint endpoint) {
                     fail("should not connect to a socket with no listener");

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry.otlp;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.http.HttpClient;
@@ -59,6 +60,7 @@ class OtlpEndpoint {
         ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
     private static final Logger logger = Logger.getLogger(OtlpEndpoint.class.getName());
 
+    private final Gumdrop gumdrop;
     private final String name;
     private final String host;
     private final int port;
@@ -80,6 +82,8 @@ class OtlpEndpoint {
     /**
      * Creates an OTLP endpoint from a URL string.
      *
+     * @param gumdrop the runtime used to drive this endpoint's outbound
+     *      HTTP client connections
      * @param name the endpoint name (traces, logs, metrics)
      * @param url the endpoint URL
      * @param defaultPath the default path if not specified in URL
@@ -87,7 +91,7 @@ class OtlpEndpoint {
      * @param config the telemetry configuration (for TLS settings)
      * @return the endpoint, or null if the URL is invalid
      */
-    static OtlpEndpoint create(String name, String url, String defaultPath, 
+    static OtlpEndpoint create(Gumdrop gumdrop, String name, String url, String defaultPath,
                                Map<String, String> headers, TelemetryConfig config) {
         if (url == null || url.isEmpty()) {
             return null;
@@ -112,7 +116,7 @@ class OtlpEndpoint {
                 path = defaultPath;
             }
 
-            OtlpEndpoint endpoint = new OtlpEndpoint(name, host, port, path, secure, headers);
+            OtlpEndpoint endpoint = new OtlpEndpoint(gumdrop, name, host, port, path, secure, headers);
             
             // Copy TLS settings from config
             if (config != null) {
@@ -129,8 +133,9 @@ class OtlpEndpoint {
         }
     }
 
-    private OtlpEndpoint(String name, String host, int port, String path, boolean secure,
+    private OtlpEndpoint(Gumdrop gumdrop, String name, String host, int port, String path, boolean secure,
                          Map<String, String> headers) {
+        this.gumdrop = gumdrop;
         this.name = name;
         this.host = host;
         this.port = port;
@@ -318,7 +323,7 @@ class OtlpEndpoint {
             }
 
             // Initiate connection with handler
-            client.connect(new OtlpConnectionHandler(connectLatch));
+            client.connect(gumdrop, new OtlpConnectionHandler(connectLatch));
 
             logger.info(MessageFormat.format(L10N.getString("info.endpoint_connecting"), name, host, port));
 

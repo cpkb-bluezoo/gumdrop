@@ -246,11 +246,12 @@ public class MqttClient {
     /**
      * Connects to the MQTT broker.
      *
+     * @param gumdrop the runtime this connection is made under
      * @param callback lifecycle callback
      * @param messageListener message delivery callback
      * @throws IOException if the transport cannot be created
      */
-    public void connect(MqttClientCallback callback,
+    public void connect(Gumdrop gumdrop, MqttClientCallback callback,
                         MqttMessageListener messageListener) throws IOException {
         ConnectPacket connectPacket = buildConnectPacket();
 
@@ -264,7 +265,7 @@ public class MqttClient {
         dial.requireTarget();
         ClientConnect.prepareTls(secure, tls, transportFactory);
         clientEndpoint = ClientConnect.openAndConnect(
-                dial, transportFactory, protocolHandler);
+                gumdrop, dial, transportFactory, protocolHandler);
     }
 
     // ── Operations ──

@@ -132,6 +132,8 @@ public class ConnectIpClient implements AltSvcListener {
     private HttpClient httpClient;
     private ConnectIpClientSession h3Session;
 
+    private Gumdrop gumdrop;
+
     /**
      * Creates a CONNECT-IP client for the given proxy host and port.
      *
@@ -402,9 +404,11 @@ public class ConnectIpClient implements AltSvcListener {
      * @param ipProto the IP protocol scope hint ({@link
      *                ConnectIpTarget#WILDCARD} for "unspecified", or a
      *                decimal Internet Protocol Number)
+     * @param gumdrop the runtime this connection is made under
      * @param handler the handler to receive CONNECT-IP events
      */
-    public void connect(String target, String ipProto, final ConnectIpEventHandler handler) {
+    public void connect(Gumdrop gumdrop, String target, String ipProto, final ConnectIpEventHandler handler) {
+        this.gumdrop = gumdrop;
         if (socketPath != null) {
             if (h3Enabled) {
                 handler.error(new IOException(
@@ -446,8 +450,6 @@ public class ConnectIpClient implements AltSvcListener {
 
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            gumdrop.start();
             loop = gumdrop.nextWorkerLoop();
         }
         if (loop == null) {
@@ -639,7 +641,7 @@ public class ConnectIpClient implements AltSvcListener {
                             transportFactory, hostAddress, port);
                 }
             }
-            clientEndpoint.connect(protocolHandler);
+            clientEndpoint.connect(gumdrop, protocolHandler);
         } catch (IOException e) {
             handler.error(e);
         }
@@ -759,7 +761,7 @@ public class ConnectIpClient implements AltSvcListener {
         // ConnectUdpClient#connectH3/WebSocketClient#connectH3.
         httpClient.setVerifyPeer(verifyPeer);
 
-        httpClient.connect(new HttpClientHandler() {
+        httpClient.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
             }

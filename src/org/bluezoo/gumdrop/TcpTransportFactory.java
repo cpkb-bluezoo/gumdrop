@@ -538,6 +538,7 @@ public class TcpTransportFactory extends TransportFactory {
      * {@link ProtocolHandler#connected(Endpoint)} callback is invoked
      * when the TCP connection (and optional TLS handshake) completes.
      *
+     * @param gumdrop the runtime this connection is made under
      * @param host the remote host
      * @param port the remote port
      * @param handler the protocol handler
@@ -545,10 +546,10 @@ public class TcpTransportFactory extends TransportFactory {
      * @return the new endpoint (connection is still in progress)
      * @throws IOException if the connection cannot be initiated
      */
-    public TcpEndpoint connect(InetAddress host, int port,
+    public TcpEndpoint connect(Gumdrop gumdrop, InetAddress host, int port,
                                ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
-        return connect(host, port, null, handler, loop);
+        return connect(gumdrop, host, port, null, handler, loop);
     }
 
     /**
@@ -558,7 +559,7 @@ public class TcpTransportFactory extends TransportFactory {
      *     {@code null}, derived from {@code host} (loopback literals map to
      *     {@code localhost} to match typical test PKI)
      */
-    public TcpEndpoint connect(InetAddress host, int port, String tlsServerNameHint,
+    public TcpEndpoint connect(Gumdrop gumdrop, InetAddress host, int port, String tlsServerNameHint,
                                ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
         SocketChannel channel = SocketChannel.open();
@@ -605,7 +606,6 @@ public class TcpTransportFactory extends TransportFactory {
         endpoint.setClientMode(true);
         endpoint.init();
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
         gumdrop.addChannelHandler(endpoint);
 
         InetSocketAddress remote = new InetSocketAddress(host, port);
@@ -660,13 +660,14 @@ public class TcpTransportFactory extends TransportFactory {
      * as it would over TCP; since a filesystem path has no meaningful
      * hostname/port for SNI, the configuration is built without one.
      *
+     * @param gumdrop the runtime this connection is made under
      * @param path the UNIX domain socket path
      * @param handler the protocol handler
      * @param loop the SelectorLoop to register with
      * @return the new endpoint (connection is still in progress)
      * @throws IOException if the connection cannot be initiated
      */
-    public TcpEndpoint connect(String path, ProtocolHandler handler,
+    public TcpEndpoint connect(Gumdrop gumdrop, String path, ProtocolHandler handler,
                                SelectorLoop loop) throws IOException {
         SocketChannel channel = SocketChannel.open(StandardProtocolFamily.UNIX);
         channel.configureBlocking(false);
@@ -684,7 +685,6 @@ public class TcpTransportFactory extends TransportFactory {
         endpoint.setClientMode(true);
         endpoint.init();
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
         gumdrop.addChannelHandler(endpoint);
 
         UnixDomainSocketAddress remote = UnixDomainSocketAddress.of(Path.of(path));

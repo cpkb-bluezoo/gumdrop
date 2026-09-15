@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry.otlp;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.telemetry.LogRecord;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
@@ -100,6 +101,13 @@ public class OtlpExporter implements TelemetryExporter {
     private final ExportThread exportThread;
     private volatile boolean running;
 
+    // Standalone runtime for this exporter's outbound HTTP client
+    // connections -- deliberately independent of any application Gumdrop
+    // runtime, since export is a best-effort background concern with its
+    // own lifecycle (started here, stopped in shutdown()), not tied to
+    // the application's own listeners/servers.
+    private final Gumdrop gumdrop;
+
     /**
      * Creates an OTLP exporter with the given configuration.
      *
@@ -107,6 +115,7 @@ public class OtlpExporter implements TelemetryExporter {
      */
     public OtlpExporter(TelemetryConfig config) {
         this.config = config;
+        this.gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
 
         // Build resource attributes
         Map<String, String> resourceAttrs = config.getResourceAttributes();
@@ -143,9 +152,9 @@ public class OtlpExporter implements TelemetryExporter {
 
         // Parse and create endpoints
         Map<String, String> headers = config.getParsedHeaders();
-        this.tracesEndpoint = OtlpEndpoint.create("traces", config.getTracesEndpoint(), "/v1/traces", headers, config);
-        this.logsEndpoint = OtlpEndpoint.create("logs", config.getLogsEndpoint(), "/v1/logs", headers, config);
-        this.metricsEndpoint = OtlpEndpoint.create("metrics", config.getMetricsEndpoint(), "/v1/metrics", headers, config);
+        this.tracesEndpoint = OtlpEndpoint.create(gumdrop, "traces", config.getTracesEndpoint(), "/v1/traces", headers, config);
+        this.logsEndpoint = OtlpEndpoint.create(gumdrop, "logs", config.getLogsEndpoint(), "/v1/logs", headers, config);
+        this.metricsEndpoint = OtlpEndpoint.create(gumdrop, "metrics", config.getMetricsEndpoint(), "/v1/metrics", headers, config);
 
         // Track pending exports
         this.pendingExports = ConcurrentHashMap.newKeySet();
@@ -226,6 +235,13 @@ public class OtlpExporter implements TelemetryExporter {
         }
         if (metricsEndpoint != null) {
             metricsEndpoint.close();
+        }
+
+        gumdrop.shutdown();
+        try {
+            gumdrop.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
 
         logger.info(L10N.getString("info.exporter_shutdown"));

@@ -75,6 +75,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
     private UdpTransportFactory upstreamUdpFactory;
     private TcpTransportFactory upstreamTcpFactory;
+    private Gumdrop gumdrop;
 
     public UpstreamRelayHandler() {
     }
@@ -124,6 +125,12 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
     public DnsCache getCache() {
         return cache;
+    }
+
+    @Override
+    public void start(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+        start();
     }
 
     @Override
@@ -246,8 +253,10 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             // directly rather than via a bound listener) -- fall back
             // to a worker loop, the same way SmtpClient/HttpClient do
             // for outbound connections with no inherited loop.
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            gumdrop.start();
+            if (gumdrop == null) {
+                throw new IllegalStateException(
+                        "UpstreamRelayHandler.start(Gumdrop) was never called");
+            }
             effectiveLoop = gumdrop.nextWorkerLoop();
         }
 
@@ -308,7 +317,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         void start() {
             try {
                 upstreamUdpFactory.connect(
-                        upstream.getAddress(), upstream.getPort(), this, loop);
+                        gumdrop, upstream.getAddress(), upstream.getPort(), this, loop);
             } catch (IOException e) {
                 fail("err.upstream", e);
             }
@@ -512,7 +521,7 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         void start() {
             try {
                 upstreamTcpFactory.connect(
-                        upstream.getAddress(), upstream.getPort(), this, loop);
+                        gumdrop, upstream.getAddress(), upstream.getPort(), this, loop);
             } catch (IOException e) {
                 finish(null, "TCP fallback to " + upstream + " failed", e);
             }

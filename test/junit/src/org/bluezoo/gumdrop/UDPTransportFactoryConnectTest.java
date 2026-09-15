@@ -58,10 +58,14 @@ import static org.junit.Assert.*;
  */
 public class UDPTransportFactoryConnectTest {
 
+    private Gumdrop gumdrop;
+
     @After
-    public void tearDown() {
-        // Deliberately not shutting down the shared Gumdrop singleton --
-        // other test classes in the same JVM may depend on it staying up.
+    public void tearDown() throws InterruptedException {
+        if (gumdrop != null) {
+            gumdrop.shutdown();
+            gumdrop.join();
+        }
     }
 
     /**
@@ -78,9 +82,7 @@ public class UDPTransportFactoryConnectTest {
      */
     @Test
     public void testDatagramSentSynchronouslyOnConnectIsDelivered() throws Exception {
-        System.setProperty("gumdrop.workers", "1");
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        gumdrop.start();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
 
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
@@ -89,7 +91,7 @@ public class UDPTransportFactoryConnectTest {
         final AtomicReference<byte[]> receivedData = new AtomicReference<>();
 
         UdpEndpoint server = factory.createServerEndpoint(
-                InetAddress.getLoopbackAddress(), 0,
+                gumdrop, InetAddress.getLoopbackAddress(), 0,
                 new ProtocolHandler() {
                     @Override
                     public void connected(Endpoint endpoint) {
@@ -120,7 +122,7 @@ public class UDPTransportFactoryConnectTest {
             final byte[] payload = "hello".getBytes(StandardCharsets.US_ASCII);
 
             UdpEndpoint client = factory.connect(
-                    InetAddress.getLoopbackAddress(), port,
+                    gumdrop, InetAddress.getLoopbackAddress(), port,
                     new ProtocolHandler() {
                         @Override
                         public void connected(Endpoint endpoint) {

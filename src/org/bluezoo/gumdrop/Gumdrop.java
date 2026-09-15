@@ -173,6 +173,42 @@ public class Gumdrop {
             Long.getLong("gumdrop.drainTimeoutMs", DEFAULT_DRAIN_TIMEOUT_MS);
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Construction
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Creates and starts a new {@code Gumdrop} instance with the given
+     * configuration. Unlike {@link #getInstance()}, this is not a
+     * singleton accessor: each call constructs a fresh instance, which
+     * the caller is responsible for threading through to whatever
+     * servers, listeners, and clients it composes (e.g. {@code
+     * server.start(gumdrop)}, {@code client.connect(gumdrop, handler)}).
+     *
+     * <p>Named {@code boot} rather than {@code start} because the latter
+     * is already the instance lifecycle method ({@link #start()}) this
+     * factory calls internally — Java does not allow a static and
+     * instance method to share a name and parameter list.
+     *
+     * @param config the configuration
+     * @return a new, started Gumdrop instance
+     */
+    public static Gumdrop boot(GumdropConfig config) {
+        Gumdrop gumdrop = new Gumdrop(config.getWorkerThreads());
+        gumdrop.setDrainTimeoutMs(config.getDrainTimeoutMs());
+        gumdrop.start();
+        return gumdrop;
+    }
+
+    /**
+     * {@link #boot(GumdropConfig)} with default configuration.
+     *
+     * @return a new, started Gumdrop instance
+     */
+    public static Gumdrop boot() {
+        return boot(GumdropConfig.create());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Singleton access
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -320,7 +356,7 @@ public class Gumdrop {
         servers.add(server);
 
         if (started) {
-            server.start();
+            server.start(this);
             registerServerListeners(server);
         }
     }
@@ -457,7 +493,7 @@ public class Gumdrop {
      */
     public void addListener(TcpListener server) {
         serverListeners.add(server);
-        server.start();
+        server.start(this);
 
         if (started) {
             ensureAcceptLoop();
@@ -717,12 +753,14 @@ public class Gumdrop {
             workerLoops = new SelectorLoop[workerCount];
             for (int i = 0; i < workerCount; i++) {
                 workerLoops[i] = new SelectorLoop(i + 1);
+                workerLoops[i].setGumdrop(this);
             }
         } else {
             // Recreate any loops that were shut down
             for (int i = 0; i < workerCount; i++) {
                 if (!workerLoops[i].isRunning()) {
                     workerLoops[i] = new SelectorLoop(i + 1);
+                    workerLoops[i].setGumdrop(this);
                 }
             }
         }
@@ -735,7 +773,7 @@ public class Gumdrop {
         // Start all registered protocol servers and collect their TCP listeners
         for (int i = 0; i < servers.size(); i++) {
             Server server = servers.get(i);
-            server.start();
+            server.start(this);
             registerServerListeners(server);
         }
 
@@ -746,7 +784,7 @@ public class Gumdrop {
         // second chance now that the worker-loop pool is ready (issue #106).
         for (TcpListener listener : standaloneListeners) {
             if (!listener.requiresTcpAccept()) {
-                listener.start();
+                listener.start(this);
             }
         }
 

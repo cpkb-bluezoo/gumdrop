@@ -75,16 +75,18 @@ public abstract class UdpListener extends Listener {
      * Starts this datagram endpoint. Creates the transport factory,
      * binds a {@link UdpEndpoint} to the configured port, and
      * registers with a {@link SelectorLoop} for read events.
+     *
+     * @param gumdrop the runtime this listener is starting under
      */
     @Override
-    public void start() {
-        super.start();
+    public void start(Gumdrop gumdrop) {
+        super.start(gumdrop);
         UdpTransportFactory udpFactory =
                 (UdpTransportFactory) getTransportFactory();
         ProtocolHandler handler = createProtocolHandler();
         try {
             endpoint = udpFactory.createServerEndpoint(
-                    null, getPort(), handler);
+                    gumdrop, null, getPort(), handler);
             endpoint.setListener(this);
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE,

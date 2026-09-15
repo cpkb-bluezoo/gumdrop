@@ -80,6 +80,12 @@ public final class DnsQueryHandlers {
         }
 
         @Override
+        public void start(org.bluezoo.gumdrop.Gumdrop gumdrop) {
+            first.start(gumdrop);
+            second.start(gumdrop);
+        }
+
+        @Override
         public void start() {
             first.start();
             second.start();

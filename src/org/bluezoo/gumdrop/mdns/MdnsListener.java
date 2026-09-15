@@ -37,6 +37,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
@@ -170,7 +171,7 @@ public class MdnsListener extends Listener {
     }
 
     @Override
-    public void start() {
+    public void start(Gumdrop gumdrop) {
         try {
             group = InetAddress.getByName(MDNS_GROUP_ADDRESS);
         } catch (UnknownHostException e) {
@@ -198,7 +199,7 @@ public class MdnsListener extends Listener {
             }
 
             endpoint = transportFactory.createServerEndpoint(
-                    channel, new MdnsDatagramHandler());
+                    gumdrop, channel, new MdnsDatagramHandler());
         } catch (IOException e) {
             LOGGER.log(Level.SEVERE,
                     "Failed to bind mDNS datagram endpoint on port " + port,

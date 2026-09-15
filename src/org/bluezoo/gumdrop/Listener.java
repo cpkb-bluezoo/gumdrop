@@ -740,6 +740,22 @@ public abstract class Listener {
     }
 
     /**
+     * Starts this endpoint with a {@link Gumdrop} runtime available.
+     *
+     * <p>The default implementation ignores {@code gumdrop} and delegates
+     * to {@link #start()} — most listener types don't need it (they don't
+     * pick a worker loop of their own; that happens per-accepted-connection
+     * instead). Subclasses that do need it (e.g. QUIC-based listeners
+     * choosing a worker loop for the connection) override this instead of
+     * {@link #start()}.
+     *
+     * @param gumdrop the runtime this listener is starting under
+     */
+    public void start(Gumdrop gumdrop) {
+        start();
+    }
+
+    /**
      * Creates the transport factory for this endpoint.
      *
      * <p>The default implementation returns a {@link TcpTransportFactory}.

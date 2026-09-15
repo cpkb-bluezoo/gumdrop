@@ -69,6 +69,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  */
 final class FtpClientDataConnectionCoordinator {
 
+    private final Gumdrop gumdrop;
     private final Endpoint controlEndpoint;
     private TcpTransportFactory transportFactory;
 
@@ -86,7 +87,8 @@ final class FtpClientDataConnectionCoordinator {
     private ServerCredentials dataClientCredentials;
     private TcpTransportFactory secureTransportFactory;
 
-    FtpClientDataConnectionCoordinator(Endpoint controlEndpoint) {
+    FtpClientDataConnectionCoordinator(Gumdrop gumdrop, Endpoint controlEndpoint) {
+        this.gumdrop = gumdrop;
         this.controlEndpoint = controlEndpoint;
     }
 
@@ -119,7 +121,7 @@ final class FtpClientDataConnectionCoordinator {
                 controlEndpoint.getSelectorLoop(),
                 dataAddress.getAddress(), dataAddress.getPort());
         try {
-            dataEndpoint.connect(dataHandler);
+            dataEndpoint.connect(gumdrop, dataHandler);
         } catch (IOException e) {
             dataHandler.error(e);
         }
@@ -164,7 +166,6 @@ final class FtpClientDataConnectionCoordinator {
         ssc.bind(new InetSocketAddress(localAddress, 0));
         activeListenerChannel = ssc;
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
         gumdrop.ensureAcceptLoop();
         gumdrop.getAcceptLoop().registerRawAcceptor(ssc,
                 new AcceptSelectorLoop.RawAcceptHandler() {

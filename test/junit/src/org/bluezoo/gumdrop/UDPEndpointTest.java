@@ -56,18 +56,13 @@ public class UDPEndpointTest {
 
     @Before
     public void setUp() {
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
     }
 
     @After
-    public void tearDown() {
-        // Deliberately not shutting down the shared Gumdrop singleton --
-        // other test classes in the same JVM may depend on it staying up,
-        // matching AsyncDiskOffloadBoundaryTest's convention.
+    public void tearDown() throws InterruptedException {
+        gumdrop.shutdown();
+        gumdrop.join();
     }
 
     @Test
@@ -76,7 +71,7 @@ public class UDPEndpointTest {
         factory.start();
 
         UdpEndpoint endpoint = factory.createServerEndpoint(
-                InetAddress.getLoopbackAddress(), 0, new NoopHandler());
+                gumdrop, InetAddress.getLoopbackAddress(), 0, new NoopHandler());
         try {
             assertNotNull(endpoint.netIn);
             assertTrue("netIn must be a direct buffer, not a heap allocation",
@@ -92,7 +87,7 @@ public class UDPEndpointTest {
         factory.start();
 
         UdpEndpoint endpoint = factory.createServerEndpoint(
-                InetAddress.getLoopbackAddress(), 0, new NoopHandler());
+                gumdrop, InetAddress.getLoopbackAddress(), 0, new NoopHandler());
         ByteBuffer netIn = endpoint.netIn;
         int capacity = netIn.capacity();
 
@@ -117,7 +112,7 @@ public class UDPEndpointTest {
         factory.start();
 
         UdpEndpoint endpoint = factory.createServerEndpoint(
-                InetAddress.getLoopbackAddress(), 0, new NoopHandler());
+                gumdrop, InetAddress.getLoopbackAddress(), 0, new NoopHandler());
         ByteBuffer pending = ByteBufferPool.acquire(128);
         pending.put(new byte[64]);
         pending.flip();
@@ -157,7 +152,7 @@ public class UDPEndpointTest {
         factory.start();
 
         UdpEndpoint endpoint = factory.createServerEndpoint(
-                InetAddress.getLoopbackAddress(), 0, new NoopHandler());
+                gumdrop, InetAddress.getLoopbackAddress(), 0, new NoopHandler());
         InetSocketAddress dest = (InetSocketAddress) endpoint.getLocalAddress();
 
         try {

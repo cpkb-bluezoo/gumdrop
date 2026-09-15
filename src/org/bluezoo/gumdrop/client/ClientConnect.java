@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
@@ -109,12 +110,13 @@ public final class ClientConnect {
         factory.setVerifyPeer(tls.isVerifyPeer());
     }
 
-    public static ClientEndpoint openAndConnect(ClientDial dial,
+    public static ClientEndpoint openAndConnect(Gumdrop gumdrop,
+                                                ClientDial dial,
                                                 TcpTransportFactory factory,
                                                 ProtocolHandler handler)
             throws IOException {
         ClientEndpoint endpoint = dial.openEndpoint(factory);
-        endpoint.connect(handler);
+        endpoint.connect(gumdrop, handler);
         return endpoint;
     }
 
@@ -123,14 +125,15 @@ public final class ClientConnect {
      *
      * @return the effective TLS config
      */
-    public static TlsConfig connect(boolean secure,
+    public static TlsConfig connect(Gumdrop gumdrop,
+                                          boolean secure,
                                           ClientDial dial,
                                           TlsConfig tls,
                                           TcpTransportFactory factory,
                                           ProtocolHandler handler)
             throws IOException {
         TlsConfig effective = prepareTls(secure, tls, factory);
-        openAndConnect(dial, factory, handler);
+        openAndConnect(gumdrop, dial, factory, handler);
         return effective;
     }
 

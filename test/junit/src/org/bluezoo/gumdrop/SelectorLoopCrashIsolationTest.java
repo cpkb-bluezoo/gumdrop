@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -48,13 +49,17 @@ import static org.junit.Assert.assertTrue;
  */
 public class SelectorLoopCrashIsolationTest {
 
+    private Gumdrop gumdrop;
+
     @Before
     public void setUp() {
-        System.setProperty("gumdrop.workers", "1");
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+    }
+
+    @After
+    public void tearDown() throws InterruptedException {
+        gumdrop.shutdown();
+        gumdrop.join();
     }
 
     @Test(timeout = 10000)
@@ -117,9 +122,9 @@ public class SelectorLoopCrashIsolationTest {
         };
 
         UdpEndpoint faultyEndpoint = factory.createServerEndpoint(
-                InetAddress.getLoopbackAddress(), 0, faulty, loop);
+                gumdrop, InetAddress.getLoopbackAddress(), 0, faulty, loop);
         UdpEndpoint healthyEndpoint = factory.createServerEndpoint(
-                InetAddress.getLoopbackAddress(), 0, healthy, loop);
+                gumdrop, InetAddress.getLoopbackAddress(), 0, healthy, loop);
 
         try {
             InetSocketAddress faultyAddress =

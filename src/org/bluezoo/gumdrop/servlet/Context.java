@@ -345,6 +345,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     /** Interval between timer-driven session expiry sweeps (issue #311). */
     private static final long SESSION_SWEEP_INTERVAL_MS = 1000;
     TimerHandle sessionSweepTimer;
+    private Gumdrop gumdrop;
 
     boolean distributable;
     boolean initialized;
@@ -1433,6 +1434,21 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     /**
      * Initializes this context and all filters and servlets in it.
+     *
+     * @param gumdrop the runtime this context is starting under
+     * @see SRV.9.12
+     */
+    public synchronized void init(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+        init();
+    }
+
+    /**
+     * Initializes this context and all filters and servlets in it, using
+     * the {@link Gumdrop} runtime captured by the most recent
+     * {@link #init(Gumdrop)} call (or {@code null} if none was ever set,
+     * e.g. in unit tests that construct a {@link Context} directly).
+     * Used internally by {@link #reload()}.
      * @see SRV.9.12
      */
     public synchronized void init() {
@@ -1670,7 +1686,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     private void scheduleNextSessionSweep(final long intervalMs) {
-        sessionSweepTimer = Gumdrop.getInstance().scheduleTimer(null, intervalMs,
+        if (gumdrop == null) {
+            return;
+        }
+        sessionSweepTimer = gumdrop.scheduleTimer(null, intervalMs,
                 new Runnable() {
                     @Override
                     public void run() {

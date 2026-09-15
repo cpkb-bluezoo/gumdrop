@@ -7,6 +7,7 @@ package org.bluezoo.gumdrop.smtp;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.smtp.client.SmtpClient;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState;
@@ -54,13 +55,7 @@ public class SmtpServerCompositionTest {
     @Before
     public void setUp() throws Exception {
         testPort = NEXT_PORT.getAndIncrement();
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
-        if (gumdrop.isStarted()) {
-            gumdrop.shutdown();
-            gumdrop.join();
-            gumdrop = Gumdrop.getInstance();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
     }
 
     @After
@@ -93,13 +88,12 @@ public class SmtpServerCompositionTest {
                 .server();
 
         gumdrop.addServer(server);
-        gumdrop.start();
 
         SmtpClient client = new SmtpClient()
                 .host(TEST_HOST)
                 .port(testPort);
 
-        client.connect(new RemoteGreeting() {
+        client.connect(gumdrop, new RemoteGreeting() {
                     @Override
                     public void handleGreeting(ClientHelloState hello,
                                                String message, boolean esmtp) {
@@ -189,7 +183,6 @@ public class SmtpServerCompositionTest {
                 .server();
 
         gumdrop.addServer(server);
-        gumdrop.start();
 
         runEhloClient(testPort);
         assertEquals(1, serverSessionsOpened.get());
@@ -206,7 +199,7 @@ public class SmtpServerCompositionTest {
                 .host(TEST_HOST)
                 .port(port);
 
-        client.connect(new RemoteGreeting() {
+        client.connect(gumdrop, new RemoteGreeting() {
                     @Override
                     public void handleGreeting(ClientHelloState hello,
                                                String message, boolean esmtp) {

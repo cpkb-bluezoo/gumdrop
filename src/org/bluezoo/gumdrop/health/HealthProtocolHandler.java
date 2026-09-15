@@ -55,9 +55,17 @@ public final class HealthProtocolHandler implements ProtocolHandler {
     /** Bound on the buffered request so a stalled client cannot grow it. */
     private static final int MAX_REQUEST_BYTES = 8192;
 
+    private final Gumdrop gumdrop;
     private Endpoint endpoint;
     private final StringBuilder requestLine = new StringBuilder();
     private boolean responded;
+
+    public HealthProtocolHandler(Gumdrop gumdrop) {
+        if (gumdrop == null) {
+            throw new NullPointerException("gumdrop");
+        }
+        this.gumdrop = gumdrop;
+    }
 
     @Override
     public void connected(Endpoint endpoint) {
@@ -102,15 +110,13 @@ public final class HealthProtocolHandler implements ProtocolHandler {
             path = path.substring(0, q);
         }
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
         String state = stateOf(gumdrop);
 
         if (isLivenessPath(path)) {
             // Alive whenever the process is serving this request.
             respond(200, "OK", state + "\n");
         } else {
-            boolean ready = gumdrop != null && gumdrop.isReady();
-            if (ready) {
+            if (gumdrop.isReady()) {
                 respond(200, "OK", state + "\n");
             } else {
                 respond(503, "Service Unavailable", state + "\n");
@@ -119,7 +125,7 @@ public final class HealthProtocolHandler implements ProtocolHandler {
     }
 
     private static String stateOf(Gumdrop gumdrop) {
-        if (gumdrop == null || !gumdrop.isStarted()) {
+        if (!gumdrop.isStarted()) {
             return "starting";
         }
         if (gumdrop.isDraining()) {

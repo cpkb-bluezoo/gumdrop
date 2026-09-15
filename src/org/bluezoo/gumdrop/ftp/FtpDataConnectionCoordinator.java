@@ -244,7 +244,7 @@ public class FtpDataConnectionCoordinator {
         passiveConnector.notifyBound(ssc);
         
         // Register the already-bound channel with AcceptSelectorLoop
-        org.bluezoo.gumdrop.Gumdrop.getInstance().getAcceptLoop().registerRawAcceptor(ssc, passiveConnector);
+        controlConnection.getServer().getGumdrop().getAcceptLoop().registerRawAcceptor(ssc, passiveConnector);
         
         mode = DataConnectionMode.PASSIVE;
         
@@ -634,7 +634,8 @@ public class FtpDataConnectionCoordinator {
                     "Active mode data address is unknown: " + host, e));
             return;
         }
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        FtpListener server = controlConnection.getServer();
+        Gumdrop gumdrop = (server != null) ? server.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {
@@ -764,7 +765,8 @@ public class FtpDataConnectionCoordinator {
             return;
         }
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        FtpListener downloadServer = controlConnection.getServer();
+        Gumdrop gumdrop = (downloadServer != null) ? downloadServer.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {
@@ -926,7 +928,8 @@ public class FtpDataConnectionCoordinator {
             return;
         }
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        FtpListener listingServer = controlConnection.getServer();
+        Gumdrop gumdrop = (listingServer != null) ? listingServer.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {
@@ -1050,7 +1053,8 @@ public class FtpDataConnectionCoordinator {
             return;
         }
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        FtpListener uploadServer = controlConnection.getServer();
+        Gumdrop gumdrop = (uploadServer != null) ? uploadServer.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {

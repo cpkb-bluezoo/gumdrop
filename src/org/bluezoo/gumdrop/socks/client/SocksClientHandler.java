@@ -37,6 +37,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.socks.SocksUDPHeader;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
@@ -980,8 +981,9 @@ public class SocksClientHandler implements ProtocolHandler {
                     L10N.getString("log.client_udp_associated"), relayAddress));
         }
         try {
-            udpTransportFactory.connect(addr, port,
-                    new UdpRelayHandler(relayAddress), endpoint.getSelectorLoop());
+            SelectorLoop loop = endpoint.getSelectorLoop();
+            udpTransportFactory.connect(loop.getGumdrop(), addr, port,
+                    new UdpRelayHandler(relayAddress), loop);
         } catch (IOException e) {
             udpAssociateListener.error(e);
             endpoint.close();

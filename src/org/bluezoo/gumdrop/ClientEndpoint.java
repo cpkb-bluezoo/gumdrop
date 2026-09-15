@@ -338,8 +338,7 @@ public class ClientEndpoint {
      * connection fails.
      *
      * <p>If no SelectorLoop was provided at construction time, one is
-     * obtained from the Gumdrop infrastructure automatically (starting
-     * Gumdrop if needed).
+     * obtained from {@code gumdrop} automatically.
      *
      * <p>This method registers the client with Gumdrop for lifecycle
      * tracking. The client is automatically deregistered when the
@@ -355,15 +354,19 @@ public class ClientEndpoint {
      *     QUIC connection with auto-opened initial stream</li>
      * </ul>
      *
+     * @param gumdrop the runtime this connection is made under
      * @param handler the protocol handler
      * @throws IOException if the connection cannot be initiated
      */
-    public void connect(final ProtocolHandler handler) throws IOException {
+    public void connect(Gumdrop gumdrop, final ProtocolHandler handler) throws IOException {
+        if (gumdrop == null) {
+            throw new NullPointerException("gumdrop");
+        }
         if (handler == null) {
             throw new NullPointerException("handler");
         }
 
-        gumdrop = Gumdrop.getInstance();
+        this.gumdrop = gumdrop;
         if (selectorLoop == null) {
             // Ensuring the infrastructure is started, obtaining a loop,
             // and registering this client as a reason to keep it running
@@ -452,10 +455,10 @@ public class ClientEndpoint {
                         "Transport factory " + factory.getClass().getName()
                         + " does not support UNIX domain socket connections");
             }
-            ((TcpTransportFactory) factory).connect(path, handler, selectorLoop);
+            ((TcpTransportFactory) factory).connect(gumdrop, path, handler, selectorLoop);
         } else if (factory instanceof TcpTransportFactory) {
             ((TcpTransportFactory) factory).connect(
-                    host, port, hostname, handler, selectorLoop);
+                    gumdrop, host, port, hostname, handler, selectorLoop);
         } else if (factory instanceof org.bluezoo.gumdrop.quic.QuicTransportFactory) {
             ((org.bluezoo.gumdrop.quic.QuicTransportFactory) factory).connect(
                     host, port, handler, selectorLoop, null);

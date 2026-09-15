@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
@@ -154,10 +155,11 @@ public class FtpClient {
         return this;
     }
 
-    public void connect(RemoteGreeting handler) {
+    public void connect(Gumdrop gumdrop, RemoteGreeting handler) {
         dial.requireTarget();
         transportFactory = new TcpTransportFactory();
         endpointHandler = new FtpClientProtocolHandler(handler);
+        endpointHandler.setGumdrop(gumdrop);
         try {
             TlsConfig effective = ClientConnect.prepareTls(secure, tls, transportFactory);
             endpointHandler.setSecure(secure);
@@ -165,7 +167,7 @@ public class FtpClient {
                 endpointHandler.setClientCredentials(effective.getServerCredentials());
             }
             clientEndpoint = ClientConnect.openAndConnect(
-                    dial, transportFactory, endpointHandler);
+                    gumdrop, dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }

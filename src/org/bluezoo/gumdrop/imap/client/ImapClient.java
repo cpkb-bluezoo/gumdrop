@@ -29,6 +29,7 @@ import java.util.logging.Logger;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
@@ -351,10 +352,11 @@ public class ImapClient {
      * endpoint, then initiates the connection. Lifecycle events are
      * forwarded to the given handler.
      *
+     * @param gumdrop the runtime this connection is made under
      * @param handler the handler to receive the server greeting and
      *                lifecycle events
      */
-    public void connect(RemoteGreeting handler) {
+    public void connect(Gumdrop gumdrop, RemoteGreeting handler) {
         dial.requireTarget();
         transportFactory = new TcpTransportFactory();
         endpointHandler = new ImapClientProtocolHandler(handler);
@@ -365,7 +367,7 @@ public class ImapClient {
             ClientConnect.prepareTls(secure, tls, transportFactory);
             endpointHandler.setSecure(secure);
             clientEndpoint = ClientConnect.openAndConnect(
-                    dial, transportFactory, endpointHandler);
+                    gumdrop, dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }

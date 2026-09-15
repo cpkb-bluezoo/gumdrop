@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.servlet.jndi.Resource;
@@ -359,10 +360,12 @@ public class Container implements ManagerContainerServer, ClusterContainer {
     /**
      * Starts the container: JNDI/resource bootstrap, context load, cluster,
      * and the async timeout scheduler.
+     *
+     * @param gumdrop the runtime this container is starting under
      */
-    public synchronized void start() {
+    public synchronized void start(Gumdrop gumdrop) {
         init();
-        initContexts();
+        initContexts(gumdrop);
         asyncTimeoutScheduler.start();
     }
 
@@ -426,9 +429,12 @@ public class Container implements ManagerContainerServer, ClusterContainer {
 
     /**
      * Initialize all contexts.
-     * This is called by {@link #start()} after the container is configured.
+     * This is called by {@link #start(Gumdrop)} after the container is
+     * configured.
+     *
+     * @param gumdrop the runtime this container is starting under
      */
-    public synchronized void initContexts() {
+    public synchronized void initContexts(Gumdrop gumdrop) {
         if (!started) {
             // Bootstrap JNDI
             String className = ServletInitialContextFactory.class.getName();
@@ -465,7 +471,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
                             context.contextPath);
                     Context.LOGGER.log(Level.SEVERE, message, e);
                 }
-                context.init();
+                context.init(gumdrop);
                 distributable = distributable || context.distributable;
             }
             if (hotDeploy) {
@@ -489,7 +495,7 @@ public class Container implements ManagerContainerServer, ClusterContainer {
                             cluster.setReplicationAllowedClasses(
                                     replicationAllowedClasses);
                         }
-                        cluster.open();
+                        cluster.open(gumdrop);
 
                         // Register each distributable context with the cluster
                         for (Context context : contexts) {

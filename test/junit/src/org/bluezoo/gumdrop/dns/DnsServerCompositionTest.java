@@ -5,6 +5,8 @@
 
 package org.bluezoo.gumdrop.dns;
 
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.dns.server.AuthoritativeZoneHandler;
 import org.bluezoo.gumdrop.dns.server.DnsQueryHandlers;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
@@ -56,13 +58,16 @@ public class DnsServerCompositionTest {
                         .cacheEnabled(false)
                         .build())
                 .server();
-        server.start();
+        Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        server.start(gumdrop);
         try {
             DnsMessage query = DnsMessage.createQuery(3, "example.com.", DnsType.A);
             DnsMessage response = syncProcessQuery(server, query);
             assertEquals(DnsMessage.RCODE_SERVFAIL, response.getRcode());
         } finally {
             server.stop();
+            gumdrop.shutdown();
+            gumdrop.join();
         }
     }
 

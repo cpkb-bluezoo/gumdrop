@@ -48,6 +48,7 @@ import org.bluezoo.gumdrop.client.ClientConnect;
 import org.bluezoo.gumdrop.client.ClientDefaults;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
@@ -168,6 +169,8 @@ public class HttpClient implements AltSvcListener {
     // Alt-Svc upgrade state
     private volatile boolean h3UpgradeInProgress;
     private HttpClientHandler connectHandler;
+
+    private Gumdrop gumdrop;
 
     /**
      * Creates a client for fluent dial configuration before {@link #connect}.
@@ -768,9 +771,11 @@ public class HttpClient implements AltSvcListener {
      * <p>If {@link #setH3Enabled(boolean)} is true, the connection uses
      * QUIC with HTTP/3 instead of TCP.
      *
+     * @param gumdrop the runtime this connection is made under
      * @param handler the handler to receive connection lifecycle events
      */
-    public void connect(final HttpClientHandler handler) {
+    public void connect(Gumdrop gumdrop, final HttpClientHandler handler) {
+        this.gumdrop = gumdrop;
         this.connectHandler = handler;
         if (socketPath == null && host == null && hostAddress == null) {
             handler.onError(new IllegalStateException(
@@ -843,8 +848,6 @@ public class HttpClient implements AltSvcListener {
 
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            gumdrop.start();
             loop = gumdrop.nextWorkerLoop();
         }
         if (loop == null) {
@@ -996,7 +999,7 @@ public class HttpClient implements AltSvcListener {
                 }
             }
             applyDnsResolver(clientEndpoint);
-            clientEndpoint.connect(endpointHandler);
+            clientEndpoint.connect(gumdrop, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }
@@ -1078,7 +1081,7 @@ public class HttpClient implements AltSvcListener {
                            final HttpClientHandler handler) {
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
-            loop = Gumdrop.getInstance().nextWorkerLoop();
+            loop = gumdrop.nextWorkerLoop();
         }
         if (loop == null) {
             handler.onError(new IOException(
@@ -1150,8 +1153,6 @@ public class HttpClient implements AltSvcListener {
                                      final HttpClientHandler handler) {
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            gumdrop.start();
             loop = gumdrop.nextWorkerLoop();
         }
         if (loop == null) {
@@ -1652,20 +1653,30 @@ public class HttpClient implements AltSvcListener {
             targetPort = "https".equals(scheme) ? 443 : 80;
         }
 
-        SelectorLoop loop = new SelectorLoop(1);
-        loop.start();
+        Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        SelectorLoop loop = gumdrop.nextWorkerLoop();
 
         try {
-            runRequest(loop, targetHost, targetPort, scheme, path, method,
+            runRequest(gumdrop, loop, targetHost, targetPort, scheme, path, method,
                     requestHeaders, bodyFile, outputFile, forceVersion,
                     pemCert, pemKey, skipVerify, verbose, headersOnly);
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
-            loop.shutdown();
+            gumdrop.shutdown();
+            try {
+                gumdrop.join();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
             System.exit(1);
         }
 
-        loop.shutdown();
+        gumdrop.shutdown();
+        try {
+            gumdrop.join();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
         System.exit(0);
     }
 
@@ -1673,6 +1684,7 @@ public class HttpClient implements AltSvcListener {
     // package can drive the CLI's actual request/response file
     // handling without going through main()'s System.exit() calls.
     static void runRequest(
+            final Gumdrop gumdrop,
             final SelectorLoop loop,
             final String targetHost, final int targetPort,
             final String scheme, final String path,
@@ -1700,7 +1712,6 @@ public class HttpClient implements AltSvcListener {
 
         if ("3".equals(forceVersion)) {
             client.setH3Enabled(true);
-            Gumdrop.getInstance().start();
         } else if ("2".equals(forceVersion)) {
             if (isSecure) {
                 client.setH2Enabled(true);
@@ -1718,7 +1729,7 @@ public class HttpClient implements AltSvcListener {
         final CountDownLatch doneLatch = new CountDownLatch(1);
         final AtomicReference<Exception> connectError = new AtomicReference<Exception>();
 
-        client.connect(new HttpClientHandler() {
+        client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 connectLatch.countDown();

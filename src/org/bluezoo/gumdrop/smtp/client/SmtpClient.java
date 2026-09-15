@@ -30,6 +30,7 @@ import java.util.List;
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
@@ -111,6 +112,7 @@ public class SmtpClient {
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private SmtpClientProtocolHandler endpointHandler;
+    private Gumdrop gumdrop;
 
     /**
      * Creates an SMTP client for fluent configuration before {@link #connect()}.
@@ -450,10 +452,12 @@ public class SmtpClient {
      * #setDaneResolver}, first looks up TLSA records for this
      * client's host and port; otherwise connects immediately.
      *
+     * @param gumdrop the runtime this connection is made under
      * @param handler the handler to receive the server greeting and
      *                lifecycle events
      */
-    public void connect(final RemoteGreeting handler) {
+    public void connect(Gumdrop gumdrop, final RemoteGreeting handler) {
+        this.gumdrop = gumdrop;
         if (daneResolver != null && dial.getHost() != null) {
             lookupDane(handler);
         } else {
@@ -512,7 +516,7 @@ public class SmtpClient {
             ClientConnect.prepareTls(secure, tls, transportFactory);
             endpointHandler.setSecure(secure);
             clientEndpoint = ClientConnect.openAndConnect(
-                    dial, transportFactory, endpointHandler);
+                    gumdrop, dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }

@@ -32,9 +32,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.ftp.client.handler.*;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -52,6 +55,7 @@ public class FTPClientProtocolHandlerTest {
 
     private FtpClientProtocolHandler handler;
     private StubEndpoint endpoint;
+    private Gumdrop gumdrop;
     private final List<String> sentCommands = new ArrayList<>();
     private final AtomicBoolean disconnected = new AtomicBoolean();
     private final AtomicReference<String> serviceUnavailable = new AtomicReference<>();
@@ -62,6 +66,7 @@ public class FTPClientProtocolHandlerTest {
         disconnected.set(false);
         serviceUnavailable.set(null);
         endpoint = new StubEndpoint(sentCommands);
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
         handler = new FtpClientProtocolHandler(new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientLoginState login, String message) {
@@ -84,7 +89,14 @@ public class FTPClientProtocolHandlerTest {
             public void onError(Exception e) {
             }
         });
+        handler.setGumdrop(gumdrop);
         handler.connected(endpoint);
+    }
+
+    @After
+    public void tearDown() throws InterruptedException {
+        gumdrop.shutdown();
+        gumdrop.join();
     }
 
     private void simulateResponse(String response) {

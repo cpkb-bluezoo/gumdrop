@@ -33,7 +33,7 @@ import java.util.List;
  *
  * <p>The lifecycle contract is:
  * <ol>
- * <li>{@link #start()} initialises application logic, then wires and
+ * <li>{@link #start(Gumdrop)} initialises application logic, then wires and
  *     starts all listeners.</li>
  * <li>{@link #stop()} stops all listeners (static and dynamic), then
  *     tears down application logic.</li>
@@ -77,8 +77,10 @@ public interface Server {
      * Starts this server. Implementations should first initialise
      * application-level resources (containers, thread pools, caches),
      * then wire and start each listener.
+     *
+     * @param gumdrop the runtime this server is starting under
      */
-    void start();
+    void start(Gumdrop gumdrop);
 
     /**
      * Stops this server. Implementations should first stop all

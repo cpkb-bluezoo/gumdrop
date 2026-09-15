@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.health;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpListener;
 import java.net.InetAddress;
@@ -39,6 +40,7 @@ public class HealthListener extends TcpListener {
     public static final int DEFAULT_PORT = 8081;
 
     private int port = DEFAULT_PORT;
+    private Gumdrop gumdrop;
 
     @Override
     public String getDescription() {
@@ -95,7 +97,13 @@ public class HealthListener extends TcpListener {
 
 
     @Override
+    public void start(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+        super.start(gumdrop);
+    }
+
+    @Override
     protected ProtocolHandler createHandler() {
-        return new HealthProtocolHandler();
+        return new HealthProtocolHandler(gumdrop);
     }
 }

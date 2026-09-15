@@ -150,12 +150,16 @@ public class TcpDnsClientTransport implements DnsClientTransport {
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
                      DnsClientTransportHandler handler) throws IOException {
+        if (loop == null || loop.getGumdrop() == null) {
+            throw new IOException(
+                    "TcpDnsClientTransport requires a SelectorLoop owned by a running Gumdrop");
+        }
         TcpTransportFactory factory = createTransportFactory();
         factory.start();
         if (port <= 0) {
             port = defaultPort;
         }
-        this.endpoint = factory.connect(server, port,
+        this.endpoint = factory.connect(loop.getGumdrop(), server, port,
                 new TcpProtocolHandler(handler), loop);
     }
 

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry.otlp;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.grpc.GrpcFraming;
@@ -65,6 +66,7 @@ class OtlpGrpcEndpoint {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.telemetry.L10N");
     private static final Logger logger = Logger.getLogger(OtlpGrpcEndpoint.class.getName());
 
+    private final Gumdrop gumdrop;
     private final String name;
     private final String host;
     private final int port;
@@ -85,6 +87,8 @@ class OtlpGrpcEndpoint {
     /**
      * Creates an OTLP gRPC endpoint from a URL string.
      *
+     * @param gumdrop the runtime used to drive this endpoint's outbound
+     *      HTTP client connections
      * @param name the endpoint name (traces, logs, metrics)
      * @param url the endpoint URL (e.g. https://localhost:4317)
      * @param grpcPath the gRPC service path (e.g. /opentelemetry.proto.collector.trace.v1.TraceService/Export)
@@ -92,7 +96,7 @@ class OtlpGrpcEndpoint {
      * @param config the telemetry configuration
      * @return the endpoint, or null if the URL is invalid
      */
-    static OtlpGrpcEndpoint create(String name, String url, String grpcPath,
+    static OtlpGrpcEndpoint create(Gumdrop gumdrop, String name, String url, String grpcPath,
                                     Map<String, String> headers, TelemetryConfig config) {
         if (url == null || url.isEmpty()) {
             return null;
@@ -112,7 +116,7 @@ class OtlpGrpcEndpoint {
                 port = DEFAULT_GRPC_PORT;
             }
 
-            OtlpGrpcEndpoint endpoint = new OtlpGrpcEndpoint(name, host, port, grpcPath, secure, headers);
+            OtlpGrpcEndpoint endpoint = new OtlpGrpcEndpoint(gumdrop, name, host, port, grpcPath, secure, headers);
 
             if (config != null) {
                 endpoint.truststoreFile = config.getTruststoreFile();
@@ -128,8 +132,9 @@ class OtlpGrpcEndpoint {
         }
     }
 
-    private OtlpGrpcEndpoint(String name, String host, int port, String path, boolean secure,
+    private OtlpGrpcEndpoint(Gumdrop gumdrop, String name, String host, int port, String path, boolean secure,
                             Map<String, String> headers) {
+        this.gumdrop = gumdrop;
         this.name = name;
         this.host = host;
         this.port = port;
@@ -246,7 +251,7 @@ class OtlpGrpcEndpoint {
                 }
             }
 
-            client.connect(new OtlpGrpcConnectionHandler(connectLatch));
+            client.connect(gumdrop, new OtlpGrpcConnectionHandler(connectLatch));
 
             logger.info(MessageFormat.format(L10N.getString("info.endpoint_connecting"), name, host, port));
 

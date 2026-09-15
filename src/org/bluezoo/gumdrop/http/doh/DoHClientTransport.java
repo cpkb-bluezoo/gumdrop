@@ -141,11 +141,15 @@ public class DoHClientTransport implements DnsClientTransport {
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
                      DnsClientTransportHandler handler) throws IOException {
+        if (loop == null || loop.getGumdrop() == null) {
+            throw new IOException(
+                    "DoHClientTransport requires a SelectorLoop owned by a running Gumdrop");
+        }
         this.handler = handler;
         if (port <= 0) {
             port = DEFAULT_DOH_PORT;
         }
-        httpClient = new HttpClient(server.getHostAddress(), port);
+        httpClient = new HttpClient(loop, server.getHostAddress(), port);
         httpClient.setSecure(true);
         if (clientCredentials != null) {
             httpClient.setClientCredentials(clientCredentials);
@@ -153,7 +157,7 @@ public class DoHClientTransport implements DnsClientTransport {
         if (trustManager != null) {
             httpClient.setTrustManager(trustManager);
         }
-        httpClient.connect(new HttpClientHandler() {
+        httpClient.connect(loop.getGumdrop(), new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 connected = true;

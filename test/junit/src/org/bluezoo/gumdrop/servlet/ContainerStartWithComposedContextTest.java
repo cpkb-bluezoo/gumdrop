@@ -28,6 +28,9 @@ import org.junit.Test;
 import java.io.File;
 import java.nio.file.Files;
 
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
+
 /**
  * Regression test: {@link Container#start()} (via {@code initContexts()})
  * unconditionally re-called {@link Context#setContainer(Container)} on
@@ -44,23 +47,27 @@ public class ContainerStartWithComposedContextTest {
 
     private Container container;
     private File webappRoot;
+    private Gumdrop gumdrop;
 
     @Before
     public void setUp() throws Exception {
         container = new Container();
         webappRoot = Files.createTempDirectory("gumdrop-container-start-test").toFile();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
     }
 
     @After
-    public void tearDown() {
+    public void tearDown() throws InterruptedException {
         deleteRecursively(webappRoot);
+        gumdrop.shutdown();
+        gumdrop.join();
     }
 
     @Test
     public void startDoesNotThrowForContextBuiltWithContainerConstructor() {
         Context context = new Context(container, "", webappRoot);
         container.addContext(context);
-        container.start();
+        container.start(gumdrop);
     }
 
     private static void deleteRecursively(File file) {

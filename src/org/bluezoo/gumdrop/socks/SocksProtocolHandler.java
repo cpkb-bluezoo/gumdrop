@@ -822,7 +822,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
                     getServerMetrics(),
                     service.getRelayIdleTimeoutMs());
 
-            client.connect(new ProtocolHandler() {
+            client.connect(loop.getGumdrop(), new ProtocolHandler() {
                 @Override
                 public void connected(Endpoint upstream) {
                     if (LOGGER.isLoggable(Level.FINE)) {

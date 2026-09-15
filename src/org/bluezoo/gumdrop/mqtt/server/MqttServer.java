@@ -33,6 +33,7 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -226,7 +227,7 @@ public abstract class MqttServer implements Server {
     }
 
     @Override
-    public void start() {
+    public void start(Gumdrop gumdrop) {
         messageStore = createMessageStore();
         initService();
 
@@ -234,7 +235,7 @@ public abstract class MqttServer implements Server {
             wireListener(ep);
             ep.setService(this);
             try {
-                ep.start();
+                ep.start(gumdrop);
             } catch (Exception e) {
                 LOGGER.log(Level.SEVERE, MessageFormat.format(
                         L10N.getString("log.listener_start_failed"), ep), e);

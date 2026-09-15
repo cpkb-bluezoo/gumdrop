@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
 import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
@@ -66,20 +68,24 @@ public class AMQPClientIntegrationTest {
 
     private FakeAMQPBroker broker;
     private AmqpClientRecovery client;
+    private Gumdrop gumdrop;
 
     @Before
     public void setUp() throws IOException {
         broker = new FakeAMQPBroker();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
     }
 
     @After
-    public void tearDown() {
+    public void tearDown() throws InterruptedException {
         if (client != null) {
             client.close();
         }
         if (broker != null) {
             broker.close();
         }
+        gumdrop.shutdown();
+        gumdrop.join();
     }
 
     private static <T> T await(CountDownLatch latch, AtomicReference<T> value) throws InterruptedException {
@@ -93,7 +99,7 @@ public class AMQPClientIntegrationTest {
 
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -120,7 +126,7 @@ public class AMQPClientIntegrationTest {
 
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -152,7 +158,7 @@ public class AMQPClientIntegrationTest {
                 failedLatch.countDown();
             }
         });
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 fail("should never reach onFirstConnect with an unoffered mechanism");
@@ -171,7 +177,7 @@ public class AMQPClientIntegrationTest {
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
         final AtomicReference<String> deliveredContentType = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -249,7 +255,7 @@ public class AMQPClientIntegrationTest {
         final CountDownLatch deliveredLatch = new CountDownLatch(1);
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -286,7 +292,7 @@ public class AMQPClientIntegrationTest {
         final CountDownLatch confirmLatch = new CountDownLatch(1);
         final AtomicReference<Long> ackedSeq = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -328,7 +334,7 @@ public class AMQPClientIntegrationTest {
         final CountDownLatch firstConsumeOk = new CountDownLatch(1);
         final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {

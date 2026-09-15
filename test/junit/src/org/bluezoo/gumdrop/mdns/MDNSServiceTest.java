@@ -21,8 +21,10 @@
 
 package org.bluezoo.gumdrop.mdns;
 
+import org.junit.AfterClass;
 import org.junit.Assume;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.net.Inet4Address;
@@ -37,6 +39,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.dns.DnsClass;
 import org.bluezoo.gumdrop.dns.DnsMessage;
@@ -60,6 +64,18 @@ import static org.junit.Assert.*;
 public class MDNSServiceTest {
 
     private static List<InetAddress> ownAddresses;
+    private static Gumdrop gumdrop;
+
+    @BeforeClass
+    public static void bootGumdrop() {
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
+    }
+
+    @AfterClass
+    public static void shutdownGumdrop() throws InterruptedException {
+        gumdrop.shutdown();
+        gumdrop.join();
+    }
 
     @Before
     public void assumeHasIPv4Interface() throws Exception {
@@ -119,7 +135,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
 
         assertTrue(service.isAnnounced());
@@ -144,7 +160,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         listener.fireTimer(); // first probe only
 
         assertEquals(1, listener.sentToGroup.size());
@@ -165,7 +181,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         listener.fireTimer(); // one probe sent, still probing
 
         InetAddress someoneElse = InetAddress.getByName("203.0.113.9");
@@ -195,7 +211,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         listener.fireTimer(); // one probe sent
 
         // Our own announcement/probe echoed back (e.g. by a switch loop)
@@ -221,7 +237,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         listener.fireTimer(); // one probe sent, still probing
 
         // A record whose rdata sorts higher than any of ours (all 0xFF)
@@ -256,7 +272,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
         assertTrue(service.isAnnounced());
         int sentBefore = listener.sentToGroup.size();
@@ -290,7 +306,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
         int sentBefore = listener.sentToGroup.size();
 
@@ -321,7 +337,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
         int sentBefore = listener.sentToGroup.size();
 
@@ -353,7 +369,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
         int sentBefore = listener.sentToGroup.size();
 
@@ -381,7 +397,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
         int sentBefore = listener.sentToGroup.size();
 
@@ -404,7 +420,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
 
         InetAddress otherAddr = InetAddress.getByName("203.0.113.42");
@@ -432,7 +448,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
 
         InetAddress otherAddr = InetAddress.getByName("203.0.113.42");
@@ -460,7 +476,7 @@ public class MDNSServiceTest {
         service.setHostname("testhost");
         service.setAdvertiseServices(false);
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
         assertTrue(service.isAnnounced());
 
@@ -482,7 +498,7 @@ public class MDNSServiceTest {
         service.addListener(listener);
         service.setHostname("testhost");
 
-        service.start();
+        service.start(gumdrop);
         settle(service, listener);
         assertTrue(service.isAnnounced());
 
@@ -511,7 +527,7 @@ public class MDNSServiceTest {
         private Runnable pendingTask;
 
         @Override
-        public void start() {
+        public void start(org.bluezoo.gumdrop.Gumdrop gumdrop) {
             // No real socket in tests. stop() is left as inherited:
             // it calls service.sendGoodbye(this) and then a no-op
             // endpoint close, since the endpoint field is never set

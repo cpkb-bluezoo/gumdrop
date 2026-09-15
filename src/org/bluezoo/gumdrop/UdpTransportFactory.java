@@ -410,14 +410,14 @@ public class UdpTransportFactory extends TransportFactory {
         return resolved.isEmpty() ? null : resolved;
     }
 
-    public UdpEndpoint createServerEndpoint(InetAddress bindAddress,
+    public UdpEndpoint createServerEndpoint(Gumdrop gumdrop, InetAddress bindAddress,
                                                   int port,
                                                   ProtocolHandler handler)
             throws IOException {
-        return createServerEndpoint(bindAddress, port, handler, null);
+        return createServerEndpoint(gumdrop, bindAddress, port, handler, null);
     }
 
-    public UdpEndpoint createServerEndpoint(InetAddress bindAddress,
+    public UdpEndpoint createServerEndpoint(Gumdrop gumdrop, InetAddress bindAddress,
                                                   int port,
                                                   ProtocolHandler handler,
                                                   SelectorLoop loop)
@@ -438,7 +438,6 @@ public class UdpTransportFactory extends TransportFactory {
         endpoint.setChannel(channel);
         endpoint.init();
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
         SelectorLoop workerLoop =
                 (loop != null) ? loop : gumdrop.nextWorkerLoop();
         workerLoop.registerDatagram(channel, endpoint);
@@ -449,7 +448,7 @@ public class UdpTransportFactory extends TransportFactory {
         return endpoint;
     }
 
-    public UdpEndpoint createServerEndpoint(DatagramChannel channel,
+    public UdpEndpoint createServerEndpoint(Gumdrop gumdrop, DatagramChannel channel,
                                                   ProtocolHandler handler)
             throws IOException {
         UdpEndpoint endpoint = new UdpEndpoint(handler);
@@ -460,7 +459,6 @@ public class UdpTransportFactory extends TransportFactory {
         endpoint.setChannel(channel);
         endpoint.init();
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
         SelectorLoop workerLoop = gumdrop.nextWorkerLoop();
         workerLoop.registerDatagram(channel, endpoint);
         gumdrop.addChannelHandler(endpoint);
@@ -470,13 +468,13 @@ public class UdpTransportFactory extends TransportFactory {
         return endpoint;
     }
 
-    public UdpEndpoint connect(InetAddress host, int port,
+    public UdpEndpoint connect(Gumdrop gumdrop, InetAddress host, int port,
                                     ProtocolHandler handler)
             throws IOException {
-        return connect(host, port, handler, null);
+        return connect(gumdrop, host, port, handler, null);
     }
 
-    public UdpEndpoint connect(InetAddress host, int port,
+    public UdpEndpoint connect(Gumdrop gumdrop, InetAddress host, int port,
                                     ProtocolHandler handler,
                                     SelectorLoop loop)
             throws IOException {
@@ -495,7 +493,6 @@ public class UdpTransportFactory extends TransportFactory {
         endpoint.setChannel(channel);
         endpoint.init();
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
         final SelectorLoop workerLoop = (loop != null) ? loop : gumdrop.nextWorkerLoop();
         workerLoop.registerDatagram(channel, endpoint);
         gumdrop.addChannelHandler(endpoint);

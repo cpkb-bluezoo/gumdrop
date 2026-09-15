@@ -175,6 +175,7 @@ public class AmqpClientRecovery {
     private String gssapiServicePrincipal;
     private ExecutorService gssapiExecutor;
 
+    private Gumdrop gumdrop;
     private RecoveryHandler appHandler;
     private RecoverableConnectionImpl recoverableConnection;
     private int attempt;
@@ -339,7 +340,8 @@ public class AmqpClientRecovery {
      * and replays recorded topology, without calling {@code handler}
      * again.
      */
-    public void connect(RecoveryHandler handler) {
+    public void connect(Gumdrop gumdrop, RecoveryHandler handler) {
+        this.gumdrop = gumdrop;
         this.appHandler = handler;
         this.recoverableConnection = new RecoverableConnectionImpl();
         this.attempt = 0;
@@ -388,7 +390,7 @@ public class AmqpClientRecovery {
                         : new ClientEndpoint(transportFactory, hostAddress, port);
             }
             currentEndpoint = endpoint;
-            endpoint.connect(handler);
+            endpoint.connect(gumdrop, handler);
         } catch (IOException e) {
             scheduleReconnect(e);
         }

@@ -105,7 +105,8 @@ final class ConnectUdpRelay {
     void start(InetSocketAddress target) throws IOException {
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.start();
-        upstream = factory.connect(target.getAddress(), target.getPort(),
+        upstream = factory.connect(state.getSelectorLoop().getGumdrop(),
+                target.getAddress(), target.getPort(),
                 new UpstreamHandler(), state.getSelectorLoop());
         resetIdleTimer();
     }

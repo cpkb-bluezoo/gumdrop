@@ -80,6 +80,7 @@ public class SelectorLoop implements Runnable {
             Long.getLong("gumdrop.selectorLoop.selectTimeoutMs", 0L);
 
     private final int index;
+    private Gumdrop gumdrop;
     private Thread thread;
     // volatile so cross-thread producers reliably observe a non-null selector
     // and their wakeup() takes effect (the loop no longer polls on a timeout).
@@ -121,6 +122,29 @@ public class SelectorLoop implements Runnable {
      */
     ScheduledTimer getTimer() {
         return timer;
+    }
+
+    /**
+     * Sets the {@link Gumdrop} runtime that owns this loop, so code that
+     * only holds a loop reference (e.g. a DNS transport mid-resolution)
+     * can recover it without a singleton lookup. Set by {@link Gumdrop}
+     * itself when it creates a worker loop; left {@code null} for a
+     * standalone {@link SelectorLoop} created outside any runtime.
+     *
+     * @param gumdrop the owning runtime
+     */
+    void setGumdrop(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+    }
+
+    /**
+     * Returns the {@link Gumdrop} runtime that owns this loop, or
+     * {@code null} for a standalone loop created outside any runtime.
+     *
+     * @return the owning runtime, or null
+     */
+    public Gumdrop getGumdrop() {
+        return gumdrop;
     }
 
     /**

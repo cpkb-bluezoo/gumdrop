@@ -36,6 +36,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -116,12 +118,13 @@ public class ConnectUdpH2WireTest {
 
     private HttpProtocolHandler connection;
     private CountingEndpoint endpoint;
+    private Gumdrop gumdrop;
     private SelectorLoop loop;
 
     @Before
     public void setUp() {
-        loop = new SelectorLoop(0);
-        loop.start();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        loop = gumdrop.nextWorkerLoop();
 
         Http2Listener listener = new Http2Listener();
         ConnectUdpPolicy permissive = new ConnectUdpPolicy() {
@@ -146,10 +149,10 @@ public class ConnectUdpH2WireTest {
     }
 
     @After
-    public void tearDown() {
-        if (loop != null) {
-            loop.shutdown();
-            loop.awaitQuiesce(2000);
+    public void tearDown() throws InterruptedException {
+        if (gumdrop != null) {
+            gumdrop.shutdown();
+            gumdrop.join();
         }
     }
 

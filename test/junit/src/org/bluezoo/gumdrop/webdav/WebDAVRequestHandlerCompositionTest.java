@@ -9,6 +9,7 @@ package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpServer;
@@ -54,6 +55,15 @@ public class WebDAVRequestHandlerCompositionTest {
         Files.write(root.resolve("hello.txt"),
                 "Hello, WebDAV!".getBytes(StandardCharsets.UTF_8));
 
+        // Deliberately reuses the shared Gumdrop.getInstance() singleton
+        // (rather than a dedicated Gumdrop.boot() instance) because
+        // WebDAVRequestHandler's FileHandler still resolves its storage
+        // executor via Gumdrop.getInstance() internally (its own C.4
+        // getStorageExecutor() fan-out is still pending) -- a separate
+        // boot()ed instance here would leave that singleton with no
+        // servers/listeners registered, so its auto-shutdown-when-idle
+        // logic could close the async file channel out from under an
+        // in-flight read.
         System.setProperty("gumdrop.workers", "2");
         gumdrop = Gumdrop.getInstance();
         if (gumdrop.isStarted()) {
@@ -93,7 +103,7 @@ public class WebDAVRequestHandlerCompositionTest {
 
     @Test
     public void testServesStaticFileViaComposedHttpServer() throws Exception {
-        HttpClient client = connect(testPort);
+        HttpClient client = connect(gumdrop, testPort);
         HttpRequest request = client.get("/hello.txt");
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -152,7 +162,7 @@ public class WebDAVRequestHandlerCompositionTest {
         }
     }
 
-    private static HttpClient connect(int port) throws Exception {
+    private static HttpClient connect(Gumdrop gumdrop, int port) throws Exception {
         HttpClient client = new HttpClient(TEST_HOST, port);
         client.setAltSvcEnabled(false);
         client.setH2Enabled(false);
@@ -161,7 +171,7 @@ public class WebDAVRequestHandlerCompositionTest {
         CountDownLatch connected = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<Exception>();
 
-        client.connect(new HttpClientHandler() {
+        client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 connected.countDown();
