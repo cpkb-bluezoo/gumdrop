@@ -40,8 +40,6 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
-import org.bluezoo.gumdrop.http.server.HandlerFactoryStreamHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
 import org.bluezoo.gumdrop.TlsConfigSupport;
@@ -208,23 +206,6 @@ public class Http3Listener extends TcpListener
 
     public HttpStreamHandler getStreamHandler() {
         return streamHandler;
-    }
-
-    /**
-     * @deprecated use {@link #setStreamHandler(HttpStreamHandler)}.
-     */
-    @Deprecated
-    public void setHandlerFactory(HttpRequestHandlerFactory factory) {
-        this.streamHandler = factory != null
-                ? new HandlerFactoryStreamHandler(factory) : null;
-    }
-
-    /**
-     * @deprecated use {@link #getStreamHandler()}.
-     */
-    @Deprecated
-    public HttpRequestHandlerFactory getHandlerFactory() {
-        return null;
     }
 
     /**

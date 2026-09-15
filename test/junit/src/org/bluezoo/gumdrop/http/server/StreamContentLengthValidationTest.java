@@ -66,7 +66,6 @@ public class StreamContentLengthValidationTest {
         }
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
         @Override public HttpStreamHandler getStreamHandler() { return null; }
-        @Override public HttpRequestHandlerFactory getHandlerFactory() { return null; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
                 Headers headers, boolean endStream) {
             lastStatusCode = statusCode;

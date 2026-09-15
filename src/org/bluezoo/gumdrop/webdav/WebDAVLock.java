@@ -1,5 +1,5 @@
 /*
- * WebdavLock.java
+ * WebDAVLock.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -32,7 +32,7 @@ import java.util.UUID;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-class WebdavLock {
+class WebDAVLock {
 
     /** Lock scope: exclusive (§14.13) or shared (§14.26) */
     enum Scope { EXCLUSIVE, SHARED }
@@ -48,7 +48,7 @@ class WebdavLock {
     private final long createdAt;
     private long expiresAt;
 
-    WebdavLock(Path path, Scope scope, Type type, int depth,
+    WebDAVLock(Path path, Scope scope, Type type, int depth,
                String owner, long timeoutSeconds) {
         this.token = DavConstants.LOCK_TOKEN_SCHEME + UUID.randomUUID().toString();
         this.path = path;
@@ -124,7 +124,7 @@ class WebdavLock {
 
     @Override
     public String toString() {
-        return "WebdavLock{token=" + token + ", path=" + path + 
+        return "WebDAVLock{token=" + token + ", path=" + path + 
                ", scope=" + scope + ", depth=" + depth + "}";
     }
 }

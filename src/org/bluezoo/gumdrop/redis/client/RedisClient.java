@@ -33,7 +33,7 @@ import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
 import org.bluezoo.gumdrop.client.ClientDial;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -68,7 +68,8 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 public class RedisClient {
 
     private final ClientDial dial = ClientDial.withDefaultPort(6379);
-    private final ClientTlsConfig tls = new ClientTlsConfig();
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
@@ -104,11 +105,11 @@ public class RedisClient {
     }
 
     public void setSecure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
     }
 
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
     }
 
     public void setTrustManager(X509TrustManager trustManager) {
@@ -162,12 +163,12 @@ public class RedisClient {
     }
 
     public RedisClient secure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
         return this;
     }
 
     public RedisClient clientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
         return this;
     }
 
@@ -195,7 +196,7 @@ public class RedisClient {
         return dial;
     }
 
-    public ClientTlsConfig getTls() {
+    public TlsConfig getTls() {
         return tls;
     }
 
@@ -207,7 +208,7 @@ public class RedisClient {
         endpointHandler = new RedisClientProtocolHandler(handler);
 
         try {
-            ClientConnect.prepareTls(tls, transportFactory);
+            ClientConnect.prepareTls(secure, tls, transportFactory);
             clientEndpoint = ClientConnect.openAndConnect(
                     dial, transportFactory, endpointHandler);
             connected = true;

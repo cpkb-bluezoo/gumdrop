@@ -30,7 +30,8 @@
  * {@link org.bluezoo.gumdrop.smtp.client.handler}) so only the commands
  * legal at each point can be issued: {@link
  * org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting} is the entry
- * point (via {@link org.bluezoo.gumdrop.smtp.client.SmtpClientSessionProvider}),
+ * point (passed directly to {@link
+ * org.bluezoo.gumdrop.smtp.client.SmtpClient#connect}),
  * through {@link org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState} (post
  * EHLO/HELO), {@link
  * org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeState} (MAIL

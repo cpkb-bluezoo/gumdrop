@@ -492,60 +492,69 @@ to determine which specific resource was requested.
 
 <p>
 The servlet container is a <strong><code>ServletRequestHandler</code></strong>
-wired into <code>HttpServer</code>, not a separate
-<code>ServletServer</code> type:
+(an <code>HttpStreamHandler</code>) wired onto a plain
+<code>HttpServer</code>, not a separate server subclass. A
+<code>Container</code> owns its worker pool, realms, and web application
+<code>Context</code>s; the handler is created once per container and
+installed on however many listeners the deployment needs:
 </p>
 
 <pre>
-Container container = Container.builder()
-    .context(Context.builder().path("").root(Path.of("web")).server())
-    .server();
+Container container = new Container();
+container.addContext(new Context(container, "", new File("web")));
 
 HttpServer server = HttpServer.compose()
-    .listener(new Http2Listener().port(8080))
-    .listener(new Http3Listener().port(8443).tls(credentials))
-    .handler(new ServletRequestHandler(container))
-    .server();
+        .listener(new Http2Listener().port(8080))
+        .listener(new Http3Listener().port(8443)
+                .tls(TlsConfig.pem("cert.pem", "key.pem")))
+        .streamHandler(new ServletRequestHandler(container))
+        .server();
+server.start();
 </pre>
 
 <p>
-See <a href="configuration.html">Application composition</a> and
-<a href="../docs/COMPOSITION.md">docs/COMPOSITION.md</a>.
+Because the servlet container is a plain <code>HttpServer</code>, it
+inherits Gumdrop&rsquo;s full transport and protocol independence layer.
+Serving applications over <a href="http.html#http3">HTTP/3</a> (QUIC),
+<a href="http.html#http2">HTTP/2</a>, and HTTP/1.1 is a matter of adding
+the appropriate listeners, as above &mdash; no reverse proxy is required to
+terminate QUIC, unlike mainstream servlet containers such as Apache Tomcat,
+GlassFish, and Undertow. Servlets, filters, and JSP pages operate
+identically regardless of the underlying HTTP version, benefiting from
+HTTP/3&rsquo;s reduced latency and elimination of head-of-line blocking
+without any code changes. The container also benefits from HTTP/2 features
+including HPACK header compression, stream multiplexing, flow control, and
+server push, as well as chunked encoding, HTTPS, and
+<a href="telemetry.html">OpenTelemetry integration</a>. See the
+<a href="http.html">HTTP documentation</a> for details on the underlying
+HTTP implementation.
 </p>
 
-<h3 id="configuration">Legacy XML configuration</h3>
-
-<p><em>Gumdrop 2.x used <code>gumdroprc</code> XML; this is removed in 3.0.
-The following documents interim <code>ServletServer</code> properties for
-migration reference only.</em></p>
-
-<h4>Service Properties</h4>
+<h4>Container Configuration</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.servlet.ServletServer</code> was the HTTP
-application service for the servlet container. Container properties,
-contexts, and listeners were configured on the
-<code>&lt;service&gt;</code> element:
+<code>Container</code> exposes fluent setters for the servlet worker pool,
+clustering, and operational settings:
 </p>
 
 <ul>
-<li><code>hot-deploy</code> - enable automatic redeployment when files
+<li><code>setHotDeploy(boolean)</code> - enable automatic redeployment when files
 change (default: <code>true</code>)</li>
-<li><code>cluster-port</code> - UDP port for session replication multicast</li>
-<li><code>cluster-group-address</code> - multicast group address for clustering</li>
-<li><code>cluster-key</code> - shared secret key for cluster encryption
+<li><code>setClusterPort(int)</code> - UDP port for session replication multicast</li>
+<li><code>setClusterGroupAddress(String)</code> - multicast group address for clustering</li>
+<li><code>setClusterKey(String)</code> - shared secret key for cluster encryption
 (hex-encoded, 256 bits)</li>
-<li><code>replication-allowed-classes</code> - comma-separated fully qualified
+<li><code>setReplicationAllowedClasses(String)</code> - comma-separated fully qualified
 class names permitted in Java-serialized replicated session attributes, in
 addition to the built-in JDK allowlist (webapp class loaders are never
 blanket-allowed)</li>
-<li><code>realms</code> - map of named realms available to contexts</li>
-<li><code>accessLog</code> - path to access log file (W3C Extended Log Format)</li>
-<li><code>bufferSize</code> - I/O buffer size for request/response streams in bytes
+<li><code>addRealm(String, Realm)</code> / <code>setRealms(Map)</code> - named realms available to contexts</li>
+<li><code>setAccessLog(String)</code> - path to access log file (W3C Extended Log Format)</li>
+<li><code>setBufferSize(int)</code> - I/O buffer size for request/response streams in bytes
 (default: 8192, minimum: 1024)</li>
-<li><code>workerCorePoolSize</code> - minimum servlet worker pool size (virtual threads)</li>
-<li><code>workerMaximumPoolSize</code> - maximum servlet worker pool size (virtual threads)</li>
-<li><code>workerKeepAlive</code> - idle timeout for excess pool workers</li>
+<li><code>setWorkerCorePoolSize(int)</code> - minimum servlet worker pool size (virtual threads)</li>
+<li><code>setWorkerMaximumPoolSize(int)</code> - maximum servlet worker pool size (virtual threads)</li>
+<li><code>setWorkerKeepAlive(String)</code> - idle timeout for excess pool workers</li>
 </ul>
 
 <p>
@@ -553,70 +562,23 @@ The servlet worker pool is distinct from the I/O worker loops, allowing
 independent tuning based on workload characteristics.
 </p>
 
-<p>
-Because the servlet container is an HTTP service, it inherits Gumdrop&rsquo;s
-full transport and protocol independence layer. This means the servlet
-container can serve applications over <a href="http.html#http3">HTTP/3</a>
-(QUIC), <a href="http.html#http2">HTTP/2</a>, and HTTP/1.1 simply by
-configuring the appropriate listeners. Adding an <code>Http3Listener</code>
-alongside an <code>HttpListener</code> is all that is required to enable
-HTTP/3 for servlet applications:
-</p>
-
-<pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
-  &lt;context path="" root="web"/&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
-  &lt;/listener&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
-    &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
-</pre>
-
-<p>
-Mainstream servlet containers such as Apache Tomcat, GlassFish, and Undertow
-do not support HTTP/3 natively, typically requiring a reverse proxy to
-terminate QUIC connections. Gumdrop&rsquo;s architecture makes this
-unnecessary: servlets, filters, and JSP pages operate identically regardless
-of the underlying HTTP version, benefiting from HTTP/3&rsquo;s reduced
-latency and elimination of head-of-line blocking without any code changes.
-</p>
-
-<p>
-The servlet container also benefits from HTTP/2 features including HPACK
-header compression, stream multiplexing, flow control, and server push, as
-well as chunked encoding, HTTPS, and
-<a href="telemetry.html">OpenTelemetry integration</a>. See the
-<a href="http.html">HTTP documentation</a> for details on the underlying
-HTTP implementation.
-</p>
-
 <h4>Context Configuration</h4>
 
 <p>
-Define web applications as <code>&lt;context&gt;</code> elements directly
-inside the <code>&lt;service&gt;</code>:
+Add web applications as <code>Context</code> instances on the container:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
-  &lt;context path="" root="web"/&gt;
-  &lt;context path="/app" root="myapp.war" distributable="true"/&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
-    &lt;property name="port"&gt;8080&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+Container container = new Container();
+container.addContext(new Context(container, "", new File("web")));
+
+Context app = new Context(container, "/app", new File("myapp.war"));
+app.setDistributable(true);
+container.addContext(app);
 </pre>
 
 <ul>
-<li><code>path</code> - the context path (empty string for root)</li>
+<li><code>contextPath</code> - the context path (empty string for root)</li>
 <li><code>root</code> - path to the web application directory or WAR file</li>
 <li><code>distributable</code> - enable session replication (default: <code>false</code>)</li>
 </ul>
@@ -625,24 +587,17 @@ inside the <code>&lt;service&gt;</code>:
 
 <p>
 Realms provide authentication and authorisation for protected resources.
-Configure realms on the service and reference them in web
+Add realms to the container and reference them by name in web
 application <code>login-config</code> elements:
 </p>
 
 <pre>
-&lt;realm id="myRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-  &lt;property name="href"&gt;myRealm.xml&lt;/property&gt;
-&lt;/realm&gt;
+BasicRealm realm = new BasicRealm();
+realm.setHref("myRealm.xml");
 
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
-  &lt;property name="realms"&gt;
-    &lt;map&gt;
-      &lt;entry key="myRealm" ref="#myRealm"/&gt;
-    &lt;/map&gt;
-  &lt;/property&gt;
-  &lt;context path="" root="web"/&gt;
-  ...
-&lt;/service&gt;
+Container container = new Container();
+container.addRealm("myRealm", realm);
+container.addContext(new Context(container, "", new File("web")));
 </pre>
 
 <p>

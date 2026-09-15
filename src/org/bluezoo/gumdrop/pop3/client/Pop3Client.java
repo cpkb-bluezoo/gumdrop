@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.pop3.client;
 
 import java.io.IOException;
-import java.util.function.Supplier;
 import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.logging.Level;
@@ -37,7 +36,7 @@ import org.bluezoo.gumdrop.client.ClientConnect;
 import org.bluezoo.gumdrop.client.ClientDial;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.pop3.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -102,16 +101,15 @@ public class Pop3Client {
             Logger.getLogger(Pop3Client.class.getName());
 
     private final ClientDial dial = ClientDial.withDefaultPort(110);
-    private final ClientTlsConfig tls = new ClientTlsConfig();
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private Pop3ClientProtocolHandler endpointHandler;
 
-    private Pop3ClientSessionProvider sessionProvider;
-
     /**
-     * Creates a client for fluent configuration before {@link #connect()}.
+     * Creates a client for fluent configuration before {@link #connect(RemoteGreeting)}.
      */
     public Pop3Client() {
     }
@@ -205,7 +203,7 @@ public class Pop3Client {
      * @param secure true for implicit TLS
      */
     public void setSecure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
     }
 
     /**
@@ -219,7 +217,7 @@ public class Pop3Client {
      * @param context the SSL context
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
     }
 
     /**
@@ -267,7 +265,7 @@ public class Pop3Client {
 
     /** @return this client */
     public Pop3Client secure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
         return this;
     }
 
@@ -278,7 +276,7 @@ public class Pop3Client {
 
     /** @return this client */
     public Pop3Client clientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
         return this;
     }
 
@@ -337,15 +335,6 @@ public class Pop3Client {
         return this;
     }
 
-    public Pop3Client sessionProvider(Pop3ClientSessionProvider provider) {
-        setSessionProvider(provider);
-        return this;
-    }
-
-    public Pop3Client sessionPerConnection(Supplier<RemoteGreeting> supplier) {
-        return sessionProvider(Pop3ClientSessionProviders.perSession(supplier));
-    }
-
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════
@@ -365,40 +354,13 @@ public class Pop3Client {
         transportFactory = new TcpTransportFactory();
         endpointHandler = new Pop3ClientProtocolHandler(handler);
         try {
-            ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
-            endpointHandler.setSecure(effective.useImplicitTls());
+            ClientConnect.prepareTls(secure, tls, transportFactory);
+            endpointHandler.setSecure(secure);
             clientEndpoint = ClientConnect.openAndConnect(
                     dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }
-    }
-
-    /**
-     * Connects using a {@link Pop3ClientSessionProvider}.
-     */
-    public void connect(Pop3ClientSessionProvider provider) {
-        connect(provider.openSession());
-    }
-
-    /**
-     * Connects using the configured session provider.
-     */
-    public void connect() {
-        if (sessionProvider == null) {
-            throw new IllegalStateException(
-                    "sessionProvider is required; use .sessionProvider(...)"
-                            + " or connect(RemoteGreeting)");
-        }
-        connect(sessionProvider);
-    }
-
-    public Pop3ClientSessionProvider getSessionProvider() {
-        return sessionProvider;
-    }
-
-    public void setSessionProvider(Pop3ClientSessionProvider sessionProvider) {
-        this.sessionProvider = sessionProvider;
     }
 
     /**

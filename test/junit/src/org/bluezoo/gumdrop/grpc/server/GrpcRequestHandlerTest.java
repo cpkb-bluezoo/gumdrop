@@ -1,5 +1,5 @@
 /*
- * GrpcHandlerFactoryTest.java
+ * GrpcRequestHandlerTest.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -15,9 +15,9 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Tests for {@link GrpcHandlerFactory} configuration (SEC-011).
+ * Tests for {@link GrpcRequestHandler} configuration (SEC-011).
  */
-public class GrpcHandlerFactoryTest {
+public class GrpcRequestHandlerTest {
 
     private static final ProtoFile PROTO = ProtoFile.builder().build();
     private static final GrpcServer NOOP_SERVICE = new GrpcServer() {
@@ -29,20 +29,20 @@ public class GrpcHandlerFactoryTest {
 
     @Test
     public void testDefaultMaxMessageSize() {
-        GrpcHandlerFactory factory = new GrpcHandlerFactory(PROTO, NOOP_SERVICE);
-        assertEquals(GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, factory.getMaxMessageSize());
+        GrpcRequestHandler handler = new GrpcRequestHandler(PROTO, NOOP_SERVICE);
+        assertEquals(GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE, handler.getMaxMessageSize());
     }
 
     @Test
     public void testSetMaxMessageSize() {
-        GrpcHandlerFactory factory = new GrpcHandlerFactory(PROTO, NOOP_SERVICE);
-        factory.setMaxMessageSize(8192);
-        assertEquals(8192, factory.getMaxMessageSize());
+        GrpcRequestHandler handler = new GrpcRequestHandler(PROTO, NOOP_SERVICE);
+        handler.maxMessageSize(8192);
+        assertEquals(8192, handler.getMaxMessageSize());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testMaxMessageSizeRejectsNegative() {
-        GrpcHandlerFactory factory = new GrpcHandlerFactory(PROTO, NOOP_SERVICE);
-        factory.setMaxMessageSize(-1);
+        GrpcRequestHandler handler = new GrpcRequestHandler(PROTO, NOOP_SERVICE);
+        handler.maxMessageSize(-1);
     }
 }

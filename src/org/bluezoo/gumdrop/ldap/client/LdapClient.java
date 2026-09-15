@@ -15,11 +15,9 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
-import org.bluezoo.gumdrop.client.ClientConnect;
-import org.bluezoo.gumdrop.client.ClientDefaults;
 import org.bluezoo.gumdrop.client.ClientDial;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -28,7 +26,8 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 public class LdapClient {
 
     private final ClientDial dial = ClientDial.withDefaultPort(389);
-    private final ClientTlsConfig tls = new ClientTlsConfig();
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
@@ -62,11 +61,11 @@ public class LdapClient {
     }
 
     public void setSecure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
     }
 
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
     }
 
     public void setTrustManager(X509TrustManager trustManager) {
@@ -120,12 +119,12 @@ public class LdapClient {
     }
 
     public LdapClient secure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
         return this;
     }
 
     public LdapClient clientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
         return this;
     }
 
@@ -151,11 +150,10 @@ public class LdapClient {
 
     public void connect(LdapConnectionReady handler) {
         transportFactory = new TcpTransportFactory();
-        endpointHandler = new LdapClientProtocolHandler(handler,
-                ClientDefaults.effectiveTls(tls).useImplicitTls());
+        endpointHandler = new LdapClientProtocolHandler(handler, secure);
 
         try {
-            ClientConnect.prepareTls(tls, transportFactory);
+            ClientConnect.prepareTls(secure, tls, transportFactory);
             clientEndpoint = ClientConnect.openAndConnect(
                     dial, transportFactory, endpointHandler);
         } catch (IOException e) {

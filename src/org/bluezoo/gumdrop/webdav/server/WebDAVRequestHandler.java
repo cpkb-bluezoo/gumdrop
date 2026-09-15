@@ -53,7 +53,6 @@ import java.util.logging.Logger;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see WebdavServer
  * @see docs/COMPOSITION.md
  */
 public final class WebDAVRequestHandler implements HttpStreamHandler {
@@ -84,7 +83,7 @@ public final class WebDAVRequestHandler implements HttpStreamHandler {
     /**
      * Validates that {@code path} is safe for use as a file server root.
      */
-    static void validateRootPath(Path path, boolean allowWrite) {
+    public static void validateRootPath(Path path, boolean allowWrite) {
         if (path == null) {
             throw new IllegalArgumentException(
                     "Root path cannot be null");

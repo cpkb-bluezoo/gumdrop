@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.webdav;
 
+import org.bluezoo.gumdrop.webdav.server.WebDAVRequestHandler;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -299,31 +301,28 @@ public class FileSecurityTest {
 
     @Test
     public void testServiceRootValidation() throws Exception {
-        WebdavServer service = new WebdavServer();
-        
         // Valid directory should work
-        service.setRootPath(tempRootDir);
-        assertEquals("Root path should be set", tempRootDir, service.getRootPath());
-        
+        WebDAVRequestHandler.validateRootPath(tempRootDir, false);
+
         // Non-existent path should fail
         try {
-            service.setRootPath("/non/existent/path");
+            WebDAVRequestHandler.validateRootPath(Path.of("/non/existent/path"), false);
             fail("Should have thrown IllegalArgumentException for non-existent path");
         } catch (IllegalArgumentException e) {
             assertTrue("Should mention path access", e.getMessage().contains("Cannot access root path"));
         }
-        
+
         // File instead of directory should fail
         try {
-            service.setRootPath(tempFile);
+            WebDAVRequestHandler.validateRootPath(tempFile, false);
             fail("Should have thrown IllegalArgumentException for file path");
         } catch (IllegalArgumentException e) {
             assertTrue("Should mention directory requirement", e.getMessage().contains("must be a directory"));
         }
-        
+
         // Null path should fail
         try {
-            service.setRootPath((Path) null);
+            WebDAVRequestHandler.validateRootPath(null, false);
             fail("Should have thrown IllegalArgumentException for null path");
         } catch (IllegalArgumentException e) {
             assertTrue("Should mention null path", e.getMessage().contains("cannot be null"));

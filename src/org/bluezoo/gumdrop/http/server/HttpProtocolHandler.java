@@ -417,15 +417,6 @@ public  class HttpProtocolHandler
         this.streamHandler = streamHandler;
     }
 
-    /**
-     * @deprecated use {@link #setStreamHandler(HttpStreamHandler)}.
-     */
-    @Deprecated
-    public void setHandlerFactory(HttpRequestHandlerFactory factory) {
-        this.streamHandler = factory != null
-                ? new HandlerFactoryStreamHandler(factory) : null;
-    }
-
     // ── ProtocolHandler implementation ──
 
     @Override
@@ -785,14 +776,6 @@ public  class HttpProtocolHandler
     @Override
     public HttpStreamHandler getStreamHandler() {
         return streamHandler;
-    }
-
-    /**
-     * @deprecated use {@link #getStreamHandler()}.
-     */
-    @Deprecated
-    public HttpRequestHandlerFactory getHandlerFactory() {
-        return null;
     }
 
     @Override

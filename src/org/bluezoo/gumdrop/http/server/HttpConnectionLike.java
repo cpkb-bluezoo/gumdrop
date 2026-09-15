@@ -50,14 +50,6 @@ public interface HttpConnectionLike {
     SecurityInfo getSecurityInfoForStream();
     HttpStreamHandler getStreamHandler();
 
-    /**
-     * @deprecated use {@link #getStreamHandler()}.
-     */
-    @Deprecated
-    default HttpRequestHandlerFactory getHandlerFactory() {
-        return null;
-    }
-
     void sendResponseHeaders(int streamId, int statusCode, Headers headers, boolean endStream);
     void sendResponseBody(int streamId, ByteBuffer buf, boolean endStream);
     void send(ByteBuffer buf);

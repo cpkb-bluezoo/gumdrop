@@ -30,7 +30,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
@@ -88,7 +88,7 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
         listener.setPort(PORT);
         listener.setAddresses(TEST_HOST);
         // No setSecure/keystore at all -- plain cleartext TCP.
-        listener.setHandlerFactory(new H2cEchoWebSocketHandlerFactory());
+        listener.setStreamHandler(new H2cEchoWebSocketHandlerFactory());
 
         gumdrop = Gumdrop.getInstance();
         gumdrop.addListener(listener);
@@ -190,10 +190,10 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
     // Server-side WebSocket-over-h2c echo handler
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static class H2cEchoWebSocketHandlerFactory implements HttpRequestHandlerFactory {
+    private static class H2cEchoWebSocketHandlerFactory implements HttpStreamHandler {
 
         @Override
-        public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
+        public HttpRequestHandler openStream(HttpResponseState state) {
             return new DefaultHttpRequestHandler() {
                 @Override
                 public void headers(HttpResponseState state, Headers headers) {

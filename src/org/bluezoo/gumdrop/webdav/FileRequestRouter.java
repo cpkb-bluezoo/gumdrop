@@ -28,7 +28,7 @@ public final class FileRequestRouter implements HttpStreamHandler {
     private final String[] welcomeFiles;
     private final Map<String, String> contentTypes;
 
-    private final WebdavLockManager lockManager;
+    private final WebDAVLockManager lockManager;
     private final DeadPropertyStore deadPropertyStore;
 
     public FileRequestRouter(Path rootPath, boolean allowWrite,
@@ -103,7 +103,7 @@ public final class FileRequestRouter implements HttpStreamHandler {
         contentTypes.put("webm", "video/webm");
 
         this.lockManager = webdavEnabled
-                ? new WebdavLockManager() : null;
+                ? new WebDAVLockManager() : null;
         this.deadPropertyStore = deadPropertyStore;
     }
 

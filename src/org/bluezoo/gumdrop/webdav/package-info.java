@@ -22,13 +22,26 @@
 /**
  * Static file serving and WebDAV (RFC 4918).
  *
- * <p>{@link org.bluezoo.gumdrop.webdav.WebdavServer} is an {@link
- * org.bluezoo.gumdrop.http.HttpServer} that serves files from a
- * filesystem root directory, and optionally supports RFC 4918's
- * distributed authoring methods: PROPFIND, PROPPATCH, MKCOL, COPY,
- * MOVE, LOCK, and UNLOCK.
+ * <p>{@link org.bluezoo.gumdrop.webdav.server.WebDAVRequestHandler} is an
+ * {@link org.bluezoo.gumdrop.http.server.HttpStreamHandler} that serves
+ * files from a filesystem root directory, and optionally supports RFC
+ * 4918's distributed authoring methods: PROPFIND, PROPPATCH, MKCOL, COPY,
+ * MOVE, LOCK, and UNLOCK. Install it on a plain {@link
+ * org.bluezoo.gumdrop.http.HttpServer}:
+ *
+ * <pre>{@code
+ * HttpServer server = HttpServer.compose()
+ *         .secureEndpoint(443, TlsConfig.pem("cert.pem", "key.pem"))
+ *         .streamHandler(WebDAVRequestHandler.builder()
+ *                 .rootPath(Path.of("/var/www/html"))
+ *                 .webdavEnabled(true)
+ *                 .build())
+ *         .server();
+ * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see org.bluezoo.gumdrop.webdav.server.WebDAVRequestHandler
+ * @see docs/COMPOSITION.md
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
 package org.bluezoo.gumdrop.webdav;

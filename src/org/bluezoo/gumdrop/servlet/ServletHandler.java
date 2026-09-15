@@ -34,6 +34,7 @@ import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -57,6 +58,8 @@ import java.util.logging.Logger;
 public class ServletHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ServletHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
     private final Container container;
     private final int bufferSize;
@@ -165,7 +168,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             container.serviceRequest(this);
 
         } catch (IOException e) {
-            String message = ServletServer.L10N.getString("error.create_pipe");
+            String message = L10N.getString("error.create_pipe");
             LOGGER.log(Level.SEVERE, message, e);
             sendError(HttpStatus.INTERNAL_SERVER_ERROR);
         }
@@ -329,7 +332,7 @@ public class ServletHandler extends DefaultHttpRequestHandler {
             if (response != null && response.isNonBlockingWrite()) {
                 scheduleWritePossibleNotification();
                 throw new IllegalStateException(
-                        ServletServer.L10N.getString("err.write_not_ready"));
+                        L10N.getString("err.write_not_ready"));
             }
             awaitWritable();
         }

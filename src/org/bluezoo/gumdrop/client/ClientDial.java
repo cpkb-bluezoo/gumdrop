@@ -23,7 +23,7 @@ import org.bluezoo.gumdrop.dns.client.DnsResolver;
  * {@link DnsResolver#forLoop} at connect time (until {@code Runtime} client
  * defaults land).
  *
- * @see org.bluezoo.gumdrop.tls.ClientTlsConfig
+ * @see org.bluezoo.gumdrop.tls.TlsConfig
  * @see docs/COMPOSITION.md
  */
 public final class ClientDial {

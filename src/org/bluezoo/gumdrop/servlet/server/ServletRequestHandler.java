@@ -33,7 +33,6 @@ import org.bluezoo.gumdrop.servlet.ServletHandler;
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see ServletServer
  * @see docs/COMPOSITION.md
  */
 public final class ServletRequestHandler

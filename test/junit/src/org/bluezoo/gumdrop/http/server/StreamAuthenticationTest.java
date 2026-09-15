@@ -44,12 +44,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import static org.junit.Assert.*;
 
 /**
- * Regression tests for issue #115: an {@link HttpAuthenticationProvider}
- * configured on a service (e.g. via {@code HttpServer.setRealm}, which
- * {@code WebdavServer} inherits) was stored on {@code
- * HttpProtocolHandler}/{@code Stream} but never actually consulted, so no
- * HTTP/1.1 or HTTP/2 request was ever rejected for missing or invalid
- * credentials regardless of configuration.
+ * Regression tests for issue #115: a configured {@link HttpAuthenticationProvider}
+ * was stored on {@code HttpProtocolHandler}/{@code Stream} but never
+ * actually consulted, so no HTTP/1.1 or HTTP/2 request was ever rejected
+ * for missing or invalid credentials regardless of configuration.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -104,7 +102,6 @@ public class StreamAuthenticationTest {
         }
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
         @Override public HttpStreamHandler getStreamHandler() { return null; }
-        @Override public HttpRequestHandlerFactory getHandlerFactory() { return null; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
                 Headers headers, boolean endStream) {
             lastStatusCode = statusCode;

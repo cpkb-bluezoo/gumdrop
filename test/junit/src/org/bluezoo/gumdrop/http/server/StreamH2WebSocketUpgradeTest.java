@@ -23,8 +23,6 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HandlerFactoryStreamHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -58,7 +56,7 @@ public class StreamH2WebSocketUpgradeTest {
         boolean rstStreamSent = false;
         int lastRstStreamErrorCode = -1;
         boolean switchedToWebSocketMode = false;
-        HttpRequestHandlerFactory handlerFactory;
+        HttpStreamHandler streamHandler;
 
         @Override public String getScheme() { return "https"; }
         @Override public HttpVersion getVersion() { return version; }
@@ -70,10 +68,8 @@ public class StreamH2WebSocketUpgradeTest {
         }
         @Override public SecurityInfo getSecurityInfoForStream() { return null; }
         @Override public HttpStreamHandler getStreamHandler() {
-            return handlerFactory != null
-                    ? new HandlerFactoryStreamHandler(handlerFactory) : null;
+            return streamHandler;
         }
-        @Override public HttpRequestHandlerFactory getHandlerFactory() { return handlerFactory; }
         @Override public void sendResponseHeaders(int streamId, int statusCode,
                 Headers headers, boolean endStream) {
             lastStatusCode = statusCode;
@@ -117,11 +113,11 @@ public class StreamH2WebSocketUpgradeTest {
         @Override public int pendingResponseBytes(int streamId) { return 0; }
     }
 
-    /** A factory whose handler immediately accepts the upgrade. */
-    private static HttpRequestHandlerFactory upgradingFactory() {
-        return new HttpRequestHandlerFactory() {
+    /** A stream handler whose handler immediately accepts the upgrade. */
+    private static HttpStreamHandler upgradingStreamHandler() {
+        return new HttpStreamHandler() {
             @Override
-            public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
+            public HttpRequestHandler openStream(HttpResponseState state) {
                 return new DefaultHttpRequestHandler() {
                     @Override
                     public void headers(HttpResponseState state, Headers headers) {
@@ -163,7 +159,7 @@ public class StreamH2WebSocketUpgradeTest {
     @Test
     public void testExtendedConnectWithSchemeAndPathAccepted() {
         StubConnection conn = new StubConnection();
-        conn.handlerFactory = upgradingFactory();
+        conn.streamHandler = upgradingStreamHandler();
         Stream stream = new Stream(conn, 1);
         stream.addHeader(new Header(":method", "CONNECT"));
         stream.addHeader(new Header(":protocol", "websocket"));
@@ -204,7 +200,7 @@ public class StreamH2WebSocketUpgradeTest {
     @Test
     public void testUpgradeAcceptedWithHttp200AndSwitchesConnectionMode() {
         StubConnection conn = new StubConnection();
-        conn.handlerFactory = upgradingFactory();
+        conn.streamHandler = upgradingStreamHandler();
         Stream stream = new Stream(conn, 1);
         stream.addHeader(new Header(":method", "CONNECT"));
         stream.addHeader(new Header(":protocol", "websocket"));

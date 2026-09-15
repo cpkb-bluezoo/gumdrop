@@ -36,7 +36,6 @@ import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.DefaultHttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpTlsConfig;
 import org.bluezoo.gumdrop.tls.TlsConfig;
@@ -91,7 +90,6 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  * @see Http2Listener
  * @see Http3Listener
  * @see HttpStreamHandler
- * @see HttpRequestHandlerFactory
  */
 public abstract class HttpServer implements Server {
 
@@ -217,14 +215,6 @@ public abstract class HttpServer implements Server {
      * default (404, built-in method validation).
      */
     protected HttpStreamHandler getStreamHandler() {
-        return null;
-    }
-
-    /**
-     * @deprecated use {@link #getStreamHandler()}.
-     */
-    @Deprecated
-    protected final HttpRequestHandlerFactory getHandlerFactory() {
         return null;
     }
 

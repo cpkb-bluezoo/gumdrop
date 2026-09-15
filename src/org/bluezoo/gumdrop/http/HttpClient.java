@@ -75,7 +75,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -136,7 +136,8 @@ public class HttpClient implements AltSvcListener {
     private DnsResolver dnsResolver;
 
     // Configuration (set before connect)
-    private final ClientTlsConfig tls = new ClientTlsConfig();
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
     private String username;
     private String password;
     private boolean h2Enabled = true;
@@ -286,7 +287,7 @@ public class HttpClient implements AltSvcListener {
      * @param secure true for TLS
      */
     public void setSecure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
     }
 
     /**
@@ -297,7 +298,7 @@ public class HttpClient implements AltSvcListener {
      * @param clientCredentials the client's own credentials
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
     }
 
     /**
@@ -896,12 +897,12 @@ public class HttpClient implements AltSvcListener {
      * Copies TLS dial settings into this client (used when another facade
      * delegates to {@link HttpClient} on the HTTP/3 path).
      */
-    public HttpClient importTls(ClientTlsConfig source) {
+    public HttpClient importTls(TlsConfig source) {
         tls.copyFrom(source);
         return this;
     }
 
-    public ClientTlsConfig getTls() {
+    public TlsConfig getTls() {
         return tls;
     }
 
@@ -925,8 +926,7 @@ public class HttpClient implements AltSvcListener {
      */
     private void connectTcp(final HttpClientHandler handler) {
         transportFactory = new TcpTransportFactory();
-        ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
-        boolean secure = effective.useImplicitTls();
+        ClientConnect.prepareTls(secure, tls, transportFactory);
         // RFC 9113 section 3.2 / RFC 7301: advertise HTTP/2 via ALPN on TLS so
         // the server can negotiate "h2". Without this the ClientHello carries
         // no ALPN protocols and the connection always falls back to HTTP/1.1,
@@ -1052,9 +1052,7 @@ public class HttpClient implements AltSvcListener {
             }
             ClientEndpointPool.PoolTarget target =
                     new ClientEndpointPool.PoolTarget(
-                            resolved, port,
-                            ClientDefaults.effectiveTls(tls).useImplicitTls(),
-                            loop);
+                            resolved, port, secure, loop);
             poolEntry = connectionPool.register(target, ep);
         }
     }
@@ -1090,7 +1088,7 @@ public class HttpClient implements AltSvcListener {
 
         quicTransportFactory = new QuicTransportFactory();
         quicTransportFactory.setApplicationProtocols("h3");
-        ClientTlsConfig effective = ClientDefaults.effectiveTls(tls);
+        TlsConfig effective = ClientDefaults.effectiveTls(tls);
         ClientConnect.applyToQuicFactory(effective, quicTransportFactory);
         quicTransportFactory.setEarlyDataEnabled(earlyDataEnabled);
 

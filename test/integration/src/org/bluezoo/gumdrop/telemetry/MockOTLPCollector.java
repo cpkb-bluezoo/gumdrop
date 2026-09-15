@@ -27,7 +27,7 @@ import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.HttpStatus;
@@ -329,14 +329,14 @@ public class MockOTLPCollector {
     static class OTLPCollectorServer extends Http2Listener {
 
         OTLPCollectorServer(MockOTLPCollector collector) {
-            setHandlerFactory(new OTLPHandlerFactory(collector));
+            setStreamHandler(new OTLPHandlerFactory(collector));
         }
     }
 
     /**
-     * Factory that creates OTLP request handlers.
+     * Stream handler that creates OTLP request handlers.
      */
-    static class OTLPHandlerFactory implements HttpRequestHandlerFactory {
+    static class OTLPHandlerFactory implements HttpStreamHandler {
 
         private final MockOTLPCollector collector;
 
@@ -345,7 +345,7 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
+        public HttpRequestHandler openStream(HttpResponseState state) {
             return new OTLPRequestHandler(collector);
         }
     }

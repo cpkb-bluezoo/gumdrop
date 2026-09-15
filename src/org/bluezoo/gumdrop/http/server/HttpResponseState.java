@@ -447,7 +447,7 @@ public interface HttpResponseState {
      * {@code :method}, {@code :path}, {@code :scheme}, {@code :authority}.
      *
      * <p>The pushed request will be processed through the normal
-     * {@link HttpRequestHandlerFactory} mechanism, creating a new handler
+     * {@link HttpStreamHandler} mechanism, creating a new handler
      * for the pushed stream.
      *
      * <p>For HTTP/1.x connections, this method returns false and has no effect.

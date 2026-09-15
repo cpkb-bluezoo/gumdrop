@@ -56,7 +56,7 @@ import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.websocket.PerMessageDeflateExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
@@ -121,7 +121,8 @@ public class WebSocketClient implements AltSvcListener {
     private DnsResolver dnsResolver;
 
     // Configuration (set before connect)
-    private final ClientTlsConfig tls = new ClientTlsConfig();
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
     private String subprotocol;
     private boolean deflateEnabled = true;
     private boolean h3Enabled;
@@ -254,7 +255,7 @@ public class WebSocketClient implements AltSvcListener {
      * @param secure true for TLS
      */
     public void setSecure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
     }
 
     /**
@@ -265,7 +266,7 @@ public class WebSocketClient implements AltSvcListener {
      * @param clientCredentials the client's own credentials
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
     }
 
     /**
@@ -643,8 +644,7 @@ public class WebSocketClient implements AltSvcListener {
                 WebSocketHandshake.createUpgradeRequest(key, subprotocol, extOffer);
 
         transportFactory = new TcpTransportFactory();
-        ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
-        boolean secure = effective.useImplicitTls();
+        ClientConnect.prepareTls(secure, tls, transportFactory);
         // RFC 8441 rides the same TCP+TLS attempt as HTTP/1.1 -- offer h2
         // via ALPN (mirroring HttpClient.connectTcp's own offer) so the
         // already-negotiated version is known by the time onConnected

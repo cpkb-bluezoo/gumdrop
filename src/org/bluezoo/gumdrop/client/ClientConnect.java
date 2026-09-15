@@ -12,11 +12,11 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
 /**
- * Shared TCP connect path for {@link ClientDial} + {@link ClientTlsConfig} facades.
+ * Shared TCP connect path for {@link ClientDial} + {@link TlsConfig} facades.
  */
 public final class ClientConnect {
 
@@ -27,18 +27,23 @@ public final class ClientConnect {
     }
 
     /**
-     * Applies {@link ClientDefaults#effectiveTls}, configures the factory, and
-     * starts it. Does not connect.
+     * Applies {@link ClientDefaults#effectiveTls}, sets the immediacy flag,
+     * configures the factory, and starts it. Does not connect.
+     *
+     * @param secure whether the connection starts TLS immediately — a
+     *               client-owned decision, independent of {@code tls}'s
+     *               material (see the {@link TlsConfig} class javadoc)
      */
-    public static ClientTlsConfig prepareTls(ClientTlsConfig tls,
+    public static TlsConfig prepareTls(boolean secure, TlsConfig tls,
                                            TcpTransportFactory factory) {
-        ClientTlsConfig effective = ClientDefaults.effectiveTls(tls);
+        TlsConfig effective = ClientDefaults.effectiveTls(tls);
+        factory.setSecure(secure);
         applyToTcpFactory(effective, factory);
         factory.start();
         return effective;
     }
 
-    public static void applyToTcpFactory(ClientTlsConfig tls,
+    public static void applyToTcpFactory(TlsConfig tls,
                                          TcpTransportFactory factory) {
         if (factory == null) {
             throw new NullPointerException("factory");
@@ -46,13 +51,8 @@ public final class ClientConnect {
         if (tls == null) {
             throw new NullPointerException("tls");
         }
-        if (!tls.isConfigured()) {
-            factory.setSecure(false);
-            return;
-        }
-        factory.setSecure(tls.isSecure());
-        if (tls.getClientCredentials() != null) {
-            factory.setClientCredentials(tls.getClientCredentials());
+        if (tls.getServerCredentials() != null) {
+            factory.setClientCredentials(tls.getServerCredentials());
         }
         if (tls.getTrustManager() != null) {
             factory.setTrustManager(tls.getTrustManager());
@@ -77,17 +77,13 @@ public final class ClientConnect {
         }
     }
 
-    public static void applyToQuicFactory(ClientTlsConfig tls,
+    public static void applyToQuicFactory(TlsConfig tls,
                                           QuicTransportFactory factory) {
         if (factory == null) {
             throw new NullPointerException("factory");
         }
         if (tls == null) {
             throw new NullPointerException("tls");
-        }
-        if (!tls.isConfigured()) {
-            factory.setVerifyPeer(false);
-            return;
         }
         if (tls.getTrustManager() != null) {
             factory.setTrustManager(tls.getTrustManager());
@@ -127,12 +123,13 @@ public final class ClientConnect {
      *
      * @return the effective TLS config
      */
-    public static ClientTlsConfig connect(ClientDial dial,
-                                          ClientTlsConfig tls,
+    public static TlsConfig connect(boolean secure,
+                                          ClientDial dial,
+                                          TlsConfig tls,
                                           TcpTransportFactory factory,
                                           ProtocolHandler handler)
             throws IOException {
-        ClientTlsConfig effective = prepareTls(tls, factory);
+        TlsConfig effective = prepareTls(secure, tls, factory);
         openAndConnect(dial, factory, handler);
         return effective;
     }

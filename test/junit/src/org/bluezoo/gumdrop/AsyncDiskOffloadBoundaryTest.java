@@ -466,7 +466,7 @@ public class AsyncDiskOffloadBoundaryTest {
         Class<?> handlerClass =
                 Class.forName("org.bluezoo.gumdrop.webdav.FileHandler");
         Class<?> lockClass =
-                Class.forName("org.bluezoo.gumdrop.webdav.WebdavLockManager");
+                Class.forName("org.bluezoo.gumdrop.webdav.WebDAVLockManager");
         Class<?> deadClass =
                 Class.forName("org.bluezoo.gumdrop.webdav.DeadPropertyStore");
         Constructor<?> ctor = handlerClass.getDeclaredConstructor(

@@ -44,10 +44,11 @@ import java.util.logging.Logger;
  * unlike {@link ConnectUdpRequestHandler}, this class does no forwarding
  * of its own (see {@link IpPacketHandler}'s own documentation for why).
  *
- * <p>An {@link HttpRequestHandlerFactory} returns an instance of this
- * class (constructed with a policy and a packet handler) for any request
- * it wants handled as CONNECT-IP -- typically after checking {@code
- * :method}/{@code :protocol} itself, though this class also re-validates
+ * <p>An {@link HttpRequestHandler#headers} implementation delegates to an
+ * instance of this class (constructed with a policy and a packet handler)
+ * for any request it wants handled as CONNECT-IP -- typically after
+ * checking {@code :method}/{@code :protocol} itself, though this class
+ * also re-validates
  * those and the request path (RFC 9484 section 3's URI Template) before
  * doing anything else.
  *

@@ -99,7 +99,7 @@ public class HTTP3AutoNegotiationIntegrationTest {
         listener.setAddresses(TEST_HOST);
         listener.setCertFile(pemCert.getAbsolutePath());
         listener.setKeyFile(pemKey.getAbsolutePath());
-        listener.setHandlerFactory(new EchoHandlerFactory());
+        listener.setStreamHandler(new EchoHandlerFactory());
 
         gumdrop = Gumdrop.getInstance();
         gumdrop.addListener(listener);

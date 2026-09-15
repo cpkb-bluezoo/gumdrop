@@ -150,10 +150,9 @@ is the HTTP version reported by
 <code>HttpResponseState.getVersion()</code>.
 </p>
 
-<p><em>Legacy code may still reference <code>HttpRequestHandlerFactory</code>;
-Gumdrop 3 targets a single handler (or decorator chain) on
-<code>HttpServer</code> — see <a href="configuration.html">Application
-composition</a>.</em></p>
+<p><em>Gumdrop 3 uses a single handler (or decorator chain) on
+<code>HttpServer</code>, not a handler factory — see
+<a href="configuration.html">Application composition</a>.</em></p>
 
 <h4>Configuration</h4>
 
@@ -164,21 +163,14 @@ of the TCP-based <code>HttpListener</code> and can coexist with it:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
-  &lt;!-- HTTP/1.1 and HTTP/2 over TCP --&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
-  &lt;/listener&gt;
-  &lt;!-- HTTP/3 over QUIC (same server identity as TCP) --&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "changeit");
+
+HttpServer server = HttpServer.compose()
+    // Wires both HTTP/1.1 + HTTP/2 over TCP and HTTP/3 over QUIC on
+    // the same port, sharing the same TLS material.
+    .secureEndpoint(443, tls)
+    .streamHandler(new ServletRequestHandler(container))
+    .server();
 </pre>
 
 <p>
@@ -378,8 +370,7 @@ framing, header compression, flow control, and connection management.
 <h4>Core interfaces</h4>
 
 <p>
-The server handler API centres on two interfaces (Gumdrop 3); a factory
-layer exists in 2.x code but is being removed:
+The server handler API centres on three interfaces:
 </p>
 
 <ul>
@@ -388,8 +379,10 @@ completion) for a single stream; implement this or compose
 <code>ServletRequestHandler</code> / <code>WebDAVRequestHandler</code></li>
 <li><b>HttpResponseState</b> — provided to handlers for sending responses
 (<code>org.bluezoo.gumdrop.http.server</code>)</li>
-<li><b>HttpRequestHandlerFactory</b> — <em>legacy</em>; routing belongs in the
-handler or a small router object on <code>HttpServer</code></li>
+<li><b>HttpStreamHandler</b> — one method, <code>openStream(HttpResponseState)</code>,
+called once per stream before headers arrive, to bind the
+<code>HttpRequestHandler</code> that will handle it; routing by path/method
+belongs in that handler's own <code>headers()</code> callback, not here</li>
 </ul>
 
 <h4>Event Sequence</h4>
@@ -454,27 +447,30 @@ public class HelloHandler extends DefaultHttpRequestHandler {
 }
 </pre>
 
-<h4>Request Routing with Factory</h4>
+<h4>Request Routing</h4>
 
 <p>
-The factory receives initial headers before the handler is created, enabling
-routing decisions based on path, method, or other criteria:
+A single <code>HttpRequestHandler</code>'s own <code>headers()</code> callback
+sees the request headers first, so routing decisions based on path, method,
+or other criteria happen there — delegating to another handler is just a
+method call:
 </p>
 
 <pre>
-public class MyFactory implements HttpRequestHandlerFactory {
-    
-    public HttpRequestHandler createHandler(HttpResponseState state,
-                                            Headers headers) {
+public class RoutingHandler extends DefaultHttpRequestHandler {
+
+    public void headers(HttpResponseState state, Headers headers) {
         String path = headers.getPath();
-        
+        HttpRequestHandler delegate;
+
         if (path.startsWith("/api/")) {
-            return new ApiHandler();
+            delegate = new ApiHandler();
         } else if (path.startsWith("/static/")) {
-            return new StaticFileHandler(documentRoot);
+            delegate = new StaticFileHandler(documentRoot);
         } else {
-            return new DefaultHandler();
+            delegate = new DefaultHandler();
         }
+        delegate.headers(state, headers);
     }
 }
 </pre>
@@ -482,17 +478,20 @@ public class MyFactory implements HttpRequestHandlerFactory {
 <h4>Programmatic Setup</h4>
 
 <p>
-Set the handler factory on the service:
+Compose the handler onto the server:
 </p>
 
 <pre>
-HttpServer service = new HttpServer();
-service.setHandlerFactory(new MyFactory());
-
-Http2Listener listener = new Http2Listener();
-listener.setPort(8080);
-service.addListener(listener);
-service.start();
+HttpServer server = HttpServer.compose()
+        .listener(new Http2Listener().port(8080))
+        .streamHandler(new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState state) {
+                return new RoutingHandler();
+            }
+        })
+        .server();
+server.start();
 </pre>
 
 <h4>Authentication</h4>
@@ -759,8 +758,8 @@ for migration reference.</em></p>
 <h4>HttpServer properties</h4>
 
 <p>
-Legacy HTTP services (<code>ServletServer</code>, <code>WebdavServer</code>, …)
-supported the following service-level properties:
+Legacy Gumdrop 2.x HTTP services supported the following service-level
+properties:
 </p>
 
 <ul>
@@ -770,7 +769,7 @@ supported the following service-level properties:
 application has already set them. Set to <code>false</code> to disable.
 Example:
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
+&lt;service id="web" class="..."&gt;
   &lt;property name="add-security-headers" value="false"/&gt;
   ...
 &lt;/service&gt;
@@ -840,7 +839,7 @@ so that clients can discover and migrate to HTTP/3:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletServer"&gt;
+&lt;service id="web" class="..."&gt;
   &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;

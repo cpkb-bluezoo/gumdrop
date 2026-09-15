@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.imap.client;
 
 import java.io.IOException;
-import java.util.function.Supplier;
 import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.logging.Logger;
@@ -37,7 +36,7 @@ import org.bluezoo.gumdrop.client.ClientDial;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.imap.client.handler.MailboxEventListener;
 import org.bluezoo.gumdrop.imap.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -85,7 +84,8 @@ public class ImapClient {
             Logger.getLogger(ImapClient.class.getName());
 
     private final ClientDial dial = ClientDial.withDefaultPort(993);
-    private final ClientTlsConfig tls = new ClientTlsConfig();
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
 
     private MailboxEventListener mailboxEventListener;
 
@@ -93,10 +93,8 @@ public class ImapClient {
     private ClientEndpoint clientEndpoint;
     private ImapClientProtocolHandler endpointHandler;
 
-    private ImapClientSessionProvider sessionProvider;
-
     /**
-     * Creates a client for fluent configuration before {@link #connect()}.
+     * Creates a client for fluent configuration before {@link #connect(RemoteGreeting)}.
      */
     public ImapClient() {
     }
@@ -191,7 +189,7 @@ public class ImapClient {
      * @param secure true for implicit TLS
      */
     public void setSecure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
     }
 
     /**
@@ -205,7 +203,7 @@ public class ImapClient {
      * @param context the SSL context
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
     }
 
     /**
@@ -272,7 +270,7 @@ public class ImapClient {
 
     /** @return this client */
     public ImapClient secure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
         return this;
     }
 
@@ -283,7 +281,7 @@ public class ImapClient {
 
     /** @return this client */
     public ImapClient clientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
         return this;
     }
 
@@ -342,15 +340,6 @@ public class ImapClient {
         return this;
     }
 
-    public ImapClient sessionProvider(ImapClientSessionProvider provider) {
-        setSessionProvider(provider);
-        return this;
-    }
-
-    public ImapClient sessionPerConnection(Supplier<RemoteGreeting> supplier) {
-        return sessionProvider(ImapClientSessionProviders.perSession(supplier));
-    }
-
     // ═══════════════════════════════════════════════════════════════════
     // Lifecycle
     // ═══════════════════════════════════════════════════════════════════
@@ -373,40 +362,13 @@ public class ImapClient {
             endpointHandler.setMailboxEventListener(mailboxEventListener);
         }
         try {
-            ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
-            endpointHandler.setSecure(effective.useImplicitTls());
+            ClientConnect.prepareTls(secure, tls, transportFactory);
+            endpointHandler.setSecure(secure);
             clientEndpoint = ClientConnect.openAndConnect(
                     dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }
-    }
-
-    /**
-     * Connects using a {@link ImapClientSessionProvider}.
-     */
-    public void connect(ImapClientSessionProvider provider) {
-        connect(provider.openSession());
-    }
-
-    /**
-     * Connects using the configured session provider.
-     */
-    public void connect() {
-        if (sessionProvider == null) {
-            throw new IllegalStateException(
-                    "sessionProvider is required; use .sessionProvider(...)"
-                            + " or connect(RemoteGreeting)");
-        }
-        connect(sessionProvider);
-    }
-
-    public ImapClientSessionProvider getSessionProvider() {
-        return sessionProvider;
-    }
-
-    public void setSessionProvider(ImapClientSessionProvider sessionProvider) {
-        this.sessionProvider = sessionProvider;
     }
 
     /**

@@ -38,16 +38,16 @@ import java.nio.file.Paths;
  */
 public class WebDAVLockManagerTest {
 
-    private static final WebdavLock.Type WRITE = WebdavLock.Type.WRITE;
+    private static final WebDAVLock.Type WRITE = WebDAVLock.Type.WRITE;
 
     @Test
     public void ancestorInfinityLockCoversDescendant() {
-        WebdavLockManager manager = new WebdavLockManager();
+        WebDAVLockManager manager = new WebDAVLockManager();
         Path collection = Paths.get("/data");
         Path file = Paths.get("/data/file.txt");
 
-        WebdavLock lock = manager.lock(collection,
-                WebdavLock.Scope.EXCLUSIVE, WRITE,
+        WebDAVLock lock = manager.lock(collection,
+                WebDAVLock.Scope.EXCLUSIVE, WRITE,
                 DavConstants.DEPTH_INFINITY, "owner", 3600);
         assertNotNull(lock);
         assertTrue(manager.isLocked(file));
@@ -56,31 +56,31 @@ public class WebDAVLockManagerTest {
 
     @Test
     public void exclusiveLockOnDescendantBlocksParentLock() {
-        WebdavLockManager manager = new WebdavLockManager();
+        WebDAVLockManager manager = new WebDAVLockManager();
         Path parent = Paths.get("/data");
         Path child = Paths.get("/data/nested.txt");
 
-        assertNotNull(manager.lock(child, WebdavLock.Scope.EXCLUSIVE, WRITE,
+        assertNotNull(manager.lock(child, WebDAVLock.Scope.EXCLUSIVE, WRITE,
                 0, "child", 3600));
         assertNull("exclusive lock on a descendant must block a new parent lock",
-                manager.lock(parent, WebdavLock.Scope.SHARED, WRITE,
+                manager.lock(parent, WebDAVLock.Scope.SHARED, WRITE,
                         DavConstants.DEPTH_INFINITY, "parent", 3600));
     }
 
     @Test(timeout = 10000)
     public void lockCheckCostDoesNotScaleWithUnrelatedLocks() {
-        WebdavLockManager manager = new WebdavLockManager();
+        WebDAVLockManager manager = new WebDAVLockManager();
         Path target = Paths.get("/target/resource.txt");
 
         for (int i = 0; i < 50; i++) {
             assertNotNull(manager.lock(Paths.get("/other/lock" + i),
-                    WebdavLock.Scope.SHARED, WRITE, 0, "owner", 3600));
+                    WebDAVLock.Scope.SHARED, WRITE, 0, "owner", 3600));
         }
         long baselineMs = timeLockChecks(manager, target, 2000);
 
         for (int i = 50; i < 5000; i++) {
             assertNotNull(manager.lock(Paths.get("/other/lock" + i),
-                    WebdavLock.Scope.SHARED, WRITE, 0, "owner", 3600));
+                    WebDAVLock.Scope.SHARED, WRITE, 0, "owner", 3600));
         }
         long withManyMs = timeLockChecks(manager, target, 2000);
 
@@ -90,7 +90,7 @@ public class WebDAVLockManagerTest {
                 withManyMs < baselineMs * 5 + 50);
     }
 
-    private static long timeLockChecks(WebdavLockManager manager, Path target,
+    private static long timeLockChecks(WebDAVLockManager manager, Path target,
             int iterations) {
         long start = System.nanoTime();
         for (int i = 0; i < iterations; i++) {

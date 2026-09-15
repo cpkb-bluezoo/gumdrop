@@ -66,7 +66,12 @@ public class StreamResponseHeadersIndexTest {
         // X-Frame-Options/X-Content-Type-Options branch even if that
         // default ever changes.
         listener.setAddSecurityHeaders(true);
-        listener.setHandlerFactory((state, headers) -> new DefaultHttpRequestHandler());
+        listener.setStreamHandler(new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState state) {
+                return new DefaultHttpRequestHandler();
+            }
+        });
 
         HttpProtocolHandler connection = new HttpProtocolHandler(listener);
         connection.version = HttpVersion.HTTP_1_1;

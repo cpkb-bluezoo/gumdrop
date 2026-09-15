@@ -45,6 +45,7 @@ import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
+import org.bluezoo.gumdrop.websocket.WebSocketMetricsSource;
 import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
@@ -818,7 +819,13 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         }
         flushHeaders(false);
 
-        WebSocketServerMetrics wsMetrics = connection.getWebSocketMetrics();
+        // Resolve WebSocket metrics from the upgrading handler (if it opts
+        // in), not the listener/connection -- handler-scoped, matching
+        // Stream.java's H2 path.
+        WebSocketServerMetrics wsMetrics = null;
+        if (this.handler instanceof WebSocketMetricsSource) {
+            wsMetrics = ((WebSocketMetricsSource) this.handler).getWebSocketMetrics();
+        }
 
         webSocketAdapter = new H3WebSocketConnectionAdapter(wsHandler, wsMetrics);
         webSocketAdapter.setTransport(new H3WebSocketTransport());

@@ -29,7 +29,6 @@ import org.bluezoo.gumdrop.ClientHandler;
  *
  * <p>This is the entry point for FTP client handlers. When connecting to an
  * FTP server, the handler passed to {@link org.bluezoo.gumdrop.ftp.client.FtpClient#connect(org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting)}
- * or supplied by a {@link org.bluezoo.gumdrop.ftp.client.FtpClientSessionProvider}
  * must implement this interface to receive the server's initial greeting and
  * begin the session with USER.
  *

@@ -76,7 +76,7 @@ public class SmtpServerCompositionTest {
     }
 
     @Test
-    public void testComposedServerAndClientSessionProviders() throws Exception {
+    public void testComposedServerAndDirectClientConnect() throws Exception {
         AtomicInteger serverSessionsOpened = new AtomicInteger();
         AtomicReference<String> greetingRef = new AtomicReference<String>();
         CountDownLatch ehloDone = new CountDownLatch(1);
@@ -97,8 +97,9 @@ public class SmtpServerCompositionTest {
 
         SmtpClient client = new SmtpClient()
                 .host(TEST_HOST)
-                .port(testPort)
-                .sessionPerConnection(() -> new RemoteGreeting() {
+                .port(testPort);
+
+        client.connect(new RemoteGreeting() {
                     @Override
                     public void handleGreeting(ClientHelloState hello,
                                                String message, boolean esmtp) {
@@ -165,8 +166,6 @@ public class SmtpServerCompositionTest {
                     }
                 });
 
-        client.connect();
-
         assertTrue("EHLO not completed", ehloDone.await(5, TimeUnit.SECONDS));
         assertNull(clientError.get());
         assertEquals(TEST_BANNER, greetingRef.get());
@@ -205,8 +204,9 @@ public class SmtpServerCompositionTest {
 
         SmtpClient client = new SmtpClient()
                 .host(TEST_HOST)
-                .port(port)
-                .sessionPerConnection(() -> new RemoteGreeting() {
+                .port(port);
+
+        client.connect(new RemoteGreeting() {
                     @Override
                     public void handleGreeting(ClientHelloState hello,
                                                String message, boolean esmtp) {
@@ -272,7 +272,6 @@ public class SmtpServerCompositionTest {
                     }
                 });
 
-        client.connect();
         assertTrue(ehloDone.await(5, TimeUnit.SECONDS));
         assertNull(clientError.get());
         client.close();

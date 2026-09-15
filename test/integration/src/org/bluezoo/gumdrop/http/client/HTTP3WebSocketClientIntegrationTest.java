@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
@@ -100,7 +100,7 @@ public class HTTP3WebSocketClientIntegrationTest {
         listener.setAddresses(TEST_HOST);
         listener.setCertFile(pemCert.getAbsolutePath());
         listener.setKeyFile(pemKey.getAbsolutePath());
-        listener.setHandlerFactory(new EchoWebSocketHandlerFactory());
+        listener.setStreamHandler(new EchoWebSocketHandlerFactory());
 
         gumdrop = Gumdrop.getInstance();
         gumdrop.addListener(listener);
@@ -206,10 +206,10 @@ public class HTTP3WebSocketClientIntegrationTest {
     // Server-side WebSocket-over-H3 echo handler
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static class EchoWebSocketHandlerFactory implements HttpRequestHandlerFactory {
+    private static class EchoWebSocketHandlerFactory implements HttpStreamHandler {
 
         @Override
-        public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
+        public HttpRequestHandler openStream(HttpResponseState state) {
             return new DefaultHttpRequestHandler() {
                 @Override
                 public void headers(HttpResponseState state, Headers headers) {

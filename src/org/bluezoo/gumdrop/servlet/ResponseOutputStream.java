@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.servlet;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.util.ResourceBundle;
 
 /**
  * An output stream associated with an HTTP response.
@@ -34,6 +35,9 @@ import java.nio.ByteBuffer;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 class ResponseOutputStream extends OutputStream {
+
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
     private final Response response;
     private ByteBuffer buf;
@@ -46,7 +50,7 @@ class ResponseOutputStream extends OutputStream {
 
     @Override public synchronized void write(int b) throws IOException {
         if (closed) {
-            String message = ServletServer.L10N.getString("err.stream_closed");
+            String message = L10N.getString("err.stream_closed");
             throw new IllegalStateException(message);
         }
         if (buf.remaining() < 1) {
@@ -61,7 +65,7 @@ class ResponseOutputStream extends OutputStream {
 
     @Override public synchronized void write(byte[] b, int offset, int len) throws IOException {
         if (closed) {
-            String message = ServletServer.L10N.getString("err.stream_closed");
+            String message = L10N.getString("err.stream_closed");
             throw new IllegalStateException(message);
         }
         int available = buf.remaining();
@@ -77,7 +81,7 @@ class ResponseOutputStream extends OutputStream {
 
     @Override public synchronized void flush() throws IOException {
         if (closed) {
-            String message = ServletServer.L10N.getString("err.stream_closed");
+            String message = L10N.getString("err.stream_closed");
             throw new IllegalStateException(message);
         }
         if (buf.position() > 0) {

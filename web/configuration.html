@@ -67,9 +67,10 @@ Full reference: <a href="../docs/COMPOSITION.md">docs/COMPOSITION.md</a>
 
 <p>
 Implement <code>HttpRequestHandler</code> (or protocol-specific staged handlers
-for SMTP, IMAP, etc.). Do <em>not</em> subclass <code>HttpServer</code>,
-<code>ServletServer</code>, or <code>WebdavServer</code> for application code —
-those interim types are replaced by handler composition.
+for SMTP, IMAP, etc.). Do <em>not</em> subclass <code>HttpServer</code> for
+application code — servlet and WebDAV applications compose
+<code>ServletRequestHandler</code> / <code>WebDAVRequestHandler</code> onto
+a plain <code>HttpServer</code> instead.
 </p>
 
 <h3 id="http">HTTP server</h3>
@@ -94,18 +95,17 @@ TLS, and handler callbacks.
 <h3 id="servlet">Servlet container</h3>
 
 <p>
-The servlet stack is a <code>ServletRequestHandler</code> on
-<code>HttpServer</code>, not a separate <code>ServletServer</code> service:
+The servlet stack is a <code>ServletRequestHandler</code> composed onto a
+plain <code>HttpServer</code>, not a separate server type:
 </p>
 
 <pre>
-Container container = Container.builder()
-    .context(Context.builder().path("").root(Path.of("web")).server())
-    .server();
+Container container = new Container();
+container.addContext(new Context(container, "", new File("web")));
 
 HttpServer server = HttpServer.compose()
     .listener(new Http2Listener().port(8080))
-    .handler(new ServletRequestHandler(container))
+    .streamHandler(new ServletRequestHandler(container))
     .server();
 </pre>
 
@@ -125,12 +125,12 @@ Static files and WebDAV (RFC 4918) use <code>WebDAVRequestHandler</code>
 <pre>
 HttpServer server = HttpServer.compose()
     .listener(new Http2Listener().port(8080))
-    .handler(WebDAVRequestHandler.builder()
+    .streamHandler(WebDAVRequestHandler.builder()
         .rootPath(Path.of("/var/www/html"))
         .welcomeFile("index.html")
         .allowWrite(false)
         .webdavEnabled(true)
-        .server())
+        .build())
     .server();
 </pre>
 

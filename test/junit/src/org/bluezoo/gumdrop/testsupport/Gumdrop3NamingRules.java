@@ -15,8 +15,7 @@ package org.bluezoo.gumdrop.testsupport;
 public final class Gumdrop3NamingRules {
 
     private static final String[][] ACRONYM_PREFIXES = {
-            {"WEBDAV", "Webdav"},
-            {"WebDAV", "Webdav"},
+            {"Webdav", "WebDAV"},
             {"HTTP3", "Http3"},
             {"HTTP2", "Http2"},
             {"HTTP", "Http"},
@@ -84,9 +83,6 @@ public final class Gumdrop3NamingRules {
      */
     public static String suggestGumdrop3Name(String typeName) {
         if (typeName == null || typeName.isEmpty()) {
-            return null;
-        }
-        if (typeName.startsWith("WebDAV") && typeName.endsWith("RequestHandler")) {
             return null;
         }
         for (int i = 0; i < ACRONYM_PREFIXES.length; i++) {

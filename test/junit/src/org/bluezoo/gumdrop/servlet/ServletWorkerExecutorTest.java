@@ -22,10 +22,10 @@ public class ServletWorkerExecutorTest {
 
     @Test
     public void testWorkerTaskRunsOnVirtualThread() throws Exception {
-        ServletServer service = new ServletServer();
+        Container container = new Container();
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicBoolean virtual = new AtomicBoolean();
-        service.executeWorker(new Runnable() {
+        container.executeWorker(new Runnable() {
             @Override
             public void run() {
                 virtual.set(Thread.currentThread().isVirtual());
@@ -38,10 +38,10 @@ public class ServletWorkerExecutorTest {
 
     @Test
     public void testWorkerThreadNaming() throws Exception {
-        ServletServer service = new ServletServer();
+        Container container = new Container();
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicBoolean named = new AtomicBoolean();
-        service.executeWorker(new Runnable() {
+        container.executeWorker(new Runnable() {
             @Override
             public void run() {
                 named.set(Thread.currentThread().getName().startsWith("servlet-worker-"));

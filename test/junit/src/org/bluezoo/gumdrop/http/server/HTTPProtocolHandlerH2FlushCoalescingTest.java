@@ -116,7 +116,12 @@ public class HTTPProtocolHandlerH2FlushCoalescingTest {
     @Before
     public void setUp() {
         Http2Listener listener = new Http2Listener();
-        listener.setHandlerFactory((state, headers) -> new SynchronousGetHandler());
+        listener.setStreamHandler(new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState state) {
+                return new SynchronousGetHandler();
+            }
+        });
 
         connection = new HttpProtocolHandler(listener);
         endpoint = new CountingEndpoint();

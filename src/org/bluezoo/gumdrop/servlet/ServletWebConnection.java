@@ -37,6 +37,7 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -63,6 +64,8 @@ import java.util.logging.Logger;
 class ServletWebConnection implements WebConnection {
 
     private static final Logger LOGGER = Logger.getLogger(ServletWebConnection.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
     private final HttpUpgradeHandler upgradeHandler;
     private final HttpResponseState state;
@@ -177,7 +180,7 @@ class ServletWebConnection implements WebConnection {
             if (outputStream.hasWriteListener()) {
                 scheduleWritePossibleNotification();
                 throw new IllegalStateException(
-                        ServletServer.L10N.getString("err.write_not_ready"));
+                        L10N.getString("err.write_not_ready"));
             }
             awaitResponseWritable();
         }

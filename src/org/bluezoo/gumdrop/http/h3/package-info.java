@@ -51,8 +51,8 @@
  * request until it has seen the same setting from the peer. This
  * underpins WebSocket over HTTP/3 ({@link
  * org.bluezoo.gumdrop.http.h3.H3Stream#upgradeToWebSocket} on accept,
- * {@link org.bluezoo.gumdrop.websocket.Http3WebSocketListener} for the
- * service-level integration, {@link
+ * {@link org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler} for
+ * the application-level integration, {@link
  * org.bluezoo.gumdrop.http.h3.H3ClientWebSocketResponseHandler} on the
  * client), CONNECT-UDP (RFC 9298, {@link
  * org.bluezoo.gumdrop.http.h3.H3ClientConnectUdpResponseHandler}), and

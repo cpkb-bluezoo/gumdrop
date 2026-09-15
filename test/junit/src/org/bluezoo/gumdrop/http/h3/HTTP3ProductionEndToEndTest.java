@@ -48,10 +48,9 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HandlerFactoryStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
@@ -161,9 +160,9 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new HttpRequestHandler() {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
@@ -202,7 +201,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
                         }
                     }, loop);
 
@@ -323,9 +322,9 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new HttpRequestHandler() {
                         @Override
                         public boolean wantsDatagrams() {
@@ -373,7 +372,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
                         }
                     }, loop);
 
@@ -533,15 +532,15 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.start();
 
             final AtomicBoolean sawTooBig = new AtomicBoolean(false);
-            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
-                    if ("/too-big".equals(requestHeaders.getPath())) {
-                        sawTooBig.set(true);
-                    }
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new HttpRequestHandler() {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
+                            if ("/too-big".equals(headers.getPath())) {
+                                sawTooBig.set(true);
+                            }
                             Headers response = new Headers();
                             response.add(":status", "200");
                             response.add("content-type", "text/plain");
@@ -577,7 +576,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
                         }
                     }, loop);
 
@@ -774,9 +773,9 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new DefaultHttpRequestHandler() {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
@@ -796,7 +795,7 @@ public class HTTP3ProductionEndToEndTest {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
                             serverHandlerRef.set(new Http3ServerHandler(
-                                    connection, new HandlerFactoryStreamHandler(handlerFactory),
+                                    connection, streamHandler,
                                     null, null, null, false));
                         }
                     }, loop);
@@ -925,9 +924,9 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new DefaultHttpRequestHandler();
                 }
             };
@@ -937,7 +936,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
                         }
                     }, loop);
 
@@ -1166,9 +1165,9 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new DefaultHttpRequestHandler() {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
@@ -1192,7 +1191,7 @@ public class HTTP3ProductionEndToEndTest {
                         public void connectionAccepted(QuicConnection connection) {
                             serverConnRef.set(connection);
                             serverHandlerRef.set(new Http3ServerHandler(
-                                    connection, new HandlerFactoryStreamHandler(handlerFactory),
+                                    connection, streamHandler,
                                     null, null, null, false));
                         }
                     }, loop);
@@ -1892,9 +1891,9 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new DefaultHttpRequestHandler();
                 }
             };
@@ -1904,7 +1903,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
                         }
                     }, loop);
 
@@ -1999,9 +1998,9 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setKeyFile(keyFile);
             serverFactory.start();
 
-            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new DefaultHttpRequestHandler();
                 }
             };
@@ -2011,7 +2010,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
                         }
                     }, loop);
 
@@ -2141,9 +2140,9 @@ public class HTTP3ProductionEndToEndTest {
             serverFactory.setEarlyDataEnabled(true);
             serverFactory.start();
 
-            final HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            final HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new HttpRequestHandler() {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
@@ -2182,7 +2181,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
                         }
                     }, loop);
             int port = ((InetSocketAddress) serverEngine.getLocalAddress()).getPort();
@@ -2351,9 +2350,9 @@ public class HTTP3ProductionEndToEndTest {
 
             final CountDownLatch serverOpened = new CountDownLatch(1);
 
-            HttpRequestHandlerFactory handlerFactory = new HttpRequestHandlerFactory() {
+            HttpStreamHandler streamHandler = new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers requestHeaders) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new DefaultHttpRequestHandler() {
                         @Override
                         public void headers(HttpResponseState state, Headers headers) {
@@ -2376,7 +2375,7 @@ public class HTTP3ProductionEndToEndTest {
                     new QuicEngine.ConnectionAcceptedHandler() {
                         @Override
                         public void connectionAccepted(QuicConnection connection) {
-                            new Http3ServerHandler(connection, new HandlerFactoryStreamHandler(handlerFactory), null, null, null, false);
+                            new Http3ServerHandler(connection, streamHandler, null, null, null, false);
                         }
                     }, loop);
 

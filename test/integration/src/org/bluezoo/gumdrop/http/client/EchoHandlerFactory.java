@@ -24,8 +24,8 @@ package org.bluezoo.gumdrop.http.client;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.ByteArrayOutputStream;
@@ -48,7 +48,7 @@ import java.nio.charset.StandardCharsets;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class EchoHandlerFactory implements HttpRequestHandlerFactory {
+public class EchoHandlerFactory implements HttpStreamHandler {
 
     /**
      * Creates a new echo handler factory.
@@ -57,7 +57,7 @@ public class EchoHandlerFactory implements HttpRequestHandlerFactory {
     }
 
     @Override
-    public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
+    public HttpRequestHandler openStream(HttpResponseState state) {
         return new EchoHandler();
     }
 

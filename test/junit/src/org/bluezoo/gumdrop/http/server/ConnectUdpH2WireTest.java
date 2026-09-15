@@ -130,7 +130,12 @@ public class ConnectUdpH2WireTest {
                 return true;
             }
         };
-        listener.setHandlerFactory((state, headers) -> new ConnectUdpRequestHandler(permissive) { });
+        listener.setStreamHandler(new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState state) {
+                return new ConnectUdpRequestHandler(permissive) { };
+            }
+        });
 
         connection = new HttpProtocolHandler(listener);
         endpoint = new CountingEndpoint();

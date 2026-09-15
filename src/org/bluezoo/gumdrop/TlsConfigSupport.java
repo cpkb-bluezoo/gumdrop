@@ -6,6 +6,7 @@
 package org.bluezoo.gumdrop;
 
 import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
 /**
  * Applies {@link TlsConfig} to a {@link Listener}. Kept out of {@code tls.*}
@@ -37,6 +38,11 @@ public final class TlsConfigSupport {
             }
         } else {
             throw new IllegalStateException("incomplete TLS configuration");
+        }
+        if (tls.getTrustManager() != null) {
+            listener.setTrustManager(tls.getTrustManager());
+        } else if (!tls.isVerifyPeer()) {
+            listener.setTrustManager(new EmptyX509TrustManager());
         }
     }
 

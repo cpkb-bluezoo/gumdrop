@@ -8,7 +8,6 @@ package org.bluezoo.gumdrop.ftp.client;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
-import java.util.function.Supplier;
 
 import javax.net.ssl.X509TrustManager;
 
@@ -19,7 +18,7 @@ import org.bluezoo.gumdrop.client.ClientConnect;
 import org.bluezoo.gumdrop.client.ClientDial;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -28,12 +27,12 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 public class FtpClient {
 
     private final ClientDial dial = ClientDial.withDefaultPort(21);
-    private final ClientTlsConfig tls = new ClientTlsConfig();
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private FtpClientProtocolHandler endpointHandler;
-    private FtpClientSessionProvider sessionProvider;
 
     public FtpClient() {
     }
@@ -63,11 +62,11 @@ public class FtpClient {
     }
 
     public void setSecure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
     }
 
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
     }
 
     public void setTrustManager(X509TrustManager trustManager) {
@@ -91,7 +90,7 @@ public class FtpClient {
     }
 
     public FtpClient secure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
         return this;
     }
 
@@ -101,7 +100,7 @@ public class FtpClient {
     }
 
     public FtpClient clientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
         return this;
     }
 
@@ -155,51 +154,21 @@ public class FtpClient {
         return this;
     }
 
-    public FtpClient sessionProvider(FtpClientSessionProvider provider) {
-        setSessionProvider(provider);
-        return this;
-    }
-
-    public FtpClient sessionPerConnection(Supplier<RemoteGreeting> supplier) {
-        return sessionProvider(FtpClientSessionProviders.perSession(supplier));
-    }
-
     public void connect(RemoteGreeting handler) {
         dial.requireTarget();
         transportFactory = new TcpTransportFactory();
         endpointHandler = new FtpClientProtocolHandler(handler);
         try {
-            ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
-            endpointHandler.setSecure(effective.useImplicitTls());
-            if (effective.getClientCredentials() != null) {
-                endpointHandler.setClientCredentials(effective.getClientCredentials());
+            TlsConfig effective = ClientConnect.prepareTls(secure, tls, transportFactory);
+            endpointHandler.setSecure(secure);
+            if (effective.getServerCredentials() != null) {
+                endpointHandler.setClientCredentials(effective.getServerCredentials());
             }
             clientEndpoint = ClientConnect.openAndConnect(
                     dial, transportFactory, endpointHandler);
         } catch (IOException e) {
             handler.onError(e);
         }
-    }
-
-    public void connect(FtpClientSessionProvider provider) {
-        connect(provider.openSession());
-    }
-
-    public void connect() {
-        if (sessionProvider == null) {
-            throw new IllegalStateException(
-                    "sessionProvider is required; use .sessionProvider(...)"
-                            + " or connect(RemoteGreeting)");
-        }
-        connect(sessionProvider);
-    }
-
-    public FtpClientSessionProvider getSessionProvider() {
-        return sessionProvider;
-    }
-
-    public void setSessionProvider(FtpClientSessionProvider sessionProvider) {
-        this.sessionProvider = sessionProvider;
     }
 
     public boolean isOpen() {

@@ -100,17 +100,16 @@ gravity.
 **Status (branch `v3-taxonomy`):** slices **C.1.0**–**C.1.6** complete — public
 facades (C.1.1–C.1.5) plus internal renames: mail/FTP lexers, HPACK/QPACK,
 SOCKS/AMQP/DNS/mDNS/WebDAV internals, MIME/LDAP/JSP/RESP/OTLP/auth types
-(`scripts/c16-internal-rename.py`). Interim `*Service` / `ServletServer` /
-`WebdavServer` types remain in code during C.2; **end state is handler composition
-only** (§C.3). **C.2.1** HTTP facades done (`HttpServer`, `HttpClient` at protocol root). **C.2.5** HTTP server SPI done (`http/server/`
+(`scripts/c16-internal-rename.py`). **C.2.1** HTTP facades done (`HttpServer`, `HttpClient` at protocol root). **C.2.5** HTTP server SPI done (`http/server/`
 handlers, listeners, auth, metrics, `Stream`; `scripts/c25-http-server-spi-move.py`).
 **C.2.2** mail protocols done (`smtp/server/SmtpServer`,
 `imap/server/ImapServer`, `pop3/server/Pop3Server` + root re-exports). **C.2.3**
 remaining protocols done (FTP, DNS, MQTT, SOCKS, mDNS, health — `*/server/*Server`
 implementations + root re-exports; `scripts/c23-remaining-package-move.py`). **C.2.4**
 servlet / WebDAV / WebSocket package moves done (`servlet/server/ServletServer`,
-`webdav/server/WebdavServer`, … — **interim**; target is `ServletRequestHandler` /
-`WebDAVRequestHandler` on `HttpServer`; `scripts/c24-http-app-package-move.py`).
+`webdav/server/WebdavServer`, … — interim, now superseded by §C.3's handler
+composition: `ServletRequestHandler` / `WebDAVRequestHandler` /
+`WebSocketRequestHandler` on `HttpServer`; `scripts/c24-http-app-package-move.py`).
 
 #### Naming exceptions (tradenames)
 
@@ -121,8 +120,10 @@ Most acronyms use camelCase (`Http`, `Smtp`, `Dns`). **Documented exceptions:**
 | WebDAV | **WebDAV** (tradename) | `WebDAVRequestHandler`, not `WebdavRequestHandler` |
 | WebSocket | one word | `WebSocketClient` |
 
-The interim rename `WebDAVService` → `WebdavServer` was over-eager; public API
-and docs should converge on **WebDAV** for user-visible names.
+The interim rename `WebDAVService` → `WebdavServer` was over-eager; fixed in
+§C.3 (`WebdavLock`/`WebdavLockManager`/`WebdavRequestParser` → `WebDAVLock`/
+`WebDAVLockManager`/`WebDAVRequestParser`, and the `Gumdrop3NamingRules`
+acronym-table bug that let the misspelling through the guard test).
 
 | Today (examples) | Gumdrop 3 target | Notes |
 |------------------|------------------|-------|
@@ -212,14 +213,16 @@ abstract classes you must extend.
 
 | Anti-pattern | Target |
 |--------------|--------|
-| Subclass `HttpServer`, `ServletServer`, `WebdavServer`, … for app logic | **`HttpServer` + `HttpRequestHandler`** (e.g. `ServletRequestHandler`, `WebDAVRequestHandler`) |
-| `HttpRequestHandlerFactory` as public SPI | **Handler or router** on `HttpServer`; factory collapses to optional internal adapter during migration |
+| Subclass `HttpServer`, `ServletServer`, `WebdavServer`, `WebSocketServer`, … for app logic | **`HttpServer` + `HttpRequestHandler`** (e.g. `ServletRequestHandler`, `WebDAVRequestHandler`, `WebSocketRequestHandler`) |
+| `HttpRequestHandlerFactory` as public SPI | **Handler or router** on `HttpServer` — factory removed |
 | Override methods on protocol base classes | Staged handler interfaces + **decorators** for cross-cutting concerns |
 | Client already OK (`HttpClient` without subclassing) | Same pattern for all protocols |
 
-**HTTP end state:** only **`HttpServer`** at the protocol root. No
-`ServletServer`, no `WebDAVServer` / `WebdavServer` — servlet and WebDAV are
-**`ServletRequestHandler`** and **`WebDAVRequestHandler`** implementing
+**HTTP end state (done):** only **`HttpServer`** at the protocol root. No
+`ServletServer`, no `WebDAVServer` / `WebdavServer`, no `WebSocketServer` /
+`WebSocketListener` / `Http3WebSocketListener` — servlet, WebDAV, and
+WebSocket are **`ServletRequestHandler`**, **`WebDAVRequestHandler`**, and
+**`WebSocketRequestHandler`**, all implementing `HttpStreamHandler` /
 `HttpRequestHandler`.
 
 **Keep and promote:** staged handler interfaces (SMTP, IMAP, POP3, FTP, etc.)
@@ -228,15 +231,17 @@ as the **primary implementer API**.
 **Cross-cutting:** auth, telemetry, rate limits — **handler decorators** (hopf
 `BasicAuthFactory` idea, applied to handlers not factories).
 
-**Migration steps (C.3):**
+**Migration steps (C.3) — all done:**
 
-1. Introduce `HttpServer.compose()` accepting `HttpRequestHandler` (internal
-   factory adapter until factory type is removed).
-2. Introduce `ServletRequestHandler`, `WebDAVRequestHandler`; deprecate
-   `ServletServer`, `WebdavServer`.
-3. Remove public `HttpRequestHandlerFactory`; routing lives in handler or a
+1. `HttpServer.compose()` accepting `HttpStreamHandler`.
+2. `ServletRequestHandler`, `WebDAVRequestHandler`, `WebSocketRequestHandler`
+   introduced; `ServletServer`, `WebdavServer`, `WebSocketServer` (and its
+   `WebSocketListener`/`Http3WebSocketListener` transport listeners) deleted.
+3. Public `HttpRequestHandlerFactory` removed; routing lives in handler or a
    small composed router object.
-4. Update all examples and `web/` docs to [COMPOSITION.md](COMPOSITION.md).
+4. Examples and `web/` docs updated to [COMPOSITION.md](COMPOSITION.md).
+5. `TlsConfig`/`ClientTlsConfig` unified into one material-only `TlsConfig`.
+6. WebDAV spelling (`Webdav` → `WebDAV`) fixed.
 
 See [COMPOSITION.md](COMPOSITION.md) for canonical patterns.
 
@@ -552,8 +557,9 @@ consistent” public API:
   [NAMING-TAXONOMY.md](NAMING-TAXONOMY.md) slices C.1.1–C.1.6.
 - [ ] Protocol package moves (`server/`, `client/`).
 - [ ] Mass type renames (`HttpServer`, `AmqpClient`, …).
-- [ ] Handler-first HTTP: `ServletRequestHandler`, `WebDAVRequestHandler`; remove
-  `ServletServer` / `WebdavServer` from public API.
+- [x] Handler-first HTTP: `ServletRequestHandler`, `WebDAVRequestHandler`,
+  `WebSocketRequestHandler`; `ServletServer` / `WebdavServer` / `WebSocketServer`
+  removed from public API.
 - [ ] Remove reflection DI and XML configuration code paths.
 - [ ] Remove `Gumdrop.getInstance()` (or hard-deprecate with runtime-only path).
 
@@ -573,8 +579,10 @@ consistent” public API:
    across 3.0 alphas?
 4. ~~**`gumdroprc` in 3.0**~~ — **Resolved: removed.** Java composition only;
    see [COMPOSITION.md](COMPOSITION.md). No parallel XML tracking during C.3.
-5. **WebDAV naming** — converge public API on **WebDAV** (tradename); rename
-   interim `Webdav*` types when handler migration lands.
+5. ~~**WebDAV naming** — converge public API on **WebDAV** (tradename); rename
+   interim `Webdav*` types when handler migration lands.~~ **Resolved:**
+   `WebdavLock`/`WebdavLockManager`/`WebdavRequestParser` renamed to
+   `WebDAVLock`/`WebDAVLockManager`/`WebDAVRequestParser`.
 6. **Servlet module optional?** — embedders who never serve HTTP may omit
    servlet jar entirely (already directionally true with modular build).
 7. **Legacy protocol tier** — which listeners remain in 3.0 default build vs
@@ -592,11 +600,11 @@ consistent” public API:
 | This plan | Draft |
 | CHANGELOG 3.0.0 section | Draft (TLS/modularity) |
 | TLS cert compression #445 | Spec refined |
-| Role-agnostic refactor | C.1.4 mail protocols *(branch `v3-taxonomy`)* |
+| Role-agnostic refactor | C.1–C.3 done *(branch `v3-taxonomy`)* |
 | Servlet 6.1 | Not started |
 | Runtime introduction | Not started |
 | Telemetry / jprotobuf spin-off | Not started |
 | OTel API strategy decision | Open (§E.2) |
 | Facade re-exports (§C.2) | Option 2 decided |
 
-*Last updated: 2026-09-13*
+*Last updated: 2026-09-15*

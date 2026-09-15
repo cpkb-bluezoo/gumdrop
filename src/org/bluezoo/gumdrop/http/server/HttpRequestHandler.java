@@ -97,7 +97,6 @@ import java.nio.ByteBuffer;
  * @see DefaultHttpRequestHandler
  * @see HttpResponseState
  * @see HttpStreamHandler
- * @see HttpRequestHandlerFactory
  */
 public interface HttpRequestHandler {
 

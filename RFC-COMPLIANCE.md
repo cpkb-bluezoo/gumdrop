@@ -954,7 +954,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| WebSocket over HTTP/3 | RFC 9220 | Implemented | Extended CONNECT with `:protocol = "websocket"`, `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, `H3Stream.upgradeToWebSocket()` bridges to `WebSocketConnection`, `Http3WebSocketListener` for service integration |
+| WebSocket over HTTP/3 | RFC 9220 | Implemented | Extended CONNECT with `:protocol = "websocket"`, `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, `H3Stream.upgradeToWebSocket()` bridges to `WebSocketConnection`, `WebSocketRequestHandler` for application-level integration |
 | 103 Early Hints (RFC 8297) | RFC 9114 s4 | Implemented | `H3Stream.sendInformational()` sends 1xx HEADERS; state tracked by `responseStarted`; `flushHeaders()` sends the final response after 1xx |
 | Extensible priorities (server) | RFC 9218 4 | Compliant | `Priority` header passed through to handler in request headers |
 | QUIC transport parameter tuning | RFC 9000 18 | Compliant | `Http3Listener` exposes `setQuicMax*()` setters that delegate to `QuicTransportFactory` |

@@ -454,11 +454,15 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     /**
      * Sets the container for this context.
      * Must be called before {@link #load()} when using the no-arg constructor.
+     * A no-op when {@code container} is already this context's container
+     * (as when {@link #Context(Container, String, File)} already assigned
+     * it and {@link Container#start()} re-asserts it during {@code
+     * initContexts()}); throws if reassigning to a different container.
      *
      * @param container the parent container
      */
     public void setContainer(Container container) {
-        if (this.container != null) {
+        if (this.container != null && this.container != container) {
             throw new IllegalStateException("Container already set");
         }
         this.container = container;

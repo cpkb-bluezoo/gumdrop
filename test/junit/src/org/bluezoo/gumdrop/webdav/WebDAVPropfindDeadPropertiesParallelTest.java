@@ -172,7 +172,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         return new FileHandler(root, true, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types,
-                new WebdavLockManager(), store);
+                new WebDAVLockManager(), store);
     }
 
     private static void writeSidecar(Path resource, String value)

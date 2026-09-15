@@ -42,6 +42,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.net.ssl.X509TrustManager;
+
 import org.bluezoo.gumdrop.ratelimit.AuthenticationRateLimiter;
 import org.bluezoo.gumdrop.ratelimit.ConnectionRateLimiter;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
@@ -115,6 +117,7 @@ public abstract class Listener {
     private Set<InetAddress> addresses = null;
     private boolean wildcard = false;
     protected boolean needClientAuth = false;
+    private X509TrustManager trustManager;
     private long idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS;
     private long readTimeoutMs = DEFAULT_READ_TIMEOUT_MS;
     private long connectionTimeoutMs = DEFAULT_CONNECTION_TIMEOUT_MS;
@@ -507,6 +510,18 @@ public abstract class Listener {
         needClientAuth = flag;
     }
 
+    /**
+     * Sets the trust manager used to verify client certificates under mTLS
+     * (see {@link #setNeedClientAuth(boolean)}). Applied via {@link
+     * TlsConfigSupport#apply(TlsConfig, Listener)} from {@link
+     * TlsConfig#getTrustManager()} when set.
+     *
+     * @param trustManager the trust manager, or null to use JVM defaults
+     */
+    public void setTrustManager(X509TrustManager trustManager) {
+        this.trustManager = trustManager;
+    }
+
     public long getIdleTimeoutMs() {
         return idleTimeoutMs;
     }
@@ -781,6 +796,9 @@ public abstract class Listener {
             if (needClientAuth) {
                 tcpFactory.setNeedClientAuth(true);
             }
+            if (trustManager != null) {
+                tcpFactory.setTrustManager(trustManager);
+            }
             if (sniHostnameToAlias != null) {
                 tcpFactory.setSniHostnames(sniHostnameToAlias);
             }
@@ -798,6 +816,9 @@ public abstract class Listener {
             if (needClientAuth) {
                 udpFactory.setNeedClientAuth(true);
             }
+            if (trustManager != null) {
+                udpFactory.setTrustManager(trustManager);
+            }
             if (sniHostnameToAlias != null) {
                 udpFactory.setSniHostnames(sniHostnameToAlias);
             }
@@ -812,6 +833,9 @@ public abstract class Listener {
             }
             if (needClientAuth) {
                 quicFactory.setNeedClientAuth(true);
+            }
+            if (trustManager != null) {
+                quicFactory.setTrustManager(trustManager);
             }
             if (sniHostnameToAlias != null) {
                 quicFactory.setSniHostnames(sniHostnameToAlias);

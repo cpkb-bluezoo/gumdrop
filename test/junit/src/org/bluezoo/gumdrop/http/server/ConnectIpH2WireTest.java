@@ -134,7 +134,12 @@ public class ConnectIpH2WireTest {
             @Override public void closed(ConnectIpSession session) { }
             @Override public void failed(ConnectIpSession session, Exception cause) { }
         };
-        listener.setHandlerFactory((state, headers) -> new ConnectIpRequestHandler(permissive, noopPacketHandler));
+        listener.setStreamHandler(new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState state) {
+                return new ConnectIpRequestHandler(permissive, noopPacketHandler);
+            }
+        });
 
         connection = new HttpProtocolHandler(listener);
         endpoint = new CountingEndpoint();

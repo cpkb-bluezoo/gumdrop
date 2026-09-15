@@ -8,6 +8,10 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.servlet.server.ServletRequestHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
 
 import org.junit.Rule;
@@ -18,10 +22,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
@@ -46,8 +53,19 @@ public class ServletWebSocketIntegrationTest extends AbstractServerIntegrationTe
             .build();
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/servlet-server-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        Container container = new Container();
+        container.setBufferSize(8192);
+        container.addContext(new Context(container, "",
+                new File("test/integration/webapp")));
+
+        HttpServer server = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(PORT)
+                        .addresses(InetAddress.getByName("::1")))
+                .streamHandler(new ServletRequestHandler(container))
+                .server();
+        return Collections.singletonList(server);
     }
 
     @Test

@@ -39,8 +39,8 @@ Examples: `HttpServer`, `SmtpClient`, `DnsMessage`, `Http3Listener`.
 
 | Name | Rule |
 |------|------|
-| **WebDAV** | Use **WebDAV**, not `Webdav`, in public API and documentation (RFC 4918 tradename). Interim `WebdavServer` from C.2.4 is deprecated; target is `WebDAVRequestHandler` on `HttpServer`. |
-| **WebSocket** | One word: `WebSocketClient`, not `WebSocketClient` from `WEBSOCKET`. |
+| **WebDAV** | Use **WebDAV**, not `Webdav`, in public API and documentation (RFC 4918 tradename). `WebDAVRequestHandler` on `HttpServer`. |
+| **WebSocket** | One word: `WebSocketClient`, `WebSocketRequestHandler`, not `WebSocketClient` from `WEBSOCKET`. |
 
 ### 2. Application tier: `*Server`, not `*Service`
 
@@ -69,18 +69,21 @@ Dial-side entry types use the same acronym rules: `HttpClient`, `SmtpClient`,
 | **Stateless** server (HTTP, DNS) | `{protocol}.server` | `{Protocol}RequestHandler`, `{Protocol}QueryHandler` |
 | **Stateful** server session minting | `{protocol}.server` | `{Protocol}ServerSessionProvider` extends `ServerSessionProvider` |
 | **Stateful** server staged handlers | `{protocol}.server.handler` or `{protocol}.handler` | `{Stage}Handler` + `{Stage}State` |
-| **Stateful** client session minting | `{protocol}.client` | `{Protocol}ClientSessionProvider` extends `ClientSessionProvider` |
+| **Stateful** client bootstrap | `{protocol}.client.handler` | Bootstrap handler passed directly to `{Protocol}Client#connect` |
 | Client response / reply | `{protocol}.client.handler` | `{Stage}ReplyHandler` — **never** `Server*` |
 
-**Stateless protocols do not use `ServerSessionProvider` or
-`ClientSessionProvider`.** HTTP composes with `HttpStreamHandler` /
-`HttpRequestHandler`; DNS with `DnsQueryHandler`.
+**Stateless protocols do not use `ServerSessionProvider`.** HTTP composes with
+`HttpStreamHandler` / `HttpRequestHandler`; DNS with `DnsQueryHandler`.
 
 **Stateful protocols** compose a session provider on the server (one pipeline
-per accepted connection) and a client session provider (bootstrap handler per
-dial). SMTP is the reference implementation (`SmtpServerSessionProvider`,
-`SmtpClientSessionProvider`); IMAP, POP3, and FTP use the same pattern on both
-server and client.
+per accepted connection) minting a fresh handler per accepted connection —
+the server reacts to arbitrarily many incoming connections whose timing it
+doesn't choose. Clients have no equivalent minting SPI: a client decides when
+and why to connect, so its bootstrap handler is supplied directly to
+`connect(handler)` at the point the caller decides to act. SMTP is the
+reference implementation (`SmtpServerSessionProvider` on the server,
+`SmtpClient#connect(RemoteGreeting)` on the client); IMAP, POP3, and FTP use
+the same pattern.
 
 The `smtp.client.handler.ServerEhloReplyHandler` pattern is **legacy**: the
 handler runs on the **client** and receives the **remote server's** reply. Rename
@@ -134,7 +137,7 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.1.0** | Convention + inventory | CONTRIBUTING, this doc, guard test *(done)* |
 | **C.1.1** | Core lifecycle names | `Server` contract; `Gumdrop` server registry *(done)* |
 | **C.1.2** | HTTP stack | `HttpServer`, `HttpClient`, handlers, listeners, metrics; `http/server/` facade *(done)* |
-| **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `ServletRequestHandler`, `WebDAVRequestHandler` **done** *(interim: `ServletServer`, `WebdavServer`)* |
+| **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `ServletRequestHandler`, `WebDAVRequestHandler`, `WebSocketRequestHandler` **done** |
 | **C.1.4** | Mail protocols | SMTP, IMAP, POP3 servers, clients, client reply handlers *(done)* |
 | **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, transport types *(done)* |
 | **C.1.6** | Internal / package-private | Lexers, protocol handlers, HPACK/QPACK, MIME/LDAP/JSP/RESP/OTLP *(done)* |
@@ -143,9 +146,9 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.2.6** | `HttpResponseState` in `http/server/` | server outbound response API; not client-facing *(done)* |
 | **C.2.2** | Mail facade layout | SMTP/IMAP/POP3 `server/` facades + root `*Server`/`*Client` re-exports *(done)* |
 | **C.2.3** | Remaining protocol `server/` facades | FTP, DNS, MQTT, SOCKS, mDNS, health + root re-exports *(done)* |
-| **C.2.4** | Servlet / WebDAV / WebSocket package moves | Interim `*/server/*Server` facades — superseded by handler composition *(C.3)* |
-| **C.3** | Handler-first HTTP | `HttpServer` + `HttpRequestHandler`; drop `HttpRequestHandlerFactory` public SPI |
-| **C.3.1** | Session providers (stateful) | `ServerSessionProvider`, `ClientSessionProvider`; SMTP done; FTP next |
+| **C.2.4** | Servlet / WebDAV / WebSocket package moves | Interim `*/server/*Server` facades — superseded by handler composition *(C.3, done)* |
+| **C.3** | Handler-first HTTP | `HttpServer` + `HttpRequestHandler`; `HttpRequestHandlerFactory` public SPI removed; interim `ServletServer`/`WebdavServer`/`WebSocketServer` deleted in favour of `ServletRequestHandler`/`WebDAVRequestHandler`/`WebSocketRequestHandler`; `TlsConfig`/`ClientTlsConfig` unified; WebDAV spelling fixed *(done)* |
+| **C.3.1** | Session providers (stateful) | Server: `ServerSessionProvider` (SMTP/IMAP/POP3/FTP, done). Client: no minting SPI — bootstrap handler passed directly to `connect(handler)` (`ClientSessionProvider` and its per-protocol subtypes removed, done across all four protocols) |
 | **C.5** | Remove XML configuration | Java composition only; see [COMPOSITION.md](COMPOSITION.md) |
 
 After **C.1.2**, begin **C.2** package moves (`http/server/`, `http/client/`) in
@@ -159,9 +162,9 @@ the same HTTP slice where practical.
 |--------------|--------------|
 | `org.bluezoo.gumdrop.Service` | Deprecated; extends `Server` — use `Server` / `Gumdrop#addServer` |
 | `HttpServer` | `HttpServer` |
-| `ServletServer` | **`ServletRequestHandler`** on `HttpServer` *(interim: `ServletServer`)* |
-| `WebDAVService` / `WebdavServer` | **`WebDAVRequestHandler`** on `HttpServer` *(interim: `WebdavServer`)* |
-| `WebSocketServer` | `WebSocketRequestHandler` or dedicated listener stack *(TBD)* |
+| `ServletServer` | **`ServletRequestHandler`** on `HttpServer` |
+| `WebDAVService` / `WebdavServer` | **`WebDAVRequestHandler`** on `HttpServer` |
+| `WebSocketServer` / `WebSocketListener` / `Http3WebSocketListener` | **`WebSocketRequestHandler`** on `HttpServer` |
 | `SmtpServer` | `SmtpServer` |
 | `ImapServer` | `ImapServer` |
 | `Pop3Server` | `Pop3Server` |

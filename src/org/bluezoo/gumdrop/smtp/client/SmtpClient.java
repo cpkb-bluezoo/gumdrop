@@ -26,7 +26,6 @@ import java.net.InetAddress;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Supplier;
 
 import javax.net.ssl.X509TrustManager;
 
@@ -43,7 +42,7 @@ import org.bluezoo.gumdrop.dns.DnssecStatus;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -53,16 +52,15 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * servers. It internally creates a {@link TcpTransportFactory},
  * {@link ClientEndpoint}, and {@link SmtpClientProtocolHandler}, wiring
  * them together and forwarding lifecycle events to the caller's
- * {@link RemoteGreeting} handler (or a {@link SmtpClientSessionProvider}
- * from fluent configuration or {@link #builder()}).
+ * {@link RemoteGreeting} handler, supplied directly to {@link
+ * #connect(RemoteGreeting)}.
  *
  * <h4>Composition (recommended)</h4>
  * <pre>{@code
  * SmtpClient client = new SmtpClient()
  *         .host("smtp.example.com")
- *         .port(587)
- *         .sessionPerConnection(() -> new MyRemoteGreeting());
- * client.connect();
+ *         .port(587);
+ * client.connect(new MyRemoteGreeting());
  * }</pre>
  *
  * <h4>Plaintext with STARTTLS (submission)</h4>
@@ -105,10 +103,10 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 public class SmtpClient {
 
     private final ClientDial dial = ClientDial.withDefaultPort(25);
-    private final ClientTlsConfig tls = new ClientTlsConfig();
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
 
     private DnsResolver daneResolver;
-    private SmtpClientSessionProvider sessionProvider;
 
     private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
@@ -211,7 +209,7 @@ public class SmtpClient {
      * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> — implicit TLS (port 465)
      */
     public void setSecure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
     }
 
     /**
@@ -225,7 +223,7 @@ public class SmtpClient {
      * @param context the SSL context
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
     }
 
     /**
@@ -355,34 +353,13 @@ public class SmtpClient {
     }
 
     /**
-     * Sets the session provider used by {@link #connect()}.
-     *
-     * @param provider the session provider
-     * @return this client
-     */
-    public SmtpClient sessionProvider(SmtpClientSessionProvider provider) {
-        setSessionProvider(provider);
-        return this;
-    }
-
-    /**
-     * Supplies a fresh bootstrap handler for each {@link #connect()}.
-     *
-     * @param supplier handler factory
-     * @return this client
-     */
-    public SmtpClient sessionPerConnection(Supplier<RemoteGreeting> supplier) {
-        return sessionProvider(SmtpClientSessionProviders.perSession(supplier));
-    }
-
-    /**
      * Sets whether this client uses implicit TLS (SMTPS).
      *
      * @param secure true for implicit TLS
      * @return this client
      */
     public SmtpClient secure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
         return this;
     }
 
@@ -398,7 +375,7 @@ public class SmtpClient {
      * @return this client
      */
     public SmtpClient clientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
         return this;
     }
 
@@ -485,47 +462,6 @@ public class SmtpClient {
     }
 
     /**
-     * Connects using a {@link SmtpClientSessionProvider} (composition SPI for
-     * stateful outbound sessions).
-     *
-     * @param provider supplies the bootstrap {@link RemoteGreeting} handler
-     * @see ClientSessionProvider
-     */
-    public void connect(SmtpClientSessionProvider provider) {
-        connect(provider.openSession());
-    }
-
-    /**
-     * Connects using the {@link SmtpClientSessionProvider} configured on
-     * this client (via {@link Builder#sessionProvider} or
-     * {@link Builder#sessionPerConnection}).
-     *
-     * @throws IllegalStateException if no session provider was configured
-     */
-    public void connect() {
-        if (sessionProvider == null) {
-            throw new IllegalStateException(
-                    "sessionProvider is required; use .sessionProvider(...)"
-                            + " or connect(RemoteGreeting)");
-        }
-        connect(sessionProvider);
-    }
-
-    /**
-     * Returns the configured session provider, or {@code null}.
-     */
-    public SmtpClientSessionProvider getSessionProvider() {
-        return sessionProvider;
-    }
-
-    /**
-     * Sets the session provider used by {@link #connect()}.
-     */
-    public void setSessionProvider(SmtpClientSessionProvider sessionProvider) {
-        this.sessionProvider = sessionProvider;
-    }
-
-    /**
      * Looks up TLSA records for this client's host/port and, if the
      * lookup is DNSSEC-secure and non-empty, installs a {@link
      * DaneTrustManager} before proceeding to {@link #doConnect}.
@@ -573,8 +509,8 @@ public class SmtpClient {
         transportFactory = new TcpTransportFactory();
         endpointHandler = new SmtpClientProtocolHandler(handler);
         try {
-            ClientTlsConfig effective = ClientConnect.prepareTls(tls, transportFactory);
-            endpointHandler.setSecure(effective.useImplicitTls());
+            ClientConnect.prepareTls(secure, tls, transportFactory);
+            endpointHandler.setSecure(secure);
             clientEndpoint = ClientConnect.openAndConnect(
                     dial, transportFactory, endpointHandler);
         } catch (IOException e) {
@@ -623,7 +559,6 @@ public class SmtpClient {
         private InetAddress hostAddress;
         private int port = 25;
         private String socketPath;
-        private SmtpClientSessionProvider sessionProvider;
         private boolean secure;
         private ServerCredentials clientCredentials;
         private X509TrustManager trustManager;
@@ -666,22 +601,6 @@ public class SmtpClient {
             return this;
         }
 
-        public Builder sessionProvider(SmtpClientSessionProvider provider) {
-            if (provider == null) {
-                throw new NullPointerException("provider");
-            }
-            this.sessionProvider = provider;
-            return this;
-        }
-
-        /**
-         * Supplies a fresh bootstrap handler for each {@link #connect()}.
-         */
-        public Builder sessionPerConnection(Supplier<RemoteGreeting> supplier) {
-            return sessionProvider(
-                    SmtpClientSessionProviders.perSession(supplier));
-        }
-
         public Builder secure(boolean secure) {
             this.secure = secure;
             return this;
@@ -718,13 +637,11 @@ public class SmtpClient {
         }
 
         /**
-         * Builds the client. A session provider and host (or socket path) are
-         * required.
+         * Builds the client. A host (or socket path) is required; call
+         * {@link SmtpClient#connect(RemoteGreeting)} on the result to
+         * connect.
          */
         public SmtpClient build() {
-            if (sessionProvider == null) {
-                throw new IllegalStateException("sessionProvider is required");
-            }
             final SmtpClient client;
             if (socketPath != null) {
                 client = (selectorLoop != null)
@@ -742,7 +659,6 @@ public class SmtpClient {
                 throw new IllegalStateException(
                         "host, host address, or socketPath is required");
             }
-            client.setSessionProvider(sessionProvider);
             client.setSecure(secure);
             if (clientCredentials != null) {
                 client.setClientCredentials(clientCredentials);

@@ -344,15 +344,6 @@ public class Http2Listener extends TcpListener {
     }
 
     /**
-     * @deprecated use {@link #setStreamHandler(HttpStreamHandler)}.
-     */
-    @Deprecated
-    public void setHandlerFactory(HttpRequestHandlerFactory factory) {
-        this.streamHandler = factory != null
-                ? new HandlerFactoryStreamHandler(factory) : null;
-    }
-
-    /**
      * Sets whether to add default security headers to responses.
      * XML property: {@code add-security-headers}
      */
@@ -365,14 +356,6 @@ public class Http2Listener extends TcpListener {
      */
     public boolean getAddSecurityHeaders() {
         return addSecurityHeaders;
-    }
-
-    /**
-     * @deprecated use {@link #getRequestRouter()}.
-     */
-    @Deprecated
-    public HttpRequestHandlerFactory getHandlerFactory() {
-        return null;
     }
 
     /**

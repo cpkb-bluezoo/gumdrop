@@ -24,23 +24,25 @@
  *
  * <p>This package provides WebSocket support for real-time bidirectional
  * communication between clients and the server. WebSocket connections
- * are established via HTTP upgrade from the HTTP server (HTTP/1.1 and
- * HTTP/2), or via Extended CONNECT over HTTP/3 (RFC 9220).
+ * are established via HTTP upgrade on HTTP/1.1, or via Extended CONNECT
+ * on HTTP/2 (RFC 8441) and HTTP/3 (RFC 9220).
  *
- * <h2>Service API</h2>
+ * <h2>Handler API</h2>
  *
- * <p>The primary entry point for building WebSocket applications is
- * {@link org.bluezoo.gumdrop.websocket.WebSocketServer}. Extend this
- * abstract class and implement
- * {@link org.bluezoo.gumdrop.websocket.WebSocketServer#createConnectionHandler
- * createConnectionHandler} to receive WebSocket connections:
+ * <p>The entry point for building WebSocket applications is
+ * {@link org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler}, an
+ * {@code HttpStreamHandler} composed directly onto a plain {@link
+ * org.bluezoo.gumdrop.http.HttpServer} — there is no separate WebSocket
+ * server type or dedicated listener; ordinary {@code Http2Listener} /
+ * {@code Http3Listener} instances handle the upgrade:
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketServer} -
- *       Abstract service base class (extends
- *       {@link org.bluezoo.gumdrop.http.HttpServer})</li>
+ *   <li>{@link org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler} -
+ *       HTTP-to-WebSocket upgrade handler, built via
+ *       {@code WebSocketRequestHandler.builder().onConnect(...).build()}</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketEventHandler} -
- *       Handler for WebSocket lifecycle events</li>
+ *       Handler for WebSocket lifecycle events, created per connection by
+ *       the builder's {@code ConnectionHandlerFactory}</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler} -
  *       Convenience base class with empty event methods</li>
  *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketSession} -
@@ -71,18 +73,11 @@
  *   <li>Client and server masking (§5.3)</li>
  * </ul>
  *
- * <h2>Transport Listeners</h2>
- *
- * <ul>
- *   <li>{@link org.bluezoo.gumdrop.websocket.WebSocketListener} —
- *       TCP transport (HTTP/1.1 upgrade, HTTP/2 Extended CONNECT)</li>
- *   <li>{@link org.bluezoo.gumdrop.websocket.Http3WebSocketListener} —
- *       QUIC transport (HTTP/3 Extended CONNECT per RFC 9220)</li>
- * </ul>
- *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455 - WebSocket</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc8441">RFC 8441 - WebSocket over HTTP/2</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220 - WebSocket over HTTP/3</a>
- * @see org.bluezoo.gumdrop.websocket.WebSocketServer
+ * @see org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler
+ * @see docs/COMPOSITION.md
  */
 package org.bluezoo.gumdrop.websocket;

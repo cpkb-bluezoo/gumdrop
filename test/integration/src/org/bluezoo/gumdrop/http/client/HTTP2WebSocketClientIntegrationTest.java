@@ -32,7 +32,7 @@ import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.Http2Listener;
 import org.bluezoo.gumdrop.http.HttpRequestHandler;
-import org.bluezoo.gumdrop.http.HttpRequestHandlerFactory;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
@@ -104,7 +104,7 @@ public class HTTP2WebSocketClientIntegrationTest {
         listener.setSecure(true);
         listener.setKeystoreFile(keystore.getAbsolutePath());
         listener.setKeystorePass("testpass");
-        listener.setHandlerFactory(new H2EchoWebSocketHandlerFactory());
+        listener.setStreamHandler(new H2EchoWebSocketHandlerFactory());
 
         gumdrop = Gumdrop.getInstance();
         gumdrop.addListener(listener);
@@ -332,10 +332,10 @@ public class HTTP2WebSocketClientIntegrationTest {
     // requests via EchoHandlerFactory-equivalent behaviour)
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static class H2EchoWebSocketHandlerFactory implements HttpRequestHandlerFactory {
+    private static class H2EchoWebSocketHandlerFactory implements HttpStreamHandler {
 
         @Override
-        public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
+        public HttpRequestHandler openStream(HttpResponseState state) {
             return new DefaultHttpRequestHandler() {
                 @Override
                 public void headers(HttpResponseState state, Headers headers) {

@@ -22,12 +22,19 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.http.HTTPClientHelper;
+import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.servlet.server.ServletRequestHandler;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 
 import java.io.File;
+import java.net.InetAddress;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -65,8 +72,19 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
         .build();
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/servlet-server-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        Container container = new Container();
+        container.setBufferSize(8192);
+        container.addContext(new Context(container, "",
+                new File("test/integration/webapp")));
+
+        HttpServer server = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(TEST_PORT)
+                        .addresses(InetAddress.getByName("::1")))
+                .streamHandler(new ServletRequestHandler(container))
+                .server();
+        return Collections.singletonList(server);
     }
 
 

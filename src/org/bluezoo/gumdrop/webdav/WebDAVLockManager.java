@@ -1,5 +1,5 @@
 /*
- * WebdavLockManager.java
+ * WebDAVLockManager.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -36,27 +36,27 @@ import java.util.concurrent.ConcurrentHashMap;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-class WebdavLockManager {
+class WebDAVLockManager {
 
-    private final Map<String, WebdavLock> locksByToken = new ConcurrentHashMap<String, WebdavLock>();
-    private final Map<Path, List<WebdavLock>> locksByPath = new ConcurrentHashMap<Path, List<WebdavLock>>();
+    private final Map<String, WebDAVLock> locksByToken = new ConcurrentHashMap<String, WebDAVLock>();
+    private final Map<Path, List<WebDAVLock>> locksByPath = new ConcurrentHashMap<Path, List<WebDAVLock>>();
 
     /**
      * Acquires a lock on a resource (RFC 4918 §9.10).
      */
-    synchronized WebdavLock lock(Path path, WebdavLock.Scope scope, 
-                                  WebdavLock.Type type, int depth,
+    synchronized WebDAVLock lock(Path path, WebDAVLock.Scope scope, 
+                                  WebDAVLock.Type type, int depth,
                                   String owner, long timeoutSeconds) {
         if (hasConflictingLock(path, scope)) {
             return null;
         }
 
-        WebdavLock lock = new WebdavLock(path, scope, type, depth, owner, timeoutSeconds);
+        WebDAVLock lock = new WebDAVLock(path, scope, type, depth, owner, timeoutSeconds);
         locksByToken.put(lock.getToken(), lock);
 
-        List<WebdavLock> pathLocks = locksByPath.get(path);
+        List<WebDAVLock> pathLocks = locksByPath.get(path);
         if (pathLocks == null) {
-            pathLocks = new ArrayList<WebdavLock>();
+            pathLocks = new ArrayList<WebDAVLock>();
             locksByPath.put(path, pathLocks);
         }
         pathLocks.add(lock);
@@ -68,12 +68,12 @@ class WebdavLockManager {
      * Releases a lock by token (RFC 4918 §9.11).
      */
     synchronized boolean unlock(String token) {
-        WebdavLock lock = locksByToken.remove(token);
+        WebDAVLock lock = locksByToken.remove(token);
         if (lock == null) {
             return false;
         }
 
-        List<WebdavLock> pathLocks = locksByPath.get(lock.getPath());
+        List<WebDAVLock> pathLocks = locksByPath.get(lock.getPath());
         if (pathLocks != null) {
             pathLocks.remove(lock);
             if (pathLocks.isEmpty()) {
@@ -88,8 +88,8 @@ class WebdavLockManager {
     /**
      * Refreshes a lock timeout (RFC 4918 §9.10.2).
      */
-    synchronized WebdavLock refresh(String token, long timeoutSeconds) {
-        WebdavLock lock = locksByToken.get(token);
+    synchronized WebDAVLock refresh(String token, long timeoutSeconds) {
+        WebDAVLock lock = locksByToken.get(token);
         if (lock != null && !lock.isExpired()) {
             lock.refresh(timeoutSeconds);
             return lock;
@@ -97,8 +97,8 @@ class WebdavLockManager {
         return null;
     }
 
-    WebdavLock getLock(String token) {
-        WebdavLock lock = locksByToken.get(token);
+    WebDAVLock getLock(String token) {
+        WebDAVLock lock = locksByToken.get(token);
         if (lock != null && lock.isExpired()) {
             synchronized (this) {
                 unlock(token);
@@ -108,12 +108,12 @@ class WebdavLockManager {
         return lock;
     }
 
-    List<WebdavLock> getLocks(Path path) {
-        List<WebdavLock> result = new ArrayList<WebdavLock>();
-        List<WebdavLock> pathLocks = locksByPath.get(path);
+    List<WebDAVLock> getLocks(Path path) {
+        List<WebDAVLock> result = new ArrayList<WebDAVLock>();
+        List<WebDAVLock> pathLocks = locksByPath.get(path);
         if (pathLocks != null) {
             synchronized (this) {
-                for (WebdavLock lock : pathLocks) {
+                for (WebDAVLock lock : pathLocks) {
                     if (!lock.isExpired()) {
                         result.add(lock);
                     }
@@ -123,17 +123,17 @@ class WebdavLockManager {
         return result;
     }
 
-    List<WebdavLock> getCoveringLocks(Path path) {
-        List<WebdavLock> result = new ArrayList<WebdavLock>();
+    List<WebDAVLock> getCoveringLocks(Path path) {
+        List<WebDAVLock> result = new ArrayList<WebDAVLock>();
         synchronized (this) {
             forEachAncestor(path, new PathVisitor() {
                 @Override
                 public void visit(Path ancestor) {
-                    List<WebdavLock> pathLocks = locksByPath.get(ancestor);
+                    List<WebDAVLock> pathLocks = locksByPath.get(ancestor);
                     if (pathLocks == null) {
                         return;
                     }
-                    for (WebdavLock lock : pathLocks) {
+                    for (WebDAVLock lock : pathLocks) {
                         if (!lock.isExpired() && lock.covers(path)) {
                             result.add(lock);
                         }
@@ -149,14 +149,14 @@ class WebdavLockManager {
     }
 
     boolean validateToken(Path path, String token) {
-        WebdavLock lock = getLock(token);
+        WebDAVLock lock = getLock(token);
         return lock != null && lock.covers(path);
     }
 
     /**
      * Checks for conflicting locks (RFC 4918 §6.1–6.2).
      */
-    private boolean hasConflictingLock(Path path, WebdavLock.Scope requestedScope) {
+    private boolean hasConflictingLock(Path path, WebDAVLock.Scope requestedScope) {
         final boolean[] conflictFound = new boolean[1];
         forEachAncestor(path, new PathVisitor() {
             @Override
@@ -164,17 +164,17 @@ class WebdavLockManager {
                 if (conflictFound[0]) {
                     return;
                 }
-                List<WebdavLock> pathLocks = locksByPath.get(ancestor);
+                List<WebDAVLock> pathLocks = locksByPath.get(ancestor);
                 if (pathLocks == null) {
                     return;
                 }
-                for (WebdavLock existing : pathLocks) {
+                for (WebDAVLock existing : pathLocks) {
                     if (existing.isExpired()) {
                         continue;
                     }
                     if (existing.covers(path)) {
-                        if (existing.getScope() == WebdavLock.Scope.EXCLUSIVE
-                                || requestedScope == WebdavLock.Scope.EXCLUSIVE) {
+                        if (existing.getScope() == WebDAVLock.Scope.EXCLUSIVE
+                                || requestedScope == WebDAVLock.Scope.EXCLUSIVE) {
                             conflictFound[0] = true;
                             return;
                         }
@@ -186,17 +186,17 @@ class WebdavLockManager {
             return true;
         }
 
-        for (Map.Entry<Path, List<WebdavLock>> entry : locksByPath.entrySet()) {
+        for (Map.Entry<Path, List<WebDAVLock>> entry : locksByPath.entrySet()) {
             Path lockedPath = entry.getKey();
             if (!lockedPath.startsWith(path) || lockedPath.equals(path)) {
                 continue;
             }
-            for (WebdavLock existing : entry.getValue()) {
+            for (WebDAVLock existing : entry.getValue()) {
                 if (existing.isExpired()) {
                     continue;
                 }
-                if (existing.getScope() == WebdavLock.Scope.EXCLUSIVE
-                        || requestedScope == WebdavLock.Scope.EXCLUSIVE) {
+                if (existing.getScope() == WebDAVLock.Scope.EXCLUSIVE
+                        || requestedScope == WebDAVLock.Scope.EXCLUSIVE) {
                     return true;
                 }
             }
@@ -205,13 +205,13 @@ class WebdavLockManager {
     }
 
     synchronized void cleanExpiredLocks() {
-        Iterator<Map.Entry<String, WebdavLock>> it = locksByToken.entrySet().iterator();
+        Iterator<Map.Entry<String, WebDAVLock>> it = locksByToken.entrySet().iterator();
         while (it.hasNext()) {
-            Map.Entry<String, WebdavLock> entry = it.next();
-            WebdavLock lock = entry.getValue();
+            Map.Entry<String, WebDAVLock> entry = it.next();
+            WebDAVLock lock = entry.getValue();
             if (lock.isExpired()) {
                 it.remove();
-                List<WebdavLock> pathLocks = locksByPath.get(lock.getPath());
+                List<WebDAVLock> pathLocks = locksByPath.get(lock.getPath());
                 if (pathLocks != null) {
                     pathLocks.remove(lock);
                     if (pathLocks.isEmpty()) {

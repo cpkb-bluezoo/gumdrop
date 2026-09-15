@@ -7,13 +7,13 @@ package org.bluezoo.gumdrop.client;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * Process-wide outbound client defaults until {@code Runtime} (§C.4) replaces
  * the {@link org.bluezoo.gumdrop.Gumdrop} singleton for this role.
  *
- * <p>TLS: without explicit {@link ClientTlsConfig} material on the client or
+ * <p>TLS: without explicit {@link TlsConfig} material on the client or
  * here, connections are <strong>plaintext only</strong> — {@code secure(true)}
  * alone does not enable TLS.
  *
@@ -23,20 +23,20 @@ import org.bluezoo.gumdrop.tls.ClientTlsConfig;
  */
 public final class ClientDefaults {
 
-    private static volatile ClientTlsConfig defaultTls;
+    private static volatile TlsConfig defaultTls;
 
     private ClientDefaults() {
     }
 
     /**
      * Sets TLS defaults inherited by clients that do not configure their own
-     * {@link ClientTlsConfig} material. {@code null} clears the default.
+     * {@link TlsConfig} material. {@code null} clears the default.
      */
-    public static void setDefaultTls(ClientTlsConfig defaultTls) {
+    public static void setDefaultTls(TlsConfig defaultTls) {
         ClientDefaults.defaultTls = defaultTls;
     }
 
-    public static ClientTlsConfig getDefaultTls() {
+    public static TlsConfig getDefaultTls() {
         return defaultTls;
     }
 
@@ -44,8 +44,8 @@ public final class ClientDefaults {
      * Merges per-client TLS settings with {@link #getDefaultTls()}. When neither
      * side has TLS material, returns an empty config (plaintext only).
      */
-    public static ClientTlsConfig effectiveTls(ClientTlsConfig perClient) {
-        return ClientTlsConfig.effective(perClient, defaultTls);
+    public static TlsConfig effectiveTls(TlsConfig perClient) {
+        return TlsConfig.effective(perClient, defaultTls);
     }
 
     /**

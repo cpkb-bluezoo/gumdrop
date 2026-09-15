@@ -100,9 +100,24 @@ public abstract class AbstractServerIntegrationTest {
     private List<String> serverAddresses = new ArrayList<>();
     
     /**
-     * Returns the configuration file for this test.
+     * Returns the configuration file for this test. Ignored when {@link
+     * #buildServers()} is overridden to return non-null.
      */
-    protected abstract File getTestConfigFile();
+    protected File getTestConfigFile() {
+        return null;
+    }
+
+    /**
+     * Alternative to {@link #getTestConfigFile()} for tests that build
+     * their server(s) directly via Java composition ({@link
+     * org.bluezoo.gumdrop.http.HttpServer#compose()} and similar) instead
+     * of XML. When overridden to return non-null, takes precedence over
+     * the config-file path and {@link #getTestConfigFile()} is not
+     * consulted.
+     */
+    protected Collection<? extends Server> buildServers() throws Exception {
+        return null;
+    }
     
     /**
      * Returns the maximum time to wait for server startup (milliseconds).
@@ -162,27 +177,37 @@ public abstract class AbstractServerIntegrationTest {
             handler.setLevel(testLevel);
         }
         
-        File configFile = getTestConfigFile();
-        if (!configFile.exists()) {
-            String msg = "Test configuration file not found: " + configFile.getAbsolutePath();
-            testContext.logEvent("CONFIG_ERROR", msg);
-            throw new IllegalStateException(msg);
-        }
-        
-        testContext.logEvent("CONFIG_LOADED", "Using config: " + configFile.getName());
-        
-        // Parse configuration
-        ParseResult result = new ConfigurationParser().parse(configFile);
-        registry = result.getRegistry();
+        Collection<? extends Server> composed = buildServers();
+        Collection<TcpListener> standaloneListeners;
+        Collection<Server> configuredServers;
+        if (composed != null) {
+            testContext.logEvent("CONFIG_LOADED", "Using programmatic composition");
+            standaloneListeners = new ArrayList<TcpListener>();
+            configuredServers = new ArrayList<Server>(composed);
+        } else {
+            File configFile = getTestConfigFile();
+            if (configFile == null || !configFile.exists()) {
+                String msg = "Test configuration file not found: "
+                        + (configFile == null ? "null" : configFile.getAbsolutePath());
+                testContext.logEvent("CONFIG_ERROR", msg);
+                throw new IllegalStateException(msg);
+            }
 
-        // A configuration may declare standalone listeners (top-level
-        // <component> endpoints) and/or protocol servers that own listeners.
-        Collection<TcpListener> standaloneListeners = result.getListeners();
-        Collection<Server> configuredServers = result.getServers();
+            testContext.logEvent("CONFIG_LOADED", "Using config: " + configFile.getName());
+
+            // Parse configuration
+            ParseResult result = new ConfigurationParser().parse(configFile);
+            registry = result.getRegistry();
+
+            // A configuration may declare standalone listeners (top-level
+            // <component> endpoints) and/or protocol servers that own listeners.
+            standaloneListeners = result.getListeners();
+            configuredServers = result.getServers();
+        }
 
         // Verify we have something to start
         if (standaloneListeners.isEmpty() && configuredServers.isEmpty()) {
-            String msg = "No servers configured in: " + configFile;
+            String msg = "No servers configured";
             testContext.logEvent("CONFIG_ERROR", msg);
             throw new IllegalStateException(msg);
         }

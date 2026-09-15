@@ -56,9 +56,9 @@ event-driven parsing with <a href="https://github.com/cpkb-bluezoo/gonzalez">Gon
 <h3 id="overview">Overview</h3>
 
 <p>
-A Gumdrop microservice is an <code>HttpServer</code> with a custom
-<code>HttpRequestHandlerFactory</code>. The factory creates
-<code>HttpRequestHandler</code> instances for each request. Handlers receive
+A Gumdrop microservice is an <code>HttpServer</code> composed with a custom
+<code>HttpStreamHandler</code>, which binds an
+<code>HttpRequestHandler</code> instance for each request. Handlers receive
 events in sequence:
 </p>
 
@@ -226,39 +226,35 @@ class XmlEchoHandler extends DefaultHttpRequestHandler {
 }
 </pre>
 
-<h4>Step 3: Create the Service and Factory</h4>
+<h4>Step 3: Create the Stream Handler</h4>
 
 <p>
-Extend <code>HttpServer</code> and provide a handler factory. The factory
-routes requests (here, all POST requests to <code>/echo</code> get the
-XML handler):
+Compose a custom <code>HttpStreamHandler</code> instead of subclassing
+<code>HttpServer</code>. Routing happens in the bound
+<code>HttpRequestHandler</code>'s own <code>headers()</code> callback (here,
+all POST requests to <code>/echo</code> get the XML handler, everything else
+gets a plain 404):
 </p>
 
 <pre>
 import org.bluezoo.gumdrop.http.*;
+import org.bluezoo.gumdrop.http.server.*;
 
-public class XmlEchoService extends HttpServer {
-
-    @Override
-    protected void initService() {
-        // No resources to initialise
-    }
+public class XmlEchoStreamHandler implements HttpStreamHandler {
 
     @Override
-    protected HttpRequestHandlerFactory getHandlerFactory() {
-        return new XmlEchoHandlerFactory();
-    }
-
-    private static class XmlEchoHandlerFactory implements HttpRequestHandlerFactory {
-        @Override
-        public HttpRequestHandler createHandler(HttpResponseState state,
-                                                Headers headers) {
-            String path = headers.getValue(":path");
-            if ("/echo".equals(path) && "POST".equals(headers.getMethod())) {
-                return new XmlEchoHandler();
+    public HttpRequestHandler openStream(HttpResponseState state) {
+        return new DefaultHttpRequestHandler() {
+            @Override
+            public void headers(HttpResponseState state, Headers headers) {
+                String path = headers.getValue(":path");
+                if ("/echo".equals(path) && "POST".equals(headers.getMethod())) {
+                    new XmlEchoHandler().headers(state, headers);
+                } else {
+                    NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
+                }
             }
-            return null;  // 404
-        }
+        };
     }
 }
 </pre>
@@ -266,17 +262,18 @@ public class XmlEchoService extends HttpServer {
 <h4>Step 4: Wire and Start</h4>
 
 <p>
-Add the service to Gumdrop and configure a listener. See
+Compose the handler onto an <code>HttpServer</code> and start it. See
 <a href="#configuration">Configuration</a> for XML-based setup.
 </p>
 
 <pre>
+HttpServer server = HttpServer.compose()
+        .listener(new Http2Listener().port(9090))
+        .streamHandler(new XmlEchoStreamHandler())
+        .server();
+
 Gumdrop gumdrop = Gumdrop.getInstance();
-XmlEchoService service = new XmlEchoService();
-Http2Listener listener = new Http2Listener();
-listener.setPort(9090);
-service.addListener(listener);
-gumdrop.addService(service);
+gumdrop.addServer(server);
 gumdrop.start();
 
 // Block until shutdown (Ctrl+C); JVM shutdown hook calls gumdrop.shutdown()
@@ -554,23 +551,29 @@ class LookupResponseHandler extends JSONDefaultHandler {
 }
 </pre>
 
-<h4>Step 4: Service with Downstream Configuration</h4>
+<h4>Step 4: Stream Handler with Downstream Configuration</h4>
 
 <pre>
-public class LookupService extends HttpServer {
-    private String downstreamHost = "localhost";
-    private int downstreamPort = 9091;
+public class LookupStreamHandler implements HttpStreamHandler {
+    private final String downstreamHost;
+    private final int downstreamPort;
 
-    public void setDownstreamHost(String host) { downstreamHost = host; }
-    public void setDownstreamPort(int port) { downstreamPort = port; }
+    public LookupStreamHandler(String downstreamHost, int downstreamPort) {
+        this.downstreamHost = downstreamHost;
+        this.downstreamPort = downstreamPort;
+    }
 
     @Override
-    protected HttpRequestHandlerFactory getHandlerFactory() {
-        return (state, headers) -> {
-            if ("/lookup".equals(headers.getPath())) {
-                return new LookupHandler(downstreamHost, downstreamPort);
+    public HttpRequestHandler openStream(HttpResponseState state) {
+        return new DefaultHttpRequestHandler() {
+            @Override
+            public void headers(HttpResponseState state, Headers headers) {
+                if ("/lookup".equals(headers.getPath())) {
+                    new LookupHandler(downstreamHost, downstreamPort).headers(state, headers);
+                } else {
+                    NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
+                }
             }
-            return null;
         };
     }
 }
@@ -589,42 +592,35 @@ back to Gumdrop's default worker assignment.
 <h3 id="configuration">Configuration</h3>
 
 <p>
-Microservices can be configured via <code>gumdroprc</code> like any other
-service. Example for the XML echo service:
+Microservices are wired in Java, not XML (see
+<a href="configuration.html">Application composition</a>). Compose the echo
+service:
 </p>
 
 <pre>
-&lt;service id="echo" class="com.example.XmlEchoService"&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
-    &lt;property name="port"&gt;9090&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+HttpServer echo = HttpServer.compose()
+        .listener(new Http2Listener().port(9090))
+        .streamHandler(new XmlEchoStreamHandler())
+        .server();
 </pre>
 
 <p>
-For the lookup service with downstream configuration:
+For the lookup service, downstream configuration is just constructor
+arguments — no property injection framework needed:
 </p>
 
 <pre>
-&lt;service id="lookup" class="com.example.LookupService"&gt;
-  &lt;property name="downstream-host"&gt;api.internal&lt;/property&gt;
-  &lt;property name="downstream-port"&gt;9091&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
-    &lt;property name="port"&gt;9092&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+HttpServer lookup = HttpServer.compose()
+        .listener(new Http2Listener().port(9092))
+        .streamHandler(new LookupStreamHandler("api.internal", 9091))
+        .server();
 </pre>
-
-<p>
-See <a href="configuration.html">Configuration</a> for property naming
-conventions (<code>downstream-host</code> maps to <code>setDownstreamHost</code>)
-and the full dependency injection framework.
-</p>
 
 <h3>Summary</h3>
 
 <ul>
-<li>Extend <code>HttpServer</code> and implement <code>getHandlerFactory()</code></li>
+<li>Compose a custom <code>HttpStreamHandler</code> onto <code>HttpServer</code> —
+    don't subclass <code>HttpServer</code> for application logic</li>
 <li>Feed <code>requestBodyContent(ByteBuffer)</code> chunks directly to
     <code>Parser.receive()</code> (Gonzalez) or <code>JSONParser.receive()</code>
     (jsonparser) &mdash; never buffer the entire body</li>

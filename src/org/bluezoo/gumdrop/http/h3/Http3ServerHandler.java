@@ -50,7 +50,6 @@ import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
-import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 
 /**
  * Server-side HTTP/3 handler for one QUIC connection.
@@ -137,7 +136,6 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
     private long highestClientStreamId = -1;
     private Trace trace;
     private boolean goaway;
-    private WebSocketServerMetrics wsMetrics;
     // RFC 9114 section 5.2: client-indicated last stream ID from GOAWAY
     private long goawayStreamId = Long.MAX_VALUE;
 
@@ -696,23 +694,6 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
      */
     HttpServerMetrics getMetrics() {
         return metrics;
-    }
-
-    /**
-     * Sets the WebSocket server metrics for streams upgraded via
-     * RFC 9220 Extended CONNECT.
-     *
-     * @param wsMetrics the WebSocket metrics, or null
-     */
-    public void setWebSocketMetrics(WebSocketServerMetrics wsMetrics) {
-        this.wsMetrics = wsMetrics;
-    }
-
-    /**
-     * Returns the WebSocket server metrics, or null.
-     */
-    WebSocketServerMetrics getWebSocketMetrics() {
-        return wsMetrics;
     }
 
     /**

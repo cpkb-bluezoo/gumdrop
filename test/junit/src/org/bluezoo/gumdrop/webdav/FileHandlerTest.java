@@ -109,7 +109,7 @@ public class FileHandlerTest {
         return new FileHandler(root, allowWrite, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types,
-                new WebdavLockManager(), null);
+                new WebDAVLockManager(), null);
     }
 
     private RecordingState dispatch(FileHandler h, String method, String path,

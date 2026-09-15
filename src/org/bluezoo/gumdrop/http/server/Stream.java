@@ -60,7 +60,7 @@ import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
 import org.bluezoo.gumdrop.websocket.WebSocketHandshake;
-import org.bluezoo.gumdrop.websocket.WebSocketListener;
+import org.bluezoo.gumdrop.websocket.WebSocketMetricsSource;
 import org.bluezoo.gumdrop.websocket.WebSocketServerMetrics;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
@@ -1421,15 +1421,14 @@ class Stream implements HttpResponseState {
                 sendResponseHeaders(101, responseHeaders, false);
             }
 
-            // Resolve WebSocket metrics from the listener (if available)
+            // Resolve WebSocket metrics from the upgrading handler (if it
+            // opts in), not the listener -- handler-scoped, so any
+            // HttpStreamHandler can supply WebSocket metrics regardless of
+            // which listener type it's composed onto.
             WebSocketServerMetrics wsMetrics = null;
-            if (connection instanceof HttpProtocolHandler) {
-                Http2Listener listener =
-                        ((HttpProtocolHandler) connection).getListener();
-                if (listener instanceof WebSocketListener) {
-                    wsMetrics = ((WebSocketListener) listener)
-                            .getWebSocketMetrics();
-                }
+            if (this.handler instanceof WebSocketMetricsSource) {
+                wsMetrics = ((WebSocketMetricsSource) this.handler)
+                        .getWebSocketMetrics();
             }
 
             webSocketAdapter = new WebSocketConnectionAdapter(

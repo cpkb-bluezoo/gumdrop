@@ -20,9 +20,9 @@
     <component id="testHttpPlaintext" class="org.bluezoo.gumdrop.http.HttpListener">
         <property name="port">18090</property>
         <property name="addresses">::1</property>
-        <property name="handler-factory" ref="#echoHandlerFactory"/>
+        <property name="stream-handler" ref="#echoHandlerFactory"/>
     </component>
-    
+
     <!-- HTTPS server on port 18444 for h2 (HTTP/2 over TLS) testing -->
     <component id="testHttps" class="org.bluezoo.gumdrop.http.HttpListener">
         <property name="port">18444</property>
@@ -30,6 +30,6 @@
         <property name="secure">true</property>
         <property name="keystore-file">test/integration/certs/test-keystore.p12</property>
         <property name="keystore-pass">testpass</property>
-        <property name="handler-factory" ref="#echoHandlerFactory"/>
+        <property name="stream-handler" ref="#echoHandlerFactory"/>
     </component>
 </gumdrop>

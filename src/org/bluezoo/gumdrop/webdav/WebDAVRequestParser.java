@@ -1,5 +1,5 @@
 /*
- * WebdavRequestParser.java
+ * WebDAVRequestParser.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -41,7 +41,7 @@ import java.util.List;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
  */
-class WebdavRequestParser extends DefaultHandler {
+class WebDAVRequestParser extends DefaultHandler {
 
     enum PropfindType { ALLPROP, PROPNAME, PROP }
     enum PropPatchOp { SET, REMOVE }
@@ -68,8 +68,8 @@ class WebdavRequestParser extends DefaultHandler {
 
     /** LOCK request body (§14.11 lockinfo) */
     static class LockRequest {
-        WebdavLock.Scope scope = WebdavLock.Scope.EXCLUSIVE;
-        WebdavLock.Type type = WebdavLock.Type.WRITE;
+        WebDAVLock.Scope scope = WebDAVLock.Scope.EXCLUSIVE;
+        WebDAVLock.Type type = WebDAVLock.Type.WRITE;
         String owner;
     }
 
@@ -102,7 +102,7 @@ class WebdavRequestParser extends DefaultHandler {
 
     private String parseError;
 
-    WebdavRequestParser() {
+    WebDAVRequestParser() {
         this.parser = new Parser();
         this.parser.setContentHandler(this);
         // Block external entity resolution (XXE) for untrusted request bodies.
@@ -216,15 +216,15 @@ class WebdavRequestParser extends DefaultHandler {
             lockRequest = new LockRequest();
         } else if (DavConstants.ELEM_EXCLUSIVE.equals(local)) {
             if (lockRequest != null) {
-                lockRequest.scope = WebdavLock.Scope.EXCLUSIVE;
+                lockRequest.scope = WebDAVLock.Scope.EXCLUSIVE;
             }
         } else if (DavConstants.ELEM_SHARED.equals(local)) {
             if (lockRequest != null) {
-                lockRequest.scope = WebdavLock.Scope.SHARED;
+                lockRequest.scope = WebDAVLock.Scope.SHARED;
             }
         } else if (DavConstants.ELEM_WRITE.equals(local)) {
             if (lockRequest != null) {
-                lockRequest.type = WebdavLock.Type.WRITE;
+                lockRequest.type = WebDAVLock.Type.WRITE;
             }
         } else if (DavConstants.ELEM_OWNER.equals(local)) {
             inOwner = true;

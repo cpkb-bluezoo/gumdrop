@@ -117,12 +117,6 @@ public class ConfigurationParser extends DefaultHandler {
                 "org.bluezoo.gumdrop.http.HttpServer");
         map.put("org.bluezoo.gumdrop.http.HttpServer",
                 "org.bluezoo.gumdrop.http.HttpServer");
-        map.put("org.bluezoo.gumdrop.servlet.ServletServer",
-                "org.bluezoo.gumdrop.servlet.ServletServer");
-        map.put("org.bluezoo.gumdrop.webdav.WebdavServer",
-                "org.bluezoo.gumdrop.webdav.WebdavServer");
-        map.put("org.bluezoo.gumdrop.websocket.WebSocketServer",
-                "org.bluezoo.gumdrop.websocket.WebSocketServer");
         map.put("org.bluezoo.gumdrop.smtp.SmtpServer",
                 "org.bluezoo.gumdrop.smtp.SmtpServer");
         map.put("org.bluezoo.gumdrop.smtp.SMTPListener",

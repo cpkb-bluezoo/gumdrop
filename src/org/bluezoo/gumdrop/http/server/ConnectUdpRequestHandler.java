@@ -45,11 +45,11 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
  * approved by a {@link ConnectUdpPolicy}, and relays UDP datagrams
  * between the client and that target for the life of the request.
  *
- * <p>An {@link HttpRequestHandlerFactory} returns an instance of this
- * class (constructed with a policy) for any request it wants handled as
- * CONNECT-UDP -- typically after checking {@code :method}/{@code
- * :protocol} itself, though this class also re-validates those and the
- * request path (RFC 9298 section 3's URI Template) before doing
+ * <p>An {@link HttpRequestHandler#headers} implementation delegates to an
+ * instance of this class (constructed with a policy) for any request it
+ * wants handled as CONNECT-UDP -- typically after checking {@code
+ * :method}/{@code :protocol} itself, though this class also re-validates
+ * those and the request path (RFC 9298 section 3's URI Template) before doing
  * anything with a UDP socket.
  *
  * <p>Works identically over HTTP/1.1, HTTP/2, and HTTP/3: {@link

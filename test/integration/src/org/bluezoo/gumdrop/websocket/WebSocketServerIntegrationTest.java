@@ -22,6 +22,9 @@
 package org.bluezoo.gumdrop.websocket;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -31,23 +34,26 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
 
 /**
- * Integration tests for {@link WebSocketListener} + {@link WebSocketServer}
+ * Integration tests for {@link org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler}
  * with real network connections.
  *
  * <p>Written to close the test-coverage gap noted while root-causing issue
  * #107 (streaming protocol handler project, issue #85 Phase 6): prior to
- * this class, no unit or integration test exercised
- * {@code WebSocketListener} at all, which is how two pre-existing bugs in
+ * this class, no unit or integration test exercised the server-side
+ * WebSocket upgrade path at all, which is how two pre-existing bugs in
  * the post-upgrade data path went undetected:
  * <ul>
  *   <li>{@code HttpProtocolHandler.processHeaderLine()}'s bodyless-request
@@ -67,6 +73,10 @@ import static org.junit.Assert.*;
 public class WebSocketServerIntegrationTest extends AbstractServerIntegrationTest {
 
     private static final String HOST = "::1";
+    /** RFC 9110 section 7.2 / HttpUtils.isValidHost: bracketed IP-literals
+     * are rejected for simplicity, so the Host header uses a reg-name
+     * while the socket itself still connects via the IPv6 loopback. */
+    private static final String HTTP_HOST = "localhost";
     private static final int PORT = 18110;
 
     @Rule
@@ -76,8 +86,14 @@ public class WebSocketServerIntegrationTest extends AbstractServerIntegrationTes
             .build();
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/websocket-server-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        HttpServer server = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(PORT)
+                        .addresses(InetAddress.getByName(HOST)))
+                .streamHandler(new EchoWebSocketService().toHandler())
+                .server();
+        return Collections.singletonList(server);
     }
 
     @Test
@@ -201,7 +217,7 @@ public class WebSocketServerIntegrationTest extends AbstractServerIntegrationTes
         new Random().nextBytes(keyBytes);
         String key = Base64.getEncoder().encodeToString(keyBytes);
         String request = "GET " + path + " HTTP/1.1\r\n"
-                + "Host: " + HOST + ":" + PORT + "\r\n"
+                + "Host: " + HTTP_HOST + ":" + PORT + "\r\n"
                 + "Upgrade: websocket\r\n"
                 + "Connection: Upgrade\r\n"
                 + "Sec-WebSocket-Key: " + key + "\r\n"
@@ -216,7 +232,7 @@ public class WebSocketServerIntegrationTest extends AbstractServerIntegrationTes
         new Random().nextBytes(keyBytes);
         String key = Base64.getEncoder().encodeToString(keyBytes);
         String request = "GET " + path + " HTTP/1.1\r\n"
-                + "Host: " + HOST + ":" + PORT + "\r\n"
+                + "Host: " + HTTP_HOST + ":" + PORT + "\r\n"
                 + "Upgrade: websocket\r\n"
                 + "Connection: Upgrade\r\n"
                 + "Sec-WebSocket-Key: " + key + "\r\n"

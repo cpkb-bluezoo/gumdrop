@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.mqtt.codec.MqttVersion;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
-import org.bluezoo.gumdrop.tls.ClientTlsConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -78,7 +78,8 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 public class MqttClient {
 
     private final ClientDial dial = ClientDial.withDefaultPort(1883);
-    private final ClientTlsConfig tls = new ClientTlsConfig();
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
 
     private MqttVersion version = MqttVersion.V3_1_1;
     private String clientId;
@@ -128,11 +129,11 @@ public class MqttClient {
     // ── Configuration ──
 
     public void setSecure(boolean secure) {
-        tls.secure(secure);
+        this.secure = secure;
     }
 
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        tls.clientCredentials(clientCredentials);
+        tls.serverCredentials(clientCredentials);
     }
 
     public void setTrustManager(X509TrustManager trustManager) {
@@ -261,7 +262,7 @@ public class MqttClient {
 
         transportFactory = new TcpTransportFactory();
         dial.requireTarget();
-        ClientConnect.prepareTls(tls, transportFactory);
+        ClientConnect.prepareTls(secure, tls, transportFactory);
         clientEndpoint = ClientConnect.openAndConnect(
                 dial, transportFactory, protocolHandler);
     }

@@ -13,8 +13,7 @@ not XML configuration files or reflective dependency injection.
 
 1. **Handlers, not server subclasses** — implement protocol handler interfaces
    (`HttpRequestHandler`, staged SMTP handlers, `DnsQueryHandler`, …). Do not
-   subclass `HttpServer`, `ServletServer`, or `WebdavServer` for application
-   logic.
+   subclass `HttpServer` for application logic.
 2. **One entry type per protocol** — e.g. `HttpServer` owns listeners and an
    **`HttpStreamHandler`** that binds a fresh **`HttpRequestHandler`** per
    stream. Servlet and WebDAV stacks attach as **`ServletRequestHandler`** and
@@ -65,15 +64,26 @@ maintains session state across many exchanges on one connection.
 | **Examples** | HTTP, DNS | SMTP, FTP, IMAP, POP3, … |
 | **Unit of work** | One request / one query | One control connection, many phases |
 | **Server compose with** | `HttpStreamHandler` | **`ServerSessionProvider`** |
-| **Client compose with** | Per-request / per-query API | **`ClientSessionProvider`** |
+| **Client compose with** | Per-request / per-query API | Bootstrap handler passed directly to `connect(handler)` |
 | **Per-event API** | `HttpRequestHandler`, `DnsQueryHandler` | Staged `{Stage}Handler` + `{Stage}State` |
 | **Per connection** | Fresh handler per stream (HTTP) or shared handler (DNS) | Fresh **session pipeline** per accept / dial |
 
-**Stateless protocols do not implement `ServerSessionProvider` or
-`ClientSessionProvider`.** HTTP binds one {@link HttpRequestHandler} per stream
-via {@link org.bluezoo.gumdrop.http.server.HttpStreamHandler}; routing and method
-policy belong in the handler (typically via delegation), not in the stream
-binder. Do not conflate this with session minting on SMTP/IMAP/FTP.
+**Stateless protocols do not implement `ServerSessionProvider`.** HTTP binds
+one {@link HttpRequestHandler} per stream via {@link
+org.bluezoo.gumdrop.http.server.HttpStreamHandler}; routing and method policy
+belong in the handler (typically via delegation), not in the stream binder.
+Do not conflate this with session minting on SMTP/IMAP/FTP.
+
+**Stateful clients have no `ClientSessionProvider` SPI.** The locus of
+control is different from the server side: a server must be configured with
+a reactive handler pipeline before it starts, since it reacts to arbitrarily
+many incoming connections whose timing it doesn't choose — that's what
+`ServerSessionProvider` is for. A client decides when and why to connect, so
+its bootstrap handler is supplied directly to `connect(handler)` at the point
+the caller decides to act, not pre-registered as a property beforehand.
+Auto-reconnect is an explicit non-goal of this API (it risks idempotency
+issues best left to application code) — there is no factory-of-handlers
+concept on the client side.
 
 ### Stateful server (SMTP reference)
 
@@ -109,7 +119,7 @@ the same everywhere; only the protocol-specific extras differ.
 |--------------|---------|
 | `host` / `host(InetAddress)` / `socketPath` | Target (hostname defers DNS until connect) |
 | `port` | TCP/UDP port (or `-1` for UNIX socket) |
-| **TLS** | {@link org.bluezoo.gumdrop.tls.ClientTlsConfig}: `secure`, `trustJvm()`, client identity, trust verification — merged with {@link org.bluezoo.gumdrop.client.ClientDefaults} until `Runtime` §C.4 |
+| **TLS** | Each client's own {@code secure(boolean)} (immediacy) plus {@link org.bluezoo.gumdrop.tls.TlsConfig} (`trustJvm()`, client identity, trust verification — material only) — material merged with {@link org.bluezoo.gumdrop.client.ClientDefaults} until `Runtime` §C.4 |
 | **DNS** | Hostname → address via {@link org.bluezoo.gumdrop.dns.client.DnsResolver}; optional protocol lookups (SMTP TLSA/DANE, HTTP/HTTPS/SRV records, …) |
 
 **Interim process defaults ({@link org.bluezoo.gumdrop.client.ClientDefaults}):** until `Runtime` §C.4
@@ -117,13 +127,15 @@ lands, use {@link org.bluezoo.gumdrop.client.ClientDefaults#setDefaultTls} for p
 TLS material and rely on {@link org.bluezoo.gumdrop.client.ClientDefaults#dnsResolver} /
 {@link org.bluezoo.gumdrop.dns.client.DnsResolver#forLoop} for DNS.
 
-**TLS gating:** without explicit {@link org.bluezoo.gumdrop.tls.ClientTlsConfig} material on
-the client *or* in {@link org.bluezoo.gumdrop.client.ClientDefaults}, connections are
-**plaintext only**. {@code secure(true)} alone does not enable TLS — callers must also
-supply trust or identity material (typically {@code .trustJvm()} for public CAs, or
-{@code trustManager}, keystore, PEM paths, {@code clientCredentials}, …). STARTTLS /
-STLS / AUTH TLS upgrades require the same material ({@link
-org.bluezoo.gumdrop.tls.ClientTlsConfig#allowsTlsUpgrade()}).
+**TLS gating:** {@link org.bluezoo.gumdrop.tls.TlsConfig} holds identity/trust
+*material only* — it has no opinion on immediacy. Each client's own {@code
+secure(boolean)} decides whether the connection starts encrypted immediately;
+without trust or identity material configured on the client *or* in {@link
+org.bluezoo.gumdrop.client.ClientDefaults} (typically {@code .trustJvm()} for
+public CAs, or {@code trustManager}, keystore, PEM paths, {@code
+clientCredentials}, …), a TLS handshake has nothing to work with regardless of
+{@code secure(...)}. STARTTLS / STLS / AUTH TLS upgrades need the same
+material.
 
 **DNS default chain:** per-client {@code dnsResolver(...)} wins; otherwise {@link
 org.bluezoo.gumdrop.dns.client.DnsResolver#forLoop} parses {@code resolv.conf}. When no
@@ -131,7 +143,7 @@ usable system nameservers remain, fallbacks are **Cloudflare → Quad9 → Googl
 DoQ → DoT → UDP preference — Google Public DNS has no DoQ).
 
 **Implementation status:** all outbound facades use {@link
-org.bluezoo.gumdrop.client.ClientDial} and/or {@link org.bluezoo.gumdrop.tls.ClientTlsConfig}
+org.bluezoo.gumdrop.client.ClientDial} and/or {@link org.bluezoo.gumdrop.tls.TlsConfig}
 internally (mail, FTP, HTTP, WebSocket, Redis, LDAP, MQTT). Fluent {@code host()} /
 {@code port()} / {@code socketPath()} / {@code dnsResolver()} / {@code trustJvm()} are
 exposed on the high-traffic clients; CONNECT-IP/UDP and gRPC still mirror the same TLS
@@ -146,32 +158,21 @@ Protocol-specific dial extras (not duplicated on mail clients):
 | **ConnectIpClient** / **ConnectUdpClient** | Proxy **host:port** dial (not the tunneled target); RFC 9484 / RFC 9298 capsule session after Extended CONNECT |
 | **GrpcClient** | No dial of its own — unary/streaming RPC over an already-configured {@link org.bluezoo.gumdrop.http.HttpClient} |
 
-### Session composition (stateful mail/FTP)
+### Session bootstrap (stateful mail/FTP)
 
-Stateful mail and FTP clients have a **second** axis — which handler runs after
-the transport is up:
-
-| Axis | Configure before `connect()` | Purpose |
-|------|------------------------------|---------|
-| **Dial** | see above | Open the transport |
-| **Session** | `{Protocol}ClientSessionProvider` or `sessionPerConnection(...)` | Bootstrap handler ({@link org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting}, …) |
-
-Session providers apply to SMTP, IMAP, POP3, and FTP only. **HTTP and WebSocket do
-not use `{Protocol}ClientSessionProvider`:** they are request- or handshake-oriented.
-Pass {@code connect(HttpClientHandler)}, {@code connect(path, WebSocketEventHandler)},
-or issue requests after connect — application logic lives in those handlers or per
-request, not in a mail-style session provider.
-
-Dial settings are required on every client. Session providers are required only
-when calling parameterless `connect()` on mail/FTP clients;
-`connect(RemoteGreeting)` remains valid for one-off use.
+Stateful mail and FTP clients take their bootstrap handler the same way
+stateless clients take theirs: supplied directly to `connect(handler)`, after
+dial settings (host/port/TLS) are configured. There is no separate
+pre-registered "session" property — the handler for one outbound session is
+whatever the caller passes to that one `connect` call, matching
+`HttpClient.connect(handler)` and `WebSocketClient.connect(path, handler)`
+exactly.
 
 ```java
 SmtpClient client = new SmtpClient()
         .host("smtp.example.com")
-        .port(587)
-        .sessionPerConnection(() -> new MyRemoteGreeting());
-client.connect();
+        .port(587);
+client.connect(new MyRemoteGreeting());
 
 HttpClient http = new HttpClient("api.example.com", 443)
         .secure(true)
@@ -192,21 +193,21 @@ ws.connect("/ws", eventHandler);
 
 | Layer | What it proves | Where it belongs today | Runtime default? |
 |-------|----------------|------------------------|------------------|
-| **1. Transport (TLS)** | Client certificate to the TLS stack (mTLS); which CAs to trust | {@link org.bluezoo.gumdrop.tls.ClientTlsConfig} on each facade (+ {@link org.bluezoo.gumdrop.client.ClientDefaults}) | **Yes** — target `Runtime.clientTls()` (name TBD): identity + trust when not set per client |
-| **2. Application (protocol)** | Username/password, tokens, SASL mechanisms after connect | Staged client handlers: SMTP `AUTH`, IMAP `LOGIN`, FTP `USER`/`PASS`, POP3 `USER`/`PASS`, MQTT connect credentials | **No** — protocol-specific; stays in `{Protocol}ClientSessionProvider` handlers |
+| **1. Transport (TLS)** | Client certificate to the TLS stack (mTLS); which CAs to trust | {@link org.bluezoo.gumdrop.tls.TlsConfig} on each facade (+ {@link org.bluezoo.gumdrop.client.ClientDefaults}) | **Yes** — target `Runtime.clientTls()` (name TBD): identity + trust when not set per client |
+| **2. Application (protocol)** | Username/password, tokens, SASL mechanisms after connect | Staged client handlers: SMTP `AUTH`, IMAP `LOGIN`, FTP `USER`/`PASS`, POP3 `USER`/`PASS`, MQTT connect credentials | **No** — protocol-specific; stays in the bootstrap handler passed to `connect` |
 | **3. HTTP application** | `Authorization` on requests (Basic, Digest, Bearer, …) | {@link org.bluezoo.gumdrop.http.HttpClient#credentials(String, String)} → {@code Authorization} / {@code Proxy-Authorization} on requests | Optional future: default credentials on `Runtime` for outbound HTTP only |
 
 **Naming note:** {@link org.bluezoo.gumdrop.tls.ServerCredentials} on a **client**
 means “this client's own TLS identity” (cert chain + key to present if the server
 requests mTLS), not server-side listener identity. All outbound facades funnel transport
-TLS through {@link org.bluezoo.gumdrop.tls.ClientTlsConfig}; facades still expose the
+TLS through {@link org.bluezoo.gumdrop.tls.TlsConfig}; facades still expose the
 same fluent setters ({@code secure}, {@code trustJvm}, {@code clientCredentials}, …)
 as thin delegates.
 
 #### WebSocket upgrade authentication (spec)
 
 WebSocket opens with an HTTP request (RFC 6455 upgrade, RFC 8441 Extended CONNECT, or
-RFC 9220 HTTP/3 CONNECT). **Transport TLS** ({@link org.bluezoo.gumdrop.tls.ClientTlsConfig})
+RFC 9220 HTTP/3 CONNECT). **Transport TLS** ({@link org.bluezoo.gumdrop.tls.TlsConfig})
 is orthogonal to **handshake HTTP credentials**:
 
 | Mechanism | Header / field | Layer | Status |
@@ -243,7 +244,7 @@ ConnectIpClient / ConnectUdpClient          GrpcClient
   IP/UDP endpoint. After connect, {@code ConnectIpTarget} / UDP target selectors choose
   what the proxy opens. Transport negotiation (HTTPS record, Alt-Svc, ALPN) mirrors
   {@link org.bluezoo.gumdrop.http.HttpClient}; TLS fields should converge on {@link
-  org.bluezoo.gumdrop.tls.ClientTlsConfig} the same way (not yet refactored).
+  org.bluezoo.gumdrop.tls.TlsConfig} the same way (not yet refactored).
 - **GrpcClient**: a **pure application adapter** over {@link org.bluezoo.gumdrop.http.HttpClient}.
   Configure dial + TLS on the {@code HttpClient} instance passed to {@code unaryCall} /
   streaming methods; {@code GrpcClient} only adds protobuf framing and {@code
@@ -282,16 +283,12 @@ FtpServer empty = FtpServer.compose()
 
 FtpClient ftp = new FtpClient()
         .host("ftp.example.com")
-        .port(21)
-        .sessionPerConnection(() -> new MyRemoteGreeting());
-ftp.connect();
+        .port(21);
+ftp.connect(new MyRemoteGreeting());
 ```
 
-{@link org.bluezoo.gumdrop.ftp.client.FtpClientSessionProvider} mirrors the server-side
-{@link org.bluezoo.gumdrop.ftp.server.FtpServerSessionProvider}; there is no stock client
-provider beyond {@link org.bluezoo.gumdrop.ftp.client.FtpClientSessionProviders#perSession(java.util.function.Supplier)} —
-applications implement {@link org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting}.
-Passing {@code connect(RemoteGreeting)} directly remains supported for one-off use.
+Applications implement {@link org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting}
+and pass it directly to {@link org.bluezoo.gumdrop.ftp.client.FtpClient#connect}.
 
 ---
 
@@ -471,7 +468,7 @@ streams on the same connection.
 
 ## Servlet container
 
-**`ServletRequestHandler`** on `HttpServer`, not a separate `ServletServer` type.
+**`ServletRequestHandler`** on `HttpServer`, not a separate server type.
 The handler is constructed with a **`Container`** that owns servlet lifecycle
 (worker pool, async timeouts, context init, authentication wiring):
 
@@ -488,9 +485,6 @@ HttpServer server = HttpServer.compose()
 `ServletRequestHandler` implements {@link HttpServerServiceHook}; composed
 servers call {@link Container#start()} / {@link Container#destroy()} automatically.
 
-`ServletServer` remains for XML configuration; new code should compose
-`ServletRequestHandler` on `HttpServer.compose()` as above.
-
 ---
 
 ## File server and WebDAV
@@ -504,9 +498,6 @@ HttpServer server = HttpServer.compose()
                 .build())
         .server();
 ```
-
-`WebdavServer` remains for XML configuration; new code should compose
-`WebDAVRequestHandler` on `HttpServer.compose()` as above.
 
 ---
 
@@ -604,22 +595,19 @@ Clients:
 ImapClient imap = new ImapClient()
         .host("imap.example.com")
         .port(993)
-        .secure(true)
-        .sessionPerConnection(() -> new MyRemoteGreeting());
-imap.connect();
+        .secure(true);
+imap.connect(new MyRemoteGreeting());
 
 Pop3Client pop3 = new Pop3Client()
         .host("pop.example.com")
         .port(995)
-        .secure(true)
-        .sessionPerConnection(() -> new MyRemoteGreeting());
-pop3.connect();
+        .secure(true);
+pop3.connect(new MyRemoteGreeting());
 
 FtpClient ftp = new FtpClient()
         .host("ftp.example.com")
-        .port(21)
-        .sessionPerConnection(() -> new MyRemoteGreeting());
-ftp.connect();
+        .port(21);
+ftp.connect(new MyRemoteGreeting());
 ```
 
 Legacy XML may still declare {@code DefaultIMAPServer} / {@code DefaultPOP3Server};
@@ -650,13 +638,16 @@ not a separate routing SPI.
 ## Mail, FTP, and other stateful protocols
 
 **SMTP** is the reference for session-based composition: {@code SmtpServer}
-implements {@code SmtpServerSessionProvider}; the client uses
-{@code SmtpClientSessionProvider} / staged {@code *ReplyHandler} interfaces.
+implements {@code SmtpServerSessionProvider}; the client passes a bootstrap
+{@code RemoteGreeting} handler directly to {@code SmtpClient#connect}, which
+drives staged {@code *ReplyHandler} interfaces from there.
 **IMAP** and **POP3** use the same pattern ({@code ImapServerSessionProvider},
-{@code Pop3ServerSessionProvider}, and matching client providers).
+{@code Pop3ServerSessionProvider} on the server; bootstrap handler passed to
+{@code connect} on the client).
 **FTP** uses {@code FtpServerSessionProvider} and staged {@code ftp.handler.*} on the
-server; the client uses {@code FtpClientSessionProvider} and staged
-{@code ftp.client.handler.*} interfaces (same pattern as SMTP/IMAP/POP3).
+server; the client passes a bootstrap handler to {@code FtpClient#connect} and
+drives staged {@code ftp.client.handler.*} interfaces from there (same pattern
+as SMTP/IMAP/POP3).
 
 ---
 
@@ -669,8 +660,6 @@ most protocols (`Http`, `Smtp`, `Dns`, …). **Exceptions:**
 |------|------|
 | **WebDAV** | Tradename — `WebDAVRequestHandler`, `WebDAV*`, not `Webdav*` |
 | **WebSocket** | One word — `WebSocketClient`, `WebSocketRequestHandler`, … |
-
-Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 
 ---
 
@@ -710,16 +699,16 @@ Interim types (`ServletServer`, `WebdavServer`) are **temporary**.
 | Fluent listeners (`SmtpListener`, `FtpListener`, …) | **Done** |
 | `Http2Listener.builder()`, `Http3Listener.builder()` | **Deprecated** |
 | `HttpStreamHandler`, default 404 | **Done** |
-| `HttpRequestHandlerFactory` (XML legacy) | **Deprecated** |
-| `ServletRequestHandler`, `WebDAVRequestHandler` | **Done** |
+| `HttpRequestHandlerFactory` (XML legacy) | **Removed** (use `HttpStreamHandler`) |
+| `ServletRequestHandler`, `WebDAVRequestHandler`, `WebSocketRequestHandler` | **Done** |
 | `DnsServer.compose()`, `DnsQueryHandler`, default empty answers | **Done** |
 | `SmtpServer.compose()`, fluent `SmtpClient`, `DnsResolver.server()` | **Done** |
 | `UpstreamRelayHandler`, `AuthoritativeZoneHandler`, `ZoneFile` | **Done** |
 | `SimpleRelaySessionProvider`, `LocalDeliverySessionProvider`, listener `.sessionProvider()` | **Done** |
 | `ImapServer.compose()`, `Pop3Server.compose()`, mailbox session providers | **Done** |
-| `ImapClient` / `Pop3Client` session providers | **Done** |
+| `ImapClient` / `Pop3Client` bootstrap handler passed to `connect(handler)` | **Done** |
 | `FtpServer.compose()`, `FtpServerSessionProvider`, staged `ftp.handler.*` | **Done** (server) |
-| `FtpClientSessionProvider`, `FtpClient` session composition | **Done** (client) |
-| `ClientDial`, `ClientTlsConfig`, fluent client dial across facades | **In progress** |
-| `ServerSessionProvider`, `ClientSessionProvider`; SMTP/IMAP/POP3 session SPI | **Done** |
+| `FtpClient` bootstrap handler passed to `connect(handler)` | **Done** (client) |
+| `ClientDial`, `TlsConfig`, fluent client dial across facades | **Done** |
+| `ServerSessionProvider`; SMTP/IMAP/POP3 server session SPI | **Done** |
 | `Runtime` replaces `Gumdrop.getInstance()` | Planned (§C.4) |

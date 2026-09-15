@@ -23,8 +23,6 @@ package org.bluezoo.gumdrop.http.server;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.server.HandlerFactoryStreamHandler;
-import org.bluezoo.gumdrop.http.server.HttpRequestHandlerFactory;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -175,17 +173,9 @@ public class StreamH2MethodPathTest {
         // auto-send a 404 -- these tests drive sendResponseHeaders/Body
         // manually afterward, like a real application handler would.
         @Override public HttpStreamHandler getStreamHandler() {
-            return new HandlerFactoryStreamHandler(new HttpRequestHandlerFactory() {
+            return new HttpStreamHandler() {
                 @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
-                    return new DefaultHttpRequestHandler();
-                }
-            });
-        }
-        @Override public HttpRequestHandlerFactory getHandlerFactory() {
-            return new HttpRequestHandlerFactory() {
-                @Override
-                public HttpRequestHandler createHandler(HttpResponseState state, Headers headers) {
+                public HttpRequestHandler openStream(HttpResponseState state) {
                     return new DefaultHttpRequestHandler();
                 }
             };
