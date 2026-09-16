@@ -101,7 +101,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
     }
 
     private final SocksListener listener;
-    private final org.bluezoo.gumdrop.socks.server.SocksServer service;
+    private final org.bluezoo.gumdrop.socks.server.SocksServer server;
 
     private Endpoint endpoint;
     private State state = State.VERSION_DETECT;
@@ -120,9 +120,9 @@ public class SocksProtocolHandler implements ProtocolHandler {
     private SocksBindRelay bindRelay;
 
     public SocksProtocolHandler(SocksListener listener,
-                                org.bluezoo.gumdrop.socks.server.SocksServer service) {
+                                org.bluezoo.gumdrop.socks.server.SocksServer server) {
         this.listener = listener;
-        this.service = service;
+        this.server = server;
     }
 
     public void setConnectHandler(ConnectHandler handler) {
@@ -735,7 +735,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
                 // reject the whole request to prevent filter bypass via
                 // multi-RR DNS responses.
                 for (InetAddress addr : addresses) {
-                    if (!service.isDestinationAllowed(addr)) {
+                    if (!server.isDestinationAllowed(addr)) {
                         SocksServerMetrics metrics = getServerMetrics();
                         if (metrics != null) {
                             metrics.destinationBlocked();
@@ -772,7 +772,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
 
     private void connectToDestination(SocksRequest request,
                                       InetAddress resolved) {
-        if (!service.isDestinationAllowed(resolved)) {
+        if (!server.isDestinationAllowed(resolved)) {
             SocksServerMetrics metrics = getServerMetrics();
             if (metrics != null) {
                 metrics.destinationBlocked();
@@ -791,7 +791,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
             return;
         }
 
-        if (!service.acquireRelay()) {
+        if (!server.acquireRelay()) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(L10N.getString("log.max_relays_reached"));
             }
@@ -818,9 +818,9 @@ public class SocksProtocolHandler implements ProtocolHandler {
             ClientEndpoint client = new ClientEndpoint(
                     factory, loop, resolved, request.getPort());
 
-            relay = new SocksRelay(endpoint, service,
+            relay = new SocksRelay(endpoint, server,
                     getServerMetrics(),
-                    service.getRelayIdleTimeoutMs());
+                    server.getRelayIdleTimeoutMs());
 
             client.connect(loop.getGumdrop(), new ProtocolHandler() {
                 @Override
@@ -857,7 +857,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
                         LOGGER.log(Level.FINE,
                                 L10N.getString("log.upstream_connect_failed"),
                                 cause);
-                        service.releaseRelay();
+                        server.releaseRelay();
                         if (request.getVersion() == SOCKS4_VERSION) {
                             sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
                         } else {
@@ -873,7 +873,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     L10N.getString("log.upstream_connect_failed"), e);
-            service.releaseRelay();
+            server.releaseRelay();
             if (request.getVersion() == SOCKS4_VERSION) {
                 sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
             } else {
@@ -927,7 +927,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
         // Apply destination policy to the DST.ADDR supplied in the BIND request.
         InetAddress dst = request.getAddress();
         if (dst != null && !dst.isAnyLocalAddress()
-                && !service.isDestinationAllowed(dst)) {
+                && !server.isDestinationAllowed(dst)) {
             SocksServerMetrics mtr = getServerMetrics();
             if (mtr != null) {
                 mtr.destinationBlocked();
@@ -941,7 +941,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
             return;
         }
 
-        if (!service.acquireRelay()) {
+        if (!server.acquireRelay()) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(L10N.getString("log.max_relays_reached"));
             }
@@ -964,8 +964,8 @@ public class SocksProtocolHandler implements ProtocolHandler {
         }
 
         try {
-            bindRelay = new SocksBindRelay(endpoint, service,
-                    service.getRelayIdleTimeoutMs(),
+            bindRelay = new SocksBindRelay(endpoint, server,
+                    server.getRelayIdleTimeoutMs(),
                     expectedPeer,
                     new SocksBindRelay.Callback() {
                         @Override
@@ -996,7 +996,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     L10N.getString("log.bind_failed"), e);
-            service.releaseRelay();
+            server.releaseRelay();
             if (request.getVersion() == SOCKS4_VERSION) {
                 sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
             } else {
@@ -1028,9 +1028,9 @@ public class SocksProtocolHandler implements ProtocolHandler {
             TcpTransportFactory factory = new TcpTransportFactory();
             factory.start();
 
-            relay = new SocksRelay(endpoint, service,
+            relay = new SocksRelay(endpoint, server,
                     getServerMetrics(),
-                    service.getRelayIdleTimeoutMs());
+                    server.getRelayIdleTimeoutMs());
 
             ProtocolHandler upstreamHandler = new ProtocolHandler() {
                 @Override
@@ -1117,7 +1117,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
                     endpoint.getRemoteAddress()));
         }
 
-        if (!service.acquireRelay()) {
+        if (!server.acquireRelay()) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(L10N.getString("log.max_relays_reached"));
             }
@@ -1137,8 +1137,8 @@ public class SocksProtocolHandler implements ProtocolHandler {
         }
 
         try {
-            udpRelay = new SocksUdpRelay(endpoint, service,
-                    mtr, service.getRelayIdleTimeoutMs(),
+            udpRelay = new SocksUdpRelay(endpoint, server,
+                    mtr, server.getRelayIdleTimeoutMs(),
                     expectedClient);
             InetSocketAddress bound = udpRelay.start();
 
@@ -1149,7 +1149,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
         } catch (IOException e) {
             LOGGER.log(Level.WARNING,
                     L10N.getString("log.upstream_connect_failed"), e);
-            service.releaseRelay();
+            server.releaseRelay();
             sendSOCKS5Reply(SOCKS5_REPLY_GENERAL_FAILURE, null);
             close();
         }

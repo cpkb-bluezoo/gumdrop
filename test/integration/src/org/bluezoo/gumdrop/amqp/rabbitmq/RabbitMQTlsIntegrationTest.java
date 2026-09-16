@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
@@ -77,6 +78,7 @@ public class RabbitMQTlsIntegrationTest {
     private static final long TIMEOUT_SECONDS = 10;
 
     private AmqpClientRecovery client;
+    private Gumdrop gumdrop;
 
     @Before
     public void checkBrokerReachable() {
@@ -85,12 +87,16 @@ public class RabbitMQTlsIntegrationTest {
                         + ", or CA cert file " + RabbitMQTestSupport.CA_CERT_FILE + " unreadable"
                         + " -- see RabbitMQTestSupport's class Javadoc",
                 RabbitMQTestSupport.isTlsReachable());
+        gumdrop = Gumdrop.boot();
     }
 
     @After
     public void tearDown() {
         if (client != null) {
             client.close();
+        }
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
         }
     }
 
@@ -147,7 +153,7 @@ public class RabbitMQTlsIntegrationTest {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -172,7 +178,7 @@ public class RabbitMQTlsIntegrationTest {
         CountDownLatch deliveredLatch = new CountDownLatch(1);
         AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {

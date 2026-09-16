@@ -353,7 +353,7 @@ public class DNSServiceTest {
         DnsServer service = new DnsServer();
         service.setUseSystemResolvers(false);
         service.setCacheEnabled(false);
-        listener.setService(service);
+        listener.setServer(service);
 
         DnsCookie clientCookie = new DnsCookie();
         byte[] cc = clientCookie.getClientCookie();
@@ -429,7 +429,7 @@ public class DNSServiceTest {
             // start() creates -- unlike testCookieOnlyResponseWithoutServerCookie,
             // this test's second query actually reaches proxyToUpstream.
             service.start(gumdrop);
-            listener.setService(service);
+            listener.setServer(service);
 
             DnsCookie clientCookie = new DnsCookie();
             byte[] cc = clientCookie.getClientCookie();

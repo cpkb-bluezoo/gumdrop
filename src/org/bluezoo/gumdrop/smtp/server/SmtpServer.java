@@ -258,7 +258,7 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
                 if (provider != null) {
                     ep.setSessionProvider(provider);
                 }
-                ep.setService(this);
+                ep.setServer(this);
             }
             startListener(gumdrop, listener);
         }

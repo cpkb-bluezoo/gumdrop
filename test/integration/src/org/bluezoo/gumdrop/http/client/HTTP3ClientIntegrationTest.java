@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.http.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.HttpStatus;
@@ -109,9 +110,8 @@ public class HTTP3ClientIntegrationTest {
         listener.setKeyFile(pemKey.getAbsolutePath());
         listener.setStreamHandler(new EchoHandlerFactory());
 
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
-        gumdrop.start();
 
         // QUIC binds a UDP socket, so there is no TCP port to poll for
         // readiness; allow a brief moment for the engine to bind.
@@ -298,7 +298,7 @@ public class HTTP3ClientIntegrationTest {
 
         final CountDownLatch connected = new CountDownLatch(1);
         final AtomicReference<Exception> error = new AtomicReference<>();
-        client.connect(new HttpClientHandler() {
+        client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
             }

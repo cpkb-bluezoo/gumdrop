@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.RecoveryPolicy;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
@@ -71,17 +72,22 @@ public class RabbitMQRecoveryIntegrationTest {
     private static final long TIMEOUT_SECONDS = 20;
 
     private AmqpClientRecovery client;
+    private Gumdrop gumdrop;
 
     @Before
     public void checkBrokerReachable() {
         Assume.assumeTrue(RabbitMQTestSupport.NOT_REACHABLE_MESSAGE,
                 RabbitMQTestSupport.isPlaintextReachable());
+        gumdrop = Gumdrop.boot();
     }
 
     @After
     public void tearDown() {
         if (client != null) {
             client.close();
+        }
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
         }
     }
 
@@ -136,7 +142,7 @@ public class RabbitMQRecoveryIntegrationTest {
             }
         };
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {

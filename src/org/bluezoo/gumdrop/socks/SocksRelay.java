@@ -60,7 +60,7 @@ class SocksRelay {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
     private final Endpoint clientEndpoint;
-    private final org.bluezoo.gumdrop.socks.server.SocksServer service;
+    private final org.bluezoo.gumdrop.socks.server.SocksServer server;
     private final SocksServerMetrics metrics;
     private final long idleTimeoutMs;
 
@@ -77,10 +77,10 @@ class SocksRelay {
     private boolean upstreamReadPaused;
 
     SocksRelay(Endpoint clientEndpoint,
-               org.bluezoo.gumdrop.socks.server.SocksServer service,
+               org.bluezoo.gumdrop.socks.server.SocksServer server,
                SocksServerMetrics metrics, long idleTimeoutMs) {
         this.clientEndpoint = clientEndpoint;
-        this.service = service;
+        this.server = server;
         this.metrics = metrics;
         this.idleTimeoutMs = idleTimeoutMs;
     }
@@ -209,7 +209,7 @@ class SocksRelay {
                 && upstreamEndpoint.isOpen()) {
             upstreamEndpoint.close();
         }
-        service.releaseRelay();
+        server.releaseRelay();
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(L10N.getString("log.relay_closed"));
         }

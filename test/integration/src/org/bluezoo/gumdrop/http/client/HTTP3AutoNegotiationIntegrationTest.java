@@ -28,8 +28,10 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TestCertificateManager;
+import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
 
@@ -101,9 +103,8 @@ public class HTTP3AutoNegotiationIntegrationTest {
         listener.setKeyFile(pemKey.getAbsolutePath());
         listener.setStreamHandler(new EchoHandlerFactory());
 
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
-        gumdrop.start();
 
         Thread.sleep(1000);
     }
@@ -134,7 +135,7 @@ public class HTTP3AutoNegotiationIntegrationTest {
 
             final CountDownLatch connected = new CountDownLatch(1);
             final AtomicReference<Exception> error = new AtomicReference<>();
-            client.connect(new HttpClientHandler() {
+            client.connect(gumdrop, new HttpClientHandler() {
                 @Override
                 public void onConnected(Endpoint endpoint) {
                 }

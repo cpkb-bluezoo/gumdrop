@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.ftp.vsftpd;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.ftp.client.FtpClient;
 import org.bluezoo.gumdrop.ftp.client.FtpException;
@@ -41,6 +42,7 @@ import org.bluezoo.gumdrop.ftp.client.handler.SimpleReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.StorReplyHandler;
 import org.bluezoo.gumdrop.ftp.client.handler.UserReplyHandler;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -78,10 +80,20 @@ public class VsftpdFtpIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
+    private Gumdrop gumdrop;
+
     @Before
     public void checkReachableAndClearHome() throws Exception {
         assumeTrue(VsftpdTestSupport.NOT_REACHABLE_MESSAGE, VsftpdTestSupport.isReachable());
         VsftpdTestSupport.clearHome();
+        gumdrop = Gumdrop.boot();
+    }
+
+    @After
+    public void tearDown() {
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
     }
 
     // ── Plaintext PASV STOR/RETR/NLST round trip ──
@@ -96,7 +108,7 @@ public class VsftpdFtpIntegrationTest {
         String fileName = "roundtrip-" + System.nanoTime() + ".txt";
         String content = "hello vsftpd, over plain PASV";
 
-        client.connect(new TestGreeting(doneLatch, error) {
+        client.connect(gumdrop, new TestGreeting(doneLatch, error) {
             @Override
             public void handleGreeting(ClientLoginState login, String message) {
                 login.user(VsftpdTestSupport.USERNAME, new TestUserHandler(doneLatch, error) {
@@ -134,7 +146,7 @@ public class VsftpdFtpIntegrationTest {
         AtomicReference<List<FtpFileEntry>> entriesRef = new AtomicReference<>();
         String fileName = "listed-" + System.nanoTime() + ".txt";
 
-        client.connect(new TestGreeting(doneLatch, error) {
+        client.connect(gumdrop, new TestGreeting(doneLatch, error) {
             @Override
             public void handleGreeting(ClientLoginState login, String message) {
                 login.user(VsftpdTestSupport.USERNAME, new TestUserHandler(doneLatch, error) {
@@ -186,7 +198,7 @@ public class VsftpdFtpIntegrationTest {
         String fileName = "tls-roundtrip-" + System.nanoTime() + ".txt";
         String content = "hello vsftpd, over AUTH TLS + PROT P";
 
-        client.connect(new TestGreeting(doneLatch, error) {
+        client.connect(gumdrop, new TestGreeting(doneLatch, error) {
             @Override
             public void handleGreeting(ClientLoginState login, String message) {
                 login.authTls(new AuthTlsReplyHandler() {

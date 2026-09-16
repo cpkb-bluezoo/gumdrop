@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.dtls;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.UdpEndpoint;
@@ -76,11 +77,7 @@ public class DTLSIntegrationTest {
         File truststore = new File(CERTS_DIR, "test-truststore.p12");
         assumeCertsExist(keystore, truststore);
 
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
     }
 
     private static void assumeCertsExist(File keystore, File truststore) {
@@ -98,6 +95,9 @@ public class DTLSIntegrationTest {
         }
         if (serverEndpoint != null) {
             serverEndpoint.close();
+        }
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
         }
     }
 
@@ -190,7 +190,7 @@ public class DTLSIntegrationTest {
         serverFactory.start();
 
         EchoHandler echoHandler = new EchoHandler();
-        serverEndpoint = serverFactory.createServerEndpoint(null, port, echoHandler);
+        serverEndpoint = serverFactory.createServerEndpoint(gumdrop, null, port, echoHandler);
 
         UdpTransportFactory clientFactory = new UdpTransportFactory();
         clientFactory.setSecure(true);
@@ -207,7 +207,7 @@ public class DTLSIntegrationTest {
         clientFactory.start();
 
         ClientHandler clientHandler = new ClientHandler();
-        clientEndpoint = clientFactory.connect(
+        clientEndpoint = clientFactory.connect(gumdrop,
                 InetAddress.getByName("::1"), port, clientHandler);
 
         assertTrue("DTLS handshake should complete and notify the client",
@@ -239,7 +239,7 @@ public class DTLSIntegrationTest {
         serverFactory.start();
 
         EchoHandler echoHandler = new EchoHandler();
-        serverEndpoint = serverFactory.createServerEndpoint(null, port, echoHandler);
+        serverEndpoint = serverFactory.createServerEndpoint(gumdrop, null, port, echoHandler);
 
         // See the comment in testHandshakeAndEchoRoundTrip: every secure
         // TransportFactory needs its own keystore even as a client-only user.
@@ -261,9 +261,9 @@ public class DTLSIntegrationTest {
 
         ClientHandler client1Handler = new ClientHandler();
         ClientHandler client2Handler = new ClientHandler();
-        clientEndpoint = clientFactory1.connect(InetAddress.getByName("::1"), port, client1Handler);
+        clientEndpoint = clientFactory1.connect(gumdrop, InetAddress.getByName("::1"), port, client1Handler);
         UdpEndpoint clientEndpoint2 = clientFactory2.connect(
-                InetAddress.getByName("::1"), port, client2Handler);
+                gumdrop, InetAddress.getByName("::1"), port, client2Handler);
         try {
             assertTrue(client1Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
             assertTrue(client2Handler.securityLatch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));

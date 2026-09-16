@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.quota;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.StorageExecutor;
 
 import org.junit.After;
@@ -57,16 +58,12 @@ public class RoleBasedQuotaManagerAsyncSaveTest {
     public void setUp() throws Exception {
         tempDir = Files.createTempDirectory("quota-async-save");
         StorageExecutor.workThreadObserver = null;
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("StorageExecutor must exist after Gumdrop.start()",
                 gumdrop.getStorageExecutor());
 
         manager = new RoleBasedQuotaManager();
+        manager.setGumdrop(gumdrop);
         manager.setStorageDir(tempDir.toString());
         manager.setDefaultQuota("1GB");
     }

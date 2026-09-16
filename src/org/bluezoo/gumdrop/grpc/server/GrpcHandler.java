@@ -59,7 +59,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private static final int GRPC_STATUS_UNIMPLEMENTED = 12;
 
     private final ProtoFile protoFile;
-    private final GrpcServer service;
+    private final GrpcServer server;
     private final String path;
     private final long maxMessageSize;
     private final String requestTypeName;
@@ -74,10 +74,10 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
     private boolean bodyStarted;
     private boolean bodyRejected;
 
-    GrpcHandler(ProtoFile protoFile, GrpcServer service, String path,
+    GrpcHandler(ProtoFile protoFile, GrpcServer server, String path,
             long maxMessageSize, RpcDescriptor rpc) {
         this.protoFile = protoFile;
-        this.service = service;
+        this.server = server;
         this.path = path;
         this.maxMessageSize = maxMessageSize;
         this.requestTypeName = rpc != null ? rpc.getInputTypeName() : null;
@@ -100,7 +100,7 @@ public class GrpcHandler extends DefaultHttpRequestHandler {
         }
 
         responseSender = new GrpcResponseSenderImpl(state);
-        requestHandler = service.startUnaryCall(path, responseSender);
+        requestHandler = server.startUnaryCall(path, responseSender);
         if (requestHandler == null) {
             responseSender.sendError(GRPC_STATUS_UNIMPLEMENTED, "Unimplemented");
             bodyRejected = true;

@@ -2277,7 +2277,8 @@ public final class SmtpProtocolHandler
      */
     private <T> void submitStorage(final Callable<T> op,
             final StorageExecutor.Callback<T> callback) {
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        SelectorLoop loop = (endpoint != null) ? endpoint.getSelectorLoop() : null;
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null || endpoint == null) {

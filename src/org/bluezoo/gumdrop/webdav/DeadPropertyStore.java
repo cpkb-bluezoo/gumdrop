@@ -101,6 +101,7 @@ public final class DeadPropertyStore {
     private Mode mode = Mode.AUTO;
     private boolean xattrSupported;
     private boolean xattrChecked;
+    private volatile Gumdrop gumdrop;
 
     public DeadPropertyStore() {
     }
@@ -112,6 +113,19 @@ public final class DeadPropertyStore {
      */
     public void setMode(Mode mode) {
         this.mode = mode;
+    }
+
+    /**
+     * Sets the runtime whose {@link StorageExecutor} backs blocking
+     * dead-property work. Called by {@link FileHandler} on every request
+     * (this store is shared across the connections a single {@code
+     * FileHandler} configuration serves, so it has no owning connection
+     * of its own to read this from).
+     *
+     * @param gumdrop the owning runtime, or null if none is running
+     */
+    void setGumdrop(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
     }
 
     /**
@@ -400,7 +414,7 @@ public final class DeadPropertyStore {
      */
     private void runOnStorage(final DeadPropertyCallback callback,
                               final Runnable work) {
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        Gumdrop gumdrop = this.gumdrop;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {

@@ -37,6 +37,7 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -513,7 +514,8 @@ public class LocalDeliveryHandler
      */
     private <T> void offload(Callable<T> op,
             final StorageExecutor.Callback<T> callback) {
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        SelectorLoop loop = (endpoint != null) ? endpoint.getSelectorLoop() : null;
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null || endpoint == null) {

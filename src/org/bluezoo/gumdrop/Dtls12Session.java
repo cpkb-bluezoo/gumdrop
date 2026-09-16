@@ -357,7 +357,9 @@ final class Dtls12Session implements TlsRecordSink {
     }
 
     private static HandshakeAsyncOffload handshakeOffload(final UdpEndpoint endpoint) {
-        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint));
+        SelectorLoop loop = endpoint.getSelectorLoop();
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
+        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint), gumdrop);
     }
 
     private static Executor loopExecutor(final UdpEndpoint endpoint) {

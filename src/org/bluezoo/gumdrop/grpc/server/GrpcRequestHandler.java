@@ -26,12 +26,12 @@ public class GrpcRequestHandler implements HttpStreamHandler {
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
 
     private final ProtoFile protoFile;
-    private final GrpcServer service;
+    private final GrpcServer server;
     private long maxMessageSize = GrpcFraming.DEFAULT_MAX_MESSAGE_SIZE;
 
-    public GrpcRequestHandler(ProtoFile protoFile, GrpcServer service) {
+    public GrpcRequestHandler(ProtoFile protoFile, GrpcServer server) {
         this.protoFile = protoFile;
-        this.service = service;
+        this.server = server;
     }
 
     public long getMaxMessageSize() {
@@ -122,7 +122,7 @@ public class GrpcRequestHandler implements HttpStreamHandler {
                 return null;
             }
 
-            return new GrpcHandler(protoFile, service, path, maxMessageSize,
+            return new GrpcHandler(protoFile, server, path, maxMessageSize,
                     protoFile.getRpcByPath(path));
         }
     }

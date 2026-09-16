@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
@@ -132,10 +133,8 @@ public class MockOTLPCollector {
             server.setSecure(true);
         }
 
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(server);
-        gumdrop.start();
 
         // Wait for server to be ready
         waitForReady();

@@ -444,9 +444,11 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
             key.cancel();
         }
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        if (gumdrop != null) {
-            gumdrop.removeChannelHandler(this);
+        if (selectorLoop != null) {
+            Gumdrop gumdrop = selectorLoop.getGumdrop();
+            if (gumdrop != null) {
+                gumdrop.removeChannelHandler(this);
+            }
         }
 
         if (netIn != null) {
@@ -590,7 +592,7 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
 
     @Override
     public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
-        return Gumdrop.getInstance().scheduleTimer(this, delayMs, callback);
+        return selectorLoop.getTimer().schedule(this, delayMs, callback);
     }
 
     @Override

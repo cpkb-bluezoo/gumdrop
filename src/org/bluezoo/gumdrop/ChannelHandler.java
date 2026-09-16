@@ -105,7 +105,7 @@ public interface ChannelHandler {
      * @return a handle that can be used to cancel the timer
      */
     default TimerHandle scheduleTimer(long delayMs, Runnable callback) {
-        return Gumdrop.getInstance().scheduleTimer(this, delayMs, callback);
+        return getSelectorLoop().getTimer().schedule(this, delayMs, callback);
     }
 
 }

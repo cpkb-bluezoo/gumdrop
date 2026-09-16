@@ -38,6 +38,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.imap.handler.ClientConnected;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.quota.QuotaManager;
+import org.bluezoo.gumdrop.quota.RoleBasedQuotaManager;
 
 /**
  * IMAP protocol server — listeners, configuration, and session composition.
@@ -296,6 +297,10 @@ public class ImapServer implements Server, ImapServerSessionProvider {
     public void start(Gumdrop gumdrop) {
         initService();
 
+        if (quotaManager instanceof RoleBasedQuotaManager) {
+            ((RoleBasedQuotaManager) quotaManager).setGumdrop(gumdrop);
+        }
+
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
             if (listener instanceof ImapListener) {
@@ -305,7 +310,7 @@ public class ImapServer implements Server, ImapServerSessionProvider {
                 if (provider != null) {
                     ep.setSessionProvider(provider);
                 }
-                ep.setService(this);
+                ep.setServer(this);
             }
             startListener(gumdrop, listener);
         }

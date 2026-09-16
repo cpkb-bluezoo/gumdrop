@@ -38,13 +38,13 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *
  * <p>Handler creation follows a dual-source pattern:
  * <ol>
- *   <li>When used within an {@link FtpServer}, the service's
+ *   <li>When used within an {@link FtpServer}, the server's
  *       {@code createHandler()} method is called to create handlers.
  *       This is the normal server deployment path.</li>
- *   <li>When used standalone (no service), a
+ *   <li>When used standalone (no server), a
  *       {@link FtpConnectionHandlerFactory} can be set directly via
  *       {@link #setHandlerFactory}. This enables standalone FTP data
- *       servers or embedded usage without a full service lifecycle.</li>
+ *       servers or embedded usage without a full server lifecycle.</li>
  * </ol>
  *
  * <h2>Configuration</h2>
@@ -99,8 +99,8 @@ public class FtpListener extends TcpListener {
     private int pasvMaxPort = 0;
     private Realm realm;
 
-    // Back-reference to the owning service (null when used standalone)
-    private org.bluezoo.gumdrop.ftp.server.FtpServer service;
+    // Back-reference to the owning server (null when used standalone)
+    private org.bluezoo.gumdrop.ftp.server.FtpServer server;
 
     // Metrics for this endpoint (null if telemetry is not enabled)
     private FtpServerMetrics metrics;
@@ -331,22 +331,22 @@ public class FtpListener extends TcpListener {
     }
 
     /**
-     * Sets the owning service. Called by {@link FtpServer} during
+     * Sets the owning server. Called by {@link FtpServer} during
      * wiring.
      *
-     * @param service the owning service
+     * @param server the owning server
      */
-    public void setService(org.bluezoo.gumdrop.ftp.server.FtpServer service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.ftp.server.FtpServer server) {
+        this.server = server;
     }
 
     /**
-     * Returns the owning service, or null if used standalone.
+     * Returns the owning server, or null if used standalone.
      *
-     * @return the owning service
+     * @return the owning server
      */
-    public org.bluezoo.gumdrop.ftp.server.FtpServer getService() {
-        return service;
+    public org.bluezoo.gumdrop.ftp.server.FtpServer getServer() {
+        return server;
     }
 
     public void setSessionProvider(
@@ -379,13 +379,14 @@ public class FtpListener extends TcpListener {
                 }
             }
         }
-        if (service != null) {
+        org.bluezoo.gumdrop.ftp.server.FtpServer srv = getServer();
+        if (srv != null) {
             try {
-                return service.openSession(this);
+                return srv.openSession(this);
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create FTP handler from service", e);
+                            "Failed to create FTP handler from server", e);
                 }
             }
         }
@@ -405,16 +406,17 @@ public class FtpListener extends TcpListener {
         if (session != null) {
             return new FtpProtocolHandler(this, session);
         }
-        if (service != null) {
+        org.bluezoo.gumdrop.ftp.server.FtpServer srv = getServer();
+        if (srv != null) {
             try {
-                legacy = service.createHandler(this);
+                legacy = srv.createHandler(this);
                 if (legacy != null) {
                     return new FtpProtocolHandler(this, legacy);
                 }
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create FTP handler from service,"
+                            "Failed to create FTP handler from server,"
                                     + " using default behaviour", e);
                 }
             }

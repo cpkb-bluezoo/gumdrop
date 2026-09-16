@@ -227,12 +227,19 @@ public final class TlsConfig {
         return trustManager;
     }
 
-    /** True when this config carries any identity or custom trust material. */
+    /**
+     * True when this config carries any identity or custom trust material,
+     * or has explicitly opted out of peer verification -- {@code
+     * verifyPeer} defaults to {@code true}, so {@code false} here can only
+     * come from an explicit {@link #verifyPeer} call and is itself a
+     * deliberate choice {@link #effective} must not silently discard.
+     */
     private boolean hasMaterial() {
         return serverCredentials != null
                 || (certFile != null && keyFile != null)
                 || (keystoreFile != null && keystorePass != null)
-                || trustManager != null;
+                || trustManager != null
+                || !verifyPeer;
     }
 
     /**

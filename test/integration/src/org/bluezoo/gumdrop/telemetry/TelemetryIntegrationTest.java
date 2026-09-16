@@ -28,6 +28,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.smtp.SmtpListener;
@@ -125,12 +126,10 @@ public class TelemetryIntegrationTest {
         smtpServer.setAddresses("::1");
         smtpServer.setTelemetryConfig(telemetryConfig);
 
-        // Start both servers using singleton with lifecycle management
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
+        // Start both servers using their own dedicated runtime
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(httpServer);
         gumdrop.addListener(smtpServer);
-        gumdrop.start();
 
         // Wait for servers to be ready
         waitForPort(HTTP_PORT);

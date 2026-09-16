@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp.postfix;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.SmtpClient;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelope;
@@ -37,6 +38,7 @@ import org.bluezoo.gumdrop.smtp.client.handler.MessageReplyHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.RcptToReplyHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.StarttlsReplyHandler;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -82,10 +84,20 @@ public class PostfixSmtpIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
+    private Gumdrop gumdrop;
+
     @Before
     public void checkReachableAndClearMailbox() throws Exception {
         assumeTrue(PostfixTestSupport.NOT_REACHABLE_MESSAGE, PostfixTestSupport.isReachable());
         PostfixTestSupport.clearMailbox();
+        gumdrop = Gumdrop.boot();
+    }
+
+    @After
+    public void tearDown() {
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
     }
 
     private EmailAddress email(String address) {
@@ -112,7 +124,7 @@ public class PostfixSmtpIntegrationTest {
         String subject = "gumdrop-postfix-simple-" + System.nanoTime();
         String body = "Subject: " + subject + "\r\n\r\nplain body over BDAT chunking\r\n";
 
-        client.connect(new RemoteGreeting() {
+        client.connect(gumdrop, new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("gumdrop-test", new EhloReplyHandler() {
@@ -280,7 +292,7 @@ public class PostfixSmtpIntegrationTest {
         String fullMessage = bodyBuilder.toString();
         byte[] messageBytes = fullMessage.getBytes(StandardCharsets.US_ASCII);
 
-        client.connect(new RemoteGreeting() {
+        client.connect(gumdrop, new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("gumdrop-test", new EhloReplyHandler() {
@@ -425,7 +437,7 @@ public class PostfixSmtpIntegrationTest {
         String subject = "gumdrop-postfix-tls-" + System.nanoTime();
         String body = "Subject: " + subject + "\r\n\r\ndelivered over starttls\r\n";
 
-        client.connect(new RemoteGreeting() {
+        client.connect(gumdrop, new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
                 hello.ehlo("gumdrop-test", new EhloReplyHandler() {

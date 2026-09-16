@@ -2794,7 +2794,8 @@ public final class Pop3ProtocolHandler
         mailbox = null;
         store = null;
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        SelectorLoop loop = (endpoint != null) ? endpoint.getSelectorLoop() : null;
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {
@@ -2933,7 +2934,8 @@ public final class Pop3ProtocolHandler
             return;
         }
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        SelectorLoop loop = (endpoint != null) ? endpoint.getSelectorLoop() : null;
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {
@@ -3069,7 +3071,8 @@ public final class Pop3ProtocolHandler
     private <T> void submitStorage(final Callable<T> op,
             final StorageExecutor.Callback<T> callback,
             final boolean pauseReads) {
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        SelectorLoop loop = (endpoint != null) ? endpoint.getSelectorLoop() : null;
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null || endpoint == null) {

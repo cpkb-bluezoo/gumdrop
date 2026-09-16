@@ -79,6 +79,7 @@ public final class RecordingStubEndpoint implements Endpoint {
     private final List<LineWaiter> waiters = new ArrayList<LineWaiter>();
     private boolean open = true;
     private boolean secure;
+    private SelectorLoop selectorLoop;
 
     public RecordingStubEndpoint() {
         this(0);
@@ -90,6 +91,21 @@ public final class RecordingStubEndpoint implements Endpoint {
 
     public void setSecure(boolean secure) {
         this.secure = secure;
+    }
+
+    /**
+     * Wires this stub to a real {@link SelectorLoop} (and, through it, a
+     * live {@link org.bluezoo.gumdrop.Gumdrop}) so protocol handlers using
+     * this endpoint reach the test's own runtime -- e.g. {@code
+     * StorageExecutor}/{@code CryptoExecutor} offload -- instead of having
+     * nothing to reach at all. Tests that don't care about that offload
+     * never call this and get {@code null}, which is the correct
+     * "no runtime available" state.
+     *
+     * @param selectorLoop the loop backing this endpoint's owning runtime
+     */
+    public void setSelectorLoop(SelectorLoop selectorLoop) {
+        this.selectorLoop = selectorLoop;
     }
 
     @Override
@@ -213,7 +229,7 @@ public final class RecordingStubEndpoint implements Endpoint {
     @Override public boolean isSecure() { return secure; }
     @Override public SecurityInfo getSecurityInfo() { return null; }
     @Override public void startTLS() { }
-    @Override public SelectorLoop getSelectorLoop() { return null; }
+    @Override public SelectorLoop getSelectorLoop() { return selectorLoop; }
     @Override public void execute(Runnable task) { task.run(); }
     @Override public TimerHandle scheduleTimer(long delayMs, Runnable cb) {
         return new TimerHandle() {

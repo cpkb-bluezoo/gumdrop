@@ -383,7 +383,9 @@ final class TlsRecordState implements TlsRecordSink {
     }
 
     private static HandshakeAsyncOffload handshakeOffload(final TcpEndpoint endpoint) {
-        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint));
+        SelectorLoop loop = endpoint.getSelectorLoop();
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
+        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint), gumdrop);
     }
 
     private static Executor loopExecutor(final TcpEndpoint endpoint) {

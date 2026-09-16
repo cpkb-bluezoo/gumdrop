@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.webdav;
 import org.bluezoo.gonzalez.XMLWriter;
 import org.bluezoo.util.ByteArrays;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
@@ -170,6 +171,10 @@ class FileHandler extends DefaultHttpRequestHandler {
 
     @Override
     public void headers(HttpResponseState state, Headers headers) {
+        if (deadPropertyStore != null) {
+            SelectorLoop loop = state.getSelectorLoop();
+            deadPropertyStore.setGumdrop((loop != null) ? loop.getGumdrop() : null);
+        }
         // Extract request info from headers
         this.requestHeaders = headers;
         method = headers.getMethod();
@@ -395,7 +400,8 @@ class FileHandler extends DefaultHttpRequestHandler {
      */
     private <T> void offload(final HttpResponseState state,
             final Callable<T> op, final StorageExecutor.Callback<T> callback) {
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        SelectorLoop loop = state.getSelectorLoop();
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {

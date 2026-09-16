@@ -77,7 +77,7 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
     }
 
     private final Endpoint controlEndpoint;
-    private final org.bluezoo.gumdrop.socks.server.SocksServer service;
+    private final org.bluezoo.gumdrop.socks.server.SocksServer server;
     private final long idleTimeoutMs;
     private final InetAddress expectedPeerAddress;
     private final Callback callback;
@@ -90,7 +90,7 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
      * Creates a new BIND relay.
      *
      * @param controlEndpoint the TCP control connection endpoint
-     * @param service the SOCKS service
+     * @param server the SOCKS server
      * @param idleTimeoutMs idle timeout for waiting for the
      *        incoming connection
      * @param expectedPeerAddress expected peer IP from the BIND
@@ -98,12 +98,12 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
      * @param callback the protocol handler callback
      */
     SocksBindRelay(Endpoint controlEndpoint,
-                   org.bluezoo.gumdrop.socks.server.SocksServer service,
+                   org.bluezoo.gumdrop.socks.server.SocksServer server,
                    long idleTimeoutMs,
                    InetAddress expectedPeerAddress,
                    Callback callback) {
         this.controlEndpoint = controlEndpoint;
-        this.service = service;
+        this.server = server;
         this.idleTimeoutMs = idleTimeoutMs;
         this.expectedPeerAddress = expectedPeerAddress;
         this.callback = callback;
@@ -197,7 +197,7 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
 
                 // Apply destination policy to the connecting peer regardless
                 // of whether an expected peer address was specified.
-                if (!service.isDestinationAllowed(peerAddress.getAddress())) {
+                if (!server.isDestinationAllowed(peerAddress.getAddress())) {
                     if (LOGGER.isLoggable(Level.FINE)) {
                         LOGGER.fine(MessageFormat.format(
                                 L10N.getString("log.bind_peer_rejected"),
@@ -239,7 +239,7 @@ class SocksBindRelay implements AcceptSelectorLoop.RawAcceptHandler {
         closed = true;
         cancelIdleTimer();
         closeServerChannel();
-        service.releaseRelay();
+        server.releaseRelay();
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(L10N.getString("log.bind_closed"));

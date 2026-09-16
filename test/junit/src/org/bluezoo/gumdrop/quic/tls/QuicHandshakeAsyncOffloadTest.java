@@ -32,6 +32,8 @@ import org.junit.Test;
 import org.bluezoo.gumdrop.tls.SessionTicket;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 
 import static org.junit.Assert.assertFalse;
@@ -83,12 +85,7 @@ public class QuicHandshakeAsyncOffloadTest {
 
     @Before
     public void setUp() {
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
     }
 
     @After
@@ -100,7 +97,7 @@ public class QuicHandshakeAsyncOffloadTest {
 
     @Test(timeout = 10000)
     public void testIsBusyStaysTrueWhileCompletionHandlerStartsAFollowUpBatch() throws Exception {
-        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener());
+        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener(gumdrop.nextWorkerLoop()));
         final CountDownLatch completionRan = new CountDownLatch(1);
         final AtomicBoolean busyWhenFollowUpDecided = new AtomicBoolean();
 
@@ -141,7 +138,7 @@ public class QuicHandshakeAsyncOffloadTest {
 
     @Test(timeout = 10000)
     public void testReceiveCryptoDataCannotRaceCompletionHandlerDrain() throws Exception {
-        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener());
+        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener(gumdrop.nextWorkerLoop()));
         final CountDownLatch onBatchDoneEntered = new CountDownLatch(1);
         final CountDownLatch contenderStarted = new CountDownLatch(1);
         final CountDownLatch onBatchDoneMayFinish = new CountDownLatch(1);
@@ -215,7 +212,7 @@ public class QuicHandshakeAsyncOffloadTest {
 
     @Test(timeout = 10000)
     public void testIsBusyClearsOnceNoFollowUpBatchIsSubmitted() throws Exception {
-        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener());
+        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener(gumdrop.nextWorkerLoop()));
         final CountDownLatch completionRan = new CountDownLatch(1);
 
         QuicHandshakeAsyncOffload.BatchProcessor noopBatch = new QuicHandshakeAsyncOffload.BatchProcessor() {
@@ -238,6 +235,12 @@ public class QuicHandshakeAsyncOffloadTest {
     }
 
     private static final class NoopListener implements QuicTlsEngineListener {
+        private final SelectorLoop selectorLoop;
+
+        NoopListener(SelectorLoop selectorLoop) {
+            this.selectorLoop = selectorLoop;
+        }
+
         @Override
         public void cryptoDataReady(EncryptionLevel level, long offset, byte[] data) {
         }
@@ -273,6 +276,11 @@ public class QuicHandshakeAsyncOffloadTest {
             // runs inline right there -- exactly the shape that exposes
             // the race this test targets.
             task.run();
+        }
+
+        @Override
+        public SelectorLoop getSelectorLoop() {
+            return selectorLoop;
         }
 
         @Override

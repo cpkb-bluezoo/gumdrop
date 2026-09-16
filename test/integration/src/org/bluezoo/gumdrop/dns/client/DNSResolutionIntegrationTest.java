@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.dns.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
@@ -63,15 +64,16 @@ public class DNSResolutionIntegrationTest {
     private static final int TEST_PORT = 443;
     private static final int TIMEOUT_SECONDS = 15;
 
+    private Gumdrop gumdrop;
+
     @Before
     public void setUp() {
-        System.setProperty("gumdrop.workers", "2");
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
     }
 
     @After
     public void tearDown() {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        if (gumdrop.isStarted()) {
+        if (gumdrop != null && gumdrop.isStarted()) {
             gumdrop.shutdown();
         }
     }
@@ -92,7 +94,7 @@ public class DNSResolutionIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        client.connect(new HttpClientHandler() {
+        client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 readyLatch.countDown();

@@ -30,7 +30,7 @@ public class SOCKSProtocolHandlerTest {
     public void setUp() {
         service = new DefaultSOCKSServer();
         listener = new SocksListener();
-        listener.setService(service);
+        listener.setServer(service);
         handler = service.createProtocolHandler(listener);
         endpoint = new StubEndpoint();
         handler.connected(endpoint);

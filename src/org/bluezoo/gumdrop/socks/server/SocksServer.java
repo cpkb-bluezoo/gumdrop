@@ -390,7 +390,7 @@ public abstract class SocksServer implements Server {
 
         for (SocksListener ep : listeners) {
             wireListener(ep);
-            ep.setService(this);
+            ep.setServer(this);
             try {
                 ep.start(gumdrop);
             } catch (Exception e) {

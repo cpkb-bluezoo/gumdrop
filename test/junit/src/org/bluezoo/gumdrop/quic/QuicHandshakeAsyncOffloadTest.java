@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.quic;
 
 import org.bluezoo.gumdrop.CryptoExecutor;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -159,12 +160,7 @@ public class QuicHandshakeAsyncOffloadTest {
     @Before
     public void setUp() {
         CryptoExecutor.workThreadObserver = null;
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("CryptoExecutor must be available once Gumdrop has started",
                 gumdrop.getCryptoExecutor());
     }
@@ -191,9 +187,11 @@ public class QuicHandshakeAsyncOffloadTest {
         byte[] clientScid = randomConnectionId();
         byte[] serverScid = randomConnectionId();
 
-        QuicTestPeer client = QuicTestPeer.newClient(clientInitialDcid, defaultTransportParameters(clientScid));
+        QuicTestPeer client = QuicTestPeer.newClient(clientInitialDcid, defaultTransportParameters(clientScid),
+                gumdrop.nextWorkerLoop());
         QuicTestPeer server = QuicTestPeer.newServer(
-                clientInitialDcid, defaultTransportParameters(serverScid), serverCredentials);
+                clientInitialDcid, defaultTransportParameters(serverScid), serverCredentials,
+                gumdrop.nextWorkerLoop());
 
         QuicTestPeer.completeHandshake(client, server, clientInitialDcid, clientScid, serverScid, SERVER_NAME);
 

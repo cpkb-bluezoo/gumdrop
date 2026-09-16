@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.pop3;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -79,12 +80,7 @@ public class POP3ScramCredentialsOffloadTest {
     public void setUp() throws Exception {
         tempRoot = Files.createTempDirectory("gumdrop-pop3-scram-offload");
         StorageExecutor.workThreadObserver = null;
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("StorageExecutor must exist after Gumdrop.start()",
                 gumdrop.getStorageExecutor());
     }
@@ -112,6 +108,7 @@ public class POP3ScramCredentialsOffloadTest {
 
         Pop3ProtocolHandler handler = new Pop3ProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
         handler.connected(endpoint);
 
         final List<String> observedThreads = Collections.synchronizedList(new ArrayList<String>());

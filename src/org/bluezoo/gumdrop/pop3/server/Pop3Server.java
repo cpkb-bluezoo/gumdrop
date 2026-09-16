@@ -285,7 +285,7 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
                 if (provider != null) {
                     ep.setSessionProvider(provider);
                 }
-                ep.setService(this);
+                ep.setServer(this);
             }
             startListener(gumdrop, listener);
         }

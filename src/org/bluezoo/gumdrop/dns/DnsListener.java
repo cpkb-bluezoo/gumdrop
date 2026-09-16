@@ -58,7 +58,7 @@ public class DnsListener extends UdpListener {
     private static final int DEFAULT_PORT = 53;
 
     private int port = DEFAULT_PORT;
-    private org.bluezoo.gumdrop.dns.server.DnsServer service;
+    private org.bluezoo.gumdrop.dns.server.DnsServer server;
 
     @Override
     public int getPort() {
@@ -80,22 +80,22 @@ public class DnsListener extends UdpListener {
     }
 
     /**
-     * Sets the owning DNS service. Called by {@link DnsServer}
+     * Sets the owning DNS server. Called by {@link DnsServer}
      * during wiring.
      *
-     * @param service the owning service
+     * @param server the owning server
      */
-    public void setService(org.bluezoo.gumdrop.dns.server.DnsServer service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+        this.server = server;
     }
 
     /**
-     * Returns the owning service, or null if used standalone.
+     * Returns the owning server, or null if used standalone.
      *
-     * @return the owning service
+     * @return the owning server
      */
-    public org.bluezoo.gumdrop.dns.server.DnsServer getService() {
-        return service;
+    public org.bluezoo.gumdrop.dns.server.DnsServer getServer() {
+        return server;
     }
 
     /**
@@ -138,7 +138,7 @@ public class DnsListener extends UdpListener {
 
         @Override
         public void receive(ByteBuffer data) {
-            if (service == null) {
+            if (server == null) {
                 LOGGER.warning(DnsMessage.L10N.getString("warn.dns_no_service_set"));
                 return;
             }
@@ -149,7 +149,7 @@ public class DnsListener extends UdpListener {
                 return;
             }
             connectionOpened(source);
-            service.handleDatagram(DnsListener.this, data, source,
+            server.handleDatagram(DnsListener.this, data, source,
                     new Runnable() {
                         @Override
                         public void run() {

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.RecoveryPolicy;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
@@ -55,17 +56,22 @@ public class RabbitMQAuthMechanismIntegrationTest {
     private static final long TIMEOUT_SECONDS = 10;
 
     private AmqpClientRecovery client;
+    private Gumdrop gumdrop;
 
     @Before
     public void checkBrokerReachable() {
         Assume.assumeTrue(RabbitMQTestSupport.NOT_REACHABLE_MESSAGE,
                 RabbitMQTestSupport.isPlaintextReachable());
+        gumdrop = Gumdrop.boot();
     }
 
     @After
     public void tearDown() {
         if (client != null) {
             client.close();
+        }
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
         }
     }
 
@@ -83,7 +89,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -109,7 +115,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -140,7 +146,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
                 failedLatch.countDown();
             }
         });
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connectedLatch.countDown();
@@ -171,7 +177,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
                 failedLatch.countDown();
             }
         });
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 fail("should never reach onFirstConnect requesting EXTERNAL over a plain listener");

@@ -27,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -90,9 +91,8 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
         // No setSecure/keystore at all -- plain cleartext TCP.
         listener.setStreamHandler(new H2cEchoWebSocketHandlerFactory());
 
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
-        gumdrop.start();
 
         Thread.sleep(500);
     }
@@ -126,7 +126,7 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
         client.setH2WithPriorKnowledge(true);
 
         try {
-            client.connect("/ws", new DefaultWebSocketEventHandler() {
+            client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
                 @Override
                 public void opened(WebSocketSession session) {
                     sessionRef.set(session);

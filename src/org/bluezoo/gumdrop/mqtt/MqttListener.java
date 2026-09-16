@@ -56,7 +56,7 @@ public class MqttListener extends TcpListener {
     private int defaultKeepAlive = 60;
     private Realm realm;
 
-    private org.bluezoo.gumdrop.mqtt.server.MqttServer service;
+    private org.bluezoo.gumdrop.mqtt.server.MqttServer server;
     private MqttServerMetrics metrics;
 
     @Override
@@ -153,25 +153,25 @@ public class MqttListener extends TcpListener {
         this.realm = realm;
     }
 
-    public org.bluezoo.gumdrop.mqtt.server.MqttServer getService() {
-        return service;
+    public org.bluezoo.gumdrop.mqtt.server.MqttServer getServer() {
+        return server;
     }
 
-    public void setService(org.bluezoo.gumdrop.mqtt.server.MqttServer service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.mqtt.server.MqttServer server) {
+        this.server = server;
     }
 
     @Override
     protected ProtocolHandler createHandler() {
-        if (service != null) {
+        if (server != null) {
             try {
-                return service.createProtocolHandler(this);
+                return server.createProtocolHandler(this);
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING,
                         L10N.getString("log.handler_create_failed"), e);
             }
         }
-        // Should not happen if service is correctly configured
+        // Should not happen if server is correctly configured
         throw new IllegalStateException("MqttListener requires an MqttServer");
     }
 }

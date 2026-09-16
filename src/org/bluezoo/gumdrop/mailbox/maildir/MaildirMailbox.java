@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.mailbox.maildir;
 
-import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageWriter;
 import org.bluezoo.gumdrop.mailbox.Flag;
@@ -233,8 +232,7 @@ public final class MaildirMailbox implements Mailbox {
 
         gatePath = maildirPath.toRealPath();
         gate = acquireGateRef(gatePath);
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        MailboxIndexer indexer = (gumdrop != null) ? MailboxRuntime.getIndexer() : null;
+        MailboxIndexer indexer = MailboxRuntime.getIndexer();
         if (indexer != null && indexer.isCurrentThread() && gate.refCount > 1) {
             // Background warming job (issue #163): a live session (or
             // another warming attempt) already has this maildir open and
@@ -1509,8 +1507,7 @@ public final class MaildirMailbox implements Mailbox {
         // background warming job opened this mailbox and its index also
         // turns out to need a rebuild), do it inline instead of submitting
         // a second job that thread would have to wait on itself to run.
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        MailboxIndexer indexer = (gumdrop != null) ? MailboxRuntime.getIndexer() : null;
+        MailboxIndexer indexer = MailboxRuntime.getIndexer();
         if (indexer == null || indexer.isCurrentThread()) {
             rebuildSearchIndex();
             return;

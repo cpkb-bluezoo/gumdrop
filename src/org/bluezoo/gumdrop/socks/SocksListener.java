@@ -59,7 +59,7 @@ public class SocksListener extends TcpListener {
     private Realm realm;
     private GssapiServer gssapiServer;
 
-    private org.bluezoo.gumdrop.socks.server.SocksServer service;
+    private org.bluezoo.gumdrop.socks.server.SocksServer server;
     private SocksServerMetrics metrics;
 
     @Override
@@ -189,12 +189,12 @@ public class SocksListener extends TcpListener {
         this.gssapiServer = new GssapiServer(keytabPath, servicePrincipal);
     }
 
-    public org.bluezoo.gumdrop.socks.server.SocksServer getService() {
-        return service;
+    public org.bluezoo.gumdrop.socks.server.SocksServer getServer() {
+        return server;
     }
 
-    public void setService(org.bluezoo.gumdrop.socks.server.SocksServer service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.socks.server.SocksServer server) {
+        this.server = server;
     }
 
     private Gumdrop gumdrop;
@@ -217,9 +217,9 @@ public class SocksListener extends TcpListener {
 
     @Override
     protected ProtocolHandler createHandler() {
-        if (service != null) {
+        if (server != null) {
             try {
-                return service.createProtocolHandler(this);
+                return server.createProtocolHandler(this);
             } catch (Exception e) {
                 LOGGER.log(Level.WARNING,
                         L10N.getString("log.handler_create_failed"), e);

@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -69,12 +70,7 @@ public class IMAPFetchBatchingTest {
     public void setUp() throws Exception {
         tempRoot = Files.createTempDirectory("gumdrop-imap-fetch-batching");
         StorageExecutor.workThreadObserver = null;
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("StorageExecutor must exist after Gumdrop.start()",
                 gumdrop.getStorageExecutor());
     }
@@ -118,6 +114,7 @@ public class IMAPFetchBatchingTest {
 
         ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
         handler.connected(endpoint);
 
         endpoint.clearResponses();

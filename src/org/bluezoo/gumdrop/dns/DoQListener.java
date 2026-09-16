@@ -77,7 +77,7 @@ public class DoQListener extends TcpListener
     private static final int DEFAULT_PORT = 853;
 
     private int port = DEFAULT_PORT;
-    private org.bluezoo.gumdrop.dns.server.DnsServer service;
+    private org.bluezoo.gumdrop.dns.server.DnsServer server;
 
     private Path certFile;
     private Path keyFile;
@@ -145,21 +145,21 @@ public class DoQListener extends TcpListener
     }
 
     /**
-     * Sets the owning DNS service.
+     * Sets the owning DNS server.
      *
-     * @param service the owning service
+     * @param server the owning server
      */
-    public void setService(org.bluezoo.gumdrop.dns.server.DnsServer service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+        this.server = server;
     }
 
     /**
-     * Returns the owning service, or null if used standalone.
+     * Returns the owning server, or null if used standalone.
      *
-     * @return the owning service
+     * @return the owning server
      */
-    public org.bluezoo.gumdrop.dns.server.DnsServer getService() {
-        return service;
+    public org.bluezoo.gumdrop.dns.server.DnsServer getServer() {
+        return server;
     }
 
     /**
@@ -251,13 +251,10 @@ public class DoQListener extends TcpListener
     }
 
     @Override
-    public void start() {
+    public void start(Gumdrop gumdrop) {
         super.start();
-        if (selectorLoop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            if (gumdrop != null) {
-                selectorLoop = gumdrop.nextWorkerLoop();
-            }
+        if (selectorLoop == null && gumdrop != null) {
+            selectorLoop = gumdrop.nextWorkerLoop();
         }
         if (selectorLoop == null) {
             throw new IllegalStateException(
@@ -307,7 +304,7 @@ public class DoQListener extends TcpListener
 
     @Override
     public ProtocolHandler acceptStream(Endpoint stream) {
-        return new DoQStreamHandler(service);
+        return new DoQStreamHandler(server);
     }
 
     /**

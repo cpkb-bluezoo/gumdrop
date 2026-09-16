@@ -33,6 +33,7 @@ import java.util.Map;
 
 import javax.net.ssl.X509TrustManager;
 
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameHandler;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameParser;
 import org.bluezoo.gumdrop.quic.frame.QuicFrameWriter;
@@ -82,6 +83,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
 
     public final boolean isClient;
     public final QuicTlsEngine tlsEngine;
+    private final SelectorLoop selectorLoop;
 
     private final EnumMap<EncryptionLevel, List<PendingChunk>> pendingCrypto =
             new EnumMap<EncryptionLevel, List<PendingChunk>>(EncryptionLevel.class);
@@ -121,7 +123,7 @@ public class QuicTestPeer implements QuicTlsEngineListener {
      * @return the new client peer
      */
     public static QuicTestPeer newClient(byte[] clientInitialDcid, TransportParameters localTransportParameters) {
-        return new QuicTestPeer(true, clientInitialDcid, localTransportParameters, null, null);
+        return new QuicTestPeer(true, clientInitialDcid, localTransportParameters, null, null, null);
     }
 
     /**
@@ -136,7 +138,28 @@ public class QuicTestPeer implements QuicTlsEngineListener {
      */
     public static QuicTestPeer newClient(byte[] clientInitialDcid, TransportParameters localTransportParameters,
             String applicationProtocol) {
-        return new QuicTestPeer(true, clientInitialDcid, localTransportParameters, null, applicationProtocol);
+        return new QuicTestPeer(true, clientInitialDcid, localTransportParameters, null, applicationProtocol, null);
+    }
+
+    /**
+     * Creates a client-side peer wired to a real {@link SelectorLoop} (and,
+     * through it, a live {@link org.bluezoo.gumdrop.Gumdrop}), so handshake
+     * processing is actually delegated to that runtime's {@link
+     * org.bluezoo.gumdrop.CryptoExecutor} instead of running inline. Must be
+     * supplied here, at construction, rather than via a setter afterwards:
+     * the TLS engine (and its handshake offload) is built inside this
+     * constructor and resolves its owning runtime immediately, once, from
+     * this peer's {@link #getSelectorLoop()}.
+     *
+     * @param clientInitialDcid the Destination Connection ID for the
+     *                          client's first Initial packet
+     * @param localTransportParameters this peer's own transport parameters
+     * @param selectorLoop the loop backing this peer's owning runtime
+     * @return the new client peer
+     */
+    public static QuicTestPeer newClient(byte[] clientInitialDcid, TransportParameters localTransportParameters,
+            SelectorLoop selectorLoop) {
+        return new QuicTestPeer(true, clientInitialDcid, localTransportParameters, null, null, selectorLoop);
     }
 
     /**
@@ -150,14 +173,33 @@ public class QuicTestPeer implements QuicTlsEngineListener {
      */
     public static QuicTestPeer newServer(byte[] clientInitialDcid, TransportParameters localTransportParameters,
             ServerCredentials serverCredentials) {
-        return new QuicTestPeer(false, clientInitialDcid, localTransportParameters, serverCredentials, null);
+        return new QuicTestPeer(false, clientInitialDcid, localTransportParameters, serverCredentials, null, null);
+    }
+
+    /**
+     * Creates a server-side peer wired to a real {@link SelectorLoop}. See
+     * {@link #newClient(byte[], TransportParameters, SelectorLoop)} for why
+     * this must be supplied at construction rather than via a setter.
+     *
+     * @param clientInitialDcid the Destination Connection ID from the
+     *                          client's first Initial packet
+     * @param localTransportParameters this peer's own transport parameters
+     * @param serverCredentials the server's certificate chain and private key
+     * @param selectorLoop the loop backing this peer's owning runtime
+     * @return the new server peer
+     */
+    public static QuicTestPeer newServer(byte[] clientInitialDcid, TransportParameters localTransportParameters,
+            ServerCredentials serverCredentials, SelectorLoop selectorLoop) {
+        return new QuicTestPeer(false, clientInitialDcid, localTransportParameters, serverCredentials, null,
+                selectorLoop);
     }
 
     private QuicTestPeer(boolean isClient, byte[] clientInitialDcid,
             TransportParameters localTransportParameters, ServerCredentials serverCredentials,
-            String applicationProtocol) {
+            String applicationProtocol, SelectorLoop selectorLoop) {
         this.isClient = isClient;
         this.nextLocalBidiStreamId = isClient ? 0 : 1;
+        this.selectorLoop = selectorLoop;
         for (EncryptionLevel level : EncryptionLevel.values()) {
             pendingCrypto.put(level, new ArrayList<PendingChunk>());
         }
@@ -315,6 +357,11 @@ public class QuicTestPeer implements QuicTlsEngineListener {
         // isHandshakeProcessingBusy() afterwards so callers observe a
         // consistent state once it returns, whichever thread this ran on.
         task.run();
+    }
+
+    @Override
+    public SelectorLoop getSelectorLoop() {
+        return selectorLoop;
     }
 
     @Override

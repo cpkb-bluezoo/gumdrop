@@ -34,12 +34,12 @@ import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeReady;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData;
 import org.bluezoo.gumdrop.smtp.client.handler.ClientSession;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerDataReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerEhloReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.DataReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.EhloReplyHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerMailFromReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerMessageReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ServerRcptToReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.MailFromReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.MessageReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.handler.RcptToReplyHandler;
 import org.bluezoo.gumdrop.socks.client.SocksClientConfig;
 import org.bluezoo.gumdrop.socks.client.SocksClientHandler;
 
@@ -178,21 +178,21 @@ public class SocksClientDantedIntegrationTest {
         connectThroughTunnel(proxyPort, config, new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
-                hello.ehlo("gumdrop-test", new ServerEhloReplyHandler() {
+                hello.ehlo("gumdrop-test", new EhloReplyHandler() {
                     @Override
                     public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
                             List<String> authMethods, boolean pipelining) {
-                        session.mailFrom(email(senderAddress()), new ServerMailFromReplyHandler() {
+                        session.mailFrom(email(senderAddress()), new MailFromReplyHandler() {
                             @Override
                             public void handleMailFromOk(ClientEnvelope envelope) {
-                                envelope.rcptTo(email(recipientAddress()), new ServerRcptToReplyHandler() {
+                                envelope.rcptTo(email(recipientAddress()), new RcptToReplyHandler() {
                                     @Override
                                     public void handleRcptToOk(ClientEnvelopeReady ready) {
-                                        ready.data(new ServerDataReplyHandler() {
+                                        ready.data(new DataReplyHandler() {
                                             @Override
                                             public void handleReadyForData(ClientMessageData data) {
                                                 data.writeContent(ByteBuffer.wrap(body.getBytes(StandardCharsets.US_ASCII)));
-                                                data.endMessage(new ServerMessageReplyHandler() {
+                                                data.endMessage(new MessageReplyHandler() {
                                                     @Override
                                                     public void handleMessageAccepted(String queueId, ClientSession s) {
                                                         s.quit();
@@ -326,12 +326,11 @@ public class SocksClientDantedIntegrationTest {
             throws Exception {
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        gumdrop.start();
+        Gumdrop gumdrop = Gumdrop.boot();
         SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
         ClientEndpoint client = new ClientEndpoint(
                 factory, selectorLoop, DantedTestSupport.PROXY_HOST, proxyPort);
-        client.connect(new SocksClientHandler(
+        client.connect(gumdrop, new SocksClientHandler(
                 DantedTestSupport.DEST_HOST, DantedTestSupport.DEST_PORT, config,
                 new SmtpClientProtocolHandler(greeting)));
     }

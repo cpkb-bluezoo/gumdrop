@@ -27,7 +27,8 @@ public class GumdropServerRegistryTest {
 
     @Before
     public void setUp() {
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot();
+        gumdrop.shutdown();
     }
 
     @After

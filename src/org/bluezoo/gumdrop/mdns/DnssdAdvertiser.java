@@ -39,8 +39,8 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
  * on the local network.
  *
  * <p>Takes the list of {@link Server}s to advertise as a plain
- * parameter rather than reading {@code Gumdrop.getInstance().getServers()}
- * itself, so it's independently unit-testable against fake servers
+ * parameter rather than reading {@code Gumdrop.getServers()} off some
+ * ambient instance itself, so it's independently unit-testable against fake servers
  * without needing a running {@code Gumdrop} instance &mdash; the same
  * reasoning behind {@link MdnsCache} taking its scheduling capability
  * through a small interface instead of reaching into {@link MdnsListener}
@@ -105,7 +105,7 @@ public final class DnssdAdvertiser {
      * each distinct service type advertised.
      *
      * @param servers the protocol servers to advertise (typically {@code
-     *                 Gumdrop.getInstance().getServers()})
+     *                 gumdrop.getServers()} for the running instance)
      * @param hostLabel the mDNS host label actually claimed after
      *                  probing, without the {@code .local} suffix (e.g.
      *                  {@code "gumdrop"} or, after a rename, {@code

@@ -76,6 +76,7 @@ public final class ClientDial {
         this.socketPath = socketPath;
         this.host = null;
         this.hostAddress = null;
+        this.port = -1;
         return this;
     }
 

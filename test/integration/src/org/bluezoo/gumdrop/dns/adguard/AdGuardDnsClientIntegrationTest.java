@@ -91,8 +91,7 @@ public class AdGuardDnsClientIntegrationTest {
     }
 
     private SelectorLoop loop() {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        gumdrop.start();
+        Gumdrop gumdrop = Gumdrop.boot();
         return gumdrop.nextWorkerLoop();
     }
 

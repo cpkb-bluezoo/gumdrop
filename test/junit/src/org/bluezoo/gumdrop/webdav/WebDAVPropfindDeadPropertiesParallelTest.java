@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.webdav;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
@@ -74,11 +75,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         tempRoot = Files.createTempDirectory("gumdrop-webdav-propfind-parallel");
         StorageExecutor.workThreadObserver = null;
         System.setProperty("gumdrop.storageThreads", "4");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull(gumdrop.getStorageExecutor());
     }
 
@@ -124,7 +121,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
             }
         };
 
-        RecordingState state = new RecordingState();
+        RecordingState state = new RecordingState(gumdrop.nextWorkerLoop());
         Headers req = new Headers();
         req.add(":method", "PROPFIND");
         req.add(":path", "/tree");
@@ -207,8 +204,13 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut = new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);
+        private final SelectorLoop selectorLoop;
         private Headers responseHeaders;
         private int statusCode = -1;
+
+        RecordingState(SelectorLoop selectorLoop) {
+            this.selectorLoop = selectorLoop;
+        }
 
         boolean await(long t, TimeUnit u) throws InterruptedException {
             return done.await(t, u);
@@ -329,7 +331,7 @@ public class WebDAVPropfindDeadPropertiesParallelTest {
 
         @Override
         public SelectorLoop getSelectorLoop() {
-            return null;
+            return selectorLoop;
         }
 
         @Override

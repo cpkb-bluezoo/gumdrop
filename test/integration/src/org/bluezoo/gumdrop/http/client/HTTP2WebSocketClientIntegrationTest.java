@@ -28,15 +28,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.Http2Listener;
-import org.bluezoo.gumdrop.http.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
-import org.bluezoo.gumdrop.http.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.websocket.client.WebSocketClient;
@@ -106,9 +107,8 @@ public class HTTP2WebSocketClientIntegrationTest {
         listener.setKeystorePass("testpass");
         listener.setStreamHandler(new H2EchoWebSocketHandlerFactory());
 
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
-        gumdrop.start();
 
         Thread.sleep(500);
     }
@@ -146,7 +146,7 @@ public class HTTP2WebSocketClientIntegrationTest {
         client.setVerifyPeer(false);
 
         try {
-            client.connect("/ws", new DefaultWebSocketEventHandler() {
+            client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
                 @Override
                 public void opened(WebSocketSession session) {
                     sessionRef.set(session);
@@ -233,7 +233,7 @@ public class HTTP2WebSocketClientIntegrationTest {
         httpClient.setVerifyPeer(false);
 
         try {
-            wsClient.connect("/ws", new DefaultWebSocketEventHandler() {
+            wsClient.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
                 @Override
                 public void opened(WebSocketSession session) {
                     sessionRef.set(session);
@@ -265,7 +265,7 @@ public class HTTP2WebSocketClientIntegrationTest {
             final AtomicReference<Exception> httpError = new AtomicReference<>();
             final AtomicReference<HttpStatus> httpStatus = new AtomicReference<>();
 
-            httpClient.connect(new HttpClientHandler() {
+            httpClient.connect(gumdrop, new HttpClientHandler() {
                 @Override
                 public void onConnected(org.bluezoo.gumdrop.Endpoint endpoint) {
                 }

@@ -32,6 +32,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -46,12 +47,7 @@ public class TlsHandshakeAsyncOffloadTest {
 
     @Before
     public void setUp() {
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
     }
 
     @After
@@ -165,13 +161,13 @@ public class TlsHandshakeAsyncOffloadTest {
                 offload.isBusy());
     }
 
-    private static TlsHandshakeAsyncOffload newOffload() {
+    private TlsHandshakeAsyncOffload newOffload() {
         return new TlsHandshakeAsyncOffload(new Executor() {
             @Override
             public void execute(Runnable task) {
                 task.run();
             }
-        });
+        }, gumdrop);
     }
 
     private static TlsHandshakeAsyncOffload.FailureHandler noopFailure() {

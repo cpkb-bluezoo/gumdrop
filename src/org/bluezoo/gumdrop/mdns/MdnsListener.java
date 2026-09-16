@@ -76,7 +76,7 @@ public class MdnsListener extends Listener {
     private static final int MULTICAST_TTL = 255;
 
     private int port = DEFAULT_PORT;
-    private org.bluezoo.gumdrop.mdns.server.MdnsServer service;
+    private org.bluezoo.gumdrop.mdns.server.MdnsServer server;
     private UdpTransportFactory transportFactory;
     private UdpEndpoint endpoint;
     private InetAddress group;
@@ -137,22 +137,22 @@ public class MdnsListener extends Listener {
     }
 
     /**
-     * Sets the owning mDNS service. Called by {@link MdnsServer}
+     * Sets the owning mDNS server. Called by {@link MdnsServer}
      * during wiring.
      *
-     * @param service the owning service
+     * @param server the owning server
      */
-    public void setService(org.bluezoo.gumdrop.mdns.server.MdnsServer service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.mdns.server.MdnsServer server) {
+        this.server = server;
     }
 
     /**
-     * Returns the owning service, or null if used standalone.
+     * Returns the owning server, or null if used standalone.
      *
-     * @return the owning service
+     * @return the owning server
      */
-    public org.bluezoo.gumdrop.mdns.server.MdnsServer getService() {
-        return service;
+    public org.bluezoo.gumdrop.mdns.server.MdnsServer getServer() {
+        return server;
     }
 
     /**
@@ -271,8 +271,8 @@ public class MdnsListener extends Listener {
 
     @Override
     public void stop() {
-        if (service != null) {
-            service.sendGoodbye(this);
+        if (server != null) {
+            server.sendGoodbye(this);
         }
         if (endpoint != null) {
             endpoint.close();
@@ -351,13 +351,13 @@ public class MdnsListener extends Listener {
 
         @Override
         public void receive(ByteBuffer data) {
-            if (service == null) {
+            if (server == null) {
                 LOGGER.warning(MdnsServer.L10N.getString("warn.mdns_no_service_set"));
                 return;
             }
             InetSocketAddress source =
                     (InetSocketAddress) endpoint.getRemoteAddress();
-            service.handleDatagram(MdnsListener.this, data, source);
+            server.handleDatagram(MdnsListener.this, data, source);
         }
 
         @Override

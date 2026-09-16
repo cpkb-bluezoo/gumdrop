@@ -445,7 +445,7 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
 
     @Override
     public TimerHandle scheduleTimer(long delayMs, Runnable callback) {
-        return Gumdrop.getInstance().scheduleTimer(this, delayMs, callback);
+        return selectorLoop.getTimer().schedule(this, delayMs, callback);
     }
 
     @Override
@@ -923,8 +923,8 @@ public class TcpEndpoint implements Endpoint, ChannelHandler, TlsRecordState.Cal
         cancelFirstByteTimeout();
         releaseBuffers();
         releaseAdmission();
-        if (clientMode) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
+        if (clientMode && selectorLoop != null) {
+            Gumdrop gumdrop = selectorLoop.getGumdrop();
             if (gumdrop != null) {
                 gumdrop.removeChannelHandler(this);
             }

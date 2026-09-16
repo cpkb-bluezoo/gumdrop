@@ -10,6 +10,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
@@ -73,10 +74,8 @@ public class OTLPEndpointIntegrationTest {
         });
 
         // Start server
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(server);
-        gumdrop.start();
 
         // Wait for server
         waitForPort(TEST_PORT);
@@ -116,7 +115,7 @@ public class OTLPEndpointIntegrationTest {
         endpointHandler.setH2Enabled(false);
 
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(endpointHandler);
+        client.connect(gumdrop, endpointHandler);
 
         // Wait for connection to be ready
         long deadline = System.currentTimeMillis() + 5000;
@@ -200,7 +199,7 @@ public class OTLPEndpointIntegrationTest {
         endpointHandler.setH2Enabled(false);
 
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(endpointHandler);
+        client.connect(gumdrop, endpointHandler);
 
         long deadline = System.currentTimeMillis() + 5000;
         while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {

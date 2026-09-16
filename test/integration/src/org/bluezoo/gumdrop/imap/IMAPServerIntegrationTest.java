@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -102,11 +103,9 @@ public class IMAPServerIntegrationTest {
         imapServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
         imapServer.setAllowPlaintextLogin(true); // Allow plaintext login for testing
         
-        // Start server using singleton with lifecycle management
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
+        // Start server using its own dedicated runtime
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
         gumdrop.addListener(imapServer);
-        gumdrop.start();
         
         // Wait for server to be ready
         waitForPort(IMAP_PORT, 5000);

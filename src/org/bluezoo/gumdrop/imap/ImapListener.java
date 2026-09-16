@@ -104,8 +104,8 @@ public class ImapListener extends TcpListener {
     // RFC 4752 — GSSAPI/Kerberos authentication
     protected GssapiServer gssapiServer;
 
-    // Back-reference to the owning service (null when used standalone)
-    private org.bluezoo.gumdrop.imap.server.ImapServer service;
+    // Back-reference to the owning server (null when used standalone)
+    private org.bluezoo.gumdrop.imap.server.ImapServer server;
 
     private org.bluezoo.gumdrop.imap.server.ImapServerSessionProvider sessionProvider;
 
@@ -560,22 +560,22 @@ public class ImapListener extends TcpListener {
     }
 
     /**
-     * Sets the owning service. Called by {@link ImapServer} during
+     * Sets the owning server. Called by {@link ImapServer} during
      * wiring.
      *
-     * @param service the owning service
+     * @param server the owning server
      */
-    public void setService(org.bluezoo.gumdrop.imap.server.ImapServer service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.imap.server.ImapServer server) {
+        this.server = server;
     }
 
     /**
-     * Returns the owning service, or null if used standalone.
+     * Returns the owning server, or null if used standalone.
      *
-     * @return the owning service
+     * @return the owning server
      */
-    public org.bluezoo.gumdrop.imap.server.ImapServer getService() {
-        return service;
+    public org.bluezoo.gumdrop.imap.server.ImapServer getServer() {
+        return server;
     }
 
     public void setSessionProvider(
@@ -610,13 +610,14 @@ public class ImapListener extends TcpListener {
                 }
             }
         }
-        if (service != null) {
+        org.bluezoo.gumdrop.imap.server.ImapServer srv = getServer();
+        if (srv != null) {
             try {
-                return service.openSession(this);
+                return srv.openSession(this);
             } catch (Exception e) {
                 if (LOGGER.isLoggable(Level.WARNING)) {
                     LOGGER.log(Level.WARNING,
-                            "Failed to create IMAP handler from service", e);
+                            "Failed to create IMAP handler from server", e);
                 }
             }
         }
@@ -628,7 +629,7 @@ public class ImapListener extends TcpListener {
      * connection.
      *
      * <p>If an {@link ImapServer} is set, the handler is obtained
-     * from the service.
+     * from the server.
      *
      * @return a new IMAP endpoint handler
      */

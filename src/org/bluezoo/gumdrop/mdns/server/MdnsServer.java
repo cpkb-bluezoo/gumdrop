@@ -318,7 +318,7 @@ public class MdnsServer implements Server {
         boolean anyBound = false;
         for (int i = 0; i < listeners.size(); i++) {
             MdnsListener l = listeners.get(i);
-            l.setService(this);
+            l.setServer(this);
             try {
                 l.start(gumdrop);
             } catch (Exception e) {

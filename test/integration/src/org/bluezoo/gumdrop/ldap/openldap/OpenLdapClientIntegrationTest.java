@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.ldap.openldap;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.ldap.client.AddResultHandler;
 import org.bluezoo.gumdrop.ldap.client.BindResultHandler;
@@ -40,6 +41,7 @@ import org.bluezoo.gumdrop.ldap.client.SearchResultEntry;
 import org.bluezoo.gumdrop.ldap.client.SearchResultHandler;
 import org.bluezoo.gumdrop.ldap.client.StartTLSResultHandler;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -76,9 +78,19 @@ public class OpenLdapClientIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
+    private Gumdrop gumdrop;
+
     @Before
     public void checkReachable() {
         assumeTrue(OpenLdapTestSupport.NOT_REACHABLE_MESSAGE, OpenLdapTestSupport.isReachable());
+        gumdrop = Gumdrop.boot();
+    }
+
+    @After
+    public void tearDown() {
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
     }
 
     private LdapClient newClient() {
@@ -95,7 +107,7 @@ public class OpenLdapClientIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<SearchResultEntry> foundEntry = new AtomicReference<>();
 
-        client.connect(new TestConnectionReady(error, doneLatch) {
+        client.connect(gumdrop, new TestConnectionReady(error, doneLatch) {
             @Override
             public void handleReady(LdapConnected connection) {
                 connection.bind(OpenLdapTestSupport.ADMIN_DN, OpenLdapTestSupport.ADMIN_PASSWORD,
@@ -149,7 +161,7 @@ public class OpenLdapClientIntegrationTest {
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        client.connect(new TestConnectionReady(error, doneLatch) {
+        client.connect(gumdrop, new TestConnectionReady(error, doneLatch) {
             @Override
             public void handleReady(LdapConnected connection) {
                 connection.bind(OpenLdapTestSupport.ADMIN_DN, OpenLdapTestSupport.ADMIN_PASSWORD,
@@ -216,7 +228,7 @@ public class OpenLdapClientIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<Boolean> tlsEstablished = new AtomicReference<>(false);
 
-        client.connect(new TestConnectionReady(error, doneLatch) {
+        client.connect(gumdrop, new TestConnectionReady(error, doneLatch) {
             @Override
             public void handleReady(LdapConnected connection) {
                 connection.startTLS(new StartTLSResultHandler() {
@@ -257,7 +269,7 @@ public class OpenLdapClientIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<LdapResultCode> failureCode = new AtomicReference<>();
 
-        client.connect(new TestConnectionReady(error, doneLatch) {
+        client.connect(gumdrop, new TestConnectionReady(error, doneLatch) {
             @Override
             public void handleReady(LdapConnected connection) {
                 connection.bind(OpenLdapTestSupport.TEST_USER_DN, "wrong-password",

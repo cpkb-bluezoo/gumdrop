@@ -69,6 +69,7 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
     }
 
     private final Executor loopExecutor;
+    private final Gumdrop gumdrop;
 
     private boolean taskInFlight;
     private boolean deferring;
@@ -81,12 +82,17 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
 
     /**
      * @param loopExecutor marshals deferred callbacks onto the owning loop thread
+     * @param gumdrop the runtime owning this connection, whose
+     *                {@link CryptoExecutor} runs the handshake batch; may
+     *                be null (or not yet started), in which case the batch
+     *                runs inline on the calling thread instead
      */
-    public TlsHandshakeAsyncOffload(Executor loopExecutor) {
+    public TlsHandshakeAsyncOffload(Executor loopExecutor, Gumdrop gumdrop) {
         if (loopExecutor == null) {
             throw new NullPointerException();
         }
         this.loopExecutor = loopExecutor;
+        this.gumdrop = gumdrop;
     }
 
     @Override
@@ -206,8 +212,7 @@ public final class TlsHandshakeAsyncOffload implements HandshakeAsyncOffload {
                 }
             }
         };
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        CryptoExecutor exec = gumdrop.isStarted() ? gumdrop.getCryptoExecutor() : null;
+        CryptoExecutor exec = (gumdrop != null && gumdrop.isStarted()) ? gumdrop.getCryptoExecutor() : null;
         if (exec == null) {
             List<Runnable> callbacks;
             try {

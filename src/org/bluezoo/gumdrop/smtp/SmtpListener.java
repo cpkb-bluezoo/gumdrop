@@ -90,8 +90,8 @@ public class SmtpListener extends TcpListener {
     // RFC 4752 — GSSAPI/Kerberos authentication
     protected GssapiServer gssapiServer;
 
-    // Back-reference to the owning service (null when used standalone)
-    private org.bluezoo.gumdrop.smtp.server.SmtpServer service;
+    // Back-reference to the owning server (null when used standalone)
+    private org.bluezoo.gumdrop.smtp.server.SmtpServer server;
 
     // Session pipeline for composed servers (null when using legacy service wiring)
     private org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProvider sessionProvider;
@@ -344,22 +344,22 @@ public class SmtpListener extends TcpListener {
     }
 
     /**
-     * Sets the owning service. Called by {@link SmtpServer} during
+     * Sets the owning server. Called by {@link SmtpServer} during
      * wiring.
      *
-     * @param service the owning service
+     * @param server the owning server
      */
-    public void setService(org.bluezoo.gumdrop.smtp.server.SmtpServer service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.smtp.server.SmtpServer server) {
+        this.server = server;
     }
 
     /**
-     * Returns the owning service, or null if used standalone.
+     * Returns the owning server, or null if used standalone.
      *
-     * @return the owning service
+     * @return the owning server
      */
-    public org.bluezoo.gumdrop.smtp.server.SmtpServer getService() {
-        return service;
+    public org.bluezoo.gumdrop.smtp.server.SmtpServer getServer() {
+        return server;
     }
 
     /**
@@ -418,14 +418,17 @@ public class SmtpListener extends TcpListener {
                                     + " using default behaviour", e);
                 }
             }
-        } else if (service != null) {
-            try {
-                handler = service.openSession(this);
-            } catch (Exception e) {
-                if (LOGGER.isLoggable(Level.WARNING)) {
-                    LOGGER.log(Level.WARNING,
-                            "Failed to create SMTP handler from service,"
-                                    + " using default behaviour", e);
+        } else {
+            org.bluezoo.gumdrop.smtp.server.SmtpServer srv = getServer();
+            if (srv != null) {
+                try {
+                    handler = srv.openSession(this);
+                } catch (Exception e) {
+                    if (LOGGER.isLoggable(Level.WARNING)) {
+                        LOGGER.log(Level.WARNING,
+                                "Failed to create SMTP handler from server,"
+                                        + " using default behaviour", e);
+                    }
                 }
             }
         }

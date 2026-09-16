@@ -55,22 +55,7 @@ public class WebDAVRequestHandlerCompositionTest {
         Files.write(root.resolve("hello.txt"),
                 "Hello, WebDAV!".getBytes(StandardCharsets.UTF_8));
 
-        // Deliberately reuses the shared Gumdrop.getInstance() singleton
-        // (rather than a dedicated Gumdrop.boot() instance) because
-        // WebDAVRequestHandler's FileHandler still resolves its storage
-        // executor via Gumdrop.getInstance() internally (its own C.4
-        // getStorageExecutor() fan-out is still pending) -- a separate
-        // boot()ed instance here would leave that singleton with no
-        // servers/listeners registered, so its auto-shutdown-when-idle
-        // logic could close the async file channel out from under an
-        // in-flight read.
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
-        if (gumdrop.isStarted()) {
-            gumdrop.shutdown();
-            gumdrop.join();
-            gumdrop = Gumdrop.getInstance();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
 
         server = HttpServer.compose()
                 .listener(new Http2Listener()

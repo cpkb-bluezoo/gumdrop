@@ -146,7 +146,6 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         SMTPClientHelper(Gumdrop gumdrop, int port) throws Exception {
             this.port = port;
             this.factory = new TcpTransportFactory();
-            this.factory.start();
             this.gumdrop = gumdrop;
             SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
             this.client = new ClientEndpoint(factory, selectorLoop, TEST_HOST, port);
@@ -167,6 +166,13 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
             if (trustManager != null) {
                 factory.setTrustManager(trustManager);
             }
+            // start() resolves the effective trust manager once, from
+            // whatever is set at that point -- must run after setSecure/
+            // setTrustManager above, not in the constructor, or an
+            // explicitly configured trust manager is silently dropped in
+            // favour of the JVM's default trust store (issue: PKIX path
+            // building failed against the test's self-signed CA).
+            factory.start();
             client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
         }
     }

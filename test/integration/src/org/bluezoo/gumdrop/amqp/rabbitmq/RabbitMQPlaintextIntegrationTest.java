@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.BasicProperties;
 import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
@@ -72,17 +73,22 @@ public class RabbitMQPlaintextIntegrationTest {
     private static final long TIMEOUT_SECONDS = 10;
 
     private AmqpClientRecovery client;
+    private Gumdrop gumdrop;
 
     @Before
     public void checkBrokerReachable() {
         Assume.assumeTrue(RabbitMQTestSupport.NOT_REACHABLE_MESSAGE,
                 RabbitMQTestSupport.isPlaintextReachable());
+        gumdrop = Gumdrop.boot();
     }
 
     @After
     public void tearDown() {
         if (client != null) {
             client.close();
+        }
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
         }
     }
 
@@ -107,7 +113,7 @@ public class RabbitMQPlaintextIntegrationTest {
 
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -134,7 +140,7 @@ public class RabbitMQPlaintextIntegrationTest {
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
         final AtomicReference<String> deliveredContentType = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -190,7 +196,7 @@ public class RabbitMQPlaintextIntegrationTest {
         final CountDownLatch deliveredLatch = new CountDownLatch(1);
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -227,7 +233,7 @@ public class RabbitMQPlaintextIntegrationTest {
         final CountDownLatch redeliveredLatch = new CountDownLatch(1);
         final AtomicReference<Boolean> wasRedelivered = new AtomicReference<>(Boolean.FALSE);
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -295,7 +301,7 @@ public class RabbitMQPlaintextIntegrationTest {
         final CountDownLatch confirmLatch = new CountDownLatch(1);
         final AtomicReference<Long> ackedSeq = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -341,7 +347,7 @@ public class RabbitMQPlaintextIntegrationTest {
         final CountDownLatch deliveredLatch = new CountDownLatch(1);
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {
@@ -389,7 +395,7 @@ public class RabbitMQPlaintextIntegrationTest {
         final CountDownLatch deliveredLatch = new CountDownLatch(1);
         final AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connection.channelOpen(1, new ChannelOpenHandler() {

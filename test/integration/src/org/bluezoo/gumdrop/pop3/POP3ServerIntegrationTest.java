@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.pop3;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
@@ -122,12 +123,10 @@ public class POP3ServerIntegrationTest {
         maildirServer.setRealm(realm);
         maildirServer.setMailboxFactory(new MaildirMailboxFactory(maildirRoot));
         
-        // Start servers using singleton with lifecycle management
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
+        // Start servers using their own dedicated runtime
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(mboxServer);
         gumdrop.addListener(maildirServer);
-        gumdrop.start();
         
         // Wait for servers to be ready
         waitForPort(MBOX_PORT, 5000);

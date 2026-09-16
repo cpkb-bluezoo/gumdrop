@@ -21,12 +21,14 @@
 
 package org.bluezoo.gumdrop.mqtt.mosquitto;
 
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.mqtt.client.MqttClient;
 import org.bluezoo.gumdrop.mqtt.client.MqttClientCallback;
 import org.bluezoo.gumdrop.mqtt.client.MqttMessageListener;
 import org.bluezoo.gumdrop.mqtt.codec.QoS;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -59,9 +61,19 @@ public class MosquittoClientIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
+    private Gumdrop gumdrop;
+
     @Before
     public void checkReachable() {
         assumeTrue(MosquittoTestSupport.NOT_REACHABLE_MESSAGE, MosquittoTestSupport.isReachable());
+        gumdrop = Gumdrop.boot();
+    }
+
+    @After
+    public void tearDown() {
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
     }
 
     private MqttClient newClient(String clientIdSuffix) {
@@ -84,7 +96,7 @@ public class MosquittoClientIntegrationTest {
         AtomicReference<String> received = new AtomicReference<>();
 
         MqttClient subscriber = newClient("sub");
-        subscriber.connect(new TestCallback(error, subscribedLatch) {
+        subscriber.connect(gumdrop, new TestCallback(error, subscribedLatch) {
             @Override
             public void connected(boolean sessionPresent, int returnCode) {
                 if (returnCode != 0) {
@@ -118,7 +130,7 @@ public class MosquittoClientIntegrationTest {
 
         CountDownLatch publishedLatch = new CountDownLatch(1);
         MqttClient publisher = newClient("pub");
-        publisher.connect(new TestCallback(error, publishedLatch) {
+        publisher.connect(gumdrop, new TestCallback(error, publishedLatch) {
             @Override
             public void connected(boolean sessionPresent, int returnCode) {
                 if (returnCode != 0) {
@@ -168,7 +180,7 @@ public class MosquittoClientIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<String> received = new AtomicReference<>();
 
-        client.connect(new TestCallback(error, doneLatch) {
+        client.connect(gumdrop, new TestCallback(error, doneLatch) {
             @Override
             public void connected(boolean sessionPresent, int returnCode) {
                 if (returnCode != 0) {
@@ -213,7 +225,7 @@ public class MosquittoClientIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<Integer> connackCode = new AtomicReference<>();
 
-        client.connect(new MqttClientCallback() {
+        client.connect(gumdrop, new MqttClientCallback() {
             @Override
             public void connected(boolean sessionPresent, int returnCode) {
                 connackCode.set(returnCode);

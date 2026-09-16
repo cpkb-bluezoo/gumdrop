@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
@@ -102,9 +103,8 @@ public class HTTP3WebSocketClientIntegrationTest {
         listener.setKeyFile(pemKey.getAbsolutePath());
         listener.setStreamHandler(new EchoWebSocketHandlerFactory());
 
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
-        gumdrop.start();
 
         // QUIC binds a UDP socket, so there is no TCP port to poll for
         // readiness; allow a brief moment for the engine to bind.
@@ -142,7 +142,7 @@ public class HTTP3WebSocketClientIntegrationTest {
         client.setVerifyPeer(false);
 
         try {
-            client.connect("/ws", new DefaultWebSocketEventHandler() {
+            client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
                 @Override
                 public void opened(WebSocketSession session) {
                     sessionRef.set(session);

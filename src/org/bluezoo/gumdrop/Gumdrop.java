@@ -78,9 +78,6 @@ public class Gumdrop {
 
     public static final String VERSION = "2.0";
 
-    /** Default worker count for client-only mode (no configuration). */
-    private static final int CLIENT_MODE_WORKERS = 1;
-
     /**
      * Default graceful-drain timeout in milliseconds. On shutdown, the server
      * stops accepting new connections and waits up to this long for in-flight
@@ -97,10 +94,6 @@ public class Gumdrop {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
     static final Logger LOGGER = Logger.getLogger(Gumdrop.class.getName());
-
-    // Singleton instance. Volatile so the unlocked fast-path read in
-    // getInstance() below is safe once construction has completed.
-    private static volatile Gumdrop instance;
 
     // Application-tier protocol servers (own and manage their listeners)
     private final List<Server> servers;
@@ -164,10 +157,9 @@ public class Gumdrop {
 
     /**
      * Creates and starts a new {@code Gumdrop} instance with the given
-     * configuration. Unlike {@link #getInstance()}, this is not a
-     * singleton accessor: each call constructs a fresh instance, which
-     * the caller is responsible for threading through to whatever
-     * servers, listeners, and clients it composes (e.g. {@code
+     * configuration. Each call constructs a fresh instance, which the
+     * caller is responsible for threading through to whatever servers,
+     * listeners, and clients it composes (e.g. {@code
      * server.start(gumdrop)}, {@code client.connect(gumdrop, handler)}).
      *
      * <p>Named {@code boot} rather than {@code start} because the latter
@@ -195,47 +187,12 @@ public class Gumdrop {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Singleton access
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Returns the singleton Gumdrop instance, creating it if necessary.
-     *
-     * <p>This method creates a minimal instance suitable for client-only use:
-     * <ul>
-     *   <li>1 worker thread</li>
-     *   <li>No listeners configured</li>
-     *   <li>No AcceptSelectorLoop (created on first addTCPListener)</li>
-     * </ul>
-     *
-     * <p>For server mode, use {@link #boot()} / {@link #boot(GumdropConfig)}
-     * instead — each call creates its own instance, rather than sharing
-     * this client-only singleton.
-     *
-     * @return the singleton Gumdrop instance
-     */
-    public static Gumdrop getInstance() {
-        // Unlocked fast path: once the singleton is constructed, every
-        // subsequent call (e.g. the per-request idle-timeout reset on the
-        // HTTP hot path) hits this and never contends the class lock.
-        Gumdrop result = instance;
-        if (result != null) {
-            return result;
-        }
-        synchronized (Gumdrop.class) {
-            if (instance == null) {
-                instance = new Gumdrop(CLIENT_MODE_WORKERS);
-            }
-            return instance;
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Construction (private)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Private constructor - use getInstance() to obtain the singleton.
+     * Private constructor - use {@link #boot()} / {@link #boot(GumdropConfig)}
+     * to create an instance.
      */
     private Gumdrop(int workerCount) {
         if (workerCount < 1) {

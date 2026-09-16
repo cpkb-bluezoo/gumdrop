@@ -68,13 +68,13 @@ final class DoQStreamHandler implements ProtocolHandler {
     /** Too many outstanding queries. RFC 9250 section 4.3.5 */
     static final long DOQ_EXCESSIVE_LOAD = 0x4;
 
-    private final org.bluezoo.gumdrop.dns.server.DnsServer service;
+    private final org.bluezoo.gumdrop.dns.server.DnsServer server;
     private Endpoint endpoint;
     private final ByteArrayOutputStream accumulator =
             new ByteArrayOutputStream(512);
 
-    DoQStreamHandler(org.bluezoo.gumdrop.dns.server.DnsServer service) {
-        this.service = service;
+    DoQStreamHandler(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+        this.server = server;
     }
 
     @Override
@@ -153,7 +153,7 @@ final class DoQStreamHandler implements ProtocolHandler {
                         query, endpoint.getRemoteAddress()));
             }
 
-            final DnsServerMetrics metrics = service.getMetrics();
+            final DnsServerMetrics metrics = server.getMetrics();
             if (metrics != null && !query.getQuestions().isEmpty()) {
                 DnsQuestion q =
                         query.getQuestions().get(0);
@@ -174,7 +174,7 @@ final class DoQStreamHandler implements ProtocolHandler {
             }
 
             final long startNanos = System.nanoTime();
-            service.processQuery(query, endpoint.getSelectorLoop(),
+            server.processQuery(query, endpoint.getSelectorLoop(),
                     new DnsQueryCallback() {
                         @Override
                         public void onResponse(DnsMessage response) {

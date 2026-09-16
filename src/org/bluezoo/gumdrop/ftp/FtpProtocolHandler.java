@@ -662,8 +662,10 @@ public final class FtpProtocolHandler
      */
     private <T> void submitStorage(final Callable<T> op,
             final StorageExecutor.Callback<T> callback) {
+        org.bluezoo.gumdrop.SelectorLoop loop =
+                (endpoint != null) ? endpoint.getSelectorLoop() : null;
         org.bluezoo.gumdrop.Gumdrop gumdrop =
-                org.bluezoo.gumdrop.Gumdrop.getInstance();
+                (loop != null) ? loop.getGumdrop() : null;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null || endpoint == null) {

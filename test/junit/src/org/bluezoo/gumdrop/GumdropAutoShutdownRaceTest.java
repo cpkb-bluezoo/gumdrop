@@ -67,8 +67,8 @@ public class GumdropAutoShutdownRaceTest {
 
     @Test
     public void connectCannotObserveTornDownLoopFromConcurrentAutoShutdown() throws Exception {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
+        final Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().drainTimeoutMs(0));
+        gumdrop.shutdown();
         TcpTransportFactory factory = new TcpTransportFactory();
 
         for (int i = 0; i < ITERATIONS; i++) {

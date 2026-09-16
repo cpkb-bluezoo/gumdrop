@@ -960,11 +960,11 @@ public class DnsServer implements Server {
 
     private void wireListener(Object listener) {
         if (listener instanceof DnsListener) {
-            ((DnsListener) listener).setService(this);
+            ((DnsListener) listener).setServer(this);
         } else if (listener instanceof DoTListener) {
-            ((DoTListener) listener).setService(this);
+            ((DoTListener) listener).setServer(this);
         } else if (listener instanceof DoQListener) {
-            ((DoQListener) listener).setService(this);
+            ((DoQListener) listener).setServer(this);
         }
     }
 

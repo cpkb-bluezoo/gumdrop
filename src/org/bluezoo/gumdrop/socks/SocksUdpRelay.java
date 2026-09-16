@@ -79,7 +79,7 @@ class SocksUdpRelay {
             ResourceBundle.getBundle("org.bluezoo.gumdrop.socks.L10N");
 
     private final Endpoint tcpControlEndpoint;
-    private final org.bluezoo.gumdrop.socks.server.SocksServer service;
+    private final org.bluezoo.gumdrop.socks.server.SocksServer server;
     private final SocksServerMetrics metrics;
     private final long idleTimeoutMs;
     private final InetAddress expectedClientAddress;
@@ -97,7 +97,7 @@ class SocksUdpRelay {
      * Creates a new UDP ASSOCIATE relay.
      *
      * @param tcpEndpoint the TCP control connection endpoint
-     * @param service the SOCKS service
+     * @param server the SOCKS server
      * @param metrics the server metrics, or null
      * @param idleTimeoutMs idle timeout in milliseconds
      * @param expectedClientAddress expected source IP for client
@@ -106,11 +106,11 @@ class SocksUdpRelay {
      *        0.0.0.0)
      */
     SocksUdpRelay(Endpoint tcpEndpoint,
-                  org.bluezoo.gumdrop.socks.server.SocksServer service,
+                  org.bluezoo.gumdrop.socks.server.SocksServer server,
                   SocksServerMetrics metrics, long idleTimeoutMs,
                   InetAddress expectedClientAddress) {
         this.tcpControlEndpoint = tcpEndpoint;
-        this.service = service;
+        this.server = server;
         this.metrics = metrics;
         this.idleTimeoutMs = idleTimeoutMs;
         this.expectedClientAddress = expectedClientAddress;
@@ -181,7 +181,7 @@ class SocksUdpRelay {
             metrics.udpAssociationClosed(durationMs);
         }
 
-        service.releaseRelay();
+        server.releaseRelay();
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine(L10N.getString("log.udp_relay_closed"));
@@ -383,7 +383,7 @@ class SocksUdpRelay {
             public void onResolved(List<InetAddress> addresses) {
                 // Validate every resolved address before forwarding.
                 for (InetAddress addr : addresses) {
-                    if (!service.isDestinationAllowed(addr)) {
+                    if (!server.isDestinationAllowed(addr)) {
                         // RFC 1928 §7: silently drop datagrams to blocked destinations
                         return;
                     }
@@ -412,7 +412,7 @@ class SocksUdpRelay {
         }
 
         // RFC 1928 §7: destination filtering — silently drop
-        if (!service.isDestinationAllowed(dest.getAddress())) {
+        if (!server.isDestinationAllowed(dest.getAddress())) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine(MessageFormat.format(
                         L10N.getString("log.destination_blocked"),

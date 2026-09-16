@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.redis.redis;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.redis.client.BulkResultHandler;
 import org.bluezoo.gumdrop.redis.client.IntegerResultHandler;
@@ -31,6 +32,7 @@ import org.bluezoo.gumdrop.redis.client.RedisConnectionReady;
 import org.bluezoo.gumdrop.redis.client.RedisSession;
 import org.bluezoo.gumdrop.redis.client.StringResultHandler;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -62,9 +64,19 @@ public class RedisClientIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
+    private Gumdrop gumdrop;
+
     @Before
     public void checkReachable() {
         assumeTrue(RedisTestSupport.NOT_REACHABLE_MESSAGE, RedisTestSupport.isReachable());
+        gumdrop = Gumdrop.boot();
+    }
+
+    @After
+    public void tearDown() {
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
     }
 
     private RedisClient newClient() {
@@ -83,7 +95,7 @@ public class RedisClientIntegrationTest {
         AtomicReference<String> gotValue = new AtomicReference<>();
         AtomicReference<Long> counter = new AtomicReference<>();
 
-        client.connect(new TestConnectionReady(error, doneLatch) {
+        client.connect(gumdrop, new TestConnectionReady(error, doneLatch) {
             @Override
             public void handleReady(RedisSession session) {
                 session.auth(RedisTestSupport.PASSWORD, new TestStringHandler(error, doneLatch) {
@@ -140,7 +152,7 @@ public class RedisClientIntegrationTest {
         AtomicReference<String> received = new AtomicReference<>();
 
         RedisClient subscriber = newClient();
-        subscriber.connect(new TestConnectionReady(error, subscribedLatch) {
+        subscriber.connect(gumdrop, new TestConnectionReady(error, subscribedLatch) {
             @Override
             public void handleReady(RedisSession session) {
                 session.auth(RedisTestSupport.PASSWORD, new TestStringHandler(error, subscribedLatch) {
@@ -194,7 +206,7 @@ public class RedisClientIntegrationTest {
 
         RedisClient publisher = newClient();
         CountDownLatch publishDoneLatch = new CountDownLatch(1);
-        publisher.connect(new TestConnectionReady(error, publishDoneLatch) {
+        publisher.connect(gumdrop, new TestConnectionReady(error, publishDoneLatch) {
             @Override
             public void handleReady(RedisSession session) {
                 session.auth(RedisTestSupport.PASSWORD, new TestStringHandler(error, publishDoneLatch) {
@@ -236,7 +248,7 @@ public class RedisClientIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<String> gotValue = new AtomicReference<>();
 
-        client.connect(new TestConnectionReady(error, doneLatch) {
+        client.connect(gumdrop, new TestConnectionReady(error, doneLatch) {
             @Override
             public void handleReady(RedisSession session) {
                 session.auth(RedisTestSupport.PASSWORD, new TestStringHandler(error, doneLatch) {
@@ -276,7 +288,7 @@ public class RedisClientIntegrationTest {
         AtomicReference<Exception> error = new AtomicReference<>();
         AtomicReference<String> authError = new AtomicReference<>();
 
-        client.connect(new TestConnectionReady(error, doneLatch) {
+        client.connect(gumdrop, new TestConnectionReady(error, doneLatch) {
             @Override
             public void handleReady(RedisSession session) {
                 session.auth("wrong-password", new StringResultHandler() {

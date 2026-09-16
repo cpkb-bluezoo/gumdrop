@@ -93,12 +93,7 @@ public class AsyncDiskOffloadBoundaryTest {
         tempRoot = Files.createTempDirectory("gumdrop-async-disk-boundary");
         StorageExecutor.workThreadObserver = null;
 
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("StorageExecutor must exist after Gumdrop.start()",
                 gumdrop.getStorageExecutor());
     }
@@ -129,7 +124,7 @@ public class AsyncDiskOffloadBoundaryTest {
         };
 
         HttpRequestHandler handler = newFileHandler(tempRoot, true);
-        RecordingState st = new RecordingState();
+        RecordingState st = new RecordingState(gumdrop.nextWorkerLoop());
         Headers req = new Headers();
         req.add(":method", "GET");
         req.add(":path", "/hello.txt");
@@ -155,6 +150,7 @@ public class AsyncDiskOffloadBoundaryTest {
         FtpProtocolHandler handler =
                 new FtpProtocolHandler(new FtpListener(), connHandler);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(21);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
 
         handler.connected(endpoint);
         endpoint.clearResponses();
@@ -210,6 +206,7 @@ public class AsyncDiskOffloadBoundaryTest {
 
         ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
 
         final AtomicReference<String> workThread =
                 new AtomicReference<String>();
@@ -275,6 +272,7 @@ public class AsyncDiskOffloadBoundaryTest {
 
         Pop3ProtocolHandler handler = new Pop3ProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
 
         final AtomicReference<String> workThread =
                 new AtomicReference<String>();
@@ -370,7 +368,7 @@ public class AsyncDiskOffloadBoundaryTest {
             };
 
             HttpRequestHandler handler = newFileHandler(tempRoot, true);
-            RecordingState st = new RecordingState();
+            RecordingState st = new RecordingState(gumdrop.nextWorkerLoop());
             Headers req = new Headers();
             req.add(":method", "GET");
             req.add(":path", "/sat.txt");
@@ -629,8 +627,13 @@ public class AsyncDiskOffloadBoundaryTest {
         private final ByteArrayOutputStream bodyOut =
                 new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);
+        private final SelectorLoop selectorLoop;
         private Headers responseHeaders;
         private int statusCode = -1;
+
+        RecordingState(SelectorLoop selectorLoop) {
+            this.selectorLoop = selectorLoop;
+        }
 
         boolean await(long t, TimeUnit u) throws InterruptedException {
             return done.await(t, u);
@@ -706,7 +709,7 @@ public class AsyncDiskOffloadBoundaryTest {
             return HttpVersion.HTTP_1_1;
         }
         @Override public String getScheme() { return "http"; }
-        @Override public SelectorLoop getSelectorLoop() { return null; }
+        @Override public SelectorLoop getSelectorLoop() { return selectorLoop; }
         @Override public Principal getPrincipal() { return null; }
     }
 }
