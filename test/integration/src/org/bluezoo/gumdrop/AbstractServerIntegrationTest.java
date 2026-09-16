@@ -118,7 +118,20 @@ public abstract class AbstractServerIntegrationTest {
     protected Collection<? extends Server> buildServers() throws Exception {
         return null;
     }
-    
+
+    /**
+     * Alternative to {@link #getTestConfigFile()} for tests that need a
+     * standalone {@link TcpListener} with no owning {@link Server} (the
+     * equivalent of a top-level XML {@code <component>}, as opposed to a
+     * {@code <service>}). When overridden to return non-null, takes
+     * precedence over the config-file path the same way {@link
+     * #buildServers()} does; the two hooks may both return non-null to
+     * combine standalone listeners with composed servers.
+     */
+    protected Collection<? extends TcpListener> buildListeners() throws Exception {
+        return null;
+    }
+
     /**
      * Returns the maximum time to wait for server startup (milliseconds).
      * Default is 5 seconds.
@@ -178,12 +191,17 @@ public abstract class AbstractServerIntegrationTest {
         }
         
         Collection<? extends Server> composed = buildServers();
+        Collection<? extends TcpListener> composedListeners = buildListeners();
         Collection<TcpListener> standaloneListeners;
         Collection<Server> configuredServers;
-        if (composed != null) {
+        if (composed != null || composedListeners != null) {
             testContext.logEvent("CONFIG_LOADED", "Using programmatic composition");
-            standaloneListeners = new ArrayList<TcpListener>();
-            configuredServers = new ArrayList<Server>(composed);
+            standaloneListeners = (composedListeners != null)
+                    ? new ArrayList<TcpListener>(composedListeners)
+                    : new ArrayList<TcpListener>();
+            configuredServers = (composed != null)
+                    ? new ArrayList<Server>(composed)
+                    : new ArrayList<Server>();
         } else {
             File configFile = getTestConfigFile();
             if (configFile == null || !configFile.exists()) {
@@ -212,11 +230,16 @@ public abstract class AbstractServerIntegrationTest {
             throw new IllegalStateException(msg);
         }
         
-        // Set worker count for testing before getting the singleton
+        // Set worker count for testing before booting.
         System.setProperty("gumdrop.workers", "2");
-        
-        // Get the Gumdrop singleton and add standalone listeners and servers.
-        gumdrop = Gumdrop.getInstance();
+
+        // Each test gets its own Gumdrop instance rather than sharing the
+        // process singleton: reusing one singleton's AcceptSelectorLoop
+        // across many @Before/@After start-stop cycles in the same class
+        // risks a listener re-registering on a port the previous test's
+        // shutdown hadn't fully released yet (BindException) or the loop
+        // wedging on the next test's registration.
+        gumdrop = Gumdrop.boot(GumdropConfig.create());
         for (TcpListener server : standaloneListeners) {
             gumdrop.addListener(server);
         }

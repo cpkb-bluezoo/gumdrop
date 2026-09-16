@@ -24,10 +24,14 @@ package org.bluezoo.gumdrop.http.client;
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TestCertificateManager;
+import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -35,8 +39,12 @@ import org.junit.rules.Timeout;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -97,8 +105,24 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
     private static TestCertificateManager certManager;
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/http-client-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        TlsConfig tls = TlsConfig.keystore(
+                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
+        HttpServer plaintext = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(HTTP_PORT)
+                        .addresses(InetAddress.getByName(TEST_HOST)))
+                .streamHandler(new EchoHandlerFactory())
+                .server();
+        HttpServer secure = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(HTTPS_PORT)
+                        .addresses(InetAddress.getByName(TEST_HOST))
+                        .secure(true)
+                        .tls(tls))
+                .streamHandler(new EchoHandlerFactory())
+                .server();
+        return Arrays.asList(plaintext, secure);
     }
 
     @Override
@@ -359,7 +383,7 @@ public class HTTPClientVersionIntegrationTest extends AbstractServerIntegrationT
         final boolean isSecure = secure;
         final CountDownLatch connected = new CountDownLatch(1);
         final AtomicReference<Exception> error = new AtomicReference<>();
-        client.connect(new HttpClientHandler() {
+        client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 // For cleartext there is no security handshake to await.

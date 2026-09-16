@@ -22,11 +22,14 @@
 package org.bluezoo.gumdrop.smtp;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.TcpListener;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 
-import java.io.File;
+import java.net.InetAddress;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.*;
@@ -65,8 +68,11 @@ public class SMTPServerIntegrationTest extends AbstractServerIntegrationTest {
         .build();
     
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/smtp-server-test.xml");
+    protected Collection<? extends TcpListener> buildListeners() throws Exception {
+        SmtpListener listener = new SmtpListener()
+                .port(TEST_PORT)
+                .addresses(InetAddress.getByName("::1"));
+        return Collections.singletonList(listener);
     }
     
     // ============== Basic SMTP Functionality Tests ==============

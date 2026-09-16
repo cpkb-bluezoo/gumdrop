@@ -1680,10 +1680,10 @@ public class HttpClient implements AltSvcListener {
         System.exit(0);
     }
 
-    // Package-private (not private) so integration tests in this
-    // package can drive the CLI's actual request/response file
-    // handling without going through main()'s System.exit() calls.
-    static void runRequest(
+    // Public (not private) so integration tests can drive the CLI's
+    // actual request/response file handling without going through
+    // main()'s System.exit() calls.
+    public static void runRequest(
             final Gumdrop gumdrop,
             final SelectorLoop loop,
             final String targetHost, final int targetPort,

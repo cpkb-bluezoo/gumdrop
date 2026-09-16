@@ -149,9 +149,11 @@ public final class IntegrationTlsClient {
         java.util.concurrent.atomic.AtomicBoolean tlsEstablished = new java.util.concurrent.atomic.AtomicBoolean();
         ByteArrayOutputStream inbound = new ByteArrayOutputStream();
 
-        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(),
+        Gumdrop gumdrop = Gumdrop.getInstance();
+        gumdrop.start();
+        ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(),
                 InetAddress.getByName(host), port);
-        client.connect(new ProtocolHandler() {
+        client.connect(gumdrop, new ProtocolHandler() {
             private Endpoint endpoint;
 
             @Override

@@ -22,18 +22,22 @@
 package org.bluezoo.gumdrop.mqtt;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.mqtt.server.DefaultMQTTServer;
 
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 import static org.junit.Assert.*;
 
-import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 import org.bluezoo.gumdrop.mqtt.codec.*;
@@ -57,8 +61,12 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
             .build();
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/mqtt-server-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        DefaultMQTTServer server = new DefaultMQTTServer();
+        server.addListener(new MqttListener()
+                .port(TEST_PORT)
+                .addresses(InetAddress.getByName("::1")));
+        return Collections.singletonList(server);
     }
 
     @Test

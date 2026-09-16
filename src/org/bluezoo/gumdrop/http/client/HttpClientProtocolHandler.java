@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.http.client;
 
+import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.util.ByteArrays;
 
 import java.io.IOException;
@@ -937,6 +938,20 @@ public class HttpClientProtocolHandler
     // HTTP/1.1 implementation
     // ─────────────────────────────────────────────────────────────────────────
 
+    // RFC 3986 section 3.2.2 / RFC 9110 section 7.2: an IPv6 literal must be
+    // bracketed in the Host header / :authority pseudo-header, or the colons
+    // are ambiguous with the port separator -- "::1:8080" cannot be parsed
+    // back into address and port, so the server correctly rejects it.
+    private String formatHost() {
+        if (host.indexOf('[') >= 0) {
+            return host;
+        }
+        if (HostsFile.parseLiteralIPv6(host) != null) {
+            return "[" + host + "]";
+        }
+        return host;
+    }
+
     // RFC 9112 section 3.1: request-line = method SP request-target SP HTTP-version
     // RFC 9112 section 3.2 / RFC 9110 section 7.2: Host header required
     private void sendHTTP11Request(HttpStream request, boolean hasBody) {
@@ -953,7 +968,7 @@ public class HttpClientProtocolHandler
         sb.append(" HTTP/1.1\r\n");
 
         // RFC 9110 section 7.2: Host header
-        String hostHeader = host;
+        String hostHeader = formatHost();
         if ((secure && port != 443) || (!secure && port != 80)) {
             hostHeader = hostHeader + ":" + port;
         }
@@ -1131,7 +1146,7 @@ public class HttpClientProtocolHandler
         // RFC 9113 section 8.3.1: required request pseudo-headers
         headerList.add(new Header(":method", request.getMethod()));
         headerList.add(new Header(":scheme", secure ? "https" : "http"));
-        headerList.add(new Header(":authority", host + ":" + port));
+        headerList.add(new Header(":authority", formatHost() + ":" + port));
         headerList.add(new Header(":path", request.getPath()));
 
         if (traceContext != null) {

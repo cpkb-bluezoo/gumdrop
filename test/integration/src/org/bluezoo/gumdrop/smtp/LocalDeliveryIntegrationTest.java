@@ -26,6 +26,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
@@ -33,6 +34,8 @@ import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
 import org.bluezoo.gumdrop.smtp.client.handler.*;
+import org.bluezoo.gumdrop.smtp.server.SmtpServer;
+import org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProviders;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -40,15 +43,15 @@ import org.junit.Test;
 import org.junit.rules.Timeout;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -81,36 +84,31 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             .build();
 
     private Path mailboxDir;
-    private File tempConfigFile;
     private MboxMailboxFactory mailboxFactory;
 
     @Override
-    protected File getTestConfigFile() {
+    protected Collection<? extends Server> buildServers() throws Exception {
         // Local delivery populates mailboxes at runtime, so it must never write
-        // into the source tree. Deliver to a throwaway directory and rewrite the
-        // template config to point the server at it. This runs (via the base
-        // class) before setUpMailbox(), so mailboxDir is ready for verification.
-        try {
-            mailboxDir = MailboxFixtures.newEmptyRoot();
-            String template = new String(Files.readAllBytes(Paths.get(
-                    "test/integration/config/local-delivery-test.xml")),
-                    StandardCharsets.UTF_8);
-            String config = template.replace(
-                    "test/integration/mailbox/local-delivery",
-                    mailboxDir.toString());
-            Path tmp = Files.createTempFile("local-delivery-test-", ".xml");
-            Files.write(tmp, config.getBytes(StandardCharsets.UTF_8));
-            tempConfigFile = tmp.toFile();
-            return tempConfigFile;
-        } catch (IOException e) {
-            throw new RuntimeException(
-                    "Failed to prepare local-delivery test config", e);
-        }
+        // into the source tree. Deliver to a throwaway directory. This runs
+        // (via the base class) before setUpMailbox(), so mailboxDir is ready
+        // for verification.
+        mailboxDir = MailboxFixtures.newEmptyRoot();
+        MboxMailboxFactory serverMailboxFactory = new MboxMailboxFactory(mailboxDir.toFile());
+        SmtpServer server = SmtpServer.compose()
+                .listener(new SmtpListener()
+                        .port(TEST_PORT)
+                        .addresses(InetAddress.getByName("::1")))
+                .mailboxFactory(serverMailboxFactory)
+                .sessionProvider(SmtpServerSessionProviders.localDelivery()
+                        .localDomain(LOCAL_DOMAIN)
+                        .hostname("localhost"))
+                .server();
+        return Collections.singletonList(server);
     }
 
     @Before
     public void setUpMailbox() throws Exception {
-        // mailboxDir was created by getTestConfigFile() (invoked by the base
+        // mailboxDir was created by buildServers() (invoked by the base
         // class before this method); build the verification factory against the
         // same throwaway directory the server delivers into.
         createUserDirectory(TEST_USER);
@@ -121,9 +119,6 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
     @After
     public void tearDownMailbox() {
         MailboxFixtures.delete(mailboxDir);
-        if (tempConfigFile != null) {
-            tempConfigFile.delete();
-        }
     }
 
     private void createUserDirectory(String user) throws Exception {
@@ -143,7 +138,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SmtpClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         // Wait for the transaction to complete
         assertTrue("Transaction should complete within timeout",
@@ -188,7 +183,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SmtpClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         assertTrue("Transaction should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -206,7 +201,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SmtpClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         assertTrue("Transaction should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -231,7 +226,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SmtpClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         assertTrue("All transactions should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -263,7 +258,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SmtpClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         assertTrue("Test should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));

@@ -27,13 +27,17 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -41,11 +45,14 @@ import org.junit.rules.Timeout;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -88,8 +95,24 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         .build();
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/http-client-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        TlsConfig tls = TlsConfig.keystore(
+                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
+        HttpServer plaintext = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(HTTP_PORT)
+                        .addresses(InetAddress.getByName(TEST_HOST)))
+                .streamHandler(new EchoHandlerFactory())
+                .server();
+        HttpServer secure = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(HTTPS_PORT)
+                        .addresses(InetAddress.getByName(TEST_HOST))
+                        .secure(true)
+                        .tls(tls))
+                .streamHandler(new EchoHandlerFactory())
+                .server();
+        return Arrays.asList(plaintext, secure);
     }
 
     @Override
@@ -143,8 +166,8 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 },
                 host, port, false);
 
-        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
-        client.connect(endpointHandler);
+        ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), host, port);
+        client.connect(gumdrop, endpointHandler);
 
         long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
         while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
@@ -184,8 +207,8 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 host, port, false);
         endpointHandler.setH2WithPriorKnowledge(true);
 
-        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
-        client.connect(endpointHandler);
+        ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), host, port);
+        client.connect(gumdrop, endpointHandler);
 
         long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
         while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
@@ -228,8 +251,8 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 },
                 host, port, true);
 
-        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
-        client.connect(endpointHandler);
+        ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), host, port);
+        client.connect(gumdrop, endpointHandler);
 
         long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
         while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
@@ -540,7 +563,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
             List<String> requestHeaders = new ArrayList<String>();
             HttpClient.runRequest(
-                    Gumdrop.getInstance().nextWorkerLoop(),
+                    gumdrop, gumdrop.nextWorkerLoop(),
                     TEST_HOST, HTTP_PORT, "http", "/echo", "POST",
                     requestHeaders,
                     bodyFile.toString(), outputFile.toString(),

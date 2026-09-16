@@ -22,9 +22,13 @@
 package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.junit.Test;
 
-import java.io.File;
+import java.net.InetAddress;
+import java.util.Collection;
+import java.util.Collections;
 
 import static org.junit.Assert.*;
 
@@ -48,8 +52,13 @@ import static org.junit.Assert.*;
 public class HTTPServerIntegrationTest extends AbstractServerIntegrationTest {
     
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/http-server-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        HttpServer server = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(18080)
+                        .addresses(InetAddress.getByName("::1")))
+                .server();
+        return Collections.singletonList(server);
     }
     
     // ============== Basic HTTP Functionality Tests ==============

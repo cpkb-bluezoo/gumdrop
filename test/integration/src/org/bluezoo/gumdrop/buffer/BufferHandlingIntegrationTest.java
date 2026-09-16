@@ -28,7 +28,10 @@ import org.junit.Test;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.Socket;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.*;
@@ -54,8 +57,11 @@ public class BufferHandlingIntegrationTest extends AbstractServerIntegrationTest
     private static final String MESSAGE_PATTERN = "0123456789";
     
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/buffer-test.xml");
+    protected Collection<? extends TcpListener> buildListeners() throws Exception {
+        BufferTestServer server = new BufferTestServer();
+        server.setPort(TEST_PORT);
+        server.addresses(InetAddress.getByName("::1"));
+        return Collections.singletonList(server);
     }
     
     /**

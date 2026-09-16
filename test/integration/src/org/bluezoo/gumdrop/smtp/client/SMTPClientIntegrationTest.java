@@ -27,11 +27,14 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
+import org.bluezoo.gumdrop.smtp.SmtpListener;
 import org.bluezoo.gumdrop.smtp.client.handler.*;
 import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import org.junit.BeforeClass;
 import org.junit.Ignore;
@@ -40,8 +43,12 @@ import org.junit.Test;
 import org.junit.rules.Timeout;
 
 import java.io.File;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -83,9 +90,23 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     private static TestCertificateManager certManager;
 
+    private AcceptAllService acceptAllService;
+
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/smtp-client-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        TlsConfig tls = TlsConfig.keystore(
+                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
+        acceptAllService = new AcceptAllService();
+        acceptAllService.addListener(new SmtpListener()
+                .port(SMTP_PORT)
+                .addresses(InetAddress.getByName(TEST_HOST))
+                .tls(tls));
+        acceptAllService.addListener(new SmtpListener()
+                .port(SMTPS_PORT)
+                .addresses(InetAddress.getByName(TEST_HOST))
+                .secure(true)
+                .tls(tls));
+        return Collections.singletonList(acceptAllService);
     }
 
     @Override
@@ -104,7 +125,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
     }
 
     private AcceptAllService getService() {
-        return (AcceptAllService) registry.getComponent("acceptAllService");
+        return acceptAllService;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -117,15 +138,16 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
     private static class SMTPClientHelper {
         private final ClientEndpoint client;
         private final TcpTransportFactory factory;
+        private final Gumdrop gumdrop;
         private final int port;
         private boolean secure;
         private javax.net.ssl.X509TrustManager trustManager;
 
-        SMTPClientHelper(int port) throws Exception {
+        SMTPClientHelper(Gumdrop gumdrop, int port) throws Exception {
             this.port = port;
             this.factory = new TcpTransportFactory();
             this.factory.start();
-            Gumdrop gumdrop = Gumdrop.getInstance();
+            this.gumdrop = gumdrop;
             SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
             this.client = new ClientEndpoint(factory, selectorLoop, TEST_HOST, port);
         }
@@ -145,12 +167,12 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
             if (trustManager != null) {
                 factory.setTrustManager(trustManager);
             }
-            client.connect(new SmtpClientProtocolHandler(handler));
+            client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
         }
     }
 
     private SMTPClientHelper createClient(int port) throws Exception {
-        return new SMTPClientHelper(port);
+        return new SMTPClientHelper(gumdrop, port);
     }
 
     /**

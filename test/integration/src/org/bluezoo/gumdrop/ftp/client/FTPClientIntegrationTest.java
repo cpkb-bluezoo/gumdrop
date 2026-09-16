@@ -22,9 +22,13 @@
 package org.bluezoo.gumdrop.ftp.client;
 
 import java.io.File;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -37,8 +41,12 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.ftp.FtpListener;
 import org.bluezoo.gumdrop.ftp.client.handler.*;
+import org.bluezoo.gumdrop.ftp.server.FtpServer;
+import org.bluezoo.gumdrop.ftp.server.FtpServerSessionProviders;
 
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -76,8 +84,16 @@ public class FTPClientIntegrationTest extends AbstractServerIntegrationTest {
         .build();
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/ftp-client-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        FtpServer server = FtpServer.compose()
+                .listener(new FtpListener()
+                        .port(FTP_PORT)
+                        .addresses(InetAddress.getByName(TEST_HOST)))
+                .sessionProvider(FtpServerSessionProviders.fileSystem()
+                        .rootDirectory(Path.of("test/integration/ftp-data"))
+                        .readOnly(false))
+                .server();
+        return Collections.singletonList(server);
     }
 
     @BeforeClass
@@ -98,23 +114,24 @@ public class FTPClientIntegrationTest extends AbstractServerIntegrationTest {
     // ─────────────────────────────────────────────────────────────────────
 
     private static class FTPTestClient {
+        private final Gumdrop gumdrop;
         private final ClientEndpoint client;
 
-        FTPTestClient(int port) throws Exception {
+        FTPTestClient(Gumdrop gumdrop, int port) throws Exception {
             TcpTransportFactory factory = new TcpTransportFactory();
             factory.start();
-            Gumdrop gumdrop = Gumdrop.getInstance();
+            this.gumdrop = gumdrop;
             SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
             this.client = new ClientEndpoint(factory, selectorLoop, TEST_HOST, port);
         }
 
         void connect(RemoteGreeting handler) throws Exception {
-            client.connect(new FtpClientProtocolHandler(handler));
+            client.connect(gumdrop, new FtpClientProtocolHandler(handler));
         }
     }
 
     private FTPTestClient createClient(int port) throws Exception {
-        return new FTPTestClient(port);
+        return new FTPTestClient(gumdrop, port);
     }
 
     private static String decode(ByteBuffer data) {

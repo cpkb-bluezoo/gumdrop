@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.http;
 
+import org.bluezoo.gumdrop.dns.client.HostsFile;
+
 /**
  * Utility methods for HTTP protocol validation.
  *
@@ -367,12 +369,19 @@ public final class HttpUtils {
      */
     /**
      * Returns true if the Host header field-value is syntactically valid
-     * per RFC 9110 section 7.2: {@code uri-host [":" port]}.
-     * Rejects IP-literals for simplicity; accepts reg-name and IPv4address.
+     * per RFC 9110 section 7.2: {@code uri-host [":" port]}, where
+     * {@code uri-host} is RFC 3986 section 3.2.2's {@code host = IP-literal
+     * / IPv4address / reg-name}. An IPv6 {@code IP-literal} must be
+     * bracketed ({@code "[" IPv6address "]"}) so its colons aren't
+     * ambiguous with the port separator; accepts reg-name and IPv4address
+     * unbracketed.
      */
     public static boolean isValidHost(String value) {
         if (value == null || value.isEmpty()) {
             return false;
+        }
+        if (value.charAt(0) == '[') {
+            return isValidIpLiteralHost(value);
         }
         int ci = value.lastIndexOf(':');
         String host;
@@ -403,6 +412,38 @@ public final class HttpUtils {
             }
         }
         return true;
+    }
+
+    /**
+     * Validates a bracketed {@code "[" IPv6address "]" [":" port]} host
+     * value.
+     */
+    private static boolean isValidIpLiteralHost(String value) {
+        int close = value.indexOf(']');
+        if (close < 0) {
+            return false;
+        }
+        String literal = value.substring(1, close);
+        if (HostsFile.parseLiteralIPv6(literal) == null) {
+            return false;
+        }
+        String rest = value.substring(close + 1);
+        if (rest.isEmpty()) {
+            return true;
+        }
+        if (rest.charAt(0) != ':') {
+            return false;
+        }
+        String portStr = rest.substring(1);
+        if (portStr.isEmpty()) {
+            return false;
+        }
+        try {
+            int port = Integer.parseInt(portStr);
+            return port >= 1 && port <= 65535;
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     /**
