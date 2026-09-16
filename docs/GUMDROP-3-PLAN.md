@@ -28,7 +28,7 @@ Design goals:
   (`ProtocolHandler` and protocol-specific adapters) + application handlers,
   symmetric for listen and dial paths.
 - **Composition over reflection** — explicit builder/composition APIs in Java;
-  **no `gumdroprc` XML** in Gumdrop 3.0 while the handler-first API stabilises
+  **no `gumdroprc` XML** in Gumdrop 3.0, removed entirely in C.5
   (see [COMPOSITION.md](COMPOSITION.md)).
 - **Explicit runtime** — no process-wide singleton; a `Runtime` (name TBD)
   owns reactor loops, timers, executors, and listener registration.
@@ -181,16 +181,14 @@ listeners, auth providers, metrics, and the h1/h2 `Stream` implementation live i
 `http/server/` (canonical types), mirroring `http/client/`. Shared codec/transport
 types (`Headers`, `HttpStatus`, `h2/`, `h3/`, `hpack/`, `qpack/`) remain at
 `http/` or version subpackages; server handler SPI (`HttpResponseState`,
-`HttpRequestHandler`, …) lives in `http/server/`. `ConfigurationParser` maps legacy
-`org.bluezoo.gumdrop.http.HttpListener` XML class names to
-`org.bluezoo.gumdrop.http.server.HttpListener`. Legacy XML class names
-`HTTPService` and `HTTPServer` map to `org.bluezoo.gumdrop.http.HttpServer`
-via `ConfigurationParser` (no deprecated shim type).
+`HttpRequestHandler`, …) lives in `http/server/`. (At the time, `ConfigurationParser`
+mapped legacy `org.bluezoo.gumdrop.http.HttpListener`/`HTTPService`/`HTTPServer`
+XML class names to their canonical types; `ConfigurationParser` and the whole
+XML path are now removed in C.5 — there is no legacy-name mapping of any kind.)
 
 **C.2.6 (HttpResponseState, done):** `HttpResponseState` moved from the protocol
 root into `http/server/` — it is server handler SPI (outbound response API), not
-client-facing and not shared codec. `Stream` and `H3Stream` still implement it;
-legacy XML FQCNs map via `ConfigurationParser`.
+client-facing and not shared codec. `Stream` and `H3Stream` still implement it.
 
 **C.2.2 (mail, done):** `SmtpServer`, `ImapServer`, `Pop3Server` in
 `smtp/server/`, `imap/server/`, `pop3/server/` with root re-exports and
