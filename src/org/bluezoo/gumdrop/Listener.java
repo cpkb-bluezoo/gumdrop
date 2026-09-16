@@ -179,7 +179,7 @@ public abstract class Listener {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Connector-level setters (gumdroprc compatible)
+    // Connector-level setters
     // ═══════════════════════════════════════════════════════════════════
 
     public TelemetryConfig getTelemetryConfig() {
@@ -395,7 +395,7 @@ public abstract class Listener {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Server-level setters (gumdroprc compatible)
+    // Server-level setters
     // ═══════════════════════════════════════════════════════════════════
 
     public void setAddresses(String value) {

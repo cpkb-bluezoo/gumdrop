@@ -63,6 +63,15 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **`gumdrop-protocols.jar`** aggregate (superseded by per-protocol jars and
   `gumdrop.jar`).
+- **`gumdroprc` XML configuration and `ComponentRegistry`** (breaking):
+  `org.bluezoo.gumdrop.config` (`ConfigurationParser`, `ComponentRegistry`,
+  reflective setter injection), the `GumdropConfigurator` SPI, and
+  `Gumdrop.getInstance(File)` are gone. Applications compose servers in Java
+  — see [COMPOSITION.md](docs/COMPOSITION.md). `Gumdrop.main()` no longer
+  starts a server from a config file; write your own `main` instead.
+- **`health` package** (`HealthServer` and the k8s liveness/readiness HTTP
+  endpoint it exposed): polling a service over HTTP for readiness is the
+  wrong pattern for cloud operations, and no replacement is planned.
 
 ## [2.2.0] - 2026-08-20
 

@@ -446,7 +446,6 @@
       </fileset>
     </copy>
     <copy file='${manager.war}' tofile='${container.home}/webapps/manager.war'/>
-    <copy file='conf/gumdroprc.xml.example' todir='${container.home}/conf'/>
     <copy file='etc/realm-servlet.xml' tofile='${container.home}/conf/realm-servlet.xml'/>
     <copy file='logging.properties' todir='${container.home}'/>
     <copy todir='${container.home}/webapps/ROOT'>

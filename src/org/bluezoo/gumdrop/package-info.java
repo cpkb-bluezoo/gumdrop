@@ -45,10 +45,11 @@
  * exposes negotiated TLS/DTLS/QUIC session metadata to protocol handlers,
  * which otherwise only ever see plaintext.
  *
- * <p>Servers are wired together via XML configuration (a {@code gumdroprc}
- * file) read by a built-in dependency-injection container; the {@link
- * org.bluezoo.gumdrop.GumdropConfigurator} SPI allows an alternative DI
- * framework (Guice, Spring, CDI) to be plugged in instead.
+ * <p>Servers are wired together in Java: explicit builder/composition APIs
+ * per protocol (e.g. {@code HttpServer.compose()}), an application {@code
+ * main} constructing a {@link org.bluezoo.gumdrop.Gumdrop} instance via
+ * {@link org.bluezoo.gumdrop.Gumdrop#boot()} and adding servers to it. See
+ * {@code docs/COMPOSITION.md} for the canonical patterns.
  *
  * <h2>Subpackages</h2>
  *

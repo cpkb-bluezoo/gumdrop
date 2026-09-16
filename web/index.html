@@ -443,12 +443,12 @@ To enable TLS, configure the keystore on any listener:
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.smtp.SmtpServer"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener" port="465" secure="true"&gt;
-        &lt;property name="keystore-file" path="keystore.p12"/&gt;
-        &lt;property name="keystore-pass" value="secret"/&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+SmtpServer smtps = SmtpServer.compose()
+    .listener(new SmtpListener().port(465).secure(true).tls(tls))
+    .sessionProvider(SmtpServerSessionProviders.relay()
+        .hostname("relay.example.com"))
+    .server();
 </pre>
 
 <h4>UNIX Domain Sockets</h4>
@@ -470,21 +470,25 @@ clients) and a UNIX socket (for local tools or reverse proxies):
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.smtp.LocalDeliveryServer"&gt;
-    &lt;property name="mailbox-factory" ref="#mbox"/&gt;
-    &lt;property name="local-domain" value="example.com"/&gt;
-    &lt;!-- TCP listener for remote clients --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
-              name="tcp" port="25"/&gt;
-    &lt;!-- UNIX domain socket for local delivery --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
-              name="unix" path="/var/run/smtp.sock"/&gt;
-&lt;/service&gt;
+// TCP listener for remote clients
+SmtpListener tcpListener = new SmtpListener().port(25);
+
+// UNIX domain socket for local delivery
+SmtpListener unixListener = new SmtpListener();
+unixListener.setPath("/var/run/smtp.sock");
+
+SmtpServer smtp = SmtpServer.compose()
+    .listener(tcpListener)
+    .listener(unixListener)
+    .mailboxFactory(mbox)
+    .sessionProvider(SmtpServerSessionProviders.localDelivery()
+        .localDomain("example.com"))
+    .server();
 </pre>
 
 <p>
-The <code>path</code> and <code>port</code> attributes are mutually exclusive on
-a single listener element. Specifying both is a configuration error. Stale
+Calling both <code>setPath</code> and <code>port(...)</code> on the same
+listener is a configuration error &mdash; they're mutually exclusive. Stale
 socket files from previous runs are automatically removed on bind, and the
 socket file is deleted on shutdown.
 </p>
@@ -508,13 +512,15 @@ Timeouts can be configured with time unit suffixes (<code>ms</code>, <code>s</co
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.imap.ImapServer"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.imap.ImapListener"&gt;
-        &lt;property name="idle-timeout" value="30m"/&gt;
-        &lt;property name="read-timeout" value="60s"/&gt;
-        &lt;property name="connection-timeout" value="2m"/&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+ImapListener listener = new ImapListener();
+listener.setIdleTimeout("30m");
+listener.setReadTimeout("60s");
+listener.setConnectionTimeout("2m");
+ImapServer imap = ImapServer.compose()
+    .listener(listener)
+    .realm(realm)
+    .sessionProvider(ImapServerSessionProviders.mailbox(maildirFactory))
+    .server();
 </pre>
 
 <p>
@@ -527,14 +533,11 @@ Endpoints track timestamps for creation, last activity, and connection establish
 <h3>Configuration</h3>
 
 <p>
-Gumdrop uses a lightweight dependency injection framework to wire together its
 Gumdrop 3 wires applications in Java — see
 <a href="configuration.html">Application composition</a> and
-<a href="../docs/COMPOSITION.md">docs/COMPOSITION.md</a>. Legacy
-<code>gumdroprc</code> XML is not supported in 3.0.
-on component declarations, property syntax (<code>value</code>,
-<code>path</code>, and <code>ref</code> attributes), type conversion,
-collections, services and listeners, and example configurations.
+<a href="../docs/COMPOSITION.md">docs/COMPOSITION.md</a> for servers,
+listeners, and handlers. Legacy <code>gumdroprc</code> XML and its
+reflective dependency-injection container have been removed entirely.
 </p>
 
 <h3>About the Logo</h3>

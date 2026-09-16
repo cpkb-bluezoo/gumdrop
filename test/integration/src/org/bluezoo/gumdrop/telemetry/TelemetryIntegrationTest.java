@@ -110,7 +110,6 @@ public class TelemetryIntegrationTest {
         }
 
         // Initialize the config - this automatically creates the exporter
-        // (In production, this is called by ComponentRegistry after setting properties)
         telemetryConfig.init();
         exporter = (OtlpExporter) telemetryConfig.getExporter();
 

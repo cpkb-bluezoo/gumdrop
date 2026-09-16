@@ -494,11 +494,11 @@ There is extensive documentation for all Gumdrop features:
 - [Javadoc package and class documentation](https://cpkb-bluezoo.github.io/gumdrop/doc/)
 - [RFC compliance matrix](RFC-COMPLIANCE.md) showing extent of support for mandatory and optional RFC features
 - [Framework comparison](docs/FRAMEWORK-COMPARISON.md) — deployment size and speed vs Netty, Jetty, Tomcat, Spring Boot
-- [Container & cloud deployment](docs/CONTAINER-DEPLOYMENT.md) — Docker/Kubernetes, graceful drain, health endpoint, resource-safety knobs, and horizontal-scale constraints
+- [Container & cloud deployment](docs/CONTAINER-DEPLOYMENT.md) — Docker/Kubernetes, graceful drain, resource-safety knobs, and horizontal-scale constraints
 
 ## Configuration
 
-See the [Configuration documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on configuration including `gumdroprc`, dependency injection, and component wiring. For the in-tree TLS/DTLS stack (versions, cipher suites, ALPN, SNI, mTLS), see [TLS & DTLS](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html). For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls).
+See the [Composition documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on assembling servers, listeners, and handlers in Java. For the in-tree TLS/DTLS stack (versions, cipher suites, ALPN, SNI, mTLS), see [TLS & DTLS](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html). For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls).
 
 ## Building and running
 

@@ -21,14 +21,12 @@
 
 package org.bluezoo.gumdrop;
 
-import java.io.File;
 import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.ServiceLoader;
@@ -46,36 +44,29 @@ import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
 /**
  * Central configuration and lifecycle manager for the Gumdrop server.
  *
- * <p>Gumdrop is a singleton that manages the core infrastructure for event-driven
- * I/O processing: worker SelectorLoops, the AcceptSelectorLoop for TCP servers,
- * and the scheduled timer for timeouts.
+ * <p>Manages the core infrastructure for event-driven I/O processing:
+ * worker SelectorLoops, the AcceptSelectorLoop for TCP servers, and the
+ * scheduled timer for timeouts.
  *
  * <h4>Server Mode</h4>
  * <pre>{@code
- * // Get instance with configuration
- * Gumdrop gumdrop = Gumdrop.getInstance(new File("/etc/gumdroprc"));
- *
- * // Or configure programmatically
- * Gumdrop gumdrop = Gumdrop.getInstance();
+ * // Boot a fresh instance and compose servers against it
+ * Gumdrop gumdrop = Gumdrop.boot();
  * gumdrop.addServer(myServletServer);
  * gumdrop.addServer(mySmtpServer);
- *
- * // Start processing
- * gumdrop.start();
  * }</pre>
  *
  * <h4>Client Mode</h4>
  * <pre>{@code
- * // Clients use getInstance() internally - no setup needed
+ * Gumdrop gumdrop = Gumdrop.boot();
  * RedisClient client = new RedisClient("localhost", 6379);
- * client.connect(handler);
- * // Infrastructure auto-starts on connect, auto-stops when done
+ * client.connect(gumdrop, handler);
  * }</pre>
  *
  * <h4>Lifecycle</h4>
  * <ul>
- *   <li>Infrastructure is created lazily on first {@code getInstance()} call</li>
- *   <li>{@code start()} begins event processing</li>
+ *   <li>{@link #boot()} / {@link #boot(GumdropConfig)} create and start a
+ *       fresh instance</li>
  *   <li>Auto-shutdown when no server listeners and no active handlers remain</li>
  *   <li>Can restart after shutdown by calling {@code start()} again</li>
  *   <li>JVM shutdown hook ensures cleanup</li>
@@ -89,9 +80,6 @@ public class Gumdrop {
 
     /** Default worker count for client-only mode (no configuration). */
     private static final int CLIENT_MODE_WORKERS = 1;
-
-    /** Default worker count for server mode (with configuration). */
-    private static final int SERVER_MODE_WORKERS = Runtime.getRuntime().availableProcessors() * 2;
 
     /**
      * Default graceful-drain timeout in milliseconds. On shutdown, the server
@@ -111,7 +99,7 @@ public class Gumdrop {
     static final Logger LOGGER = Logger.getLogger(Gumdrop.class.getName());
 
     // Singleton instance. Volatile so the unlocked fast-path read in
-    // getInstance(File) below is safe once construction has completed.
+    // getInstance() below is safe once construction has completed.
     private static volatile Gumdrop instance;
 
     // Application-tier protocol servers (own and manage their listeners)
@@ -134,8 +122,6 @@ public class Gumdrop {
     private ScheduledTimer scheduledTimer;
     private StorageExecutor storageExecutor;
     private CryptoExecutor cryptoExecutor;
-    // Configurator (manages DI lifecycle)
-    private GumdropConfigurator configurator;
 
     // State
     private volatile boolean started;
@@ -165,9 +151,9 @@ public class Gumdrop {
 
     /**
      * Graceful-drain timeout in milliseconds. Overridable via the
-     * {@code gumdrop.drainTimeoutMs} system property (and, from
-     * {@link #main}, the {@code GUMDROP_DRAIN_TIMEOUT_MS} environment
-     * variable). 0 disables draining (immediate force-close on shutdown).
+     * {@code gumdrop.drainTimeoutMs} system property, or explicitly via
+     * {@link #setDrainTimeoutMs} / {@link GumdropConfig#drainTimeoutMs}.
+     * 0 disables draining (immediate force-close on shutdown).
      */
     private volatile long drainTimeoutMs =
             Long.getLong("gumdrop.drainTimeoutMs", DEFAULT_DRAIN_TIMEOUT_MS);
@@ -222,29 +208,13 @@ public class Gumdrop {
      *   <li>No AcceptSelectorLoop (created on first addTCPListener)</li>
      * </ul>
      *
-     * <p>For server mode with configuration file, use {@link #getInstance(File)}.
+     * <p>For server mode, use {@link #boot()} / {@link #boot(GumdropConfig)}
+     * instead — each call creates its own instance, rather than sharing
+     * this client-only singleton.
      *
      * @return the singleton Gumdrop instance
      */
     public static Gumdrop getInstance() {
-        return getInstance(null);
-    }
-
-    /**
-     * Returns the singleton Gumdrop instance, creating it if necessary.
-     *
-     * <p>If a configuration file is provided, a {@link GumdropConfigurator}
-     * is discovered via {@link ServiceLoader} and used to parse and wire
-     * the configuration. The default implementation uses the built-in
-     * gumdroprc XML parser and dependency injection container.
-     *
-     * <p>If the configuration file is null, a minimal client-only instance
-     * is created with 1 worker thread.
-     *
-     * @param gumdroprc the configuration file, or null for client-only mode
-     * @return the singleton Gumdrop instance
-     */
-    public static Gumdrop getInstance(File gumdroprc) {
         // Unlocked fast path: once the singleton is constructed, every
         // subsequent call (e.g. the per-request idle-timeout reset on the
         // HTTP hot path) hits this and never contends the class lock.
@@ -254,51 +224,9 @@ public class Gumdrop {
         }
         synchronized (Gumdrop.class) {
             if (instance == null) {
-                int workerCount;
-                if (gumdroprc != null && gumdroprc.exists()) {
-                    workerCount = Integer.getInteger("gumdrop.workers",
-                            SERVER_MODE_WORKERS);
-                } else {
-                    workerCount = CLIENT_MODE_WORKERS;
-                }
-
-                instance = new Gumdrop(workerCount);
-
-                if (gumdroprc != null && gumdroprc.exists()) {
-                    GumdropConfigurator configurator = loadConfigurator();
-                    try {
-                        configurator.configure(instance, gumdroprc);
-                        instance.configurator = configurator;
-                    } catch (Exception e) {
-                        String message = MessageFormat.format(
-                                L10N.getString("err.parse_configuration"),
-                                gumdroprc);
-                        LOGGER.log(Level.SEVERE, message, e);
-                    }
-                }
+                instance = new Gumdrop(CLIENT_MODE_WORKERS);
             }
             return instance;
-        }
-    }
-
-    /**
-     * Discovers a {@link GumdropConfigurator} via {@link ServiceLoader},
-     * falling back to the default implementation if none is found.
-     */
-    private static GumdropConfigurator loadConfigurator() {
-        ServiceLoader<GumdropConfigurator> loader =
-                ServiceLoader.load(GumdropConfigurator.class);
-        Iterator<GumdropConfigurator> it = loader.iterator();
-        if (it.hasNext()) {
-            return it.next();
-        }
-        try {
-            return (GumdropConfigurator) Class.forName(
-                    "org.bluezoo.gumdrop.config.DefaultConfigurator")
-                    .getDeclaredConstructor().newInstance();
-        } catch (Exception e) {
-            throw new RuntimeException(
-                    "No GumdropConfigurator found on classpath", e);
         }
     }
 
@@ -980,7 +908,7 @@ public class Gumdrop {
      *       currently-open connections to finish naturally while the worker
      *       loops keep running.</li>
      *   <li><b>Force stop</b> — stop protocol servers, clear state, and shut down the
-     *       worker loops, scheduled timer, storage pool, and configurator.</li>
+     *       worker loops, scheduled timer, and storage pool.</li>
      * </ol>
      *
      * <p>After shutdown, {@link #start()} can be called again to restart.
@@ -1067,12 +995,6 @@ public class Gumdrop {
         }
 
         stopMailboxLifecycle();
-
-        // Shutdown configurator (destroy singleton components)
-        if (configurator != null) {
-            configurator.shutdown();
-            configurator = null;
-        }
 
         started = false;
         draining = false;
@@ -1334,63 +1256,20 @@ public class Gumdrop {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Main entry point for running Gumdrop as a standalone server.
-     *
-     * @param args command line arguments (optional: path to gumdroprc)
+     * Invoked by the container distribution's {@link Bootstrap} launcher
+     * ({@code bin/gumdrop.sh}). Gumdrop 3 has no generic {@code gumdroprc}
+     * XML entry point — applications compose their own servers in Java and
+     * provide their own {@code main} (see {@code docs/COMPOSITION.md}).
+     * This prints guidance rather than starting anything, so the container
+     * launcher fails with a clear message instead of an opaque error.
      */
     public static void main(String[] args) {
-        // Determine configuration file location. Search order:
-        //   1. explicit command-line argument
-        //   2. GUMDROP_CONFIG environment variable (12-factor / container)
-        //   3. ~/.gumdroprc
-        //   4. /etc/gumdroprc
-        File gumdroprc = null;
-        if (args.length > 0) {
-            gumdroprc = new File(args[0]);
-        } else {
-            String envConfig = System.getenv("GUMDROP_CONFIG");
-            if (envConfig != null && !envConfig.isEmpty()) {
-                gumdroprc = new File(envConfig);
-            } else {
-                gumdroprc = new File(System.getProperty("user.home")
-                        + File.separator + ".gumdroprc");
-            }
-        }
-        if (!gumdroprc.exists()) {
-            gumdroprc = new File("/etc/gumdroprc");
-        }
-        if (!gumdroprc.exists()) {
-            System.out.println(L10N.getString("err.syntax"));
-            System.exit(1);
-        }
-
-        System.out.println(L10N.getString("banner"));
-
-        // Get instance with configuration
-        Gumdrop gumdrop = getInstance(gumdroprc);
-
-        // Allow the graceful-drain timeout to be tuned per environment.
-        String drainEnv = System.getenv("GUMDROP_DRAIN_TIMEOUT_MS");
-        if (drainEnv != null && !drainEnv.isEmpty()) {
-            try {
-                gumdrop.setDrainTimeoutMs(Long.parseLong(drainEnv.trim()));
-            } catch (NumberFormatException e) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.invalid_drain_timeout_env"), drainEnv));
-            }
-        }
-
-        // Start
-        gumdrop.start();
-
-        // Wait for shutdown
-        try {
-            gumdrop.join();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        LOGGER.info(L10N.getString("info.gumdrop_end_loop"));
+        System.err.println(
+                "Gumdrop 3 has no gumdroprc XML entry point. Applications "
+                + "compose their own servers in Java and provide their own "
+                + "main() -- see docs/COMPOSITION.md for the canonical "
+                + "patterns.");
+        System.exit(1);
     }
 
     private void startMailboxLifecycle() {

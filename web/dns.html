@@ -545,88 +545,81 @@ resolution logic over a different transport. You can combine any of the followin
 </table>
 
 <p>
-Configure one or more <code>&lt;listener&gt;</code> elements per service. For example,
-you can serve plain DNS on 5353 and DoT on 853 from the same service.
+Attach one or more listeners per server with <code>.listener(...)</code>. For
+example, you can serve plain DNS on 5353 and DoT on 853 from the same server.
 </p>
 
-<h4>DnsServer Properties</h4>
+<h4>UpstreamRelayHandler</h4>
 
 <p>
-Property names use kebab-case in configuration; the dependency injection
-framework maps them to camelCase setters (e.g. <code>upstream-servers</code>
-&rarr; <code>setUpstreamServers</code>). Same convention as HTTP and other services.
+<code>DnsServer.compose()</code> with no handler answers empty (NOERROR, zero
+RRs) — no implicit upstream relay. Attach <code>UpstreamRelayHandler</code>
+explicitly for the forwarding/caching behaviour:
 </p>
 
 <ul>
-<li><code>upstream-servers</code> - space-separated list of upstream DNS servers</li>
-<li><code>use-system-resolvers</code> - use <code>/etc/resolv.conf</code> nameservers
+<li><code>upstreamServers(String)</code> - space-separated list of upstream DNS servers</li>
+<li><code>useSystemResolvers(boolean)</code> - use <code>/etc/resolv.conf</code> nameservers
 (default: true)</li>
-<li><code>cache-enabled</code> - enable response caching (default: true)</li>
-<li><code>addresses</code> - bind addresses (default: all interfaces)</li>
+<li><code>cacheEnabled(boolean)</code> - enable response caching (default: true)</li>
+<li><code>dnssecEnabled(boolean)</code> - enable DNSSEC validation</li>
 </ul>
 
-<h4>Listener Properties</h4>
+<h4>Listener Options</h4>
 
 <ul>
-<li><code>port</code> - listening port (optional). If omitted, defaults are:
+<li><code>.port(int)</code> - listening port (optional). If omitted, defaults are:
     <code>DnsListener</code> 53, <code>DoTListener</code> 853, <code>DoQListener</code> 853.</li>
+<li><code>.addresses(InetAddress...)</code> - bind addresses (default: all interfaces)</li>
 </ul>
 
-<h4>TLS/DTLS/QUIC Properties (DoTListener, DoQListener)</h4>
+<h4>TLS/DTLS/QUIC Options (DoTListener, DoQListener)</h4>
 
 <p>
 DoT (TCP+TLS) and DoQ (QUIC) use the same in-tree TLS stack and the same
-server-identity properties as other listeners (keystore or PEM). DTLS on
-<code>DnsListener</code> follows the same rules when <code>secure</code> is
-enabled:
+<code>TlsConfig</code> as other listeners. DTLS on <code>DnsListener</code>
+follows the same rules when <code>.secure(true)</code> is set:
 </p>
 
 <ul>
-<li><code>secure</code> - enable DTLS/TLS (default: false; DoTListener is always secure)</li>
-<li><code>keystore-file</code> - path to keystore file (PKCS#12 or JKS)</li>
-<li><code>keystore-pass</code> - keystore password</li>
-<li><code>cert-file</code> / <code>key-file</code> - PEM alternative to keystore</li>
-<li><code>need-client-auth</code> - require client certificates (default: false)</li>
-<li><code>require-retry</code> - (DoQ only) require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
+<li><code>.secure(boolean)</code> - enable DTLS/TLS (default: false; DoTListener is always secure)</li>
+<li><code>.tls(TlsConfig)</code> - keystore, PEM, or <code>ServerCredentials</code> identity material</li>
+<li><code>setNeedClientAuth(boolean)</code> - require client certificates (default: false)</li>
+<li><code>setRequireRetry(boolean)</code> - (DoQ only) require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
 </ul>
 
-<h4>Example Configuration</h4>
+<h4>Example Composition</h4>
 
 <pre>
-&lt;!-- DNS proxy on non-privileged port --&gt;
-&lt;service id="dns" class="org.bluezoo.gumdrop.dns.DnsServer"&gt;
-    &lt;property name="upstream-servers"&gt;8.8.8.8 1.1.1.1&lt;/property&gt;
-    &lt;property name="cache-enabled"&gt;true&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DnsListener"
-            port="5353"/&gt;
-&lt;/service&gt;
+// DNS proxy on non-privileged port
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener().port(5353))
+    .handler(UpstreamRelayHandler.builder()
+        .upstreamServers("8.8.8.8 1.1.1.1")
+        .cacheEnabled(true)
+        .build())
+    .server();
 
-&lt;!-- DNS with DoT listener (keystore-file / keystore-pass like HTTP/SMTP) --&gt;
-&lt;service id="dns-secure" class="org.bluezoo.gumdrop.dns.DnsServer"&gt;
-    &lt;property name="upstream-servers"&gt;8.8.8.8&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DnsListener"
-            port="53"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DoTListener"
-            port="853" secure="true"
-            keystore-file="keystore.p12"
-            keystore-pass="secret"/&gt;
-&lt;/service&gt;
+// DNS with DoT listener (same TlsConfig as HTTP/SMTP)
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+DnsServer dnsSecure = DnsServer.compose()
+    .listener(new DnsListener().port(53))
+    .listener(new DoTListener().port(853).secure(true).tls(tls))
+    .handler(UpstreamRelayHandler.builder()
+        .upstreamServers("8.8.8.8")
+        .build())
+    .server();
 
-&lt;!-- DNS with UDP, DoT, and DoQ listeners (same keystore on DoT and DoQ) --&gt;
-&lt;service id="dns-full" class="org.bluezoo.gumdrop.dns.DnsServer"&gt;
-    &lt;property name="upstream-servers"&gt;8.8.8.8 1.1.1.1&lt;/property&gt;
-    &lt;property name="cache-enabled"&gt;true&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DnsListener"
-            port="5353"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DoTListener"
-            port="853" secure="true"
-            keystore-file="keystore.p12"
-            keystore-pass="secret"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DoQListener"
-            port="853" secure="true"
-            keystore-file="keystore.p12"
-            keystore-pass="secret"/&gt;
-&lt;/service&gt;
+// DNS with UDP, DoT, and DoQ listeners (same keystore on DoT and DoQ)
+DnsServer dnsFull = DnsServer.compose()
+    .listener(new DnsListener().port(5353))
+    .listener(new DoTListener().port(853).secure(true).tls(tls))
+    .listener(new DoQListener().port(853).secure(true).tls(tls))
+    .handler(UpstreamRelayHandler.builder()
+        .upstreamServers("8.8.8.8 1.1.1.1")
+        .cacheEnabled(true)
+        .build())
+    .server();
 </pre>
 
 <h4>Upstream Server Format</h4>
@@ -935,12 +928,11 @@ gets the same one-second grace removal as a cache-flush eviction (section
 Once announced, <code>MdnsServer</code> (by default) also publishes RFC
 6763 DNS-SD records for this Gumdrop instance's other configured services,
 so they're discoverable via <code>dns-sd -B _services._dns-sd._udp local.</code>
-or a Bonjour/Avahi browser. This reads
-<code>Gumdrop.getInstance().getServices()</code> at announce time, so
-<b>the <code>mdns</code> service must be declared last</b> in
-<code>gumdroprc.xml</code> &mdash; services start in document order, and any
-service started after <code>mdns</code> won't have its listener ports
-picked up yet.
+or a Bonjour/Avahi browser. This reads <code>gumdrop.getServers()</code> at
+announce time, so <b>the <code>mdns</code> server must be added to the
+<code>Gumdrop</code> instance last</b> — call <code>gumdrop.addServer(...)</code>
+for every other server first; a server added after <code>mdns</code> won't
+have its listener ports picked up yet.
 </p>
 
 <p>
@@ -965,7 +957,7 @@ Gumdrop can serve:
 
 <p>
 A listener whose description isn't in this table &mdash; including
-internal-only listeners like <code>health</code> or <code>cluster</code>,
+internal-only listeners like <code>cluster</code>,
 and protocols without a clearly-established DNS-SD type such as
 <code>mqtt</code>, <code>socks</code>, or the WebSocket/HTTP3/DoQ variants
 &mdash; is silently skipped rather than treated as an error, so adding a new
@@ -990,49 +982,51 @@ per-instance records and do.
 
 <h4 id="mdns-config">Configuration</h4>
 
-<h4>MdnsServer Properties</h4>
+<h4>MdnsServer Setters</h4>
 
 <ul>
-<li><code>hostname</code> &ndash; the label to probe for and advertise as
+<li><code>setHostname(String)</code> &ndash; the label to probe for and advertise as
 <code>&lt;hostname&gt;.local</code> (optional). If omitted, the JVM's local
 hostname (domain suffix stripped) is used, falling back to
 <code>"gumdrop"</code></li>
-<li><code>advertise-services</code> &ndash; auto-advertise this instance's
+<li><code>setAdvertiseServices(boolean)</code> &ndash; auto-advertise this instance's
 other configured services via DNS-SD (default: true)</li>
-<li><code>excluded-services</code> &ndash; space-separated
+<li><code>setExcludedServices(String)</code> &ndash; space-separated
 <code>Listener.getDescription()</code> values to never advertise via DNS-SD
 even if otherwise eligible (e.g. <code>"dns"</code>)</li>
 </ul>
 
-<h4>MdnsListener Properties</h4>
+<h4>MdnsListener Options</h4>
 
 <ul>
-<li><code>port</code> &ndash; UDP port (default: 5353). mDNS's port isn't
+<li><code>.port(int)</code> &ndash; UDP port (default: 5353). mDNS's port isn't
 meaningfully configurable in practice &mdash; it's part of the protocol, and
 changing it means real mDNS clients on the network can no longer find this
-host; the property exists mainly for testing</li>
+host; the setter exists mainly for testing</li>
 </ul>
 
-<h4>Example Configuration</h4>
+<h4>Example Composition</h4>
 
 <pre>
-&lt;!-- mDNS + DNS-SD auto-advertisement. Must be declared LAST in this
-     file: DNS-SD reads every other configured service's listeners at
-     announce time, and services start in document order. --&gt;
-&lt;service id="mdns" class="org.bluezoo.gumdrop.mdns.MdnsServer"&gt;
-    &lt;property name="hostname" value="gumdrop"/&gt;
-    &lt;property name="advertise-services" value="true"/&gt;
+MdnsServer mdns = new MdnsServer();
+mdns.setHostname("gumdrop");
+mdns.setAdvertiseServices(true);
+mdns.addListener(new MdnsListener());
 
-    &lt;listener class="org.bluezoo.gumdrop.mdns.MdnsListener"/&gt;
-&lt;/service&gt;
+// mDNS + DNS-SD auto-advertisement. Must be added to the Gumdrop
+// instance LAST: DNS-SD reads every other server's listeners at
+// announce time, once they're already registered.
+gumdrop.addServer(otherServer1);
+gumdrop.addServer(otherServer2);
+gumdrop.addServer(mdns);
 </pre>
 
 <p>
 Note: mDNS's UDP port 5353 is the same port the DNS proxy example above
 uses for its non-privileged <code>DnsListener</code> (see
-<a href="#configuration">Configuration</a>) &mdash; declaring both in the
-same <code>gumdroprc.xml</code> collides. Use a different port for the
-unicast <code>DnsListener</code>, or omit it, if running both.
+<a href="#configuration">Configuration</a>) &mdash; running both on the same
+host collides. Use a different port for the unicast <code>DnsListener</code>,
+or omit it, if running both.
 </p>
 
 <h4>Known Limitations</h4>

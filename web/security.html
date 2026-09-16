@@ -113,7 +113,7 @@ mkcert -cert-file etc/localhost+2.pem -key-file etc/localhost+2-key.pem \
 
 <p>
 This produces <code>etc/localhost+2.pem</code> and
-<code>etc/localhost+2-key.pem</code>. For gumdroprc examples that use a
+<code>etc/localhost+2-key.pem</code>. For examples below that use a
 keystore, export the same identity to PKCS#12 (one file can serve HTTPS,
 HTTP/3, DoQ, and other listeners):
 </p>
@@ -124,10 +124,8 @@ openssl pkcs12 -export -in etc/localhost+2.pem -inkey etc/localhost+2-key.pem \
 </pre>
 
 <p>
-Alternatively, point every listener at the PEM files directly with
-<code>cert-file</code> and <code>key-file</code>. Configuration files in
-<code>etc/</code> reference these paths by filename; they are not checked in
-to the repository.
+Alternatively, use <code>TlsConfig.pem(...)</code> to point every listener
+at the PEM files directly, without exporting a keystore at all.
 </p>
 
 <h3>TCP/TLS Configuration</h3>
@@ -139,14 +137,12 @@ Connection is encrypted from the start (e.g., SMTPS port 465, IMAPS port 993):
 </p>
 
 <pre>
-&lt;service id="imaps" class="org.bluezoo.gumdrop.imap.ImapServer"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.imap.ImapListener"&gt;
-        &lt;property name="port"&gt;993&lt;/property&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+ImapServer imaps = ImapServer.compose()
+    .listener(new ImapListener().port(993).secure(true).tls(tls))
+    .realm(realm)
+    .sessionProvider(ImapServerSessionProviders.mailbox(maildirFactory))
+    .server();
 </pre>
 
 <h4>STARTTLS</h4>
@@ -156,14 +152,13 @@ Connection starts unencrypted and upgrades to TLS on client request:
 </p>
 
 <pre>
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayServer"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"&gt;
-        &lt;property name="port"&gt;25&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-        &lt;!-- Advertises STARTTLS capability --&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+SmtpServer smtp = SmtpServer.compose()
+    // Advertises STARTTLS capability
+    .listener(new SmtpListener().port(25).tls(tls))
+    .sessionProvider(SmtpServerSessionProviders.relay()
+        .hostname("relay.example.com"))
+    .server();
 </pre>
 
 <h4>Client Certificate Authentication (mTLS)</h4>
@@ -173,13 +168,15 @@ Servers can require or request client certificates for mutual TLS (mTLS):
 </p>
 
 <pre>
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayServer"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"&gt;
-        &lt;property name="need-client-auth"&gt;true&lt;/property&gt;
-        &lt;property name="truststore-file"&gt;truststore.p12&lt;/property&gt;
-        &lt;property name="truststore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+SmtpListener listener = new SmtpListener();
+listener.setNeedClientAuth(true);
+listener.setTrustManager((X509TrustManager)
+        TlsUtils.loadTrustManagers(Path.of("truststore.p12"), "secret", "PKCS12")[0]);
+SmtpServer smtp = SmtpServer.compose()
+    .listener(listener)
+    .sessionProvider(SmtpServerSessionProviders.relay()
+        .hostname("relay.example.com"))
+    .server();
 </pre>
 
 <h4 id="sni">SNI (Server Name Indication)</h4>
@@ -191,22 +188,20 @@ secure domains on a single IP address and port.
 </p>
 
 <pre>
-&lt;service id="https" class="..."&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
-        &lt;property name="port"&gt;443&lt;/property&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;multi-domain.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-        &lt;property name="sni-hostnames"&gt;
-            &lt;map&gt;
-                &lt;entry key="example.com" value="example-cert"/&gt;
-                &lt;entry key="*.example.com" value="example-wildcard"/&gt;
-                &lt;entry key="other.com" value="other-cert"/&gt;
-            &lt;/map&gt;
-        &lt;/property&gt;
-        &lt;property name="sni-default-alias"&gt;default-cert&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+Map&lt;String, String&gt; sniHostnames = new HashMap&lt;&gt;();
+sniHostnames.put("example.com", "example-cert");
+sniHostnames.put("*.example.com", "example-wildcard");
+sniHostnames.put("other.com", "other-cert");
+
+Http2Listener listener = new Http2Listener().port(443).secure(true);
+listener.setKeystoreFile("multi-domain.p12");
+listener.setKeystorePass("secret");
+listener.setSniHostnames(sniHostnames);
+listener.setSniDefaultAlias("default-cert");
+HttpServer https = HttpServer.compose()
+    .listener(listener)
+    .streamHandler(new MyStreamHandler())
+    .server();
 </pre>
 
 <p>
@@ -301,24 +296,13 @@ on both:
 </p>
 
 <pre>
-&lt;service id="http" class="..."&gt;
-    &lt;property name="container" ref="#mainContainer"/&gt;
-
-    &lt;!-- HTTPS on TCP --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
-        &lt;property name="port"&gt;8443&lt;/property&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-
-    &lt;!-- HTTP/3 on UDP (same keystore) --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
-        &lt;property name="port"&gt;8443&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+// secureEndpoint() pairs a TCP HTTP/2 listener and a UDP HTTP/3 listener
+// on the same port, both presenting the same TlsConfig identity.
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+HttpServer http = HttpServer.compose()
+    .secureEndpoint(8443, tls)
+    .streamHandler(new ServletRequestHandler(container))
+    .server();
 </pre>
 
 <p>
@@ -334,18 +318,16 @@ certificate matches.
 <p>
 Cipher suite and named group configuration applies to all transports using the
 in-tree engine (TCP/TLS, DTLS, QUIC). On TLS&nbsp;1.2 / DTLS&nbsp;1.2 listeners,
-use TLS&nbsp;1.2 cipher suite names; <code>named-groups</code> is ignored.
+use TLS&nbsp;1.2 cipher suite names; <code>setNamedGroups</code> is ignored.
 See <a href="tls.html#ciphers">TLS &amp; DTLS &mdash; cipher suites</a>.
 </p>
 
 <pre>
-&lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;property name="cipher-suites"&gt;TLS_AES_256_GCM_SHA384&lt;/property&gt;
-    &lt;property name="named-groups"&gt;X25519&lt;/property&gt;
-&lt;/listener&gt;
+Http3Listener listener = new Http3Listener().port(443);
+listener.setKeystoreFile("keystore.p12");
+listener.setKeystorePass("secret");
+listener.setCipherSuites("TLS_AES_256_GCM_SHA384");
+listener.setNamedGroups("X25519");
 </pre>
 
 <p>
@@ -445,15 +427,16 @@ containing space-separated role names. Users reference groups using the
 <h4>Configuration</h4>
 
 <pre>
-&lt;realm id="mailRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-    &lt;property name="href"&gt;users.xml&lt;/property&gt;
-&lt;/realm&gt;
-
-&lt;!-- Or inline --&gt;
-&lt;realm id="simpleRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-    &lt;user name="testuser" password="testpass" roles="user"/&gt;
-&lt;/realm&gt;
+BasicRealm mailRealm = new BasicRealm();
+mailRealm.setHref(Path.of("users.xml"));
 </pre>
+
+<p>
+<code>setHref</code> parses the <code>users.xml</code>-format file shown
+above directly — it's a standalone SAX parser, independent of any
+application composition code. Attach the realm to a server with
+<code>.realm(realm)</code> on the composer.
+</p>
 
 <h4>Production Use</h4>
 
@@ -670,14 +653,6 @@ GssapiServer gss = new GssapiServer(
 imapListener.setGSSAPIServer(gss);
 </pre>
 
-<p>gumdroprc XML configuration:</p>
-<pre>
-&lt;service id="imap" class="org.bluezoo.gumdrop.imap.ImapServer"&gt;
-    &lt;property name="gssapiKeytab" value="/etc/krb5.keytab"/&gt;
-    &lt;property name="gssapiPrincipal" value="imap/mail.example.com@EXAMPLE.COM"/&gt;
-&lt;/service&gt;
-</pre>
-
 <p>
 After successful GSSAPI authentication, the authenticated Kerberos principal
 (e.g. <code>user@EXAMPLE.COM</code>) is mapped to a local username via the
@@ -763,10 +738,13 @@ preventing resource exhaustion from connection flooding.
 </p>
 
 <pre>
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayServer"&gt;
-    &lt;property name="max-connections-per-ip"&gt;10&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener" port="25"/&gt;
-&lt;/service&gt;
+SmtpListener listener = new SmtpListener().port(25);
+listener.setMaxConnectionsPerIP(10);
+SmtpServer smtp = SmtpServer.compose()
+    .listener(listener)
+    .sessionProvider(SmtpServerSessionProviders.relay()
+        .hostname("relay.example.com"))
+    .server();
 </pre>
 
 <h4>Connection Rate Limits</h4>
@@ -777,16 +755,20 @@ preventing rapid reconnection attacks.
 </p>
 
 <pre>
-&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer"&gt;
-    &lt;property name="rate-limit"&gt;100/60s&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/&gt;
-&lt;/service&gt;
+FtpListener listener = new FtpListener().port(21);
+listener.setRateLimit("100/60s");
+FtpServer ftp = FtpServer.compose()
+    .listener(listener)
+    .realm(realm)
+    .sessionProvider(FtpServerSessionProviders.fileSystem()
+        .rootDirectory(Path.of("/var/ftp")))
+    .server();
 </pre>
 
 <h4>Rate Limit Format</h4>
 
 <p>
-The <code>rate-limit</code> property accepts the format <code>count/duration</code>:
+<code>setRateLimit</code> accepts the format <code>count/duration</code>:
 </p>
 
 <ul>
@@ -812,11 +794,14 @@ offending clients.
 </p>
 
 <pre>
-&lt;service id="imap" class="org.bluezoo.gumdrop.imap.ImapServer"&gt;
-    &lt;property name="max-auth-failures"&gt;5&lt;/property&gt;
-    &lt;property name="auth-lockout-time"&gt;5m&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.imap.ImapListener" port="143"/&gt;
-&lt;/service&gt;
+ImapListener listener = new ImapListener().port(143);
+listener.setMaxAuthFailures(5);
+listener.setAuthLockoutTime("5m");
+ImapServer imap = ImapServer.compose()
+    .listener(listener)
+    .realm(realm)
+    .sessionProvider(ImapServerSessionProviders.mailbox(maildirFactory))
+    .server();
 </pre>
 
 <h4>Exponential Backoff</h4>
@@ -851,15 +836,14 @@ SMTP servers support CIDR-based network filtering for allow/block lists:
 </p>
 
 <pre>
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayServer"&gt;
-    &lt;property name="allowed-networks"&gt;
-        192.168.0.0/16,10.0.0.0/8,2001:db8::/32
-    &lt;/property&gt;
-    &lt;property name="blocked-networks"&gt;
-        192.168.100.0/24,2001:db8:bad::/48
-    &lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener" port="25"/&gt;
-&lt;/service&gt;
+SmtpListener listener = new SmtpListener().port(25);
+listener.setAllowedNetworks("192.168.0.0/16,10.0.0.0/8,2001:db8::/32");
+listener.setBlockedNetworks("192.168.100.0/24,2001:db8:bad::/48");
+SmtpServer smtp = SmtpServer.compose()
+    .listener(listener)
+    .sessionProvider(SmtpServerSessionProviders.relay()
+        .hostname("relay.example.com"))
+    .server();
 </pre>
 
 <p>

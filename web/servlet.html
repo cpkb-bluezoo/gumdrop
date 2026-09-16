@@ -810,10 +810,10 @@ in application code.
 </p>
 
 <p>
-Resources are defined in <code>gumdroprc</code> and bound to the container's
-JNDI naming tree. Web applications reference these resources in their
-deployment descriptors using <code>resource-ref</code>, <code>resource-env-ref</code>,
-or through annotation-based injection.
+Resources are composed in Java (<code>container.addResource(...)</code>) and
+bound to the container's JNDI naming tree. Web applications reference these
+resources in their deployment descriptors using <code>resource-ref</code>,
+<code>resource-env-ref</code>, or through annotation-based injection.
 </p>
 
 <h4>DataSource (JDBC Connection Pooling)</h4>
@@ -825,35 +825,37 @@ are reused across requests, reducing connection overhead.
 </p>
 
 <pre>
-&lt;data-source name="jdbc/myDB"
-             class-name="org.postgresql.Driver"
-             server-name="localhost"
-             port-number="5432"
-             database-name="myapp"
-             user="dbuser"
-             password="dbpass"
-             initial-pool-size="5"
-             min-pool-size="5"
-             max-pool-size="20"
-             max-idle-time="300"/&gt;
+DataSourceDef ds = new DataSourceDef();
+ds.setName("jdbc/myDB");
+ds.setClassName("org.postgresql.Driver");
+ds.setServerName("localhost");
+ds.setPortNumber(5432);
+ds.setDatabaseName("myapp");
+ds.setUser("dbuser");
+ds.setPassword("dbpass");
+ds.setInitialPoolSize(5);
+ds.setMinPoolSize(5);
+ds.setMaxPoolSize(20);
+ds.setMaxIdleTime(300);
+container.addResource(ds);
 </pre>
 
-<p>DataSource properties:</p>
+<p>DataSource setters:</p>
 
 <ul>
-<li><code>name</code> - JNDI name (e.g., <code>jdbc/myDB</code>)</li>
-<li><code>class-name</code> - JDBC driver class</li>
-<li><code>server-name</code> - database server hostname</li>
-<li><code>port-number</code> - database server port</li>
-<li><code>database-name</code> - name of the database</li>
-<li><code>url</code> - full JDBC URL (alternative to server/port/database)</li>
-<li><code>user</code> - database username</li>
-<li><code>password</code> - database password</li>
-<li><code>initial-pool-size</code> - connections created at startup</li>
-<li><code>min-pool-size</code> - minimum connections maintained in pool</li>
-<li><code>max-pool-size</code> - maximum connections allowed</li>
-<li><code>max-idle-time</code> - seconds before idle connections are closed</li>
-<li><code>isolation-level</code> - default transaction isolation level</li>
+<li><code>setName</code> - JNDI name (e.g., <code>jdbc/myDB</code>)</li>
+<li><code>setClassName</code> - JDBC driver class</li>
+<li><code>setServerName</code> - database server hostname</li>
+<li><code>setPortNumber</code> - database server port</li>
+<li><code>setDatabaseName</code> - name of the database</li>
+<li><code>setUrl</code> - full JDBC URL (alternative to server/port/database)</li>
+<li><code>setUser</code> - database username</li>
+<li><code>setPassword</code> - database password</li>
+<li><code>setInitialPoolSize</code> - connections created at startup</li>
+<li><code>setMinPoolSize</code> - minimum connections maintained in pool</li>
+<li><code>setMaxPoolSize</code> - maximum connections allowed</li>
+<li><code>setMaxIdleTime</code> - seconds before idle connections are closed</li>
+<li><code>setIsolationLevel</code> - default transaction isolation level</li>
 </ul>
 
 <p>
@@ -895,35 +897,36 @@ authentication credentials.
 </p>
 
 <pre>
-&lt;mail-session name="mail/smtp"
-              host="smtp.example.com"
-              user="mailuser"
-              password="mailpass"
-              from="noreply@example.com"
-              transport-protocol="smtp"
-              store-protocol="imap"&gt;
-  &lt;property name="mail.smtp.port" value="587"/&gt;
-  &lt;property name="mail.smtp.starttls.enable" value="true"/&gt;
-&lt;/mail-session&gt;
+MailSession mail = new MailSession();
+mail.setName("mail/smtp");
+mail.setHost("smtp.example.com");
+mail.setUser("mailuser");
+mail.setPassword("mailpass");
+mail.setFrom("noreply@example.com");
+mail.setTransportProtocol("smtp");
+mail.setStoreProtocol("imap");
+mail.addProperty("mail.smtp.port", "587");
+mail.addProperty("mail.smtp.starttls.enable", "true");
+container.addResource(mail);
 </pre>
 
-<p>Mail session properties:</p>
+<p>Mail session setters:</p>
 
 <ul>
-<li><code>name</code> - JNDI name (e.g., <code>mail/smtp</code>)</li>
-<li><code>host</code> - mail server hostname</li>
-<li><code>user</code> - authentication username</li>
-<li><code>password</code> - authentication password</li>
-<li><code>from</code> - default sender address</li>
-<li><code>transport-protocol</code> - outgoing protocol (default: <code>smtp</code>)</li>
-<li><code>transport-protocol-class</code> - custom transport provider class</li>
-<li><code>store-protocol</code> - incoming protocol (default: <code>imap</code>)</li>
-<li><code>store-protocol-class</code> - custom store provider class</li>
+<li><code>setName</code> - JNDI name (e.g., <code>mail/smtp</code>)</li>
+<li><code>setHost</code> - mail server hostname</li>
+<li><code>setUser</code> - authentication username</li>
+<li><code>setPassword</code> - authentication password</li>
+<li><code>setFrom</code> - default sender address</li>
+<li><code>setTransportProtocol</code> - outgoing protocol (default: <code>smtp</code>)</li>
+<li><code>setTransportProtocolClass</code> - custom transport provider class</li>
+<li><code>setStoreProtocol</code> - incoming protocol (default: <code>imap</code>)</li>
+<li><code>setStoreProtocolClass</code> - custom store provider class</li>
 </ul>
 
 <p>
-Additional JavaMail properties can be specified using nested
-<code>property</code> elements. Common properties include STARTTLS
+Additional JavaMail properties can be specified with
+<code>addProperty(name, value)</code>. Common properties include STARTTLS
 enablement, port numbers, and SSL configuration.
 </p>
 
@@ -947,42 +950,45 @@ for messaging. This requires a JMS provider implementation in the classpath.
 </p>
 
 <pre>
-&lt;jms-connection-factory name="jms/ConnectionFactory"
-                        class-name="org.apache.activemq.ActiveMQConnectionFactory"
-                        user="jmsuser"
-                        password="jmspass"
-                        client-id="gumdrop-client"&gt;
-  &lt;property name="broker-url" value="tcp://localhost:61616"/&gt;
-&lt;/jms-connection-factory&gt;
+JmsConnectionFactory jmsFactory = new JmsConnectionFactory();
+jmsFactory.setName("jms/ConnectionFactory");
+jmsFactory.setClassName("org.apache.activemq.ActiveMQConnectionFactory");
+jmsFactory.setUser("jmsuser");
+jmsFactory.setPassword("jmspass");
+jmsFactory.setClientId("gumdrop-client");
+jmsFactory.addProperty("brokerURL", "tcp://localhost:61616");
+container.addResource(jmsFactory);
 </pre>
 
-<p>JMS connection factory properties:</p>
+<p>JMS connection factory setters:</p>
 
 <ul>
-<li><code>name</code> - JNDI name</li>
-<li><code>class-name</code> - JMS provider factory class</li>
-<li><code>interface-name</code> - factory interface (default: <code>javax.jms.ConnectionFactory</code>)</li>
-<li><code>user</code> - authentication username</li>
-<li><code>password</code> - authentication password</li>
-<li><code>client-id</code> - JMS client identifier for durable subscriptions</li>
+<li><code>setName</code> - JNDI name</li>
+<li><code>setClassName</code> - JMS provider factory class</li>
+<li><code>setInterfaceName</code> - factory interface (default: <code>javax.jms.ConnectionFactory</code>)</li>
+<li><code>setUser</code> - authentication username</li>
+<li><code>setPassword</code> - authentication password</li>
+<li><code>setClientId</code> - JMS client identifier for durable subscriptions</li>
 </ul>
 
 <h4>JMS Destination</h4>
 
 <p>
-The <code>jms-destination</code> element defines a JMS queue or topic.
+<code>JmsDestination</code> defines a JMS queue or topic.
 </p>
 
 <pre>
-&lt;jms-destination name="jms/queue/OrderQueue"
-                 class-name="org.apache.activemq.command.ActiveMQQueue"&gt;
-  &lt;property name="physical-name" value="OrderQueue"/&gt;
-&lt;/jms-destination&gt;
+JmsDestination orderQueue = new JmsDestination();
+orderQueue.setName("jms/queue/OrderQueue");
+orderQueue.setClassName("org.apache.activemq.command.ActiveMQQueue");
+orderQueue.addProperty("physicalName", "OrderQueue");
+container.addResource(orderQueue);
 
-&lt;jms-destination name="jms/topic/Notifications"
-                 class-name="org.apache.activemq.command.ActiveMQTopic"&gt;
-  &lt;property name="physical-name" value="Notifications"/&gt;
-&lt;/jms-destination&gt;
+JmsDestination notifications = new JmsDestination();
+notifications.setName("jms/topic/Notifications");
+notifications.setClassName("org.apache.activemq.command.ActiveMQTopic");
+notifications.addProperty("physicalName", "Notifications");
+container.addResource(notifications);
 </pre>
 
 <p>
@@ -995,8 +1001,8 @@ if not explicitly specified.
 
 <p>
 Environment entries (<code>env-entry</code>) provide simple configuration
-values to web applications. These are defined in the deployment descriptor
-rather than <code>gumdroprc</code>.
+values to web applications. These are defined in the deployment descriptor,
+not composed in Java like other resources.
 </p>
 
 <pre>
@@ -1022,19 +1028,20 @@ Supported types include <code>java.lang.String</code>, <code>java.lang.Integer</
 <h4>JCA Administered Objects</h4>
 
 <p>
-The <code>administered-object</code> element defines arbitrary managed objects
-for Java Connector Architecture (JCA) integration. These are instantiated
-by Gumdrop and bound to JNDI with properties set via JavaBean conventions.
+<code>AdministeredObject</code> defines arbitrary managed objects for Java
+Connector Architecture (JCA) integration. These are instantiated by Gumdrop
+and bound to JNDI with properties set via JavaBean conventions.
 </p>
 
 <pre>
-&lt;administered-object jndi-name="custom/MyConfig"
-                     administered-object-class="com.example.ConfigBean"
-                     administered-object-interface="com.example.Config"&gt;
-  &lt;property name="server-url" value="https://api.example.com"/&gt;
-  &lt;property name="timeout" value="30000"/&gt;
-  &lt;property name="enable-cache" value="true"/&gt;
-&lt;/administered-object&gt;
+AdministeredObject configBean = new AdministeredObject();
+configBean.setJndiName("custom/MyConfig");
+configBean.setAdministeredObjectClass("com.example.ConfigBean");
+configBean.setAdministeredObjectInterface("com.example.Config");
+configBean.addProperty("serverUrl", "https://api.example.com");
+configBean.addProperty("timeout", "30000");
+configBean.addProperty("enableCache", "true");
+container.addResource(configBean);
 </pre>
 
 <h4>Resource Injection</h4>
@@ -1066,9 +1073,10 @@ public class OrderServlet extends HttpServlet {
 </pre>
 
 <p>
-For injection to work, the resource must either be defined in
-<code>gumdroprc</code> (for DataSources, mail sessions, etc.) or in the
-deployment descriptor (for environment entries).
+For injection to work, the resource must either be composed in Java and
+added via <code>container.addResource(...)</code> (for DataSources, mail
+sessions, etc.) or defined in the deployment descriptor (for environment
+entries).
 </p>
 
 <h3 id="jaxws-jaxrs">JAX-WS and JAX-RS</h3>

@@ -1,7 +1,0 @@
-<?xml version='1.0' standalone='yes'?>
-<gumdrop>
-	<service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTServer">
-		<listener class="org.bluezoo.gumdrop.mqtt.MqttListener"
-				name="mqtt" port="11883"/>
-	</service>
-</gumdrop>

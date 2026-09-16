@@ -21,17 +21,12 @@
 
 package org.bluezoo.gumdrop;
 
-import org.bluezoo.gumdrop.config.ComponentRegistry;
-import org.bluezoo.gumdrop.config.ConfigurationParser;
-import org.bluezoo.gumdrop.config.ParseResult;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.rules.TestName;
 
-import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.InetSocketAddress;
@@ -44,14 +39,11 @@ import java.util.logging.Logger;
 
 /**
  * Base class for server integration tests.
- * 
- * <p>This class handles the lifecycle of starting and stopping the Gumdrop
- * server with a test configuration, providing a real network environment
+ *
+ * <p>This class handles the lifecycle of starting and stopping a fresh
+ * {@link Gumdrop} instance per test, providing a real network environment
  * for end-to-end testing.
- * 
- * <p>Uses the Gumdrop singleton pattern with full lifecycle management:
- * servers are added before start() and removed on shutdown().
- * 
+ *
  * <h3>Features</h3>
  * <ul>
  *   <li>Automatic server lifecycle management</li>
@@ -60,15 +52,18 @@ import java.util.logging.Logger;
  *   <li>Detailed failure diagnostics</li>
  *   <li>Pre-flight environment validation</li>
  * </ul>
- * 
+ *
  * <h3>Usage</h3>
  * <pre>
  * public class MyServerTest extends AbstractServerIntegrationTest {
  *     &#64;Override
- *     protected File getTestConfigFile() {
- *         return new File("test/integration/config/my-server-test.xml");
+ *     protected Collection&lt;? extends Server&gt; buildServers() throws Exception {
+ *         HttpServer server = HttpServer.compose()
+ *                 .listener(new Http2Listener().port(18080))
+ *                 .server();
+ *         return Collections.singletonList(server);
  *     }
- *     
+ *
  *     &#64;Test
  *     public void testSomething() {
  *         // Test code - server is already running
@@ -79,9 +74,8 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public abstract class AbstractServerIntegrationTest {
-    
+
     protected Gumdrop gumdrop;
-    protected ComponentRegistry registry;
     protected Collection<TcpListener> servers;
     
     /** Test context for diagnostics and utilities */
@@ -100,33 +94,19 @@ public abstract class AbstractServerIntegrationTest {
     private List<String> serverAddresses = new ArrayList<>();
     
     /**
-     * Returns the configuration file for this test. Ignored when {@link
-     * #buildServers()} is overridden to return non-null.
-     */
-    protected File getTestConfigFile() {
-        return null;
-    }
-
-    /**
-     * Alternative to {@link #getTestConfigFile()} for tests that build
-     * their server(s) directly via Java composition ({@link
-     * org.bluezoo.gumdrop.http.HttpServer#compose()} and similar) instead
-     * of XML. When overridden to return non-null, takes precedence over
-     * the config-file path and {@link #getTestConfigFile()} is not
-     * consulted.
+     * Builds the composed protocol server(s) for this test (e.g. via
+     * {@link org.bluezoo.gumdrop.http.HttpServer#compose()} and similar).
+     * May be combined with {@link #buildListeners()} to add standalone
+     * listeners alongside composed servers.
      */
     protected Collection<? extends Server> buildServers() throws Exception {
         return null;
     }
 
     /**
-     * Alternative to {@link #getTestConfigFile()} for tests that need a
-     * standalone {@link TcpListener} with no owning {@link Server} (the
-     * equivalent of a top-level XML {@code <component>}, as opposed to a
-     * {@code <service>}). When overridden to return non-null, takes
-     * precedence over the config-file path the same way {@link
-     * #buildServers()} does; the two hooks may both return non-null to
-     * combine standalone listeners with composed servers.
+     * Builds standalone {@link TcpListener}s with no owning {@link
+     * Server} for this test. May be combined with {@link #buildServers()}
+     * to add composed servers alongside standalone listeners.
      */
     protected Collection<? extends TcpListener> buildListeners() throws Exception {
         return null;
@@ -192,36 +172,13 @@ public abstract class AbstractServerIntegrationTest {
         
         Collection<? extends Server> composed = buildServers();
         Collection<? extends TcpListener> composedListeners = buildListeners();
-        Collection<TcpListener> standaloneListeners;
-        Collection<Server> configuredServers;
-        if (composed != null || composedListeners != null) {
-            testContext.logEvent("CONFIG_LOADED", "Using programmatic composition");
-            standaloneListeners = (composedListeners != null)
-                    ? new ArrayList<TcpListener>(composedListeners)
-                    : new ArrayList<TcpListener>();
-            configuredServers = (composed != null)
-                    ? new ArrayList<Server>(composed)
-                    : new ArrayList<Server>();
-        } else {
-            File configFile = getTestConfigFile();
-            if (configFile == null || !configFile.exists()) {
-                String msg = "Test configuration file not found: "
-                        + (configFile == null ? "null" : configFile.getAbsolutePath());
-                testContext.logEvent("CONFIG_ERROR", msg);
-                throw new IllegalStateException(msg);
-            }
-
-            testContext.logEvent("CONFIG_LOADED", "Using config: " + configFile.getName());
-
-            // Parse configuration
-            ParseResult result = new ConfigurationParser().parse(configFile);
-            registry = result.getRegistry();
-
-            // A configuration may declare standalone listeners (top-level
-            // <component> endpoints) and/or protocol servers that own listeners.
-            standaloneListeners = result.getListeners();
-            configuredServers = result.getServers();
-        }
+        testContext.logEvent("CONFIG_LOADED", "Using programmatic composition");
+        Collection<TcpListener> standaloneListeners = (composedListeners != null)
+                ? new ArrayList<TcpListener>(composedListeners)
+                : new ArrayList<TcpListener>();
+        Collection<Server> configuredServers = (composed != null)
+                ? new ArrayList<Server>(composed)
+                : new ArrayList<Server>();
 
         // Verify we have something to start
         if (standaloneListeners.isEmpty() && configuredServers.isEmpty()) {
@@ -290,12 +247,7 @@ public abstract class AbstractServerIntegrationTest {
                     errors.add(e);
                 }
             }
-            
-            if (registry != null) {
-                registry.shutdown();
-                testContext.logEvent("SHUTDOWN", "Registry shutdown completed");
-            }
-            
+
             // Allow time for port release (TIME_WAIT socket state)
             Thread.sleep(1500);
             

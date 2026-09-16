@@ -152,10 +152,10 @@ local delivery + SMTP) are wired in one Java <code>main</code> method.
 <p>
 Gumdrop 2.x used <code>gumdroprc</code> XML with reflective dependency
 injection (<code>ComponentRegistry</code>, <code>&lt;service&gt;</code>,
-<code>&lt;property&gt;</code>, <code>&lt;ref&gt;</code>). That path is
-<strong>not supported in Gumdrop 3.0</strong>. Examples under
-<code>etc/gumdroprc.*</code> remain only for transitional regression tests,
-not for new deployments.
+<code>&lt;property&gt;</code>, <code>&lt;ref&gt;</code>). That path has been
+<strong>removed in Gumdrop 3.0</strong> — <code>ConfigurationParser</code>,
+<code>ComponentRegistry</code>, and the example <code>etc/gumdroprc.*</code>
+files are gone from the tree entirely; there is no XML fallback of any kind.
 </p>
 
 <p>

@@ -15,7 +15,6 @@
 #   JAVA               java binary (default: java)
 #   GUMDROP_HOME       install root (lib/ layout)
 #   GUMDROP_JAR        legacy fat jar (default: ./dist/gumdrop-container.jar)
-#   GUMDROP_CONFIG     config path  (also honoured by the server itself)
 #   LOGGING_PROPERTIES java.util.logging config file (default: logging.properties)
 #   JAVA_OPTS          extra JVM options (appended last, so they win)
 #   MAX_RAM_PERCENTAGE heap as % of available RAM (default: 75.0)

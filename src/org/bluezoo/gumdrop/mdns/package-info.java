@@ -88,14 +88,14 @@
  * <h2>DNS-SD auto-advertisement</h2>
  *
  * <p>Enabled by default once a hostname is successfully announced. It
- * reads {@code Gumdrop.getInstance().getServers()} at that point, so
- * <strong>the {@code mdns} service must be declared last</strong> in
- * {@code gumdroprc.xml} &mdash; services start in document order, and
- * any service started after {@code mdns} won't have its listener ports
- * picked up:
+ * reads {@code gumdrop.getServers()} at that point, so
+ * <strong>the {@code mdns} server must be added to the {@code Gumdrop}
+ * instance last</strong> &mdash; call {@code gumdrop.addServer(...)} for
+ * every other server first; a server added after {@code mdns} won't have
+ * its listener ports picked up yet:
  * <pre>{@code
- * <property name="advertise-services" value="true"/>  <!-- default -->
- * <property name="excluded-services" value="dns"/>     <!-- space-separated -->
+ * mdns.setAdvertiseServices(true);  // default
+ * mdns.setExcludedServices("dns");  // space-separated
  * }</pre>
  *
  * <p>Only a deliberately conservative set of well-established DNS-SD

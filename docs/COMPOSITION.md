@@ -24,12 +24,14 @@ not XML configuration files or reflective dependency injection.
 4. **Stock handlers compose in one line** — relay, authoritative zones, servlet
    container, etc. are explicit handler implementations you attach when you want
    them (`new UpstreamRelayHandler(...)`, `new SimpleRelayHandler(...)`, …).
-5. **Explicit runtime (target)** — [GUMDROP-3-PLAN.md](GUMDROP-3-PLAN.md) §C.4
-   introduces `Runtime` to replace `Gumdrop.getInstance()`. Until then,
-   examples use `Gumdrop` as the process entry point.
-6. **No `gumdroprc` in 3.0** — XML configuration and `ComponentRegistry` are
-   not supported for new deployments. Legacy XML may remain in `etc/` for
-   regression tests only.
+5. **Explicit runtime** — [GUMDROP-3-PLAN.md](GUMDROP-3-PLAN.md) §C.4:
+   `Gumdrop.boot()` / `Gumdrop.boot(GumdropConfig)` create and start a fresh
+   instance (no process-wide singleton for server mode), threaded explicitly
+   into `server.start(gumdrop)` and `client.connect(gumdrop, handler)`. A
+   future rename to `Runtime` is still open (§C.4).
+6. **No `gumdroprc` in 3.0** — XML configuration, `ComponentRegistry`, and
+   the `GumdropConfigurator` SPI have been removed entirely (§C.5). There is
+   no file-based configuration path of any kind; compose everything in Java.
 
 ---
 
@@ -311,7 +313,7 @@ import java.nio.file.Path;
 
 public final class EchoMain {
     public static void main(String[] args) throws Exception {
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        Gumdrop gumdrop = Gumdrop.boot();
 
         HttpServer server = HttpServer.compose()
                 .secureEndpoint(443, TlsConfig.pem(
@@ -320,7 +322,6 @@ public final class EchoMain {
                 .server();
 
         gumdrop.addServer(server);
-        gumdrop.start();
         gumdrop.join();
     }
 
@@ -522,11 +523,10 @@ DnsServer dns = DnsServer.compose()
 // One-line relay (replaces implicit upstream default)
 DnsServer relay = DnsServer.compose()
         .listener(new DnsListener().port(53).bindWildcard())
-        .handler(new UpstreamRelayHandler(
-                UpstreamRelayHandler.builder()
-                        .servers("8.8.8.8", "1.1.1.1")
+        .handler(UpstreamRelayHandler.builder()
+                        .upstreamServers("8.8.8.8 1.1.1.1")
                         .cacheEnabled(true)
-                        .build()))
+                        .build())
         .server();
 
 // Authoritative zone from file

@@ -32,40 +32,13 @@ JUnit and Hamcrest (under `test/junit/lib/`) are downloaded separately by `ant r
 | `dist/gumdrop-container.jar` | Legacy self-contained fat jar (deprecated; use the zip) |
 | `dist/manager.war` | Admin web application |
 
-Unpack the zip and start with `bin/gumdrop.sh conf/gumdroprc.xml.example`, or from a dev tree run `./start` after `ant dist` (uses `dist/container-home/` automatically).
-
 If you don't need the servlet container and want to develop pure async non-blocking services using the Gumdrop framework, you only need `gumdrop.jar` plus [Gonzalez](https://github.com/cpkb-bluezoo/gonzalez) and [jsonparser](https://github.com/cpkb-bluezoo/jsonparser) if you use those.
 
 ## Running
 
-Start the server with one of the example configurations in `etc/`:
-
-```bash
-./start etc/gumdroprc.servlet
-```
-
-You should then be able to point a browser at
-[http://localhost:8080/](http://localhost:8080/) or
-[https://localhost:8443/](https://localhost:8443/) to see the example web
-application included, which includes full documentation of the framework.
-
-Other example configurations are available:
-
-| Configuration | Description |
-|---|---|
-| `etc/gumdroprc.servlet` | Servlet container (HTTP, HTTPS, HTTP/3) |
-| `etc/gumdroprc.webdav` | WebDAV file server |
-| `etc/gumdroprc.ftp.file.simple` | Simple FTP file server |
-| `etc/gumdroprc.ftp.file.anonymous` | Anonymous FTP file server |
-| `etc/gumdroprc.ftp.file.rolebased` | Role-based FTP file server |
-| `etc/gumdroprc.imap` | IMAP mailbox access |
-| `etc/gumdroprc.pop3` | POP3 mailbox access |
-| `etc/gumdroprc.smtp.localdelivery` | SMTP local delivery |
-| `etc/gumdroprc.smtp.simplerelay` | SMTP relay (authenticated) |
-| `etc/gumdroprc.dns` | DNS caching proxy (UDP, DoT, DoQ) |
-| `etc/gumdroprc.mqtt` | MQTT broker (plaintext and optional TLS) |
-| `etc/gumdroprc.socks` | SOCKS proxy (SOCKS4/4a/5) |
-
-You can configure any of these to serve your own application and run it
-immediately.
+Gumdrop 3 applications are assembled in Java — no configuration file to
+point at. Write a `main` that composes the servers you want (see
+[docs/COMPOSITION.md](docs/COMPOSITION.md) for the canonical patterns, and
+`examples/*` for runnable ones), then run it with `gumdrop.jar` (plus any
+optional module jars it needs) on the classpath.
 

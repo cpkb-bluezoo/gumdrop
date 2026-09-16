@@ -104,8 +104,11 @@ SOCKS/AMQP/DNS/mDNS/WebDAV internals, MIME/LDAP/JSP/RESP/OTLP/auth types
 handlers, listeners, auth, metrics, `Stream`; `scripts/c25-http-server-spi-move.py`).
 **C.2.2** mail protocols done (`smtp/server/SmtpServer`,
 `imap/server/ImapServer`, `pop3/server/Pop3Server` + root re-exports). **C.2.3**
-remaining protocols done (FTP, DNS, MQTT, SOCKS, mDNS, health — `*/server/*Server`
-implementations + root re-exports; `scripts/c23-remaining-package-move.py`). **C.2.4**
+remaining protocols done (FTP, DNS, MQTT, SOCKS, mDNS — `*/server/*Server`
+implementations + root re-exports; `scripts/c23-remaining-package-move.py`).
+`health` was also moved under C.2.3 but subsequently **removed entirely in
+C.5** — HTTP polling for liveness/readiness is the wrong pattern for cloud
+operations and the package is gone, not just relocated. **C.2.4**
 servlet / WebDAV / WebSocket package moves done (`servlet/server/ServletServer`,
 `webdav/server/WebdavServer`, … — interim, now superseded by §C.3's handler
 composition: `ServletRequestHandler` / `WebDAVRequestHandler` /
@@ -195,10 +198,10 @@ legacy XML FQCNs map via `ConfigurationParser`.
 
 **C.2.3 (remaining protocols, done):** FTP (`FtpServer`, file-server variants),
 DNS (`DnsServer`), MQTT (`MqttServer`, `DefaultMQTTServer`), SOCKS
-(`SocksServer`, `DefaultSOCKSServer`), mDNS (`MdnsServer`), health
-(`HealthServer`) — implementations in `{protocol}/server/` with root
-re-exports; listeners and cross-package helpers publicised where needed
-(`scripts/c23-remaining-package-move.py`).
+(`SocksServer`, `DefaultSOCKSServer`), mDNS (`MdnsServer`) — implementations
+in `{protocol}/server/` with root re-exports; listeners and cross-package
+helpers publicised where needed (`scripts/c23-remaining-package-move.py`).
+`health` (`HealthServer`) was moved here too but removed entirely in C.5.
 
 **C.2.4 (HTTP application servers, done):** `ServletServer`, `WebdavServer`,
 `WebSocketServer` in `{protocol}/server/` with root re-exports; servlet and
@@ -292,13 +295,29 @@ hidden global singleton in library code.
 
 ### C.5 Remove XML configuration; composition only
 
-**Remove (3.0):**
+**Status: done.** `org.bluezoo.gumdrop.config` (`ConfigurationParser`,
+`ComponentRegistry`, `ComponentDefinition`, `ParseResult`,
+`DefaultConfigurator`, …), the `GumdropConfigurator` SPI, and
+`Gumdrop.getInstance(File)` are deleted. All 13 XML-driven integration tests
+migrated to `AbstractServerIntegrationTest#buildServers()`/`buildListeners()`
+composition first (see below), then the XML fixtures
+(`test/integration/config/*.xml`, `etc/gumdroprc.*`, `conf/gumdroprc.xml.example`)
+were deleted. `Gumdrop.main()` no longer parses a config file — it prints
+guidance toward `docs/COMPOSITION.md` (the container `Bootstrap` launcher
+still reflectively invokes it, so it fails with a clear message rather than
+a raw reflection error; the Docker entrypoint itself is not yet migrated to
+a composition-based `main`, see `docs/CONTAINER-DEPLOYMENT.md`).
+
+**Removed (3.0):**
 
 - `gumdroprc` XML configuration as a supported deployment path
 - `ComponentRegistry`, reflective setter injection, `<component class="…">`
   arbitrary class loading
 - `ConfigurationParser` as the primary way to start applications
 - Documentation and examples that teach XML-first setup
+- The `health` package (`HealthServer`, the k8s liveness/readiness HTTP
+  endpoint) — HTTP-polled health checks are the wrong pattern for cloud
+  operations; no replacement is planned
 
 **Replace with:**
 
@@ -521,8 +540,8 @@ consistent” public API:
 
 - [x] **Drop `gumdroprc` from 3.0 documentation** — [COMPOSITION.md](COMPOSITION.md)
   and [web/configuration.html](../web/configuration.html) are composition-first.
-- [ ] Remove `ComponentRegistry` / `ConfigurationParser` from runtime startup path.
-- [ ] Migrate `examples/*` and remaining `web/*.html` XML snippets to composition.
+- [x] Remove `ComponentRegistry` / `ConfigurationParser` from runtime startup path (§C.5, done).
+- [x] Migrate `examples/*` and remaining `web/*.html` XML snippets to composition (§C.5, done — `examples/*` had none; `web/*.html` updated).
 
 ---
 
@@ -560,8 +579,8 @@ consistent” public API:
 - [x] Handler-first HTTP: `ServletRequestHandler`, `WebDAVRequestHandler`,
   `WebSocketRequestHandler`; `ServletServer` / `WebdavServer` / `WebSocketServer`
   removed from public API.
-- [ ] Remove reflection DI and XML configuration code paths.
-- [ ] Remove `Gumdrop.getInstance()` (or hard-deprecate with runtime-only path).
+- [x] Remove reflection DI and XML configuration code paths (§C.5, done).
+- [ ] Remove `Gumdrop.getInstance()` (or hard-deprecate with runtime-only path) — client-only singleton still in use; `boot()` covers server mode (§C.4).
 
 ### Phase 4 — Polish (3.0 GA)
 
@@ -600,11 +619,12 @@ consistent” public API:
 | This plan | Draft |
 | CHANGELOG 3.0.0 section | Draft (TLS/modularity) |
 | TLS cert compression #445 | Spec refined |
-| Role-agnostic refactor | C.1–C.3 done *(branch `v3-taxonomy`)* |
+| Role-agnostic refactor | C.1–C.3, C.5 done *(branch `v3-taxonomy`)* |
 | Servlet 6.1 | Not started |
-| Runtime introduction | Not started |
+| Runtime introduction | In progress — `Gumdrop.boot()` replaces the server-mode singleton (§C.4); rename to `Runtime` still open |
+| XML configuration removal (§C.5) | Done |
 | Telemetry / jprotobuf spin-off | Not started |
 | OTel API strategy decision | Open (§E.2) |
 | Facade re-exports (§C.2) | Option 2 decided |
 
-*Last updated: 2026-09-15*
+*Last updated: 2026-09-16*

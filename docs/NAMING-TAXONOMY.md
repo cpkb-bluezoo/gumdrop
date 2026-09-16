@@ -139,13 +139,13 @@ lands (remove its line so the guard test tracks remaining work).
 | **C.1.2** | HTTP stack | `HttpServer`, `HttpClient`, handlers, listeners, metrics; `http/server/` facade *(done)* |
 | **C.1.3** | Servlet / WebDAV / WebSocket on HTTP | `ServletRequestHandler`, `WebDAVRequestHandler`, `WebSocketRequestHandler` **done** |
 | **C.1.4** | Mail protocols | SMTP, IMAP, POP3 servers, clients, client reply handlers *(done)* |
-| **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, health, transport types *(done)* |
+| **C.1.5** | Remaining protocols | FTP, DNS, MQTT, AMQP, SOCKS, mDNS, gRPC, transport types *(done; health was renamed here but later removed entirely in C.5)* |
 | **C.1.6** | Internal / package-private | Lexers, protocol handlers, HPACK/QPACK, MIME/LDAP/JSP/RESP/OTLP *(done)* |
 | **C.2.1** | HTTP facade layout | `HttpServer` and `HttpClient` at protocol root *(done)* |
 | **C.2.5** | HTTP server SPI in `http/server/` | handlers, listeners, auth, metrics, `Stream` — symmetric to `http/client/` *(done)* |
 | **C.2.6** | `HttpResponseState` in `http/server/` | server outbound response API; not client-facing *(done)* |
 | **C.2.2** | Mail facade layout | SMTP/IMAP/POP3 `server/` facades + root `*Server`/`*Client` re-exports *(done)* |
-| **C.2.3** | Remaining protocol `server/` facades | FTP, DNS, MQTT, SOCKS, mDNS, health + root re-exports *(done)* |
+| **C.2.3** | Remaining protocol `server/` facades | FTP, DNS, MQTT, SOCKS, mDNS + root re-exports *(done; health moved here too but removed entirely in C.5)* |
 | **C.2.4** | Servlet / WebDAV / WebSocket package moves | Interim `*/server/*Server` facades — superseded by handler composition *(C.3, done)* |
 | **C.3** | Handler-first HTTP | `HttpServer` + `HttpRequestHandler`; `HttpRequestHandlerFactory` public SPI removed; interim `ServletServer`/`WebdavServer`/`WebSocketServer` deleted in favour of `ServletRequestHandler`/`WebDAVRequestHandler`/`WebSocketRequestHandler`; `TlsConfig`/`ClientTlsConfig` unified; WebDAV spelling fixed *(done)* |
 | **C.3.1** | Session providers (stateful) | Server: `ServerSessionProvider` (SMTP/IMAP/POP3/FTP, done). Client: no minting SPI — bootstrap handler passed directly to `connect(handler)` (`ClientSessionProvider` and its per-protocol subtypes removed, done across all four protocols) |
@@ -173,7 +173,6 @@ the same HTTP slice where practical.
 | `MqttServer` | `MqttServer` |
 | `SocksServer` | `SocksServer` |
 | `MdnsServer` | `MdnsServer` |
-| `HealthServer` | `HealthServer` |
 | `GrpcServer` | `GrpcServer` |
 
 ---
