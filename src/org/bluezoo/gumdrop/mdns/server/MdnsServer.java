@@ -83,12 +83,18 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * always invoked on the owning {@link MdnsListener}'s single transport
  * thread &mdash; there is no separate synchronization.
  *
- * <h2>Configuration Example</h2>
+ * <p>Do not subclass for application logic. Use {@link #compose()}, or the
+ * public setters directly. Unlike the request/response protocols, {@code
+ * MdnsServer} has no application handler SPI &mdash; probing, announcing,
+ * and query answering are self-contained protocol behaviour.
+ *
+ * <h2>Composition Example</h2>
  * <pre>{@code
- * <service class="org.bluezoo.gumdrop.mdns.MdnsServer">
- *   <property name="hostname" value="gumdrop"/>
- *   <listener class="org.bluezoo.gumdrop.mdns.MdnsListener"/>
- * </service>
+ * MdnsServer server = MdnsServer.compose()
+ *         .listener(new MdnsListener())
+ *         .hostname("gumdrop")
+ *         .server();
+ * gumdrop.addServer(server);
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -736,6 +742,74 @@ public class MdnsServer implements Server {
 
     private MdnsListener primaryListener() {
         return listeners.get(0);
+    }
+
+    /**
+     * Starts fluent composition of a concrete {@link MdnsServer}.
+     *
+     * @return a new composer
+     */
+    public static Composer compose() {
+        return new Composer();
+    }
+
+    /**
+     * Fluent composition of listeners and configuration.
+     */
+    public static final class Composer {
+
+        private final List<MdnsListener> listeners = new ArrayList<MdnsListener>();
+        private String hostname;
+        private boolean advertiseServices = true;
+        private String excludedServices;
+
+        private Composer() {
+        }
+
+        public Composer listener(MdnsListener listener) {
+            if (listener == null) {
+                throw new NullPointerException("listener");
+            }
+            listeners.add(listener);
+            return this;
+        }
+
+        public Composer hostname(String hostname) {
+            this.hostname = hostname;
+            return this;
+        }
+
+        public Composer advertiseServices(boolean advertiseServices) {
+            this.advertiseServices = advertiseServices;
+            return this;
+        }
+
+        public Composer excludedServices(String excludedServices) {
+            this.excludedServices = excludedServices;
+            return this;
+        }
+
+        /**
+         * Creates the composed server. At least one listener is required.
+         */
+        public MdnsServer server() {
+            if (listeners.isEmpty()) {
+                throw new IllegalStateException(
+                        "at least one listener is required");
+            }
+            MdnsServer server = new MdnsServer();
+            if (hostname != null) {
+                server.setHostname(hostname);
+            }
+            server.setAdvertiseServices(advertiseServices);
+            if (excludedServices != null) {
+                server.setExcludedServices(excludedServices);
+            }
+            for (int i = 0; i < listeners.size(); i++) {
+                server.addListener(listeners.get(i));
+            }
+            return server;
+        }
     }
 
 }
