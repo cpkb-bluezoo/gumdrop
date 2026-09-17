@@ -45,9 +45,16 @@ import java.util.logging.LogManager;
 import java.util.logging.Logger;
 
 /**
- * This class bootstraps the gumdrop server.
- * It will create a classloader specifically to load the gumdrop server
- * classes (including servlet container) in, and then load the server.
+ * Launcher for the stock servlet container distribution ({@code
+ * bin/gumdrop.sh}). Builds a classloader for the gumdrop server classes,
+ * then reflectively invokes {@link
+ * org.bluezoo.gumdrop.servlet.container.ContainerMain}, which reads {@code
+ * conf/server.xml} and deploys the configured webapp(s).
+ *
+ * <p>This is specific to the servlet container use case — every other
+ * protocol (SMTP, IMAP, DNS, …) is started via its own hand-written {@code
+ * main()} composing servers directly in Java (see {@code
+ * docs/COMPOSITION.md}), with no launcher or config file of its own.
  *
  * <p>Two startup layouts are supported:</p>
  * <ul>
@@ -58,6 +65,7 @@ import java.util.logging.Logger;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see org.bluezoo.gumdrop.servlet.container.ContainerMain
  */
 public class Bootstrap {
 
@@ -226,8 +234,9 @@ public class Bootstrap {
                 new ContainerClassLoader(containerUrls, dependencyUrls, bootstrapClassLoader);
         Thread.currentThread().setContextClassLoader(containerClassLoader);
         reconfigureLogging(containerClassLoader);
-        Class<?> gumdropClass = containerClassLoader.loadClass("org.bluezoo.gumdrop.Gumdrop");
-        Method main = gumdropClass.getMethod("main", String[].class);
+        Class<?> containerMainClass = containerClassLoader.loadClass(
+                "org.bluezoo.gumdrop.servlet.container.ContainerMain");
+        Method main = containerMainClass.getMethod("main", String[].class);
         main.invoke(null, new Object[] { args });
     }
 

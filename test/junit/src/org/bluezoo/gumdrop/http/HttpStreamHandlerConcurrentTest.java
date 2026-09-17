@@ -126,11 +126,11 @@ public class HttpStreamHandlerConcurrentTest {
         assertTrue(connected.await(5, TimeUnit.SECONDS));
         assertNull(error.get());
 
-        long deadline = System.currentTimeMillis() + 5000L;
-        while (client.getVersion() != HttpVersion.HTTP_2_0
-                && System.currentTimeMillis() < deadline) {
-            Thread.sleep(50);
-        }
+        // With prior knowledge, HttpClientProtocolHandler.connected() sets
+        // negotiatedVersion to HTTP_2_0 synchronously before it calls
+        // onConnected() (which counts down the latch above), so the
+        // version is already settled by the time await() returns -- no
+        // need to poll for it.
         assertEquals(HttpVersion.HTTP_2_0, client.getVersion());
         return client;
     }

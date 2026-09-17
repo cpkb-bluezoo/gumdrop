@@ -247,6 +247,10 @@ public abstract class SmtpServer implements Server, SmtpServerSessionProvider {
 
     @Override
     public void start(Gumdrop gumdrop) {
+        SmtpServerSessionProvider providerForGumdrop = getSessionProvider();
+        if (providerForGumdrop instanceof SimpleRelaySessionProvider) {
+            ((SimpleRelaySessionProvider) providerForGumdrop).setGumdrop(gumdrop);
+        }
         initService();
 
         for (int i = 0; i < listeners.size(); i++) {

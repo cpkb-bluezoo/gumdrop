@@ -1208,27 +1208,6 @@ public class Gumdrop {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Main entry point
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Invoked by the container distribution's {@link Bootstrap} launcher
-     * ({@code bin/gumdrop.sh}). Gumdrop 3 has no generic {@code gumdroprc}
-     * XML entry point — applications compose their own servers in Java and
-     * provide their own {@code main} (see {@code docs/COMPOSITION.md}).
-     * This prints guidance rather than starting anything, so the container
-     * launcher fails with a clear message instead of an opaque error.
-     */
-    public static void main(String[] args) {
-        System.err.println(
-                "Gumdrop 3 has no gumdroprc XML entry point. Applications "
-                + "compose their own servers in Java and provide their own "
-                + "main() -- see docs/COMPOSITION.md for the canonical "
-                + "patterns.");
-        System.exit(1);
-    }
-
     private void startMailboxLifecycle() {
         for (MailboxLifecycle lifecycle : ServiceLoader.load(MailboxLifecycle.class)) {
             try {

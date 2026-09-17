@@ -51,6 +51,7 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
     private final List<InetAddress> servers = new ArrayList<InetAddress>();
     private long timeoutMs = 5000;
     private DnsResolver dnsResolver;
+    private org.bluezoo.gumdrop.Gumdrop gumdrop;
 
     /**
      * Sets the local hostname advertised in EHLO.
@@ -137,6 +138,19 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
         return timeoutMs;
     }
 
+    /**
+     * Sets the runtime whose worker loop the resolver's UDP transport
+     * binds to. Called by {@code SmtpServer.start(Gumdrop)} before {@link
+     * #start()} runs (this provider is shared across the listeners a
+     * single server configuration serves, so it has no owning connection
+     * of its own to read this from).
+     *
+     * @param gumdrop the owning runtime, or null if none is running
+     */
+    public void setGumdrop(org.bluezoo.gumdrop.Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+    }
+
     @Override
     public void start() {
         if (dnsResolver != null) {
@@ -165,13 +179,24 @@ public final class SimpleRelaySessionProvider implements SmtpServerSessionProvid
             dnsResolver.useSystemResolvers();
         }
 
-        try {
-            dnsResolver.open();
-        } catch (IOException e) {
-            LOGGER.log(Level.SEVERE,
-                    L10N.getString("err.dns_resolver_init_failed"), e);
-            throw new RuntimeException(
-                    L10N.getString("err.dns_resolver_init_failed"), e);
+        // No live Gumdrop (e.g. a unit test exercising this provider's
+        // wiring directly, via start()/openSession() with no server
+        // actually running): leave the resolver unopened rather than
+        // failing start() outright -- openSession() below still returns a
+        // working handler, it just cannot resolve until a real Gumdrop is
+        // set. UdpDnsClientTransport.open() requires a SelectorLoop owned
+        // by a running Gumdrop, which is exactly what setGumdrop() above
+        // supplies in the real composed-server path.
+        if (gumdrop != null) {
+            try {
+                dnsResolver.setSelectorLoop(gumdrop.nextWorkerLoop());
+                dnsResolver.open();
+            } catch (IOException e) {
+                LOGGER.log(Level.SEVERE,
+                        L10N.getString("err.dns_resolver_init_failed"), e);
+                throw new RuntimeException(
+                        L10N.getString("err.dns_resolver_init_failed"), e);
+            }
         }
 
         if (LOGGER.isLoggable(Level.INFO)) {
