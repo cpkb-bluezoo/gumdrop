@@ -35,7 +35,6 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
 import org.bluezoo.gumdrop.mime.HeaderLineTooLongException;
 import org.bluezoo.gumdrop.mime.HeaderValueTooLongException;
-import org.bluezoo.gumdrop.pop3.Pop3MessageListingCache;
 
 /**
  * Default POP3 handler implementation that accepts all operations.

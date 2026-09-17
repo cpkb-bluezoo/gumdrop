@@ -6,6 +6,7 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.server.HttpServerServiceHook;
+import org.bluezoo.gumdrop.servlet.server.ServletRequestHandler;
 import org.junit.Test;
 
 import static org.junit.Assert.assertSame;

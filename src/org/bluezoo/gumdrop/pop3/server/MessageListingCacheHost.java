@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.pop3.server;
 
-import org.bluezoo.gumdrop.pop3.Pop3MessageListingCache;
 
 /**
  * Implemented by {@link org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler} so

@@ -9,7 +9,6 @@ import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
-import org.bluezoo.gumdrop.smtp.LocalDeliveryHandler;
 import org.bluezoo.gumdrop.smtp.SmtpListener;
 
 /**

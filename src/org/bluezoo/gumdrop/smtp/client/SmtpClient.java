@@ -35,10 +35,10 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
 import org.bluezoo.gumdrop.client.ClientDial;
-import org.bluezoo.gumdrop.dns.DaneTrustManager;
+import org.bluezoo.gumdrop.dns.client.DaneTrustManager;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
-import org.bluezoo.gumdrop.dns.DnssecAwareQueryCallback;
+import org.bluezoo.gumdrop.dns.client.DnssecAwareQueryCallback;
 import org.bluezoo.gumdrop.dns.DnssecStatus;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
@@ -94,7 +94,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RemoteGreeting
  * @see SmtpClientProtocolHandler
- * @see org.bluezoo.gumdrop.dns.DaneTrustManager
+ * @see org.bluezoo.gumdrop.dns.client.DaneTrustManager
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314</a> (Implicit TLS, SMTPS port 465)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)

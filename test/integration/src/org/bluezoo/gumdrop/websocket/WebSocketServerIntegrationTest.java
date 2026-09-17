@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler;
 
 import org.junit.Rule;
 import org.junit.Test;

@@ -21,20 +21,22 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.BasicProperties;
+
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ConfirmSelectHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ExchangeDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.QueueBindHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.QueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.DeliveryHandler;
+import org.bluezoo.gumdrop.amqp.client.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.RecoveryHandler;
+import org.bluezoo.gumdrop.amqp.client.RecoveryListener;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.ConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.ExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueDeclareHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -301,7 +303,7 @@ public class AMQPClientIntegrationTest {
                         channel.confirmSelect(new ConfirmSelectHandler() {
                             @Override
                             public void handleConfirmSelectOk() {
-                                channel.setConfirmListener(new org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener() {
+                                channel.setConfirmListener(new org.bluezoo.gumdrop.amqp.client.ConfirmListener() {
                                     @Override
                                     public void onAck(long sequenceNumber, boolean multiple) {
                                         ackedSeq.set(sequenceNumber);

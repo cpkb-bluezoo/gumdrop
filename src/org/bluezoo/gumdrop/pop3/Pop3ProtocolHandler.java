@@ -79,6 +79,7 @@ import org.bluezoo.gumdrop.pop3.server.ListState;
 import org.bluezoo.gumdrop.pop3.server.MailboxStatusState;
 import org.bluezoo.gumdrop.pop3.server.MarkDeletedState;
 import org.bluezoo.gumdrop.pop3.server.MessageListingCacheHost;
+import org.bluezoo.gumdrop.pop3.server.Pop3MessageListingCache;
 import org.bluezoo.gumdrop.pop3.server.ResetState;
 import org.bluezoo.gumdrop.pop3.server.RetrieveState;
 import org.bluezoo.gumdrop.pop3.server.TopState;

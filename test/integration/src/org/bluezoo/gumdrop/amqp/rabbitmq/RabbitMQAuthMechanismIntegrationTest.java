@@ -24,11 +24,11 @@ package org.bluezoo.gumdrop.amqp.rabbitmq;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.RecoveryPolicy;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.RecoveryHandler;
+import org.bluezoo.gumdrop.amqp.client.RecoveryListener;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
 
 import org.junit.After;
 import org.junit.Assume;

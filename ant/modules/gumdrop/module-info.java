@@ -51,7 +51,6 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.dns;
     exports org.bluezoo.gumdrop.dns.client;
     exports org.bluezoo.gumdrop.mqtt;
-    exports org.bluezoo.gumdrop.mqtt.broker;
     exports org.bluezoo.gumdrop.mqtt.client;
     exports org.bluezoo.gumdrop.mqtt.codec;
     exports org.bluezoo.gumdrop.mqtt.server;
@@ -93,8 +92,8 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.grpc.client;
     exports org.bluezoo.gumdrop.grpc.server;
     exports org.bluezoo.gumdrop.grpc.proto;
+    exports org.bluezoo.gumdrop.amqp;
     exports org.bluezoo.gumdrop.amqp.client;
-    exports org.bluezoo.gumdrop.amqp.client.handler;
     exports org.bluezoo.gumdrop.mdns;
     exports jakarta.servlet.jsp;
 

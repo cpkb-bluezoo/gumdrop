@@ -16,6 +16,7 @@ import org.bluezoo.gumdrop.http.HttpServer;
 import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.webdav.server.WebDAVRequestHandler;
 import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.junit.After;

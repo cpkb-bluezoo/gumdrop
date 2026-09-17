@@ -21,6 +21,19 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.AmqpBits;
+import org.bluezoo.gumdrop.amqp.AmqpFrameParser;
+import org.bluezoo.gumdrop.amqp.AmqpMethod;
+import org.bluezoo.gumdrop.amqp.AmqpProtocolException;
+import org.bluezoo.gumdrop.amqp.BasicMethods;
+import org.bluezoo.gumdrop.amqp.ChannelMethods;
+import org.bluezoo.gumdrop.amqp.ConfirmMethods;
+import org.bluezoo.gumdrop.amqp.ConnectionMethods;
+import org.bluezoo.gumdrop.amqp.ExchangeMethods;
+import org.bluezoo.gumdrop.amqp.FieldTable;
+import org.bluezoo.gumdrop.amqp.QueueMethods;
+import org.bluezoo.gumdrop.amqp.TxMethods;
+
 import org.junit.Test;
 
 import java.nio.ByteBuffer;

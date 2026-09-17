@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.dns.DnsMultiQType;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
-import org.bluezoo.gumdrop.dns.DnssecAwareQueryCallback;
+import org.bluezoo.gumdrop.dns.client.DnssecAwareQueryCallback;
 import org.bluezoo.gumdrop.dns.DnssecStatus;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.junit.After;

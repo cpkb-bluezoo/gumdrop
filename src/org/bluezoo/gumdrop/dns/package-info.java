@@ -21,7 +21,7 @@
 
 /**
  * DNS service: resolve locally, proxy to upstream servers, and cache
- * responses respecting TTL. {@link org.bluezoo.gumdrop.dns.DnsServer}
+ * responses respecting TTL. {@link org.bluezoo.gumdrop.dns.server.DnsServer}
  * owns configuration, caching, and resolution logic, overridable for
  * custom name resolution. Three transport listeners share it: {@link
  * org.bluezoo.gumdrop.dns.DnsListener} for plain UDP queries, {@link
@@ -35,7 +35,7 @@
  * message format for multicast DNS and DNS-SD.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.dns.DnsServer
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  * @see org.bluezoo.gumdrop.dns.DnsMessage
  * @see org.bluezoo.gumdrop.dns.DnsResourceRecord
  * @see org.bluezoo.gumdrop.dns.client

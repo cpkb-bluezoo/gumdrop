@@ -47,20 +47,20 @@ import org.bluezoo.gumdrop.dns.DnsType;
  * than one packet. A record with TTL 0 (a "goodbye", section 10.1) gets
  * the same one-second grace removal.
  *
- * <p>Every method here is called only from {@link MdnsServer}, itself
+ * <p>Every method here is called only from {@link org.bluezoo.gumdrop.mdns.server.MdnsServer}, itself
  * only ever invoked on its listener's single transport thread, so
- * (like {@link MdnsServer}) this class needs no synchronization of its
+ * (like {@link org.bluezoo.gumdrop.mdns.server.MdnsServer}) this class needs no synchronization of its
  * own.
  *
  * <p>Simplification: known-answer lists built from this cache (see
- * {@link MdnsServer#query}) reuse each record's originally-cached TTL
+ * {@link org.bluezoo.gumdrop.mdns.server.MdnsServer#query}) reuse each record's originally-cached TTL
  * rather than computing its live remaining TTL. A slightly-stale known
  * answer just means a responder answers a query it didn't strictly need
  * to &mdash; harmless, and cheaper than tracking per-record insertion
  * timestamps only for this purpose.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MdnsServer
+ * @see org.bluezoo.gumdrop.mdns.server.MdnsServer
  */
 public final class MdnsCache {
 
@@ -75,7 +75,7 @@ public final class MdnsCache {
     /**
      * Supplies the transport operations this cache needs: sending a
      * refresh query, and scheduling a callback on the owning
-     * listener's transport thread. Implemented by {@link MdnsServer}
+     * listener's transport thread. Implemented by {@link org.bluezoo.gumdrop.mdns.server.MdnsServer}
      * so this class stays independently testable.
      */
     public interface Refresher {

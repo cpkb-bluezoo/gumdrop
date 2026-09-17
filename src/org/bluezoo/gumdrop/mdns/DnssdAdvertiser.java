@@ -44,7 +44,7 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
  * without needing a running {@code Gumdrop} instance &mdash; the same
  * reasoning behind {@link MdnsCache} taking its scheduling capability
  * through a small interface instead of reaching into {@link MdnsListener}
- * directly. {@link MdnsServer} is what supplies the real server list.
+ * directly. {@link org.bluezoo.gumdrop.mdns.server.MdnsServer} is what supplies the real server list.
  *
  * <p>Only {@link Listener#getDescription()} values with a well-known,
  * long-established DNS-SD service type are advertised (see {@link
@@ -68,7 +68,7 @@ import org.bluezoo.gumdrop.dns.DnsResourceRecord;
  * collision probing actually protects against.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see MdnsServer
+ * @see org.bluezoo.gumdrop.mdns.server.MdnsServer
  */
 public final class DnssdAdvertiser {
 

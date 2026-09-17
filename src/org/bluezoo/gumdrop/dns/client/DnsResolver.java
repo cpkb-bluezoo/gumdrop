@@ -44,7 +44,6 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.dns.DnsBailiwick;
 import org.bluezoo.gumdrop.dns.DnsCache;
 import org.bluezoo.gumdrop.dns.DnsQueryIdGenerator;
 import org.bluezoo.gumdrop.dns.DnsClass;
@@ -55,11 +54,7 @@ import org.bluezoo.gumdrop.dns.DnsMultiQType;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
-import org.bluezoo.gumdrop.dns.DnssecAwareQueryCallback;
-import org.bluezoo.gumdrop.dns.DnssecChainValidator;
 import org.bluezoo.gumdrop.dns.DnssecStatus;
-import org.bluezoo.gumdrop.dns.DnssecTrustAnchor;
-import org.bluezoo.gumdrop.dns.DnssecValidationCallback;
 import org.bluezoo.gumdrop.dns.DnsType;
 
 /**

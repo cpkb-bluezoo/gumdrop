@@ -65,7 +65,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoQStreamHandler
- * @see DnsServer
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9250">RFC 9250 - DNS over QUIC</a>
  */
 public class DoQListener extends TcpListener

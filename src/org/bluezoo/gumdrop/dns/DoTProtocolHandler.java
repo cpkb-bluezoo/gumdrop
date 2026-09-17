@@ -31,6 +31,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.dns.server.DnsServer;
 
 /**
  * Protocol handler for DNS-over-TLS (DoT) connections.
@@ -48,7 +49,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoTListener
- * @see DnsServer
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7858">RFC 7858</a>
  */
 final class DoTProtocolHandler implements ProtocolHandler {

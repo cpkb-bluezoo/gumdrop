@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.AmqpFrame;
+import org.bluezoo.gumdrop.amqp.AmqpFrameHandler;
+import org.bluezoo.gumdrop.amqp.AmqpFrameParser;
+
 import org.junit.Before;
 import org.junit.Test;
 

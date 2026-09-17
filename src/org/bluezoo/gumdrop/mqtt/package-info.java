@@ -54,8 +54,8 @@
  *
  * <h2>Broker</h2>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.broker.TopicTree} — topic matching</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.broker.SubscriptionManager} — subscription management</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.server.TopicTree} — topic matching</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.server.SubscriptionManager} — subscription management</li>
  * </ul>
  *
  * <h2>Handler</h2>

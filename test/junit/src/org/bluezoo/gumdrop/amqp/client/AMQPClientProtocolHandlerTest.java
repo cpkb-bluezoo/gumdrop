@@ -21,31 +21,38 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.AmqpBits;
+import org.bluezoo.gumdrop.amqp.AmqpFrame;
+import org.bluezoo.gumdrop.amqp.AmqpMethod;
+import org.bluezoo.gumdrop.amqp.AmqpProtocolException;
+import org.bluezoo.gumdrop.amqp.BasicProperties;
+import org.bluezoo.gumdrop.amqp.FieldTable;
+
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelClosedListener;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientTuned;
-import org.bluezoo.gumdrop.amqp.client.handler.ConnectionReady;
-import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.FlowListener;
-import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
-import org.bluezoo.gumdrop.amqp.client.handler.CancelHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelCloseHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ConfirmSelectHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ExchangeDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.FlowHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.OpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.QueueBindHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.QueueDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.TuneHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.TxCommitHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.TxRollbackHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.TxSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.ChannelClosedListener;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.ClientHandshake;
+import org.bluezoo.gumdrop.amqp.client.ClientTuned;
+import org.bluezoo.gumdrop.amqp.client.ConnectionReady;
+import org.bluezoo.gumdrop.amqp.client.DeliveryHandler;
+import org.bluezoo.gumdrop.amqp.client.FlowListener;
+import org.bluezoo.gumdrop.amqp.client.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.CancelHandler;
+import org.bluezoo.gumdrop.amqp.client.ChannelCloseHandler;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.ConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.ExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.FlowHandler;
+import org.bluezoo.gumdrop.amqp.client.OpenHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.TuneHandler;
+import org.bluezoo.gumdrop.amqp.client.TxCommitHandler;
+import org.bluezoo.gumdrop.amqp.client.TxRollbackHandler;
+import org.bluezoo.gumdrop.amqp.client.TxSelectHandler;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -858,7 +865,7 @@ public class AMQPClientProtocolHandlerTest {
 
         final List<long[]> acks = new ArrayList<>();
         final List<long[]> nacks = new ArrayList<>();
-        channel.setConfirmListener(new org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener() {
+        channel.setConfirmListener(new org.bluezoo.gumdrop.amqp.client.ConfirmListener() {
             @Override
             public void onAck(long sequenceNumber, boolean multiple) {
                 acks.add(new long[] { sequenceNumber, multiple ? 1 : 0 });

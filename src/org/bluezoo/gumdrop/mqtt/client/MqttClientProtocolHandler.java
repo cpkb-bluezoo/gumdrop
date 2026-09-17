@@ -32,7 +32,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.mqtt.broker.QoSManager;
+import org.bluezoo.gumdrop.mqtt.server.QoSManager;
 import org.bluezoo.gumdrop.mqtt.codec.*;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;

@@ -21,26 +21,29 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelClosedListener;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener;
-import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.FlowListener;
-import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
-import org.bluezoo.gumdrop.amqp.client.handler.CancelHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelCloseHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.CloseHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ConfirmSelectHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ExchangeDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.FlowHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.QueueBindHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.QueueDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.TxCommitHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.TxRollbackHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.TxSelectHandler;
+import org.bluezoo.gumdrop.amqp.BasicProperties;
+import org.bluezoo.gumdrop.amqp.FieldTable;
+
+import org.bluezoo.gumdrop.amqp.client.ChannelClosedListener;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.ConfirmListener;
+import org.bluezoo.gumdrop.amqp.client.DeliveryHandler;
+import org.bluezoo.gumdrop.amqp.client.FlowListener;
+import org.bluezoo.gumdrop.amqp.client.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.CancelHandler;
+import org.bluezoo.gumdrop.amqp.client.ChannelCloseHandler;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.CloseHandler;
+import org.bluezoo.gumdrop.amqp.client.ConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.ExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.FlowHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.TxCommitHandler;
+import org.bluezoo.gumdrop.amqp.client.TxRollbackHandler;
+import org.bluezoo.gumdrop.amqp.client.TxSelectHandler;
 import org.junit.Test;
 
 import java.util.ArrayList;

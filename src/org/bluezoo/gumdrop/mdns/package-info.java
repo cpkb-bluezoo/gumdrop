@@ -35,11 +35,12 @@
  * <h2>Architecture</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mdns.MdnsServer} &ndash; owns
+ *   <li>{@link org.bluezoo.gumdrop.mdns.server.MdnsServer} &ndash; owns
  *       configuration, the probing/announcing state machine for this
  *       instance's own hostname, and the public
- *       {@link org.bluezoo.gumdrop.mdns.MdnsServer#query query}/{@link
- *       org.bluezoo.gumdrop.mdns.MdnsServer#lookup lookup} API</li>
+ *       {@link org.bluezoo.gumdrop.mdns.server.MdnsServer#query query}/{@link
+ *       org.bluezoo.gumdrop.mdns.server.MdnsServer#lookup lookup} API;
+ *       do not subclass for application logic, use {@code compose()}</li>
  *   <li>{@link org.bluezoo.gumdrop.mdns.MdnsListener} &ndash; the UDP
  *       multicast transport: binds port 5353 and joins the mDNS group
  *       on every eligible network interface</li>
@@ -62,10 +63,11 @@
  *
  * <p>The simplest configuration just claims a hostname:
  * <pre>{@code
- * <service class="org.bluezoo.gumdrop.mdns.MdnsServer">
- *   <property name="hostname" value="gumdrop"/>
- *   <listener class="org.bluezoo.gumdrop.mdns.MdnsListener"/>
- * </service>
+ * MdnsServer mdns = MdnsServer.compose()
+ *         .listener(new MdnsListener())
+ *         .hostname("gumdrop")
+ *         .server();
+ * gumdrop.addServer(mdns);
  * }</pre>
  *
  * <p>If {@code hostname} is omitted, the JVM's local hostname (domain
@@ -73,8 +75,8 @@
  * another host already holds the name, or wins a simultaneous-probe
  * tie-break, this instance renames itself (e.g. {@code gumdrop-2}) and
  * re-probes automatically &mdash; check
- * {@link org.bluezoo.gumdrop.mdns.MdnsServer#getCurrentName} after
- * {@link org.bluezoo.gumdrop.mdns.MdnsServer#isAnnounced} to find out
+ * {@link org.bluezoo.gumdrop.mdns.server.MdnsServer#getCurrentName} after
+ * {@link org.bluezoo.gumdrop.mdns.server.MdnsServer#isAnnounced} to find out
  * what name was actually claimed.
  *
  * <h2>Querying other hosts</h2>
@@ -118,10 +120,10 @@
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.mdns.MdnsServer
+ * @see org.bluezoo.gumdrop.mdns.server.MdnsServer
  * @see org.bluezoo.gumdrop.mdns.MdnsListener
  * @see org.bluezoo.gumdrop.mdns.MdnsCache
  * @see org.bluezoo.gumdrop.mdns.DnssdAdvertiser
- * @see org.bluezoo.gumdrop.dns.DnsServer
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  */
 package org.bluezoo.gumdrop.mdns;

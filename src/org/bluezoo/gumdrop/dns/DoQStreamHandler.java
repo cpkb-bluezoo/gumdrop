@@ -30,6 +30,7 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.dns.server.DnsServer;
 import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
 
 /**
@@ -46,7 +47,7 @@ import org.bluezoo.gumdrop.quic.QuicStreamEndpoint;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoQListener
- * @see DnsServer
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9250">RFC 9250</a>
  */
 final class DoQStreamHandler implements ProtocolHandler {

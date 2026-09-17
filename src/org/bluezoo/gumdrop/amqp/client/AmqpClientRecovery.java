@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.FieldTable;
+
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
@@ -44,14 +46,14 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientTuned;
-import org.bluezoo.gumdrop.amqp.client.handler.ConnectionReady;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
-import org.bluezoo.gumdrop.amqp.client.handler.OpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.TuneHandler;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.ClientHandshake;
+import org.bluezoo.gumdrop.amqp.client.ClientTuned;
+import org.bluezoo.gumdrop.amqp.client.ConnectionReady;
+import org.bluezoo.gumdrop.amqp.client.RecoveryHandler;
+import org.bluezoo.gumdrop.amqp.client.RecoveryListener;
+import org.bluezoo.gumdrop.amqp.client.OpenHandler;
+import org.bluezoo.gumdrop.amqp.client.TuneHandler;
 import org.bluezoo.gumdrop.auth.SaslClientMechanism;
 import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
@@ -96,7 +98,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * this class waits (per {@link RecoveryPolicy}), reconnects, redeclares
  * every exchange/queue/binding and re-registers every consumer in the
  * order they were first issued, then the same {@link
- * org.bluezoo.gumdrop.amqp.client.handler.ClientChannel} instances the
+ * org.bluezoo.gumdrop.amqp.client.ClientChannel} instances the
  * application is already holding become live again — no further action
  * needed from the application.
  *

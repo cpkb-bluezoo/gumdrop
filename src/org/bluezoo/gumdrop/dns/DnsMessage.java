@@ -541,7 +541,7 @@ public final class DnsMessage {
     private static final int MAX_LABEL_LENGTH = 63;
     private static final int MAX_NAME_LENGTH = 255;
 
-    static byte[] encodeName(String name) {
+    public static byte[] encodeName(String name) {
         if (name == null || name.isEmpty()) {
             return new byte[] { 0 };
         }

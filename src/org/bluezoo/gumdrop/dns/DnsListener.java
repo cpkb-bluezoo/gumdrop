@@ -44,10 +44,10 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *
  * <p>This endpoint binds a UDP socket on the configured port and
  * dispatches incoming DNS datagrams to its owning
- * {@link DnsServer} for processing.
+ * {@link org.bluezoo.gumdrop.dns.server.DnsServer} for processing.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DnsServer
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  * @see UdpListener
  */
 public class DnsListener extends UdpListener {
@@ -80,7 +80,7 @@ public class DnsListener extends UdpListener {
     }
 
     /**
-     * Sets the owning DNS server. Called by {@link DnsServer}
+     * Sets the owning DNS server. Called by {@link org.bluezoo.gumdrop.dns.server.DnsServer}
      * during wiring.
      *
      * @param server the owning server
@@ -127,7 +127,7 @@ public class DnsListener extends UdpListener {
 
     /**
      * Inner handler that dispatches received datagrams to the
-     * owning {@link DnsServer}.
+     * owning {@link org.bluezoo.gumdrop.dns.server.DnsServer}.
      */
     private class DnsDatagramHandler implements ProtocolHandler {
 

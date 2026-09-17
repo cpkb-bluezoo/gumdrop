@@ -17,7 +17,6 @@ import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
-import org.bluezoo.gumdrop.smtp.SimpleRelayHandler;
 
 /**
  * Stock {@link SmtpServerSessionProvider} for MX-based open relay.

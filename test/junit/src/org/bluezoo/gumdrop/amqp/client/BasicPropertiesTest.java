@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.AmqpProtocolException;
+import org.bluezoo.gumdrop.amqp.BasicProperties;
+import org.bluezoo.gumdrop.amqp.FieldTable;
+
 import org.junit.Test;
 
 import java.nio.ByteBuffer;

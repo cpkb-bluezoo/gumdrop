@@ -44,7 +44,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoTProtocolHandler
- * @see DnsServer
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7858">RFC 7858 - DNS over TLS</a>
  */
 public class DoTListener extends TcpListener {

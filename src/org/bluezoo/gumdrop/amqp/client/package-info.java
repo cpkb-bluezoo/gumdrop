@@ -23,7 +23,7 @@
  * Non-blocking AMQP 0-9-1 client for publishing and consuming messages
  * against a broker such as RabbitMQ.
  *
- * <p>{@link org.bluezoo.gumdrop.amqp.client.AmqpFrameParser} is a
+ * <p>{@link org.bluezoo.gumdrop.amqp.AmqpFrameParser} is a
  * push-parser for the frame envelope: it never assumes a network read
  * contains a complete frame, or that a message body fits in memory.
  * {@link org.bluezoo.gumdrop.amqp.client.AmqpClientProtocolHandler}
@@ -33,7 +33,19 @@
  * and consume (both streamed to/from the application in whatever chunks
  * arrive, never materialised as one buffer), ack/nack/reject/cancel,
  * transactions, and flow control -- entirely through the typed-state
- * handler API in {@link org.bluezoo.gumdrop.amqp.client.handler}.
+ * handler interfaces in this package. Each interface exposes only the
+ * operations legal at that point in the protocol, so the compiler rejects
+ * out-of-sequence calls:
+ *
+ * <pre>
+ * ConnectionReady --(connection.start)--&gt; ClientHandshake
+ *      --(start-ok, connection.tune)--&gt; TuneHandler
+ *      --(tune-ok)--&gt; ClientTuned
+ *      --(connection.open)--&gt; OpenHandler
+ *      --(open-ok)--&gt; ClientConnection
+ *      --(channel.open)--&gt; ChannelOpenHandler
+ *      --(open-ok)--&gt; ClientChannel
+ * </pre>
  *
  * <p>{@link org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery} is the
  * facade most applications should use: automatic reconnect with
@@ -49,7 +61,7 @@
  * EXTERNAL}, {@code GSSAPI}) are both supported.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.amqp.client.handler
+ * @see org.bluezoo.gumdrop.amqp
  * @see <a href="https://www.rabbitmq.com/resources/specs/amqp0-9-1.pdf">AMQP 0-9-1 specification</a>
  */
 package org.bluezoo.gumdrop.amqp.client;

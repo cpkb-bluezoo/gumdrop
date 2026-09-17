@@ -43,6 +43,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.UdpEndpoint;
 import org.bluezoo.gumdrop.UdpTransportFactory;
+import org.bluezoo.gumdrop.mdns.server.MdnsServer;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**

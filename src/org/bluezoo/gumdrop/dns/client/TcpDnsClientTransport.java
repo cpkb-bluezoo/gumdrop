@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.TimerHandle;
  * by RFC 7858 section 3.1. Server certificate verification uses the
  * JVM's default WebPKI trust store unless overridden with {@link
  * #setTrustManager} (an arbitrary {@code X509TrustManager}, e.g. {@link
- * org.bluezoo.gumdrop.dns.DaneTrustManager}) or {@link
+ * org.bluezoo.gumdrop.dns.client.DaneTrustManager}) or {@link
  * #setPinnedSPKIFingerprints} (RFC 7858 section 4.2's Strict usage
  * profile); when both are set, the trust manager is used as the SPKI
  * check's delegate rather than being replaced by it.
@@ -127,7 +127,7 @@ public class TcpDnsClientTransport implements DnsClientTransport {
     /**
      * Sets a custom trust manager for TLS certificate verification, in
      * preference to the JVM's default WebPKI trust store -- e.g. a
-     * {@link org.bluezoo.gumdrop.dns.DaneTrustManager} to authenticate
+     * {@link org.bluezoo.gumdrop.dns.client.DaneTrustManager} to authenticate
      * this resolver's upstream against TLSA records, or a private CA.
      * If {@link #setPinnedSPKIFingerprints} is also set, this trust
      * manager is used as its delegate rather than being replaced by it.

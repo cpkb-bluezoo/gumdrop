@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.dns.server.DnsServer;
 
 import static org.junit.Assert.*;
 

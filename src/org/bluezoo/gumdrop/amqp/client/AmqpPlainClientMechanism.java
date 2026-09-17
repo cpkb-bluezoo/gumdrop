@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.FieldTable;
+
 import java.nio.ByteBuffer;
 
 import org.bluezoo.gumdrop.auth.SaslClientMechanism;

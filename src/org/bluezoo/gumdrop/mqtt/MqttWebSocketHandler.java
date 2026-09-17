@@ -36,8 +36,8 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
-import org.bluezoo.gumdrop.mqtt.broker.SubscriptionManager;
-import org.bluezoo.gumdrop.mqtt.broker.WillManager;
+import org.bluezoo.gumdrop.mqtt.server.SubscriptionManager;
+import org.bluezoo.gumdrop.mqtt.server.WillManager;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
 
 /**

@@ -15,8 +15,8 @@ import org.bluezoo.gumdrop.ServerSessionProvider;
  * and subsequent staged server handler interfaces ({@link
  * org.bluezoo.gumdrop.smtp.server.HelloHandler}, {@link
  * org.bluezoo.gumdrop.smtp.server.MailFromHandler}, …). Stock examples:
- * {@link org.bluezoo.gumdrop.smtp.SimpleRelayHandler},
- * {@link org.bluezoo.gumdrop.smtp.LocalDeliveryHandler}.
+ * {@link org.bluezoo.gumdrop.smtp.server.SimpleRelayHandler},
+ * {@link org.bluezoo.gumdrop.smtp.server.LocalDeliveryHandler}.
  * Stock providers: {@link SimpleRelaySessionProvider},
  * {@link LocalDeliverySessionProvider}; see {@link SmtpServerSessionProviders}.
  *

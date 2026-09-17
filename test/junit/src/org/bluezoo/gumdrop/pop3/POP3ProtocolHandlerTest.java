@@ -44,6 +44,7 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.pop3.server.Pop3Server;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TimerHandle;

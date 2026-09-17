@@ -26,10 +26,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.CloseHandler;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.CloseHandler;
 
 /**
  * A {@link ClientConnection} whose channels survive reconnects — see

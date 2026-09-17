@@ -21,16 +21,18 @@
 
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
+import org.bluezoo.gumdrop.amqp.BasicProperties;
+
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.QueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.DeliveryHandler;
+import org.bluezoo.gumdrop.amqp.client.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.RecoveryHandler;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueDeclareHandler;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -200,7 +202,7 @@ public class RabbitMQTlsIntegrationTest {
                                             }
 
                                             @Override
-                                            public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.client.BasicProperties properties,
+                                            public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.BasicProperties properties,
                                                     long bodySize) {
                                             }
 

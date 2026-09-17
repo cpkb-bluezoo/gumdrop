@@ -49,6 +49,7 @@ import org.bluezoo.gumdrop.StreamAcceptHandler;
 import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.DoQClientTransport;
+import org.bluezoo.gumdrop.dns.server.DnsServer;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
