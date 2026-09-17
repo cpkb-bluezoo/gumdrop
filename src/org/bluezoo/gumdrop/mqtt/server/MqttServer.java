@@ -23,13 +23,13 @@ package org.bluezoo.gumdrop.mqtt.server;
 
 import org.bluezoo.gumdrop.mqtt.MqttListener;
 import org.bluezoo.gumdrop.mqtt.MqttProtocolHandler;
-import org.bluezoo.gumdrop.mqtt.codec.QoS;
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.ResourceBundle;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -40,36 +40,39 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mqtt.broker.SubscriptionManager;
 import org.bluezoo.gumdrop.mqtt.broker.WillManager;
 import org.bluezoo.gumdrop.mqtt.handler.ConnectHandler;
-import org.bluezoo.gumdrop.mqtt.handler.PublishHandler;
-import org.bluezoo.gumdrop.mqtt.handler.SubscribeHandler;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
 
 /**
- * Abstract base for MQTT application services.
+ * MQTT protocol server — listeners, configuration, and session composition.
  *
- * <p>An {@code MqttServer} owns the broker components (subscription
- * manager, will manager) and one or more {@link MqttListener} instances.
- * Subclasses may override the handler creation methods to provide
- * custom connection, publish, and subscribe handling.
+ * <p>Owns the broker components (subscription manager, will manager) shared
+ * across all listeners and one or more {@link MqttListener} instances. Do
+ * not subclass for application logic — use {@link #compose()} with an
+ * {@link MqttServerSessionProvider}, or a bare {@code compose()} with no
+ * session provider for an open broker (see security warning below).
  *
- * <h2>Configuration Example</h2>
+ * <h2>Composition Example</h2>
  * <pre>{@code
- * <service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTServer">
- *   <property name="realm" ref="#mqttRealm"/>
- *   <listener class="org.bluezoo.gumdrop.mqtt.MqttListener"
- *           name="mqtt" port="1883"/>
- *   <listener class="org.bluezoo.gumdrop.mqtt.MqttListener"
- *           name="mqtts" port="8883" secure="true">
- *     <property name="keystore-file" path="server.p12"/>
- *     <property name="keystore-pass" value="changeit"/>
- *   </listener>
- * </service>
+ * MqttServer server = MqttServer.compose()
+ *         .listener(new MqttListener().port(1883).bindWildcard())
+ *         .sessionPerConnection(() -> new MyConnectHandler())
+ *         .server();
+ * gumdrop.addServer(server);
  * }</pre>
  *
+ * <p><strong>Security warning:</strong> {@code MqttServer.compose()} with no
+ * session provider is an <em>open broker</em> — any client that can reach
+ * the listener port may connect, publish, and subscribe without
+ * authentication (a {@link Realm} still gates username/password if
+ * configured). Supply an {@link MqttServerSessionProvider} before exposing
+ * a listener to untrusted networks.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see MqttListener
+ * @see MqttServerSessionProvider
  */
-public abstract class MqttServer implements Server {
+public class MqttServer implements Server, MqttServerSessionProvider {
 
     private static final Logger LOGGER =
             Logger.getLogger(MqttServer.class.getName());
@@ -80,6 +83,7 @@ public abstract class MqttServer implements Server {
     private final SubscriptionManager subscriptionManager = new SubscriptionManager();
     private final WillManager willManager = new WillManager();
 
+    private MqttServerSessionProvider sessionProvider;
     private MqttMessageStore messageStore;
     private Realm realm;
     private int maxPacketSize = 1_048_576;
@@ -147,8 +151,7 @@ public abstract class MqttServer implements Server {
      * Creates the message store used for PUBLISH payload storage.
      *
      * <p>The default implementation returns an {@link InMemoryMessageStore}
-     * which buffers payloads in memory. Subclasses may override to provide
-     * file-backed or database-backed storage for large messages.
+     * which buffers payloads in memory.
      *
      * @return the message store
      */
@@ -156,45 +159,29 @@ public abstract class MqttServer implements Server {
         return new InMemoryMessageStore();
     }
 
-    // ── Handler creation ──
+    // ── Session pipeline ──
 
     /**
-     * Creates a connect handler for an incoming MQTT connection.
+     * Opens the {@link ConnectHandler} for an incoming MQTT connection.
      *
-     * <p>Subclasses may override to provide custom connection-level
-     * behaviour (authorization, client ID policies, etc.).
-     *
-     * @param listener the listener that accepted the connection
-     * @return a connect handler, or null for default behaviour
+     * <p>Delegates to the composed {@link MqttServerSessionProvider}.
+     * Returns {@code null} when no provider is configured, which accepts
+     * every connection with no publish/subscribe restrictions.
      */
-    protected ConnectHandler createConnectHandler(TcpListener listener) {
+    @Override
+    public ConnectHandler openSession(TcpListener listener) {
+        if (sessionProvider != null) {
+            return sessionProvider.openSession(listener);
+        }
         return null;
     }
 
-    /**
-     * Creates a publish handler for authorizing incoming messages.
-     *
-     * <p>Subclasses may override to provide topic-level access
-     * control, message filtering, etc.
-     *
-     * @param listener the listener that accepted the connection
-     * @return a publish handler, or null to allow all publishes
-     */
-    protected PublishHandler createPublishHandler(TcpListener listener) {
-        return null;
+    protected MqttServerSessionProvider getSessionProvider() {
+        return sessionProvider;
     }
 
-    /**
-     * Creates a subscribe handler for authorizing subscriptions.
-     *
-     * <p>Subclasses may override to provide topic-level access
-     * control, QoS downgrading, etc.
-     *
-     * @param listener the listener that accepted the connection
-     * @return a subscribe handler, or null to allow all subscriptions
-     */
-    protected SubscribeHandler createSubscribeHandler(TcpListener listener) {
-        return null;
+    void setComposedSessionProvider(MqttServerSessionProvider provider) {
+        this.sessionProvider = provider;
     }
 
     /**
@@ -203,17 +190,9 @@ public abstract class MqttServer implements Server {
     public MqttProtocolHandler createProtocolHandler(MqttListener listener) {
         MqttProtocolHandler handler = new MqttProtocolHandler(
                 listener, subscriptionManager, willManager, messageStore);
-        ConnectHandler ch = createConnectHandler(listener);
+        ConnectHandler ch = openSession(listener);
         if (ch != null) {
             handler.setConnectHandler(ch);
-        }
-        PublishHandler ph = createPublishHandler(listener);
-        if (ph != null) {
-            handler.setPublishHandler(ph);
-        }
-        SubscribeHandler sh = createSubscribeHandler(listener);
-        if (sh != null) {
-            handler.setSubscribeHandler(sh);
         }
         return handler;
     }
@@ -221,9 +200,17 @@ public abstract class MqttServer implements Server {
     // ── Lifecycle ──
 
     protected void initService() {
+        MqttServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.start();
+        }
     }
 
     protected void destroyService() {
+        MqttServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.stop();
+        }
     }
 
     @Override
@@ -264,4 +251,83 @@ public abstract class MqttServer implements Server {
             ep.setMaxPacketSize(maxPacketSize);
         }
     }
+
+    /**
+     * Starts fluent composition of a concrete {@link MqttServer}.
+     *
+     * @return a new composer
+     */
+    public static Composer compose() {
+        return new Composer();
+    }
+
+    /**
+     * Fluent composition of listeners and an {@link MqttServerSessionProvider}.
+     */
+    public static final class Composer {
+
+        private final List<MqttListener> listeners = new ArrayList<MqttListener>();
+        private MqttServerSessionProvider sessionProvider;
+        private Realm realm;
+        private int maxPacketSize = 1_048_576;
+
+        private Composer() {
+        }
+
+        public Composer listener(MqttListener listener) {
+            if (listener == null) {
+                throw new NullPointerException("listener");
+            }
+            listeners.add(listener);
+            return this;
+        }
+
+        public Composer sessionProvider(MqttServerSessionProvider provider) {
+            if (provider == null) {
+                throw new NullPointerException("provider");
+            }
+            this.sessionProvider = provider;
+            return this;
+        }
+
+        /**
+         * Creates a fresh {@link ConnectHandler} for each accepted connection.
+         */
+        public Composer sessionPerConnection(Supplier<ConnectHandler> supplier) {
+            return sessionProvider(MqttServerSessionProviders.perSession(supplier));
+        }
+
+        public Composer realm(Realm realm) {
+            this.realm = realm;
+            return this;
+        }
+
+        public Composer maxPacketSize(int maxPacketSize) {
+            this.maxPacketSize = maxPacketSize;
+            return this;
+        }
+
+        /**
+         * Creates the composed server. At least one listener is required;
+         * a session provider is optional (its absence yields an open
+         * broker — see the security warning on {@link MqttServer#compose()}).
+         */
+        public MqttServer server() {
+            if (listeners.isEmpty()) {
+                throw new IllegalStateException(
+                        "at least one listener is required");
+            }
+            MqttServer server = new MqttServer();
+            server.setComposedSessionProvider(sessionProvider);
+            if (realm != null) {
+                server.setRealm(realm);
+            }
+            server.setMaxPacketSize(maxPacketSize);
+            for (int i = 0; i < listeners.size(); i++) {
+                server.addListener(listeners.get(i));
+            }
+            return server;
+        }
+    }
+
 }

@@ -11,4 +11,4 @@ package org.bluezoo.gumdrop.mqtt;
  * @see org.bluezoo.gumdrop.mqtt.server.MqttServer
  * @see docs/NAMING-TAXONOMY.md
  */
-public abstract class MqttServer extends org.bluezoo.gumdrop.mqtt.server.MqttServer {}
+public class MqttServer extends org.bluezoo.gumdrop.mqtt.server.MqttServer {}

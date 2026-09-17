@@ -63,20 +63,22 @@ the same service.
 <h3 id="architecture">Architecture</h3>
 
 <p>
-The MQTT implementation follows Gumdrop's standard service/listener/handler
-architecture. An <code>MqttServer</code> owns one or more
-<code>MqttListener</code>s that accept TCP connections. Each connection is
-handled by an <code>MqttProtocolHandler</code> which parses the MQTT wire
-protocol using a SAX-style event-driven parser (<code>MqttFrameParser</code>)
-and delegates application-level decisions to pluggable handler interfaces.
+The MQTT implementation follows Gumdrop's standard listener/handler
+composition model (see <a href="configuration.html">Application Composition</a>).
+An <code>MqttServer</code>, built with <code>MqttServer.compose()</code>, owns
+one or more <code>MqttListener</code>s that accept TCP connections. Each
+connection is handled by an <code>MqttProtocolHandler</code> which parses the
+MQTT wire protocol using a SAX-style event-driven parser
+(<code>MqttFrameParser</code>) and delegates application-level decisions to a
+composed <code>MqttServerSessionProvider</code>.
 </p>
 
 <h4>Core Components</h4>
 
 <ul>
-<li><code>org.bluezoo.gumdrop.mqtt.MqttServer</code> &mdash; abstract base
-class providing broker infrastructure; subclass to customise connection,
-publish, and subscribe behaviour</li>
+<li><code>org.bluezoo.gumdrop.mqtt.server.MqttServer</code> &mdash; listeners,
+configuration, and <code>compose()</code>; do not subclass for application
+logic</li>
 <li><code>org.bluezoo.gumdrop.mqtt.MqttListener</code> &mdash; TCP listener
 for MQTT connections (port 1883 cleartext, port 8883 TLS)</li>
 <li><code>org.bluezoo.gumdrop.mqtt.MqttProtocolHandler</code> &mdash;
@@ -166,50 +168,50 @@ connect to the same listener simultaneously.
 <h4>Basic Configuration</h4>
 
 <pre>
-&lt;service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTServer"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.mqtt.MqttListener"
-            port="1883"/&gt;
-&lt;/service&gt;
+MqttServer server = MqttServer.compose()
+        .listener(new MqttListener().port(1883).bindWildcard())
+        .server();
+gumdrop.addServer(server);
 </pre>
 
 <h4>TLS Configuration (MQTTS)</h4>
 
 <pre>
-&lt;service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTServer"&gt;
-    &lt;!-- Cleartext MQTT --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.mqtt.MqttListener"
-            port="1883"/&gt;
-    &lt;!-- MQTT over TLS --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.mqtt.MqttListener"
-            port="8883" secure="true"&gt;
-        &lt;property name="keystore-file" path="keystore.p12"/&gt;
-        &lt;property name="keystore-pass" value="secret"/&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+
+MqttServer server = MqttServer.compose()
+        .listener(new MqttListener().port(1883).bindWildcard())          // cleartext
+        .listener(new MqttListener().port(8883).bindWildcard()
+                .secure(true).tls(tls))                                  // MQTT over TLS
+        .server();
 </pre>
 
 <h4>With Authentication</h4>
 
 <pre>
-&lt;service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTServer"&gt;
-    &lt;property name="realm" ref="#realm"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.mqtt.MqttListener"
-            port="1883"/&gt;
-&lt;/service&gt;
+Realm realm = new BasicRealm();
+// ... realm configuration ...
 
-&lt;bean id="realm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-    &lt;!-- realm configuration --&gt;
-&lt;/bean&gt;
+MqttServer server = MqttServer.compose()
+        .listener(new MqttListener().port(1883).bindWildcard())
+        .realm(realm)
+        .server();
 </pre>
 
-<h4>MqttServer Properties</h4>
+<h4><code>MqttServer.Composer</code> Methods</h4>
 
 <table border="1" cellpadding="5">
-<tr><th>Property</th><th>Setter</th><th>Default</th><th>Description</th></tr>
-<tr><td><code>realm</code></td><td><code>setRealm(Realm)</code></td>
+<tr><th>Method</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>listener(MqttListener)</code></td>
+<td>&mdash;</td><td>Adds a listener (at least one required)</td></tr>
+<tr><td><code>sessionProvider(MqttServerSessionProvider)</code></td>
+<td>none (open broker)</td><td>Session provider minting a <code>ConnectHandler</code> per connection</td></tr>
+<tr><td><code>sessionPerConnection(Supplier&lt;ConnectHandler&gt;)</code></td>
+<td>&mdash;</td><td>Convenience for a fresh handler instance per connection</td></tr>
+<tr><td><code>realm(Realm)</code></td>
 <td>none</td><td>Authentication realm for client connections</td></tr>
-<tr><td><code>max-packet-size</code></td><td><code>setMaxPacketSize(int)</code></td>
-<td>268,435,455</td><td>Maximum MQTT packet size in bytes (256&nbsp;MB)</td></tr>
+<tr><td><code>maxPacketSize(int)</code></td>
+<td>1,048,576</td><td>Maximum MQTT packet size in bytes</td></tr>
 </table>
 
 <h4>MqttListener Properties</h4>
@@ -223,7 +225,7 @@ connect to the same listener simultaneously.
 <tr><td><code>default-keep-alive</code></td><td><code>setDefaultKeepAlive(int)</code></td>
 <td>60</td><td>Default keep-alive interval in seconds</td></tr>
 <tr><td><code>realm</code></td><td><code>setRealm(Realm)</code></td>
-<td>from service</td><td>Per-listener authentication realm override</td></tr>
+<td>from server</td><td>Per-listener authentication realm override</td></tr>
 </table>
 
 <p>
@@ -266,11 +268,20 @@ The <code>ConnectState</code> provides:
 </p>
 
 <ul>
-<li><code>acceptConnection()</code> &mdash; send CONNACK with success</li>
+<li><code>acceptConnection(MqttSessionHandler handler)</code> &mdash; send
+CONNACK with success; <code>handler</code> authorizes PUBLISH/SUBSCRIBE for
+the rest of the connection, or pass <code>null</code> to allow all</li>
 <li><code>rejectBadCredentials()</code> &mdash; reject with bad username/password</li>
 <li><code>rejectNotAuthorized()</code> &mdash; reject as not authorized</li>
 <li><code>reject(int returnCode)</code> &mdash; reject with any CONNACK return code</li>
 </ul>
+
+<p>
+<code>MqttSessionHandler</code> is a combined
+<code>PublishHandler</code>/<code>SubscribeHandler</code> for one accepted
+session &mdash; implement both interfaces on the object you pass to
+<code>acceptConnection</code>.
+</p>
 
 <h4>PublishHandler</h4>
 
@@ -322,86 +333,95 @@ The <code>SubscribeState</code> provides:
 <h4>Implementing Custom Handlers</h4>
 
 <p>
-Override the factory methods in your <code>MqttServer</code> subclass to
-supply custom handlers:
+Compose an <code>MqttServerSessionProvider</code> (or use
+<code>sessionPerConnection</code> with a <code>Supplier</code>) to mint a
+<code>ConnectHandler</code> per accepted connection:
 </p>
 
 <pre>
-public class MyMQTTService extends MqttServer {
+MqttServer server = MqttServer.compose()
+        .listener(new MqttListener().port(1883).bindWildcard())
+        .sessionPerConnection(new Supplier&lt;ConnectHandler&gt;() {
+            @Override
+            public ConnectHandler get() {
+                return new MyConnectHandler();
+            }
+        })
+        .server();
+</pre>
+
+<pre>
+private static final class MyConnectHandler
+        implements ConnectHandler, MqttSessionHandler {
 
     @Override
-    protected ConnectHandler createConnectHandler(TcpListener listener) {
-        return new ConnectHandler() {
-            @Override
-            public void handleConnect(ConnectState state,
-                                      ConnectPacket packet,
-                                      Endpoint endpoint) {
-                String username = packet.getUsername();
-                byte[] password = packet.getPassword();
+    public void handleConnect(ConnectState state, ConnectPacket packet,
+                              Endpoint endpoint) {
+        String username = packet.getUsername();
+        byte[] password = packet.getPassword();
 
-                if (username != null &amp;&amp; authenticate(username, password)) {
-                    state.acceptConnection();
-                } else {
-                    state.rejectBadCredentials();
-                }
-            }
-
-            @Override
-            public void disconnected() {
-                // Clean up resources
-            }
-        };
+        if (username != null &amp;&amp; authenticate(username, password)) {
+            state.acceptConnection(this);   // this session also authorizes publish/subscribe
+        } else {
+            state.rejectBadCredentials();
+        }
     }
 
     @Override
-    protected PublishHandler createPublishHandler(TcpListener listener) {
-        return (state, clientId, topic, qos, retain) -&gt; {
-            if (topic.startsWith("restricted/") &amp;&amp; !isAdmin(clientId)) {
-                state.rejectPublish();
-            } else {
-                state.allowPublish();
-            }
-        };
+    public void disconnected() {
+        // Clean up resources
     }
 
     @Override
-    protected SubscribeHandler createSubscribeHandler(TcpListener listener) {
-        return (state, clientId, topicFilter, requestedQoS) -&gt; {
-            if (topicFilter.startsWith("$SYS/")) {
-                state.rejectSubscription();
-            } else {
-                state.grantSubscription(requestedQoS);
-            }
-        };
+    public void authorizePublish(PublishState state, String clientId,
+                                 String topicName, int qos, boolean retain) {
+        if (topicName.startsWith("restricted/") &amp;&amp; !isAdmin(clientId)) {
+            state.rejectPublish();
+        } else {
+            state.allowPublish();
+        }
+    }
+
+    @Override
+    public void authorizeSubscription(SubscribeState state, String clientId,
+                                      String topicFilter, QoS requestedQoS) {
+        if (topicFilter.startsWith("$SYS/")) {
+            state.rejectSubscription();
+        } else {
+            state.grantSubscription(requestedQoS);
+        }
     }
 }
 </pre>
 
-<h3 id="default-service">Default Service</h3>
+<h3 id="default-service">Default (Open) Broker</h3>
 
 <p>
-<code>DefaultMQTTServer</code> provides a ready-to-use broker that accepts all
-connections, allows all publishes, and grants all subscriptions at the requested
-QoS level. It requires no handler implementation &mdash; just configure listeners
-and optionally a realm:
+<code>MqttServer.compose()</code> with no <code>sessionProvider</code>
+configured is a ready-to-use broker that accepts all connections, allows all
+publishes, and grants all subscriptions at the requested QoS level. It
+requires no handler implementation &mdash; just configure listeners and
+optionally a realm:
 </p>
 
 <pre>
-&lt;service id="mqtt" class="org.bluezoo.gumdrop.mqtt.DefaultMQTTServer"&gt;
-    &lt;property name="realm" ref="#realm"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.mqtt.MqttListener" port="1883"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.mqtt.MqttListener" port="8883" secure="true"&gt;
-        &lt;property name="keystore-file" path="keystore.p12"/&gt;
-        &lt;property name="keystore-pass" value="secret"/&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+
+MqttServer server = MqttServer.compose()
+        .realm(realm)
+        .listener(new MqttListener().port(1883).bindWildcard())
+        .listener(new MqttListener().port(8883).bindWildcard()
+                .secure(true).tls(tls))
+        .server();
 </pre>
 
 <p>
 When a realm is configured, the broker validates username/password credentials
 from the CONNECT packet against the realm. Without a realm, all clients are
 accepted. This is typically sufficient for development, internal messaging,
-and IoT deployments where network-level security is adequate.
+and IoT deployments where network-level security is adequate &mdash; see the
+security warning in the <code>MqttServer</code> Javadoc before exposing an
+open broker to untrusted networks.
 </p>
 
 <h3 id="broker">Broker Components</h3>
@@ -841,58 +861,53 @@ database:
 </p>
 
 <pre>
-public class SensorGatewayService extends MqttServer {
+private static final class SensorConnectHandler
+        implements ConnectHandler, MqttSessionHandler {
 
-    private TimeSeriesDB db;
+    private final Realm realm;
+    private final TimeSeriesDB db;
 
-    public void setDatabase(TimeSeriesDB db) {
+    SensorConnectHandler(Realm realm, TimeSeriesDB db) {
+        this.realm = realm;
         this.db = db;
     }
 
     @Override
-    protected ConnectHandler createConnectHandler(TcpListener listener) {
-        return new ConnectHandler() {
-            @Override
-            public void handleConnect(ConnectState state,
-                                      ConnectPacket packet,
-                                      Endpoint endpoint) {
-                Realm realm = getRealm();
-                if (realm != null) {
-                    String user = packet.getUsername();
-                    byte[] pass = packet.getPassword();
-                    if (realm.authenticate(user, new String(pass))) {
-                        state.acceptConnection();
-                    } else {
-                        state.rejectBadCredentials();
-                    }
-                } else {
-                    state.acceptConnection();
-                }
-            }
-
-            @Override
-            public void disconnected() { }
-        };
-    }
-
-    @Override
-    protected PublishHandler createPublishHandler(TcpListener listener) {
-        return (state, clientId, topic, qos, retain) -&gt; {
-            // Only allow publishing to sensor topics
-            if (topic.startsWith("sensors/")) {
-                state.allowPublish();
+    public void handleConnect(ConnectState state, ConnectPacket packet,
+                              Endpoint endpoint) {
+        if (realm != null) {
+            String user = packet.getUsername();
+            byte[] pass = packet.getPassword();
+            if (realm.authenticate(user, new String(pass))) {
+                state.acceptConnection(this);
             } else {
-                state.rejectPublish();
+                state.rejectBadCredentials();
             }
-        };
+        } else {
+            state.acceptConnection(this);
+        }
     }
 
     @Override
-    protected SubscribeHandler createSubscribeHandler(TcpListener listener) {
-        return (state, clientId, topicFilter, requestedQoS) -&gt; {
-            // Dashboards subscribe, sensors publish
-            state.grantSubscription(requestedQoS);
-        };
+    public void disconnected() {
+    }
+
+    @Override
+    public void authorizePublish(PublishState state, String clientId,
+                                 String topicName, int qos, boolean retain) {
+        // Only allow publishing to sensor topics
+        if (topicName.startsWith("sensors/")) {
+            state.allowPublish();
+        } else {
+            state.rejectPublish();
+        }
+    }
+
+    @Override
+    public void authorizeSubscription(SubscribeState state, String clientId,
+                                      String topicFilter, QoS requestedQoS) {
+        // Dashboards subscribe, sensors publish
+        state.grantSubscription(requestedQoS);
     }
 }
 </pre>
@@ -900,16 +915,20 @@ public class SensorGatewayService extends MqttServer {
 <h4>Minimal Configuration</h4>
 
 <pre>
-&lt;service id="mqtt" class="com.example.SensorGatewayService"&gt;
-    &lt;property name="realm" ref="#deviceRealm"/&gt;
-    &lt;property name="database" ref="#tsdb"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.mqtt.MqttListener" port="1883"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.mqtt.MqttListener"
-            port="8883" secure="true"&gt;
-        &lt;property name="keystore-file" path="mqtt.p12"/&gt;
-        &lt;property name="keystore-pass" value="secret"/&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("mqtt.p12"), "secret");
+
+MqttServer server = MqttServer.compose()
+        .realm(deviceRealm)
+        .listener(new MqttListener().port(1883).bindWildcard())
+        .listener(new MqttListener().port(8883).bindWildcard()
+                .secure(true).tls(tls))
+        .sessionPerConnection(new Supplier&lt;ConnectHandler&gt;() {
+            @Override
+            public ConnectHandler get() {
+                return new SensorConnectHandler(deviceRealm, tsdb);
+            }
+        })
+        .server();
 </pre>
 
 <h4>Using MQTT Client within an HTTP Microservice</h4>

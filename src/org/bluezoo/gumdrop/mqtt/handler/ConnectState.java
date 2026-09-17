@@ -38,8 +38,12 @@ public interface ConnectState {
     /**
      * Accepts the connection. Sends CONNACK with return code 0 and
      * completes session setup.
+     *
+     * @param handler PUBLISH/SUBSCRIBE authorization for the remaining
+     *                lifetime of the session, or {@code null} to allow
+     *                all publishes and subscriptions
      */
-    void acceptConnection();
+    void acceptConnection(MqttSessionHandler handler);
 
     /**
      * Rejects the connection with a bad username/password return code

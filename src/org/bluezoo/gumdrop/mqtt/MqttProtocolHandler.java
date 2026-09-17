@@ -147,14 +147,6 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
         this.connectHandler = handler;
     }
 
-    public void setPublishHandler(PublishHandler handler) {
-        this.publishHandler = handler;
-    }
-
-    public void setSubscribeHandler(SubscribeHandler handler) {
-        this.subscribeHandler = handler;
-    }
-
     // ═══════════════════════════════════════════════════════════════════
     // ProtocolHandler lifecycle
     // ═══════════════════════════════════════════════════════════════════
@@ -692,11 +684,15 @@ public final class MqttProtocolHandler implements ProtocolHandler, MqttEventHand
         }
 
         @Override
-        public void acceptConnection() {
+        public void acceptConnection(MqttSessionHandler handler) {
             if (resolved) {
                 return;
             }
             resolved = true;
+            if (handler != null) {
+                publishHandler = handler;
+                subscribeHandler = handler;
+            }
             completeConnect(packet, clientId);
         }
 

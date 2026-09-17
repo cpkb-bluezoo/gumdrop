@@ -385,9 +385,9 @@ accepts all operations using the configured Realm and MailboxFactory</li>
 accepts all operations using the configured Realm and MailboxFactory</li>
 <li><b>DNS</b> &ndash; <code>DnsServer</code> provides a DNS proxy with caching
 and custom resolution; subclass for custom name resolution logic</li>
-<li><b>MQTT</b> &ndash; <code>DefaultMQTTServer</code> provides a complete
-MQTT 3.1.1/5.0 message broker; accepts all connections, publishes, and
-subscriptions using the configured Realm</li>
+<li><b>MQTT</b> &ndash; <code>MqttServer.compose()</code> with no session
+provider is a complete MQTT 3.1.1/5.0 message broker; accepts all connections,
+publishes, and subscriptions using the configured Realm</li>
 <li><b>SOCKS</b> &ndash; <code>DefaultSOCKSServer</code> provides a SOCKS4/4a/5
 proxy with destination filtering and relay limits; optional Realm for SOCKS5
 authentication</li>

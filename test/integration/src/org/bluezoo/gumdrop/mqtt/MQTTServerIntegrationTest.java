@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.mqtt;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Server;
-import org.bluezoo.gumdrop.mqtt.server.DefaultMQTTServer;
+import org.bluezoo.gumdrop.mqtt.server.MqttServer;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -62,10 +62,11 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
 
     @Override
     protected Collection<? extends Server> buildServers() throws Exception {
-        DefaultMQTTServer server = new DefaultMQTTServer();
-        server.addListener(new MqttListener()
-                .port(TEST_PORT)
-                .addresses(InetAddress.getByName("::1")));
+        MqttServer server = MqttServer.compose()
+                .listener(new MqttListener()
+                        .port(TEST_PORT)
+                        .addresses(InetAddress.getByName("::1")))
+                .server();
         return Collections.singletonList(server);
     }
 

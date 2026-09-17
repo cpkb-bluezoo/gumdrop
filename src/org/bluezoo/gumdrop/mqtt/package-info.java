@@ -27,8 +27,7 @@
  * <h2>Server (broker)</h2>
  * <ul>
  *   <li>{@link org.bluezoo.gumdrop.mqtt.MqttListener} — TCP listener (ports 1883/8883)</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.MqttServer} — service base class</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.DefaultMQTTServer} — default broker</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.server.MqttServer} — listeners, configuration, {@code compose()}</li>
  *   <li>{@link org.bluezoo.gumdrop.mqtt.MqttProtocolHandler} — protocol state machine</li>
  *   <li>{@link org.bluezoo.gumdrop.mqtt.MqttWebSocketHandler} — WebSocket bridge</li>
  * </ul>
