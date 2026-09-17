@@ -68,7 +68,8 @@ import java.nio.file.StandardOpenOption;
  * <pre>{@code
  * <?xml version='1.0' standalone='yes'?>
  * <server>
- *   <realm name="myRealm" class="org.bluezoo.gumdrop.auth.BasicRealm" href="realm-servlet.xml"/>
+ *   <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
+ *          href="realm-servlet.xml"/>
  *
  *   <cluster port="4001" group-address="228.0.0.4" key="a1b2c3d4..."/>
  *
@@ -80,6 +81,12 @@ import java.nio.file.StandardOpenOption;
  *             keystore-pass="changeit" bind-wildcard="true"/>
  * </server>
  * }</pre>
+ *
+ * <p>{@code realm}'s {@code name} may be a comma-separated list of aliases
+ * for the same realm instance, since a webapp's {@code web.xml
+ * <realm-name>} is a per-application label (and may itself contain spaces)
+ * -- the stock manager webapp expects to authenticate against a realm named
+ * {@code "Gumdrop Manager"}.
  *
  * <p>Relative {@code href}, {@code root}, and {@code keystore-file} paths
  * resolve against the directory containing {@code server.xml} (typically
@@ -281,7 +288,18 @@ public final class ServerXmlLoader {
                 }
                 ((BasicRealm) realm).setHref(resolve(href).toPath());
             }
-            container.addRealm(name, realm);
+            // A webapp's web.xml <realm-name> is a per-application label, so
+            // the same realm is commonly registered under more than one name
+            // (e.g. the manager webapp expects "Gumdrop Manager", itself
+            // containing a space); accept a comma-separated list rather
+            // than requiring one <realm> element (and one parse of the
+            // same href) per alias.
+            for (String alias : name.split(",")) {
+                alias = alias.trim();
+                if (!alias.isEmpty()) {
+                    container.addRealm(alias, realm);
+                }
+            }
         }
 
         private void startCluster(Attributes attrs) throws SAXException {
@@ -306,6 +324,7 @@ public final class ServerXmlLoader {
             if (distributable != null) {
                 context.setDistributable(Boolean.parseBoolean(distributable));
             }
+            container.addContext(context);
         }
 
         private void startListener(Attributes attrs) throws SAXException {

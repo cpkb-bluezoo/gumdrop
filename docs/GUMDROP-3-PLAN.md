@@ -300,11 +300,18 @@ hidden global singleton in library code.
 migrated to `AbstractServerIntegrationTest#buildServers()`/`buildListeners()`
 composition first (see below), then the XML fixtures
 (`test/integration/config/*.xml`, `etc/gumdroprc.*`, `conf/gumdroprc.xml.example`)
-were deleted. `Gumdrop.main()` no longer parses a config file — it prints
-guidance toward `docs/COMPOSITION.md` (the container `Bootstrap` launcher
-still reflectively invokes it, so it fails with a clear message rather than
-a raw reflection error; the Docker entrypoint itself is not yet migrated to
-a composition-based `main`, see `docs/CONTAINER-DEPLOYMENT.md`).
+were deleted. `Gumdrop.main()` itself is gone too — the general framework
+has no entry point of its own; applications write their own `main` (see
+`docs/COMPOSITION.md`).
+
+The one exception is the stock servlet container distribution: its
+`Bootstrap` launcher now reflectively invokes
+`org.bluezoo.gumdrop.servlet.container.ContainerMain`, which reads a new,
+deliberately minimal `server.xml` (`ServerXmlLoader`) — realms, session
+clustering, webapp contexts, and HTTP(S)/HTTP-3 listeners, nothing else.
+This is not a `gumdroprc` reinstatement (no generic property/component
+reflection, scoped to the servlet container use case only) — see
+`docs/CONTAINER-DEPLOYMENT.md`.
 
 **Removed (3.0):**
 

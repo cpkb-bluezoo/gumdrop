@@ -16,7 +16,6 @@ module org.bluezoo.gumdrop {
     requires org.bluezoo.json;
 
     exports org.bluezoo.gumdrop;
-    exports org.bluezoo.gumdrop.config;
     exports org.bluezoo.gumdrop.util;
     exports org.bluezoo.gumdrop.quota;
     exports org.bluezoo.gumdrop.ratelimit;
@@ -78,7 +77,6 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.mailbox.mbox;
     exports org.bluezoo.gumdrop.mailbox.maildir;
     exports org.bluezoo.gumdrop.mailbox.index;
-    exports org.bluezoo.gumdrop.health;
     exports org.bluezoo.gumdrop.mime;
     exports org.bluezoo.gumdrop.mime.rfc2047;
     exports org.bluezoo.gumdrop.mime.rfc2231;
@@ -102,12 +100,9 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.mdns;
     exports jakarta.servlet.jsp;
 
-    uses org.bluezoo.gumdrop.GumdropConfigurator;
     uses org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
     uses org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory;
 
-    provides org.bluezoo.gumdrop.GumdropConfigurator
-        with org.bluezoo.gumdrop.config.DefaultConfigurator;
     provides org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle
         with org.bluezoo.gumdrop.mailbox.DefaultMailboxLifecycle;
     provides org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory

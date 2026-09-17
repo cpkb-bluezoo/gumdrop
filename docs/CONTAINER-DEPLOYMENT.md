@@ -1,9 +1,17 @@
 # Container & Cloud Deployment
 
-> **Gumdrop 3:** new deployments use **Java composition**, not `gumdroprc` XML.
-> See [COMPOSITION.md](COMPOSITION.md) and [web/configuration.html](../web/configuration.html).
-> The sections below describe the **2.x container image** until the Docker
-> entrypoint is migrated to a composition-based `main`.
+> **Gumdrop 3:** the general framework has no config file — new deployments
+> compose servers in **Java**, not `gumdroprc` XML. See
+> [COMPOSITION.md](COMPOSITION.md) and
+> [web/configuration.html](../web/configuration.html).
+>
+> The **stock servlet container distribution** (the one this Docker image
+> builds) is the one exception: it is launched by
+> [`Bootstrap`](../src/org/bluezoo/gumdrop/Bootstrap.java) and reads a
+> minimal `conf/server.xml` describing webapp contexts, realms, session
+> clustering and HTTP listeners — see [Configuration](#configuration) below.
+> This format is specific to that one launcher; it is not a return to
+> `gumdroprc` and nothing else in the framework reads it.
 
 This guide covers running Gumdrop in ephemeral cloud containers (Docker /
 Kubernetes): the operational knobs for per-instance robustness and clean
@@ -24,23 +32,66 @@ Requires **Java 25+** at build time (see [BUILDING.md](../BUILDING.md)).
 # Build the image (lib/ distribution layout)
 docker build -t gumdrop:latest .
 
-# Run your composed application's main class
+# Run the stock servlet container (deploys webapps/ROOT + webapps/manager.war
+# per conf/server.xml)
 docker run --rm -p 8080:8080 gumdrop:latest
 ```
 
 The image uses `bin/gumdrop.sh` with jars in `lib/` (no nested-jar
-extraction). There is no configuration file: the image runs a compiled
-`main` (see [COMPOSITION.md](COMPOSITION.md)) that composes servers in Java
-and reads any environment variables it needs directly.
+extraction), which launches
+[`Bootstrap`](../src/org/bluezoo/gumdrop/Bootstrap.java) →
+[`ContainerMain`](../src/org/bluezoo/gumdrop/servlet/container/ContainerMain.java),
+reading `conf/server.xml`. To run your own composed `main` instead (see
+[COMPOSITION.md](COMPOSITION.md)) in a container, replace the `ENTRYPOINT` —
+that path still has no configuration file and reads any environment
+variables it needs directly.
 
 ---
 
 ## Configuration
 
-Gumdrop 3 has no configuration file or file-based env-var interpolation —
-compose servers in Java (see [COMPOSITION.md](COMPOSITION.md)) and read
-`System.getenv(...)` directly in your `main` for anything that needs to vary
-per environment (ports, keystore passwords, etc.).
+The **general framework** has no configuration file or file-based env-var
+interpolation — compose servers in Java (see
+[COMPOSITION.md](COMPOSITION.md)) and read `System.getenv(...)` directly in
+your `main` for anything that needs to vary per environment (ports, keystore
+passwords, etc.).
+
+The **stock servlet container** (this image's default entrypoint) is
+configured by `conf/server.xml`, parsed by
+[`ServerXmlLoader`](../src/org/bluezoo/gumdrop/servlet/container/ServerXmlLoader.java)
+— see that class's javadoc for the full element/attribute reference. It is
+deliberately minimal: realms, session-cluster settings, webapp contexts, and
+HTTP(S)/HTTP-3 listeners, nothing more. [`etc/server.xml`](../etc/server.xml)
+is the shipped example, copied to `conf/server.xml` by the
+`assemble-container` Ant target.
+
+```xml
+<?xml version='1.0' standalone='yes'?>
+<server>
+  <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
+         href="realm-servlet.xml"/>
+
+  <context path="" root="../webapps/ROOT" distributable="true"/>
+  <context path="/manager" root="../webapps/manager.war"/>
+
+  <listener port="8080"/>
+  <listener port="8443" secure="true" keystore-file="keystore.p12"
+            keystore-pass="changeit" bind-wildcard="true"/>
+</server>
+```
+
+A secure (`secure="true"`) listener gets an HTTP/2+TLS listener and an
+HTTP/3 (QUIC) listener on the same port automatically — HTTP/3 is a
+pure-Java implementation, no native library or separate setup needed.
+
+`ContainerMain` resolves `server.xml` in this order: an explicit CLI
+argument, the `GUMDROP_CONFIG` environment variable, then
+`$GUMDROP_HOME/conf/server.xml`, then `./conf/server.xml`. Anything more
+elaborate than "one `server.xml`, one JVM" — multiple independently
+configured containers, non-servlet protocols alongside it, programmatic
+webapp discovery — is exactly what [COMPOSITION.md](COMPOSITION.md) covers:
+write your own `main` using `ServerXmlLoader` directly, or compose
+`Container`/`ServletRequestHandler` yourself.
 
 ---
 
@@ -52,6 +103,12 @@ operations — the alternative is a service publishing readiness to a queue
 when it comes online, which is application-specific and out of scope for
 the framework itself. Build your own readiness signal into your composed
 `main` if your orchestrator needs one.
+
+This applies to the stock `server.xml`-driven container too: the
+`HEALTHCHECK`/`EXPOSE 8081`/`/readyz` in the shipped `Dockerfile` predate
+this constraint and currently have nothing listening behind them — treat
+them as a placeholder for your own readiness `main`, not working health
+checks, until one is added.
 
 ---
 
@@ -213,6 +270,8 @@ a shared volume for mail/quota) until an external shared store is introduced.
 
 | Variable                    | Consumed by            | Default              | Purpose                                        |
 |-----------------------------|------------------------|----------------------|------------------------------------------------|
+| `GUMDROP_CONFIG`            | `ContainerMain`        | (unset)              | Explicit path to `server.xml`; overrides `$GUMDROP_HOME/conf/server.xml`. |
+| `GUMDROP_HOME`              | `Bootstrap`, `ContainerMain` | (inferred)      | Install root; also where `conf/server.xml` is found by default. |
 | `GUMDROP_HOT_DEPLOY`        | servlet container      | `false`              | Enable servlet hot deploy.                     |
 | `MAX_RAM_PERCENTAGE`        | launcher               | `75.0`               | Heap percentage of container memory.           |
 | `JAVA`, `GUMDROP_JAR`, `LOGGING_PROPERTIES`, `JAVA_OPTS` | launcher | see table above | Launcher overrides. |

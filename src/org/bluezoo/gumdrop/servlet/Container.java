@@ -23,7 +23,6 @@ package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.servlet.jndi.Resource;
 import org.bluezoo.gumdrop.servlet.jndi.ServletInitialContext;
 import org.bluezoo.gumdrop.servlet.jndi.ServletInitialContextFactory;
@@ -111,7 +110,6 @@ public class Container implements ManagerContainerServer, ClusterContainer {
 
     private final ThreadPoolExecutor workerThreadPool;
     private final AsyncTimeoutScheduler asyncTimeoutScheduler;
-    private HttpAuthenticationProvider authenticationProvider;
     private Logger accessLogger;
     private int bufferSize = DEFAULT_BUFFER_SIZE;
 
@@ -259,14 +257,6 @@ public class Container implements ManagerContainerServer, ClusterContainer {
 
     public ThreadPoolExecutor getWorkerThreadPool() {
         return workerThreadPool;
-    }
-
-    public HttpAuthenticationProvider getAuthenticationProvider() {
-        return authenticationProvider;
-    }
-
-    public void setAuthenticationProvider(HttpAuthenticationProvider provider) {
-        this.authenticationProvider = provider;
     }
 
     public void setAccessLog(String path) {

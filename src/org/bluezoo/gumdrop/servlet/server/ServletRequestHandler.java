@@ -67,9 +67,17 @@ public final class ServletRequestHandler
         container.destroy();
     }
 
+    // Deliberately null, not container.getAuthenticationProvider() (there is
+    // no such thing any more): a provider returned here is attached once,
+    // for the listener's whole lifetime, to every request regardless of
+    // which Context it lands in -- there is no single auth method/realm
+    // that covers every context in a Container. Per-request, per-context,
+    // per-security-constraint (url-pattern-scoped) authentication is
+    // already handled correctly further down the pipeline, in
+    // ContextRequestDispatcher#authorize via Request#authenticate.
     @Override
     public org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider getAuthenticationProvider() {
-        return container.getAuthenticationProvider();
+        return null;
     }
 
 }

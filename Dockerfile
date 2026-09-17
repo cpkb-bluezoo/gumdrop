@@ -2,8 +2,9 @@
 #
 # Multi-stage build for a container-friendly Gumdrop image.
 #
-# HTTP/3 (QUIC) is a pure-Java implementation included in the build; just
-# uncomment the HTTP/3 listener in the config to enable it.
+# HTTP/3 (QUIC) is a pure-Java implementation included in the build; a
+# secure listener in conf/server.xml (secure="true") gets one automatically
+# alongside its HTTP/2 listener -- see docs/CONTAINER-DEPLOYMENT.md.
 #
 # Build:   docker build -t gumdrop:latest .
 # Run:     docker run --rm -p 8080:8080 -p 8081:8081 gumdrop:latest
@@ -38,7 +39,6 @@ RUN chmod +x ./bin/gumdrop.sh && chown -R gumdrop:gumdrop /opt/gumdrop
 USER gumdrop
 
 ENV GUMDROP_HOME=/opt/gumdrop \
-    GUMDROP_CONFIG=/opt/gumdrop/conf/gumdroprc.xml.example \
     GUMDROP_DRAIN_TIMEOUT_MS=30000 \
     HTTP_PORT=8080 \
     GUMDROP_HEALTH_PORT=8081 \

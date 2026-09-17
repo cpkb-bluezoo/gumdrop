@@ -100,7 +100,7 @@ public final class ContainerMain {
         }
 
         Gumdrop gumdrop = Gumdrop.boot();
-        serverRef.get().start(gumdrop);
+        gumdrop.addServer(serverRef.get());
     }
 
     private static File resolveConfigFile(String[] args) {

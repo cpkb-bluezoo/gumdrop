@@ -1583,13 +1583,6 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             postConstruct.execute();
         }
 
-        // Configure authentication provider if authentication is configured
-        if (getAuthMethod() != null && container != null) {
-            ServletAuthenticationProvider authProvider =
-                    new ServletAuthenticationProvider(this);
-            container.setAuthenticationProvider(authProvider);
-        }
-
         // Register with cluster (or re-register with new UUID after reload)
         // This triggers other nodes to replicate their sessions to us
         if (distributable) {
