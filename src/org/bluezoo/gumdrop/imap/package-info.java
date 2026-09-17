@@ -22,14 +22,15 @@
 /**
  * IMAP4rev2 (RFC 9051) server for mailbox access.
  *
- * <p>{@link org.bluezoo.gumdrop.imap.ImapServer} is the abstract base
- * for IMAP application services; {@link
+ * <p>{@link org.bluezoo.gumdrop.imap.server.ImapServer} owns listeners,
+ * configuration, and session composition (do not subclass for application
+ * logic, use {@code compose()}); {@link
  * org.bluezoo.gumdrop.imap.ImapListener} is the TCP transport listener;
  * {@link org.bluezoo.gumdrop.imap.ImapProtocolHandler} handles the
  * protocol logic. Unlike SMTP and POP3's simpler sequential state
  * machines, IMAP's NOT_AUTHENTICATED/AUTHENTICATED/SELECTED/LOGOUT
  * states are each a dedicated state object (package {@link
- * org.bluezoo.gumdrop.imap.handler}), needed to handle IDLE, multiple
+ * org.bluezoo.gumdrop.imap.server}), needed to handle IDLE, multiple
  * concurrent selected mailboxes, and unsolicited updates cleanly.
  *
  * <p>Extensions beyond the RFC 9051 core: IDLE (RFC 2177), NAMESPACE

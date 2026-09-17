@@ -44,7 +44,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.ftp.FtpListener;
-import org.bluezoo.gumdrop.ftp.client.handler.*;
+import org.bluezoo.gumdrop.ftp.client.*;
 import org.bluezoo.gumdrop.ftp.server.FtpServer;
 import org.bluezoo.gumdrop.ftp.server.FtpServerSessionProviders;
 
@@ -58,7 +58,7 @@ import static org.junit.Assert.*;
 /**
  * Integration tests for Gumdrop's FTP client implementation (issue #104).
  *
- * <p>Drives a real {@code SimpleFTPServer}-backed FTP server over an
+ * <p>Drives a real {@code FileSystemFtpSessionProvider}-backed FTP server over an
  * actual socket, replacing what would otherwise be a raw-socket test
  * helper — see the companion "no FTP integration coverage" issue referenced
  * from #104. Mirrors the structure of {@code SMTPClientIntegrationTest} and

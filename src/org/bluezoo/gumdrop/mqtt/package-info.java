@@ -60,9 +60,9 @@
  *
  * <h2>Handler</h2>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.handler.ConnectHandler} — CONNECT policy decisions</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.handler.PublishHandler} — PUBLISH policy decisions</li>
- *   <li>{@link org.bluezoo.gumdrop.mqtt.handler.SubscribeHandler} — SUBSCRIBE policy decisions</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.server.ConnectHandler} — CONNECT policy decisions</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.server.PublishHandler} — PUBLISH policy decisions</li>
+ *   <li>{@link org.bluezoo.gumdrop.mqtt.server.SubscribeHandler} — SUBSCRIBE policy decisions</li>
  * </ul>
  *
  * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html">MQTT 3.1.1</a>

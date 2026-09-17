@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.smtp.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.smtp.client.handler.*;
+import org.bluezoo.gumdrop.smtp.client.*;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.junit.Before;
 import org.junit.Test;

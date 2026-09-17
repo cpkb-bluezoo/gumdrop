@@ -373,12 +373,14 @@ from a filesystem root with optional WebDAV (RFC 4918) distributed authoring sup
 (PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK)</li>
 <li><b>Servlet container</b> &ndash; <code>ServletRequestHandler</code> hosts JSP and
 servlet applications with full Servlet API support, clustering, and deployment</li>
-<li><b>FTP file services</b> &ndash; <code>SimpleFTPServer</code> (filesystem root
-with read-only option), <code>RoleBasedFTPServer</code> (role-based access control
-with quota management), and <code>AnonymousFTPServer</code> (anonymous read-only
-public distribution)</li>
-<li><b>SMTP</b> &ndash; <code>LocalDeliveryServer</code> for mailbox delivery,
-<code>SimpleRelayServer</code> for MX forwarding</li>
+<li><b>FTP file services</b> &ndash; <code>FtpServer.compose()</code> with
+<code>FileSystemFtpSessionProvider</code> (filesystem root with read-only
+option), <code>RoleBasedFtpSessionProvider</code> (role-based access control
+with quota management), or <code>AnonymousFtpSessionProvider</code> (anonymous
+read-only public distribution)</li>
+<li><b>SMTP</b> &ndash; <code>SmtpServer.compose()</code> with
+<code>LocalDeliverySessionProvider</code> for mailbox delivery,
+<code>SimpleRelaySessionProvider</code> for MX forwarding</li>
 <li><b>IMAP</b> &ndash; <code>ImapServer</code> with mailbox session provider
 accepts all operations using the configured Realm and MailboxFactory</li>
 <li><b>POP3</b> &ndash; <code>Pop3Server</code> with mailbox session provider

@@ -29,8 +29,9 @@
  * org.bluezoo.gumdrop.socks.SocksListener} is the
  * TCP transport listener, on port 1080 (plaintext) or 1081 (TLS); {@link
  * org.bluezoo.gumdrop.socks.SocksProtocolHandler} drives the handshake
- * and command dispatch, with policy decisions delegated to {@link
- * org.bluezoo.gumdrop.socks.handler}. CONNECT is relayed by {@link
+ * and command dispatch, with policy decisions delegated to staged
+ * handler/state interfaces alongside {@code SocksServer} in {@link
+ * org.bluezoo.gumdrop.socks.server}. CONNECT is relayed by {@link
  * org.bluezoo.gumdrop.socks.SocksRelay}, BIND by {@link
  * org.bluezoo.gumdrop.socks.SocksBindRelay}, and UDP ASSOCIATE by {@link
  * org.bluezoo.gumdrop.socks.SocksUdpRelay} (framing datagrams per {@link
@@ -38,7 +39,7 @@
  * through {@link org.bluezoo.gumdrop.auth.Realm}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.socks.SocksServer
+ * @see org.bluezoo.gumdrop.socks.server.SocksServer
  * @see org.bluezoo.gumdrop.socks.client
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928">RFC 1928</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1929">RFC 1929</a>

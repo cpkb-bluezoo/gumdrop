@@ -30,7 +30,7 @@ package org.bluezoo.gumdrop.mqtt.store;
  * subclasses may override to provide file-backed or database-backed
  * storage for large messages.
  *
- * <p>Obtained from {@link org.bluezoo.gumdrop.mqtt.MqttServer#createMessageStore()},
+ * <p>Obtained from {@link org.bluezoo.gumdrop.mqtt.server.MqttServer#createMessageStore()},
  * which subclasses may override to supply a custom implementation.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -6,7 +6,6 @@
 package org.bluezoo.gumdrop.imap.server;
 
 import org.bluezoo.gumdrop.ServerSessionProvider;
-import org.bluezoo.gumdrop.imap.handler.ClientConnected;
 
 /**
  * IMAP server composition SPI — mints a staged handler pipeline per accepted

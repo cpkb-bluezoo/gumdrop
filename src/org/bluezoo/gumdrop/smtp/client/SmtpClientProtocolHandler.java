@@ -38,26 +38,6 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientAuthExchange;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelope;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeReady;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientPostTls;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientSession;
-import org.bluezoo.gumdrop.smtp.client.handler.MailFromParams;
-import org.bluezoo.gumdrop.smtp.client.handler.AuthAbortHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.AuthReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.DataReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.EhloReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.smtp.client.handler.HeloReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.MailFromReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.MessageReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.RcptToReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.ReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.RsetReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.StarttlsReplyHandler;
 
 /**
  * SMTP client protocol handler implementing RFC 5321 (SMTP).

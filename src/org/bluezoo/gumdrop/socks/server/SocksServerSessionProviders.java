@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.socks.server;
 import java.util.function.Supplier;
 
 import org.bluezoo.gumdrop.TcpListener;
-import org.bluezoo.gumdrop.socks.handler.SocksSessionHandler;
 
 /**
  * Stock {@link SocksServerSessionProvider} implementations.

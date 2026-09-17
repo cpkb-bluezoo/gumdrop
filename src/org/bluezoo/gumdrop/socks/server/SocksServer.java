@@ -41,7 +41,6 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.socks.handler.SocksSessionHandler;
 import org.bluezoo.gumdrop.util.CidrNetwork;
 
 /**

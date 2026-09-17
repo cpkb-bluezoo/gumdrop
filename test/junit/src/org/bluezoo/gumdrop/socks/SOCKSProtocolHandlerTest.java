@@ -424,10 +424,10 @@ public class SOCKSProtocolHandlerTest {
     @Test
     public void testConnectHandlerDeny() {
         handler.setConnectHandler(
-                new org.bluezoo.gumdrop.socks.handler.ConnectHandler() {
+                new org.bluezoo.gumdrop.socks.server.ConnectHandler() {
                     @Override
                     public void handleConnect(
-                            org.bluezoo.gumdrop.socks.handler
+                            org.bluezoo.gumdrop.socks.server
                                     .ConnectState state,
                             SocksRequest request,
                             org.bluezoo.gumdrop.Endpoint clientEp) {

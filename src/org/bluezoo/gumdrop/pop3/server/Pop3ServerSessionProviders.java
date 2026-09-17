@@ -7,7 +7,6 @@ package org.bluezoo.gumdrop.pop3.server;
 
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
-import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
 
 import java.util.function.Supplier;
 

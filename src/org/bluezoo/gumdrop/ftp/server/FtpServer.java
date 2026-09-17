@@ -23,8 +23,6 @@ package org.bluezoo.gumdrop.ftp.server;
 
 import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
 import org.bluezoo.gumdrop.ftp.FtpListener;
-import org.bluezoo.gumdrop.ftp.handler.ClientConnected;
-import org.bluezoo.gumdrop.ftp.handler.LegacyConnectionHandlerAdapter;
 
 import java.util.ArrayList;
 import java.util.Collections;

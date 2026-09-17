@@ -35,7 +35,6 @@ import org.bluezoo.gumdrop.Listener;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.imap.handler.ClientConnected;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 import org.bluezoo.gumdrop.quota.RoleBasedQuotaManager;

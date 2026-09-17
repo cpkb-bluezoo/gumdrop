@@ -11,7 +11,6 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.smtp.LocalDeliveryHandler;
 import org.bluezoo.gumdrop.smtp.SmtpListener;
-import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 
 /**
  * Stock {@link SmtpServerSessionProvider} for local mailbox delivery.
@@ -31,7 +30,6 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  * }</pre>
  *
  * @see LocalDeliveryHandler
- * @see LocalDeliveryServer
  */
 public final class LocalDeliverySessionProvider implements SmtpServerSessionProvider {
 

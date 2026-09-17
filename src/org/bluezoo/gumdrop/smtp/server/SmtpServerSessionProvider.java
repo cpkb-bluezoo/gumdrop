@@ -6,7 +6,6 @@
 package org.bluezoo.gumdrop.smtp.server;
 
 import org.bluezoo.gumdrop.ServerSessionProvider;
-import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 
 /**
  * SMTP server composition SPI — mints a staged handler pipeline per accepted
@@ -14,8 +13,8 @@ import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
  *
  * <p>Implementations return an object that implements {@link ClientConnected}
  * and subsequent staged server handler interfaces ({@link
- * org.bluezoo.gumdrop.smtp.handler.HelloHandler}, {@link
- * org.bluezoo.gumdrop.smtp.handler.MailFromHandler}, …). Stock examples:
+ * org.bluezoo.gumdrop.smtp.server.HelloHandler}, {@link
+ * org.bluezoo.gumdrop.smtp.server.MailFromHandler}, …). Stock examples:
  * {@link org.bluezoo.gumdrop.smtp.SimpleRelayHandler},
  * {@link org.bluezoo.gumdrop.smtp.LocalDeliveryHandler}.
  * Stock providers: {@link SimpleRelaySessionProvider},

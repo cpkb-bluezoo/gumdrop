@@ -28,9 +28,9 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.ftp.FtpServer} - Abstract base for
- *       FTP application services; owns configuration, creates per-connection
- *       handlers, and manages dynamic data-connection listeners</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.server.FtpServer} - Owns listeners,
+ *       configuration, and session composition; do not subclass for
+ *       application logic, use {@code compose()}</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp.FtpListener} - TCP transport
  *       listener for FTP control connections</li>
  *   <li>{@link org.bluezoo.gumdrop.ftp.FtpProtocolHandler} - Handles
@@ -60,18 +60,15 @@
  *   <li>FEAT, OPTS - Feature negotiation</li>
  * </ul>
  *
- * <h2>Configuration Example</h2>
+ * <h2>Composition Example</h2>
  *
  * <pre>{@code
- * <realm id="ftpRealm" class="org.bluezoo.gumdrop.BasicRealm">
- *   <property name="href">ftp-users.xml</property>
- * </realm>
- *
- * <service class="org.bluezoo.gumdrop.ftp.file.SimpleFTPServer">
- *   <property name="realm" ref="#ftpRealm"/>
- *   <property name="root-directory">/var/ftp</property>
- *   <listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/>
- * </service>
+ * FtpServer server = FtpServer.compose()
+ *         .listener(new FtpListener().port(21).bindWildcard())
+ *         .realm(ftpRealm)
+ *         .sessionProvider(FtpServerSessionProviders.fileSystem()
+ *                 .rootDirectory(Path.of("/var/ftp")))
+ *         .server();
  * }</pre>
  *
  * <h2>Async disk I/O</h2>

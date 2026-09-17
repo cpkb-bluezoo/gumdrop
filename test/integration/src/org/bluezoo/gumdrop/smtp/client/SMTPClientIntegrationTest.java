@@ -32,7 +32,7 @@ import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.SmtpListener;
-import org.bluezoo.gumdrop.smtp.client.handler.*;
+import org.bluezoo.gumdrop.smtp.client.*;
 import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 

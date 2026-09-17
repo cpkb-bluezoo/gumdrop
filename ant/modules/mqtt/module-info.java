@@ -7,6 +7,6 @@ module org.bluezoo.gumdrop.mqtt {
     exports org.bluezoo.gumdrop.mqtt.broker;
     exports org.bluezoo.gumdrop.mqtt.client;
     exports org.bluezoo.gumdrop.mqtt.codec;
-    exports org.bluezoo.gumdrop.mqtt.handler;
+    exports org.bluezoo.gumdrop.mqtt.server;
     exports org.bluezoo.gumdrop.mqtt.store;
 }

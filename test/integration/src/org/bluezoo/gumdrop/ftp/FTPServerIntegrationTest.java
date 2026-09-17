@@ -49,7 +49,7 @@ import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.ftp.client.FtpClientProtocolHandler;
 import org.bluezoo.gumdrop.ftp.client.FtpException;
 import org.bluezoo.gumdrop.ftp.client.FtpFileEntry;
-import org.bluezoo.gumdrop.ftp.client.handler.*;
+import org.bluezoo.gumdrop.ftp.client.*;
 import org.bluezoo.gumdrop.ftp.server.FtpServer;
 import org.bluezoo.gumdrop.ftp.server.FtpServerSessionProviders;
 import org.bluezoo.gumdrop.tls.TlsConfig;

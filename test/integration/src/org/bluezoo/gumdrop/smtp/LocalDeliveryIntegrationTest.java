@@ -33,7 +33,7 @@ import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.*;
+import org.bluezoo.gumdrop.smtp.client.*;
 import org.bluezoo.gumdrop.smtp.server.SmtpServer;
 import org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProviders;
 import org.junit.After;

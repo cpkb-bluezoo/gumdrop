@@ -26,8 +26,8 @@ package org.bluezoo.gumdrop.pop3.client;
  *
  * <p>These states track the internal protocol state of the POP3 client
  * connection. The stage-based interfaces ({@link
- * org.bluezoo.gumdrop.pop3.client.handler.ClientAuthorizationState},
- * {@link org.bluezoo.gumdrop.pop3.client.handler.ClientTransactionState},
+ * org.bluezoo.gumdrop.pop3.client.ClientAuthorizationState},
+ * {@link org.bluezoo.gumdrop.pop3.client.ClientTransactionState},
  * etc.) provide a type-safe view of what operations are valid at each state.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.socks.server;
 
 import org.bluezoo.gumdrop.ServerSessionProvider;
-import org.bluezoo.gumdrop.socks.handler.SocksSessionHandler;
 
 /**
  * SOCKS server composition SPI — mints a {@link SocksSessionHandler} per

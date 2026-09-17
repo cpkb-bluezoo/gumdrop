@@ -8,8 +8,6 @@ package org.bluezoo.gumdrop.pop3.server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.pop3.Pop3Listener;
-import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
-import org.bluezoo.gumdrop.pop3.handler.DefaultPOP3Handler;
 
 import java.util.ResourceBundle;
 import java.util.logging.Logger;

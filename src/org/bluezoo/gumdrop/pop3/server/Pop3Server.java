@@ -36,7 +36,6 @@ import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
-import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
 
 /**
  * POP3 protocol server — listeners, configuration, and session composition.
@@ -380,7 +379,7 @@ public class Pop3Server implements Server, Pop3ServerSessionProvider {
         }
 
         public Composer sessionPerConnection(
-                Supplier<org.bluezoo.gumdrop.pop3.handler.ClientConnected> supplier) {
+                Supplier<org.bluezoo.gumdrop.pop3.server.ClientConnected> supplier) {
             return sessionProvider(Pop3ServerSessionProviders.perSession(supplier));
         }
 

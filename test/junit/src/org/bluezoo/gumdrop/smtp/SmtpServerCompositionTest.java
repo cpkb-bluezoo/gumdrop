@@ -10,17 +10,17 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.smtp.client.SmtpClient;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientSession;
-import org.bluezoo.gumdrop.smtp.client.handler.EhloReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
-import org.bluezoo.gumdrop.smtp.handler.ConnectedState;
-import org.bluezoo.gumdrop.smtp.handler.HelloHandler;
-import org.bluezoo.gumdrop.smtp.handler.HelloState;
-import org.bluezoo.gumdrop.smtp.handler.MailFromHandler;
-import org.bluezoo.gumdrop.smtp.handler.MailFromState;
-import org.bluezoo.gumdrop.smtp.handler.ResetState;
+import org.bluezoo.gumdrop.smtp.client.ClientHelloState;
+import org.bluezoo.gumdrop.smtp.client.ClientSession;
+import org.bluezoo.gumdrop.smtp.client.EhloReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.RemoteGreeting;
+import org.bluezoo.gumdrop.smtp.server.ClientConnected;
+import org.bluezoo.gumdrop.smtp.server.ConnectedState;
+import org.bluezoo.gumdrop.smtp.server.HelloHandler;
+import org.bluezoo.gumdrop.smtp.server.HelloState;
+import org.bluezoo.gumdrop.smtp.server.MailFromHandler;
+import org.bluezoo.gumdrop.smtp.server.MailFromState;
+import org.bluezoo.gumdrop.smtp.server.ResetState;
 import org.bluezoo.gumdrop.smtp.server.SmtpServer;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.DeliveryRequirements;
@@ -300,7 +300,7 @@ public class SmtpServerCompositionTest {
 
         @Override
         public void authenticated(
-                org.bluezoo.gumdrop.smtp.handler.AuthenticateState state,
+                org.bluezoo.gumdrop.smtp.server.AuthenticateState state,
                 java.security.Principal principal) {
         }
 

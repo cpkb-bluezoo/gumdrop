@@ -24,19 +24,19 @@ package org.bluezoo.gumdrop.smtp.postfix;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.client.SmtpClient;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelope;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeReady;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientPostTls;
-import org.bluezoo.gumdrop.smtp.client.handler.ClientSession;
-import org.bluezoo.gumdrop.smtp.client.handler.DataReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.EhloReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.smtp.client.handler.MailFromReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.MessageReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.RcptToReplyHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.StarttlsReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.ClientEnvelope;
+import org.bluezoo.gumdrop.smtp.client.ClientEnvelopeReady;
+import org.bluezoo.gumdrop.smtp.client.ClientHelloState;
+import org.bluezoo.gumdrop.smtp.client.ClientMessageData;
+import org.bluezoo.gumdrop.smtp.client.ClientPostTls;
+import org.bluezoo.gumdrop.smtp.client.ClientSession;
+import org.bluezoo.gumdrop.smtp.client.DataReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.EhloReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.RemoteGreeting;
+import org.bluezoo.gumdrop.smtp.client.MailFromReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.MessageReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.RcptToReplyHandler;
+import org.bluezoo.gumdrop.smtp.client.StarttlsReplyHandler;
 
 import org.junit.After;
 import org.junit.Before;
@@ -184,12 +184,12 @@ public class PostfixSmtpIntegrationTest {
                                     }
 
                                     @Override
-                                    public void handleTemporaryFailure(org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeState s) {
+                                    public void handleTemporaryFailure(org.bluezoo.gumdrop.smtp.client.ClientEnvelopeState s) {
                                         fail(error, doneLatch, "temp failure on RCPT TO");
                                     }
 
                                     @Override
-                                    public void handleRecipientRejected(org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeState s) {
+                                    public void handleRecipientRejected(org.bluezoo.gumdrop.smtp.client.ClientEnvelopeState s) {
                                         fail(error, doneLatch, "recipient rejected");
                                     }
 
@@ -633,12 +633,12 @@ public class PostfixSmtpIntegrationTest {
             }
 
             @Override
-            public void handleTemporaryFailure(org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeState s) {
+            public void handleTemporaryFailure(org.bluezoo.gumdrop.smtp.client.ClientEnvelopeState s) {
                 fail(error, doneLatch, "temp failure on RCPT TO");
             }
 
             @Override
-            public void handleRecipientRejected(org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeState s) {
+            public void handleRecipientRejected(org.bluezoo.gumdrop.smtp.client.ClientEnvelopeState s) {
                 fail(error, doneLatch, "recipient rejected");
             }
 

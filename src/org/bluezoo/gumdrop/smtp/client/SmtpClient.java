@@ -42,7 +42,6 @@ import org.bluezoo.gumdrop.dns.DnssecAwareQueryCallback;
 import org.bluezoo.gumdrop.dns.DnssecStatus;
 import org.bluezoo.gumdrop.dns.DnsType;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
-import org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 

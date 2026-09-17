@@ -34,7 +34,7 @@ import java.nio.ByteBuffer;
  * whatever chunks are convenient (as they're read off disk, generated,
  * relayed from another connection, etc.) via repeated {@link
  * #writeBody(ByteBuffer)} calls, mirroring
- * {@link org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData}.
+ * {@link org.bluezoo.gumdrop.smtp.client.ClientMessageData}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ClientChannel#basicPublish

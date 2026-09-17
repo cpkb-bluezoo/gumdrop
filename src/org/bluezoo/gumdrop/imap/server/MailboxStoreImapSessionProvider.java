@@ -7,8 +7,6 @@ package org.bluezoo.gumdrop.imap.server;
 
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.imap.ImapListener;
-import org.bluezoo.gumdrop.imap.handler.ClientConnected;
-import org.bluezoo.gumdrop.imap.handler.DefaultIMAPHandler;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 
 import java.util.ResourceBundle;

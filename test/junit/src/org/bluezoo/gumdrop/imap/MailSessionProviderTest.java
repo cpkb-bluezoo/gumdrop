@@ -5,7 +5,7 @@
 
 package org.bluezoo.gumdrop.imap;
 
-import org.bluezoo.gumdrop.imap.handler.ClientConnected;
+import org.bluezoo.gumdrop.imap.server.ClientConnected;
 import org.bluezoo.gumdrop.imap.server.ImapServer;
 import org.bluezoo.gumdrop.imap.server.ImapServerSessionProviders;
 import org.bluezoo.gumdrop.imap.server.MailboxStoreImapSessionProvider;
@@ -64,7 +64,7 @@ public class MailSessionProviderTest {
 
     @Test
     public void testDefaultPop3SessionProvider() {
-        org.bluezoo.gumdrop.pop3.handler.ClientConnected handler =
+        org.bluezoo.gumdrop.pop3.server.ClientConnected handler =
                 Pop3ServerSessionProviders.mailbox()
                         .greeting("test ready")
                         .openSession(new Pop3Listener());

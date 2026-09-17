@@ -6,7 +6,6 @@
 package org.bluezoo.gumdrop.ftp.server;
 
 import org.bluezoo.gumdrop.ServerSessionProvider;
-import org.bluezoo.gumdrop.ftp.handler.ClientConnected;
 
 /**
  * FTP server composition SPI — mints a staged handler pipeline per accepted

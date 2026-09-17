@@ -6,9 +6,9 @@
 package org.bluezoo.gumdrop.ftp;
 
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
-import org.bluezoo.gumdrop.ftp.handler.ClientConnected;
-import org.bluezoo.gumdrop.ftp.handler.DefaultFtpHandler;
-import org.bluezoo.gumdrop.ftp.handler.LegacyConnectionHandlerAdapter;
+import org.bluezoo.gumdrop.ftp.server.ClientConnected;
+import org.bluezoo.gumdrop.ftp.server.DefaultFtpHandler;
+import org.bluezoo.gumdrop.ftp.server.LegacyConnectionHandlerAdapter;
 import org.bluezoo.gumdrop.ftp.server.FileSystemFtpSessionProvider;
 import org.bluezoo.gumdrop.ftp.server.FtpServer;
 import org.bluezoo.gumdrop.ftp.server.FtpServerSessionProviders;

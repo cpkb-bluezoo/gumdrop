@@ -24,7 +24,6 @@ package org.bluezoo.gumdrop.mqtt.server;
 import java.util.function.Supplier;
 
 import org.bluezoo.gumdrop.TcpListener;
-import org.bluezoo.gumdrop.mqtt.handler.ConnectHandler;
 
 /**
  * Stock {@link MqttServerSessionProvider} implementations.

@@ -6,7 +6,6 @@
 package org.bluezoo.gumdrop.smtp.server;
 
 import org.bluezoo.gumdrop.TcpListener;
-import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 
 import java.util.function.Supplier;
 

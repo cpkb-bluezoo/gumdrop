@@ -37,7 +37,7 @@ package org.bluezoo.gumdrop.smtp.client;
  * not through this exception.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.client.handler.RemoteGreeting
+ * @see org.bluezoo.gumdrop.smtp.client.RemoteGreeting
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a>
  */
 public class SmtpException extends Exception {

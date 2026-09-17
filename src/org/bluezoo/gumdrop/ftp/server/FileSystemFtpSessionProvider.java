@@ -8,8 +8,6 @@ package org.bluezoo.gumdrop.ftp.server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
-import org.bluezoo.gumdrop.ftp.handler.ClientConnected;
-import org.bluezoo.gumdrop.ftp.handler.DefaultFtpHandler;
 import org.bluezoo.gumdrop.quota.QuotaManager;
 
 import java.nio.file.Path;

@@ -36,7 +36,6 @@ import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
-import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
 
 /**
  * Abstract base for SMTP protocol servers.

@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
-import org.bluezoo.gumdrop.smtp.handler.*;
+import org.bluezoo.gumdrop.smtp.server.*;
 import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
@@ -52,7 +52,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.*;
+import org.bluezoo.gumdrop.smtp.client.*;
 
 /**
  * A simple SMTP relay handler that accepts messages and forwards them.
@@ -81,14 +81,16 @@ import org.bluezoo.gumdrop.smtp.client.handler.*;
  *
  * <h4>Configuration</h4>
  * <pre>{@code
- * <service class="org.bluezoo.gumdrop.smtp.SimpleRelayServer">
- *   <listener class="org.bluezoo.gumdrop.smtp.SmtpListener" port="25"/>
- * </service>
+ * SmtpServer server = SmtpServer.compose()
+ *         .listener(new SmtpListener().port(25).bindWildcard())
+ *         .sessionProvider(new SimpleRelaySessionProvider()
+ *                 .hostname("relay.example.com"))
+ *         .server();
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321#section-3.7">RFC 5321 §3.7</a> (mail relay)
- * @see SimpleRelayServer
+ * @see org.bluezoo.gumdrop.smtp.server.SimpleRelaySessionProvider
  */
 public class SimpleRelayHandler implements ClientConnected, HelloHandler,
         MailFromHandler, RecipientHandler, MessageDataHandler {

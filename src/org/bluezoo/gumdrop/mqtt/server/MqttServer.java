@@ -39,7 +39,6 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mqtt.broker.SubscriptionManager;
 import org.bluezoo.gumdrop.mqtt.broker.WillManager;
-import org.bluezoo.gumdrop.mqtt.handler.ConnectHandler;
 import org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
 

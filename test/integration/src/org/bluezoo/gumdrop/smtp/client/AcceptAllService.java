@@ -28,8 +28,8 @@ import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.DeliveryRequirements;
 import org.bluezoo.gumdrop.smtp.SmtpPipeline;
-import org.bluezoo.gumdrop.smtp.SmtpServer;
-import org.bluezoo.gumdrop.smtp.handler.*;
+import org.bluezoo.gumdrop.smtp.server.SmtpServer;
+import org.bluezoo.gumdrop.smtp.server.*;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;

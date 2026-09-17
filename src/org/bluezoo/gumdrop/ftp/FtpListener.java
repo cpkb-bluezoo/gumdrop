@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  *
  * <p>Handler creation follows a dual-source pattern:
  * <ol>
- *   <li>When used within an {@link FtpServer}, the server's
+ *   <li>When used within an {@link org.bluezoo.gumdrop.ftp.server.FtpServer}, the server's
  *       {@code createHandler()} method is called to create handlers.
  *       This is the normal server deployment path.</li>
  *   <li>When used standalone (no server), a
@@ -331,7 +331,7 @@ public class FtpListener extends TcpListener {
     }
 
     /**
-     * Sets the owning server. Called by {@link FtpServer} during
+     * Sets the owning server. Called by {@link org.bluezoo.gumdrop.ftp.server.FtpServer} during
      * wiring.
      *
      * @param server the owning server
@@ -367,7 +367,7 @@ public class FtpListener extends TcpListener {
     /**
      * Opens the application handler pipeline for a new connection.
      */
-    public org.bluezoo.gumdrop.ftp.handler.ClientConnected openApplicationSession() {
+    public org.bluezoo.gumdrop.ftp.server.ClientConnected openApplicationSession() {
         if (sessionProvider != null) {
             try {
                 return sessionProvider.openSession(this);
@@ -395,10 +395,10 @@ public class FtpListener extends TcpListener {
 
     @Override
     protected ProtocolHandler createHandler() {
-        org.bluezoo.gumdrop.ftp.handler.ClientConnected session =
+        org.bluezoo.gumdrop.ftp.server.ClientConnected session =
                 openApplicationSession();
         org.bluezoo.gumdrop.ftp.FtpConnectionHandler legacy =
-                org.bluezoo.gumdrop.ftp.handler.LegacyConnectionHandlerAdapter
+                org.bluezoo.gumdrop.ftp.server.LegacyConnectionHandlerAdapter
                         .unwrap(session);
         if (legacy != null) {
             return new FtpProtocolHandler(this, legacy);

@@ -404,7 +404,7 @@ public class Pop3Listener extends TcpListener {
     }
 
     /**
-     * Sets the owning server. Called by {@link Pop3Server} during
+     * Sets the owning server. Called by {@link org.bluezoo.gumdrop.pop3.server.Pop3Server} during
      * wiring.
      *
      * @param server the owning server
@@ -442,7 +442,7 @@ public class Pop3Listener extends TcpListener {
      *
      * @return the handler, or {@code null} for default protocol behaviour
      */
-    public org.bluezoo.gumdrop.pop3.handler.ClientConnected openApplicationSession() {
+    public org.bluezoo.gumdrop.pop3.server.ClientConnected openApplicationSession() {
         if (sessionProvider != null) {
             try {
                 return sessionProvider.openSession(this);

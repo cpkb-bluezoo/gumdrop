@@ -36,35 +36,6 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.imap.client.handler.ClientAppendState;
-import org.bluezoo.gumdrop.imap.client.handler.ClientAuthExchange;
-import org.bluezoo.gumdrop.imap.client.handler.ClientAuthenticatedState;
-import org.bluezoo.gumdrop.imap.client.handler.ClientIdleState;
-import org.bluezoo.gumdrop.imap.client.handler.ClientNotAuthenticatedState;
-import org.bluezoo.gumdrop.imap.client.handler.ClientPostStarttls;
-import org.bluezoo.gumdrop.imap.client.handler.ClientSelectedState;
-import org.bluezoo.gumdrop.imap.client.handler.MailboxEventListener;
-import org.bluezoo.gumdrop.imap.client.handler.AppendReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.AuthAbortHandler;
-import org.bluezoo.gumdrop.imap.client.handler.AuthReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.CapabilityReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.CloseReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.CopyReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ExpungeReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.FetchReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.imap.client.handler.IdleEventHandler;
-import org.bluezoo.gumdrop.imap.client.handler.ListReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.LoginReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.MailboxReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.NamespaceReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.QuotaReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.NoopReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.SearchReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.SelectReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.StarttlsReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.StatusReplyHandler;
-import org.bluezoo.gumdrop.imap.client.handler.StoreReplyHandler;
 
 /**
  * IMAP4rev2 client protocol handler (RFC 9051).
@@ -1923,12 +1894,8 @@ public final class ImapClientProtocolHandler
     }
 
     private void fireServiceClosing(String message) {
-        if (currentCallback
-                instanceof org.bluezoo.gumdrop.imap.client.handler
-                .ReplyHandler) {
-            ((org.bluezoo.gumdrop.imap.client.handler
-                    .ReplyHandler) currentCallback)
-                    .handleServiceClosing(message);
+        if (currentCallback instanceof ReplyHandler) {
+            ((ReplyHandler) currentCallback).handleServiceClosing(message);
         }
     }
 

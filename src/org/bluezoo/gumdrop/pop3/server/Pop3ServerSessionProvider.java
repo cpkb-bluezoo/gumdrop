@@ -6,7 +6,6 @@
 package org.bluezoo.gumdrop.pop3.server;
 
 import org.bluezoo.gumdrop.ServerSessionProvider;
-import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
 
 /**
  * POP3 server composition SPI — mints a staged handler pipeline per accepted

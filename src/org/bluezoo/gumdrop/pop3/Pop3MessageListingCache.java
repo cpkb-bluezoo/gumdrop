@@ -28,7 +28,7 @@ import java.util.List;
 
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
-import org.bluezoo.gumdrop.pop3.handler.MessageListingCacheHost;
+import org.bluezoo.gumdrop.pop3.server.MessageListingCacheHost;
 
 /**
  * Per-session cache of POP3 LIST/UIDL listing rows. Built once from

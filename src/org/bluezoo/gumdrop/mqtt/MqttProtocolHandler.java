@@ -48,7 +48,7 @@ import org.bluezoo.gumdrop.mqtt.broker.RetainedMessageStore;
 import org.bluezoo.gumdrop.mqtt.broker.SubscriptionManager;
 import org.bluezoo.gumdrop.mqtt.broker.WillManager;
 import org.bluezoo.gumdrop.mqtt.codec.*;
-import org.bluezoo.gumdrop.mqtt.handler.*;
+import org.bluezoo.gumdrop.mqtt.server.*;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageContent;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageStore;
 import org.bluezoo.gumdrop.mqtt.store.MqttMessageWriter;

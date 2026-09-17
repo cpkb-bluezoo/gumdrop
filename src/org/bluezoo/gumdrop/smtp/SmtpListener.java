@@ -32,7 +32,7 @@ import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
-import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
+import org.bluezoo.gumdrop.smtp.server.ClientConnected;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 
 
@@ -344,7 +344,7 @@ public class SmtpListener extends TcpListener {
     }
 
     /**
-     * Sets the owning server. Called by {@link SmtpServer} during
+     * Sets the owning server. Called by {@link org.bluezoo.gumdrop.smtp.server.SmtpServer} during
      * wiring.
      *
      * @param server the owning server

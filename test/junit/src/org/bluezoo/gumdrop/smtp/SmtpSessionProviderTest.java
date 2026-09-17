@@ -6,7 +6,7 @@
 package org.bluezoo.gumdrop.smtp;
 
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
-import org.bluezoo.gumdrop.smtp.handler.ClientConnected;
+import org.bluezoo.gumdrop.smtp.server.ClientConnected;
 import org.bluezoo.gumdrop.smtp.server.LocalDeliverySessionProvider;
 import org.bluezoo.gumdrop.smtp.server.SimpleRelaySessionProvider;
 import org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProviders;

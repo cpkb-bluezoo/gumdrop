@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461 - SMTP DSN</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8689">RFC 8689 - REQUIRETLS</a>
- * @see org.bluezoo.gumdrop.smtp.handler.ClientConnected
+ * @see org.bluezoo.gumdrop.smtp.server.ClientConnected
  */
 public interface SmtpConnectionMetadata {
 

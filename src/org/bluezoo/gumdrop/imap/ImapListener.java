@@ -560,7 +560,7 @@ public class ImapListener extends TcpListener {
     }
 
     /**
-     * Sets the owning server. Called by {@link ImapServer} during
+     * Sets the owning server. Called by {@link org.bluezoo.gumdrop.imap.server.ImapServer} during
      * wiring.
      *
      * @param server the owning server
@@ -598,7 +598,7 @@ public class ImapListener extends TcpListener {
      *
      * @return the handler, or {@code null} for default protocol behaviour
      */
-    public org.bluezoo.gumdrop.imap.handler.ClientConnected openApplicationSession() {
+    public org.bluezoo.gumdrop.imap.server.ClientConnected openApplicationSession() {
         if (sessionProvider != null) {
             try {
                 return sessionProvider.openSession(this);
@@ -628,7 +628,7 @@ public class ImapListener extends TcpListener {
      * Creates a new ImapProtocolHandler for a newly accepted
      * connection.
      *
-     * <p>If an {@link ImapServer} is set, the handler is obtained
+     * <p>If an {@link org.bluezoo.gumdrop.imap.server.ImapServer} is set, the handler is obtained
      * from the server.
      *
      * @return a new IMAP endpoint handler

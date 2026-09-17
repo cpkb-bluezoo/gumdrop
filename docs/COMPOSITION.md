@@ -264,9 +264,9 @@ Client-side credentials are outbound dial/application configuration, not listene
 ### FTP (session-based)
 
 Same session-provider model as SMTP and IMAP. The server-side staged handler SPI lives
-in {@code org.bluezoo.gumdrop.ftp.handler} ({@link org.bluezoo.gumdrop.ftp.handler.ClientConnected},
-{@link org.bluezoo.gumdrop.ftp.handler.NotAuthenticatedHandler},
-{@link org.bluezoo.gumdrop.ftp.handler.AuthenticatedHandler}, …). Legacy
+in {@code org.bluezoo.gumdrop.ftp.server} ({@link org.bluezoo.gumdrop.ftp.server.ClientConnected},
+{@link org.bluezoo.gumdrop.ftp.server.NotAuthenticatedHandler},
+{@link org.bluezoo.gumdrop.ftp.server.AuthenticatedHandler}, …). Legacy
 {@link org.bluezoo.gumdrop.ftp.FtpConnectionHandler} implementations continue to work
 via {@link org.bluezoo.gumdrop.ftp.server.FtpServerSessionProviders#connectionHandler(java.util.function.Supplier)}.
 
@@ -289,7 +289,7 @@ FtpClient ftp = new FtpClient()
 ftp.connect(new MyRemoteGreeting());
 ```
 
-Applications implement {@link org.bluezoo.gumdrop.ftp.client.handler.RemoteGreeting}
+Applications implement {@link org.bluezoo.gumdrop.ftp.client.RemoteGreeting}
 and pass it directly to {@link org.bluezoo.gumdrop.ftp.client.FtpClient#connect}.
 
 ---
@@ -644,10 +644,12 @@ drives staged {@code *ReplyHandler} interfaces from there.
 **IMAP** and **POP3** use the same pattern ({@code ImapServerSessionProvider},
 {@code Pop3ServerSessionProvider} on the server; bootstrap handler passed to
 {@code connect} on the client).
-**FTP** uses {@code FtpServerSessionProvider} and staged {@code ftp.handler.*} on the
-server; the client passes a bootstrap handler to {@code FtpClient#connect} and
-drives staged {@code ftp.client.handler.*} interfaces from there (same pattern
-as SMTP/IMAP/POP3).
+**FTP** uses {@code FtpServerSessionProvider} and staged {@code ftp.server.*} handler
+interfaces on the server (unlike the other mail protocols, FTP's staged handlers
+live alongside {@code FtpServer} in {@code ftp.server}, not a separate {@code
+ftp.handler} package); the client passes a bootstrap handler to {@code
+FtpClient#connect} and drives staged {@code ftp.client.*} interfaces from there
+(same pattern as SMTP/IMAP/POP3).
 
 ---
 
@@ -707,7 +709,7 @@ most protocols (`Http`, `Smtp`, `Dns`, …). **Exceptions:**
 | `SimpleRelaySessionProvider`, `LocalDeliverySessionProvider`, listener `.sessionProvider()` | **Done** |
 | `ImapServer.compose()`, `Pop3Server.compose()`, mailbox session providers | **Done** |
 | `ImapClient` / `Pop3Client` bootstrap handler passed to `connect(handler)` | **Done** |
-| `FtpServer.compose()`, `FtpServerSessionProvider`, staged `ftp.handler.*` | **Done** (server) |
+| `FtpServer.compose()`, `FtpServerSessionProvider`, staged `ftp.server.*` | **Done** (server) |
 | `FtpClient` bootstrap handler passed to `connect(handler)` | **Done** (client) |
 | `ClientDial`, `TlsConfig`, fluent client dial across facades | **Done** |
 | `ServerSessionProvider`; SMTP/IMAP/POP3 server session SPI | **Done** |

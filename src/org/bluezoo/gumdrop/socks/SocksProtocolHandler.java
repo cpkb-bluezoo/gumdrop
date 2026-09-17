@@ -48,10 +48,10 @@ import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
-import org.bluezoo.gumdrop.socks.handler.BindHandler;
-import org.bluezoo.gumdrop.socks.handler.BindState;
-import org.bluezoo.gumdrop.socks.handler.ConnectHandler;
-import org.bluezoo.gumdrop.socks.handler.ConnectState;
+import org.bluezoo.gumdrop.socks.server.BindHandler;
+import org.bluezoo.gumdrop.socks.server.BindState;
+import org.bluezoo.gumdrop.socks.server.ConnectHandler;
+import org.bluezoo.gumdrop.socks.server.ConnectState;
 
 import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 

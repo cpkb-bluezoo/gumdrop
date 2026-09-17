@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.mqtt.server;
 
 import org.bluezoo.gumdrop.ServerSessionProvider;
-import org.bluezoo.gumdrop.mqtt.handler.ConnectHandler;
 
 /**
  * MQTT server composition SPI — mints a {@link ConnectHandler} per accepted
@@ -30,9 +29,9 @@ import org.bluezoo.gumdrop.mqtt.handler.ConnectHandler;
  *
  * <p>The returned {@link ConnectHandler} decides whether to accept the
  * CONNECT and, on acceptance, supplies the {@link
- * org.bluezoo.gumdrop.mqtt.handler.MqttSessionHandler} that authorizes
+ * org.bluezoo.gumdrop.mqtt.server.MqttSessionHandler} that authorizes
  * PUBLISH and SUBSCRIBE for the rest of that connection (see {@link
- * org.bluezoo.gumdrop.mqtt.handler.ConnectState#acceptConnection}).
+ * org.bluezoo.gumdrop.mqtt.server.ConnectState#acceptConnection}).
  *
  * <p>{@link MqttServer} implements this interface directly; with no provider
  * configured, {@link MqttServer#openSession} returns {@code null} and every

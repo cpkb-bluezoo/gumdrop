@@ -35,7 +35,7 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.ftp.client.handler.*;
+import org.bluezoo.gumdrop.ftp.client.*;
 
 import org.junit.After;
 import org.junit.Before;

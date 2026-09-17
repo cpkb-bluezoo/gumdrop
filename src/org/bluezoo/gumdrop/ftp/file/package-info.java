@@ -28,15 +28,19 @@
  *
  * <h2>Key Components</h2>
  *
- * <h3>Services (v2)</h3>
+ * <h3>Stock session providers</h3>
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.SimpleFTPServer} - Simple
- *       file-based FTP service with optional realm authentication</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer} - FTP
- *       service with role-based access control and quota support</li>
- *   <li>{@link org.bluezoo.gumdrop.ftp.file.AnonymousFTPServer} - FTP
- *       service for anonymous public file distribution</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.server.FileSystemFtpSessionProvider} -
+ *       Simple file-based FTP access with optional realm authentication</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.server.RoleBasedFtpSessionProvider} -
+ *       Role-based access control and quota support</li>
+ *   <li>{@link org.bluezoo.gumdrop.ftp.server.AnonymousFtpSessionProvider} -
+ *       Anonymous public file distribution</li>
  * </ul>
+ *
+ * <p>Compose these via {@link org.bluezoo.gumdrop.ftp.server.FtpServerSessionProviders}
+ * and {@link org.bluezoo.gumdrop.ftp.server.FtpServer#compose()} — do not
+ * subclass {@code FtpServer} for application logic.
  *
  * <h3>Handlers and Supporting Classes</h3>
  * <ul>
@@ -51,7 +55,7 @@
  *   <li>{@link org.bluezoo.gumdrop.ftp.file.RoleAwareFTPFileSystem} -
  *       Decorator that enforces role-based access at the filesystem
  *       operation level; activated via
- *       {@link org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer#setFilesystemEnforcement(boolean)}</li>
+ *       {@link org.bluezoo.gumdrop.ftp.server.RoleBasedFtpSessionProvider#filesystemEnforcement(boolean)}</li>
  * </ul>
  *
  * <h2>Features</h2>
@@ -64,19 +68,16 @@
  *   <li>Hidden file filtering</li>
  * </ul>
  *
- * <h2>Configuration Example</h2>
+ * <h2>Composition Example</h2>
  *
  * <pre>{@code
- * <realm id="ftpRealm" class="org.bluezoo.gumdrop.BasicRealm">
- *   <property name="href">ftp-users.xml</property>
- * </realm>
- *
- * <service class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPServer">
- *   <property name="realm" ref="#ftpRealm"/>
- *   <property name="root-directory">/var/ftp/users</property>
- *   <property name="welcome-message">Welcome to Gumdrop FTP</property>
- *   <listener class="org.bluezoo.gumdrop.ftp.FtpListener" port="21"/>
- * </service>
+ * FtpServer server = FtpServer.compose()
+ *         .listener(new FtpListener().port(21).bindWildcard())
+ *         .sessionProvider(FtpServerSessionProviders.roleBased()
+ *                 .realm(ftpRealm)
+ *                 .rootDirectory(Path.of("/var/ftp/users"))
+ *                 .welcomeMessage("Welcome to Gumdrop FTP"))
+ *         .server();
  * }</pre>
  *
  * <h2>Security</h2>

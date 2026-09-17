@@ -43,7 +43,7 @@ import org.bluezoo.gumdrop.tls.TlsConfig;
  * implicitly).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SocksServer
+ * @see org.bluezoo.gumdrop.socks.server.SocksServer
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928">RFC 1928</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1929">RFC 1929</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1961">RFC 1961</a>

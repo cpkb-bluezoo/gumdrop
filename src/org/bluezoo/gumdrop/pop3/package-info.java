@@ -22,8 +22,9 @@
 /**
  * POP3 (RFC 1939) server for mailbox retrieval.
  *
- * <p>{@link org.bluezoo.gumdrop.pop3.Pop3Server} is the abstract base
- * for POP3 application services; {@link
+ * <p>{@link org.bluezoo.gumdrop.pop3.server.Pop3Server} owns listeners,
+ * configuration, and session composition (do not subclass for application
+ * logic, use {@code compose()}); {@link
  * org.bluezoo.gumdrop.pop3.Pop3Listener} is the TCP transport listener;
  * {@link org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler} implements the
  * three-state protocol (AUTHORIZATION, TRANSACTION, UPDATE) directly.

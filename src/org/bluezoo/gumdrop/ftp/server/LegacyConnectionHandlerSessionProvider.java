@@ -7,8 +7,6 @@ package org.bluezoo.gumdrop.ftp.server;
 
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
-import org.bluezoo.gumdrop.ftp.handler.ClientConnected;
-import org.bluezoo.gumdrop.ftp.handler.LegacyConnectionHandlerAdapter;
 
 import java.util.function.Supplier;
 

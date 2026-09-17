@@ -36,28 +36,6 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientAuthExchange;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientAuthorizationState;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientPasswordState;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientPostStls;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientTransactionState;
-import org.bluezoo.gumdrop.pop3.client.handler.ApopReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.AuthAbortHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.AuthReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.CapaReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.DeleReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.RemoteGreeting;
-import org.bluezoo.gumdrop.pop3.client.handler.ListReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.NoopReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.PassReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.RetrReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.RsetReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.StatReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.StlsReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.TopReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.UidlReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.UserReplyHandler;
 
 /**
  * POP3 client protocol handler (RFC 1939).
