@@ -23,10 +23,10 @@
  * SOCKS proxy server (RFC 1928 SOCKS5, with RFC 1929 username/password
  * authentication and RFC 1961 GSSAPI).
  *
- * <p>{@link org.bluezoo.gumdrop.socks.SocksServer} is the abstract
- * application service base; {@link
- * org.bluezoo.gumdrop.socks.DefaultSOCKSServer} is a ready-to-use
- * implementation; {@link org.bluezoo.gumdrop.socks.SocksListener} is the
+ * <p>{@link org.bluezoo.gumdrop.socks.server.SocksServer} owns listeners,
+ * configuration, and {@code compose()}; a bare {@code compose()} with no
+ * session provider is a ready-to-use open proxy; {@link
+ * org.bluezoo.gumdrop.socks.SocksListener} is the
  * TCP transport listener, on port 1080 (plaintext) or 1081 (TLS); {@link
  * org.bluezoo.gumdrop.socks.SocksProtocolHandler} drives the handshake
  * and command dispatch, with policy decisions delegated to {@link

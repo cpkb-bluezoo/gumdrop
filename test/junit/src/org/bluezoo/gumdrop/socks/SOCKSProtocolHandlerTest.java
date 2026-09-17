@@ -8,6 +8,8 @@ import java.nio.charset.StandardCharsets;
 import org.junit.Before;
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.socks.server.SocksServer;
+
 import static org.junit.Assert.*;
 import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
@@ -21,14 +23,14 @@ import static org.bluezoo.gumdrop.socks.SocksConstants.*;
  */
 public class SOCKSProtocolHandlerTest {
 
-    private DefaultSOCKSServer service;
+    private SocksServer service;
     private SocksListener listener;
     private SocksProtocolHandler handler;
     private StubEndpoint endpoint;
 
     @Before
     public void setUp() {
-        service = new DefaultSOCKSServer();
+        service = new SocksServer();
         listener = new SocksListener();
         listener.setServer(service);
         handler = service.createProtocolHandler(listener);

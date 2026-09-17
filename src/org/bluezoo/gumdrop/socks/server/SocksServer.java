@@ -35,48 +35,52 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import java.util.function.Supplier;
+
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.socks.handler.BindHandler;
-import org.bluezoo.gumdrop.socks.handler.ConnectHandler;
+import org.bluezoo.gumdrop.socks.handler.SocksSessionHandler;
 import org.bluezoo.gumdrop.util.CidrNetwork;
 
 /**
- * Abstract base for SOCKS proxy application services.
+ * SOCKS proxy server — listeners, configuration, and session composition.
  *
  * <p>A {@code SocksServer} manages one or more {@link SocksListener}
  * instances, an optional {@link Realm} for authentication, outbound
- * destination filtering, and relay lifecycle. Subclasses may override
- * {@link #createConnectHandler(TcpListener)} to provide custom
- * authorization logic for incoming CONNECT requests.
+ * destination filtering, and relay lifecycle. Do not subclass for
+ * application logic — use {@link #compose()} with a {@link
+ * SocksServerSessionProvider}, or a bare {@code compose()} with no session
+ * provider for an open proxy (see security warning below).
  *
  * <p>Supports SOCKS4, SOCKS4a, and SOCKS5 (RFC 1928) protocols. The
  * protocol version is auto-detected from the first byte of each
  * client connection.
  *
- * <h2>Configuration Example</h2>
+ * <h2>Composition Example</h2>
  * <pre>{@code
- * <service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSServer">
- *   <property name="realm" ref="#socksRealm"/>
- *   <property name="blocked-destinations">127.0.0.0/8,10.0.0.0/8,::1/128</property>
- *   <property name="max-relays">1000</property>
- *   <listener class="org.bluezoo.gumdrop.socks.SocksListener" port="1080"/>
- *   <listener class="org.bluezoo.gumdrop.socks.SocksListener"
- *           port="1081" secure="true"/>
- * </service>
+ * SocksServer server = SocksServer.compose()
+ *         .listener(new SocksListener().port(1080).bindWildcard())
+ *         .blockedDestinations("127.0.0.0/8,10.0.0.0/8,::1/128")
+ *         .maxRelays(1000)
+ *         .server();
+ * gumdrop.addServer(server);
  * }</pre>
  *
+ * <p><strong>Security warning:</strong> {@code SocksServer.compose()} with
+ * no session provider is an <em>open proxy</em> — without a configured
+ * {@code realm} and destination filtering it must not be exposed to
+ * untrusted networks.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see Service
  * @see SocksListener
- * @see DefaultSOCKSServer
+ * @see SocksServerSessionProvider
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928">RFC 1928</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1929">RFC 1929</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1961">RFC 1961</a>
  */
-public abstract class SocksServer implements Server {
+public class SocksServer implements Server, SocksServerSessionProvider {
 
     private static final Logger LOGGER =
             Logger.getLogger(SocksServer.class.getName());
@@ -85,6 +89,7 @@ public abstract class SocksServer implements Server {
 
     private final List<SocksListener> listeners = new ArrayList<>();
 
+    private SocksServerSessionProvider sessionProvider;
     private Realm realm;
     private List<CidrNetwork> allowedDestinations;
     private List<CidrNetwork> blockedDestinations;
@@ -318,36 +323,30 @@ public abstract class SocksServer implements Server {
         return activeRelayCount.get();
     }
 
-    // ── Handler creation ──
+    // ── Session pipeline ──
 
     /**
-     * Creates a connect handler for authorizing incoming SOCKS
-     * CONNECT requests.
+     * Opens the {@link SocksSessionHandler} for an incoming connection.
      *
-     * <p>Subclasses may override to provide custom authorization
-     * logic. Return {@code null} for default behaviour (accept all
-     * CONNECT requests that pass destination filtering).
-     *
-     * @param listener the listener that accepted the connection
-     * @return a connect handler, or null for default behaviour
+     * <p>Delegates to the composed {@link SocksServerSessionProvider}.
+     * Returns {@code null} when no provider is configured, which accepts
+     * every CONNECT/BIND request that passes destination filtering and
+     * relay limits.
      */
-    public ConnectHandler createConnectHandler(TcpListener listener) {
+    @Override
+    public SocksSessionHandler openSession(TcpListener listener) {
+        if (sessionProvider != null) {
+            return sessionProvider.openSession(listener);
+        }
         return null;
     }
 
-    /**
-     * Creates a bind handler for authorizing incoming SOCKS BIND
-     * requests.
-     *
-     * <p>Subclasses may override to provide custom authorization
-     * logic. Return {@code null} for default behaviour (accept all
-     * BIND requests that pass relay limits).
-     *
-     * @param listener the listener that accepted the connection
-     * @return a bind handler, or null for default behaviour
-     */
-    public BindHandler createBindHandler(TcpListener listener) {
-        return null;
+    protected SocksServerSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    void setComposedSessionProvider(SocksServerSessionProvider provider) {
+        this.sessionProvider = provider;
     }
 
     /**
@@ -357,13 +356,10 @@ public abstract class SocksServer implements Server {
     public SocksProtocolHandler createProtocolHandler(SocksListener listener) {
         SocksProtocolHandler handler =
                 new SocksProtocolHandler(listener, this);
-        ConnectHandler ch = createConnectHandler(listener);
-        if (ch != null) {
-            handler.setConnectHandler(ch);
-        }
-        BindHandler bh = createBindHandler(listener);
-        if (bh != null) {
-            handler.setBindHandler(bh);
+        SocksSessionHandler session = openSession(listener);
+        if (session != null) {
+            handler.setConnectHandler(session);
+            handler.setBindHandler(session);
         }
         return handler;
     }
@@ -372,16 +368,22 @@ public abstract class SocksServer implements Server {
 
     /**
      * Initialises service resources before listeners are started.
-     * The default implementation does nothing.
      */
     protected void initService() {
+        SocksServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.start();
+        }
     }
 
     /**
      * Tears down service resources after listeners are stopped.
-     * The default implementation does nothing.
      */
     protected void destroyService() {
+        SocksServerSessionProvider provider = getSessionProvider();
+        if (provider != null) {
+            provider.stop();
+        }
     }
 
     @Override
@@ -416,6 +418,110 @@ public abstract class SocksServer implements Server {
     private void wireListener(SocksListener ep) {
         if (realm != null && ep.getRealm() == null) {
             ep.setRealm(realm);
+        }
+    }
+
+    /**
+     * Starts fluent composition of a concrete {@link SocksServer}.
+     *
+     * @return a new composer
+     */
+    public static Composer compose() {
+        return new Composer();
+    }
+
+    /**
+     * Fluent composition of listeners and a {@link SocksServerSessionProvider}.
+     */
+    public static final class Composer {
+
+        private final List<SocksListener> listeners = new ArrayList<SocksListener>();
+        private SocksServerSessionProvider sessionProvider;
+        private Realm realm;
+        private String allowedDestinations;
+        private String blockedDestinations;
+        private int maxRelays;
+        private long relayIdleTimeoutMs = 5 * 60 * 1000;
+
+        private Composer() {
+        }
+
+        public Composer listener(SocksListener listener) {
+            if (listener == null) {
+                throw new NullPointerException("listener");
+            }
+            listeners.add(listener);
+            return this;
+        }
+
+        public Composer sessionProvider(SocksServerSessionProvider provider) {
+            if (provider == null) {
+                throw new NullPointerException("provider");
+            }
+            this.sessionProvider = provider;
+            return this;
+        }
+
+        /**
+         * Creates a fresh {@link SocksSessionHandler} for each accepted
+         * connection.
+         */
+        public Composer sessionPerConnection(Supplier<SocksSessionHandler> supplier) {
+            return sessionProvider(SocksServerSessionProviders.perSession(supplier));
+        }
+
+        public Composer realm(Realm realm) {
+            this.realm = realm;
+            return this;
+        }
+
+        public Composer allowedDestinations(String allowedDestinations) {
+            this.allowedDestinations = allowedDestinations;
+            return this;
+        }
+
+        public Composer blockedDestinations(String blockedDestinations) {
+            this.blockedDestinations = blockedDestinations;
+            return this;
+        }
+
+        public Composer maxRelays(int maxRelays) {
+            this.maxRelays = maxRelays;
+            return this;
+        }
+
+        public Composer relayIdleTimeoutMs(long relayIdleTimeoutMs) {
+            this.relayIdleTimeoutMs = relayIdleTimeoutMs;
+            return this;
+        }
+
+        /**
+         * Creates the composed server. At least one listener is required;
+         * a session provider is optional (its absence yields an open
+         * proxy — see the security warning on {@link SocksServer#compose()}).
+         */
+        public SocksServer server() {
+            if (listeners.isEmpty()) {
+                throw new IllegalStateException(
+                        "at least one listener is required");
+            }
+            SocksServer server = new SocksServer();
+            server.setComposedSessionProvider(sessionProvider);
+            if (realm != null) {
+                server.setRealm(realm);
+            }
+            if (allowedDestinations != null) {
+                server.setAllowedDestinations(allowedDestinations);
+            }
+            if (blockedDestinations != null) {
+                server.setBlockedDestinations(blockedDestinations);
+            }
+            server.setMaxRelays(maxRelays);
+            server.setRelayIdleTimeoutMs(relayIdleTimeoutMs);
+            for (int i = 0; i < listeners.size(); i++) {
+                server.addListener(listeners.get(i));
+            }
+            return server;
         }
     }
 

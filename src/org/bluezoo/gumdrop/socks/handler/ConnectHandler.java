@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.socks.SocksRequest;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ConnectState
- * @see org.bluezoo.gumdrop.socks.SocksServer#createConnectHandler
+ * @see org.bluezoo.gumdrop.socks.server.SocksServerSessionProvider
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928">RFC 1928 §4</a>
  */
 public interface ConnectHandler {

@@ -57,21 +57,25 @@ consistent with the rest of the framework.
 <h3 id="architecture">Architecture</h3>
 
 <p>
-A <code>SocksServer</code> owns one or more <code>SocksListener</code>
-instances. Each accepted connection is handled by
-<code>SocksProtocolHandler</code>, which negotiates the SOCKS version,
-performs optional authentication, and establishes relays via
-<code>SocksRelay</code>, <code>SocksBindRelay</code>, or
-<code>SocksUdpRelay</code> as appropriate. Subclasses of
-<code>SocksServer</code> may supply <code>ConnectHandler</code> and
-<code>BindHandler</code> implementations for application-level authorization.
+A <code>SocksServer</code>, built with <code>SocksServer.compose()</code>,
+owns one or more <code>SocksListener</code> instances. Each accepted
+connection is handled by <code>SocksProtocolHandler</code>, which negotiates
+the SOCKS version, performs optional authentication, and establishes relays
+via <code>SocksRelay</code>, <code>SocksBindRelay</code>, or
+<code>SocksUdpRelay</code> as appropriate. A composed
+<code>SocksServerSessionProvider</code> supplies a
+<code>SocksSessionHandler</code> (combined <code>ConnectHandler</code> +
+<code>BindHandler</code>) per connection for application-level authorization.
 </p>
 
 <ul>
-<li><code>org.bluezoo.gumdrop.socks.SocksServer</code> &mdash; abstract base;
-destination filtering, relay limits, idle timeout</li>
-<li><code>org.bluezoo.gumdrop.socks.DefaultSOCKSServer</code> &mdash; default
-proxy (accept CONNECT/BIND that pass filtering; optional realm for SOCKS5)</li>
+<li><code>org.bluezoo.gumdrop.socks.server.SocksServer</code> &mdash;
+listeners, configuration, and <code>compose()</code>; destination filtering,
+relay limits, idle timeout; do not subclass for application logic</li>
+<li><code>org.bluezoo.gumdrop.socks.server.SocksServerSessionProvider</code>
+&mdash; mints a <code>SocksSessionHandler</code> per connection; with no
+provider, <code>compose()</code> is a ready-to-use open proxy (accept
+CONNECT/BIND that pass filtering; optional realm for SOCKS5)</li>
 <li><code>org.bluezoo.gumdrop.socks.SocksListener</code> &mdash; TCP listener;
 defaults to port 1080 (plaintext) or 1081 (TLS)</li>
 <li><code>org.bluezoo.gumdrop.socks.client.SocksClientHandler</code> &mdash;
@@ -86,26 +90,26 @@ version preference, credentials, handshake timeout</li>
 <h4>Minimal proxy (no authentication)</h4>
 
 <pre>
-&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSServer"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.socks.SocksListener" port="1080"/&gt;
-&lt;/service&gt;
+SocksServer server = SocksServer.compose()
+        .listener(new SocksListener().port(1080).bindWildcard())
+        .server();
+gumdrop.addServer(server);
 </pre>
 
 <h4>With realm (SOCKS5 username/password)</h4>
 
 <pre>
-&lt;realm id="socksRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-    &lt;property name="href" path="realm-socks.xml"/&gt;
-&lt;/realm&gt;
+Realm socksRealm = new BasicRealm();
+// ... realm configuration ...
 
-&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSServer"&gt;
-    &lt;property name="realm" ref="#socksRealm"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.socks.SocksListener" port="1080"/&gt;
-&lt;/service&gt;
+SocksServer server = SocksServer.compose()
+        .realm(socksRealm)
+        .listener(new SocksListener().port(1080).bindWildcard())
+        .server();
 </pre>
 
 <p>
-When a <code>realm</code> is set on the service, it is applied to each
+When a <code>realm</code> is set on the server, it is applied to each
 <code>SocksListener</code> that does not already define its own
 <code>realm</code>. SOCKS5 clients must complete RFC&nbsp;1929
 username/password authentication. SOCKS4 carries an unauthenticated userid
@@ -115,61 +119,64 @@ field in the request only.
 <h4>TLS (<code>sockss</code>)</h4>
 
 <pre>
-&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSServer"&gt;
-    &lt;listener class="org.bluezoo.gumdrop.socks.SocksListener"
-            port="1081" secure="true"&gt;
-        &lt;property name="keystore-file" path="keystore.p12"/&gt;
-        &lt;property name="keystore-pass" value="secret"/&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+
+SocksServer server = SocksServer.compose()
+        .listener(new SocksListener().port(1081).bindWildcard()
+                .secure(true).tls(tls))
+        .server();
 </pre>
 
 <p>
 If no <code>port</code> is set, the listener uses 1080 for cleartext and
-1081 when <code>secure="true"</code>.
+1081 when <code>secure(true)</code>.
 </p>
 
 <h4>Destination filtering and relay limits</h4>
 
 <pre>
-&lt;service id="socks" class="org.bluezoo.gumdrop.socks.DefaultSOCKSServer"&gt;
-    &lt;property name="allowed-destinations"&gt;203.0.113.0/24,2001:db8::/32&lt;/property&gt;
-    &lt;property name="blocked-destinations"&gt;127.0.0.0/8,::1/128&lt;/property&gt;
-    &lt;property name="max-relays" value="1000"/&gt;
-    &lt;property name="relay-idle-timeout" value="5m"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.socks.SocksListener" port="1080"/&gt;
-&lt;/service&gt;
+SocksServer server = SocksServer.compose()
+        .allowedDestinations("203.0.113.0/24,2001:db8::/32")
+        .blockedDestinations("127.0.0.0/8,::1/128")
+        .maxRelays(1000)
+        .relayIdleTimeoutMs(5 * 60 * 1000)
+        .listener(new SocksListener().port(1080).bindWildcard())
+        .server();
 </pre>
 
 <p>
-<code>blocked-destinations</code> is evaluated first; then, if
-<code>allowed-destinations</code> is set, the destination must match an
-allow rule. <code>max-relays</code> caps concurrent relay sessions
-(<code>0</code> = unlimited). <code>relay-idle-timeout</code> accepts
-suffixes <code>ms</code>, <code>s</code>, <code>m</code>, <code>h</code>
-(alternatively set <code>relay-idle-timeout-ms</code> as a long value in
-milliseconds).
+Blocked destinations are evaluated first; then, if allowed destinations are
+set, the destination must match an allow rule. <code>maxRelays</code> caps
+concurrent relay sessions (<code>0</code> = unlimited).
+<code>setRelayIdleTimeout(String)</code> on the composed server also accepts
+a duration string with suffixes <code>ms</code>, <code>s</code>,
+<code>m</code>, <code>h</code>.
 </p>
 
-<h3 id="service-properties"><code>SocksServer</code> properties</h3>
+<h3 id="service-properties"><code>SocksServer.Composer</code> Methods</h3>
 
 <table border="1" cellpadding="5">
-<tr><th>Property</th><th>Setter</th><th>Default</th><th>Description</th></tr>
-<tr><td><code>realm</code></td><td><code>setRealm(Realm)</code></td>
+<tr><th>Method</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>listener(SocksListener)</code></td>
+<td>&mdash;</td><td>Adds a listener (at least one required)</td></tr>
+<tr><td><code>sessionProvider(SocksServerSessionProvider)</code></td>
+<td>none (open proxy)</td><td>Session provider minting a
+<code>SocksSessionHandler</code> per connection</td></tr>
+<tr><td><code>sessionPerConnection(Supplier&lt;SocksSessionHandler&gt;)</code></td>
+<td>&mdash;</td><td>Convenience for a fresh handler instance per connection</td></tr>
+<tr><td><code>realm(Realm)</code></td>
 <td>none</td><td>Optional authentication realm for SOCKS5
 (username/password and GSS-API)</td></tr>
-<tr><td><code>allowed-destinations</code></td><td><code>setAllowedDestinations(String)</code></td>
+<tr><td><code>allowedDestinations(String)</code></td>
 <td>none</td><td>Comma-separated CIDR list; if set, only these networks
 may be reached</td></tr>
-<tr><td><code>blocked-destinations</code></td><td><code>setBlockedDestinations(String)</code></td>
+<tr><td><code>blockedDestinations(String)</code></td>
 <td>none</td><td>Comma-separated CIDR list; matching destinations are denied</td></tr>
-<tr><td><code>max-relays</code></td><td><code>setMaxRelays(int)</code></td>
+<tr><td><code>maxRelays(int)</code></td>
 <td><code>0</code></td><td>Maximum concurrent relays; <code>0</code> =
 unlimited</td></tr>
-<tr><td><code>relay-idle-timeout</code></td><td><code>setRelayIdleTimeout(String)</code></td>
-<td>5m</td><td>Idle time before a relay is closed (duration string)</td></tr>
-<tr><td><code>relay-idle-timeout-ms</code></td><td><code>setRelayIdleTimeoutMs(long)</code></td>
-<td>300000</td><td>Same as above, in milliseconds</td></tr>
+<tr><td><code>relayIdleTimeoutMs(long)</code></td>
+<td>300000</td><td>Idle time before a relay is closed, in milliseconds</td></tr>
 </table>
 
 <h3 id="listener-properties"><code>SocksListener</code> properties</h3>
@@ -217,15 +224,48 @@ TLS and transport settings (<code>secure</code>,
 <h3 id="custom-handlers">Custom authorization</h3>
 
 <p>
-Subclass <code>SocksServer</code> and override
-<code>createConnectHandler(TcpListener)</code> and/or
-<code>createBindHandler(TcpListener)</code> to install
-<code>ConnectHandler</code> / <code>BindHandler</code> callbacks that approve
-or reject individual requests using <code>ConnectState</code> and
+Compose a <code>SocksServerSessionProvider</code> (or use
+<code>sessionPerConnection</code> with a <code>Supplier</code>) to mint a
+<code>SocksSessionHandler</code> per accepted connection. The handler
+implements both <code>ConnectHandler</code> and <code>BindHandler</code>,
+approving or rejecting individual requests via <code>ConnectState</code> and
 <code>BindState</code> (see <code>org.bluezoo.gumdrop.socks.handler</code>).
-Returning <code>null</code> keeps the default behaviour (accept after
+With no session provider, the default behaviour applies (accept after
 filtering and relay limits).
 </p>
+
+<pre>
+SocksServer server = SocksServer.compose()
+        .listener(new SocksListener().port(1080).bindWildcard())
+        .sessionPerConnection(new Supplier&lt;SocksSessionHandler&gt;() {
+            @Override
+            public SocksSessionHandler get() {
+                return new MySocksSessionHandler();
+            }
+        })
+        .server();
+</pre>
+
+<pre>
+private static final class MySocksSessionHandler implements SocksSessionHandler {
+
+    @Override
+    public void handleConnect(ConnectState state, SocksRequest request,
+                              Endpoint clientEndpoint) {
+        if (isBlocked(request.getAddress())) {
+            state.deny(SocksConstants.SOCKS5_REPLY_NOT_ALLOWED);
+        } else {
+            state.allow();
+        }
+    }
+
+    @Override
+    public void handleBind(BindState state, SocksRequest request,
+                           Endpoint clientEndpoint) {
+        state.allow();
+    }
+}
+</pre>
 
 <h3 id="client">Client API</h3>
 

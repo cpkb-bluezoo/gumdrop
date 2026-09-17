@@ -42,7 +42,7 @@ import org.bluezoo.gumdrop.socks.SocksRequest;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see BindState
- * @see org.bluezoo.gumdrop.socks.SocksServer#createBindHandler
+ * @see org.bluezoo.gumdrop.socks.server.SocksServerSessionProvider
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928#section-4">
  *      RFC 1928 §4</a>
  */

@@ -5,6 +5,8 @@ import java.nio.ByteBuffer;
 import org.junit.Before;
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.socks.server.SocksServer;
+
 import static org.junit.Assert.*;
 
 /**
@@ -12,14 +14,14 @@ import static org.junit.Assert.*;
  */
 public class SOCKSRelayTest {
 
-    private DefaultSOCKSServer service;
+    private SocksServer service;
     private StubEndpoint clientEndpoint;
     private StubEndpoint upstreamEndpoint;
     private SocksRelay relay;
 
     @Before
     public void setUp() {
-        service = new DefaultSOCKSServer();
+        service = new SocksServer();
         clientEndpoint = new StubEndpoint();
         relay = new SocksRelay(clientEndpoint, service, null, 0);
         upstreamEndpoint = new StubEndpoint();

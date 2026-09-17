@@ -11,4 +11,4 @@ package org.bluezoo.gumdrop.socks;
  * @see org.bluezoo.gumdrop.socks.server.SocksServer
  * @see docs/NAMING-TAXONOMY.md
  */
-public abstract class SocksServer extends org.bluezoo.gumdrop.socks.server.SocksServer {}
+public class SocksServer extends org.bluezoo.gumdrop.socks.server.SocksServer {}

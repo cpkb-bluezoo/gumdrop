@@ -5,23 +5,24 @@ import java.net.UnknownHostException;
 
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.socks.server.SocksServer;
+
 import static org.junit.Assert.*;
 
 /**
  * Unit tests for {@link SocksServer}.
- * Uses {@link DefaultSOCKSServer} as the concrete implementation.
  */
 public class SOCKSServiceTest {
 
-    private DefaultSOCKSServer createService() {
-        return new DefaultSOCKSServer();
+    private SocksServer createService() {
+        return new SocksServer();
     }
 
     // ── Destination filtering ──
 
     @Test
     public void testAllowAllByDefault() throws UnknownHostException {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         assertTrue(service.isDestinationAllowed(
                 InetAddress.getByName("10.0.0.1")));
         assertTrue(service.isDestinationAllowed(
@@ -30,7 +31,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testBlockedDestination() throws UnknownHostException {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setBlockedDestinations("10.0.0.0/8");
 
         assertFalse(service.isDestinationAllowed(
@@ -41,7 +42,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testAllowedDestination() throws UnknownHostException {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setAllowedDestinations("192.168.0.0/16");
 
         assertTrue(service.isDestinationAllowed(
@@ -52,7 +53,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testBlockedTakesPrecedence() throws UnknownHostException {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setBlockedDestinations("192.168.1.0/24");
         service.setAllowedDestinations("192.168.0.0/16");
 
@@ -64,7 +65,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testMultipleBlockedRanges() throws UnknownHostException {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setBlockedDestinations("10.0.0.0/8,172.16.0.0/12");
 
         assertFalse(service.isDestinationAllowed(
@@ -77,7 +78,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testEmptyBlockedString() throws UnknownHostException {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setBlockedDestinations("");
         assertTrue(service.isDestinationAllowed(
                 InetAddress.getByName("10.0.0.1")));
@@ -85,7 +86,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testNullBlockedString() throws UnknownHostException {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setBlockedDestinations(null);
         assertTrue(service.isDestinationAllowed(
                 InetAddress.getByName("10.0.0.1")));
@@ -95,7 +96,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testAcquireRelayUnlimited() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         assertEquals(0, service.getMaxRelays());
 
         assertTrue(service.acquireRelay());
@@ -106,7 +107,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testAcquireRelayWithLimit() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setMaxRelays(2);
         assertEquals(2, service.getMaxRelays());
 
@@ -118,7 +119,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testReleaseRelay() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setMaxRelays(2);
 
         assertTrue(service.acquireRelay());
@@ -132,7 +133,7 @@ public class SOCKSServiceTest {
 
     @Test
     public void testRelayCountStartsAtZero() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         assertEquals(0, service.getActiveRelayCount());
     }
 
@@ -140,69 +141,69 @@ public class SOCKSServiceTest {
 
     @Test
     public void testParseDurationSeconds() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setRelayIdleTimeout("300s");
         assertEquals(300_000, service.getRelayIdleTimeoutMs());
     }
 
     @Test
     public void testParseDurationMinutes() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setRelayIdleTimeout("5m");
         assertEquals(300_000, service.getRelayIdleTimeoutMs());
     }
 
     @Test
     public void testParseDurationHours() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setRelayIdleTimeout("1h");
         assertEquals(3_600_000, service.getRelayIdleTimeoutMs());
     }
 
     @Test
     public void testParseDurationMilliseconds() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setRelayIdleTimeout("5000ms");
         assertEquals(5000, service.getRelayIdleTimeoutMs());
     }
 
     @Test
     public void testParseDurationNoUnit() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setRelayIdleTimeout("1000");
         assertEquals(1000, service.getRelayIdleTimeoutMs());
     }
 
     @Test
     public void testParseDurationEmpty() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setRelayIdleTimeout("");
         assertEquals(0, service.getRelayIdleTimeoutMs());
     }
 
     @Test
     public void testParseDurationNull() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setRelayIdleTimeout(null);
         assertEquals(0, service.getRelayIdleTimeoutMs());
     }
 
     @Test
     public void testParseDurationInvalid() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setRelayIdleTimeout("abc");
         assertEquals(0, service.getRelayIdleTimeoutMs());
     }
 
     @Test
     public void testDefaultIdleTimeout() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         assertEquals(5 * 60 * 1000, service.getRelayIdleTimeoutMs());
     }
 
     @Test
     public void testSetRelayIdleTimeoutMs() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         service.setRelayIdleTimeoutMs(42_000);
         assertEquals(42_000, service.getRelayIdleTimeoutMs());
     }
@@ -211,21 +212,15 @@ public class SOCKSServiceTest {
 
     @Test
     public void testRealmDefaultNull() {
-        DefaultSOCKSServer service = createService();
+        SocksServer service = createService();
         assertNull(service.getRealm());
     }
 
-    // ── Handler creation ──
+    // ── Session pipeline ──
 
     @Test
-    public void testCreateConnectHandlerReturnsNull() {
-        DefaultSOCKSServer service = createService();
-        assertNull(service.createConnectHandler(null));
-    }
-
-    @Test
-    public void testCreateBindHandlerReturnsNull() {
-        DefaultSOCKSServer service = createService();
-        assertNull(service.createBindHandler(null));
+    public void testOpenSessionReturnsNullByDefault() {
+        SocksServer service = createService();
+        assertNull(service.openSession(null));
     }
 }
