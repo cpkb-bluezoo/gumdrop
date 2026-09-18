@@ -47,6 +47,14 @@ import org.bluezoo.gumdrop.http.HttpServer;
  * main} waits on a latch for that one-time result before starting the
  * server, rather than threading a callback through the process entry point.
  *
+ * <p>Startup and shutdown mirror the removed {@code Gumdrop.main} entry
+ * point: {@link Gumdrop#serve(Server...)} calls {@link Gumdrop#boot()} (which
+ * registers the JVM shutdown hook that invokes {@link Gumdrop#shutdown()}),
+ * {@link Gumdrop#addServer(Server)} so {@code shutdown()} stops the composed
+ * {@link HttpServer} and servlet {@link org.bluezoo.gumdrop.servlet.Container#destroy()},
+ * then {@link Gumdrop#awaitShutdown()} blocks the launcher thread until the
+ * runtime exits (Ctrl+C or {@code SIGTERM}).
+ *
  * <p>Anything more elaborate than "one server.xml, one JVM" — multiple
  * independently-configured containers, non-servlet protocols alongside it,
  * programmatic webapp discovery — is exactly what {@code web/configuration.html}
@@ -99,8 +107,7 @@ public final class ContainerMain {
             return;
         }
 
-        Gumdrop gumdrop = Gumdrop.boot();
-        gumdrop.addServer(serverRef.get());
+        Gumdrop.serve(serverRef.get());
     }
 
     private static File resolveConfigFile(String[] args) {

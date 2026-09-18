@@ -26,7 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufHandler;
+import org.bluezoo.protobuf.ProtobufHandler;
 
 /**
  * Adapter that bridges low-level {@link ProtobufHandler} events to

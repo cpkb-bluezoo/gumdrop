@@ -39,10 +39,10 @@ import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
-import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParseException;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ProtobufParseException;
+import org.bluezoo.protobuf.ProtobufParser;
+import org.bluezoo.protobuf.ProtobufWriter;
 
 /**
  * HttpRequestHandler that processes gRPC requests using push parsers.

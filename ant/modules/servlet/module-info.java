@@ -5,6 +5,7 @@ module org.bluezoo.gumdrop.servlet {
     requires org.bluezoo.gumdrop.core;
     requires org.bluezoo.gumdrop.mime;
     requires org.bluezoo.gumdrop.http;
+    requires org.bluezoo.protobuf;
 
     exports org.bluezoo.gumdrop.servlet;
     exports org.bluezoo.gumdrop.servlet.jsp;

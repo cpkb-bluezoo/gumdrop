@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.servlet.jsp;
 
+import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.util.XMLParseUtils;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
@@ -91,7 +92,7 @@ public class TldParser {
             return tld;
 
         } catch (SAXException e) {
-            LOGGER.log(Level.WARNING, "Failed to parse TLD: " + sourceLocation, e);
+            JulWarnings.warn(LOGGER, "Failed to parse TLD: " + sourceLocation, e);
             throw new IOException("TLD parsing error: " + e.getMessage(), e);
         }
     }
@@ -347,13 +348,11 @@ public class TldParser {
 
         @Override
         public void error(org.xml.sax.SAXParseException e) throws SAXException {
-            LOGGER.log(Level.SEVERE, "TLD parsing error in " + sourceLocation + " at line " + e.getLineNumber(), e);
             throw e;
         }
 
         @Override
         public void fatalError(org.xml.sax.SAXParseException e) throws SAXException {
-            LOGGER.log(Level.SEVERE, "TLD parsing fatal error in " + sourceLocation + " at line " + e.getLineNumber(), e);
             throw e;
         }
     }

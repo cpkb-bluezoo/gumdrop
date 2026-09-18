@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.amqp.ExchangeMethods;
 import org.bluezoo.gumdrop.amqp.FieldTable;
 import org.bluezoo.gumdrop.amqp.QueueMethods;
 import org.bluezoo.gumdrop.amqp.TxMethods;
+import org.bluezoo.gumdrop.util.JulWarnings;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -292,7 +293,7 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
     }
 
     private void protocolError(AmqpProtocolException e) {
-        LOGGER.log(Level.WARNING, L10N.getString("warn.protocol_error"), e);
+        JulWarnings.warn(LOGGER, L10N.getString("warn.protocol_error"), e);
         handler.onError(e);
         if (endpoint != null) {
             endpoint.close();
@@ -301,7 +302,7 @@ public final class AmqpClientProtocolHandler implements ProtocolHandler, AmqpFra
 
     /** SASL exchange failed (mechanism evaluation threw, or offloaded evaluation failed). */
     private void failSasl(IOException e) {
-        LOGGER.log(Level.WARNING, L10N.getString("warn.protocol_error"), e);
+        JulWarnings.warn(LOGGER, L10N.getString("warn.protocol_error"), e);
         pendingSaslClient = null;
         pendingSaslExecutor = null;
         handler.onError(e);

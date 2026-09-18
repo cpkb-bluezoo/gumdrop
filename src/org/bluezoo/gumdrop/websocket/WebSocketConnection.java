@@ -33,6 +33,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bluezoo.gumdrop.telemetry.ErrorCategory;
+import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.telemetry.Span;
 import org.bluezoo.gumdrop.telemetry.SpanKind;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
@@ -505,13 +506,13 @@ public abstract class WebSocketConnection {
                 processFrame(frame);
             }
         } catch (WebSocketMessageTooBigException e) {
-            LOGGER.log(Level.WARNING, "WebSocket message too big", e);
+            JulWarnings.warn(LOGGER, "WebSocket message too big", e);
             recordTelemetryError(e);
             close(CloseCodes.MESSAGE_TOO_BIG,
                     "Message exceeds maximum size of " + maxMessageSize + " bytes");
             error(e);
         } catch (WebSocketProtocolException e) {
-            LOGGER.log(Level.WARNING, "WebSocket protocol error", e);
+            JulWarnings.warn(LOGGER, "WebSocket protocol error", e);
             recordTelemetryError(e);
             close(CloseCodes.PROTOCOL_ERROR, "Protocol error");
             error(e);

@@ -8,6 +8,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Normal ant clean test finishes in ~3 min; a stuck JUnit fork (e.g.
+    # tearDown gumdrop.join() with a selector loop that never exits) has no
+    # Ant-level timeout, so cap the job here instead of burning the full
+    # 6h Actions default.
+    timeout-minutes: 10
     permissions:
       contents: read
 

@@ -29,11 +29,8 @@
   the extracted root webapp, webapps/manager.war is deployed straight from
   the war with no extraction needed.
 
-  To add TLS, drop a keystore in this directory and add a secure listener,
-  e.g.:
-    <listener port="8443" secure="true" keystore-file="keystore.p12"
-              keystore-pass="changeit"/>
-  See docs/CONTAINER-DEPLOYMENT.md for details.
+  For local HTTPS + HTTP/3 smoke tests see etc/server-tls.xml, scripts/dev-tls-setup.*,
+  and BUILDING.md. Production/container notes: docs/CONTAINER-DEPLOYMENT.md.
 -->
 <server>
   <!-- realm-servlet.xml defines the admin/editor accounts used by both the

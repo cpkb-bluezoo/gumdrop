@@ -35,8 +35,8 @@ import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParseException;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
+import org.bluezoo.protobuf.ProtobufParseException;
+import org.bluezoo.protobuf.ProtobufParser;
 
 /**
  * gRPC client that uses the HTTP client for transport.

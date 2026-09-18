@@ -7,8 +7,7 @@
 # alongside its HTTP/2 listener -- see docs/CONTAINER-DEPLOYMENT.md.
 #
 # Build:   docker build -t gumdrop:latest .
-# Run:     docker run --rm -p 8080:8080 -p 8081:8081 gumdrop:latest
-# Probe:   curl http://localhost:8081/readyz
+# Run:     docker run --rm -p 8080:8080 gumdrop:latest
 
 # ---- Build stage -----------------------------------------------------------
 FROM eclipse-temurin:25-jdk AS build
@@ -40,17 +39,9 @@ USER gumdrop
 
 ENV GUMDROP_HOME=/opt/gumdrop \
     GUMDROP_DRAIN_TIMEOUT_MS=30000 \
-    HTTP_PORT=8080 \
-    GUMDROP_HEALTH_PORT=8081 \
     MAX_RAM_PERCENTAGE=75.0
 
-# Application HTTP port and health/readiness port.
-EXPOSE 8080 8081
-
-# Kubernetes/orchestrator probes should target the health endpoint, e.g.:
-#   livenessProbe:  httpGet { path: /livez, port: 8081 }
-#   readinessProbe: httpGet { path: /readyz, port: 8081 }
-HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \
-    CMD ["/bin/sh", "-c", "exec 3<>/dev/tcp/127.0.0.1/${GUMDROP_HEALTH_PORT:-8081}; printf 'GET /readyz HTTP/1.0\\r\\n\\r\\n' >&3; grep -q '200' <&3"]
+# Default servlet container HTTP port (conf/server.xml); map as needed at run time.
+EXPOSE 8080
 
 ENTRYPOINT ["./bin/gumdrop.sh"]

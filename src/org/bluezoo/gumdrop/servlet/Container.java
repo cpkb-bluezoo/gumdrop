@@ -415,6 +415,10 @@ public class Container implements ManagerContainerServer, ClusterContainer {
                 Context.LOGGER.fine("URL stream handler factory already set");
             }
         }
+        // Unit tests call init() without initContexts(); Context.init() still
+        // binds java:comp/env resources and needs the Gumdrop JNDI factory.
+        System.getProperties().putIfAbsent("java.naming.factory.initial",
+                ServletInitialContextFactory.class.getName());
     }
 
     /**

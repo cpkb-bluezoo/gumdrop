@@ -795,9 +795,7 @@ public class SelectorLoop implements Runnable {
     public void shutdown() {
         active = false;
         timer.shutdown();
-        if (selector != null) {
-            selector.wakeup();
-        }
+        wakeup();
     }
 
     /**

@@ -19,8 +19,10 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.telemetry.protobuf;
+package org.bluezoo.gumdrop.telemetry.otlp;
 
+import org.bluezoo.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ProtobufWriter;
 import org.bluezoo.gumdrop.telemetry.Attribute;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Attributes;

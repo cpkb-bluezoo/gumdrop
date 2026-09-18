@@ -737,10 +737,8 @@ public class TcpTransportFactory extends TransportFactory {
         // factory ends up used for (start() has no way to know in advance).
         // When this factory is actually used as a client and no explicit
         // clientCredentials was set, present that loaded identity as the
-        // client's own certificate -- matching the old JSSE behaviour,
-        // where a single KeyManager built from the same keystore served
-        // either role depending on which side the SSLEngine was created
-        // for.
+        // client's own certificate when the same keystore was loaded for
+        // server credentials but no separate client identity was set.
         ServerCredentials ownCredentials = (clientCredentials != null) ? clientCredentials : serverCredentials;
         if (ownCredentials != null) {
             config.setClientCredentials(ownCredentials);

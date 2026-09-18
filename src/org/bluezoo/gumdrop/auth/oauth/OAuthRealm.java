@@ -237,16 +237,24 @@ public class OAuthRealm implements Realm {
         this.jwtAudience = config.getProperty("oauth.jwt.audience");
         this.jwtClockSkewSeconds = Long.parseLong(
                 config.getProperty("oauth.jwt.clock.skew", "30"));
-        // Configure logging level
-        String logLevel = config.getProperty("oauth.log.level", "INFO");
-        try {
-            LOGGER.setLevel(Level.parse(logLevel));
-        } catch (IllegalArgumentException e) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.invalid_log_level"), logLevel));
+        // Optional per-realm log level; do not default to INFO here — that
+        // overrides container/logging.properties and floods unit tests that
+        // construct many short-lived realms.
+        String logLevel = config.getProperty("oauth.log.level");
+        if (logLevel != null && !logLevel.isEmpty()) {
+            try {
+                LOGGER.setLevel(Level.parse(logLevel));
+            } catch (IllegalArgumentException e) {
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.invalid_log_level"), logLevel));
+            }
         }
-        String msg = MessageFormat.format(L10N.getString("info.oauth.init"), authorizationServerUrl, serverHost, serverPort, useHttps, cacheEnabled, roleScopeMapping.size());
-        LOGGER.info(msg);
+        if (LOGGER.isLoggable(Level.FINE)) {
+            String msg = MessageFormat.format(L10N.getString("info.oauth.init"),
+                    authorizationServerUrl, serverHost, serverPort, useHttps,
+                    cacheEnabled, roleScopeMapping.size());
+            LOGGER.fine(msg);
+        }
     }
     
     // ─────────────────────────────────────────────────────────────────────────────
@@ -818,8 +826,12 @@ public class OAuthRealm implements Realm {
                 }
                 
                 mapping.put(role, scopes);
-                String msg = MessageFormat.format(L10N.getString("info.oauth_mapped_role"), role, joinStrings(scopes, ", "));
-                LOGGER.info(msg);
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    String msg = MessageFormat.format(
+                            L10N.getString("info.oauth_mapped_role"), role,
+                            joinStrings(scopes, ", "));
+                    LOGGER.fine(msg);
+                }
             }
         }
         

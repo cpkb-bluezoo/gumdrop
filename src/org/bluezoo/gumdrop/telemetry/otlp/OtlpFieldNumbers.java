@@ -19,7 +19,7 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.telemetry.protobuf;
+package org.bluezoo.gumdrop.telemetry.otlp;
 
 /**
  * Field numbers for OTLP protobuf messages.

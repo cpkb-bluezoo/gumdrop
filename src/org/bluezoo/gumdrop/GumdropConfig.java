@@ -43,10 +43,21 @@ public final class GumdropConfig {
      * {@code gumdrop.workers} system property (falling back to
      * {@code availableProcessors() * 2}), and graceful-drain timeout from
      * the {@code gumdrop.drainTimeoutMs} system property (falling back to
-     * 25 seconds).
+     * 25 seconds). If {@code GUMDROP_DRAIN_TIMEOUT_MS} is set in the
+     * environment, it overrides the drain timeout (same as the former
+     * {@code Gumdrop.main} launcher).
      */
     public static GumdropConfig create() {
-        return new GumdropConfig();
+        GumdropConfig config = new GumdropConfig();
+        String drainEnv = System.getenv("GUMDROP_DRAIN_TIMEOUT_MS");
+        if (drainEnv != null && !drainEnv.isEmpty()) {
+            try {
+                config.drainTimeoutMs(Long.parseLong(drainEnv.trim()));
+            } catch (NumberFormatException e) {
+                // leave property/default; ContainerMain and composed mains may log
+            }
+        }
+        return config;
     }
 
     /**

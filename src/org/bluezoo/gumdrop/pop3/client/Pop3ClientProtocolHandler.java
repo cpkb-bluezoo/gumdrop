@@ -36,6 +36,7 @@ import org.bluezoo.gumdrop.ByteStreamLexer;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.util.JulWarnings;
 
 /**
  * POP3 client protocol handler (RFC 1939).
@@ -202,9 +203,7 @@ public final class Pop3ClientProtocolHandler
 
     @Override
     public void error(Exception cause) {
-        if (LOGGER.isLoggable(Level.WARNING)) {
-            LOGGER.log(Level.WARNING, "POP3 transport error", cause);
-        }
+        JulWarnings.warn(LOGGER, "POP3 transport error", cause);
         state = Pop3State.ERROR;
         handler.onError(cause);
     }

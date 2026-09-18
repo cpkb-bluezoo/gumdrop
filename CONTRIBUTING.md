@@ -10,7 +10,25 @@ Run the unit tests:
 ant test
 ```
 
-This runs the JUnit test suite. For a full test run including integration tests (HTTP, SMTP, IMAP, POP3, FTP, servlet, etc.):
+To run one unit test class (do **not** use Maven-style `-Dtest=…`; that is rejected by `build.xml`):
+
+```bash
+ant junit-test -Djunit.includes=**/AsyncDiskOffloadBoundaryTest.java
+```
+
+Optional unit-test line coverage (not run in CI by default):
+
+```bash
+ant junit-coverage
+```
+
+This runs the same unit suite as `ant test` with the JaCoCo agent, writes execution
+data under `test/junit/coverage/`, and an HTML report under `test/junit/report/`
+(open `index.html` in a browser). JUnit plain results still go to `test/junit/results/`.
+
+This runs the JUnit suite under `test/junit/src`: **logic-only** tests with no real network I/O (no loopback sockets, no Gumdrop accept/worker loops driving live channels). Anything that opens sockets, sends datagrams, or runs end-to-end over the network stack belongs under `test/integration/src` and is run via `ant integration-test` (or `ant integration-test-loopback` for the loopback-only slice).
+
+For a full test run including integration tests (HTTP, SMTP, IMAP, POP3, FTP, servlet, etc.):
 
 ```bash
 ant test-all

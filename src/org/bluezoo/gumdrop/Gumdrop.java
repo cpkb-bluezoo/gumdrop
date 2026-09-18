@@ -33,6 +33,7 @@ import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -142,6 +143,16 @@ public class Gumdrop {
     // shutdown()/join() itself, so it cannot serialise unrelated drains.
     private final Object lifecycleLock = new Object();
 
+    /** True while {@link #shutdown()} is running (hook, signal, or interrupt). */
+    private boolean shutdownInProgress;
+
+    /**
+     * Thread blocked in {@link #awaitShutdown()}, signalled on {@code SIGTERM}
+     * so graceful teardown runs there (logging still works) instead of on the
+     * JVM shutdown-hook thread (often after {@code LogManager} has closed handlers).
+     */
+    private volatile Thread launcherThread;
+
     /**
      * Graceful-drain timeout in milliseconds. Overridable via the
      * {@code gumdrop.drainTimeoutMs} system property, or explicitly via
@@ -184,6 +195,27 @@ public class Gumdrop {
      */
     public static Gumdrop boot() {
         return boot(GumdropConfig.create());
+    }
+
+    /**
+     * Boots a runtime, registers one or more {@link Server}s, and blocks until
+     * shutdown completes. This is the lifecycle tail of the former
+     * {@code Gumdrop.main}: the JVM shutdown hook registered in the
+     * {@link Gumdrop} constructor (via {@link #boot()}) calls {@link #shutdown()}
+     * on {@code SIGTERM}; Ctrl+C typically interrupts {@link #awaitShutdown()}
+     * and triggers {@code shutdown()} directly.
+     *
+     * @param servers protocol servers to manage (each receives {@link Server#start(Gumdrop)})
+     * @return the instance that was shut down (for tests or post-mortem inspection)
+     * @throws InterruptedException if the waiting thread is interrupted after shutdown
+     */
+    public static Gumdrop serve(Server... servers) throws InterruptedException {
+        Gumdrop gumdrop = boot();
+        for (Server server : servers) {
+            gumdrop.addServer(server);
+        }
+        gumdrop.awaitShutdown();
+        return gumdrop;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -530,7 +562,16 @@ public class Gumdrop {
             if (needsInit) {
                 doStart();
             }
-            return nextWorkerLoop();
+            SelectorLoop loop = nextWorkerLoop();
+            synchronized (lifecycleLock) {
+                if (pendingAsyncShutdown != null) {
+                    continue;
+                }
+            }
+            if (!loop.isRunning()) {
+                continue;
+            }
+            return loop;
         }
     }
 
@@ -544,8 +585,14 @@ public class Gumdrop {
      * @param client the client endpoint to deregister
      */
     public void removeClient(ClientEndpoint client) {
-        activeClients.remove(client);
-        checkAutoShutdown();
+        Thread shutdownThread;
+        synchronized (lifecycleLock) {
+            activeClients.remove(client);
+            shutdownThread = scheduleAutoShutdownIfIdleLocked();
+        }
+        if (shutdownThread != null) {
+            shutdownThread.start();
+        }
     }
 
     /**
@@ -613,7 +660,7 @@ public class Gumdrop {
         }
 
         // Create the shared crypto worker pool. TLS handshake delegated
-        // tasks (SSLEngine NEED_TASK -- RSA/ECDHE key exchange, certificate
+        // tasks (in-tree TLS handshake offload -- RSA/ECDHE key exchange, certificate
         // chain validation) are CPU-bound work with no non-blocking JDK
         // API; offloaded here so a burst of new TLS connections never
         // stalls a SelectorLoop's other connections.
@@ -742,54 +789,58 @@ public class Gumdrop {
      * {@link #shutdown()}.
      */
     private void checkAutoShutdown() {
-        // The emptiness check and the publishing of pendingAsyncShutdown
-        // must be atomic with claimStart()'s own read of the same field
-        // plus the started flag (issue #426): otherwise a disconnecting
-        // client's checkAutoShutdown() and a new client's start() can
-        // interleave so that start() observes neither a pending shutdown
-        // nor started==false, hands out a SelectorLoop reference, and only
-        // then sees the shutdown it missed tear that very loop down.
         Thread shutdownThread;
         synchronized (lifecycleLock) {
-            if (!started) {
-                return;
-            }
-            if (!(servers.isEmpty() && serverListeners.isEmpty()
-                    && activeClients.isEmpty())) {
-                return;
-            }
-            // Always dispatch to a separate thread, even when not called
-            // from a worker loop's own thread: removeClient() can be
-            // invoked from a ClientEndpoint's disconnected()/error()
-            // callback, which runs on the SelectorLoop thread handling
-            // that very connection -- making this a reentrant call from a
-            // worker loop's own thread. shutdown() below calls
-            // SelectorLoop.awaitQuiesce() on every loop including this
-            // one, and a thread cannot join itself: awaitQuiesce()
-            // short-circuits without actually waiting, but shutdown()
-            // never checks that return value, so it proceeds believing
-            // every loop is stopped while this one's thread is still
-            // alive and mid-unwind. A concurrent nextWorkerLoop()/start()
-            // call from another thread then sees isRunning()==true (the
-            // thread hasn't exited yet) and hands out a reference to it --
-            // whatever gets registered on it afterwards is silently lost
-            // the moment this thread finishes exiting its dispatch loop,
-            // since nothing will ever come back to process it. Running
-            // shutdown() off-thread unconditionally lets awaitQuiesce()
-            // perform a real join() for every loop, closing the window
-            // entirely -- provided every path back into this instance
-            // (start(), in practice) waits for that thread first; see
-            // claimStart().
-            shutdownThread = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    shutdown();
-                }
-            }, "gumdrop-auto-shutdown");
-            shutdownThread.setDaemon(true);
-            pendingAsyncShutdown = shutdownThread;
+            shutdownThread = scheduleAutoShutdownIfIdleLocked();
         }
-        shutdownThread.start();
+        if (shutdownThread != null) {
+            shutdownThread.start();
+        }
+    }
+
+    /**
+     * Schedules asynchronous {@link #shutdown()} when nothing remains to
+     * keep this instance running. Caller must hold {@link #lifecycleLock}.
+     */
+    private Thread scheduleAutoShutdownIfIdleLocked() {
+        if (!started) {
+            return null;
+        }
+        if (!(servers.isEmpty() && serverListeners.isEmpty()
+                && activeClients.isEmpty())) {
+            return null;
+        }
+        if (pendingAsyncShutdown != null) {
+            return null;
+        }
+        // Always dispatch to a separate thread, even when not called from a
+        // worker loop's own thread: removeClient() can be invoked from a
+        // ClientEndpoint's disconnected()/error() callback, which runs on the
+        // SelectorLoop thread handling that very connection -- making this a
+        // reentrant call from a worker loop's own thread. shutdown() below
+        // calls SelectorLoop.awaitQuiesce() on every loop including this one,
+        // and a thread cannot join itself: awaitQuiesce() short-circuits
+        // without actually waiting, but shutdown() never checks that return
+        // value, so it proceeds believing every loop is stopped while this
+        // one's thread is still alive and mid-unwind. A concurrent
+        // nextWorkerLoop()/start() call from another thread then sees
+        // isRunning()==true (the thread hasn't exited yet) and hands out a
+        // reference to it -- whatever gets registered on it afterwards is
+        // silently lost the moment this thread finishes exiting its dispatch
+        // loop, since nothing will ever come back to process it. Running
+        // shutdown() off-thread unconditionally lets awaitQuiesce() perform a
+        // real join() for every loop, closing the window entirely -- provided
+        // every path back into this instance (start(), in practice) waits for
+        // that thread first; see claimStart().
+        Thread shutdownThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                shutdown();
+            }
+        }, "gumdrop-auto-shutdown");
+        shutdownThread.setDaemon(true);
+        pendingAsyncShutdown = shutdownThread;
+        return shutdownThread;
     }
 
     /**
@@ -871,12 +922,46 @@ public class Gumdrop {
      * <p>After shutdown, {@link #start()} can be called again to restart.
      */
     public void shutdown() {
-        if (!started) {
+        if (!acquireShutdownLease()) {
             return;
         }
+        try {
+            doShutdown();
+        } finally {
+            synchronized (lifecycleLock) {
+                started = false;
+                draining = false;
+                shutdownInProgress = false;
+                lifecycleLock.notifyAll();
+            }
+            flushConsoleLogging();
+        }
+    }
 
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(L10N.getString("info.closing_servers"));
+    /**
+     * Claims the one-at-a-time shutdown lease, or returns false if shutdown
+     * already finished or is running on another thread.
+     */
+    private boolean acquireShutdownLease() {
+        synchronized (lifecycleLock) {
+            if (!started) {
+                return false;
+            }
+            if (shutdownInProgress) {
+                return false;
+            }
+            shutdownInProgress = true;
+            return true;
+        }
+    }
+
+    private void doShutdown() {
+        long drainTimeout = drainTimeoutMs;
+        if (drainTimeout > 0) {
+            operatorInfo(MessageFormat.format(
+                    L10N.getString("info.closing_servers"), drainTimeout));
+        } else {
+            operatorInfo(L10N.getString("info.closing_servers_no_drain"));
         }
 
         // No longer ready: fail readiness immediately so load balancers stop
@@ -898,7 +983,6 @@ public class Gumdrop {
         }
 
         // ── Phase 2: drain in-flight connections (bounded) ──
-        long drainTimeout = drainTimeoutMs;
         if (drainTimeout > 0) {
             awaitConnectionsDrained(drainTimeout);
         }
@@ -929,11 +1013,13 @@ public class Gumdrop {
         }
 
         // Stop worker loops, then wait briefly for each to flush and exit.
-        for (SelectorLoop loop : workerLoops) {
-            loop.shutdown();
-        }
-        for (SelectorLoop loop : workerLoops) {
-            loop.awaitQuiesce(LOOP_QUIESCE_TIMEOUT_MS);
+        if (workerLoops != null) {
+            for (SelectorLoop loop : workerLoops) {
+                loop.shutdown();
+            }
+            for (SelectorLoop loop : workerLoops) {
+                loop.awaitQuiesce(LOOP_QUIESCE_TIMEOUT_MS);
+            }
         }
 
         // Stop scheduled timer
@@ -953,11 +1039,37 @@ public class Gumdrop {
 
         stopMailboxLifecycle();
 
-        started = false;
-        draining = false;
+        operatorInfo(L10N.getString("info.servers_closed"));
+    }
 
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Gumdrop shutdown complete");
+    /**
+     * Operator-visible lifecycle line (matches {@link org.bluezoo.gumdrop.util.LaconicFormatter}).
+     * Written to stderr so Ctrl+C / {@code SIGTERM} still show progress after
+     * {@code LogManager} shutdown hooks close JUL handlers.
+     */
+    private static void operatorInfo(String message) {
+        System.err.println("INFO: " + message);
+        System.err.flush();
+    }
+
+    private void awaitShutdownFinished() throws InterruptedException {
+        synchronized (lifecycleLock) {
+            while (shutdownInProgress) {
+                lifecycleLock.wait();
+            }
+        }
+    }
+
+    private static void flushConsoleLogging() {
+        for (Logger logger = LOGGER; logger != null; logger = logger.getParent()) {
+            Handler[] handlers = logger.getHandlers();
+            for (int i = 0; i < handlers.length; i++) {
+                handlers[i].flush();
+            }
+        }
+        Handler[] rootHandlers = Logger.getLogger("").getHandlers();
+        for (int i = 0; i < rootHandlers.length; i++) {
+            rootHandlers[i].flush();
         }
     }
 
@@ -1063,6 +1175,37 @@ public class Gumdrop {
         }
         for (SelectorLoop loop : workerLoops) {
             loop.join();
+        }
+    }
+
+    /**
+     * Blocks until {@link #shutdown()} has finished and all selector threads
+     * have exited. Intended for {@code main} after {@link #boot()} /
+     * {@link #addServer(Server)}.
+     *
+     * <p>On Unix, Ctrl+C often {@linkplain Thread#interrupt() interrupts} the
+     * blocked thread instead of running JVM shutdown hooks first. This method
+     * treats that interrupt as a shutdown request and calls {@link #shutdown()}
+     * before waiting again. {@code SIGTERM} and the registered shutdown hook
+     * still call {@code shutdown()} as usual; repeated calls are harmless.
+     *
+     * @throws InterruptedException if interrupted while waiting for shutdown
+     */
+    public void awaitShutdown() throws InterruptedException {
+        launcherThread = Thread.currentThread();
+        try {
+            try {
+                join();
+            } catch (InterruptedException e) {
+                Thread.interrupted();
+                shutdown();
+            }
+            awaitShutdownFinished();
+            Thread.interrupted();
+            join();
+        } finally {
+            launcherThread = null;
+            flushConsoleLogging();
         }
     }
 
@@ -1204,6 +1347,16 @@ public class Gumdrop {
 
         @Override
         public void run() {
+            Thread launcher = launcherThread;
+            if (launcher != null) {
+                launcher.interrupt();
+                try {
+                    launcher.join();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return;
+            }
             shutdown();
         }
     }

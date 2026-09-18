@@ -30,7 +30,6 @@ module org.bluezoo.gumdrop.core {
     exports org.bluezoo.gumdrop.ldap.asn1;
     exports org.bluezoo.gumdrop.telemetry;
     exports org.bluezoo.gumdrop.telemetry.metrics;
-    exports org.bluezoo.gumdrop.telemetry.protobuf;
     exports org.bluezoo.gumdrop.mailbox.spi;
     exports jakarta.servlet.jsp;
 

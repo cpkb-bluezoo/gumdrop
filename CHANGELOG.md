@@ -6,7 +6,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
+**Gumdrop 3.0.0** (release date not set). Major version: Java 25 baseline,
+in-tree TLS, Jakarta Servlet 6.1, and a handler-first public API reshape.
+Further 3.0 work may land before release; the items below are the large
+user-visible themes since 2.2.x.
 
 ### Added
 
@@ -17,6 +20,15 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   25+.
 - **DTLS 1.3** on UDP listeners (`Dtls13Session`, unified record format,
   cookie-based HelloRetryRequest) alongside existing DTLS 1.2 support.
+- **Jakarta Servlet 6.1 container** on HTTP/1.1, HTTP/2, and HTTP/3, including
+  request IDs and `ServletConnection`, three-argument `sendRedirect`, expanded
+  error-dispatch attributes, `jakarta.servlet.request.secure_protocol` on TLS
+  and QUIC, `HttpSession.getAccessor()` for use outside an active request, and
+  `ByteBuffer` read/write on servlet streams. See [web/servlet.html](web/servlet.html).
+- **Handler-first HTTP server wiring**: compose `HttpServer` with
+  `HttpStreamHandler` implementations such as `ServletRequestHandler`,
+  `WebDAVRequestHandler`, and `WebSocketRequestHandler` instead of separate
+  “application server” types (see **Removed**).
 - **RFC 9218 extensible prioritisation**: `PRIORITY_UPDATE` and urgency-based
   scheduling on HTTP/2 and HTTP/3.
 - **RFC 9221 QUIC DATAGRAM**: unreliable datagram send/receive with
@@ -34,15 +46,30 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   ML-KEM/ML-DSA support). The build uses `--release 25` exclusively.
 - **TCP/TLS and DTLS** now use the in-tree engine instead of JSSE
   `SSLEngine`; **QUIC/HTTP/3 TLS** uses the same engine via
-  `QuicTlsClientEngine`/`QuicTlsServerEngine`, not Agent15.
+  `QuicTlsClientEngine`/`QuicTlsServerEngine`, not Agent15. Application code
+  that integrated via `SSLEngine` must move to Gumdrop's TLS types and
+  listener/credential configuration ([web/tls.html](web/tls.html)).
+- **Public API layout and naming (breaking)**: camelCase acronyms throughout
+  (`HttpServer`, `SmtpClient`, …; **WebDAV** and **WebSocket** spelled as
+  tradenames). Protocol facades sit at each package root; server and client
+  SPI live under `{protocol}.server` and `{protocol}.client` (for example
+  `http.server.HttpRequestHandler`, `http.client.HttpClient`). Mail and
+  network servers are `{Protocol}Server` in `{protocol}.server` with
+  root re-exports. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+  [docs/GUMDROP-3-PLAN.md](docs/GUMDROP-3-PLAN.md).
 - **Modularised build**: Gumdrop is split into smaller interlinked internal
   jars (core, servlet stack, and per-protocol modules) with JPMS descriptors;
   `dist/gumdrop.jar` remains the all-in-one library artifact. Several types
   moved to JPMS-clean subpackages (`auth.oauth`, `auth.ldap`, `mailbox.spi`,
   `http.doh`, `telemetry.otlp`).
+- **Protocol Buffers wire codec** is no longer in Gumdrop: the generic
+  push parser and writer live in the standalone
+  [jprotobuf](https://github.com/cpkb-bluezoo/jprotobuf) library
+  (`org.bluezoo:jprotobuf`, package `org.bluezoo.protobuf`), used by gRPC,
+  servlet session replication, and OTLP export. OTLP-specific encoders
+  (`TraceSerializer`, `MetricSerializer`, `LogSerializer`) remain in Gumdrop
+  under `org.bluezoo.gumdrop.telemetry.otlp`.
 - **QUIC Retry-based address validation is enabled by default** on listeners.
-- **Compile/runtime and test dependencies** (third-party jars, J2EE APIs,
-  JUnit/Hamcrest) are downloaded by Ant when needed, not stored in git.
 - **Gonzalez dependency is now `gonzalez-core` only** (same JPMS module name).
 - **`gumdrop-container.jar`** (fat jar) is deprecated in favour of the zip
   layout.
@@ -63,6 +90,14 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **`gumdrop-protocols.jar`** aggregate (superseded by per-protocol jars and
   `gumdrop.jar`).
+- **Separate HTTP application server types** `ServletServer`, `WebdavServer`,
+  and `WebSocketServer` (and related listener-only entry points): use
+  `HttpServer` with `ServletRequestHandler`, `WebDAVRequestHandler`, or
+  `WebSocketRequestHandler` instead.
+- **`HttpRequestHandlerFactory`**: register a handler or router on
+  `HttpServer` directly.
+- **`org.bluezoo.gumdrop.telemetry.protobuf`**: generic codec removed in
+  favour of `org.bluezoo.protobuf` in jprotobuf (see **Changed**).
 - **`gumdroprc` XML configuration and `ComponentRegistry`** (breaking):
   `org.bluezoo.gumdrop.config` (`ConfigurationParser`, `ComponentRegistry`,
   reflective setter injection), the `GumdropConfigurator` SPI, and

@@ -30,10 +30,6 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.telemetry.metrics.AggregationTemporality;
 import org.bluezoo.gumdrop.telemetry.metrics.Meter;
 import org.bluezoo.gumdrop.telemetry.metrics.MetricData;
-import org.bluezoo.gumdrop.telemetry.protobuf.LogSerializer;
-import org.bluezoo.gumdrop.telemetry.protobuf.MetricSerializer;
-import org.bluezoo.gumdrop.telemetry.protobuf.TraceSerializer;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;

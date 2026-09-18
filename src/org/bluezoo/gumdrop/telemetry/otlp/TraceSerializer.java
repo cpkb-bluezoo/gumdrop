@@ -1,5 +1,5 @@
 /*
- * LogSerializer.java
+ * TraceSerializer.java
  * Copyright (C) 2025 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -19,27 +19,32 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.telemetry.protobuf;
+package org.bluezoo.gumdrop.telemetry.otlp;
 
+import org.bluezoo.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ProtobufWriter;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.telemetry.Attribute;
-import org.bluezoo.gumdrop.telemetry.LogRecord;
+import org.bluezoo.gumdrop.telemetry.Span;
+import org.bluezoo.gumdrop.telemetry.SpanEvent;
+import org.bluezoo.gumdrop.telemetry.SpanLink;
+import org.bluezoo.gumdrop.telemetry.SpanStatus;
+import org.bluezoo.gumdrop.telemetry.Trace;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritableByteChannel;
-import java.util.List;
 import java.util.Map;
 
 /**
- * Serializes log records to OTLP protobuf format.
+ * Serializes traces to OTLP protobuf format.
  *
  * <p>The serializer can write directly to a {@link WritableByteChannel} for
  * streaming output, or to a {@link ByteBuffer} for buffered output.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class LogSerializer {
+public class TraceSerializer {
 
     private static final String SCHEMA_URL = "https://opentelemetry.io/schemas/1.25.0";
 
@@ -49,24 +54,24 @@ public class LogSerializer {
     private final Map<String, String> resourceAttributes;
 
     /**
-     * Creates a log serializer with the given service name.
+     * Creates a trace serializer with the given service name.
      *
      * @param serviceName the service name for the Resource
      */
-    public LogSerializer(String serviceName) {
+    public TraceSerializer(String serviceName) {
         this(serviceName, null, null, null);
     }
 
     /**
-     * Creates a log serializer with service metadata.
+     * Creates a trace serializer with service metadata.
      *
      * @param serviceName the service name
      * @param serviceVersion the service version
      * @param serviceNamespace the service namespace
      * @param resourceAttributes additional resource attributes
      */
-    public LogSerializer(String serviceName, String serviceVersion,
-                         String serviceNamespace, Map<String, String> resourceAttributes) {
+    public TraceSerializer(String serviceName, String serviceVersion,
+                           String serviceNamespace, Map<String, String> resourceAttributes) {
         this.serviceName = serviceName;
         this.serviceVersion = serviceVersion;
         this.serviceNamespace = serviceNamespace;
@@ -74,110 +79,63 @@ public class LogSerializer {
     }
 
     /**
-     * Serializes log records to OTLP LogsData format, writing to a channel.
+     * Serializes a trace to OTLP TracesData format, writing to a channel.
      *
      * <p>This is the primary serialization method. Data is streamed to the
-     * channel as it is serialized.
+     * channel as it is serialized, making it suitable for HTTP/2 or chunked
+     * HTTP/1.1 output.
      *
-     * @param records the log records to serialize
+     * @param trace the trace to serialize
      * @param channel the channel to write to
      * @throws IOException if an I/O error occurs
      */
-    public void serialize(List<LogRecord> records, WritableByteChannel channel) throws IOException {
+    public void serialize(Trace trace, WritableByteChannel channel) throws IOException {
         ProtobufWriter writer = new ProtobufWriter(channel);
-        writeLogsData(writer, records);
+        writeTracesData(writer, trace);
     }
 
     /**
-     * Serializes log records to OTLP LogsData format, returning a ByteBuffer.
+     * Serializes a trace to OTLP TracesData format, returning a ByteBuffer.
      *
      * <p>Convenience method for callers who need buffered output.
      *
-     * @param records the log records to serialize
-     * @return a ByteBuffer containing the serialized logs (ready for reading)
+     * @param trace the trace to serialize
+     * @return a ByteBuffer containing the serialized trace (ready for reading)
      * @throws IOException if serialization fails
      */
-    public ByteBuffer serialize(List<LogRecord> records) throws IOException {
+    public ByteBuffer serialize(Trace trace) throws IOException {
         ByteBufferChannel channel = new ByteBufferChannel();
-        serialize(records, channel);
+        serialize(trace, channel);
         return channel.toByteBuffer();
     }
 
-    /**
-     * Serializes a single log record to OTLP LogsData format, writing to a channel.
-     *
-     * @param record the log record to serialize
-     * @param channel the channel to write to
-     * @throws IOException if an I/O error occurs
-     */
-    public void serialize(LogRecord record, WritableByteChannel channel) throws IOException {
-        ProtobufWriter writer = new ProtobufWriter(channel);
-        writer.writeMessageField(OtlpFieldNumbers.LOGS_DATA_RESOURCE_LOGS,
-                new ResourceLogsWriter(record));
-    }
-
-    /**
-     * Serializes a single log record to OTLP LogsData format, returning a ByteBuffer.
-     *
-     * @param record the log record to serialize
-     * @return a ByteBuffer containing the serialized log (ready for reading)
-     * @throws IOException if serialization fails
-     */
-    public ByteBuffer serialize(LogRecord record) throws IOException {
-        ByteBufferChannel channel = new ByteBufferChannel();
-        serialize(record, channel);
-        return channel.toByteBuffer();
-    }
-
-    private void writeLogsData(ProtobufWriter writer, List<LogRecord> records) throws IOException {
-        // LogsData { repeated ResourceLogs resource_logs = 1; }
-        writer.writeMessageField(OtlpFieldNumbers.LOGS_DATA_RESOURCE_LOGS,
-                new ResourceLogsListWriter(records));
+    private void writeTracesData(ProtobufWriter writer, Trace trace) throws IOException {
+        // TracesData { repeated ResourceSpans resource_spans = 1; }
+        writer.writeMessageField(OtlpFieldNumbers.TRACES_DATA_RESOURCE_SPANS,
+                new ResourceSpansWriter(trace));
     }
 
     // -- Inner classes for message content --
 
-    private class ResourceLogsWriter implements ProtobufWriter.MessageContent {
-        private final LogRecord record;
+    private class ResourceSpansWriter implements ProtobufWriter.MessageContent {
+        private final Trace trace;
 
-        ResourceLogsWriter(LogRecord record) {
-            this.record = record;
+        ResourceSpansWriter(Trace trace) {
+            this.trace = trace;
         }
 
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // Resource resource = 1
-            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_LOGS_RESOURCE,
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_SPANS_RESOURCE,
                     new ResourceWriter());
 
-            // repeated ScopeLogs scope_logs = 2
-            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_LOGS_SCOPE_LOGS,
-                    new ScopeLogsWriter(record));
+            // repeated ScopeSpans scope_spans = 2
+            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_SPANS_SCOPE_SPANS,
+                    new ScopeSpansWriter(trace));
 
             // string schema_url = 3
-            writer.writeStringField(OtlpFieldNumbers.RESOURCE_LOGS_SCHEMA_URL, SCHEMA_URL);
-        }
-    }
-
-    private class ResourceLogsListWriter implements ProtobufWriter.MessageContent {
-        private final List<LogRecord> records;
-
-        ResourceLogsListWriter(List<LogRecord> records) {
-            this.records = records;
-        }
-
-        @Override
-        public void writeTo(ProtobufWriter writer) throws IOException {
-            // Resource resource = 1
-            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_LOGS_RESOURCE,
-                    new ResourceWriter());
-
-            // repeated ScopeLogs scope_logs = 2
-            writer.writeMessageField(OtlpFieldNumbers.RESOURCE_LOGS_SCOPE_LOGS,
-                    new ScopeLogsListWriter(records));
-
-            // string schema_url = 3
-            writer.writeStringField(OtlpFieldNumbers.RESOURCE_LOGS_SCHEMA_URL, SCHEMA_URL);
+            writer.writeStringField(OtlpFieldNumbers.RESOURCE_SPANS_SCHEMA_URL, SCHEMA_URL);
         }
     }
 
@@ -207,42 +165,31 @@ public class LogSerializer {
         }
     }
 
-    private class ScopeLogsWriter implements ProtobufWriter.MessageContent {
-        private final LogRecord record;
+    private class ScopeSpansWriter implements ProtobufWriter.MessageContent {
+        private final Trace trace;
 
-        ScopeLogsWriter(LogRecord record) {
-            this.record = record;
+        ScopeSpansWriter(Trace trace) {
+            this.trace = trace;
         }
 
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
             // InstrumentationScope scope = 1
-            writer.writeMessageField(OtlpFieldNumbers.SCOPE_LOGS_SCOPE,
+            writer.writeMessageField(OtlpFieldNumbers.SCOPE_SPANS_SCOPE,
                     new InstrumentationScopeWriter());
 
-            // repeated LogRecord log_records = 2
-            writer.writeMessageField(OtlpFieldNumbers.SCOPE_LOGS_LOG_RECORDS,
-                    new LogRecordWriter(record));
-        }
-    }
+            // repeated Span spans = 2
+            // Write all ended spans
+            for (Span span : trace.getEndedSpans()) {
+                writer.writeMessageField(OtlpFieldNumbers.SCOPE_SPANS_SPANS,
+                        new SpanWriter(span));
+            }
 
-    private class ScopeLogsListWriter implements ProtobufWriter.MessageContent {
-        private final List<LogRecord> records;
-
-        ScopeLogsListWriter(List<LogRecord> records) {
-            this.records = records;
-        }
-
-        @Override
-        public void writeTo(ProtobufWriter writer) throws IOException {
-            // InstrumentationScope scope = 1
-            writer.writeMessageField(OtlpFieldNumbers.SCOPE_LOGS_SCOPE,
-                    new InstrumentationScopeWriter());
-
-            // repeated LogRecord log_records = 2
-            for (LogRecord record : records) {
-                writer.writeMessageField(OtlpFieldNumbers.SCOPE_LOGS_LOG_RECORDS,
-                        new LogRecordWriter(record));
+            // Also write root span if it's ended and not already in endedSpans
+            Span root = trace.getRootSpan();
+            if (root.isEnded() && !trace.getEndedSpans().contains(root)) {
+                writer.writeMessageField(OtlpFieldNumbers.SCOPE_SPANS_SPANS,
+                        new SpanWriter(root));
             }
         }
     }
@@ -257,51 +204,64 @@ public class LogSerializer {
         }
     }
 
-    private static class LogRecordWriter implements ProtobufWriter.MessageContent {
-        private final LogRecord record;
+    private static class SpanWriter implements ProtobufWriter.MessageContent {
+        private final Span span;
 
-        LogRecordWriter(LogRecord record) {
-            this.record = record;
+        SpanWriter(Span span) {
+            this.span = span;
         }
 
         @Override
         public void writeTo(ProtobufWriter writer) throws IOException {
-            // fixed64 time_unix_nano = 1
-            writer.writeFixed64Field(OtlpFieldNumbers.LOG_RECORD_TIME_UNIX_NANO,
-                    record.getTimeUnixNano());
+            // bytes trace_id = 1
+            writer.writeBytesField(OtlpFieldNumbers.SPAN_TRACE_ID, span.getTrace().getTraceId().getBytes());
 
-            // fixed64 observed_time_unix_nano = 11
-            writer.writeFixed64Field(OtlpFieldNumbers.LOG_RECORD_OBSERVED_TIME_UNIX_NANO,
-                    record.getTimeUnixNano());
+            // bytes span_id = 2
+            writer.writeBytesField(OtlpFieldNumbers.SPAN_SPAN_ID, span.getSpanId().getBytes());
 
-            // SeverityNumber severity_number = 2
-            writer.writeVarintField(OtlpFieldNumbers.LOG_RECORD_SEVERITY_NUMBER,
-                    record.getSeverityNumber());
-
-            // string severity_text = 3
-            writer.writeStringField(OtlpFieldNumbers.LOG_RECORD_SEVERITY_TEXT,
-                    record.getSeverityText());
-
-            // AnyValue body = 5
-            if (record.getBody() != null) {
-                writer.writeMessageField(OtlpFieldNumbers.LOG_RECORD_BODY,
-                        new StringAnyValueWriter(record.getBody()));
+            // bytes parent_span_id = 4
+            Span parent = span.getParent();
+            if (parent != null) {
+                writer.writeBytesField(OtlpFieldNumbers.SPAN_PARENT_SPAN_ID, parent.getSpanId().getBytes());
             }
 
-            // repeated KeyValue attributes = 6
-            for (Attribute attr : record.getAttributes()) {
-                writer.writeMessageField(OtlpFieldNumbers.LOG_RECORD_ATTRIBUTES,
+            // string name = 5
+            writer.writeStringField(OtlpFieldNumbers.SPAN_NAME, span.getName());
+
+            // SpanKind kind = 6
+            writer.writeVarintField(OtlpFieldNumbers.SPAN_KIND, span.getKind().getValue());
+
+            // fixed64 start_time_unix_nano = 7
+            writer.writeFixed64Field(OtlpFieldNumbers.SPAN_START_TIME_UNIX_NANO,
+                    span.getStartTimeUnixNano());
+
+            // fixed64 end_time_unix_nano = 8
+            writer.writeFixed64Field(OtlpFieldNumbers.SPAN_END_TIME_UNIX_NANO,
+                    span.getEndTimeUnixNano());
+
+            // repeated KeyValue attributes = 9
+            for (Attribute attr : span.getAttributes()) {
+                writer.writeMessageField(OtlpFieldNumbers.SPAN_ATTRIBUTES,
                         new AttributeWriter(attr));
             }
 
-            // bytes trace_id = 9
-            if (record.hasSpanContext()) {
-                writer.writeBytesField(OtlpFieldNumbers.LOG_RECORD_TRACE_ID,
-                        record.getTraceId().getBytes());
+            // repeated Event events = 11
+            for (SpanEvent event : span.getEvents()) {
+                writer.writeMessageField(OtlpFieldNumbers.SPAN_EVENTS,
+                        new EventWriter(event));
+            }
 
-                // bytes span_id = 10
-                writer.writeBytesField(OtlpFieldNumbers.LOG_RECORD_SPAN_ID,
-                        record.getSpanId().getBytes());
+            // repeated Link links = 13
+            for (SpanLink link : span.getLinks()) {
+                writer.writeMessageField(OtlpFieldNumbers.SPAN_LINKS,
+                        new LinkWriter(link));
+            }
+
+            // Status status = 15
+            SpanStatus status = span.getStatus();
+            if (status.getCode() != SpanStatus.STATUS_CODE_UNSET) {
+                writer.writeMessageField(OtlpFieldNumbers.SPAN_STATUS,
+                        new StatusWriter(status));
             }
         }
     }
@@ -354,7 +314,75 @@ public class LogSerializer {
         }
     }
 
-    // -- Helper methods --
+    private static class EventWriter implements ProtobufWriter.MessageContent {
+        private final SpanEvent event;
+
+        EventWriter(SpanEvent event) {
+            this.event = event;
+        }
+
+        @Override
+        public void writeTo(ProtobufWriter writer) throws IOException {
+            // fixed64 time_unix_nano = 1
+            writer.writeFixed64Field(OtlpFieldNumbers.EVENT_TIME_UNIX_NANO,
+                    event.getTimeUnixNano());
+
+            // string name = 2
+            writer.writeStringField(OtlpFieldNumbers.EVENT_NAME, event.getName());
+
+            // repeated KeyValue attributes = 3
+            for (Attribute attr : event.getAttributes()) {
+                writer.writeMessageField(OtlpFieldNumbers.EVENT_ATTRIBUTES,
+                        new AttributeWriter(attr));
+            }
+        }
+    }
+
+    private static class LinkWriter implements ProtobufWriter.MessageContent {
+        private final SpanLink link;
+
+        LinkWriter(SpanLink link) {
+            this.link = link;
+        }
+
+        @Override
+        public void writeTo(ProtobufWriter writer) throws IOException {
+            // bytes trace_id = 1
+            writer.writeBytesField(OtlpFieldNumbers.LINK_TRACE_ID,
+                    link.getContext().getTraceId().getBytes());
+
+            // bytes span_id = 2
+            writer.writeBytesField(OtlpFieldNumbers.LINK_SPAN_ID,
+                    link.getContext().getSpanId().getBytes());
+
+            // repeated KeyValue attributes = 4
+            for (Attribute attr : link.getAttributes()) {
+                writer.writeMessageField(OtlpFieldNumbers.LINK_ATTRIBUTES,
+                        new AttributeWriter(attr));
+            }
+        }
+    }
+
+    private static class StatusWriter implements ProtobufWriter.MessageContent {
+        private final SpanStatus status;
+
+        StatusWriter(SpanStatus status) {
+            this.status = status;
+        }
+
+        @Override
+        public void writeTo(ProtobufWriter writer) throws IOException {
+            // string message = 2
+            if (status.getMessage() != null) {
+                writer.writeStringField(OtlpFieldNumbers.STATUS_MESSAGE, status.getMessage());
+            }
+
+            // StatusCode code = 3
+            writer.writeVarintField(OtlpFieldNumbers.STATUS_CODE, status.getCode());
+        }
+    }
+
+    // -- Helper method --
 
     private static void writeKeyValue(ProtobufWriter writer, int fieldNumber,
                                        String key, String value) throws IOException {

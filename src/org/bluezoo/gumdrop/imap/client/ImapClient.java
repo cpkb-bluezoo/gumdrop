@@ -192,14 +192,14 @@ public class ImapClient {
     }
 
     /**
-     * Sets the SSL context for TLS connections.
+     * Sets client certificate credentials for TLS connections.
      *
      * <p>Required for both implicit TLS ({@code setSecure(true)}) and
      * explicit TLS via STARTTLS. When set without {@code setSecure(true)},
-     * an SSLEngine is created but not activated until the protocol
+     * the in-tree TLS engine is configured but not started until the
      * handler calls {@code endpoint.startTLS()}.
      *
-     * @param context the SSL context
+     * @param clientCredentials the client certificate credentials, if any
      */
     public void setClientCredentials(ServerCredentials clientCredentials) {
         tls.serverCredentials(clientCredentials);

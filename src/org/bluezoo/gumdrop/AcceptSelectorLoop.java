@@ -29,6 +29,7 @@ import java.net.SocketAddress;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.CancelledKeyException;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -230,6 +231,9 @@ public class AcceptSelectorLoop implements Runnable {
      * @param handler the handler to receive accepted connections
      */
     public void registerRawAcceptor(ServerSocketChannel channel, RawAcceptHandler handler) {
+        if (!channel.isOpen()) {
+            return;
+        }
         pendingRegistrations.add(new PendingRegistration(handler, channel));
         if (selector != null) {
             selector.wakeup();
@@ -248,6 +252,19 @@ public class AcceptSelectorLoop implements Runnable {
                 } else if (pending.listener != null) {
                     doRegisterListener(pending.listener);
                 }
+            } catch (ClosedChannelException e) {
+                // FTP client PORT/EPRT and similar paths may close the
+                // ServerSocketChannel before this loop drains the pending
+                // registration queue; that is normal, not a server fault.
+                if (pending.rawHandler == null && LOGGER.isLoggable(Level.SEVERE)) {
+                    LOGGER.log(Level.SEVERE,
+                            "Failed to register server: "
+                                    + pending.listener.getDescription()
+                                    + ": " + e.getMessage());
+                } else if (pending.rawHandler != null
+                        && LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("Raw acceptor closed before registration");
+                }
             } catch (IOException e) {
                 String desc;
                 if (pending.rawHandler != null) {
@@ -255,8 +272,11 @@ public class AcceptSelectorLoop implements Runnable {
                 } else {
                     desc = pending.listener.getDescription();
                 }
-                LOGGER.log(Level.SEVERE,
-                        "Failed to register server: " + desc, e);
+                if (LOGGER.isLoggable(Level.SEVERE)) {
+                    LOGGER.log(Level.SEVERE,
+                            "Failed to register server: " + desc + ": "
+                                    + e.getMessage());
+                }
             }
         }
     }
@@ -442,8 +462,8 @@ public class AcceptSelectorLoop implements Runnable {
         // endpoint, so it stays on the accept thread.
         server.connectionOpened(remoteAddress);
 
-        // Everything else - protocol handler construction, SSLEngine
-        // creation, buffer pool acquisition in TcpEndpoint.init(), and the
+        // Everything else - protocol handler construction, TLS setup in
+        // TcpEndpoint.init(), buffer pool acquisition, and the
         // handler's connected() callback (which for text protocols writes
         // the greeting banner and for HTTP arms the idle timer) - is real
         // per-connection work that must not run serially on the single

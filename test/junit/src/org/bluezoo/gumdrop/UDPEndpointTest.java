@@ -24,28 +24,20 @@ package org.bluezoo.gumdrop;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.bluezoo.gumdrop.util.DirectByteBufferPool;
 
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
 import static org.junit.Assert.*;
 
 /**
- * Regression tests for issue #193: {@link UdpEndpoint#netIn} previously
- * used a plain heap {@code ByteBuffer.allocate(...)} rather than a
- * pooled direct buffer like {@link TcpEndpoint}'s read/write path.
- *
- * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * Unit tests for {@link UdpEndpoint} buffer and pending-queue behaviour
+ * (issue #193). No sockets or Gumdrop runtime: loopback coverage is in
+ * {@link UdpEndpointIntegrationTest} ({@code ant integration-test-loopback}).
  */
 public class UDPEndpointTest {
 
-    private Gumdrop gumdrop;
-
-    /** No-op handler; these tests only exercise endpoint setup/teardown. */
     private static final class NoopHandler implements ProtocolHandler {
         @Override public void receive(ByteBuffer data) { }
         @Override public void connected(Endpoint endpoint) { }
@@ -54,27 +46,13 @@ public class UDPEndpointTest {
         @Override public void error(Exception cause) { }
     }
 
-    @Before
-    public void setUp() {
-        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
-    }
-
-    @After
-    public void tearDown() throws InterruptedException {
-        gumdrop.shutdown();
-        gumdrop.join();
-    }
-
     @Test
-    public void testNetInIsAPooledDirectBuffer() throws Exception {
-        UdpTransportFactory factory = new UdpTransportFactory();
-        factory.start();
-
-        UdpEndpoint endpoint = factory.createServerEndpoint(
-                gumdrop, InetAddress.getLoopbackAddress(), 0, new NoopHandler());
+    public void testInitAllocatesPooledDirectNetIn() {
+        UdpEndpoint endpoint = new UdpEndpoint(new NoopHandler());
+        endpoint.init();
         try {
             assertNotNull(endpoint.netIn);
-            assertTrue("netIn must be a direct buffer, not a heap allocation",
+            assertTrue("netIn must be a direct buffer",
                     endpoint.netIn.isDirect());
         } finally {
             endpoint.close();
@@ -82,24 +60,17 @@ public class UDPEndpointTest {
     }
 
     @Test
-    public void testNetInIsReturnedToThePoolOnClose() throws Exception {
-        UdpTransportFactory factory = new UdpTransportFactory();
-        factory.start();
-
-        UdpEndpoint endpoint = factory.createServerEndpoint(
-                gumdrop, InetAddress.getLoopbackAddress(), 0, new NoopHandler());
+    public void testNetInReleasedToPoolOnClose() {
+        UdpEndpoint endpoint = new UdpEndpoint(new NoopHandler());
+        endpoint.init();
         ByteBuffer netIn = endpoint.netIn;
         int capacity = netIn.capacity();
-
         endpoint.close();
         assertNull("netIn must be cleared once released", endpoint.netIn);
 
-        // If close() actually released the buffer back to the pool, the
-        // very next same-size acquire on this thread must hand back the
-        // exact same instance rather than allocating a fresh one.
         ByteBuffer reacquired = DirectByteBufferPool.acquire(capacity);
         try {
-            assertSame("closing the endpoint must release netIn back to the pool",
+            assertSame("close() must release netIn back to the pool",
                     netIn, reacquired);
         } finally {
             DirectByteBufferPool.release(reacquired);
@@ -107,74 +78,53 @@ public class UDPEndpointTest {
     }
 
     @Test
-    public void testPendingDatagramBuffersReleasedOnClose() throws Exception {
-        UdpTransportFactory factory = new UdpTransportFactory();
-        factory.start();
-
-        UdpEndpoint endpoint = factory.createServerEndpoint(
-                gumdrop, InetAddress.getLoopbackAddress(), 0, new NoopHandler());
+    public void testPendingDatagramBuffersReleasedOnClose() {
+        UdpEndpoint endpoint = new UdpEndpoint(new NoopHandler());
+        endpoint.init();
         ByteBuffer pending = ByteBufferPool.acquire(128);
         pending.put(new byte[64]);
         pending.flip();
         int capacity = pending.capacity();
+        InetSocketAddress dest = new InetSocketAddress("127.0.0.1", 9);
 
+        assertTrue(endpoint.enqueuePendingDatagram(pending, dest));
+        assertFalse(endpoint.pendingDatagrams.isEmpty());
+
+        endpoint.close();
+        assertTrue(endpoint.pendingDatagrams.isEmpty());
+
+        ByteBuffer reacquired = ByteBufferPool.acquire(capacity);
         try {
-            // Enqueue without requestDatagramWrite() so the selector loop
-            // does not drain the queue before we assert on close() cleanup.
-            assertTrue("datagram must be accepted into the pending queue",
-                    endpoint.enqueuePendingDatagram(pending,
-                            (InetSocketAddress) endpoint.getLocalAddress()));
-            assertFalse("datagram must be queued for write",
-                    endpoint.pendingDatagrams.isEmpty());
-
-            endpoint.close();
-            assertTrue("pending queue must be drained on close",
-                    endpoint.pendingDatagrams.isEmpty());
-
-            ByteBuffer reacquired = ByteBufferPool.acquire(capacity);
-            try {
-                assertSame("close() must release queued datagram buffers",
-                        pending, reacquired);
-            } finally {
-                ByteBufferPool.release(reacquired);
-            }
+            assertSame("close() must release queued datagram buffers",
+                    pending, reacquired);
         } finally {
-            if (endpoint.isOpen()) {
-                endpoint.close();
-            }
+            ByteBufferPool.release(reacquired);
         }
     }
 
     @Test
-    public void testPendingDatagramQueueCapClosesEndpoint() throws Exception {
+    public void testPendingDatagramQueueCapClosesEndpoint() {
         UdpTransportFactory factory = new UdpTransportFactory();
         factory.setMaxNetOutSize(100);
-        factory.start();
 
-        UdpEndpoint endpoint = factory.createServerEndpoint(
-                gumdrop, InetAddress.getLoopbackAddress(), 0, new NoopHandler());
-        InetSocketAddress dest = (InetSocketAddress) endpoint.getLocalAddress();
+        UdpEndpoint endpoint = new UdpEndpoint(new NoopHandler());
+        endpoint.setFactory(factory);
+        endpoint.init();
+        InetSocketAddress dest = new InetSocketAddress("127.0.0.1", 9);
 
-        try {
-            ByteBuffer first = ByteBufferPool.acquire(64);
-            first.put(new byte[60]);
-            first.flip();
-            assertTrue("first datagram must fit under queue cap",
-                    endpoint.enqueuePendingDatagram(first, dest));
-            assertTrue("endpoint stays open under queue cap", endpoint.isOpen());
+        ByteBuffer first = ByteBufferPool.acquire(64);
+        first.put(new byte[60]);
+        first.flip();
+        assertTrue(endpoint.enqueuePendingDatagram(first, dest));
+        assertFalse("endpoint without a bound channel is not open, but not closed yet",
+                endpoint.isClosing());
 
-            ByteBuffer second = ByteBufferPool.acquire(64);
-            second.put(new byte[50]);
-            second.flip();
-            assertFalse("overflowing the pending queue must reject the datagram",
-                    endpoint.enqueuePendingDatagram(second, dest));
-            assertFalse("overflowing the pending queue must close the endpoint",
-                    endpoint.isOpen());
-        } finally {
-            if (endpoint.isOpen()) {
-                endpoint.close();
-            }
-        }
+        ByteBuffer second = ByteBufferPool.acquire(64);
+        second.put(new byte[50]);
+        second.flip();
+        assertFalse(endpoint.enqueuePendingDatagram(second, dest));
+        assertTrue("overflowing the pending queue must close the endpoint",
+                endpoint.isClosing());
     }
 
     @Test

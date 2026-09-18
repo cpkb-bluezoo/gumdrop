@@ -65,9 +65,7 @@ public class NoThreadSleepGuardTest {
             "org/bluezoo/gumdrop/telemetry/SpanTest.java",
             "org/bluezoo/gumdrop/servlet/jsp/JSPDependencyTrackerTest.java",
             "org/bluezoo/gumdrop/servlet/session/SessionManagerTest.java",
-            "org/bluezoo/gumdrop/mailbox/index/MailboxIndexerTest.java",
-            "org/bluezoo/gumdrop/webdav/WebDAVPropfindDeadPropertiesParallelTest.java",
-            "org/bluezoo/gumdrop/quic/QuicTestPeer.java"
+            "org/bluezoo/gumdrop/mailbox/index/MailboxIndexerTest.java"
     ));
 
     @Test

@@ -410,7 +410,7 @@ already depend on them**.
 | **Export transport** | `OtlpExporter`, `OtlpGrpcExporter`, JSONL file exporter, HTTP/gRPC endpoints | `gumdrop-telemetry` (optional jar, unchanged role) |
 | **Instrumentation** | `Trace`, `Span`, `TelemetryConfig`, `*Metrics`, protocol auto-instrumentation | `gumdrop-core` or `gumdrop-otel` module |
 
-**Package rename:** `org.bluezoo.gumdrop.telemetry.protobuf` →
+**Package rename:** `org.bluezoo.protobuf` →
 `org.bluezoo.jprotobuf` (or `org.bluezoo.protobuf`), matching the
 `gonzalez-core` / `jsonparser` sibling-library pattern.
 

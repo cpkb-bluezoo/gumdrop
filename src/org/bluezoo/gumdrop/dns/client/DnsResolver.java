@@ -56,6 +56,7 @@ import org.bluezoo.gumdrop.dns.DnsQuestion;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnssecStatus;
 import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.util.JulWarnings;
 
 /**
  * Asynchronous DNS stub resolver using non-blocking I/O.
@@ -155,6 +156,9 @@ public class DnsResolver {
      * @return the resolver for this loop
      */
     public static DnsResolver forLoop(SelectorLoop loop) {
+        if (loop == null) {
+            throw new IllegalArgumentException("SelectorLoop required");
+        }
         DnsResolver existing = resolvers.get(loop);
         if (existing != null) {
             return existing;
@@ -1876,8 +1880,7 @@ public class DnsResolver {
 
         @Override
         public void onError(Exception cause) {
-            LOGGER.log(Level.WARNING,
-                    "DNS resolver transport error", cause);
+            JulWarnings.warn(LOGGER, "DNS resolver transport error", cause);
             // An asynchronous failure (e.g. a QUIC/TLS handshake that
             // fails after open() already returned successfully) means
             // this transport doesn't actually work for this server.

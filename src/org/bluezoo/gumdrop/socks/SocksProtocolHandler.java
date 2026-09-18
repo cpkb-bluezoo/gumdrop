@@ -48,6 +48,7 @@ import org.bluezoo.gumdrop.auth.GssapiServer;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
+import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.gumdrop.socks.server.BindHandler;
 import org.bluezoo.gumdrop.socks.server.BindState;
 import org.bluezoo.gumdrop.socks.server.ConnectHandler;
@@ -241,8 +242,7 @@ public class SocksProtocolHandler implements ProtocolHandler {
                     break;
             }
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING,
-                    L10N.getString("log.protocol_error"), e);
+            JulWarnings.warn(LOGGER, L10N.getString("log.protocol_error"), e);
             close();
         }
     }
@@ -727,6 +727,15 @@ public class SocksProtocolHandler implements ProtocolHandler {
 
     private void resolveAndConnect(final SocksRequest request) {
         SelectorLoop loop = endpoint.getSelectorLoop();
+        if (loop == null) {
+            if (request.getVersion() == SOCKS4_VERSION) {
+                sendSOCKS4Reply(SOCKS4_REPLY_REJECTED);
+            } else {
+                sendSOCKS5Reply(SOCKS5_REPLY_HOST_UNREACHABLE, null);
+            }
+            close();
+            return;
+        }
         DnsResolver resolver = DnsResolver.forLoop(loop);
         resolver.resolve(request.getHost(), new ResolveCallback() {
             @Override

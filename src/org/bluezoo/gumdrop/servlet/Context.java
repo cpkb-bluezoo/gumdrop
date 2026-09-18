@@ -49,6 +49,7 @@ import org.bluezoo.gumdrop.servlet.session.SessionContext;
 import org.bluezoo.gumdrop.servlet.session.SessionManager;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 import org.bluezoo.gumdrop.util.JarInputStream;
+import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.util.ByteArrays;
 
 import org.xml.sax.SAXException;
@@ -1272,7 +1273,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         } catch (ClassNotFoundException | NoClassDefFoundError e) {
             String message = L10N.getString("err.load_resource");
             message = MessageFormat.format(message, className);
-            LOGGER.log(Level.SEVERE, message, e);
+            JulWarnings.severe(LOGGER, message, e);
         }
     }
 
@@ -1507,14 +1508,14 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                             }
                         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
                             String message = Context.L10N.getString("err.init_resource");
-                            Context.LOGGER.log(Level.SEVERE, message, e);
+                            JulWarnings.severe(Context.LOGGER, message, e);
                         }
                     }
                 }
             }
         } catch (NamingException e) {
             String message = Context.L10N.getString("err.bind_resource");
-            Context.LOGGER.log(Level.SEVERE, message, e);
+            JulWarnings.severe(Context.LOGGER, message, e);
         }
 
         // Ensure that listener, filter, servlets, and lifecycle callbacks

@@ -186,6 +186,9 @@ public final class FtpClientProtocolHandler
 
     @Override
     public void disconnected() {
+        if (dataCoordinator != null) {
+            dataCoordinator.closeActiveListener();
+        }
         LOGGER.info(L10N.getString("client.info.connection_disconnected"));
         state = FtpState.CLOSED;
         handler.onDisconnected();

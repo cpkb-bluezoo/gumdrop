@@ -1,6 +1,6 @@
 /*
- * ProtobufParseException.java
- * Copyright (C) 2025 Chris Burdess
+ * BackgroundWarmSkippedException.java
+ * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
  * For more information please visit https://www.nongnu.org/gumdrop/
@@ -19,34 +19,19 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.bluezoo.gumdrop.telemetry.protobuf;
+package org.bluezoo.gumdrop.mailbox;
+
+import java.io.IOException;
 
 /**
- * Exception thrown when protobuf parsing fails.
- *
- * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * Normal completion signal for a background index-warming job that chose
+ * not to open a mailbox because another session already holds it open
+ * (issue #163). Not an error; {@link org.bluezoo.gumdrop.mailbox.index.MailboxIndexer}
+ * treats this as success with no client-visible failure.
  */
-public class ProtobufParseException extends Exception {
+public final class BackgroundWarmSkippedException extends IOException {
 
-    private static final long serialVersionUID = 1L;
-
-    /**
-     * Creates a new parse exception with the given message.
-     *
-     * @param message the error message
-     */
-    public ProtobufParseException(String message) {
+    public BackgroundWarmSkippedException(String message) {
         super(message);
     }
-
-    /**
-     * Creates a new parse exception with the given message and cause.
-     *
-     * @param message the error message
-     * @param cause the underlying cause
-     */
-    public ProtobufParseException(String message, Throwable cause) {
-        super(message, cause);
-    }
 }
-

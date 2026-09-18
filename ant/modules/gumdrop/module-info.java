@@ -14,6 +14,7 @@ module org.bluezoo.gumdrop {
 
     requires org.bluezoo.gonzalez;
     requires org.bluezoo.json;
+    requires org.bluezoo.protobuf;
 
     exports org.bluezoo.gumdrop;
     exports org.bluezoo.gumdrop.util;
@@ -84,7 +85,6 @@ module org.bluezoo.gumdrop {
     exports org.bluezoo.gumdrop.redis.codec;
     exports org.bluezoo.gumdrop.telemetry;
     exports org.bluezoo.gumdrop.telemetry.metrics;
-    exports org.bluezoo.gumdrop.telemetry.protobuf;
     exports org.bluezoo.gumdrop.telemetry.otlp;
     exports org.bluezoo.gumdrop.telemetry.json;
     exports org.bluezoo.gumdrop.telemetry.export;

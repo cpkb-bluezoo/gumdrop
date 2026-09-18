@@ -33,8 +33,8 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.client.HttpClientHandler;
-import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ProtobufWriter;
 
 import org.junit.After;
 import org.junit.Before;

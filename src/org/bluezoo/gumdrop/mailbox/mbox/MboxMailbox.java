@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.mailbox.mbox;
 
+import org.bluezoo.gumdrop.mailbox.BackgroundWarmSkippedException;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.BufferedAsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Flag;
@@ -238,7 +239,8 @@ public final class MboxMailbox implements Mailbox {
             if (!gate.permit.tryAcquire()) {
                 releaseGateRef(gatePath, gate);
                 gate = null;
-                throw new IOException("Mailbox busy, skipping background warm: " + mboxFile);
+                throw new BackgroundWarmSkippedException(
+                        "Mailbox busy, skipping background warm: " + mboxFile);
             }
         } else {
             try {

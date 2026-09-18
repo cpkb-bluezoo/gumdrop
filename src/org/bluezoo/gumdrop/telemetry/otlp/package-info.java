@@ -24,8 +24,8 @@
  * over HTTP or gRPC.
  *
  * <p>{@link org.bluezoo.gumdrop.telemetry.otlp.OtlpExporter} sends
- * OTLP/HTTP requests (protobuf-encoded, via {@link
- * org.bluezoo.gumdrop.telemetry.protobuf}) through {@link
+ * OTLP/HTTP requests (protobuf-encoded via the {@code org.bluezoo:jprotobuf}
+ * codec) through {@link
  * org.bluezoo.gumdrop.telemetry.otlp.OtlpEndpoint}, HTTP/2 or HTTP/1.1
  * with ALPN negotiation and connection pooling keyed to a {@code
  * SelectorLoop}. {@link org.bluezoo.gumdrop.telemetry.otlp.OtlpGrpcExporter}
@@ -38,6 +38,5 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.telemetry.TelemetryConfig
- * @see org.bluezoo.gumdrop.telemetry.protobuf
  */
 package org.bluezoo.gumdrop.telemetry.otlp;

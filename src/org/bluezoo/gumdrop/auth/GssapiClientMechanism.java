@@ -23,8 +23,8 @@ package org.bluezoo.gumdrop.auth;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.security.PrivilegedActionException;
-import java.security.PrivilegedExceptionAction;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionException;
 
 import javax.security.auth.Subject;
 
@@ -93,24 +93,21 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
             throws IOException {
         this.subject = subject;
         try {
-            this.context = Subject.doAs(subject,
-                    new PrivilegedExceptionAction<GSSContext>() {
-                        @Override
-                        public GSSContext run() throws GSSException {
-                            GSSManager manager = GSSManager.getInstance();
-                            GSSName targetName = manager.createName(
-                                    servicePrincipal,
-                                    GSSName.NT_HOSTBASED_SERVICE);
-                            GSSContext ctx = manager.createContext(
-                                    targetName, KRB5_OID,
-                                    (GSSCredential) null,
-                                    GSSContext.DEFAULT_LIFETIME);
-                            ctx.requestMutualAuth(true);
-                            ctx.requestInteg(true);
-                            return ctx;
-                        }
+            this.context = Subject.callAs(subject,
+                    (Callable<GSSContext>) () -> {
+                        GSSManager manager = GSSManager.getInstance();
+                        GSSName targetName = manager.createName(
+                                servicePrincipal,
+                                GSSName.NT_HOSTBASED_SERVICE);
+                        GSSContext ctx = manager.createContext(
+                                targetName, KRB5_OID,
+                                (GSSCredential) null,
+                                GSSContext.DEFAULT_LIFETIME);
+                        ctx.requestMutualAuth(true);
+                        ctx.requestInteg(true);
+                        return ctx;
                     });
-        } catch (PrivilegedActionException e) {
+        } catch (CompletionException e) {
             throw new IOException("GSSAPI context init failed",
                     e.getCause());
         }
@@ -159,18 +156,13 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
 
     /**
      * RFC 4752 §3.1 — context establishment phase.
-     * Wraps {@code initSecContext()} within {@code Subject.doAs()}.
+     * Wraps {@code initSecContext()} within {@code Subject.callAs()}.
      */
     private byte[] processContextToken(byte[] challenge) throws IOException {
         try {
-            byte[] token = Subject.doAs(subject,
-                    new PrivilegedExceptionAction<byte[]>() {
-                        @Override
-                        public byte[] run() throws GSSException {
-                            return context.initSecContext(
-                                    challenge, 0, challenge.length);
-                        }
-                    });
+            byte[] token = Subject.callAs(subject,
+                    (Callable<byte[]>) () -> context.initSecContext(
+                            challenge, 0, challenge.length));
             if (context.isEstablished()) {
                 contextEstablished = true;
             }
@@ -178,9 +170,9 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
                 return new byte[0];
             }
             return token;
-        } catch (PrivilegedActionException e) {
-            Exception cause = e.getException();
-            throw new IOException("GSSAPI token exchange failed", cause);
+        } catch (CompletionException e) {
+            throw new IOException("GSSAPI token exchange failed",
+                    e.getCause());
         }
     }
 
@@ -195,14 +187,9 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
             throws IOException {
         try {
             MessageProp prop = new MessageProp(0, false);
-            byte[] serverOffer = Subject.doAs(subject,
-                    new PrivilegedExceptionAction<byte[]>() {
-                        @Override
-                        public byte[] run() throws GSSException {
-                            return context.unwrap(challenge, 0,
-                                    challenge.length, prop);
-                        }
-                    });
+            byte[] serverOffer = Subject.callAs(subject,
+                    (Callable<byte[]>) () -> context.unwrap(challenge, 0,
+                            challenge.length, prop));
             if (serverOffer.length < 4) {
                 throw new IOException(
                         "GSSAPI: invalid security layer offer");
@@ -214,17 +201,12 @@ public final class GssapiClientMechanism implements SaslClientMechanism {
             response[2] = 0;
             response[3] = 0;
 
-            byte[] wrapped = Subject.doAs(subject,
-                    new PrivilegedExceptionAction<byte[]>() {
-                        @Override
-                        public byte[] run() throws GSSException {
-                            return context.wrap(response, 0, response.length,
-                                    new MessageProp(0, false));
-                        }
-                    });
+            byte[] wrapped = Subject.callAs(subject,
+                    (Callable<byte[]>) () -> context.wrap(response, 0,
+                            response.length, new MessageProp(0, false)));
             complete = true;
             return wrapped;
-        } catch (PrivilegedActionException e) {
+        } catch (CompletionException e) {
             throw new IOException(
                     "GSSAPI security layer negotiation failed",
                     e.getCause());

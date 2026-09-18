@@ -8,6 +8,7 @@
   <path id='lib.compile.classpath'>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
+    <pathelement location='${lib}/${jprotobuf.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${annotation.jar}'/>

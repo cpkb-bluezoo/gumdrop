@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.mailbox.maildir;
 
+import org.bluezoo.gumdrop.mailbox.BackgroundWarmSkippedException;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageWriter;
 import org.bluezoo.gumdrop.mailbox.Flag;
@@ -241,7 +242,8 @@ public final class MaildirMailbox implements Mailbox {
             // than duplicate the work.
             releaseGateRef(gatePath, gate);
             gate = null;
-            throw new IOException("Mailbox busy, skipping background warm: " + maildirPath);
+            throw new BackgroundWarmSkippedException(
+                    "Mailbox busy, skipping background warm: " + maildirPath);
         }
 
         boolean initialized = false;

@@ -299,7 +299,7 @@ To serialize a request or parse a response, use the Proto model with
 
 <pre>
 import org.bluezoo.gumdrop.grpc.proto.*;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.protobuf.ProtobufWriter;
 
 ByteArrayOutputStream out = new ByteArrayOutputStream();
 ProtobufWriter writer = new ProtobufWriter(out);
@@ -323,7 +323,7 @@ responses, parse manually:
 
 <pre>
 import org.bluezoo.gumdrop.grpc.proto.*;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
+import org.bluezoo.protobuf.ProtobufParser;
 
 ProtoModelAdapter adapter = new ProtoModelAdapter(protoFile, myHandler);
 ProtobufParser parser = new ProtobufParser(adapter);

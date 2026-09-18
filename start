@@ -1,55 +1,46 @@
-#!/bin/bash
+#!/bin/sh
 #
-# Gumdrop launcher.
+# Gumdrop launcher (POSIX sh: Linux, macOS, BSD).
 #
-# Works on macOS and Linux, and is container-friendly:
-#   * sizes the heap from the (cgroup-aware) container memory limit via
-#     -XX:MaxRAMPercentage rather than a fixed -Xmx;
-#   * logs to the console (12-factor) unless a logging config is supplied;
-#   * exec's the JVM so it receives SIGTERM directly for graceful shutdown.
+# Requires Java 25+. Prefers the lib/ distribution (GUMDROP_HOME/bin/gumdrop.sh);
+# falls back to the legacy fat jar.
 #
-# Prefers the lib/ distribution layout (bin/gumdrop.sh under GUMDROP_HOME or
-# dist/container-home after ant dist). Falls back to the legacy fat jar.
-#
-# Overridable via environment:
-#   JAVA               java binary (default: java)
-#   GUMDROP_HOME       install root (lib/ layout)
-#   GUMDROP_JAR        legacy fat jar (default: ./dist/gumdrop-container.jar)
-#   LOGGING_PROPERTIES java.util.logging config file (default: logging.properties)
-#   JAVA_OPTS          extra JVM options (appended last, so they win)
-#   MAX_RAM_PERCENTAGE heap as % of available RAM (default: 75.0)
+# Environment: JAVA, GUMDROP_HOME, GUMDROP_JAR, LOGGING_PROPERTIES, JAVA_OPTS,
+# MAX_RAM_PERCENTAGE (default 75.0).
 
 set -e
 
-script_dir=$(cd "$(dirname "$0")" && pwd)
+script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 
-# Installed or ant dist layout: dist/container-home or explicit GUMDROP_HOME
-if [[ -z "$GUMDROP_HOME" ]]; then
-	if [[ -f "$script_dir/dist/container-home/bin/gumdrop.sh" ]]; then
-		export GUMDROP_HOME="$script_dir/dist/container-home"
-	elif [[ -f "$script_dir/bin/gumdrop.sh" ]]; then
-		export GUMDROP_HOME="$script_dir"
+if [ -z "${GUMDROP_HOME:-}" ]; then
+	if [ -f "$script_dir/dist/container-home/bin/gumdrop.sh" ]; then
+		GUMDROP_HOME=$script_dir/dist/container-home
+	elif [ -f "$script_dir/bin/gumdrop.sh" ]; then
+		GUMDROP_HOME=$script_dir
 	fi
+	export GUMDROP_HOME
 fi
 
-if [[ -n "$GUMDROP_HOME" && -f "$GUMDROP_HOME/bin/gumdrop.sh" ]]; then
-	exec "$GUMDROP_HOME/bin/gumdrop.sh" "$@"
+if [ -n "${GUMDROP_HOME:-}" ] && [ -f "$GUMDROP_HOME/bin/gumdrop.sh" ]; then
+	gumdrop_bin=$GUMDROP_HOME/bin/gumdrop.sh
+	if [ -x "$gumdrop_bin" ]; then
+		exec "$gumdrop_bin" "$@"
+	fi
+	exec sh "$gumdrop_bin" "$@"
 fi
 
-java="${JAVA:-java}"
-GUMDROP_JAR="${GUMDROP_JAR:-./dist/gumdrop-container.jar}"
-LOGGING_PROPERTIES="${LOGGING_PROPERTIES:-logging.properties}"
-MAX_RAM_PERCENTAGE="${MAX_RAM_PERCENTAGE:-75.0}"
+java=${JAVA:-java}
+GUMDROP_JAR=${GUMDROP_JAR:-$script_dir/dist/gumdrop-container.jar}
+LOGGING_PROPERTIES=${LOGGING_PROPERTIES:-$script_dir/logging.properties}
+MAX_RAM_PERCENTAGE=${MAX_RAM_PERCENTAGE:-75.0}
 
 logging=
-if [[ -n "$LOGGING_PROPERTIES" && -f "$LOGGING_PROPERTIES" ]]; then
-	logging=-Djava.util.logging.config.file=$LOGGING_PROPERTIES
+if [ -n "$LOGGING_PROPERTIES" ] && [ -f "$LOGGING_PROPERTIES" ]; then
+	logging="-Djava.util.logging.config.file=$LOGGING_PROPERTIES"
 fi
 
-# Container-aware heap sizing. UseContainerSupport is on by default on modern
-# JDKs; MaxRAMPercentage raises the default 25% cap so the server actually uses
-# the memory the container was given.
-jvm_opts="-XX:+UseContainerSupport -XX:MaxRAMPercentage=$MAX_RAM_PERCENTAGE"
+# Java 25+: container memory limits are honored without +UseContainerSupport.
+jvm_opts="-XX:MaxRAMPercentage=$MAX_RAM_PERCENTAGE"
 
 exec "$java" $jvm_opts $logging \
 	$JAVA_OPTS \

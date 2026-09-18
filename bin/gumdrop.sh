@@ -35,7 +35,8 @@ if [ -n "$LOGGING_PROPERTIES" ] && [ -f "$LOGGING_PROPERTIES" ]; then
 	logging="-Djava.util.logging.config.file=$LOGGING_PROPERTIES"
 fi
 
-jvm_opts="-XX:+UseContainerSupport -XX:MaxRAMPercentage=$MAX_RAM_PERCENTAGE"
+# Java 25+: cgroup/container memory limits are automatic; +UseContainerSupport was removed.
+jvm_opts="-XX:MaxRAMPercentage=$MAX_RAM_PERCENTAGE"
 
 exec "$java" $jvm_opts $logging \
 	$JAVA_OPTS \

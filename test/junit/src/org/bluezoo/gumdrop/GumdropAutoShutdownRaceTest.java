@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop;
 
+import org.junit.After;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
@@ -65,9 +66,19 @@ public class GumdropAutoShutdownRaceTest {
 
     private static final int ITERATIONS = 300;
 
+    private Gumdrop gumdrop;
+
+    @After
+    public void tearDown() throws InterruptedException {
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+            gumdrop.join();
+        }
+    }
+
     @Test
     public void connectCannotObserveTornDownLoopFromConcurrentAutoShutdown() throws Exception {
-        final Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().drainTimeoutMs(0));
+        gumdrop = Gumdrop.boot(GumdropConfig.create().drainTimeoutMs(0));
         gumdrop.shutdown();
         TcpTransportFactory factory = new TcpTransportFactory();
 

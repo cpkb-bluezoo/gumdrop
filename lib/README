@@ -2,7 +2,7 @@ Compile-time and container-runtime dependency jars for Gumdrop.
 
 **Not in git.** Only this README is tracked; `lib/*.jar` is gitignored. A fresh
 clone needs network access once for `ant resolve-deps` (invoked automatically
-from `build-core` and `assemble-container`).
+from compile and `assemble-container` targets).
 
 Version pins: `boms/versions.properties` (keep in sync with root `pom.xml` and
 `central/*-pom.xml` when cutting releases).
@@ -13,16 +13,23 @@ Version pins: `boms/versions.properties` (keep in sync with root `pom.xml` and
 |-----|--------|
 | gonzalez-core-* | Maven Central (`org.bluezoo:gonzalez-core`) |
 | jsonparser-* | Maven Central (`org.bluezoo:jsonparser`) |
-| jakarta.servlet-api-* | Maven Central (Jakarta Servlet API) |
-| javax.mail-* | Maven Central (J2EE API) |
-| javax.annotation-api-* | Maven Central (J2EE API) |
-| javax.ejb-api-* | Maven Central (J2EE API) |
-| javax.persistence-api-* | Maven Central (J2EE API) |
-| jaxws-api-* | Maven Central (J2EE API) |
+| jprotobuf-* | Maven Central (`org.bluezoo:jprotobuf`) |
+| jakarta.servlet-api-* | Maven Central (Jakarta Servlet 6.x API) |
+| jakarta.annotation-api-* | Maven Central (Jakarta Annotations) |
+| jakarta.persistence-api-* | Maven Central (Jakarta Persistence; compile classpath) |
+| javax.mail-* | Maven Central (JavaMail API) |
+| javax.annotation-api-* | Maven Central (legacy J2EE annotations) |
+| javax.ejb-api-* | Maven Central (legacy J2EE EJB API) |
+| javax.persistence-api-* | Maven Central (legacy JPA API) |
+| jaxws-api-* | Maven Central (JAX-WS API) |
+
+Gumdrop 3 servlet code uses **Jakarta** Servlet and related APIs. The **javax.***
+jars remain on the container classpath for older webapp/API surface (mail, EJB,
+JPA, JAX-WS) used by parts of the stack and sample dependencies.
 
 ## Runtime layout
 
-- **Container zip (`lib/` layout):** J2EE and third-party jars stay as plain files
-  under `lib/`; `ContainerClassLoader` loads them at runtime.
+- **Container install (`dist/container-home/lib/`):** third-party and API jars stay
+  as plain files; `ContainerClassLoader` loads them at runtime.
 - **Legacy fat jar:** the same jars are nested inside `gumdrop-container.jar`
-  (deprecated; prefer the zip distribution).
+  (deprecated; prefer `assemble-container` / the zip distribution).

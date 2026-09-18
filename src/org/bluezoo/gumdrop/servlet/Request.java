@@ -244,6 +244,7 @@ class Request implements HttpServletRequest {
         return (userPrincipal == null) ? null : context.getAuthMethod();
     }
 
+    @SuppressWarnings("removal") // legacy $Version cookie parsing; Cookie.setVersion until API removal
     @Override public Cookie[] getCookies() {
         if (cookies != null) {
             return cookies;

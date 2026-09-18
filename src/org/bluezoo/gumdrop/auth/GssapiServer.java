@@ -23,12 +23,12 @@ package org.bluezoo.gumdrop.auth;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.security.PrivilegedActionException;
-import java.security.PrivilegedExceptionAction;
 import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -120,26 +120,23 @@ public final class GssapiServer {
             loginContext.login();
             this.serviceSubject = loginContext.getSubject();
 
-            this.serverCredential = Subject.doAs(serviceSubject,
-                    new PrivilegedExceptionAction<GSSCredential>() {
-                        @Override
-                        public GSSCredential run() throws GSSException {
-                            GSSManager manager = GSSManager.getInstance();
-                            GSSName serverName = manager.createName(
-                                    servicePrincipal,
-                                    GSSName.NT_HOSTBASED_SERVICE);
-                            return manager.createCredential(serverName,
-                                    GSSCredential.DEFAULT_LIFETIME,
-                                    KRB5_OID,
-                                    GSSCredential.ACCEPT_ONLY);
-                        }
+            this.serverCredential = Subject.callAs(serviceSubject,
+                    (Callable<GSSCredential>) () -> {
+                        GSSManager manager = GSSManager.getInstance();
+                        GSSName serverName = manager.createName(
+                                servicePrincipal,
+                                GSSName.NT_HOSTBASED_SERVICE);
+                        return manager.createCredential(serverName,
+                                GSSCredential.DEFAULT_LIFETIME,
+                                KRB5_OID,
+                                GSSCredential.ACCEPT_ONLY);
                     });
         } catch (LoginException e) {
             String msg = MessageFormat.format(
                     L10N.getString("err.gssapi_keytab_load_failed"),
                     keytabPath);
             throw new IOException(msg, e);
-        } catch (PrivilegedActionException e) {
+        } catch (CompletionException e) {
             String msg = MessageFormat.format(
                     L10N.getString("err.gssapi_credential_failed"),
                     servicePrincipal);
@@ -168,20 +165,17 @@ public final class GssapiServer {
      */
     public GssapiExchange createExchange() throws IOException {
         try {
-            GSSContext context = Subject.doAs(serviceSubject,
-                    new PrivilegedExceptionAction<GSSContext>() {
-                        @Override
-                        public GSSContext run() throws GSSException {
-                            GSSManager manager = GSSManager.getInstance();
-                            return manager.createContext(serverCredential);
-                        }
+            GSSContext context = Subject.callAs(serviceSubject,
+                    (Callable<GSSContext>) () -> {
+                        GSSManager manager = GSSManager.getInstance();
+                        return manager.createContext(serverCredential);
                     });
             context.requestMutualAuth(true);
             return new GssapiExchange(context);
-        } catch (PrivilegedActionException e) {
+        } catch (CompletionException e) {
             String msg = L10N.getString("err.gssapi_context_create_failed");
             throw new IOException(msg, e.getCause());
-        } catch (org.ietf.jgss.GSSException e) {
+        } catch (GSSException e) {
             String msg = L10N.getString("err.gssapi_context_create_failed");
             throw new IOException(msg, e);
         }
@@ -210,7 +204,7 @@ public final class GssapiServer {
          * the server response token.
          *
          * <p>This wraps {@code GSSContext.acceptSecContext()} within
-         * {@code Subject.doAs()} for proper credential access.
+         * {@code Subject.callAs()} for proper credential access.
          * The operation is CPU-bound (keytab decryption) with no KDC
          * network I/O.
          *
@@ -220,17 +214,11 @@ public final class GssapiServer {
          */
         public byte[] acceptToken(byte[] clientToken) throws IOException {
             try {
-                byte[] responseToken = Subject.doAs(serviceSubject,
-                        new PrivilegedExceptionAction<byte[]>() {
-                            @Override
-                            public byte[] run() throws GSSException {
-                                return context.acceptSecContext(
-                                        clientToken, 0, clientToken.length);
-                            }
-                        });
-                return responseToken;
-            } catch (PrivilegedActionException e) {
-                Exception cause = e.getException();
+                return Subject.callAs(serviceSubject,
+                        (Callable<byte[]>) () -> context.acceptSecContext(
+                                clientToken, 0, clientToken.length));
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
                 if (cause instanceof GSSException) {
                     String msg = MessageFormat.format(
                             L10N.getString("err.gssapi_token_rejected"),
@@ -272,18 +260,13 @@ public final class GssapiServer {
             offer[2] = 0;
             offer[3] = 0;
             try {
-                byte[] wrapped = Subject.doAs(serviceSubject,
-                        new PrivilegedExceptionAction<byte[]>() {
-                            @Override
-                            public byte[] run() throws GSSException {
-                                return context.wrap(offer, 0, offer.length,
-                                        new org.ietf.jgss.MessageProp(0,
-                                                false));
-                            }
-                        });
+                byte[] wrapped = Subject.callAs(serviceSubject,
+                        (Callable<byte[]>) () -> context.wrap(offer, 0,
+                                offer.length,
+                                new org.ietf.jgss.MessageProp(0, false)));
                 securityLayerSent = true;
                 return wrapped;
-            } catch (PrivilegedActionException e) {
+            } catch (CompletionException e) {
                 throw new IOException(
                         L10N.getString("err.gssapi_wrap_failed"),
                         e.getCause());
@@ -315,14 +298,9 @@ public final class GssapiServer {
             try {
                 org.ietf.jgss.MessageProp prop =
                         new org.ietf.jgss.MessageProp(0, false);
-                byte[] unwrapped = Subject.doAs(serviceSubject,
-                        new PrivilegedExceptionAction<byte[]>() {
-                            @Override
-                            public byte[] run() throws GSSException {
-                                return context.unwrap(wrapped, 0,
-                                        wrapped.length, prop);
-                            }
-                        });
+                byte[] unwrapped = Subject.callAs(serviceSubject,
+                        (Callable<byte[]>) () -> context.unwrap(wrapped, 0,
+                                wrapped.length, prop));
                 if (unwrapped.length < 4) {
                     throw new IOException(
                             L10N.getString("err.gssapi_invalid_layer"));
@@ -335,7 +313,7 @@ public final class GssapiServer {
 
                 GSSName srcName = context.getSrcName();
                 return srcName.toString();
-            } catch (PrivilegedActionException e) {
+            } catch (CompletionException e) {
                 throw new IOException(
                         L10N.getString("err.gssapi_unwrap_failed"),
                         e.getCause());

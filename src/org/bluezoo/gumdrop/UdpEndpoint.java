@@ -104,7 +104,7 @@ public class UdpEndpoint implements Endpoint, ChannelHandler {
     /**
      * DTLS sessions keyed by peer address (issue #190). A single bound
      * datagram socket serves every peer in server mode, so unlike TCP/TLS
-     * (one {@code SSLEngine} per connection) DTLS needs one session per
+     * (one TLS session per TCP connection) DTLS needs one session per
      * remote address here. Client mode only ever has one entry, keyed by
      * {@link #remoteAddress}. Unused (stays empty) when {@link #secure}
      * is false. Reads and writes all happen on this endpoint's own
