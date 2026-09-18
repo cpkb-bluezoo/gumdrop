@@ -161,10 +161,28 @@ final class DoQStreamHandler implements ProtocolHandler {
                 metrics.queryReceived(q.getType().name(), "doq");
             }
 
-            if (!query.isQuery()
-                    || query.getOpcode() != DnsMessage.OPCODE_QUERY) {
-                sendResponseAndClose(query.createErrorResponse(
-                        DnsMessage.RCODE_NOTIMP));
+            if (!DnsServer.isStandardQuery(query)) {
+                final long startNanos = System.nanoTime();
+                server.dispatchNonQueryOpcode(query, endpoint.getSelectorLoop(),
+                        new DnsQueryCallback() {
+                    @Override
+                    public void onResponse(DnsMessage response) {
+                        if (metrics != null) {
+                            double durationMs = (System.nanoTime()
+                                    - startNanos) / 1_000_000.0;
+                            metrics.responseSent(
+                                    DnsServer.rcodeToString(response.getRcode()),
+                                    durationMs, "doq");
+                        }
+                        sendResponseAndClose(response);
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        sendResponseAndClose(query.createErrorResponse(
+                                DnsMessage.RCODE_SERVFAIL));
+                    }
+                });
                 return;
             }
 

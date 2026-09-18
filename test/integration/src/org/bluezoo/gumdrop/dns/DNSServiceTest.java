@@ -42,7 +42,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.dns.server.DnsQueryHandler;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
+import org.bluezoo.gumdrop.SelectorLoop;
 
 import static org.junit.Assert.*;
 
@@ -383,6 +385,67 @@ public class DNSServiceTest {
     }
 
     /**
+     * Non-QUERY opcodes (e.g. RFC 1996 NOTIFY) receive NOTIMP by default.
+     */
+    @Test
+    public void testDefaultNonQueryOpcodeReturnsNotimp() throws Exception {
+        CapturingDNSListener listener = new CapturingDNSListener();
+        DnsServer service = new DnsServer();
+        listener.setServer(service);
+
+        DnsMessage notify = buildOpcodeQuery(11, DnsMessage.OPCODE_NOTIFY,
+                "example.com", DnsType.SOA);
+        InetSocketAddress source =
+                new InetSocketAddress("127.0.0.1", 54320);
+        syncHandleDatagram(service, listener, notify.serialize(), source);
+
+        assertNotNull(listener.lastSent);
+        DnsMessage response = DnsMessage.parse(listener.lastSent);
+        assertEquals(DnsMessage.RCODE_NOTIMP, response.getRcode());
+        assertEquals(notify.getId(), response.getId());
+    }
+
+    /**
+     * Handlers can implement {@link DnsQueryHandler#handleNonQueryOpcode}
+     * for NOTIFY, dynamic update, or other opcodes.
+     */
+    @Test
+    public void testHandleNonQueryOpcodeHandler() throws Exception {
+        CapturingDNSListener listener = new CapturingDNSListener();
+        DnsServer service = new DnsServer();
+        service.setHandler(new DnsQueryHandler() {
+            @Override
+            public void handleQuery(DnsMessage query, SelectorLoop loop,
+                                    DnsQueryCallback callback) {
+                throw new AssertionError("unexpected QUERY");
+            }
+
+            @Override
+            public boolean handleNonQueryOpcode(DnsMessage query,
+                                                SelectorLoop loop,
+                                                DnsQueryCallback callback) {
+                if (query.getOpcode() == DnsMessage.OPCODE_NOTIFY) {
+                    callback.onResponse(query.createResponse(
+                            Collections.<DnsResourceRecord>emptyList()));
+                    return true;
+                }
+                return false;
+            }
+        });
+        listener.setServer(service);
+
+        DnsMessage notify = buildOpcodeQuery(12, DnsMessage.OPCODE_NOTIFY,
+                "example.com", DnsType.SOA);
+        InetSocketAddress source =
+                new InetSocketAddress("127.0.0.1", 54323);
+        syncHandleDatagram(service, listener, notify.serialize(), source);
+
+        assertNotNull(listener.lastSent);
+        DnsMessage response = DnsMessage.parse(listener.lastSent);
+        assertEquals(DnsMessage.RCODE_NOERROR, response.getRcode());
+    }
+
+    /**
      * RFC 7873: after the cookie handshake, queries with a valid server
      * cookie are resolved normally.
      */
@@ -648,6 +711,17 @@ public class DNSServiceTest {
         buf.putShort((short) cookieData.length);
         buf.put(cookieData);
         return buf.array();
+    }
+
+    private static DnsMessage buildOpcodeQuery(int id, int opcode, String name,
+                                               DnsType type) {
+        int flags = opcode << 11;
+        DnsQuestion question = new DnsQuestion(name, type, DnsClass.IN);
+        return new DnsMessage(id, flags,
+                Collections.singletonList(question),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList(),
+                Collections.<DnsResourceRecord>emptyList());
     }
 
     /** Test listener that captures outbound datagrams. */

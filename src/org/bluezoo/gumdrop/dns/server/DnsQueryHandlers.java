@@ -98,6 +98,16 @@ public final class DnsQueryHandlers {
         }
 
         @Override
+        public boolean handleNonQueryOpcode(final DnsMessage query,
+                                            final SelectorLoop loop,
+                                            final DnsQueryCallback callback) {
+            if (first.handleNonQueryOpcode(query, loop, callback)) {
+                return true;
+            }
+            return second.handleNonQueryOpcode(query, loop, callback);
+        }
+
+        @Override
         public void handleQuery(final DnsMessage query, final SelectorLoop loop,
                                 final DnsQueryCallback callback) {
             first.handleQuery(query, loop, new DnsQueryCallback() {

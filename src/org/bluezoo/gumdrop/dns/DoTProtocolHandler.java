@@ -163,10 +163,28 @@ final class DoTProtocolHandler implements ProtocolHandler {
                 metrics.queryReceived(q.getType().name(), "dot");
             }
 
-            if (!query.isQuery()
-                    || query.getOpcode() != DnsMessage.OPCODE_QUERY) {
-                sendResponse(query.createErrorResponse(
-                        DnsMessage.RCODE_NOTIMP));
+            if (!DnsServer.isStandardQuery(query)) {
+                final long startNanos = System.nanoTime();
+                server.dispatchNonQueryOpcode(query, endpoint.getSelectorLoop(),
+                        new DnsQueryCallback() {
+                    @Override
+                    public void onResponse(DnsMessage response) {
+                        if (metrics != null) {
+                            double durationMs = (System.nanoTime()
+                                    - startNanos) / 1_000_000.0;
+                            metrics.responseSent(
+                                    DnsServer.rcodeToString(response.getRcode()),
+                                    durationMs, "dot");
+                        }
+                        sendResponse(response);
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        sendResponse(query.createErrorResponse(
+                                DnsMessage.RCODE_SERVFAIL));
+                    }
+                });
                 return;
             }
 

@@ -131,6 +131,11 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * }
  * }</pre>
  *
+ * <p>Non-QUERY opcodes (RFC 1996 NOTIFY, RFC 2136 dynamic update, and
+ * others) are dispatched to {@link DnsQueryHandler#handleNonQueryOpcode}.
+ * Handlers return {@code false} when they do not support an opcode; the
+ * default when no handler claims the message is {@code NOTIMP}.
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Service
  * @see DnsListener
@@ -439,13 +444,22 @@ public class DnsServer implements Server {
                 metrics.queryReceived(q.getType().name(), "udp");
             }
 
-            // RFC 1035 section 4.1.1: only OPCODE_QUERY (standard query) is supported
-            if (!query.isQuery()
-                    || query.getOpcode() != DnsMessage.OPCODE_QUERY) {
-                DnsMessage error = query.createErrorResponse(
-                        DnsMessage.RCODE_NOTIMP);
-                sendResponse(origin, error, source);
-                onComplete.run();
+            if (!isStandardQuery(query)) {
+                dispatchNonQueryOpcode(query, origin.getSelectorLoop(),
+                        new DnsQueryCallback() {
+                    @Override
+                    public void onResponse(DnsMessage response) {
+                        sendResponse(origin, response, source);
+                        onComplete.run();
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        sendResponse(origin, query.createErrorResponse(
+                                DnsMessage.RCODE_SERVFAIL), source);
+                        onComplete.run();
+                    }
+                });
                 return;
             }
 
@@ -795,6 +809,35 @@ public class DnsServer implements Server {
         }
         result.add(DnsResourceRecord.opt(udpPayloadSize, optionBytes));
         return result;
+    }
+
+    /**
+     * Returns true if {@code query} is a standard QUERY (RFC 1035
+     * section 4.1.1).
+     */
+    public static boolean isStandardQuery(DnsMessage query) {
+        return query.isQuery()
+                && query.getOpcode() == DnsMessage.OPCODE_QUERY;
+    }
+
+    /**
+     * Dispatches a non-{@code OPCODE_QUERY} message to the active
+     * {@link DnsQueryHandler}. DoT and DoQ listeners delegate here.
+     *
+     * @param query the parsed DNS message
+     * @param loop the selector loop the message arrived on
+     * @param callback invoked exactly once with the response
+     */
+    public void dispatchNonQueryOpcode(final DnsMessage query,
+                                       final SelectorLoop loop,
+                                       final DnsQueryCallback callback) {
+        DnsQueryHandler handler = activeHandler != null
+                ? activeHandler : resolveActiveHandler();
+        if (handler.handleNonQueryOpcode(query, loop, callback)) {
+            return;
+        }
+        callback.onResponse(query.createErrorResponse(
+                DnsMessage.RCODE_NOTIMP));
     }
 
     /**
