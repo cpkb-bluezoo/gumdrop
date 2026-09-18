@@ -84,6 +84,9 @@ final class HandshakeMessages {
     /** RFC 9001 section 8.2. */
     static final int EXT_QUIC_TRANSPORT_PARAMETERS = 0x0039;
 
+    /** RFC 9849 {@code encrypted_client_hello}. */
+    static final int EXT_ENCRYPTED_CLIENT_HELLO = EncryptedClientHello.EXTENSION_TYPE;
+
     /** RFC 8446 section 4.2.9 -- the only key exchange mode this engine ever offers. */
     private static final int PSK_DHE_KE = 1;
 
@@ -277,6 +280,10 @@ final class HandshakeMessages {
         int recordSizeLimit;
         /** Raw algorithm ids from {@code compress_certificate}, or null if absent. */
         byte[] certificateCompressionAlgorithms;
+        /** Set when {@code encrypted_client_hello} uses the inner variant. */
+        boolean encryptedClientHelloInner;
+        /** Outer {@code encrypted_client_hello}, or null if absent or inner only. */
+        EncryptedClientHello.Outer encryptedClientHelloOuter;
     }
 
     static ClientHello parseClientHello(byte[] fullMessage) throws HandshakeFormatException {
@@ -387,6 +394,15 @@ final class HandshakeMessages {
             case EXT_COMPRESS_CERTIFICATE:
                 ch.certificateCompressionAlgorithms = extBody;
                 break;
+            case EXT_ENCRYPTED_CLIENT_HELLO: {
+                EncryptedClientHello.Parsed ech = EncryptedClientHello.parseClientHelloPayload(extBody);
+                if (ech.isInner()) {
+                    ch.encryptedClientHelloInner = true;
+                } else {
+                    ch.encryptedClientHelloOuter = ech.getOuter();
+                }
+                break;
+            }
             case EXT_PRE_SHARED_KEY: {
                 // offered_psks: PskIdentity identities<7..2^16-1>; PskBinderEntry binders<33..2^16-1>;
                 // This engine only ever offers one identity (matching hopf); take the first of each.
@@ -542,6 +558,8 @@ final class HandshakeMessages {
         CipherSuite cipherSuite;
         NamedGroup selectedGroup;
         byte[] cookie;
+        /** RFC 9849 {@code ECHHelloRetryRequest.confirmation}, or null if absent. */
+        byte[] echHrrConfirmation;
     }
 
     static HelloRetryRequest parseHelloRetryRequest(byte[] fullMessage) throws HandshakeFormatException {
@@ -565,6 +583,8 @@ final class HandshakeMessages {
                 hrr.selectedGroup = NamedGroup.fromCode(kr.u16());
             } else if (extType == EXT_COOKIE) {
                 hrr.cookie = extBody;
+            } else if (extType == EXT_ENCRYPTED_CLIENT_HELLO) {
+                hrr.echHrrConfirmation = EncryptedClientHello.parseHelloRetryRequest(extBody);
             }
         }
         return hrr;
@@ -606,6 +626,8 @@ final class HandshakeMessages {
         boolean recordSizeLimitPresent;
         int recordSizeLimit;
         CertificateCompressionAlgorithm certificateCompression;
+        /** RFC 9849 retry configurations, or null if absent. */
+        EchConfig[] echRetryConfigs;
     }
 
     static EncryptedExtensions parseEncryptedExtensions(byte[] fullMessage) throws HandshakeFormatException {
@@ -634,6 +656,8 @@ final class HandshakeMessages {
                 if (extBody.length == 1) {
                     ee.certificateCompression = CertificateCompressionAlgorithm.fromId(extBody[0] & 0xff);
                 }
+            } else if (extType == EXT_ENCRYPTED_CLIENT_HELLO) {
+                ee.echRetryConfigs = EncryptedClientHello.parseEncryptedExtensions(extBody);
             }
         }
         return ee;
@@ -963,6 +987,27 @@ final class HandshakeMessages {
 
     private static void writeRecordSizeLimitExtension(WireWriter ext, int limit) {
         writeExtension(ext, EXT_RECORD_SIZE_LIMIT, RecordSizeLimit.encodeExtensionValue(limit));
+    }
+
+    static void writeEncryptedClientHelloInnerExtension(WireWriter ext) {
+        writeExtension(ext, EXT_ENCRYPTED_CLIENT_HELLO, EncryptedClientHello.encodeClientHelloInner());
+    }
+
+    static void writeEncryptedClientHelloOuterExtension(WireWriter ext, EncryptedClientHello.Outer outer)
+            throws HandshakeFormatException {
+        writeExtension(ext, EXT_ENCRYPTED_CLIENT_HELLO, EncryptedClientHello.encodeClientHelloOuter(outer));
+    }
+
+    static void writeEncryptedClientHelloRetryExtension(WireWriter ext, byte[] echConfigListBytes)
+            throws HandshakeFormatException {
+        writeExtension(ext, EXT_ENCRYPTED_CLIENT_HELLO,
+                EncryptedClientHello.encodeEncryptedExtensions(echConfigListBytes));
+    }
+
+    static void writeEncryptedClientHelloHelloRetryRequestExtension(WireWriter ext, byte[] confirmation)
+            throws HandshakeFormatException {
+        writeExtension(ext, EXT_ENCRYPTED_CLIENT_HELLO,
+                EncryptedClientHello.encodeHelloRetryRequest(confirmation));
     }
 
     private static void writeServerNameExtension(WireWriter ext, String serverName) {
