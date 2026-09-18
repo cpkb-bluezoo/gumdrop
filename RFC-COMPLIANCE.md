@@ -14,6 +14,8 @@
 | RFC 8484 | DNS Queries over HTTPS (DoH) | Implemented |
 | RFC 2308 | Negative Caching of DNS Queries | Implemented |
 | RFC 8767 | Serving Stale DNS Data | Implemented |
+| RFC 8020 | NXDOMAIN: There Really Is Nothing Underneath | Implemented |
+| RFC 8482 | Minimal-Sized Responses to DNS Queries That Have QTYPE=ANY | Implemented |
 | RFC 6891 | Extension Mechanisms for DNS (EDNS0) | Implemented |
 | RFC 8305 | Happy Eyeballs v2 | Concept (parallel A/AAAA) |
 | RFC 5452 | Measures for Making DNS More Resilient against Forged Answers | Implemented |
@@ -88,6 +90,8 @@
 | Processing responses (ID matching) | 7.3 | Compliant | `handleResponse()` matches by ID |
 | Using the cache (TTL-based) | 7.4 | Compliant | `DnsCache` with TTL expiry |
 | Serve stale on upstream failure | RFC 8767 | Compliant | `DnsCache` stale retention; `UpstreamRelayHandler` + `ServeStalePolicy` |
+| NXDOMAIN cut for subdomains | RFC 8020 | Compliant | `DnsCache.isNegativelyCached`; `NxDomainCutPolicy` on relay |
+| Minimal ANY responses | RFC 8482 | Compliant | `MinimalAnyResponse`; `MinimalAnyPolicy` on relay and zone handler |
 | RD flag set in queries | 4.1.1 | Compliant | Stub resolver sets `FLAG_RD` |
 | Truncation → TCP retry (resolver) | 4.2.1 | Compliant | `retryOverTcpAsync()` |
 | Truncation → TCP retry (server proxy) | 4.2.1 | Compliant | `DnsServer.retryOverTcp()` retries upstream query over TCP when TC bit is set |

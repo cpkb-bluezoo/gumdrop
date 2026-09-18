@@ -74,6 +74,8 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     private int staleRetentionSeconds = DnsCache.DEFAULT_STALE_RETENTION_SECONDS;
     private int staleAnswerTtl = DnsCache.DEFAULT_STALE_ANSWER_TTL;
     private ServeStalePolicy serveStalePolicy = ServeStalePolicy.ENABLED;
+    private NxDomainCutPolicy nxDomainCutPolicy = NxDomainCutPolicy.ENABLED;
+    private MinimalAnyPolicy minimalAnyPolicy = MinimalAnyPolicy.ENABLED;
     private DnsCache cache;
     private DnsServerMetrics metrics;
 
@@ -132,6 +134,16 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                 ? serveStalePolicy : ServeStalePolicy.DISABLED;
     }
 
+    public void setNxDomainCutPolicy(NxDomainCutPolicy nxDomainCutPolicy) {
+        this.nxDomainCutPolicy = nxDomainCutPolicy != null
+                ? nxDomainCutPolicy : NxDomainCutPolicy.DISABLED;
+    }
+
+    public void setMinimalAnyPolicy(MinimalAnyPolicy minimalAnyPolicy) {
+        this.minimalAnyPolicy = minimalAnyPolicy != null
+                ? minimalAnyPolicy : MinimalAnyPolicy.DISABLED;
+    }
+
     public void setDnssecEnabled(boolean dnssecEnabled) {
         this.dnssecEnabled = dnssecEnabled;
     }
@@ -188,8 +200,17 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
                             final DnsQueryCallback callback) {
         final DnsQuestion question = query.getQuestions().get(0);
 
+        if (question.getType() == DnsType.ANY
+                && minimalAnyPolicy.shouldReturnMinimalAny(question)) {
+            callback.onResponse(MinimalAnyResponse.createResponse(query));
+            return;
+        }
+
+        final boolean nxDomainCut =
+                nxDomainCutPolicy.shouldApplyNxDomainCut(question);
+
         if (cacheEnabled && cache != null) {
-            if (cache.isNegativelyCached(question.getName())) {
+            if (cache.isNegativelyCached(question.getName(), nxDomainCut)) {
                 if (metrics != null) { metrics.cacheHit(); }
                 callback.onResponse(query.createErrorResponse(
                         DnsMessage.RCODE_NXDOMAIN));
@@ -253,7 +274,10 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         }
         DnsCache.StaleHit staleHit =
                 cache.lookupStale(question, staleAnswerTtl);
-        if (staleHit == null && cache.lookupStaleNegative(question.getName())) {
+        boolean nxDomainCut =
+                nxDomainCutPolicy.shouldApplyNxDomainCut(question);
+        if (staleHit == null
+                && cache.lookupStaleNegative(question.getName(), nxDomainCut)) {
             staleHit = DnsCache.StaleHit.negativeHit();
         }
         if (staleHit == null
@@ -831,6 +855,16 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
         public Builder serveStalePolicy(ServeStalePolicy policy) {
             handler.setServeStalePolicy(policy);
+            return this;
+        }
+
+        public Builder nxDomainCutPolicy(NxDomainCutPolicy policy) {
+            handler.setNxDomainCutPolicy(policy);
+            return this;
+        }
+
+        public Builder minimalAnyPolicy(MinimalAnyPolicy policy) {
+            handler.setMinimalAnyPolicy(policy);
             return this;
         }
 

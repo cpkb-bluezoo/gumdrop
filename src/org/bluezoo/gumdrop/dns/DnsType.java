@@ -83,6 +83,9 @@ public enum DnsType {
     /** Domain name pointer (reverse DNS). RFC 1035 section 3.3.12. */
     PTR(12),
 
+    /** Host information. RFC 1035 section 3.3.2. */
+    HINFO(13),
+
     /** Mail exchange. RFC 1035 section 3.3.9. */
     MX(15),
 
