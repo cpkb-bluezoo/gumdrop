@@ -194,11 +194,14 @@ public final class HandshakeEngine {
             clientKeyExchanges = new LinkedHashMap<NamedGroup, KeyExchange>();
             try {
                 List<NamedGroup> groups = config.getNamedGroups();
+                List<NamedGroup> omitShares = config.getClientOmitInitialKeyShareGroups();
                 for (int i = 0; i < groups.size(); i++) {
                     NamedGroup group = groups.get(i);
                     KeyExchange kx = KeyExchange.generate(group);
                     clientKeyExchanges.put(group, kx);
-                    shares.put(group, kx.getShareBytes());
+                    if (!omitShares.contains(group)) {
+                        shares.put(group, kx.getShareBytes());
+                    }
                 }
             } catch (GeneralSecurityException e) {
                 fail(sink, AlertDescription.INTERNAL_ERROR, "Could not generate key shares: " + e.getMessage());

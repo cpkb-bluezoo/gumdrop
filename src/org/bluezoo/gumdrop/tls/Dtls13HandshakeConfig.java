@@ -171,6 +171,7 @@ public final class Dtls13HandshakeConfig {
         copy.setApplicationProtocols(base.getApplicationProtocols());
         copy.setCipherSuites(base.getCipherSuites());
         copy.setNamedGroups(base.getNamedGroups());
+        copy.setClientOmitInitialKeyShareGroups(base.getClientOmitInitialKeyShareGroups());
         copy.setTicketKeys(base.getTicketKeys());
         copy.setSessionTicket(base.getSessionTicket());
         copy.setCookieValidator(base.getCookieValidator());

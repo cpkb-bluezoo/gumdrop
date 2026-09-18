@@ -76,6 +76,8 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.tls.EchConfig;
+import org.bluezoo.gumdrop.tls.EchHttpsDiscovery;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -147,6 +149,8 @@ public class HttpClient implements AltSvcListener {
     private boolean h3Enabled;
     private boolean altSvcEnabled = true;
     private boolean dnsHttpsRecordEnabled = true;
+    /** {@code ech} SvcParam from the last DNS HTTPS lookup, if any. */
+    private byte[] dnsDiscoveredEchConfigList;
     private boolean earlyDataEnabled;
     private boolean blockPrivateAddresses;
     private long idleTimeoutMs;
@@ -952,6 +956,10 @@ public class HttpClient implements AltSvcListener {
                     if (rr.getSVCBAlpnProtocols().contains("h3")) {
                         int svcbPort = rr.getSVCBPort();
                         int targetPort = svcbPort > 0 ? svcbPort : port;
+                        byte[] echList = rr.getSVCBEchConfigList();
+                        if (echList != null) {
+                            dnsDiscoveredEchConfigList = echList;
+                        }
                         h3Enabled = true;
                         resolveAndConnectH3(host, targetPort, handler);
                         return;
@@ -1181,6 +1189,10 @@ public class HttpClient implements AltSvcListener {
         TlsConfig effective = ClientDefaults.effectiveTls(tls);
         ClientConnect.applyToQuicFactory(effective, quicTransportFactory);
         quicTransportFactory.setEarlyDataEnabled(earlyDataEnabled);
+        EchConfig echFromDns = EchHttpsDiscovery.selectClientConfig(dnsDiscoveredEchConfigList);
+        if (echFromDns != null) {
+            quicTransportFactory.setClientEchConfig(echFromDns);
+        }
 
         try {
             quicTransportFactory.start();

@@ -129,6 +129,13 @@ public abstract class TransportFactory {
      */
     protected String pinnedCertFingerprint;
 
+    /** Server: binary {@code ECHConfigList} file for TLS 1.3 ECH decryption. */
+    protected Path echConfigListFile;
+    /** Server: 32-byte X25519 ECH private key file (raw or hex). */
+    protected Path echPrivateKeyFile;
+    /** Server: require clients to offer outer ECH (RFC 9849 section 7.3). */
+    protected boolean echServerRequired;
+
     // -- Telemetry --
 
     protected TelemetryConfig telemetryConfig;
@@ -428,6 +435,30 @@ public abstract class TransportFactory {
      */
     public void setMaxNetOutSize(int size) {
         this.maxNetOutSize = size;
+    }
+
+    public void setEchConfigListFile(Path echConfigListFile) {
+        this.echConfigListFile = echConfigListFile;
+    }
+
+    public void setEchPrivateKeyFile(Path echPrivateKeyFile) {
+        this.echPrivateKeyFile = echPrivateKeyFile;
+    }
+
+    public void setEchServerRequired(boolean echServerRequired) {
+        this.echServerRequired = echServerRequired;
+    }
+
+    public Path getEchConfigListFile() {
+        return echConfigListFile;
+    }
+
+    public Path getEchPrivateKeyFile() {
+        return echPrivateKeyFile;
+    }
+
+    public boolean isEchServerRequired() {
+        return echServerRequired;
     }
 
     // -- Lifecycle --

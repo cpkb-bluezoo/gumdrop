@@ -335,6 +335,9 @@ public final class DnsResourceRecord {
     /** SvcParamKey for "dohpath". RFC 9461 section 5. */
     public static final int SVCB_PARAM_DOHPATH = 7;
 
+    /** SvcParamKey for "ech". RFC 9460 section 7.2.2 (ECHConfigList). */
+    public static final int SVCB_PARAM_ECH = 5;
+
     /**
      * Creates an HTTPS (or SVCB) record.
      * RFC 9460 section 2.2: RDATA is SvcPriority(2) + uncompressed
@@ -1021,6 +1024,15 @@ public final class DnsResourceRecord {
      * @return the raw UTF-8 SvcParamValue, or null if not present
      * @throws IllegalStateException if this is not an SVCB/HTTPS record
      */
+    /**
+     * Returns the {@code ech} SvcParam value ({@code ECHConfigList}), or null.
+     *
+     * @throws IllegalStateException if this is not an SVCB/HTTPS record
+     */
+    public byte[] getSVCBEchConfigList() {
+        return getSVCBParams().get(SVCB_PARAM_ECH);
+    }
+
     public String getSVCBDohPath() {
         byte[] value = getSVCBParams().get(SVCB_PARAM_DOHPATH);
         return value != null ? new String(value, StandardCharsets.UTF_8) : null;

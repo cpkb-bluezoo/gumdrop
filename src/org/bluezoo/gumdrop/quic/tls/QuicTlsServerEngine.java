@@ -283,6 +283,13 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
     }
 
     /**
+     * Returns the underlying {@link HandshakeConfig} for deployment hooks.
+     */
+    public HandshakeConfig getHandshakeConfig() {
+        return config;
+    }
+
+    /**
      * Feeds received CRYPTO frame data at the given level into
      * handshake message reassembly. Complete messages are dispatched to
      * {@link HandshakeEngine} asynchronously, off the caller's thread,

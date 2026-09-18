@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.tls;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
@@ -49,6 +50,12 @@ public final class HandshakeConfig {
     private List<String> applicationProtocols = new ArrayList<String>();
     private byte[] localTransportParameters;
     private List<NamedGroup> namedGroups = defaultNamedGroups();
+    /**
+     * Client-only: named groups for which the initial ClientHello omits a
+     * {@code key_share} entry (RFC 8446 section 4.2.8); shares are still
+     * generated so HelloRetryRequest can supply them later.
+     */
+    private List<NamedGroup> clientOmitInitialKeyShareGroups = Collections.emptyList();
     private List<CipherSuite> cipherSuites = defaultCipherSuites();
 
     // Client-certificate authentication (mTLS).
@@ -368,6 +375,28 @@ public final class HandshakeConfig {
      */
     public void setNamedGroups(List<NamedGroup> namedGroups) {
         this.namedGroups = namedGroups;
+    }
+
+    /**
+     * Returns groups omitted from the initial ClientHello {@code key_share}
+     * extension (client role only).
+     */
+    public List<NamedGroup> getClientOmitInitialKeyShareGroups() {
+        return clientOmitInitialKeyShareGroups;
+    }
+
+    /**
+     * Omits {@code key_share} entries for the given groups on the first
+     * ClientHello only; HelloRetryRequest follow-ups still send the share.
+     *
+     * @param groups groups to omit initially, or null/empty for none
+     */
+    public void setClientOmitInitialKeyShareGroups(List<NamedGroup> groups) {
+        if (groups == null || groups.isEmpty()) {
+            this.clientOmitInitialKeyShareGroups = Collections.emptyList();
+        } else {
+            this.clientOmitInitialKeyShareGroups = new ArrayList<NamedGroup>(groups);
+        }
     }
 
     /**

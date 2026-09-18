@@ -304,7 +304,7 @@ practices.
 | Named groups (X25519, P-256, P-384, hybrid PQ) | 4.2.7 | Compliant | `NamedGroup`; hybrid requires Java 25+ JCA |
 | Record size limit | RFC 8449 | Compliant | `record_size_limit` extension; enforced in TCP/DTLS record layers; QUIC negotiates but uses QUIC frame sizing |
 | Certificate compression | RFC 8879 | Compliant | `compress_certificate` extension; Brotli (micula) and zlib (`Deflater`/`Inflater`); `CompressedCertificate` handshake message; TLS 1.3+ only (RFC 8879 section 3) |
-| Encrypted Client Hello (ECH) | RFC 9849 | Partial | `HandshakeEngine` client offer and server decrypt (X25519 HPKE profile); acceptance confirmations; HelloRetryRequest follow-up; rejection via `retry_configs` and `ech_required` alert; client GREASE ECH; QUIC listener `ech-config-list-file` / `ech-private-key-file` in `server.xml`; **not** DNS HTTPS/SVCB fetch or TCP record-layer wiring yet |
+| Encrypted Client Hello (ECH) | RFC 9849 | Partial | `HandshakeEngine` client offer and server decrypt (X25519 HPKE profile); acceptance confirmations; HelloRetryRequest follow-up; rejection via `retry_configs` and `ech_required` alert; client GREASE ECH; QUIC/TCP listener `ech-config-list-file` / `ech-private-key-file` in `server.xml`; HTTP/3 client applies DNS HTTPS `ech` SvcParam via `EchHttpsDiscovery`; **not** automatic ECH for HTTPS/TCP clients or GREASE server configs yet |
 
 ### TLS 1.2 — RFC 5246 (profile)
 

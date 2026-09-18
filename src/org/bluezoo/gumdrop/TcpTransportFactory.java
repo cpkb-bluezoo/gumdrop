@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 import org.bluezoo.gumdrop.tls.CipherSuite;
 import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
+import org.bluezoo.gumdrop.tls.EchDeployment;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.HandshakeRole;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
@@ -725,6 +726,7 @@ public class TcpTransportFactory extends TransportFactory {
             config.setClientTrustManager(effectiveTrustManager);
         }
         applyCommonConfig(config);
+        EchDeployment.applyServer(config, echConfigListFile, echPrivateKeyFile, echServerRequired);
         return config;
     }
 

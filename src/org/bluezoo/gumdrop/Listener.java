@@ -883,14 +883,14 @@ public abstract class Listener {
             if (sniDefaultAlias != null) {
                 quicFactory.setSniDefaultAlias(sniDefaultAlias);
             }
-            if (echConfigListFile != null) {
-                quicFactory.setEchConfigListFile(echConfigListFile);
-            }
-            if (echPrivateKeyFile != null) {
-                quicFactory.setEchPrivateKeyFile(echPrivateKeyFile);
-            }
-            quicFactory.setEchServerRequired(echServerRequired);
         }
+        if (echConfigListFile != null) {
+            factory.setEchConfigListFile(echConfigListFile);
+        }
+        if (echPrivateKeyFile != null) {
+            factory.setEchPrivateKeyFile(echPrivateKeyFile);
+        }
+        factory.setEchServerRequired(echServerRequired);
     }
 
     /**
