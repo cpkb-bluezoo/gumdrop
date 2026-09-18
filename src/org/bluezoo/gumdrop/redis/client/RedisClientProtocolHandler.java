@@ -37,10 +37,10 @@ import java.util.logging.Logger;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.redis.codec.RESPDecoder;
-import org.bluezoo.gumdrop.redis.codec.RESPEncoder;
-import org.bluezoo.gumdrop.redis.codec.RESPException;
-import org.bluezoo.gumdrop.redis.codec.RESPValue;
+import org.bluezoo.gumdrop.redis.codec.RespDecoder;
+import org.bluezoo.gumdrop.redis.codec.RespEncoder;
+import org.bluezoo.gumdrop.redis.codec.RespException;
+import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 /**
  * Redis client protocol handler using RESP (Redis Serialization Protocol).
@@ -51,7 +51,7 @@ import org.bluezoo.gumdrop.redis.codec.RESPValue;
  *
  * <p>Commands are encoded as RESP arrays of bulk strings
  * (RESP spec — "Sending commands to a Redis server") and sent via the
- * endpoint. Responses are decoded by {@link RESPDecoder} and dispatched
+ * endpoint. Responses are decoded by {@link RespDecoder} and dispatched
  * to the appropriate callback in FIFO order (RESP spec — "Pipelining").
  *
  * <p>Supported RESP2 response types:
@@ -82,8 +82,8 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
 
     private final RedisConnectionReady handler;
-    private final RESPDecoder decoder;
-    private final RESPEncoder encoder;
+    private final RespDecoder decoder;
+    private final RespEncoder encoder;
 
     private Endpoint endpoint;
 
@@ -104,8 +104,8 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
      */
     public RedisClientProtocolHandler(RedisConnectionReady handler) {
         this.handler = handler;
-        this.decoder = new RESPDecoder();
-        this.encoder = new RESPEncoder();
+        this.decoder = new RespDecoder();
+        this.encoder = new RespEncoder();
         this.pendingCommands = new ArrayDeque<PendingCommand>();
     }
 
@@ -127,11 +127,11 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     public void receive(ByteBuffer buf) {
         try {
             decoder.receive(buf);
-            RESPValue response;
+            RespValue response;
             while ((response = decoder.next()) != null) {
                 processResponse(response);
             }
-        } catch (RESPException e) {
+        } catch (RespException e) {
             LOGGER.log(Level.WARNING, L10N.getString("err.protocol_error"), e);
             handler.onError(e);
             close();
@@ -190,10 +190,10 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     // RESP spec — dispatch decoded response values.
     // Pub/Sub push messages are intercepted before FIFO callback dispatch.
     // RESP3 Push type (>) is handled as an out-of-band Pub/Sub delivery.
-    private void processResponse(RESPValue response) {
+    private void processResponse(RespValue response) {
         // RESP3 Push type — server-initiated out-of-band data
         if (response.isPush()) {
-            List<RESPValue> pushData = response.asPush();
+            List<RespValue> pushData = response.asPush();
             if (pushData != null && !pushData.isEmpty() && messageHandler != null) {
                 String type = pushData.get(0).asString();
                 if (type != null) {
@@ -204,7 +204,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
         }
         // RESP2 array-based Pub/Sub messages
         if (pubSubMode && response.isArray()) {
-            List<RESPValue> array = response.asArray();
+            List<RespValue> array = response.asArray();
             if (array != null && !array.isEmpty()) {
                 String type = array.get(0).asString();
                 if (type != null) {
@@ -230,7 +230,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     // RESP spec — "Pub/Sub": push messages are 3-element arrays
     // [type, channel, message] for message/subscribe/unsubscribe,
     // or 4-element arrays [type, pattern, channel, message] for pmessage.
-    private boolean handlePubSubMessage(String type, List<RESPValue> array) {
+    private boolean handlePubSubMessage(String type, List<RespValue> array) {
         if (messageHandler == null) {
             return false;
         }
@@ -286,7 +286,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
     // Dispatch based on RESP type prefix:
     // RESP2: + Simple String, - Error, : Integer, $ Bulk String, * Array
     // RESP3: % Map, ~ Set, , Double, # Boolean, _ Null, = Verbatim, ( Big Number
-    private void dispatchResponse(PendingCommand pending, RESPValue response) {
+    private void dispatchResponse(PendingCommand pending, RespValue response) {
         Object callback = pending.callback;
         if (callback == null) {
             return;
@@ -305,10 +305,10 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
             if (response.isNull()) {
                 h.handleError("null response", this);
             } else {
-                List<RESPValue> result = response.asArray();
+                List<RespValue> result = response.asArray();
                 if (result != null && result.size() >= 2) {
                     String cursor = result.get(0).asString();
-                    List<RESPValue> elements = result.get(1).asArray();
+                    List<RespValue> elements = result.get(1).asArray();
                     h.handleResult(cursor, elements, this);
                 } else {
                     h.handleError("Invalid scan response", this);
@@ -343,13 +343,13 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
             if (response.isNull()) {
                 h.handleNull(this);
             } else if (response.isArray()) {
-                List<RESPValue> result = response.asArray();
+                List<RespValue> result = response.asArray();
                 h.handleResult(result, this);
             } else if (response.isMap()) {
                 // RESP3 Map — flatten to alternating key/value array for compatibility
-                Map<RESPValue, RESPValue> map = response.asMap();
-                List<RESPValue> flat = new ArrayList<RESPValue>(map.size() * 2);
-                for (Map.Entry<RESPValue, RESPValue> entry : map.entrySet()) {
+                Map<RespValue, RespValue> map = response.asMap();
+                List<RespValue> flat = new ArrayList<RespValue>(map.size() * 2);
+                for (Map.Entry<RespValue, RespValue> entry : map.entrySet()) {
                     flat.add(entry.getKey());
                     flat.add(entry.getValue());
                 }
@@ -357,7 +357,7 @@ public class RedisClientProtocolHandler implements ProtocolHandler, RedisSession
             } else {
                 // For other RESP3 types received by ArrayResultHandler,
                 // wrap in a single-element array
-                List<RESPValue> wrapped = new ArrayList<RESPValue>(1);
+                List<RespValue> wrapped = new ArrayList<RespValue>(1);
                 wrapped.add(response);
                 h.handleResult(wrapped, this);
             }

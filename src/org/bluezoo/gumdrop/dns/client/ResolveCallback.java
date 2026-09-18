@@ -27,11 +27,11 @@ import java.util.List;
 /**
  * Callback interface for hostname resolution.
  *
- * <p>Used by {@link DNSResolver#resolve(String, ResolveCallback)} to
+ * <p>Used by {@link DnsResolver#resolve(String, ResolveCallback)} to
  * deliver the result of a combined A and AAAA lookup.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSResolver#resolve(String, ResolveCallback)
+ * @see DnsResolver#resolve(String, ResolveCallback)
  */
 public interface ResolveCallback {
 

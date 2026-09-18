@@ -1,0 +1,1291 @@
+/*
+ * SmtpClientProtocolHandler.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.smtp.client;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.WritableByteChannel;
+import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.ResourceBundle;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import org.bluezoo.gumdrop.ByteStreamLexer;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
+
+/**
+ * SMTP client protocol handler implementing RFC 5321 (SMTP).
+ *
+ * <p>Implements a type-safe SMTP client state machine
+ * ({@code ClientHelloState}, {@code ClientSession}, etc.) and
+ * delegates all transport operations to a transport-agnostic
+ * {@link Endpoint}.
+ *
+ * <p>Line parsing uses a streaming {@link SmtpClientLexer} (issue #85):
+ * bytes are tokenised as they arrive rather than buffered into whole
+ * lines — see {@link ByteStreamLexer}.
+ *
+ * <p>Supported client capabilities:
+ * <ul>
+ *   <li>EHLO/HELO (RFC 5321 §4.1.1.1)</li>
+ *   <li>STARTTLS (RFC 3207)</li>
+ *   <li>AUTH (RFC 4954) — generic SASL mechanism support</li>
+ *   <li>SIZE (RFC 1870) — declared in MAIL FROM</li>
+ *   <li>PIPELINING (RFC 2920) — parsed from EHLO</li>
+ *   <li>CHUNKING (RFC 3030) — automatic BDAT when server advertises</li>
+ * </ul>
+ *
+ * <h4>Usage</h4>
+ * <pre>{@code
+ * ClientEndpoint client = new ClientEndpoint(factory, "smtp.example.com", 587);
+ * client.connect(new SmtpClientProtocolHandler(new RemoteGreeting() {
+ *     public void handleGreeting(ClientHelloState hello, String msg, boolean esmtp) {
+ *         hello.ehlo("myhostname", ehloHandler);
+ *     }
+ *     public void handleServiceUnavailable(String msg) { ... }
+ * }));
+ * }</pre>
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see ProtocolHandler
+ * @see RemoteGreeting
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321 - SMTP</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207 - STARTTLS</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4954">RFC 4954 - AUTH</a>
+ */
+public final class SmtpClientProtocolHandler
+        implements ProtocolHandler, ByteStreamLexer.Handler<SmtpClientLexer.Token>,
+        WritableByteChannel, ClientHelloState, ClientSession,
+        ClientPostTls, ClientAuthExchange, ClientEnvelope,
+        ClientEnvelopeReady, ClientMessageData {
+
+    private static final Logger LOGGER =
+            Logger.getLogger(SmtpClientProtocolHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.smtp.L10N");
+
+    private static final String CRLF = "\r\n";
+
+    private final RemoteGreeting handler;
+    private final DotStuffer dotStuffer;
+
+    private Endpoint endpoint;
+    private SmtpState state = SmtpState.DISCONNECTED;
+    private boolean secure;
+
+    // Current callback waiting for a response
+    private Object currentCallback;
+
+    // Multi-line response accumulation
+    private List<String> multiLineResponse;
+    private boolean inMultiLineResponse;
+
+    // EHLO capability parsing (RFC 5321 §4.1.1.1)
+    private boolean ehloStarttls;
+    private long ehloMaxSize;
+    private List<String> ehloAuthMethods;
+    private boolean ehloPipelining;
+    private boolean ehloChunking;
+    private boolean ehlo8BitMime;                         // RFC 6152
+    private boolean ehloSmtpUtf8;                         // RFC 6531
+    private boolean ehloDsn;                              // RFC 3461
+    private boolean ehloEnhancedStatusCodes;              // RFC 2034
+    private boolean ehloBinaryMime;                       // RFC 3030
+    private boolean ehloRequireTls;                       // RFC 8689
+    private boolean ehloMtPriority;                       // RFC 6710
+    private boolean ehloFutureRelease;                    // RFC 4865
+    private boolean ehloDeliverBy;                        // RFC 2852
+    private int ehloLimitsRcptMax;                        // RFC 9422
+    private int ehloLimitsMailMax;                        // RFC 9422
+
+    // Envelope state
+    private int acceptedRecipients;
+
+    // BDAT mode
+    private boolean chunkingEnabled = true;
+    private boolean useBdat;
+    private int bdatPendingResponses;
+
+    // Streaming lexer (issue #85) and per-line parse state. No cap on
+    // structured tokens (CODE is always exactly 3 bytes; DASH/SP are
+    // always exactly 1): this client trusts the remote server, same
+    // principle as Pop3ClientLexer.
+    private final SmtpClientLexer lexer = new SmtpClientLexer(this, Integer.MAX_VALUE);
+    private boolean pendingHasCode;
+    private int pendingCode;
+    private String pendingCodeError;
+    private final StringBuilder replyTextBuilder = new StringBuilder();
+    private boolean pendingContinuation;
+
+    /**
+     * Creates an SMTP client endpoint handler.
+     *
+     * @param handler the server greeting handler
+     */
+    public SmtpClientProtocolHandler(RemoteGreeting handler) {
+        if (handler == null) {
+            throw new NullPointerException("handler");
+        }
+        this.handler = handler;
+        this.dotStuffer = new DotStuffer();
+        this.multiLineResponse = new ArrayList<String>();
+    }
+
+    /**
+     * Sets whether to use BDAT (CHUNKING) when the server supports it.
+     *
+     * @param enabled true to enable CHUNKING
+     */
+    public void setChunkingEnabled(boolean enabled) {
+        this.chunkingEnabled = enabled;
+    }
+
+    /**
+     * Returns whether BDAT (CHUNKING) is enabled.
+     *
+     * @return true if enabled
+     */
+    public boolean isChunkingEnabled() {
+        return chunkingEnabled;
+    }
+
+    /**
+     * Sets whether this connection started in secure mode.
+     *
+     * @param secure true for implicit TLS (e.g., SMTPS port 465)
+     */
+    public void setSecure(boolean secure) {
+        this.secure = secure;
+    }
+
+    // ── ProtocolHandler (RFC 5321 §3.1 — session initiation) ──
+
+    /** RFC 5321 §3.1 — TCP connection established, wait for 220 greeting. */
+    @Override
+    public void connected(Endpoint ep) {
+        this.endpoint = ep;
+        state = SmtpState.CONNECTING;
+
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("SMTP client connected to "
+                    + ep.getRemoteAddress());
+        }
+    }
+
+    /** RFC 5321 §4.2 — replies are line-oriented: code SP text CRLF. */
+    @Override
+    public void receive(ByteBuffer data) {
+        lexer.feed(data);
+    }
+
+    @Override
+    public void disconnected() {
+        LOGGER.info(L10N.getString("client.info.connection_disconnected"));
+        state = SmtpState.CLOSED;
+        handler.onDisconnected();
+    }
+
+    /**
+     * RFC 3207 §4.2 — TLS handshake complete; client must re-issue EHLO.
+     * RFC 8314 — implicit TLS: greeting follows TLS establishment.
+     */
+    @Override
+    public void securityEstablished(SecurityInfo info) {
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("TLS established: " + info.getCipherSuite());
+        }
+
+        if (currentCallback instanceof StarttlsReplyHandler) {
+            StarttlsReplyHandler callback =
+                    (StarttlsReplyHandler) currentCallback;
+            currentCallback = null;
+            state = SmtpState.CONNECTED;
+            callback.handleTlsEstablished(this);
+        }
+    }
+
+    @Override
+    public void error(Exception cause) {
+        handleError(new SmtpException("Connection error", cause));
+    }
+
+    // ── ByteStreamLexer.Handler implementation (issue #85) ──
+
+    // RFC 5321 §4.2: CODE [SEP TEXT] CRLF. TEXT is delivered in zero-copy
+    // chunks by the lexer (see SmtpClientLexer / ByteStreamLexer); this
+    // dispatcher accumulates only what it needs to retain (the message
+    // text) and resolves the reply code directly from the CODE token's
+    // bytes, without decoding to a String for the common (valid) case.
+    @Override
+    public boolean token(SmtpClientLexer.Token type, ByteBuffer window) {
+        switch (type) {
+            case CODE:
+                pendingHasCode = true;
+                if (window.remaining() != 3) {
+                    pendingCodeError = MessageFormat.format(
+                            L10N.getString("err.invalid_smtp_response"),
+                            decodeAscii(window));
+                } else {
+                    try {
+                        pendingCode = parseCode(window);
+                    } catch (NumberFormatException e) {
+                        pendingCodeError = MessageFormat.format(
+                                L10N.getString("err.invalid_smtp_response"),
+                                decodeAscii(window));
+                    }
+                }
+                return false;
+            case DASH:
+                pendingContinuation = true;
+                return true; // latch text mode for the rest of the line
+            case SP:
+                pendingContinuation = false;
+                return true; // latch text mode for the rest of the line
+            case TEXT:
+                replyTextBuilder.append(decodeAscii(window));
+                return false;
+            case CRLF:
+                lexer.resetForNextLine();
+                dispatchLine();
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    @Override
+    public void rawBytes(ByteBuffer slice) {
+        // SMTP client responses are always line-based; DATA/BDAT content is
+        // written by the client, never received, so the lexer never enters
+        // a raw escape and this is structurally unreachable.
+        LOGGER.warning(L10N.getString("warn.unexpected_raw_bytes_client"));
+    }
+
+    @Override
+    public void tokenTooLong() {
+        // SmtpClientLexer is constructed with an unbounded per-token cap
+        // (Integer.MAX_VALUE) — this client trusts the remote server, same
+        // as Pop3ClientLexer — so this is structurally unreachable.
+        LOGGER.warning(L10N.getString("warn.unexpected_token_too_long_client"));
+    }
+
+    private static String decodeAscii(ByteBuffer window) {
+        byte[] bytes = new byte[window.remaining()];
+        window.get(bytes);
+        return new String(bytes, StandardCharsets.US_ASCII);
+    }
+
+    private static int parseCode(ByteBuffer window) {
+        int base = window.position();
+        int code = 0;
+        for (int i = 0; i < 3; i++) {
+            byte b = window.get(base + i);
+            if (b < '0' || b > '9') {
+                throw new NumberFormatException();
+            }
+            code = code * 10 + (b - '0');
+        }
+        return code;
+    }
+
+    private void resetLineState() {
+        pendingHasCode = false;
+        pendingCode = 0;
+        pendingCodeError = null;
+        pendingContinuation = false;
+        replyTextBuilder.setLength(0);
+    }
+
+    // RFC 5321 §4.2 — a complete reply line has been lexed; the code was
+    // already resolved from the CODE token's bytes, so dispatch does not
+    // re-parse a buffered line.
+    private void dispatchLine() {
+        boolean hasCode = pendingHasCode;
+        int code = pendingCode;
+        String error = pendingCodeError;
+        boolean continuation = pendingContinuation;
+        String message = replyTextBuilder.toString();
+        resetLineState();
+
+        if (!hasCode) {
+            // A bare CRLF with no reply code at all — silently ignored,
+            // matching the pre-conversion "line.remaining() < 2" check.
+            return;
+        }
+
+        try {
+            if (error != null) {
+                throw new SmtpException(error);
+            }
+
+            if (code == 421) {
+                handle421ServiceClosing(message);
+                return;
+            }
+
+            if (continuation) {
+                if (!inMultiLineResponse) {
+                    inMultiLineResponse = true;
+                    multiLineResponse.clear();
+                }
+                multiLineResponse.add(message);
+            } else {
+                if (inMultiLineResponse) {
+                    multiLineResponse.add(message);
+                    inMultiLineResponse = false;
+                    dispatchResponse(code, multiLineResponse);
+                    multiLineResponse.clear();
+                } else {
+                    List<String> singleLine = new ArrayList<String>();
+                    singleLine.add(message);
+                    dispatchResponse(code, singleLine);
+                }
+            }
+        } catch (SmtpException e) {
+            handleError(e);
+        } catch (Exception e) {
+            handleError(new SmtpException(
+                    "Failed to parse SMTP response", e));
+        }
+    }
+
+    // ── Connection state ──
+
+    /**
+     * Returns whether the connection is in a usable state.
+     *
+     * @return true if connected
+     */
+    public boolean isConnected() {
+        return state != SmtpState.DISCONNECTED
+                && state != SmtpState.CLOSED
+                && state != SmtpState.ERROR;
+    }
+
+    // ── WritableByteChannel (for DotStuffer) ──
+
+    @Override
+    public int write(ByteBuffer src) throws IOException {
+        if (!isConnected()) {
+            throw new IOException(L10N.getString("err.not_connected"));
+        }
+        int bytesToWrite = src.remaining();
+        ByteBuffer copy = ByteBuffer.allocate(bytesToWrite);
+        copy.put(src);
+        copy.flip();
+        endpoint.send(copy);
+        return bytesToWrite;
+    }
+
+    @Override
+    public boolean isOpen() {
+        return isConnected() && endpoint != null && endpoint.isOpen();
+    }
+
+    @Override
+    public void close() {
+        if (state == SmtpState.CLOSED) {
+            return;
+        }
+        state = SmtpState.CLOSED;
+        dotStuffer.reset();
+        if (endpoint != null) {
+            endpoint.close();
+        }
+    }
+
+    // ── ClientHelloState (RFC 5321 §4.1.1.1) ──
+
+    /** RFC 5321 §4.1.1.1 — EHLO command with extension negotiation. */
+    @Override
+    public void ehlo(String hostname,
+                     EhloReplyHandler callback) {
+        this.currentCallback = callback;
+        resetEhloCapabilities();
+        sendCommand("EHLO " + hostname, SmtpState.EHLO_SENT);
+    }
+
+    /** RFC 5321 §4.1.1.1 — HELO command (non-extended). */
+    @Override
+    public void helo(String hostname,
+                     HeloReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("HELO " + hostname, SmtpState.HELO_SENT);
+    }
+
+    // ── ClientSession (RFC 5321 §4.1.1.2–10) ──
+
+    /** RFC 5321 §4.1.1.2 — MAIL FROM command. */
+    @Override
+    public void mailFrom(EmailAddress sender,
+                         MailFromReplyHandler callback) {
+        mailFrom(sender, 0, callback);
+    }
+
+    /** RFC 5321 §4.1.1.2 — MAIL FROM with SIZE parameter (RFC 1870). */
+    @Override
+    public void mailFrom(EmailAddress sender, long size,
+                         MailFromReplyHandler callback) {
+        mailFrom(sender, size, null, callback);
+    }
+
+    /**
+     * RFC 5321 §4.1.1.2 — MAIL FROM with full extension parameters.
+     * Appends BODY (RFC 6152/3030), SMTPUTF8 (RFC 6531), RET/ENVID (RFC 3461),
+     * REQUIRETLS (RFC 8689), MT-PRIORITY (RFC 6710), HOLDFOR/HOLDUNTIL
+     * (RFC 4865), and BY (RFC 2852) when the server advertises support.
+     */
+    @Override
+    public void mailFrom(EmailAddress sender, long size,
+                         MailFromParams params,
+                         MailFromReplyHandler callback) {
+        this.currentCallback = callback;
+        this.acceptedRecipients = 0;
+
+        StringBuilder cmd = new StringBuilder("MAIL FROM:<");
+        if (sender != null) {
+            cmd.append(sender.getEnvelopeAddress());
+        }
+        cmd.append(">");
+
+        if (size > 0 && ehloMaxSize > 0) {
+            cmd.append(" SIZE=").append(size);
+        }
+        if (params != null) {
+            if (params.body != null && (ehlo8BitMime || ehloBinaryMime)) {
+                cmd.append(" BODY=").append(params.body);           // RFC 6152, RFC 3030
+            }
+            if (params.smtpUtf8 && ehloSmtpUtf8) {
+                cmd.append(" SMTPUTF8");                            // RFC 6531
+            }
+            if (params.ret != null && ehloDsn) {
+                cmd.append(" RET=").append(params.ret);             // RFC 3461 §4.3
+            }
+            if (params.envid != null && ehloDsn) {
+                cmd.append(" ENVID=").append(params.envid);         // RFC 3461 §4.4
+            }
+            if (params.requireTls && ehloRequireTls) {
+                cmd.append(" REQUIRETLS");                          // RFC 8689
+            }
+            if (params.mtPriority != null && ehloMtPriority) {
+                cmd.append(" MT-PRIORITY=").append(params.mtPriority); // RFC 6710
+            }
+            if (params.holdFor > 0 && ehloFutureRelease) {
+                cmd.append(" HOLDFOR=").append(params.holdFor);     // RFC 4865
+            }
+            if (params.holdUntil != null && ehloFutureRelease) {
+                cmd.append(" HOLDUNTIL=").append(params.holdUntil); // RFC 4865
+            }
+            if (params.by != null && ehloDeliverBy) {
+                cmd.append(" BY=").append(params.by);               // RFC 2852
+            }
+        }
+
+        sendCommand(cmd.toString(), SmtpState.MAIL_FROM_SENT);
+    }
+
+    /** RFC 3207 §4 — STARTTLS command. */
+    @Override
+    public void starttls(StarttlsReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("STARTTLS", SmtpState.STARTTLS_SENT);
+    }
+
+    /** RFC 4954 — AUTH command with optional initial-response. */
+    @Override
+    public void auth(String mechanism, byte[] initialResponse,
+                     AuthReplyHandler callback) {
+        this.currentCallback = callback;
+
+        StringBuilder cmd = new StringBuilder("AUTH ");
+        cmd.append(mechanism);
+
+        if (initialResponse != null) {
+            cmd.append(" ");
+            cmd.append(Base64.getEncoder()
+                    .encodeToString(initialResponse));
+        }
+
+        sendCommand(cmd.toString(), SmtpState.AUTH_SENT);
+    }
+
+    /** RFC 5321 §4.1.1.6 — VRFY command. */
+    @Override
+    public void vrfy(String user, ReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("VRFY " + user, SmtpState.VRFY_SENT);
+    }
+
+    /** RFC 5321 §4.1.1.7 — EXPN command. */
+    @Override
+    public void expn(String mailingList, ReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("EXPN " + mailingList, SmtpState.EXPN_SENT);
+    }
+
+    /** RFC 5321 §4.1.1.10 — QUIT command. */
+    @Override
+    public void quit() {
+        sendCommand("QUIT", SmtpState.QUIT_SENT);
+    }
+
+    // ── EHLO capability accessors ──
+
+    @Override
+    public boolean has8BitMime() { return ehlo8BitMime; }
+
+    @Override
+    public boolean hasSmtpUtf8() { return ehloSmtpUtf8; }
+
+    @Override
+    public boolean hasDsn() { return ehloDsn; }
+
+    @Override
+    public boolean hasEnhancedStatusCodes() { return ehloEnhancedStatusCodes; }
+
+    @Override
+    public boolean hasBinaryMime() { return ehloBinaryMime; }
+
+    @Override
+    public boolean hasRequireTls() { return ehloRequireTls; }
+
+    @Override
+    public boolean hasMtPriority() { return ehloMtPriority; }
+
+    @Override
+    public boolean hasFutureRelease() { return ehloFutureRelease; }
+
+    @Override
+    public boolean hasDeliverBy() { return ehloDeliverBy; }
+
+    @Override
+    public int getLimitsRcptMax() { return ehloLimitsRcptMax; }
+
+    @Override
+    public int getLimitsMailMax() { return ehloLimitsMailMax; }
+
+    // ── ClientAuthExchange (RFC 4954 §4) ──
+
+    /** RFC 4954 §4 — send base64-encoded SASL response. */
+    @Override
+    public void respond(byte[] response,
+                        AuthReplyHandler callback) {
+        this.currentCallback = callback;
+        String encoded = Base64.getEncoder().encodeToString(response);
+        sendRawLine(encoded, SmtpState.AUTH_SENT);
+    }
+
+    /** RFC 4954 §4 — abort AUTH exchange with "*". */
+    @Override
+    public void abort(AuthAbortHandler callback) {
+        this.currentCallback = callback;
+        sendRawLine("*", SmtpState.AUTH_ABORT_SENT);
+    }
+
+    // ── ClientEnvelope (RFC 5321 §4.1.1.3) ──
+
+    /** RFC 5321 §4.1.1.3 — RCPT TO command. */
+    @Override
+    public void rcptTo(EmailAddress recipient,
+                       RcptToReplyHandler callback) {
+        rcptTo(recipient, null, null, callback);
+    }
+
+    /**
+     * RFC 5321 §4.1.1.3 — RCPT TO with DSN parameters (RFC 3461 §4.1–4.2).
+     * NOTIFY and ORCPT are only appended when the server advertises DSN.
+     */
+    @Override
+    public void rcptTo(EmailAddress recipient, String notify, String orcpt,
+                       RcptToReplyHandler callback) {
+        this.currentCallback = callback;
+        StringBuilder cmd = new StringBuilder("RCPT TO:<");
+        cmd.append(recipient.getEnvelopeAddress());
+        cmd.append(">");
+        if (ehloDsn) {
+            if (notify != null) {
+                cmd.append(" NOTIFY=").append(notify);              // RFC 3461 §4.1
+            }
+            if (orcpt != null) {
+                cmd.append(" ORCPT=").append(orcpt);                // RFC 3461 §4.2
+            }
+        }
+        sendCommand(cmd.toString(), SmtpState.RCPT_TO_SENT);
+    }
+
+    /** RFC 5321 §4.1.1.5 — RSET command. */
+    @Override
+    public void rset(RsetReplyHandler callback) {
+        this.currentCallback = callback;
+        sendCommand("RSET", SmtpState.RSET_SENT);
+    }
+
+    @Override
+    public boolean hasAcceptedRecipients() {
+        return acceptedRecipients > 0;
+    }
+
+    // ── ClientEnvelopeReady (RFC 5321 §4.1.1.4 / RFC 3030) ──
+
+    /** RFC 5321 §4.1.1.4 — DATA command; RFC 3030 — automatic BDAT. */
+    @Override
+    public void data(DataReplyHandler callback) {
+        if (acceptedRecipients == 0) {
+            throw new IllegalStateException(
+                    L10N.getString("err.no_accepted_recipients"));
+        }
+
+        if (ehloChunking && chunkingEnabled) {
+            useBdat = true;
+            bdatPendingResponses = 0;
+            state = SmtpState.DATA_MODE;
+            callback.handleReadyForData(this);
+        } else {
+            useBdat = false;
+            this.currentCallback = callback;
+            sendCommand("DATA", SmtpState.DATA_COMMAND_SENT);
+        }
+    }
+
+    // ── ClientMessageData (RFC 5321 §4.5.2 / RFC 3030 §3) ──
+
+    /** RFC 5321 §4.5.2 — dot-stuffed DATA; RFC 3030 — BDAT chunks. */
+    @Override
+    public void writeContent(ByteBuffer content) {
+        if (state != SmtpState.DATA_MODE) {
+            throw new IllegalStateException(
+                    L10N.getString("err.not_in_data_mode"));
+        }
+
+        if (useBdat) {
+            int size = content.remaining();
+            if (size > 0) {
+                sendBdatChunk(size, content);
+                bdatPendingResponses++;
+            }
+        } else {
+            try {
+                dotStuffer.processChunk(content, this);
+            } catch (IOException e) {
+                handleError(new SmtpException(
+                        "Failed to write message content", e));
+            }
+        }
+    }
+
+    @Override
+    public void onWriteReady(Runnable callback) {
+        endpoint.onWriteReady(callback);
+    }
+
+    /** RFC 5321 §4.1.1.4 — end DATA (CRLF.CRLF); RFC 3030 — BDAT 0 LAST. */
+    @Override
+    public void endMessage(MessageReplyHandler callback) {
+        if (state != SmtpState.DATA_MODE) {
+            throw new IllegalStateException(
+                    L10N.getString("err.not_in_data_mode"));
+        }
+
+        this.currentCallback = callback;
+
+        if (useBdat) {
+            sendCommand("BDAT 0 LAST", SmtpState.DATA_END_SENT);
+            bdatPendingResponses++;
+        } else {
+            try {
+                dotStuffer.endMessage(this);
+                state = SmtpState.DATA_END_SENT;
+            } catch (IOException e) {
+                handleError(new SmtpException(
+                        "Failed to end message", e));
+            }
+        }
+    }
+
+    // ── Command sending ──
+
+    private static void rejectCrlf(String text) {
+        if (text != null && (text.indexOf('\r') >= 0 || text.indexOf('\n') >= 0)) {
+            throw new IllegalArgumentException("SMTP command must not contain CRLF");
+        }
+    }
+
+    private void sendCommand(String command, SmtpState newState) {
+        if (!isConnected()) {
+            handler.onError(new SmtpException("Not connected"));
+            return;
+        }
+        rejectCrlf(command);
+
+        this.state = newState;
+
+        String full = command + CRLF;
+        ByteBuffer buf = ByteBuffer.wrap(
+                full.getBytes(StandardCharsets.US_ASCII));
+        endpoint.send(buf);
+
+        if (LOGGER.isLoggable(Level.FINE)) {
+            if (command.startsWith("AUTH ")) {
+                LOGGER.fine("Sent SMTP command: AUTH ***");
+            } else {
+                LOGGER.fine("Sent SMTP command: " + command);
+            }
+        }
+    }
+
+    private void sendRawLine(String line, SmtpState newState) {
+        if (!isConnected()) {
+            handler.onError(new SmtpException("Not connected"));
+            return;
+        }
+        rejectCrlf(line);
+
+        this.state = newState;
+
+        String full = line + CRLF;
+        ByteBuffer buf = ByteBuffer.wrap(
+                full.getBytes(StandardCharsets.US_ASCII));
+        endpoint.send(buf);
+
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Sent SMTP line: ***");
+        }
+    }
+
+    private void sendBdatChunk(int size, ByteBuffer content) {
+        String command = "BDAT " + size + CRLF;
+        ByteBuffer cmdBuf = ByteBuffer.wrap(
+                command.getBytes(StandardCharsets.US_ASCII));
+        endpoint.send(cmdBuf);
+        endpoint.send(content);
+    }
+
+    // ── Response handling ──
+
+    /** RFC 5321 §4.2.1 — 421 service closing transmission channel. */
+    private void handle421ServiceClosing(String message) {
+        state = SmtpState.CLOSED;
+
+        if (currentCallback instanceof ReplyHandler) {
+            ((ReplyHandler) currentCallback)
+                    .handleServiceClosing(message);
+        } else {
+            handler.handleServiceUnavailable("421 " + message);
+        }
+
+        close();
+    }
+
+    private void dispatchResponse(int code, List<String> messages) {
+        if (state == SmtpState.CLOSED
+                || state == SmtpState.DISCONNECTED) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.fine("Ignoring response in state "
+                        + state + ": " + code);
+            }
+            return;
+        }
+
+        String message = messages.isEmpty()
+                ? "" : messages.get(0);
+
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Received SMTP response: "
+                    + code + " " + message);
+        }
+
+        switch (state) {
+            case CONNECTING:
+                dispatchGreeting(code, message);
+                break;
+            case EHLO_SENT:
+                dispatchEhloReply(code, messages);
+                break;
+            case HELO_SENT:
+                dispatchHeloReply(code, message);
+                break;
+            case STARTTLS_SENT:
+                dispatchStarttlsReply(code, message);
+                break;
+            case AUTH_SENT:
+                dispatchAuthReply(code, message);
+                break;
+            case AUTH_ABORT_SENT:
+                dispatchAuthAbortReply(code, message);
+                break;
+            case MAIL_FROM_SENT:
+                dispatchMailFromReply(code, message);
+                break;
+            case RCPT_TO_SENT:
+                dispatchRcptToReply(code, message);
+                break;
+            case DATA_COMMAND_SENT:
+                dispatchDataReply(code, message);
+                break;
+            case DATA_MODE:
+                if (useBdat) {
+                    dispatchBdatChunkReply(code, message);
+                } else {
+                    if (LOGGER.isLoggable(Level.WARNING)) {
+                        LOGGER.warning(MessageFormat.format(
+                                L10N.getString(
+                                        "client.warn.unexpected_response_data_mode"),
+                                code, message));
+                    }
+                }
+                break;
+            case DATA_END_SENT:
+                dispatchMessageReply(code, message);
+                break;
+            case RSET_SENT:
+                dispatchRsetReply(code, message);
+                break;
+            case VRFY_SENT:
+            case EXPN_SENT:
+                dispatchVrfyExpnReply(code, message);
+                break;
+            case QUIT_SENT:
+                state = SmtpState.CLOSED;
+                close();
+                break;
+            default:
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.warning(MessageFormat.format(
+                            L10N.getString(
+                                    "client.warn.unexpected_response_in_state"),
+                            state, code, message));
+                }
+        }
+    }
+
+    // ── State-specific dispatch (RFC 5321 §4.2 — reply codes) ──
+
+    /** RFC 5321 §4.2 — 220 greeting or service unavailable. */
+    private void dispatchGreeting(int code, String message) {
+        if (code == 220) {
+            state = SmtpState.CONNECTED;
+            boolean esmtp =
+                    message.toUpperCase().indexOf("ESMTP") >= 0;
+            // Notify the handler that the connection is established before
+            // delivering the greeting, mirroring the POP3/IMAP/LDAP clients.
+            // For implicit TLS (SMTPS) the 220 greeting only arrives after the
+            // handshake, so the endpoint is already secure at this point.
+            handler.onConnected(endpoint);
+            handler.handleGreeting(this, message, esmtp);
+        } else {
+            state = SmtpState.ERROR;
+            handler.handleServiceUnavailable(
+                    code + " " + message);
+            close();
+        }
+    }
+
+    /** RFC 5321 §4.1.1.1 — 250 multi-line EHLO reply or 502 not supported. */
+    private void dispatchEhloReply(int code,
+                                   List<String> messages) {
+        EhloReplyHandler callback =
+                (EhloReplyHandler) currentCallback;
+        currentCallback = null;
+
+        if (code == 250) {
+            parseEhloCapabilities(messages);
+            state = SmtpState.CONNECTED;
+            callback.handleEhlo(this, ehloStarttls, ehloMaxSize,
+                    ehloAuthMethods, ehloPipelining);
+        } else if (code == 502) {
+            state = SmtpState.CONNECTED;
+            callback.handleEhloNotSupported(this);
+        } else if (code >= 500) {
+            state = SmtpState.ERROR;
+            callback.handlePermanentFailure(
+                    messages.isEmpty() ? "" : messages.get(0));
+            close();
+        } else {
+            state = SmtpState.ERROR;
+            callback.handlePermanentFailure(code + " "
+                    + (messages.isEmpty() ? "" : messages.get(0)));
+            close();
+        }
+    }
+
+    private void dispatchHeloReply(int code, String message) {
+        HeloReplyHandler callback =
+                (HeloReplyHandler) currentCallback;
+        currentCallback = null;
+
+        if (code == 250) {
+            state = SmtpState.CONNECTED;
+            callback.handleHelo(this);
+        } else {
+            state = SmtpState.ERROR;
+            callback.handlePermanentFailure(message);
+            close();
+        }
+    }
+
+    /** RFC 3207 §4 — 220 ready for TLS, 454 unavailable, 502 not recognized. */
+    private void dispatchStarttlsReply(int code, String message) {
+        StarttlsReplyHandler callback =
+                (StarttlsReplyHandler) currentCallback;
+
+        if (code == 220) {
+            try {
+                endpoint.startTLS();
+            } catch (IOException e) {
+                currentCallback = null;
+                state = SmtpState.CONNECTED;
+                callback.handleTlsUnavailable(this);
+            }
+        } else if (code == 454 || code == 502) {
+            currentCallback = null;
+            state = SmtpState.CONNECTED;
+            callback.handleTlsUnavailable(this);
+        } else if (code >= 500) {
+            currentCallback = null;
+            state = SmtpState.ERROR;
+            callback.handlePermanentFailure(message);
+            close();
+        }
+    }
+
+    /** RFC 4954 — 235 success, 334 challenge, 454/504/535 failure. */
+    private void dispatchAuthReply(int code, String message) {
+        AuthReplyHandler callback =
+                (AuthReplyHandler) currentCallback;
+        currentCallback = null;
+
+        if (code == 235) {
+            state = SmtpState.CONNECTED;
+            callback.handleAuthSuccess(this);
+        } else if (code == 334) {
+            byte[] challenge =
+                    Base64.getDecoder().decode(message);
+            callback.handleChallenge(challenge, this);
+        } else if (code == 535) {
+            state = SmtpState.CONNECTED;
+            callback.handleAuthFailed(this);
+        } else if (code == 504) {
+            state = SmtpState.CONNECTED;
+            callback.handleMechanismNotSupported(this);
+        } else if (code == 454) {
+            state = SmtpState.CONNECTED;
+            callback.handleTemporaryFailure(this);
+        } else {
+            state = SmtpState.CONNECTED;
+            callback.handleAuthFailed(this);
+        }
+    }
+
+    private void dispatchAuthAbortReply(int code,
+                                        String message) {
+        AuthAbortHandler callback =
+                (AuthAbortHandler) currentCallback;
+        currentCallback = null;
+        state = SmtpState.CONNECTED;
+        callback.handleAborted(this);
+    }
+
+    /** RFC 5321 §4.1.1.2 — 250 sender OK, 4xx/5xx rejection. */
+    private void dispatchMailFromReply(int code, String message) {
+        MailFromReplyHandler callback =
+                (MailFromReplyHandler) currentCallback;
+        currentCallback = null;
+
+        if (code == 250) {
+            state = SmtpState.MAIL_FROM_ACCEPTED;
+            callback.handleMailFromOk(this);
+        } else if (code >= 400 && code < 500) {
+            state = SmtpState.CONNECTED;
+            callback.handleTemporaryFailure(this);
+        } else {
+            state = SmtpState.CONNECTED;
+            callback.handlePermanentFailure(message);
+        }
+    }
+
+    /** RFC 5321 §4.1.1.3 — 250/251/252 accepted, 4xx/5xx rejected. */
+    private void dispatchRcptToReply(int code, String message) {
+        RcptToReplyHandler callback =
+                (RcptToReplyHandler) currentCallback;
+        currentCallback = null;
+
+        if (code == 250 || code == 251 || code == 252) {
+            acceptedRecipients++;
+            state = SmtpState.RCPT_TO_ACCEPTED;
+            callback.handleRcptToOk(this);
+        } else if (code >= 400 && code < 500) {
+            state = acceptedRecipients > 0
+                    ? SmtpState.RCPT_TO_ACCEPTED
+                    : SmtpState.MAIL_FROM_ACCEPTED;
+            callback.handleTemporaryFailure(this);
+        } else {
+            state = acceptedRecipients > 0
+                    ? SmtpState.RCPT_TO_ACCEPTED
+                    : SmtpState.MAIL_FROM_ACCEPTED;
+            callback.handleRecipientRejected(this);
+        }
+    }
+
+    /** RFC 5321 §4.1.1.4 — 354 start mail input. */
+    private void dispatchDataReply(int code, String message) {
+        DataReplyHandler callback =
+                (DataReplyHandler) currentCallback;
+        currentCallback = null;
+
+        if (code == 354) {
+            state = SmtpState.DATA_MODE;
+            dotStuffer.reset();
+            callback.handleReadyForData(this);
+        } else if (code >= 400 && code < 500) {
+            state = SmtpState.RCPT_TO_ACCEPTED;
+            callback.handleTemporaryFailure(this);
+        } else {
+            state = SmtpState.CONNECTED;
+            callback.handlePermanentFailure(message);
+        }
+    }
+
+    private void dispatchBdatChunkReply(int code,
+                                        String message) {
+        bdatPendingResponses--;
+
+        if (code == 250) {
+            // Chunk accepted
+        } else if (code >= 400 && code < 500) {
+            state = SmtpState.CONNECTED;
+            useBdat = false;
+            if (currentCallback
+                    instanceof MessageReplyHandler) {
+                MessageReplyHandler callback =
+                        (MessageReplyHandler) currentCallback;
+                currentCallback = null;
+                callback.handleTemporaryFailure(this);
+            }
+        } else if (code >= 500) {
+            state = SmtpState.CONNECTED;
+            useBdat = false;
+            if (currentCallback
+                    instanceof MessageReplyHandler) {
+                MessageReplyHandler callback =
+                        (MessageReplyHandler) currentCallback;
+                currentCallback = null;
+                callback.handlePermanentFailure(message, this);
+            }
+        }
+    }
+
+    /** RFC 5321 §3.3 — 250 message accepted for delivery. */
+    private void dispatchMessageReply(int code, String message) {
+        MessageReplyHandler callback =
+                (MessageReplyHandler) currentCallback;
+        currentCallback = null;
+        useBdat = false;
+
+        if (code == 250) {
+            state = SmtpState.CONNECTED;
+            String queueId = parseQueueId(message);
+            callback.handleMessageAccepted(queueId, this);
+        } else if (code >= 400 && code < 500) {
+            state = SmtpState.CONNECTED;
+            callback.handleTemporaryFailure(this);
+        } else {
+            state = SmtpState.CONNECTED;
+            callback.handlePermanentFailure(message, this);
+        }
+    }
+
+    private void dispatchRsetReply(int code, String message) {
+        RsetReplyHandler callback =
+                (RsetReplyHandler) currentCallback;
+        currentCallback = null;
+        state = SmtpState.CONNECTED;
+        acceptedRecipients = 0;
+        callback.handleResetOk(this);
+    }
+
+    /** RFC 5321 §4.1.1.6–7 — dispatch VRFY / EXPN reply. */
+    private void dispatchVrfyExpnReply(int code, String message) {
+        ReplyHandler callback =
+                (ReplyHandler) currentCallback;
+        currentCallback = null;
+        state = SmtpState.CONNECTED;
+        callback.handleReply(code, message, this);
+    }
+
+    // ── EHLO capability parsing (RFC 5321 §4.1.1.1) ──
+
+    private void resetEhloCapabilities() {
+        ehloStarttls = false;
+        ehloMaxSize = 0;
+        ehloAuthMethods = new ArrayList<String>();
+        ehloPipelining = false;
+        ehloChunking = false;
+        ehlo8BitMime = false;
+        ehloSmtpUtf8 = false;
+        ehloDsn = false;
+        ehloEnhancedStatusCodes = false;
+        ehloBinaryMime = false;
+        ehloRequireTls = false;
+        ehloMtPriority = false;
+        ehloFutureRelease = false;
+        ehloDeliverBy = false;
+        ehloLimitsRcptMax = 0;
+        ehloLimitsMailMax = 0;
+    }
+
+    /**
+     * Parse EHLO capability keywords from 250 multi-line response.
+     * RFC 5321 §4.1.1.1 — each line is an EHLO keyword with optional params.
+     */
+    private void parseEhloCapabilities(List<String> lines) {
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            String upper = line.toUpperCase();
+
+            if (upper.equals("STARTTLS")) {                    // RFC 3207
+                ehloStarttls = true;
+            } else if (upper.startsWith("SIZE")) {             // RFC 1870
+                if (upper.length() > 5) {
+                    try {
+                        ehloMaxSize = Long.parseLong(
+                                line.substring(5).trim());
+                    } catch (NumberFormatException e) {
+                        // Ignore malformed SIZE
+                    }
+                }
+            } else if (upper.startsWith("AUTH")) {             // RFC 4954
+                int start = 4;
+                int length = line.length();
+                while (start < length) {
+                    while (start < length
+                            && Character.isWhitespace(
+                            line.charAt(start))) {
+                        start++;
+                    }
+                    if (start >= length) {
+                        break;
+                    }
+                    int end = start;
+                    while (end < length
+                            && !Character.isWhitespace(
+                            line.charAt(end))) {
+                        end++;
+                    }
+                    ehloAuthMethods.add(
+                            line.substring(start, end)
+                                    .toUpperCase());
+                    start = end;
+                }
+            } else if (upper.equals("PIPELINING")) {           // RFC 2920
+                ehloPipelining = true;
+            } else if (upper.equals("CHUNKING")) {             // RFC 3030
+                ehloChunking = true;
+            } else if (upper.equals("8BITMIME")) {             // RFC 6152
+                ehlo8BitMime = true;
+            } else if (upper.equals("SMTPUTF8")) {             // RFC 6531
+                ehloSmtpUtf8 = true;
+            } else if (upper.equals("DSN")) {                  // RFC 3461
+                ehloDsn = true;
+            } else if (upper.equals("ENHANCEDSTATUSCODES")) {  // RFC 2034
+                ehloEnhancedStatusCodes = true;
+            } else if (upper.equals("BINARYMIME")) {           // RFC 3030
+                ehloBinaryMime = true;
+            } else if (upper.equals("REQUIRETLS")) {           // RFC 8689
+                ehloRequireTls = true;
+            } else if (upper.startsWith("MT-PRIORITY")) {      // RFC 6710
+                ehloMtPriority = true;
+            } else if (upper.startsWith("FUTURERELEASE")) {    // RFC 4865
+                ehloFutureRelease = true;
+            } else if (upper.startsWith("DELIVERBY")) {        // RFC 2852
+                ehloDeliverBy = true;
+            } else if (upper.startsWith("LIMITS")) {           // RFC 9422
+                parseLimits(line);
+            }
+        }
+    }
+
+    /** RFC 9422 — parse LIMITS keyword parameters (RCPTMAX, MAILMAX). */
+    private void parseLimits(String line) {
+        String[] tokens = line.split("\\s+");
+        for (int i = 1; i < tokens.length; i++) {
+            String token = tokens[i].toUpperCase();
+            if (token.startsWith("RCPTMAX=")) {
+                try {
+                    ehloLimitsRcptMax = Integer.parseInt(token.substring(8));
+                } catch (NumberFormatException e) {
+                    // Ignore malformed value
+                }
+            } else if (token.startsWith("MAILMAX=")) {
+                try {
+                    ehloLimitsMailMax = Integer.parseInt(token.substring(8));
+                } catch (NumberFormatException e) {
+                    // Ignore malformed value
+                }
+            }
+        }
+    }
+
+    private String parseQueueId(String message) {
+        if (message == null || message.isEmpty()) {
+            return null;
+        }
+
+        String lower = message.toLowerCase();
+        String[] patterns = {
+            "queued as ",
+            "message accepted for delivery "
+        };
+        for (int i = 0; i < patterns.length; i++) {
+            int idx = lower.indexOf(patterns[i]);
+            if (idx >= 0) {
+                String remainder = message.substring(
+                        idx + patterns[i].length()).trim();
+                int space = remainder.indexOf(' ');
+                if (space > 0) {
+                    return remainder.substring(0, space);
+                }
+                return remainder;
+            }
+        }
+
+        return null;
+    }
+
+    // ── Error handling ──
+
+    private void handleError(SmtpException error) {
+        if (LOGGER.isLoggable(Level.WARNING)) {
+            LOGGER.warning(MessageFormat.format(
+                    L10N.getString("client.warn.smtp_error"),
+                    error.getMessage()));
+        }
+        state = SmtpState.ERROR;
+        handler.onError(error);
+    }
+}

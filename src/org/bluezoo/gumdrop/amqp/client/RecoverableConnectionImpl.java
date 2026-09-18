@@ -26,14 +26,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerCloseHandler;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.CloseHandler;
 
 /**
  * A {@link ClientConnection} whose channels survive reconnects — see
- * {@link AMQPClientRecovery}.
+ * {@link AmqpClientRecovery}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -67,7 +67,7 @@ final class RecoverableConnectionImpl implements ClientConnection {
         }
         final int[] remaining = { channels.size() };
         for (final RecoverableChannelImpl channel : channels.values()) {
-            live.channelOpen(channel.getChannelId(), new ServerChannelOpenHandler() {
+            live.channelOpen(channel.getChannelId(), new ChannelOpenHandler() {
                 @Override
                 public void handleChannelOpenOk(ClientChannel newRealChannel) {
                     channel.rebind(newRealChannel);
@@ -94,12 +94,12 @@ final class RecoverableConnectionImpl implements ClientConnection {
     }
 
     @Override
-    public void channelOpen(final int channelId, final ServerChannelOpenHandler handler) {
+    public void channelOpen(final int channelId, final ChannelOpenHandler handler) {
         ClientConnection l = live;
         if (l == null) {
             throw new IllegalStateException("Connection is disconnected and awaiting reconnect");
         }
-        l.channelOpen(channelId, new ServerChannelOpenHandler() {
+        l.channelOpen(channelId, new ChannelOpenHandler() {
             @Override
             public void handleChannelOpenOk(ClientChannel realChannel) {
                 // Stop tracking (and therefore stop replaying on future
@@ -120,7 +120,7 @@ final class RecoverableConnectionImpl implements ClientConnection {
     }
 
     @Override
-    public void close(int replyCode, String replyText, ServerCloseHandler handler) {
+    public void close(int replyCode, String replyText, CloseHandler handler) {
         ClientConnection l = live;
         if (l == null) {
             throw new IllegalStateException("Connection is disconnected and awaiting reconnect");

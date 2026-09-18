@@ -32,7 +32,7 @@ import java.util.Map;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSResourceRecord}.
+ * Unit tests for {@link DnsResourceRecord}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -41,11 +41,11 @@ public class DNSResourceRecordTest {
     @Test
     public void testARecord() throws Exception {
         InetAddress ip = InetAddress.getByName("192.168.1.100");
-        DNSResourceRecord record = DNSResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord record = DnsResourceRecord.a("example.com", 300, ip);
         
         assertEquals("example.com", record.getName());
-        assertEquals(DNSType.A, record.getType());
-        assertEquals(DNSClass.IN, record.getDNSClass());
+        assertEquals(DnsType.A, record.getType());
+        assertEquals(DnsClass.IN, record.getDNSClass());
         assertEquals(300, record.getTTL());
         assertEquals(4, record.getRData().length);
         
@@ -56,59 +56,59 @@ public class DNSResourceRecordTest {
     @Test
     public void testAAAARecord() throws Exception {
         InetAddress ip = InetAddress.getByName("2001:db8::1");
-        DNSResourceRecord record = DNSResourceRecord.aaaa("example.com", 600, ip);
+        DnsResourceRecord record = DnsResourceRecord.aaaa("example.com", 600, ip);
         
-        assertEquals(DNSType.AAAA, record.getType());
+        assertEquals(DnsType.AAAA, record.getType());
         assertEquals(16, record.getRData().length);
         assertEquals(ip, record.getAddress());
     }
     
     @Test
     public void testCNAMERecord() {
-        DNSResourceRecord record = DNSResourceRecord.cname("www.example.com", 3600, "example.com");
+        DnsResourceRecord record = DnsResourceRecord.cname("www.example.com", 3600, "example.com");
         
-        assertEquals(DNSType.CNAME, record.getType());
+        assertEquals(DnsType.CNAME, record.getType());
         assertEquals("example.com", record.getTargetName());
     }
     
     @Test
     public void testPTRRecord() {
-        DNSResourceRecord record = DNSResourceRecord.ptr("100.1.168.192.in-addr.arpa", 3600, "host.example.com");
+        DnsResourceRecord record = DnsResourceRecord.ptr("100.1.168.192.in-addr.arpa", 3600, "host.example.com");
         
-        assertEquals(DNSType.PTR, record.getType());
+        assertEquals(DnsType.PTR, record.getType());
         assertEquals("host.example.com", record.getTargetName());
     }
     
     @Test
     public void testNSRecord() {
-        DNSResourceRecord record = DNSResourceRecord.ns("example.com", 86400, "ns1.example.com");
+        DnsResourceRecord record = DnsResourceRecord.ns("example.com", 86400, "ns1.example.com");
         
-        assertEquals(DNSType.NS, record.getType());
+        assertEquals(DnsType.NS, record.getType());
         assertEquals("ns1.example.com", record.getTargetName());
     }
     
     @Test
     public void testMXRecord() {
-        DNSResourceRecord record = DNSResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
+        DnsResourceRecord record = DnsResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
         
-        assertEquals(DNSType.MX, record.getType());
+        assertEquals(DnsType.MX, record.getType());
         assertEquals(10, record.getMXPreference());
         assertEquals("mail.example.com", record.getMXExchange());
     }
     
     @Test
     public void testMXRecordOrdering() {
-        DNSResourceRecord mx1 = DNSResourceRecord.mx("example.com", 3600, 10, "mail1.example.com");
-        DNSResourceRecord mx2 = DNSResourceRecord.mx("example.com", 3600, 20, "mail2.example.com");
+        DnsResourceRecord mx1 = DnsResourceRecord.mx("example.com", 3600, 10, "mail1.example.com");
+        DnsResourceRecord mx2 = DnsResourceRecord.mx("example.com", 3600, 20, "mail2.example.com");
         
         assertTrue(mx1.getMXPreference() < mx2.getMXPreference());
     }
     
     @Test
     public void testTXTRecord() {
-        DNSResourceRecord record = DNSResourceRecord.txt("example.com", 300, "v=spf1 include:_spf.example.com ~all");
+        DnsResourceRecord record = DnsResourceRecord.txt("example.com", 300, "v=spf1 include:_spf.example.com ~all");
         
-        assertEquals(DNSType.TXT, record.getType());
+        assertEquals(DnsType.TXT, record.getType());
         assertEquals("v=spf1 include:_spf.example.com ~all", record.getText());
     }
     
@@ -121,13 +121,13 @@ public class DNSResourceRecordTest {
         }
         String longText = sb.toString();
         
-        DNSResourceRecord record = DNSResourceRecord.txt("example.com", 300, longText);
+        DnsResourceRecord record = DnsResourceRecord.txt("example.com", 300, longText);
         assertEquals(longText, record.getText());
     }
     
     @Test
     public void testSOARecord() {
-        DNSResourceRecord record = DNSResourceRecord.soa(
+        DnsResourceRecord record = DnsResourceRecord.soa(
                 "example.com", 3600,
                 "ns1.example.com",      // mname
                 "admin.example.com",    // rname (admin@example.com)
@@ -138,40 +138,40 @@ public class DNSResourceRecordTest {
                 86400                   // minimum
         );
         
-        assertEquals(DNSType.SOA, record.getType());
+        assertEquals(DnsType.SOA, record.getType());
         assertEquals("example.com", record.getName());
     }
     
     @Test(expected = IllegalStateException.class)
     public void testGetAddressOnNonAddressRecord() {
-        DNSResourceRecord record = DNSResourceRecord.txt("example.com", 300, "test");
+        DnsResourceRecord record = DnsResourceRecord.txt("example.com", 300, "test");
         record.getAddress();
     }
     
     @Test(expected = IllegalStateException.class)
     public void testGetTargetNameOnNonNameRecord() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord record = DNSResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord record = DnsResourceRecord.a("example.com", 300, ip);
         record.getTargetName();
     }
     
     @Test(expected = IllegalStateException.class)
     public void testGetTextOnNonTXTRecord() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord record = DNSResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord record = DnsResourceRecord.a("example.com", 300, ip);
         record.getText();
     }
     
     @Test(expected = IllegalStateException.class)
     public void testGetMXPreferenceOnNonMXRecord() {
-        DNSResourceRecord record = DNSResourceRecord.txt("example.com", 300, "test");
+        DnsResourceRecord record = DnsResourceRecord.txt("example.com", 300, "test");
         record.getMXPreference();
     }
     
     @Test
     public void testRDataDefensiveCopy() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord record = DNSResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord record = DnsResourceRecord.a("example.com", 300, ip);
         
         byte[] rdata1 = record.getRData();
         byte[] rdata2 = record.getRData();
@@ -190,9 +190,9 @@ public class DNSResourceRecordTest {
     @Test
     public void testEquals() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord record1 = DNSResourceRecord.a("example.com", 300, ip);
-        DNSResourceRecord record2 = DNSResourceRecord.a("example.com", 300, ip);
-        DNSResourceRecord record3 = DNSResourceRecord.a("example.com", 600, ip);
+        DnsResourceRecord record1 = DnsResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord record2 = DnsResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord record3 = DnsResourceRecord.a("example.com", 600, ip);
         
         assertEquals(record1, record2);
         assertNotEquals(record1, record3); // Different TTL
@@ -201,8 +201,8 @@ public class DNSResourceRecordTest {
     @Test
     public void testHashCode() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord record1 = DNSResourceRecord.a("example.com", 300, ip);
-        DNSResourceRecord record2 = DNSResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord record1 = DnsResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord record2 = DnsResourceRecord.a("example.com", 300, ip);
         
         assertEquals(record1.hashCode(), record2.hashCode());
     }
@@ -210,7 +210,7 @@ public class DNSResourceRecordTest {
     @Test
     public void testToStringA() throws Exception {
         InetAddress ip = InetAddress.getByName("93.184.216.34");
-        DNSResourceRecord record = DNSResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord record = DnsResourceRecord.a("example.com", 300, ip);
         
         String str = record.toString();
         assertTrue(str.contains("example.com"));
@@ -222,7 +222,7 @@ public class DNSResourceRecordTest {
     
     @Test
     public void testToStringMX() {
-        DNSResourceRecord record = DNSResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
+        DnsResourceRecord record = DnsResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
         
         String str = record.toString();
         assertTrue(str.contains("MX"));
@@ -234,10 +234,10 @@ public class DNSResourceRecordTest {
 
     @Test
     public void testSRVRecord() {
-        DNSResourceRecord srv = DNSResourceRecord.srv(
+        DnsResourceRecord srv = DnsResourceRecord.srv(
                 "_sip._tcp.example.com", 3600, 10, 60, 5060, "sip.example.com");
 
-        assertEquals(DNSType.SRV, srv.getType());
+        assertEquals(DnsType.SRV, srv.getType());
         assertEquals("_sip._tcp.example.com", srv.getName());
         assertEquals(10, srv.getSRVPriority());
         assertEquals(60, srv.getSRVWeight());
@@ -247,7 +247,7 @@ public class DNSResourceRecordTest {
 
     @Test
     public void testSRVRecordToString() {
-        DNSResourceRecord srv = DNSResourceRecord.srv(
+        DnsResourceRecord srv = DnsResourceRecord.srv(
                 "_http._tcp.example.com", 300, 0, 5, 80, "www.example.com");
 
         String str = srv.toString();
@@ -259,34 +259,34 @@ public class DNSResourceRecordTest {
     @Test(expected = IllegalStateException.class)
     public void testGetSRVPriorityOnNonSRV() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord.a("example.com", 300, ip).getSRVPriority();
+        DnsResourceRecord.a("example.com", 300, ip).getSRVPriority();
     }
 
     @Test(expected = IllegalStateException.class)
     public void testGetSRVWeightOnNonSRV() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord.a("example.com", 300, ip).getSRVWeight();
+        DnsResourceRecord.a("example.com", 300, ip).getSRVWeight();
     }
 
     @Test(expected = IllegalStateException.class)
     public void testGetSRVPortOnNonSRV() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord.a("example.com", 300, ip).getSRVPort();
+        DnsResourceRecord.a("example.com", 300, ip).getSRVPort();
     }
 
     @Test(expected = IllegalStateException.class)
     public void testGetSRVTargetOnNonSRV() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord.a("example.com", 300, ip).getSRVTarget();
+        DnsResourceRecord.a("example.com", 300, ip).getSRVTarget();
     }
 
     // -- EDNS0 OPT record tests (RFC 6891) --
 
     @Test
     public void testOptRecord() {
-        DNSResourceRecord opt = DNSResourceRecord.opt(4096);
+        DnsResourceRecord opt = DnsResourceRecord.opt(4096);
 
-        assertEquals(DNSType.OPT, opt.getType());
+        assertEquals(DnsType.OPT, opt.getType());
         assertEquals("", opt.getName());
         assertEquals(4096, opt.getUdpPayloadSize());
         assertEquals(0, opt.getTTL());
@@ -296,23 +296,23 @@ public class DNSResourceRecordTest {
     @Test
     public void testOptRecordWithOptionData() {
         byte[] optionData = { 0, 10, 0, 8, 1, 2, 3, 4, 5, 6, 7, 8 };
-        DNSResourceRecord opt = DNSResourceRecord.opt(4096, optionData);
+        DnsResourceRecord opt = DnsResourceRecord.opt(4096, optionData);
 
-        assertEquals(DNSType.OPT, opt.getType());
+        assertEquals(DnsType.OPT, opt.getType());
         assertEquals(4096, opt.getUdpPayloadSize());
         assertArrayEquals(optionData, opt.getRData());
     }
 
     @Test
     public void testOptRecordRawClassIsPayloadSize() {
-        DNSResourceRecord opt = DNSResourceRecord.opt(1232);
+        DnsResourceRecord opt = DnsResourceRecord.opt(1232);
         assertEquals(1232, opt.getRawClass());
     }
 
     @Test(expected = IllegalStateException.class)
     public void testGetUdpPayloadSizeOnNonOptRecord() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord a = DNSResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord a = DnsResourceRecord.a("example.com", 300, ip);
         a.getUdpPayloadSize();
     }
 
@@ -321,17 +321,17 @@ public class DNSResourceRecordTest {
     @Test
     public void testHttpsRecordServiceForm() {
         Map<Integer, byte[]> params = new LinkedHashMap<>();
-        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
-                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h3", "h2")));
-        DNSResourceRecord https = DNSResourceRecord.https(
+        params.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("h3", "h2")));
+        DnsResourceRecord https = DnsResourceRecord.https(
                 "example.com", 3600, 1, ".", params);
 
-        assertEquals(DNSType.HTTPS, https.getType());
+        assertEquals(DnsType.HTTPS, https.getType());
         assertEquals("example.com", https.getName());
         assertEquals(1, https.getSVCBPriority());
         assertFalse(https.isSVCBAliasForm());
         // "." (root, "same as owner name") round-trips as "" -- matches
-        // this codebase's DNSMessage.decodeName convention for the root name.
+        // this codebase's DnsMessage.decodeName convention for the root name.
         assertEquals("", https.getSVCBTargetName());
         assertEquals(Arrays.asList("h3", "h2"), https.getSVCBAlpnProtocols());
         assertEquals(-1, https.getSVCBPort());
@@ -339,7 +339,7 @@ public class DNSResourceRecordTest {
 
     @Test
     public void testHttpsRecordAliasForm() {
-        DNSResourceRecord alias = DNSResourceRecord.https(
+        DnsResourceRecord alias = DnsResourceRecord.https(
                 "example.com", 3600, 0, "target.example.net", null);
 
         assertTrue(alias.isSVCBAliasForm());
@@ -350,11 +350,11 @@ public class DNSResourceRecordTest {
     @Test
     public void testHttpsRecordPortParam() {
         Map<Integer, byte[]> params = new LinkedHashMap<>();
-        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
-                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h3")));
-        params.put(DNSResourceRecord.SVCB_PARAM_PORT,
-                DNSResourceRecord.encodeSVCBPort(8443));
-        DNSResourceRecord https = DNSResourceRecord.https(
+        params.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("h3")));
+        params.put(DnsResourceRecord.SVCB_PARAM_PORT,
+                DnsResourceRecord.encodeSVCBPort(8443));
+        DnsResourceRecord https = DnsResourceRecord.https(
                 "example.com", 3600, 1, ".", params);
 
         assertEquals(8443, https.getSVCBPort());
@@ -364,11 +364,11 @@ public class DNSResourceRecordTest {
     @Test
     public void testSvcbRecordDohPathParam() {
         Map<Integer, byte[]> params = new LinkedHashMap<>();
-        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
-                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h2")));
-        params.put(DNSResourceRecord.SVCB_PARAM_DOHPATH,
-                DNSResourceRecord.encodeSVCBDohPath("/dns-query{?dns}"));
-        DNSResourceRecord svcb = DNSResourceRecord.svcb(
+        params.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("h2")));
+        params.put(DnsResourceRecord.SVCB_PARAM_DOHPATH,
+                DnsResourceRecord.encodeSVCBDohPath("/dns-query{?dns}"));
+        DnsResourceRecord svcb = DnsResourceRecord.svcb(
                 "_dns.resolver.arpa", 300, 1, ".", params);
 
         assertEquals("/dns-query{?dns}", svcb.getSVCBDohPath());
@@ -377,16 +377,16 @@ public class DNSResourceRecordTest {
 
     @Test
     public void testSvcbRecordDohPathAbsent() {
-        DNSResourceRecord svcb = DNSResourceRecord.svcb(
+        DnsResourceRecord svcb = DnsResourceRecord.svcb(
                 "_dns.resolver.arpa", 300, 1, ".", null);
         assertNull(svcb.getSVCBDohPath());
     }
 
     @Test
     public void testSvcbRecordType() {
-        DNSResourceRecord svcb = DNSResourceRecord.svcb(
+        DnsResourceRecord svcb = DnsResourceRecord.svcb(
                 "example.com", 3600, 1, ".", null);
-        assertEquals(DNSType.SVCB, svcb.getType());
+        assertEquals(DnsType.SVCB, svcb.getType());
     }
 
     @Test
@@ -394,23 +394,23 @@ public class DNSResourceRecordTest {
         // RFC 9460 section 2.2: SvcParams must be written in strictly
         // increasing key order regardless of insertion order.
         Map<Integer, byte[]> params = new LinkedHashMap<>();
-        params.put(DNSResourceRecord.SVCB_PARAM_PORT,
-                DNSResourceRecord.encodeSVCBPort(443));
-        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
-                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h3")));
-        DNSResourceRecord https = DNSResourceRecord.https(
+        params.put(DnsResourceRecord.SVCB_PARAM_PORT,
+                DnsResourceRecord.encodeSVCBPort(443));
+        params.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("h3")));
+        DnsResourceRecord https = DnsResourceRecord.https(
                 "example.com", 3600, 1, ".", params);
 
         Map<Integer, byte[]> parsed = https.getSVCBParams();
         List<Integer> keys = new java.util.ArrayList<>(parsed.keySet());
         assertEquals(Arrays.asList(
-                DNSResourceRecord.SVCB_PARAM_ALPN,
-                DNSResourceRecord.SVCB_PARAM_PORT), keys);
+                DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.SVCB_PARAM_PORT), keys);
     }
 
     @Test
     public void testHttpsRecordNoParams() {
-        DNSResourceRecord https = DNSResourceRecord.https(
+        DnsResourceRecord https = DnsResourceRecord.https(
                 "example.com", 3600, 1, ".", null);
         assertTrue(https.getSVCBParams().isEmpty());
         assertEquals(-1, https.getSVCBPort());
@@ -420,9 +420,9 @@ public class DNSResourceRecordTest {
     @Test
     public void testToStringHttps() {
         Map<Integer, byte[]> params = new LinkedHashMap<>();
-        params.put(DNSResourceRecord.SVCB_PARAM_ALPN,
-                DNSResourceRecord.encodeSVCBAlpn(Arrays.asList("h3")));
-        DNSResourceRecord https = DNSResourceRecord.https(
+        params.put(DnsResourceRecord.SVCB_PARAM_ALPN,
+                DnsResourceRecord.encodeSVCBAlpn(Arrays.asList("h3")));
+        DnsResourceRecord https = DnsResourceRecord.https(
                 "example.com", 3600, 1, ".", params);
 
         String str = https.toString();
@@ -433,25 +433,25 @@ public class DNSResourceRecordTest {
     @Test(expected = IllegalStateException.class)
     public void testGetSVCBPriorityOnNonSVCB() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord.a("example.com", 300, ip).getSVCBPriority();
+        DnsResourceRecord.a("example.com", 300, ip).getSVCBPriority();
     }
 
     @Test(expected = IllegalStateException.class)
     public void testGetSVCBTargetNameOnNonSVCB() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord.a("example.com", 300, ip).getSVCBTargetName();
+        DnsResourceRecord.a("example.com", 300, ip).getSVCBTargetName();
     }
 
     @Test(expected = IllegalStateException.class)
     public void testGetSVCBParamsOnNonSVCB() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord.a("example.com", 300, ip).getSVCBParams();
+        DnsResourceRecord.a("example.com", 300, ip).getSVCBParams();
     }
 
     @Test
     public void testCacheFlushDefaultsFalse() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord rr = DNSResourceRecord.a("example.com", 300, ip);
+        DnsResourceRecord rr = DnsResourceRecord.a("example.com", 300, ip);
 
         assertFalse(rr.isCacheFlush());
     }
@@ -459,20 +459,20 @@ public class DNSResourceRecordTest {
     @Test
     public void testCacheFlushBitSetViaRawClass() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        int rawClass = DNSClass.IN.getValue() | DNSResourceRecord.CACHE_FLUSH_BIT;
-        DNSResourceRecord rr = new DNSResourceRecord("example.local", DNSType.A,
-                DNSType.A.getValue(), DNSClass.IN, rawClass, 120, ip.getAddress());
+        int rawClass = DnsClass.IN.getValue() | DnsResourceRecord.CACHE_FLUSH_BIT;
+        DnsResourceRecord rr = new DnsResourceRecord("example.local", DnsType.A,
+                DnsType.A.getValue(), DnsClass.IN, rawClass, 120, ip.getAddress());
 
         assertTrue(rr.isCacheFlush());
-        assertEquals(DNSClass.IN, rr.getDNSClass());
+        assertEquals(DnsClass.IN, rr.getDNSClass());
     }
 
     @Test
     public void testWithCacheFlushSetsOnlyTheBit() throws Exception {
         InetAddress ip = InetAddress.getByName("1.2.3.4");
-        DNSResourceRecord rr = DNSResourceRecord.a("example.local", 300, ip);
+        DnsResourceRecord rr = DnsResourceRecord.a("example.local", 300, ip);
 
-        DNSResourceRecord flushed = rr.withCacheFlush();
+        DnsResourceRecord flushed = rr.withCacheFlush();
 
         assertFalse(rr.isCacheFlush());
         assertTrue(flushed.isCacheFlush());
@@ -484,10 +484,10 @@ public class DNSResourceRecordTest {
 
     @Test
     public void testMultiStringTxt() {
-        DNSResourceRecord rr = DNSResourceRecord.txt("_http._tcp.local", 4500,
+        DnsResourceRecord rr = DnsResourceRecord.txt("_http._tcp.local", 4500,
                 Arrays.asList("path=/", "version=1.0"));
 
-        assertEquals(DNSType.TXT, rr.getType());
+        assertEquals(DnsType.TXT, rr.getType());
         byte[] rdata = rr.getRData();
         // "path=/" (6 bytes) + "version=1.0" (11 bytes), each its own
         // length-prefixed character-string
@@ -502,17 +502,17 @@ public class DNSResourceRecordTest {
         for (int i = 0; i < 256; i++) {
             sb.append('a');
         }
-        DNSResourceRecord.txt("example.local", 4500, Arrays.asList(sb.toString()));
+        DnsResourceRecord.txt("example.local", 4500, Arrays.asList(sb.toString()));
     }
 
     @Test
     public void testTLSARecord() {
         byte[] hash = new byte[32];
         Arrays.fill(hash, (byte) 0xAB);
-        DNSResourceRecord rr = DNSResourceRecord.tlsa(
+        DnsResourceRecord rr = DnsResourceRecord.tlsa(
                 "_25._tcp.mail.example.com", 3600, 3, 1, 1, hash);
 
-        assertEquals(DNSType.TLSA, rr.getType());
+        assertEquals(DnsType.TLSA, rr.getType());
         assertEquals(3, rr.getTLSACertUsage());
         assertEquals(1, rr.getTLSASelector());
         assertEquals(1, rr.getTLSAMatchingType());
@@ -523,7 +523,7 @@ public class DNSResourceRecordTest {
     @Test
     public void testToStringTLSA() {
         byte[] hash = new byte[32];
-        DNSResourceRecord rr = DNSResourceRecord.tlsa(
+        DnsResourceRecord rr = DnsResourceRecord.tlsa(
                 "_443._tcp.example.com", 3600, 2, 0, 2, hash);
         String s = rr.toString();
         assertTrue(s.contains("2 0 2"));
@@ -533,7 +533,7 @@ public class DNSResourceRecordTest {
     @Test(expected = IllegalStateException.class)
     public void testGetTLSACertUsageOnNonTLSA() throws Exception {
         InetAddress ip = InetAddress.getByName("192.168.1.1");
-        DNSResourceRecord.a("example.com", 300, ip).getTLSACertUsage();
+        DnsResourceRecord.a("example.com", 300, ip).getTLSACertUsage();
     }
 }
 

@@ -22,14 +22,14 @@
 /**
  * ASN.1 BER (ITU-T X.690) codec for LDAP's wire encoding.
  *
- * <p>{@link org.bluezoo.gumdrop.ldap.asn1.BERDecoder} is a streaming
+ * <p>{@link org.bluezoo.gumdrop.ldap.asn1.BerDecoder} is a streaming
  * decoder built for non-blocking I/O: it accepts partial reads and
  * returns null from {@code next()} until a complete element is
  * available, retaining partial data across calls to {@code receive()}.
- * {@link org.bluezoo.gumdrop.ldap.asn1.BEREncoder} is the corresponding
- * encoder. {@link org.bluezoo.gumdrop.ldap.asn1.ASN1Element} is the
+ * {@link org.bluezoo.gumdrop.ldap.asn1.BerEncoder} is the corresponding
+ * encoder. {@link org.bluezoo.gumdrop.ldap.asn1.Asn1Element} is the
  * decoded TLV (tag-length-value) representation; {@link
- * org.bluezoo.gumdrop.ldap.asn1.ASN1Type} holds the universal type tags
+ * org.bluezoo.gumdrop.ldap.asn1.Asn1Type} holds the universal type tags
  * BER uses, alongside the context-specific tags RFC 4511 defines for
  * each LDAP operation (BindRequest 0x60, SearchRequest 0x63, and so on).
  *

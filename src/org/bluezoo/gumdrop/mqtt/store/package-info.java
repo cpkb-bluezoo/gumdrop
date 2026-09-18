@@ -23,11 +23,11 @@
  * Pluggable storage for MQTT message payloads, so a large PUBLISH
  * payload need not be held in memory end to end.
  *
- * <p>{@link org.bluezoo.gumdrop.mqtt.store.MQTTMessageStore} is the
+ * <p>{@link org.bluezoo.gumdrop.mqtt.store.MqttMessageStore} is the
  * factory a broker or client is configured with; {@link
- * org.bluezoo.gumdrop.mqtt.store.MQTTMessageWriter} is where an incoming
+ * org.bluezoo.gumdrop.mqtt.store.MqttMessageWriter} is where an incoming
  * payload is written as it arrives, and {@link
- * org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent} is the readable
+ * org.bluezoo.gumdrop.mqtt.store.MqttMessageContent} is the readable
  * handle delivered to a subscriber. {@link
  * org.bluezoo.gumdrop.mqtt.store.InMemoryMessageStore} is the default,
  * simplest implementation.

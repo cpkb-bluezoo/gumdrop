@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.AmqpProtocolException;
+import org.bluezoo.gumdrop.amqp.FieldTable;
+
 import org.junit.Test;
 
 import java.math.BigDecimal;
@@ -33,7 +36,7 @@ import static org.junit.Assert.*;
 
 public class FieldTableTest {
 
-    private static FieldTable roundTrip(FieldTable original) throws AMQPProtocolException {
+    private static FieldTable roundTrip(FieldTable original) throws AmqpProtocolException {
         ByteBuffer encoded = original.encode();
         assertEquals("encodedContentSize must match actual encode() output",
                 encoded.remaining(), original.encodedContentSize());
@@ -41,14 +44,14 @@ public class FieldTableTest {
     }
 
     @Test
-    public void testEmptyTable() throws AMQPProtocolException {
+    public void testEmptyTable() throws AmqpProtocolException {
         FieldTable table = new FieldTable();
         FieldTable decoded = roundTrip(table);
         assertTrue(decoded.isEmpty());
     }
 
     @Test
-    public void testScalarTypes() throws AMQPProtocolException {
+    public void testScalarTypes() throws AmqpProtocolException {
         FieldTable table = new FieldTable()
                 .put("bool", Boolean.TRUE)
                 .put("byte", (byte) -12)
@@ -75,7 +78,7 @@ public class FieldTableTest {
     }
 
     @Test
-    public void testByteArray() throws AMQPProtocolException {
+    public void testByteArray() throws AmqpProtocolException {
         byte[] data = { 1, 2, 3, 4, 5 };
         FieldTable table = new FieldTable().put("bytes", data);
         FieldTable decoded = roundTrip(table);
@@ -83,7 +86,7 @@ public class FieldTableTest {
     }
 
     @Test
-    public void testTimestamp() throws AMQPProtocolException {
+    public void testTimestamp() throws AmqpProtocolException {
         // Truncate to the second — AMQP timestamps have 1-second resolution.
         Date now = new Date((System.currentTimeMillis() / 1000L) * 1000L);
         FieldTable table = new FieldTable().put("ts", now);
@@ -92,7 +95,7 @@ public class FieldTableTest {
     }
 
     @Test
-    public void testDecimal() throws AMQPProtocolException {
+    public void testDecimal() throws AmqpProtocolException {
         BigDecimal d = new BigDecimal("123.45");
         FieldTable table = new FieldTable().put("price", d);
         FieldTable decoded = roundTrip(table);
@@ -101,7 +104,7 @@ public class FieldTableTest {
     }
 
     @Test
-    public void testNestedTable() throws AMQPProtocolException {
+    public void testNestedTable() throws AmqpProtocolException {
         FieldTable inner = new FieldTable().put("x-match", "all").put("count", 3);
         FieldTable outer = new FieldTable().put("arguments", inner);
 
@@ -112,7 +115,7 @@ public class FieldTableTest {
     }
 
     @Test
-    public void testArray() throws AMQPProtocolException {
+    public void testArray() throws AmqpProtocolException {
         FieldTable table = new FieldTable().put("list", Arrays.asList(1, 2, 3, "four"));
         FieldTable decoded = roundTrip(table);
         List<?> list = (List<?>) decoded.get("list");
@@ -120,7 +123,7 @@ public class FieldTableTest {
     }
 
     @Test
-    public void testOrderIsPreserved() throws AMQPProtocolException {
+    public void testOrderIsPreserved() throws AmqpProtocolException {
         FieldTable table = new FieldTable().put("z", 1).put("a", 2).put("m", 3);
         FieldTable decoded = roundTrip(table);
         assertEquals(Arrays.asList("z", "a", "m"),
@@ -174,7 +177,7 @@ public class FieldTableTest {
     }
 
     @Test
-    public void testMultipleTablesInSequence() throws AMQPProtocolException {
+    public void testMultipleTablesInSequence() throws AmqpProtocolException {
         // Simulates two field-tables back to back in one buffer, as would
         // occur e.g. reading successive method arguments.
         FieldTable t1 = new FieldTable().put("a", 1);

@@ -26,7 +26,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSType}.
+ * Unit tests for {@link DnsType}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -34,49 +34,49 @@ public class DNSTypeTest {
 
     @Test
     public void testValues() {
-        assertEquals(1, DNSType.A.getValue());
-        assertEquals(2, DNSType.NS.getValue());
-        assertEquals(5, DNSType.CNAME.getValue());
-        assertEquals(6, DNSType.SOA.getValue());
-        assertEquals(12, DNSType.PTR.getValue());
-        assertEquals(15, DNSType.MX.getValue());
-        assertEquals(16, DNSType.TXT.getValue());
-        assertEquals(28, DNSType.AAAA.getValue());
-        assertEquals(33, DNSType.SRV.getValue());
-        assertEquals(41, DNSType.OPT.getValue());
-        assertEquals(52, DNSType.TLSA.getValue());
-        assertEquals(64, DNSType.SVCB.getValue());
-        assertEquals(65, DNSType.HTTPS.getValue());
-        assertEquals(255, DNSType.ANY.getValue());
+        assertEquals(1, DnsType.A.getValue());
+        assertEquals(2, DnsType.NS.getValue());
+        assertEquals(5, DnsType.CNAME.getValue());
+        assertEquals(6, DnsType.SOA.getValue());
+        assertEquals(12, DnsType.PTR.getValue());
+        assertEquals(15, DnsType.MX.getValue());
+        assertEquals(16, DnsType.TXT.getValue());
+        assertEquals(28, DnsType.AAAA.getValue());
+        assertEquals(33, DnsType.SRV.getValue());
+        assertEquals(41, DnsType.OPT.getValue());
+        assertEquals(52, DnsType.TLSA.getValue());
+        assertEquals(64, DnsType.SVCB.getValue());
+        assertEquals(65, DnsType.HTTPS.getValue());
+        assertEquals(255, DnsType.ANY.getValue());
     }
     
     @Test
     public void testFromValue() {
-        assertEquals(DNSType.A, DNSType.fromValue(1));
-        assertEquals(DNSType.NS, DNSType.fromValue(2));
-        assertEquals(DNSType.CNAME, DNSType.fromValue(5));
-        assertEquals(DNSType.SOA, DNSType.fromValue(6));
-        assertEquals(DNSType.PTR, DNSType.fromValue(12));
-        assertEquals(DNSType.MX, DNSType.fromValue(15));
-        assertEquals(DNSType.TXT, DNSType.fromValue(16));
-        assertEquals(DNSType.AAAA, DNSType.fromValue(28));
-        assertEquals(DNSType.SRV, DNSType.fromValue(33));
-        assertEquals(DNSType.OPT, DNSType.fromValue(41));
-        assertEquals(DNSType.TLSA, DNSType.fromValue(52));
-        assertEquals(DNSType.ANY, DNSType.fromValue(255));
+        assertEquals(DnsType.A, DnsType.fromValue(1));
+        assertEquals(DnsType.NS, DnsType.fromValue(2));
+        assertEquals(DnsType.CNAME, DnsType.fromValue(5));
+        assertEquals(DnsType.SOA, DnsType.fromValue(6));
+        assertEquals(DnsType.PTR, DnsType.fromValue(12));
+        assertEquals(DnsType.MX, DnsType.fromValue(15));
+        assertEquals(DnsType.TXT, DnsType.fromValue(16));
+        assertEquals(DnsType.AAAA, DnsType.fromValue(28));
+        assertEquals(DnsType.SRV, DnsType.fromValue(33));
+        assertEquals(DnsType.OPT, DnsType.fromValue(41));
+        assertEquals(DnsType.TLSA, DnsType.fromValue(52));
+        assertEquals(DnsType.ANY, DnsType.fromValue(255));
     }
     
     @Test
     public void testFromValueUnknown() {
-        assertNull(DNSType.fromValue(0));
-        assertNull(DNSType.fromValue(3));
-        assertNull(DNSType.fromValue(999));
-        assertNull(DNSType.fromValue(-1));
+        assertNull(DnsType.fromValue(0));
+        assertNull(DnsType.fromValue(3));
+        assertNull(DnsType.fromValue(999));
+        assertNull(DnsType.fromValue(-1));
     }
     
     @Test
     public void testAllTypesHaveUniqueValues() {
-        DNSType[] types = DNSType.values();
+        DnsType[] types = DnsType.values();
         for (int i = 0; i < types.length; i++) {
             for (int j = i + 1; j < types.length; j++) {
                 assertNotEquals("Types " + types[i] + " and " + types[j] + " have same value",

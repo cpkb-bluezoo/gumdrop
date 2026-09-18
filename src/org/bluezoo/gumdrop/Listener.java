@@ -42,20 +42,23 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.net.ssl.X509TrustManager;
+
 import org.bluezoo.gumdrop.ratelimit.AuthenticationRateLimiter;
 import org.bluezoo.gumdrop.ratelimit.ConnectionRateLimiter;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.DtlsVersion;
 import org.bluezoo.gumdrop.tls.TlsVersion;
-import org.bluezoo.gumdrop.util.CIDRNetwork;
+import org.bluezoo.gumdrop.util.CidrNetwork;
 
 /**
  * Common base class for all server endpoint types (TCP and UDP).
  *
  * <p>Holds transport-agnostic configuration shared by both
- * {@link TCPListener} (TCP) and {@link UDPListener} (UDP):
+ * {@link TcpListener} (TCP) and {@link UdpListener} (UDP):
  * port, addresses, TLS/DTLS settings, rate limiting, CIDR
  * allow/block lists, and timeouts.
  *
@@ -63,8 +66,8 @@ import org.bluezoo.gumdrop.util.CIDRNetwork;
  * the appropriate transport (TCP, UDP, or QUIC).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see TCPListener
- * @see UDPListener
+ * @see TcpListener
+ * @see UdpListener
  */
 public abstract class Listener {
 
@@ -99,6 +102,8 @@ public abstract class Listener {
     protected Path keystoreFile;
     protected String keystorePass;
     protected String keystoreFormat = "PKCS12";
+    protected Path certFile;
+    protected Path keyFile;
     private String cipherSuites;
     private String namedGroups;
     protected TelemetryConfig telemetryConfig;
@@ -112,13 +117,14 @@ public abstract class Listener {
     private Set<InetAddress> addresses = null;
     private boolean wildcard = false;
     protected boolean needClientAuth = false;
+    private X509TrustManager trustManager;
     private long idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS;
     private long readTimeoutMs = DEFAULT_READ_TIMEOUT_MS;
     private long connectionTimeoutMs = DEFAULT_CONNECTION_TIMEOUT_MS;
     private ConnectionRateLimiter connectionRateLimiter;
     private AuthenticationRateLimiter authRateLimiter;
-    private List<CIDRNetwork> allowedNetworks;
-    private List<CIDRNetwork> blockedNetworks;
+    private List<CidrNetwork> allowedNetworks;
+    private List<CidrNetwork> blockedNetworks;
 
     /**
      * Global (per-listener) cap on the number of simultaneously accepted
@@ -130,9 +136,9 @@ public abstract class Listener {
 
     /**
      * Maximum concurrent DTLS peers on one secure UDP listener socket.
-     * {@code 0} means unlimited. See {@link UDPTransportFactory#getMaxDtlsPeers()}.
+     * {@code 0} means unlimited. See {@link UdpTransportFactory#getMaxDtlsPeers()}.
      */
-    private int maxDtlsPeers = UDPTransportFactory.DEFAULT_MAX_DTLS_PEERS;
+    private int maxDtlsPeers = UdpTransportFactory.DEFAULT_MAX_DTLS_PEERS;
 
     /**
      * Number of currently open connections accepted by this listener.
@@ -173,7 +179,7 @@ public abstract class Listener {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Connector-level setters (gumdroprc compatible)
+    // Connector-level setters
     // ═══════════════════════════════════════════════════════════════════
 
     public TelemetryConfig getTelemetryConfig() {
@@ -212,6 +218,21 @@ public abstract class Listener {
         secure = flag;
     }
 
+    /**
+     * Applies server TLS identity from a {@link TlsConfig} before
+     * {@link #start()}. Returns {@code this} for fluent configuration.
+     *
+     * @param tls the TLS identity configuration
+     * @return this listener
+     */
+    public Listener tls(TlsConfig tls) {
+        if (tls == null) {
+            throw new NullPointerException("tls");
+        }
+        TlsConfigSupport.apply(tls, this);
+        return this;
+    }
+
     public void setKeystoreFile(Path file) {
         keystoreFile = file;
     }
@@ -226,6 +247,32 @@ public abstract class Listener {
 
     public void setKeystoreFormat(String format) {
         keystoreFormat = format;
+    }
+
+    /**
+     * Sets the PEM certificate chain file for TLS server identity.
+     *
+     * @param file the certificate chain PEM file path
+     */
+    public void setCertFile(Path file) {
+        certFile = file;
+    }
+
+    public void setCertFile(String file) {
+        certFile = Path.of(file);
+    }
+
+    /**
+     * Sets the PEM private key file for TLS server identity.
+     *
+     * @param file the private key PEM file path
+     */
+    public void setKeyFile(Path file) {
+        keyFile = file;
+    }
+
+    public void setKeyFile(String file) {
+        keyFile = Path.of(file);
     }
 
     /**
@@ -325,7 +372,8 @@ public abstract class Listener {
      */
     protected boolean isTLSConfigured() {
         return serverCredentials != null
-                || (keystoreFile != null && keystorePass != null);
+                || (keystoreFile != null && keystorePass != null)
+                || (certFile != null && keyFile != null);
     }
 
     public void setSniHostnames(Map<String, String> hostnames) {
@@ -347,7 +395,7 @@ public abstract class Listener {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Server-level setters (gumdroprc compatible)
+    // Server-level setters
     // ═══════════════════════════════════════════════════════════════════
 
     public void setAddresses(String value) {
@@ -399,6 +447,57 @@ public abstract class Listener {
     }
 
     /**
+     * Binds the wildcard address ({@code 0.0.0.0} / {@code ::}, dual-stack
+     * where the platform supports it). Clears any explicit address list.
+     *
+     * @return this listener
+     */
+    public Listener bindWildcard() {
+        wildcard = true;
+        addresses = null;
+        return this;
+    }
+
+    /**
+     * Replaces the bind address set with the given literals. Clears wildcard
+     * mode. Pass no addresses to revert to the default (all local NICs).
+     *
+     * <p>Use {@link InetAddress#ofLiteral(String)} for configured literals;
+     * do not pass hostnames here.
+     *
+     * @param addrs the addresses to bind
+     * @return this listener
+     */
+    public Listener addresses(InetAddress... addrs) {
+        wildcard = false;
+        if (addrs == null || addrs.length == 0) {
+            addresses = null;
+            return this;
+        }
+        LinkedHashSet<InetAddress> set = new LinkedHashSet<InetAddress>();
+        for (int i = 0; i < addrs.length; i++) {
+            if (addrs[i] == null) {
+                throw new NullPointerException("address");
+            }
+            set.add(addrs[i]);
+        }
+        addresses = set;
+        return this;
+    }
+
+    /**
+     * Enables or disables TLS for this listener. Returns {@code this} for
+     * fluent configuration.
+     *
+     * @param flag true for TLS
+     * @return this listener
+     */
+    public Listener secure(boolean flag) {
+        secure = flag;
+        return this;
+    }
+
+    /**
      * Returns whether this listener binds the wildcard address.
      *
      * @return true if wildcard binding is enabled
@@ -409,6 +508,18 @@ public abstract class Listener {
 
     public void setNeedClientAuth(boolean flag) {
         needClientAuth = flag;
+    }
+
+    /**
+     * Sets the trust manager used to verify client certificates under mTLS
+     * (see {@link #setNeedClientAuth(boolean)}). Applied via {@link
+     * TlsConfigSupport#apply(TlsConfig, Listener)} from {@link
+     * TlsConfig#getTrustManager()} when set.
+     *
+     * @param trustManager the trust manager, or null to use JVM defaults
+     */
+    public void setTrustManager(X509TrustManager trustManager) {
+        this.trustManager = trustManager;
     }
 
     public long getIdleTimeoutMs() {
@@ -568,13 +679,13 @@ public abstract class Listener {
 
     public void setAllowedNetworks(String allowedNetworks) {
         if (allowedNetworks != null && !allowedNetworks.isEmpty()) {
-            this.allowedNetworks = CIDRNetwork.parseList(allowedNetworks);
+            this.allowedNetworks = CidrNetwork.parseList(allowedNetworks);
         }
     }
 
     public void setBlockedNetworks(String blockedNetworks) {
         if (blockedNetworks != null && !blockedNetworks.isEmpty()) {
-            this.blockedNetworks = CIDRNetwork.parseList(blockedNetworks);
+            this.blockedNetworks = CidrNetwork.parseList(blockedNetworks);
         }
     }
 
@@ -629,15 +740,31 @@ public abstract class Listener {
     }
 
     /**
+     * Starts this endpoint with a {@link Gumdrop} runtime available.
+     *
+     * <p>The default implementation ignores {@code gumdrop} and delegates
+     * to {@link #start()} — most listener types don't need it (they don't
+     * pick a worker loop of their own; that happens per-accepted-connection
+     * instead). Subclasses that do need it (e.g. QUIC-based listeners
+     * choosing a worker loop for the connection) override this instead of
+     * {@link #start()}.
+     *
+     * @param gumdrop the runtime this listener is starting under
+     */
+    public void start(Gumdrop gumdrop) {
+        start();
+    }
+
+    /**
      * Creates the transport factory for this endpoint.
      *
-     * <p>The default implementation returns a {@link TCPTransportFactory}.
+     * <p>The default implementation returns a {@link TcpTransportFactory}.
      * Subclasses override this to select a different transport.
      *
      * @return the transport factory
      */
     protected TransportFactory createTransportFactory() {
-        return new TCPTransportFactory();
+        return new TcpTransportFactory();
     }
 
     /**
@@ -658,6 +785,12 @@ public abstract class Listener {
         if (keystoreFormat != null) {
             factory.setKeystoreFormat(keystoreFormat);
         }
+        if (certFile != null) {
+            factory.setCertFile(certFile);
+        }
+        if (keyFile != null) {
+            factory.setKeyFile(keyFile);
+        }
         if (telemetryConfig != null) {
             factory.setTelemetryConfig(telemetryConfig);
         }
@@ -670,14 +803,17 @@ public abstract class Listener {
         factory.setMaxNetInSize(maxNetInSize);
         factory.setMaxNetOutSize(maxNetOutSize);
 
-        if (factory instanceof TCPTransportFactory) {
-            TCPTransportFactory tcpFactory = (TCPTransportFactory) factory;
+        if (factory instanceof TcpTransportFactory) {
+            TcpTransportFactory tcpFactory = (TcpTransportFactory) factory;
             if (serverCredentials != null) {
                 tcpFactory.setServerCredentials(serverCredentials);
             }
             tcpFactory.setTlsVersion(tlsVersion);
             if (needClientAuth) {
                 tcpFactory.setNeedClientAuth(true);
+            }
+            if (trustManager != null) {
+                tcpFactory.setTrustManager(trustManager);
             }
             if (sniHostnameToAlias != null) {
                 tcpFactory.setSniHostnames(sniHostnameToAlias);
@@ -686,8 +822,8 @@ public abstract class Listener {
                 tcpFactory.setSniDefaultAlias(sniDefaultAlias);
             }
         }
-        if (factory instanceof UDPTransportFactory) {
-            UDPTransportFactory udpFactory = (UDPTransportFactory) factory;
+        if (factory instanceof UdpTransportFactory) {
+            UdpTransportFactory udpFactory = (UdpTransportFactory) factory;
             if (serverCredentials != null) {
                 udpFactory.setServerCredentials(serverCredentials);
             }
@@ -695,6 +831,9 @@ public abstract class Listener {
             udpFactory.setMaxDtlsPeers(maxDtlsPeers);
             if (needClientAuth) {
                 udpFactory.setNeedClientAuth(true);
+            }
+            if (trustManager != null) {
+                udpFactory.setTrustManager(trustManager);
             }
             if (sniHostnameToAlias != null) {
                 udpFactory.setSniHostnames(sniHostnameToAlias);
@@ -710,6 +849,9 @@ public abstract class Listener {
             }
             if (needClientAuth) {
                 quicFactory.setNeedClientAuth(true);
+            }
+            if (trustManager != null) {
+                quicFactory.setTrustManager(trustManager);
             }
             if (sniHostnameToAlias != null) {
                 quicFactory.setSniHostnames(sniHostnameToAlias);
@@ -797,7 +939,7 @@ public abstract class Listener {
                 ((InetSocketAddress) remoteAddress).getAddress();
 
         if (blockedNetworks != null) {
-            for (Iterator<CIDRNetwork> it = blockedNetworks.iterator();
+            for (Iterator<CidrNetwork> it = blockedNetworks.iterator();
                  it.hasNext(); ) {
                 if (it.next().matches(addr)) {
                     if (LOGGER.isLoggable(Level.FINE)) {
@@ -810,7 +952,7 @@ public abstract class Listener {
 
         if (allowedNetworks != null) {
             boolean allowed = false;
-            for (Iterator<CIDRNetwork> it = allowedNetworks.iterator();
+            for (Iterator<CidrNetwork> it = allowedNetworks.iterator();
                  it.hasNext(); ) {
                 if (it.next().matches(addr)) {
                     allowed = true;

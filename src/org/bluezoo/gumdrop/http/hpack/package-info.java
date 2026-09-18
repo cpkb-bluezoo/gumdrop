@@ -32,7 +32,7 @@
  * against compression-oracle attacks (CRIME/BREACH). {@link
  * org.bluezoo.gumdrop.http.hpack.HeaderHandler} is the callback
  * interface the decoder delivers headers through; {@link
- * org.bluezoo.gumdrop.http.hpack.HPACKConstants} holds the static table
+ * org.bluezoo.gumdrop.http.hpack.HpackConstants} holds the static table
  * and other protocol constants.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

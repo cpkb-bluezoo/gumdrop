@@ -27,7 +27,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Verifies {@code HPACKConstants.STATIC_TABLE_INDEX} - the O(1) index that
+ * Verifies {@code HpackConstants.STATIC_TABLE_INDEX} - the O(1) index that
  * replaced a linear {@code STATIC_TABLE.indexOf}/name scan in {@link
  * Encoder#encode} (a measurable HTTP/2 CPU cost under profiling: every
  * response header of every request scanned all 61 static table entries,
@@ -38,7 +38,7 @@ import static org.junit.Assert.*;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class HPACKConstantsStaticTableIndexTest extends HPACKConstants {
+public class HPACKConstantsStaticTableIndexTest extends HpackConstants {
 
     private static int bruteForceIndexOf(Header header) {
         return STATIC_TABLE.indexOf(header);

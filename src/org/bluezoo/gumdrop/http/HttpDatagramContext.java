@@ -80,7 +80,7 @@ public final class HttpDatagramContext {
      * registered Context ID's own protocol defines). A view onto the
      * buffer {@link #decode} was called with: valid only during the same
      * call that produced this instance, matching {@link
-     * HTTPRequestHandler#datagramReceived}'s own contract for the buffer
+     * HttpRequestHandler#datagramReceived}'s own contract for the buffer
      * it hands a handler.
      *
      * @return the payload
@@ -92,7 +92,7 @@ public final class HttpDatagramContext {
     /**
      * Encodes a Context ID and its payload as a Context ID-prefixed HTTP
      * Datagram payload (RFC 9298 section 5) -- suitable as-is for {@link
-     * HTTPResponseState#sendDatagram(ByteBuffer)}.
+     * HttpResponseState#sendDatagram(ByteBuffer)}.
      *
      * @param contextId the Context ID, must be in {@code [0, VarInt.MAX_VALUE]}
      * @param payload the flow's protocol data, or {@code null} for none; copied
@@ -116,7 +116,7 @@ public final class HttpDatagramContext {
     /**
      * Decodes a Context ID-prefixed HTTP Datagram payload (RFC 9298
      * section 5) -- the counterpart to what a Context ID-aware protocol
-     * hands to {@link HTTPRequestHandler#datagramReceived}.
+     * hands to {@link HttpRequestHandler#datagramReceived}.
      *
      * <p>Per RFC 9298 section 5, an unrecognised Context ID is not an
      * error -- callers should ignore datagrams for Context IDs they did

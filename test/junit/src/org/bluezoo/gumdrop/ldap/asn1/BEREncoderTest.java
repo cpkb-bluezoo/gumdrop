@@ -28,7 +28,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Unit tests for BEREncoder.
+ * Unit tests for BerEncoder.
  */
 public class BEREncoderTest {
 
@@ -36,12 +36,12 @@ public class BEREncoderTest {
 
     @Test
     public void testWriteBoolean() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeBoolean(true);
         byte[] data = encoder.toByteArray();
         
         assertEquals(3, data.length);
-        assertEquals(ASN1Type.BOOLEAN, data[0] & 0xFF);
+        assertEquals(Asn1Type.BOOLEAN, data[0] & 0xFF);
         assertEquals(1, data[1]); // length
         assertEquals((byte) 0xFF, data[2]); // true = 0xFF
         
@@ -55,36 +55,36 @@ public class BEREncoderTest {
 
     @Test
     public void testWriteIntegerSmall() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeInteger(127);
         byte[] data = encoder.toByteArray();
         
         assertEquals(3, data.length);
-        assertEquals(ASN1Type.INTEGER, data[0] & 0xFF);
+        assertEquals(Asn1Type.INTEGER, data[0] & 0xFF);
         assertEquals(1, data[1]); // length
         assertEquals(127, data[2]);
     }
 
     @Test
     public void testWriteIntegerNegative() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeInteger(-1);
         byte[] data = encoder.toByteArray();
         
         assertEquals(3, data.length);
-        assertEquals(ASN1Type.INTEGER, data[0] & 0xFF);
+        assertEquals(Asn1Type.INTEGER, data[0] & 0xFF);
         assertEquals(1, data[1]); // length
         assertEquals((byte) 0xFF, data[2]); // -1 = 0xFF
     }
 
     @Test
     public void testWriteIntegerTwoBytes() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeInteger(256);
         byte[] data = encoder.toByteArray();
         
         assertEquals(4, data.length);
-        assertEquals(ASN1Type.INTEGER, data[0] & 0xFF);
+        assertEquals(Asn1Type.INTEGER, data[0] & 0xFF);
         assertEquals(2, data[1]); // length
         assertEquals(0x01, data[2]);
         assertEquals(0x00, data[3]);
@@ -92,12 +92,12 @@ public class BEREncoderTest {
 
     @Test
     public void testWriteIntegerFourBytes() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeInteger(0x12345678);
         byte[] data = encoder.toByteArray();
         
         assertEquals(6, data.length);
-        assertEquals(ASN1Type.INTEGER, data[0] & 0xFF);
+        assertEquals(Asn1Type.INTEGER, data[0] & 0xFF);
         assertEquals(4, data[1]); // length
         assertEquals(0x12, data[2]);
         assertEquals(0x34, data[3]);
@@ -107,25 +107,25 @@ public class BEREncoderTest {
 
     @Test
     public void testWriteEnumerated() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeEnumerated(2);
         byte[] data = encoder.toByteArray();
         
         assertEquals(3, data.length);
-        assertEquals(ASN1Type.ENUMERATED, data[0] & 0xFF);
+        assertEquals(Asn1Type.ENUMERATED, data[0] & 0xFF);
         assertEquals(1, data[1]);
         assertEquals(2, data[2]);
     }
 
     @Test
     public void testWriteOctetStringBytes() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         byte[] value = {0x01, 0x02, 0x03, 0x04};
         encoder.writeOctetString(value);
         byte[] data = encoder.toByteArray();
         
         assertEquals(6, data.length);
-        assertEquals(ASN1Type.OCTET_STRING, data[0] & 0xFF);
+        assertEquals(Asn1Type.OCTET_STRING, data[0] & 0xFF);
         assertEquals(4, data[1]); // length
         assertEquals(0x01, data[2]);
         assertEquals(0x02, data[3]);
@@ -135,12 +135,12 @@ public class BEREncoderTest {
 
     @Test
     public void testWriteOctetStringString() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeOctetString("test");
         byte[] data = encoder.toByteArray();
         
         assertEquals(6, data.length);
-        assertEquals(ASN1Type.OCTET_STRING, data[0] & 0xFF);
+        assertEquals(Asn1Type.OCTET_STRING, data[0] & 0xFF);
         assertEquals(4, data[1]); // length
         assertEquals('t', data[2]);
         assertEquals('e', data[3]);
@@ -150,12 +150,12 @@ public class BEREncoderTest {
 
     @Test
     public void testWriteNull() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeNull();
         byte[] data = encoder.toByteArray();
         
         assertEquals(2, data.length);
-        assertEquals(ASN1Type.NULL, data[0] & 0xFF);
+        assertEquals(Asn1Type.NULL, data[0] & 0xFF);
         assertEquals(0, data[1]); // length
     }
 
@@ -163,7 +163,7 @@ public class BEREncoderTest {
 
     @Test
     public void testLengthEncodingShortForm() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeOctetString(new byte[127]);
         byte[] data = encoder.toByteArray();
         
@@ -172,7 +172,7 @@ public class BEREncoderTest {
 
     @Test
     public void testLengthEncodingLongFormOneByte() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeOctetString(new byte[200]);
         byte[] data = encoder.toByteArray();
         
@@ -182,7 +182,7 @@ public class BEREncoderTest {
 
     @Test
     public void testLengthEncodingLongFormTwoBytes() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeOctetString(new byte[1000]);
         byte[] data = encoder.toByteArray();
         
@@ -195,7 +195,7 @@ public class BEREncoderTest {
 
     @Test
     public void testSequence() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(1);
         encoder.writeOctetString("test");
@@ -203,14 +203,14 @@ public class BEREncoderTest {
         
         byte[] data = encoder.toByteArray();
         
-        assertEquals(ASN1Type.SEQUENCE, data[0] & 0xFF);
+        assertEquals(Asn1Type.SEQUENCE, data[0] & 0xFF);
         // Total content: 3 (integer) + 6 (octet string) = 9 bytes
         assertEquals(9, data[1]);
     }
 
     @Test
     public void testNestedSequences() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(1);
         encoder.beginSequence();
@@ -220,27 +220,27 @@ public class BEREncoderTest {
         
         byte[] data = encoder.toByteArray();
         
-        assertEquals(ASN1Type.SEQUENCE, data[0] & 0xFF);
+        assertEquals(Asn1Type.SEQUENCE, data[0] & 0xFF);
         // Outer sequence contains: integer(3) + inner sequence(5)
     }
 
     @Test
     public void testSet() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSet();
         encoder.writeBoolean(true);
         encoder.endSet();
         
         byte[] data = encoder.toByteArray();
         
-        assertEquals(ASN1Type.SET, data[0] & 0xFF);
+        assertEquals(Asn1Type.SET, data[0] & 0xFF);
     }
 
     // Test context-specific tags
 
     @Test
     public void testContextPrimitive() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeContext(0, new byte[] {0x01, 0x02});
         
         byte[] data = encoder.toByteArray();
@@ -253,7 +253,7 @@ public class BEREncoderTest {
 
     @Test
     public void testContextConstructed() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginContext(3, true);
         encoder.writeInteger(42);
         encoder.endContext();
@@ -267,7 +267,7 @@ public class BEREncoderTest {
 
     @Test
     public void testApplicationTag() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginApplication(0, true);  // BindRequest
         encoder.writeInteger(3);  // LDAP version
         encoder.endApplication();
@@ -281,7 +281,7 @@ public class BEREncoderTest {
 
     @Test
     public void testReset() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeInteger(1);
         
         byte[] data1 = encoder.toByteArray();
@@ -292,12 +292,12 @@ public class BEREncoderTest {
         
         byte[] data2 = encoder.toByteArray();
         assertEquals(3, data2.length);
-        assertEquals(ASN1Type.BOOLEAN, data2[0] & 0xFF);
+        assertEquals(Asn1Type.BOOLEAN, data2[0] & 0xFF);
     }
 
     @Test
     public void testToByteBuffer() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.writeInteger(42);
         
         ByteBuffer buf = encoder.toByteBuffer();
@@ -309,7 +309,7 @@ public class BEREncoderTest {
 
     @Test
     public void testLDAPBindRequest() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         
         // LDAPMessage
         encoder.beginSequence();
@@ -327,7 +327,7 @@ public class BEREncoderTest {
         byte[] data = encoder.toByteArray();
         
         // Verify structure
-        assertEquals(ASN1Type.SEQUENCE, data[0] & 0xFF);
+        assertEquals(Asn1Type.SEQUENCE, data[0] & 0xFF);
         assertTrue(data.length > 10);
     }
 }

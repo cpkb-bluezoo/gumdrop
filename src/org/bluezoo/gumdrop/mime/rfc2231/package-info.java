@@ -23,7 +23,7 @@
  * RFC 2231 extended parameter value encoding: charset/language tagging
  * and continuation for long parameter values.
  *
- * <p>{@link org.bluezoo.gumdrop.mime.rfc2231.RFC2231Decoder} decodes a
+ * <p>{@link org.bluezoo.gumdrop.mime.rfc2231.Rfc2231Decoder} decodes a
  * parameter value (or set of continuation segments) back to its
  * original Unicode text.
  *

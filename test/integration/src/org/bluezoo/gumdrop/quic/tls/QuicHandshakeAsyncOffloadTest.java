@@ -1,0 +1,290 @@
+/*
+ * QuicHandshakeAsyncOffloadTest.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.quic.tls;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+import org.bluezoo.gumdrop.tls.SessionTicket;
+
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.quic.packet.TransportParameters;
+
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * Regression tests for two related concurrency bugs in {@link
+ * QuicHandshakeAsyncOffload}:
+ *
+ * <p><b>Issue #351</b>: a concurrent poller of {@link
+ * QuicHandshakeAsyncOffload#isBusy} (e.g. {@code QuicTestPeer}'s
+ * {@code awaitHandshakeProcessingIdle}) must never be able to observe
+ * "idle" while a batch's completion handler is synchronously starting a
+ * follow-up batch -- otherwise a caller can act on handshake state (such
+ * as a {@code PacketProtectionKeys} the follow-up batch was about to
+ * derive) before it actually exists.
+ *
+ * <p>The bug: the completion callback used to clear the busy flag
+ * unconditionally, then call the completion handler, which for
+ * {@code QuicTlsClientEngine}/{@code QuicTlsServerEngine} may itself
+ * immediately submit another batch for a queued CRYPTO frame
+ * ({@code drainPendingFrames}) -- leaving a real window where the flag
+ * read false despite a follow-up batch being about to start. This exactly
+ * matches the intermittent NPE in {@code QuicHandshakeAsyncOffloadTest}
+ * (the higher-level end-to-end test in the {@code quic} package) where
+ * {@code QuicTestPeer} built a packet with not-yet-installed keys.
+ *
+ * <p><b>Issue #427</b>: fixing #351 closed that specific window, but left
+ * a second one: {@code QuicTlsClientEngine}/{@code QuicTlsServerEngine}'s
+ * {@code receiveCryptoData} checks {@link QuicHandshakeAsyncOffload#isBusy}
+ * and then either enqueues a CRYPTO frame (if busy) or dispatches it
+ * directly (if not) -- but that check-then-act sequence wasn't atomic
+ * with respect to a concurrently-running batch's own completion handler
+ * draining that same pending-frame queue. A frame arriving in the exact
+ * window between a batch finishing and its completion handler draining
+ * the queue could be enqueued a moment too late for anything to ever
+ * drain it again, silently losing that byte range of the handshake
+ * stream forever -- reproduced under CPU load as an intermittent timeout
+ * in {@code awaitSendKeys} (the higher-level end-to-end test's server
+ * never received the client's Finished message, so never completed its
+ * own handshake). Fixed by having both operations synchronize on the
+ * same {@link QuicHandshakeAsyncOffload#lock()}.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
+public class QuicHandshakeAsyncOffloadTest {
+
+    private Gumdrop gumdrop;
+
+    @Before
+    public void setUp() {
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
+    }
+
+    @After
+    public void tearDown() {
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
+    }
+
+    @Test(timeout = 10000)
+    public void testIsBusyStaysTrueWhileCompletionHandlerStartsAFollowUpBatch() throws Exception {
+        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener(gumdrop.nextWorkerLoop()));
+        final CountDownLatch completionRan = new CountDownLatch(1);
+        final AtomicBoolean busyWhenFollowUpDecided = new AtomicBoolean();
+
+        QuicHandshakeAsyncOffload.BatchProcessor noopBatch = new QuicHandshakeAsyncOffload.BatchProcessor() {
+            @Override
+            public void process() {
+            }
+        };
+
+        offload.submit(EncryptionLevel.INITIAL, noopBatch, new QuicHandshakeAsyncOffload.CompletionHandler() {
+            @Override
+            public boolean onBatchDone() {
+                // Mirrors QuicTlsClientEngine/ServerEngine's
+                // dispatchFrame -> drainPendingFrames pattern: a queued
+                // frame is dispatched immediately as a follow-up batch.
+                // isBusy() must still read true right here, before this
+                // method has even decided to resubmit -- a continuation
+                // is about to start.
+                busyWhenFollowUpDecided.set(offload.isBusy());
+                offload.submit(EncryptionLevel.HANDSHAKE, noopBatch,
+                        new QuicHandshakeAsyncOffload.CompletionHandler() {
+                            @Override
+                            public boolean onBatchDone() {
+                                return false;
+                            }
+                        });
+                completionRan.countDown();
+                return true;
+            }
+        });
+
+        assertTrue("completion handler should have run", completionRan.await(5, TimeUnit.SECONDS));
+        assertTrue("isBusy() must still report true while the completion handler is "
+                + "synchronously starting a follow-up batch -- a concurrent poller "
+                + "(e.g. QuicTestPeer.awaitHandshakeProcessingIdle) must never be able "
+                + "to observe idle in this window", busyWhenFollowUpDecided.get());
+    }
+
+    @Test(timeout = 10000)
+    public void testReceiveCryptoDataCannotRaceCompletionHandlerDrain() throws Exception {
+        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener(gumdrop.nextWorkerLoop()));
+        final CountDownLatch onBatchDoneEntered = new CountDownLatch(1);
+        final CountDownLatch contenderStarted = new CountDownLatch(1);
+        final CountDownLatch onBatchDoneMayFinish = new CountDownLatch(1);
+        final AtomicBoolean onBatchDoneFinished = new AtomicBoolean();
+        final AtomicBoolean contenderObservedFinished = new AtomicBoolean();
+
+        // Deliberately no Thread.sleep/deadline-polling anywhere below
+        // (see NoThreadSleepGuardTest): correctness is proven by which
+        // value the contender thread observes, not by timing how long
+        // it takes -- if issue #427's fix holds offload.lock() for the
+        // whole of onBatchDone(), the contender's synchronized block
+        // literally cannot execute until onBatchDoneFinished has
+        // already been set true and the lock released, regardless of
+        // scheduling speed.
+        QuicHandshakeAsyncOffload.CompletionHandler blockingHandler =
+                new QuicHandshakeAsyncOffload.CompletionHandler() {
+            @Override
+            public boolean onBatchDone() {
+                onBatchDoneEntered.countDown();
+                try {
+                    // Wait for the contender to exist and be about to
+                    // attempt offload.lock() before finishing this
+                    // method -- otherwise the contender might simply
+                    // not have started yet, which would prove nothing.
+                    assertTrue(contenderStarted.await(5, TimeUnit.SECONDS));
+                    assertTrue(onBatchDoneMayFinish.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                onBatchDoneFinished.set(true);
+                return false;
+            }
+        };
+
+        offload.submit(EncryptionLevel.INITIAL, new QuicHandshakeAsyncOffload.BatchProcessor() {
+            @Override
+            public void process() {
+            }
+        }, blockingHandler);
+
+        assertTrue("completion handler should have started", onBatchDoneEntered.await(5, TimeUnit.SECONDS));
+
+        // onBatchDone() is now blocked mid-execution, holding
+        // offload.lock() if issue #427's fix is in place. A concurrent
+        // caller trying to acquire that same lock -- exactly what
+        // QuicTlsClientEngine/ServerEngine's receiveCryptoData does
+        // before deciding whether to enqueue a CRYPTO frame or dispatch
+        // it directly -- must block until onBatchDone() returns, or that
+        // decision could be made against a batch that is about to drain
+        // (or has just drained) its pending-frame queue, silently
+        // losing a frame that arrives in between.
+        Thread contender = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                contenderStarted.countDown();
+                synchronized (offload.lock()) {
+                    contenderObservedFinished.set(onBatchDoneFinished.get());
+                }
+            }
+        });
+        contender.start();
+        onBatchDoneMayFinish.countDown();
+        contender.join(5000);
+
+        assertTrue("a concurrent caller acquiring offload.lock() must always observe "
+                + "onBatchDone() as already finished -- otherwise its own "
+                + "isBusy()-then-enqueue-or-dispatch decision could race the drain "
+                + "and silently lose a CRYPTO frame (issue #427)",
+                contenderObservedFinished.get());
+    }
+
+    @Test(timeout = 10000)
+    public void testIsBusyClearsOnceNoFollowUpBatchIsSubmitted() throws Exception {
+        final QuicHandshakeAsyncOffload offload = new QuicHandshakeAsyncOffload(new NoopListener(gumdrop.nextWorkerLoop()));
+        final CountDownLatch completionRan = new CountDownLatch(1);
+
+        QuicHandshakeAsyncOffload.BatchProcessor noopBatch = new QuicHandshakeAsyncOffload.BatchProcessor() {
+            @Override
+            public void process() {
+            }
+        };
+
+        offload.submit(EncryptionLevel.INITIAL, noopBatch, new QuicHandshakeAsyncOffload.CompletionHandler() {
+            @Override
+            public boolean onBatchDone() {
+                completionRan.countDown();
+                return false;
+            }
+        });
+
+        assertTrue("completion handler should have run", completionRan.await(5, TimeUnit.SECONDS));
+        assertFalse("isBusy() must clear once the completion handler reports no follow-up batch",
+                offload.isBusy());
+    }
+
+    private static final class NoopListener implements QuicTlsEngineListener {
+        private final SelectorLoop selectorLoop;
+
+        NoopListener(SelectorLoop selectorLoop) {
+            this.selectorLoop = selectorLoop;
+        }
+
+        @Override
+        public void cryptoDataReady(EncryptionLevel level, long offset, byte[] data) {
+        }
+
+        @Override
+        public void handshakeSecretsAvailable() {
+        }
+
+        @Override
+        public void handshakeFinished() {
+        }
+
+        @Override
+        public void transportParametersReceived(TransportParameters transportParameters) {
+        }
+
+        @Override
+        public void earlySecretsAvailable() {
+        }
+
+        @Override
+        public void newSessionTicketReceived(SessionTicket ticket) {
+        }
+
+        @Override
+        public void earlyDataOutcomeKnown(boolean accepted) {
+        }
+
+        @Override
+        public void execute(Runnable task) {
+            // Matches QuicTestPeer's own listener: no real event loop, so
+            // the CryptoExecutor callback (delivered from a pool thread)
+            // runs inline right there -- exactly the shape that exposes
+            // the race this test targets.
+            task.run();
+        }
+
+        @Override
+        public SelectorLoop getSelectorLoop() {
+            return selectorLoop;
+        }
+
+        @Override
+        public void cryptoProcessingFailed(EncryptionLevel level, Throwable cause) {
+        }
+    }
+}

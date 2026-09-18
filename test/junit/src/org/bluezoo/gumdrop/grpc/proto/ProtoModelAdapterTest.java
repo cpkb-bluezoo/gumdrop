@@ -29,9 +29,9 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ProtobufParser;
+import org.bluezoo.protobuf.ProtobufWriter;
 import org.junit.Test;
 
 /**

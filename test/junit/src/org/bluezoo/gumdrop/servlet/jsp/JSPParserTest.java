@@ -38,11 +38,11 @@ import static org.junit.Assert.*;
  */
 public class JSPParserTest {
 
-    private JSPParserFactory parserFactory;
+    private JspParserFactory parserFactory;
 
     @Before
     public void setUp() throws Exception {
-        parserFactory = new JSPParserFactory();
+        parserFactory = new JspParserFactory();
     }
 
     // ===== Basic Parsing Tests =====
@@ -50,7 +50,7 @@ public class JSPParserTest {
     @Test
     public void testParseEmptyJSP() throws Exception {
         String jsp = "";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull("Page should not be null", page);
     }
@@ -58,10 +58,10 @@ public class JSPParserTest {
     @Test
     public void testParseStaticHTML() throws Exception {
         String jsp = "<html><body><h1>Hello</h1></body></html>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
-        List<JSPElement> elements = page.getElements();
+        List<JspElement> elements = page.getElements();
         assertFalse("Should have elements", elements.isEmpty());
     }
 
@@ -70,7 +70,7 @@ public class JSPParserTest {
     @Test
     public void testParsePageDirective() throws Exception {
         String jsp = "<%@ page contentType=\"text/html; charset=UTF-8\" %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         assertEquals("text/html; charset=UTF-8", page.getContentType());
@@ -79,7 +79,7 @@ public class JSPParserTest {
     @Test
     public void testParseImportDirective() throws Exception {
         String jsp = "<%@ page import=\"java.util.List, java.util.Map\" %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         List<String> imports = page.getImports();
@@ -90,7 +90,7 @@ public class JSPParserTest {
     @Test
     public void testParseSessionDirective() throws Exception {
         String jsp = "<%@ page session=\"false\" %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         assertFalse("Session should be disabled", page.isSession());
@@ -99,7 +99,7 @@ public class JSPParserTest {
     @Test
     public void testParseErrorPageDirective() throws Exception {
         String jsp = "<%@ page errorPage=\"/error.jsp\" %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         assertEquals("/error.jsp", page.getErrorPage());
@@ -108,7 +108,7 @@ public class JSPParserTest {
     @Test
     public void testParseIsErrorPageDirective() throws Exception {
         String jsp = "<%@ page isErrorPage=\"true\" %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         assertTrue("Should be error page", page.isErrorPage());
@@ -117,7 +117,7 @@ public class JSPParserTest {
     @Test
     public void testParseBufferDirective() throws Exception {
         String jsp = "<%@ page buffer=\"16kb\" %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         assertEquals("Buffer should be 16KB", 16384, page.getBuffer());
@@ -126,7 +126,7 @@ public class JSPParserTest {
     @Test
     public void testParseAutoFlushDirective() throws Exception {
         String jsp = "<%@ page autoFlush=\"false\" %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         assertFalse("AutoFlush should be disabled", page.isAutoFlush());
@@ -135,7 +135,7 @@ public class JSPParserTest {
     @Test
     public void testParseTaglibDirective() throws Exception {
         String jsp = "<%@ taglib uri=\"http://java.sun.com/jsp/jstl/core\" prefix=\"c\" %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         assertEquals("http://java.sun.com/jsp/jstl/core", page.getTaglibUri("c"));
@@ -146,7 +146,7 @@ public class JSPParserTest {
     @Test
     public void testParseScriptlet() throws Exception {
         String jsp = "<% String message = \"Hello\"; %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         
@@ -165,7 +165,7 @@ public class JSPParserTest {
             "        count += i;\n" +
             "    }\n" +
             "%>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         ScriptletElement scriptlet = findElement(page, ScriptletElement.class);
         assertNotNull(scriptlet);
@@ -178,7 +178,7 @@ public class JSPParserTest {
     @Test
     public void testParseExpression() throws Exception {
         String jsp = "<%= message %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         ExpressionElement expr = findElement(page, ExpressionElement.class);
         assertNotNull("Should have expression", expr);
@@ -189,7 +189,7 @@ public class JSPParserTest {
     @Test
     public void testParseExpressionWithMethodCall() throws Exception {
         String jsp = "<%= user.getName() %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         ExpressionElement expr = findElement(page, ExpressionElement.class);
         assertNotNull(expr);
@@ -201,7 +201,7 @@ public class JSPParserTest {
     @Test
     public void testParseDeclaration() throws Exception {
         String jsp = "<%! private int counter = 0; %>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         DeclarationElement decl = findElement(page, DeclarationElement.class);
         assertNotNull("Should have declaration", decl);
@@ -217,7 +217,7 @@ public class JSPParserTest {
             "        return date.toString();\n" +
             "    }\n" +
             "%>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         DeclarationElement decl = findElement(page, DeclarationElement.class);
         assertNotNull(decl);
@@ -229,7 +229,7 @@ public class JSPParserTest {
     @Test
     public void testParseJSPComment() throws Exception {
         String jsp = "<%-- This is a JSP comment --%>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         CommentElement comment = findElement(page, CommentElement.class);
         assertNotNull("Should have comment", comment);
@@ -242,7 +242,7 @@ public class JSPParserTest {
     @Test
     public void testParseIncludeAction() throws Exception {
         String jsp = "<jsp:include page=\"header.jsp\" />";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         StandardActionElement action = findElement(page, StandardActionElement.class);
         assertNotNull("Should have include action", action);
@@ -253,7 +253,7 @@ public class JSPParserTest {
     @Test
     public void testParseForwardAction() throws Exception {
         String jsp = "<jsp:forward page=\"other.jsp\" />";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         StandardActionElement action = findElement(page, StandardActionElement.class);
         assertNotNull(action);
@@ -263,7 +263,7 @@ public class JSPParserTest {
     @Test
     public void testParseUseBeanAction() throws Exception {
         String jsp = "<jsp:useBean id=\"user\" class=\"com.example.User\" scope=\"request\" />";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         StandardActionElement action = findElement(page, StandardActionElement.class);
         assertNotNull(action);
@@ -284,7 +284,7 @@ public class JSPParserTest {
             "<h1>Hello, <%= name %>!</h1>\n" +
             "</body>\n" +
             "</html>";
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         
@@ -319,7 +319,7 @@ public class JSPParserTest {
             "</body>\n" +
             "</html>";
         
-        JSPPage page = parse(jsp);
+        JspPage page = parse(jsp);
         
         assertNotNull(page);
         assertEquals("text/html; charset=UTF-8", page.getContentType());
@@ -335,14 +335,14 @@ public class JSPParserTest {
 
     // ===== Helper Methods =====
 
-    private JSPPage parse(String jsp) throws Exception {
+    private JspPage parse(String jsp) throws Exception {
         InputStream input = new ByteArrayInputStream(jsp.getBytes(StandardCharsets.UTF_8));
         return parserFactory.parseJSP(input, "UTF-8", "/test.jsp", null);
     }
 
     @SuppressWarnings("unchecked")
-    private <T extends JSPElement> T findElement(JSPPage page, Class<T> type) {
-        for (JSPElement element : page.getElements()) {
+    private <T extends JspElement> T findElement(JspPage page, Class<T> type) {
+        for (JspElement element : page.getElements()) {
             if (type.isInstance(element)) {
                 return (T) element;
             }

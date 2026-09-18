@@ -21,7 +21,7 @@ This directory contains a simple test program that demonstrates the Gumdrop HTTP
 - **Request Formatting**: Method, URI, headers, body
 - **Response Parsing**: Status line, headers, body (Content-Length, chunked, connection-close)
 - **Connection Management**: Keep-alive, sequential request processing
-- **Type Safety**: HTTPVersion enum, HTTPRequest/HTTPResponse classes
+- **Type Safety**: HttpVersion enum, HttpRequest/HttpResponse classes
 
 ### ✅ Stream-Based API
 - **Request Sending**: `sendRequest()`, `sendData()`, `completeRequest()`
@@ -107,10 +107,10 @@ All tests completed successfully!
 - Type-safe protocol version handling
 
 ### 📦 **Modular Architecture**
-- `HTTPClient` extends `Client` (connection factory)
+- `HttpClient` extends `Client` (connection factory)
 - `HTTPClientConnection` extends `Connection` (protocol handler)
 - `HTTPClientStream` represents individual request/response pairs
-- `HTTPClientHandler` drives application logic
+- `HttpClientHandler` drives application logic
 
 ## Integration with Gumdrop Server
 

@@ -49,7 +49,7 @@ import java.net.Socket;
  *
  * <p>Two separate proxy instances are used because Dante selects an
  * auth method by priority among whatever the client offers, and
- * gumdrop's {@code SOCKSClientHandler} always offers "none" alongside
+ * gumdrop's {@code SocksClientHandler} always offers "none" alongside
  * "username" when credentials are configured -- a single proxy
  * offering both would never actually exercise the username/password
  * (RFC 1929) wire path. See {@code sockd-auth.conf}'s comment.

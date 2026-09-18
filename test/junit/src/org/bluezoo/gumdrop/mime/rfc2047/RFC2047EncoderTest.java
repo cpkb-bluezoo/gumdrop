@@ -14,7 +14,7 @@ import static org.junit.Assert.*;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Unit tests for RFC2047Encoder.
+ * Unit tests for Rfc2047Encoder.
  */
 public class RFC2047EncoderTest {
 
@@ -23,27 +23,27 @@ public class RFC2047EncoderTest {
 	@Test
 	public void testContainsNonAsciiTrue() {
 		byte[] data = "Café".getBytes(StandardCharsets.UTF_8);
-		assertTrue(RFC2047Encoder.containsNonAscii(data));
+		assertTrue(Rfc2047Encoder.containsNonAscii(data));
 	}
 
 	@Test
 	public void testContainsNonAsciiFalse() {
 		byte[] data = "Hello World".getBytes(StandardCharsets.US_ASCII);
-		assertFalse(RFC2047Encoder.containsNonAscii(data));
+		assertFalse(Rfc2047Encoder.containsNonAscii(data));
 	}
 
 	@Test
 	public void testContainsNonAsciiEmpty() {
-		assertFalse(RFC2047Encoder.containsNonAscii(new byte[0]));
+		assertFalse(Rfc2047Encoder.containsNonAscii(new byte[0]));
 	}
 
 	@Test
 	public void testContainsNonAsciiRange() {
 		byte[] data = "Hello Café World".getBytes(StandardCharsets.UTF_8);
 		// Only check the "Hello " part (first 6 bytes)
-		assertFalse(RFC2047Encoder.containsNonAscii(data, 0, 6));
+		assertFalse(Rfc2047Encoder.containsNonAscii(data, 0, 6));
 		// Check from "Café" onwards
-		assertTrue(RFC2047Encoder.containsNonAscii(data, 6, data.length));
+		assertTrue(Rfc2047Encoder.containsNonAscii(data, 6, data.length));
 	}
 
 	// ========== getEncodingForData tests ==========
@@ -52,19 +52,19 @@ public class RFC2047EncoderTest {
 	public void testGetEncodingForASCII() {
 		// Mostly ASCII should prefer Q-encoding
 		byte[] data = "Hello World".getBytes(StandardCharsets.US_ASCII);
-		assertEquals("Q", RFC2047Encoder.getEncodingForData(data));
+		assertEquals("Q", Rfc2047Encoder.getEncodingForData(data));
 	}
 
 	@Test
 	public void testGetEncodingForMostlyNonASCII() {
 		// Mostly non-ASCII should prefer B-encoding
 		byte[] data = "日本語テスト".getBytes(StandardCharsets.UTF_8);
-		assertEquals("B", RFC2047Encoder.getEncodingForData(data));
+		assertEquals("B", Rfc2047Encoder.getEncodingForData(data));
 	}
 
 	@Test
 	public void testGetEncodingForEmpty() {
-		assertEquals("B", RFC2047Encoder.getEncodingForData(new byte[0]));
+		assertEquals("B", Rfc2047Encoder.getEncodingForData(new byte[0]));
 	}
 
 	// ========== encodeB tests ==========
@@ -72,7 +72,7 @@ public class RFC2047EncoderTest {
 	@Test
 	public void testEncodeBSimple() {
 		byte[] data = "Hello".getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeB(data, "UTF-8");
 		// Pure ASCII should not be encoded
 		assertEquals("Hello", encoded);
 	}
@@ -80,34 +80,34 @@ public class RFC2047EncoderTest {
 	@Test
 	public void testEncodeBWithNonASCII() {
 		byte[] data = "Café".getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeB(data, "UTF-8");
 		// Should contain an encoded word
 		assertTrue(encoded.contains("=?UTF-8?B?"));
 		assertTrue(encoded.contains("?="));
 		// Should be decodable
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Café", decoded);
 	}
 
 	@Test
 	public void testEncodeBJapanese() {
 		byte[] data = "日本語".getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeB(data, "UTF-8");
 		assertTrue(encoded.contains("=?UTF-8?B?"));
 		// Verify round-trip
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("日本語", decoded);
 	}
 
 	@Test
 	public void testEncodeBMixed() {
 		byte[] data = "Hello 日本語 World".getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeB(data, "UTF-8");
 		// Should contain ASCII parts and encoded parts
 		assertTrue(encoded.contains("Hello"));
 		assertTrue(encoded.contains("=?UTF-8?B?"));
 		// Verify round-trip
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Hello 日本語 World", decoded);
 	}
 
@@ -116,7 +116,7 @@ public class RFC2047EncoderTest {
 	@Test
 	public void testEncodeQSimple() {
 		byte[] data = "Hello".getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeQ(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeQ(data, "UTF-8");
 		// Pure ASCII should not be encoded
 		assertEquals("Hello", encoded);
 	}
@@ -124,10 +124,10 @@ public class RFC2047EncoderTest {
 	@Test
 	public void testEncodeQWithNonASCII() {
 		byte[] data = "Café".getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeQ(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeQ(data, "UTF-8");
 		assertTrue(encoded.contains("=?UTF-8?Q?"));
 		// Verify round-trip
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Café", decoded);
 	}
 
@@ -135,7 +135,7 @@ public class RFC2047EncoderTest {
 	public void testEncodeQHighBytes() {
 		// Test that high bytes are properly hex-encoded
 		byte[] data = new byte[] { (byte) 0xC3, (byte) 0xA9 }; // UTF-8 for 'é'
-		String encoded = RFC2047Encoder.encodeQ(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeQ(data, "UTF-8");
 		assertTrue(encoded.contains("=C3"));
 		assertTrue(encoded.contains("=A9"));
 	}
@@ -145,18 +145,18 @@ public class RFC2047EncoderTest {
 	@Test
 	public void testEncodeHeaderValueASCII() {
 		byte[] data = "Hello World".getBytes(StandardCharsets.US_ASCII);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
 		assertEquals("Hello World", encoded);
 	}
 
 	@Test
 	public void testEncodeHeaderValueNonASCII() {
 		byte[] data = "Café".getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
 		// Should be encoded
 		assertTrue(encoded.contains("=?UTF-8?"));
 		// Verify round-trip
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals("Café", decoded);
 	}
 
@@ -166,8 +166,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripSimple() {
 		String original = "Hello World";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -175,8 +175,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripFrench() {
 		String original = "Café résumé naïve";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -184,8 +184,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripGerman() {
 		String original = "Größe Übung";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -193,8 +193,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripJapanese() {
 		String original = "日本語テスト";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -202,8 +202,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripChinese() {
 		String original = "中文测试";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -211,8 +211,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripKorean() {
 		String original = "한국어 테스트";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -220,8 +220,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripRussian() {
 		String original = "Русский текст";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -229,8 +229,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripArabic() {
 		String original = "نص عربي";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -238,8 +238,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripEmoji() {
 		String original = "Hello 👋 World 🌍";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -247,8 +247,8 @@ public class RFC2047EncoderTest {
 	public void testRoundTripLongMixed() {
 		String original = "Subject: Re: Fwd: 日本語 meeting about Größe and café résumé 会议";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String encoded = Rfc2047Encoder.encodeHeaderValue(data, StandardCharsets.UTF_8);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -256,7 +256,7 @@ public class RFC2047EncoderTest {
 
 	@Test
 	public void testMaxEncodedWordLengthConstant() {
-		assertEquals(75, RFC2047Encoder.MAX_ENCODED_WORD_LENGTH);
+		assertEquals(75, Rfc2047Encoder.MAX_ENCODED_WORD_LENGTH);
 	}
 
 	@Test
@@ -264,7 +264,7 @@ public class RFC2047EncoderTest {
 		// Long non-ASCII string that would exceed 75 chars in a single encoded-word
 		String original = "日本語テスト日本語テスト日本語テスト日本語テスト";
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeB(data, "UTF-8");
 
 		// Each encoded-word must be <= 75 chars
 		int idx = 0;
@@ -280,7 +280,7 @@ public class RFC2047EncoderTest {
 		}
 
 		// Verify round-trip
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 
@@ -291,7 +291,7 @@ public class RFC2047EncoderTest {
 		for (int i = 0; i < data.length; i++) {
 			data[i] = (byte) (0x80 + (i % 0x40)); // high bytes
 		}
-		String encoded = RFC2047Encoder.encodeQ(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeQ(data, "UTF-8");
 
 		// Each encoded-word must be <= 75 chars
 		int idx = 0;
@@ -311,7 +311,7 @@ public class RFC2047EncoderTest {
 	public void testEncodeBShortStringDoesNotSplit() {
 		// Short non-ASCII string should fit in a single encoded-word
 		byte[] data = "Café".getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeB(data, "UTF-8");
 
 		// Count encoded-word openers: "=?charset?B?" pattern
 		java.util.regex.Matcher m = java.util.regex.Pattern
@@ -332,7 +332,7 @@ public class RFC2047EncoderTest {
 		}
 		String original = sb.toString();
 		byte[] data = original.getBytes(StandardCharsets.UTF_8);
-		String encoded = RFC2047Encoder.encodeB(data, "UTF-8");
+		String encoded = Rfc2047Encoder.encodeB(data, "UTF-8");
 
 		// Verify all encoded-words are within limit
 		int idx = 0;
@@ -347,7 +347,7 @@ public class RFC2047EncoderTest {
 		}
 
 		// Verify round-trip
-		String decoded = RFC2047Decoder.decodeEncodedWords(encoded);
+		String decoded = Rfc2047Decoder.decodeEncodedWords(encoded);
 		assertEquals(original, decoded);
 	}
 }

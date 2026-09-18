@@ -24,15 +24,17 @@ package org.bluezoo.gumdrop.redis.client;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import javax.net.ssl.X509TrustManager;
 
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.client.ClientDial;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 
 /**
@@ -40,19 +42,15 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  *
  * <p>This class provides a simple, concrete API for connecting to Redis servers
  * using the RESP (Redis Serialization Protocol) wire format. It internally
- * creates a {@link TCPTransportFactory}, {@link ClientEndpoint}, and
+ * creates a {@link TcpTransportFactory}, {@link ClientEndpoint}, and
  * {@link RedisClientProtocolHandler}, wiring them together and forwarding
  * lifecycle events to the caller's {@link RedisConnectionReady} handler.
  *
- * <p>Connection modes:
- * <ul>
- *   <li>Plaintext on default port 6379</li>
- *   <li>TLS-encrypted (Redis 6+ with {@code tls-port})</li>
- * </ul>
- *
  * <h4>Basic Usage</h4>
  * <pre>{@code
- * RedisClient client = new RedisClient(selectorLoop, "localhost", 6379);
+ * RedisClient client = new RedisClient()
+ *         .host("localhost")
+ *         .port(6379);
  * client.connect(new RedisConnectionReady() {
  *     public void handleReady(RedisSession session) {
  *         session.set("key", "value", handler);
@@ -67,266 +65,163 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see RedisConnectionReady
  * @see RedisClientProtocolHandler
- * @see <a href="https://redis.io/docs/reference/protocol-spec/">RESP Protocol Specification</a>
  */
 public class RedisClient {
 
-    private static final Logger LOGGER =
-            Logger.getLogger(RedisClient.class.getName());
-
-    private final String host;
-    private final InetAddress hostAddress;
-    private final int port;
-    private final String socketPath;
-    private final SelectorLoop selectorLoop;
-
-    // Configuration (set before connect)
+    private final ClientDial dial = ClientDial.withDefaultPort(6379);
+    private final TlsConfig tls = new TlsConfig();
     private boolean secure;
-    private ServerCredentials clientCredentials;
-    private X509TrustManager trustManager;
-    private Path keystoreFile;
-    private String keystorePass;
-    private String keystoreFormat;
 
-    // Internal transport components (created at connect time)
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private RedisClientProtocolHandler endpointHandler;
     private boolean connected;
 
-    /**
-     * Creates a Redis client for the given host and port.
-     *
-     * <p>Uses the next available worker loop from the global
-     * {@link Gumdrop} instance. DNS resolution is deferred until
-     * {@link #connect} is called.
-     *
-     * @param host the remote hostname or IP address
-     * @param port the remote port
-     */
+    /** Creates a client for fluent dial configuration before {@link #connect}. */
+    public RedisClient() {
+    }
+
     public RedisClient(String host, int port) {
         this(null, host, port);
     }
 
-    /**
-     * Creates a Redis client with an explicit selector loop.
-     *
-     * <p>DNS resolution is deferred until {@link #connect} is called.
-     *
-     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
-     * @param host the remote hostname or IP address
-     * @param port the remote port
-     */
     public RedisClient(SelectorLoop selectorLoop, String host, int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = host;
-        this.hostAddress = null;
-        this.port = port;
-        this.socketPath = null;
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
-    /**
-     * Creates a Redis client for the given address and port.
-     *
-     * @param host the remote host address
-     * @param port the remote port
-     */
     public RedisClient(InetAddress host, int port) {
         this(null, host, port);
     }
 
-    /**
-     * Creates a Redis client with an explicit selector loop and address.
-     *
-     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
-     * @param host the remote host address
-     * @param port the remote port
-     */
-    public RedisClient(SelectorLoop selectorLoop, InetAddress host,
-                       int port) {
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = host;
-        this.port = port;
-        this.socketPath = null;
+    public RedisClient(SelectorLoop selectorLoop, InetAddress host, int port) {
+        dial.selectorLoop(selectorLoop).host(host).port(port);
     }
 
-    /**
-     * Creates a Redis client for a UNIX domain socket, mirroring
-     * {@link org.bluezoo.gumdrop.TCPListener#setPath} on the server side.
-     *
-     * <p>Uses the next available worker loop from the global {@link
-     * Gumdrop} instance.
-     *
-     * @param socketPath the UNIX domain socket path
-     */
     public RedisClient(String socketPath) {
         this(null, socketPath);
     }
 
-    /**
-     * Creates a Redis client for a UNIX domain socket with an
-     * explicit selector loop.
-     *
-     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
-     * @param socketPath the UNIX domain socket path
-     */
     public RedisClient(SelectorLoop selectorLoop, String socketPath) {
-        if (socketPath == null) {
-            throw new NullPointerException("socketPath");
-        }
-        this.selectorLoop = selectorLoop;
-        this.host = null;
-        this.hostAddress = null;
-        this.port = -1;
-        this.socketPath = socketPath;
+        dial.selectorLoop(selectorLoop).socketPath(socketPath);
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Configuration (before connect)
-    // ═══════════════════════════════════════════════════════════════════
-
-    /**
-     * Sets whether this client uses TLS.
-     *
-     * @param secure true for TLS
-     */
     public void setSecure(boolean secure) {
         this.secure = secure;
     }
 
-    /**
-     * Sets this client's own identity (certificate chain and private key)
-     * to present if the server requests client certificate authentication
-     * (mTLS).
-     *
-     * @param clientCredentials the client's own credentials
-     */
     public void setClientCredentials(ServerCredentials clientCredentials) {
-        this.clientCredentials = clientCredentials;
+        tls.serverCredentials(clientCredentials);
     }
 
-    /**
-     * Sets a custom trust manager for TLS certificate verification.
-     *
-     * @param trustManager the trust manager, or null to use defaults
-     * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
-     * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
-     */
     public void setTrustManager(X509TrustManager trustManager) {
-        this.trustManager = trustManager;
+        tls.trustManager(trustManager);
     }
 
-    /**
-     * Sets the keystore file for client certificate authentication.
-     *
-     * @param path the keystore file path
-     */
     public void setKeystoreFile(Path path) {
-        this.keystoreFile = path;
+        tls.keystoreFile(path);
     }
 
     public void setKeystoreFile(String path) {
-        this.keystoreFile = Path.of(path);
+        tls.keystoreFile(Path.of(path));
     }
 
-    /**
-     * Sets the keystore password.
-     *
-     * @param password the keystore password
-     */
     public void setKeystorePass(String password) {
-        this.keystorePass = password;
+        tls.keystorePass(password);
     }
 
-    /**
-     * Sets the keystore format (e.g. JKS, PKCS12).
-     *
-     * @param format the keystore format
-     */
     public void setKeystoreFormat(String format) {
-        this.keystoreFormat = format;
+        tls.keystoreFormat(format);
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Lifecycle
-    // ═══════════════════════════════════════════════════════════════════
+    public RedisClient host(String host) {
+        dial.host(host);
+        return this;
+    }
+
+    public RedisClient host(InetAddress hostAddress) {
+        dial.host(hostAddress);
+        return this;
+    }
+
+    public RedisClient port(int port) {
+        dial.port(port);
+        return this;
+    }
+
+    public RedisClient socketPath(String socketPath) {
+        dial.socketPath(socketPath);
+        return this;
+    }
+
+    public RedisClient selectorLoop(SelectorLoop selectorLoop) {
+        dial.selectorLoop(selectorLoop);
+        return this;
+    }
+
+    public RedisClient dnsResolver(DnsResolver dnsResolver) {
+        dial.dnsResolver(dnsResolver);
+        return this;
+    }
+
+    public RedisClient secure(boolean secure) {
+        this.secure = secure;
+        return this;
+    }
+
+    public RedisClient clientCredentials(ServerCredentials clientCredentials) {
+        tls.serverCredentials(clientCredentials);
+        return this;
+    }
+
+    public RedisClient trustManager(X509TrustManager trustManager) {
+        tls.trustManager(trustManager);
+        return this;
+    }
+
+    public RedisClient keystoreFile(Path path) {
+        tls.keystoreFile(path);
+        return this;
+    }
+
+    public RedisClient keystorePass(String password) {
+        tls.keystorePass(password);
+        return this;
+    }
+
+    public RedisClient keystoreFormat(String format) {
+        tls.keystoreFormat(format);
+        return this;
+    }
+
+    public ClientDial getDial() {
+        return dial;
+    }
+
+    public TlsConfig getTls() {
+        return tls;
+    }
 
     /**
      * Connects to the remote Redis server.
-     *
-     * <p>Creates the transport factory, endpoint handler, and client
-     * endpoint, then initiates the connection. Lifecycle events are
-     * forwarded to the given handler.
-     *
-     * @param handler the handler to receive connection lifecycle events
      */
-    public void connect(RedisConnectionReady handler) {
-        transportFactory = new TCPTransportFactory();
-        transportFactory.setSecure(secure);
-        if (clientCredentials != null) {
-            transportFactory.setClientCredentials(clientCredentials);
-        }
-        if (keystoreFile != null) {
-            transportFactory.setKeystoreFile(keystoreFile);
-        }
-        if (keystorePass != null) {
-            transportFactory.setKeystorePass(keystorePass);
-        }
-        if (keystoreFormat != null) {
-            transportFactory.setKeystoreFormat(keystoreFormat);
-        }
-        if (trustManager != null) {
-            transportFactory.setTrustManager(trustManager);
-        }
-        transportFactory.start();
-
+    public void connect(Gumdrop gumdrop, RedisConnectionReady handler) {
+        transportFactory = new TcpTransportFactory();
         endpointHandler = new RedisClientProtocolHandler(handler);
 
         try {
-            if (socketPath != null) {
-                clientEndpoint = (selectorLoop != null)
-                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
-                        : new ClientEndpoint(transportFactory, socketPath);
-            } else if (host != null) {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            host, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, host, port);
-                }
-            } else {
-                if (selectorLoop != null) {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, selectorLoop,
-                            hostAddress, port);
-                } else {
-                    clientEndpoint = new ClientEndpoint(
-                            transportFactory, hostAddress, port);
-                }
-            }
-            clientEndpoint.connect(endpointHandler);
+            ClientConnect.prepareTls(secure, tls, transportFactory);
+            clientEndpoint = ClientConnect.openAndConnect(
+                    gumdrop, dial, transportFactory, endpointHandler);
             connected = true;
         } catch (IOException e) {
             handler.onError(e);
         }
     }
 
-    /**
-     * Returns whether the connection is open.
-     *
-     * @return true if connected and open
-     */
     public boolean isOpen() {
         return connected && endpointHandler != null;
     }
 
-    /**
-     * Closes the connection and deregisters from Gumdrop's lifecycle
-     * tracking.
-     */
     public void close() {
         if (endpointHandler != null) {
             endpointHandler.close();

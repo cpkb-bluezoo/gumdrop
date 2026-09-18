@@ -26,8 +26,8 @@
  *
  * <p>{@link org.bluezoo.gumdrop.servlet.manager.ManagerServlet} handles
  * the admin requests, delegating to {@link
- * org.bluezoo.gumdrop.servlet.manager.ManagerContainerService} and
- * {@link org.bluezoo.gumdrop.servlet.manager.ManagerContextService} for
+ * org.bluezoo.gumdrop.servlet.manager.ManagerContainerServer} and
+ * {@link org.bluezoo.gumdrop.servlet.manager.ManagerContextServer} for
  * the actual container/context operations. The manager application
  * itself deploys as an ordinary WAR file and is protected by standard
  * servlet security constraints, requiring authentication and membership

@@ -21,12 +21,13 @@
 
 package org.bluezoo.gumdrop.servlet.session;
 
-import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ByteBufferChannel;
 import org.bluezoo.util.ByteArrays;
-import org.bluezoo.gumdrop.telemetry.protobuf.DefaultProtobufHandler;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParseException;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.protobuf.DefaultProtobufHandler;
+import org.bluezoo.protobuf.ProtobufParseException;
+import org.bluezoo.protobuf.ProtobufParser;
+import org.bluezoo.protobuf.ProtobufWriter;
+import org.bluezoo.gumdrop.util.JulWarnings;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -299,7 +300,8 @@ class SessionSerializer {
                     try {
                         value = deserializeObject(asBytes(data));
                     } catch (IOException e) {
-                        LOGGER.log(Level.WARNING, "Failed to deserialize attribute value", e);
+                        JulWarnings.warn(LOGGER,
+                                "Failed to deserialize attribute value", e);
                         value = null;
                     }
                     break;

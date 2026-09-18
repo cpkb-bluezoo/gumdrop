@@ -25,7 +25,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * Handler for add operation results.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPSession#add
+ * @see LdapSession#add
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.7">RFC 4511 §4.7 — Add</a>
  */
 public interface AddResultHandler {
@@ -46,7 +46,7 @@ public interface AddResultHandler {
      * @param result the operation result
      * @param session operations for further directory access
      */
-    void handleAddResult(LDAPResult result, LDAPSession session);
+    void handleAddResult(LdapResult result, LdapSession session);
 
 }
 

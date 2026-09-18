@@ -25,85 +25,85 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for SPFResult, DKIMResult, DMARCResult, and DMARCPolicy enums.
+ * Unit tests for SpfResult, DkimResult, DmarcResult, and DmarcPolicy enums.
  */
 public class SPFResultTest {
 
-    // -- SPFResult Tests --
+    // -- SpfResult Tests --
 
     @Test
     public void testSPFResultValues() {
         // Verify all expected values exist (PASS, FAIL, SOFTFAIL, NEUTRAL, NONE, TEMPERROR, PERMERROR)
-        assertEquals(7, SPFResult.values().length);
-        assertNotNull(SPFResult.NONE);
-        assertNotNull(SPFResult.NEUTRAL);
-        assertNotNull(SPFResult.PASS);
-        assertNotNull(SPFResult.FAIL);
-        assertNotNull(SPFResult.SOFTFAIL);
-        assertNotNull(SPFResult.TEMPERROR);
-        assertNotNull(SPFResult.PERMERROR);
+        assertEquals(7, SpfResult.values().length);
+        assertNotNull(SpfResult.NONE);
+        assertNotNull(SpfResult.NEUTRAL);
+        assertNotNull(SpfResult.PASS);
+        assertNotNull(SpfResult.FAIL);
+        assertNotNull(SpfResult.SOFTFAIL);
+        assertNotNull(SpfResult.TEMPERROR);
+        assertNotNull(SpfResult.PERMERROR);
     }
 
     @Test
     public void testSPFResultValueOf() {
-        assertEquals(SPFResult.PASS, SPFResult.valueOf("PASS"));
-        assertEquals(SPFResult.FAIL, SPFResult.valueOf("FAIL"));
-        assertEquals(SPFResult.SOFTFAIL, SPFResult.valueOf("SOFTFAIL"));
-        assertEquals(SPFResult.NEUTRAL, SPFResult.valueOf("NEUTRAL"));
-        assertEquals(SPFResult.NONE, SPFResult.valueOf("NONE"));
+        assertEquals(SpfResult.PASS, SpfResult.valueOf("PASS"));
+        assertEquals(SpfResult.FAIL, SpfResult.valueOf("FAIL"));
+        assertEquals(SpfResult.SOFTFAIL, SpfResult.valueOf("SOFTFAIL"));
+        assertEquals(SpfResult.NEUTRAL, SpfResult.valueOf("NEUTRAL"));
+        assertEquals(SpfResult.NONE, SpfResult.valueOf("NONE"));
     }
 
-    // -- DKIMResult Tests --
+    // -- DkimResult Tests --
 
     @Test
     public void testDKIMResultValues() {
         // Verify all expected values exist
-        assertNotNull(DKIMResult.NONE);
-        assertNotNull(DKIMResult.PASS);
-        assertNotNull(DKIMResult.FAIL);
-        assertNotNull(DKIMResult.TEMPERROR);
-        assertNotNull(DKIMResult.PERMERROR);
+        assertNotNull(DkimResult.NONE);
+        assertNotNull(DkimResult.PASS);
+        assertNotNull(DkimResult.FAIL);
+        assertNotNull(DkimResult.TEMPERROR);
+        assertNotNull(DkimResult.PERMERROR);
     }
 
     @Test
     public void testDKIMResultValueOf() {
-        assertEquals(DKIMResult.PASS, DKIMResult.valueOf("PASS"));
-        assertEquals(DKIMResult.FAIL, DKIMResult.valueOf("FAIL"));
-        assertEquals(DKIMResult.NONE, DKIMResult.valueOf("NONE"));
+        assertEquals(DkimResult.PASS, DkimResult.valueOf("PASS"));
+        assertEquals(DkimResult.FAIL, DkimResult.valueOf("FAIL"));
+        assertEquals(DkimResult.NONE, DkimResult.valueOf("NONE"));
     }
 
-    // -- DMARCResult Tests --
+    // -- DmarcResult Tests --
 
     @Test
     public void testDMARCResultValues() {
-        assertNotNull(DMARCResult.NONE);
-        assertNotNull(DMARCResult.PASS);
-        assertNotNull(DMARCResult.FAIL);
-        assertNotNull(DMARCResult.TEMPERROR);
-        assertNotNull(DMARCResult.PERMERROR);
+        assertNotNull(DmarcResult.NONE);
+        assertNotNull(DmarcResult.PASS);
+        assertNotNull(DmarcResult.FAIL);
+        assertNotNull(DmarcResult.TEMPERROR);
+        assertNotNull(DmarcResult.PERMERROR);
     }
 
     @Test
     public void testDMARCResultValueOf() {
-        assertEquals(DMARCResult.PASS, DMARCResult.valueOf("PASS"));
-        assertEquals(DMARCResult.FAIL, DMARCResult.valueOf("FAIL"));
-        assertEquals(DMARCResult.NONE, DMARCResult.valueOf("NONE"));
+        assertEquals(DmarcResult.PASS, DmarcResult.valueOf("PASS"));
+        assertEquals(DmarcResult.FAIL, DmarcResult.valueOf("FAIL"));
+        assertEquals(DmarcResult.NONE, DmarcResult.valueOf("NONE"));
     }
 
-    // -- DMARCPolicy Tests --
+    // -- DmarcPolicy Tests --
 
     @Test
     public void testDMARCPolicyValues() {
-        assertNotNull(DMARCPolicy.NONE);
-        assertNotNull(DMARCPolicy.QUARANTINE);
-        assertNotNull(DMARCPolicy.REJECT);
+        assertNotNull(DmarcPolicy.NONE);
+        assertNotNull(DmarcPolicy.QUARANTINE);
+        assertNotNull(DmarcPolicy.REJECT);
     }
 
     @Test
     public void testDMARCPolicyValueOf() {
-        assertEquals(DMARCPolicy.NONE, DMARCPolicy.valueOf("NONE"));
-        assertEquals(DMARCPolicy.QUARANTINE, DMARCPolicy.valueOf("QUARANTINE"));
-        assertEquals(DMARCPolicy.REJECT, DMARCPolicy.valueOf("REJECT"));
+        assertEquals(DmarcPolicy.NONE, DmarcPolicy.valueOf("NONE"));
+        assertEquals(DmarcPolicy.QUARANTINE, DmarcPolicy.valueOf("QUARANTINE"));
+        assertEquals(DmarcPolicy.REJECT, DmarcPolicy.valueOf("REJECT"));
     }
 
     // -- AuthVerdict Tests --

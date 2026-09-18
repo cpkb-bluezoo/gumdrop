@@ -40,14 +40,14 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link IMAPProtocolHandler}'s streaming-lexer conversion
+ * Unit tests for {@link ImapProtocolHandler}'s streaming-lexer conversion
  * (issue #85): command recognition/dispatch, the outer tag/command/args
  * assembly, RFC 7888 general-purpose literals (including chained
  * literals spliced back into the reassembled command, and the
@@ -62,14 +62,14 @@ import static org.junit.Assert.*;
  */
 public class IMAPProtocolHandlerTest {
 
-    private IMAPProtocolHandler handler;
+    private ImapProtocolHandler handler;
     private StubEndpoint endpoint;
-    private IMAPListener listener;
+    private ImapListener listener;
 
     @Before
     public void setUp() {
-        listener = new IMAPListener();
-        handler = new IMAPProtocolHandler(listener);
+        listener = new ImapListener();
+        handler = new ImapProtocolHandler(listener);
         endpoint = new StubEndpoint();
     }
 
@@ -86,7 +86,7 @@ public class IMAPProtocolHandlerTest {
         handler.receive(ByteBuffer.wrap(data.getBytes(StandardCharsets.US_ASCII)));
     }
 
-    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // Mirrors the real transport contract (TcpEndpoint.processInbound()):
     // a single persistent buffer, compacted between receive() calls so
     // unconsumed bytes from a partial token are preserved and physically
     // moved forward, not a fresh isolated buffer per chunk.
@@ -170,7 +170,7 @@ public class IMAPProtocolHandlerTest {
     @Test(timeout = 15000)
     public void testAuthCramMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
         StubRealm realm = new StubRealm();
-        realm.supportedMechanisms.add(SASLMechanism.CRAM_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
         listener.setRealm(realm);
         connect();
         endpoint.sentData.clear();
@@ -193,7 +193,7 @@ public class IMAPProtocolHandlerTest {
     @Test(timeout = 15000)
     public void testAuthDigestMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
         StubRealm realm = new StubRealm();
-        realm.supportedMechanisms.add(SASLMechanism.DIGEST_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.DIGEST_MD5);
         listener.setRealm(realm);
         connect();
         endpoint.sentData.clear();
@@ -268,8 +268,8 @@ public class IMAPProtocolHandlerTest {
     @Test
     public void testCommandWithArgsSlicedAtEveryChunkSize() {
         for (int chunkSize = 1; chunkSize <= 16; chunkSize++) {
-            listener = new IMAPListener();
-            handler = new IMAPProtocolHandler(listener);
+            listener = new ImapListener();
+            handler = new ImapProtocolHandler(listener);
             endpoint = new StubEndpoint();
 
             connect();
@@ -390,9 +390,9 @@ public class IMAPProtocolHandlerTest {
 
     @Test
     public void testLiteralTooLargeRejectedAndResyncs() {
-        listener = new IMAPListener();
+        listener = new ImapListener();
         listener.setMaxLiteralSize(10);
-        handler = new IMAPProtocolHandler(listener);
+        handler = new ImapProtocolHandler(listener);
         endpoint = new StubEndpoint();
 
         connect();
@@ -407,9 +407,9 @@ public class IMAPProtocolHandlerTest {
     @Test
     public void testLiteralSlicedAtEveryChunkSize() {
         for (int chunkSize = 1; chunkSize <= 24; chunkSize++) {
-            listener = new IMAPListener();
+            listener = new ImapListener();
             listener.setAllowPlaintextLogin(true);
-            handler = new IMAPProtocolHandler(listener);
+            handler = new ImapProtocolHandler(listener);
             endpoint = new StubEndpoint();
 
             connect();
@@ -487,7 +487,7 @@ public class IMAPProtocolHandlerTest {
     }
 
     static class StubRealm implements Realm {
-        Set<SASLMechanism> supportedMechanisms = new HashSet<SASLMechanism>();
+        Set<SaslMechanism> supportedMechanisms = new HashSet<SaslMechanism>();
 
         @Override
         public Realm forSelectorLoop(SelectorLoop loop) {
@@ -495,7 +495,7 @@ public class IMAPProtocolHandlerTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return Collections.unmodifiableSet(supportedMechanisms);
         }
 

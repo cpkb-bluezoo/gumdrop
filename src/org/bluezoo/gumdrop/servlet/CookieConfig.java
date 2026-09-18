@@ -33,6 +33,7 @@ import jakarta.servlet.http.Cookie;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
+@SuppressWarnings("removal") // SessionCookieConfig comment APIs + Cookie.setComment until Jakarta 6.x removes them
 final class CookieConfig implements SessionCookieConfig {
 
     enum SameSite {

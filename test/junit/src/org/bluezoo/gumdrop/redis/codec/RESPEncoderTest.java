@@ -29,17 +29,17 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link RESPEncoder}.
+ * Unit tests for {@link RespEncoder}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class RESPEncoderTest {
 
-    private RESPEncoder encoder;
+    private RespEncoder encoder;
 
     @Before
     public void setUp() {
-        encoder = new RESPEncoder();
+        encoder = new RespEncoder();
     }
 
     private String bufferToString(ByteBuffer buffer) {

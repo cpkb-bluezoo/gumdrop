@@ -24,8 +24,8 @@
  * being {@code B} for Base64 or {@code Q} for Quoted-Printable) for
  * non-ASCII text in message headers.
  *
- * <p>{@link org.bluezoo.gumdrop.mime.rfc2047.RFC2047Encoder} and {@link
- * org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder} implement encoding
+ * <p>{@link org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Encoder} and {@link
+ * org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Decoder} implement encoding
  * and decoding respectively.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

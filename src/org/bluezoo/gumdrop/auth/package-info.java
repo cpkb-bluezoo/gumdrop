@@ -34,12 +34,12 @@
  * org.bluezoo.gumdrop.auth.oauth.OAuthRealm} (in {@code
  * gumdrop-http.jar}) validates OAuth 2.0 access tokens via RFC 7662
  * introspection or local JWT validation; {@link
- * org.bluezoo.gumdrop.auth.ldap.LDAPRealm} (in {@code
+ * org.bluezoo.gumdrop.auth.ldap.LdapRealm} (in {@code
  * gumdrop-ldap.jar}) authenticates against a directory server through
  * {@link org.bluezoo.gumdrop.ldap.client}.
  *
- * <p>{@link org.bluezoo.gumdrop.auth.SASLMechanism} enumerates the
- * supported SASL mechanisms; {@link org.bluezoo.gumdrop.auth.SASLUtils}
+ * <p>{@link org.bluezoo.gumdrop.auth.SaslMechanism} enumerates the
+ * supported SASL mechanisms; {@link org.bluezoo.gumdrop.auth.SaslUtils}
  * holds their shared cryptographic operations.
  *
  * <h2>SASL mechanisms supported</h2>
@@ -60,7 +60,7 @@
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.auth.Realm
  * @see org.bluezoo.gumdrop.auth.BasicRealm
- * @see org.bluezoo.gumdrop.auth.SASLMechanism
+ * @see org.bluezoo.gumdrop.auth.SaslMechanism
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422 - SASL</a>
  * @see <a href="https://www.iana.org/assignments/sasl-mechanisms/">IANA SASL Mechanisms</a>
  */

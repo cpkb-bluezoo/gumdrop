@@ -3,10 +3,10 @@ package org.bluezoo.gumdrop.socks;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
-import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
+import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
- * Unit tests for {@link SOCKSConstants}.
+ * Unit tests for {@link SocksConstants}.
  * Verifies protocol constant values match the specifications.
  */
 public class SOCKSConstantsTest {

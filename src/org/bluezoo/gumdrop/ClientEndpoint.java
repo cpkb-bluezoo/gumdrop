@@ -30,7 +30,8 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.client.ClientDefaults;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.ResolveCallback;
 
 /**
@@ -42,7 +43,7 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
  * <li>Standalone mode (auto-obtains a SelectorLoop from Gumdrop)</li>
  * <li>Server-integration mode (uses a caller-supplied SelectorLoop)</li>
  * <li>Transport-agnostic {@code connect()} that works with
- *     {@link TCPTransportFactory} or
+ *     {@link TcpTransportFactory} or
  *     {@link org.bluezoo.gumdrop.quic.QuicTransportFactory}</li>
  * </ul>
  *
@@ -53,19 +54,19 @@ import org.bluezoo.gumdrop.dns.client.ResolveCallback;
  *
  * <h4>Standalone Usage</h4>
  * <pre>{@code
- * TCPTransportFactory factory = new TCPTransportFactory();
+ * TcpTransportFactory factory = new TcpTransportFactory();
  * factory.setSecure(true);
  * factory.start();
  *
  * ClientEndpoint client = new ClientEndpoint(factory, "smtp.example.com", 465);
- * client.connect(new SMTPClientProtocolHandler(callback));
+ * client.connect(new SmtpClientProtocolHandler(callback));
  * }</pre>
  *
  * <h4>Server Integration</h4>
  * <pre>{@code
  * SelectorLoop myLoop = endpoint.getSelectorLoop();
  * ClientEndpoint client = new ClientEndpoint(factory, myLoop, "smtp.example.com", 587);
- * client.connect(new SMTPClientProtocolHandler(callback));
+ * client.connect(new SmtpClientProtocolHandler(callback));
  * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -84,6 +85,7 @@ public class ClientEndpoint {
     private InetAddress host;
     private SelectorLoop selectorLoop;
     private Gumdrop gumdrop;
+    private DnsResolver dnsResolver;
 
     // ── Constructors with explicit SelectorLoop (server integration) ──
 
@@ -148,8 +150,8 @@ public class ClientEndpoint {
 
     /**
      * Creates a client for a UNIX domain socket with a specific
-     * SelectorLoop for I/O, mirroring {@link TCPListener#setPath} on the
-     * server side. Requires a {@link TCPTransportFactory} -- there is no
+     * SelectorLoop for I/O, mirroring {@link TcpListener#setPath} on the
+     * server side. Requires a {@link TcpTransportFactory} -- there is no
      * QUIC/UDP equivalent of a filesystem socket.
      *
      * <p>Use this constructor for server integration where the client
@@ -231,8 +233,8 @@ public class ClientEndpoint {
 
     /**
      * Creates a client for a UNIX domain socket without a SelectorLoop,
-     * mirroring {@link TCPListener#setPath} on the server side. Requires a
-     * {@link TCPTransportFactory} -- there is no QUIC/UDP equivalent of a
+     * mirroring {@link TcpListener#setPath} on the server side. Requires a
+     * {@link TcpTransportFactory} -- there is no QUIC/UDP equivalent of a
      * filesystem socket.
      *
      * <p>A SelectorLoop will be obtained automatically from the Gumdrop
@@ -307,6 +309,24 @@ public class ClientEndpoint {
         return selectorLoop;
     }
 
+    /**
+     * Sets the DNS resolver used when this endpoint must resolve a hostname
+     * at {@link #connect}. When unset, {@link DnsResolver#forLoop} is used.
+     *
+     * @param dnsResolver the resolver, or {@code null} for the default
+     */
+    public void setDnsResolver(DnsResolver dnsResolver) {
+        this.dnsResolver = dnsResolver;
+    }
+
+    /**
+     * Returns the configured DNS resolver, or {@code null} if the default
+     * will be chosen at connect time.
+     */
+    public DnsResolver getDnsResolver() {
+        return dnsResolver;
+    }
+
     // ── Connection ──
 
     /**
@@ -318,8 +338,7 @@ public class ClientEndpoint {
      * connection fails.
      *
      * <p>If no SelectorLoop was provided at construction time, one is
-     * obtained from the Gumdrop infrastructure automatically (starting
-     * Gumdrop if needed).
+     * obtained from {@code gumdrop} automatically.
      *
      * <p>This method registers the client with Gumdrop for lifecycle
      * tracking. The client is automatically deregistered when the
@@ -329,21 +348,25 @@ public class ClientEndpoint {
      *
      * <p>The transport used depends on the factory:
      * <ul>
-     * <li>{@link TCPTransportFactory} -- TCP connection (with optional
+     * <li>{@link TcpTransportFactory} -- TCP connection (with optional
      *     TLS)</li>
      * <li>{@link org.bluezoo.gumdrop.quic.QuicTransportFactory} --
      *     QUIC connection with auto-opened initial stream</li>
      * </ul>
      *
+     * @param gumdrop the runtime this connection is made under
      * @param handler the protocol handler
      * @throws IOException if the connection cannot be initiated
      */
-    public void connect(final ProtocolHandler handler) throws IOException {
+    public void connect(Gumdrop gumdrop, final ProtocolHandler handler) throws IOException {
+        if (gumdrop == null) {
+            throw new NullPointerException("gumdrop");
+        }
         if (handler == null) {
             throw new NullPointerException("handler");
         }
 
-        gumdrop = Gumdrop.getInstance();
+        this.gumdrop = gumdrop;
         if (selectorLoop == null) {
             // Ensuring the infrastructure is started, obtaining a loop,
             // and registering this client as a reason to keep it running
@@ -365,7 +388,9 @@ public class ClientEndpoint {
                 LOGGER.info(MessageFormat.format(
                         Gumdrop.L10N.getString("info.client_endpoint_resolving"), hostname));
             }
-            DNSResolver resolver = DNSResolver.forLoop(selectorLoop);
+            DnsResolver resolver = dnsResolver != null
+                    ? dnsResolver
+                    : ClientDefaults.dnsResolver(selectorLoop, null);
             resolver.resolve(hostname, new ResolveCallback() {
                 @Override
                 public void onResolved(List<InetAddress> addresses) {
@@ -424,16 +449,16 @@ public class ClientEndpoint {
     private void doConnect(ProtocolHandler handler) throws IOException {
         if (path != null) {
             // UNIX domain socket -- QUIC has no filesystem-socket
-            // equivalent, so only TCPTransportFactory applies here.
-            if (!(factory instanceof TCPTransportFactory)) {
+            // equivalent, so only TcpTransportFactory applies here.
+            if (!(factory instanceof TcpTransportFactory)) {
                 throw new UnsupportedOperationException(
                         "Transport factory " + factory.getClass().getName()
                         + " does not support UNIX domain socket connections");
             }
-            ((TCPTransportFactory) factory).connect(path, handler, selectorLoop);
-        } else if (factory instanceof TCPTransportFactory) {
-            ((TCPTransportFactory) factory).connect(
-                    host, port, hostname, handler, selectorLoop);
+            ((TcpTransportFactory) factory).connect(gumdrop, path, handler, selectorLoop);
+        } else if (factory instanceof TcpTransportFactory) {
+            ((TcpTransportFactory) factory).connect(
+                    gumdrop, host, port, hostname, handler, selectorLoop);
         } else if (factory instanceof org.bluezoo.gumdrop.quic.QuicTransportFactory) {
             ((org.bluezoo.gumdrop.quic.QuicTransportFactory) factory).connect(
                     host, port, handler, selectorLoop, null);

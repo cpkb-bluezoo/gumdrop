@@ -53,7 +53,7 @@ import java.util.Map;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class TraditionalJSPParser implements JSPParser {
+public class TraditionalJSPParser implements JspParser {
     
     // JSP tag markers
     private static final String SCRIPTLET_START = "<%";
@@ -66,10 +66,10 @@ public class TraditionalJSPParser implements JSPParser {
     private static final String STANDARD_ACTION_START = "<jsp:";
     
     @Override
-    public JSPPage parse(InputStream input, String encoding, String jspUri) 
-            throws IOException, JSPParseException {
+    public JspPage parse(InputStream input, String encoding, String jspUri) 
+            throws IOException, JspParseException {
         
-        JSPPage page = new JSPPage(jspUri, encoding);
+        JspPage page = new JspPage(jspUri, encoding);
         
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(input, encoding != null ? encoding : "UTF-8"))) {
@@ -87,11 +87,11 @@ public class TraditionalJSPParser implements JSPParser {
     }
     
     @Override
-    public JSPPage parse(InputStream input, String encoding, String jspUri, 
-                        JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties)
-            throws IOException, JSPParseException {
+    public JspPage parse(InputStream input, String encoding, String jspUri, 
+                        JspPropertyGroupResolver.ResolvedJSPProperties jspProperties)
+            throws IOException, JspParseException {
         
-        JSPPage page = new JSPPage(jspUri, encoding);
+        JspPage page = new JspPage(jspUri, encoding);
         
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(input, encoding != null ? encoding : "UTF-8"))) {
@@ -151,8 +151,8 @@ public class TraditionalJSPParser implements JSPParser {
     /**
      * Parses the JSP content and populates the JSP page.
      */
-    private void parseContent(JSPPage page, String content, String jspUri, 
-                             JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties) throws JSPParseException {
+    private void parseContent(JspPage page, String content, String jspUri, 
+                             JspPropertyGroupResolver.ResolvedJSPProperties jspProperties) throws JspParseException {
         
         int pos = 0;
         int line = 1;
@@ -188,7 +188,7 @@ public class TraditionalJSPParser implements JSPParser {
             }
             
             // Parse JSP element
-            JSPElementInfo elementInfo = parseJSPElement(content, jspStart, jspUri, line, column, jspProperties);
+            JspElementInfo elementInfo = parseJSPElement(content, jspStart, jspUri, line, column, jspProperties);
             
             if (elementInfo.element != null) {
                 page.addElement(elementInfo.element);
@@ -229,9 +229,9 @@ public class TraditionalJSPParser implements JSPParser {
     /**
      * Parses a JSP element starting at the given position.
      */
-    private JSPElementInfo parseJSPElement(String content, int startPos, String jspUri, 
+    private JspElementInfo parseJSPElement(String content, int startPos, String jspUri, 
                                           int line, int column, 
-                                          JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties) throws JSPParseException {
+                                          JspPropertyGroupResolver.ResolvedJSPProperties jspProperties) throws JspParseException {
         
         // Determine JSP element type
         if (content.startsWith(COMMENT_START, startPos)) {
@@ -248,36 +248,36 @@ public class TraditionalJSPParser implements JSPParser {
             return parseStandardAction(content, startPos, jspUri, line, column);
         }
         
-        throw new JSPParseException("Unknown JSP element at position " + startPos, 
+        throw new JspParseException("Unknown JSP element at position " + startPos, 
                                    jspUri, line, column);
     }
     
     /**
      * Parses a JSP comment: <%-- comment --%>
      */
-    private JSPElementInfo parseComment(String content, int startPos, int line, int column) 
-            throws JSPParseException {
+    private JspElementInfo parseComment(String content, int startPos, int line, int column) 
+            throws JspParseException {
         
         int endPos = content.indexOf(COMMENT_END, startPos + COMMENT_START.length());
         if (endPos == -1) {
-            throw new JSPParseException("Unterminated JSP comment", null, line, column);
+            throw new JspParseException("Unterminated JSP comment", null, line, column);
         }
         
         String comment = content.substring(startPos + COMMENT_START.length(), endPos);
         CommentElement element = new CommentElement(comment, line, column);
         
-        return new JSPElementInfo(element, endPos + COMMENT_END.length());
+        return new JspElementInfo(element, endPos + COMMENT_END.length());
     }
     
     /**
      * Parses a JSP directive: <%@ directive attributes %>
      */
-    private JSPElementInfo parseDirective(String content, int startPos, String jspUri, 
-                                         int line, int column) throws JSPParseException {
+    private JspElementInfo parseDirective(String content, int startPos, String jspUri, 
+                                         int line, int column) throws JspParseException {
         
         int endPos = content.indexOf(SCRIPTLET_END, startPos + DIRECTIVE_START.length());
         if (endPos == -1) {
-            throw new JSPParseException("Unterminated JSP directive", jspUri, line, column);
+            throw new JspParseException("Unterminated JSP directive", jspUri, line, column);
         }
         
         String directiveContent = content.substring(startPos + DIRECTIVE_START.length(), endPos).trim();
@@ -303,87 +303,87 @@ public class TraditionalJSPParser implements JSPParser {
         Map<String, String> attributes = parseAttributes(attributeString, jspUri, line, column);
         DirectiveElement element = new DirectiveElement(directiveName, attributes, line, column);
         
-        return new JSPElementInfo(element, endPos + SCRIPTLET_END.length());
+        return new JspElementInfo(element, endPos + SCRIPTLET_END.length());
     }
     
     /**
      * Parses a JSP expression: <%= expression %>
      */
-    private JSPElementInfo parseExpression(String content, int startPos, int line, int column,
-                                          JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties) 
-            throws JSPParseException {
+    private JspElementInfo parseExpression(String content, int startPos, int line, int column,
+                                          JspPropertyGroupResolver.ResolvedJSPProperties jspProperties) 
+            throws JspParseException {
         
         // Check if scripting is disabled for this JSP
         if (jspProperties != null && jspProperties.getScriptingInvalid() != null && 
             jspProperties.getScriptingInvalid()) {
-            throw new JSPParseException("Scripting is disabled for this JSP page", null, line, column);
+            throw new JspParseException("Scripting is disabled for this JSP page", null, line, column);
         }
         
         int endPos = content.indexOf(SCRIPTLET_END, startPos + EXPRESSION_START.length());
         if (endPos == -1) {
-            throw new JSPParseException("Unterminated JSP expression", null, line, column);
+            throw new JspParseException("Unterminated JSP expression", null, line, column);
         }
         
         String expression = content.substring(startPos + EXPRESSION_START.length(), endPos);
         ExpressionElement element = new ExpressionElement(expression, line, column);
         
-        return new JSPElementInfo(element, endPos + SCRIPTLET_END.length());
+        return new JspElementInfo(element, endPos + SCRIPTLET_END.length());
     }
     
     /**
      * Parses a JSP declaration: <%! declaration %>
      */
-    private JSPElementInfo parseDeclaration(String content, int startPos, int line, int column,
-                                           JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties) 
-            throws JSPParseException {
+    private JspElementInfo parseDeclaration(String content, int startPos, int line, int column,
+                                           JspPropertyGroupResolver.ResolvedJSPProperties jspProperties) 
+            throws JspParseException {
         
         // Check if scripting is disabled for this JSP
         if (jspProperties != null && jspProperties.getScriptingInvalid() != null && 
             jspProperties.getScriptingInvalid()) {
-            throw new JSPParseException("Scripting is disabled for this JSP page", null, line, column);
+            throw new JspParseException("Scripting is disabled for this JSP page", null, line, column);
         }
         
         int endPos = content.indexOf(SCRIPTLET_END, startPos + DECLARATION_START.length());
         if (endPos == -1) {
-            throw new JSPParseException("Unterminated JSP declaration", null, line, column);
+            throw new JspParseException("Unterminated JSP declaration", null, line, column);
         }
         
         String declaration = content.substring(startPos + DECLARATION_START.length(), endPos);
         DeclarationElement element = new DeclarationElement(declaration, line, column);
         
-        return new JSPElementInfo(element, endPos + SCRIPTLET_END.length());
+        return new JspElementInfo(element, endPos + SCRIPTLET_END.length());
     }
     
     /**
      * Parses a JSP scriptlet: <% code %>
      */
-    private JSPElementInfo parseScriptlet(String content, int startPos, int line, int column,
-                                         JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties) 
-            throws JSPParseException {
+    private JspElementInfo parseScriptlet(String content, int startPos, int line, int column,
+                                         JspPropertyGroupResolver.ResolvedJSPProperties jspProperties) 
+            throws JspParseException {
         
         // Check if scripting is disabled for this JSP
         if (jspProperties != null && jspProperties.getScriptingInvalid() != null && 
             jspProperties.getScriptingInvalid()) {
-            throw new JSPParseException("Scripting is disabled for this JSP page", null, line, column);
+            throw new JspParseException("Scripting is disabled for this JSP page", null, line, column);
         }
         
         int endPos = content.indexOf(SCRIPTLET_END, startPos + SCRIPTLET_START.length());
         if (endPos == -1) {
-            throw new JSPParseException("Unterminated JSP scriptlet", null, line, column);
+            throw new JspParseException("Unterminated JSP scriptlet", null, line, column);
         }
         
         String code = content.substring(startPos + SCRIPTLET_START.length(), endPos);
         ScriptletElement element = new ScriptletElement(code, line, column);
         
-        return new JSPElementInfo(element, endPos + SCRIPTLET_END.length());
+        return new JspElementInfo(element, endPos + SCRIPTLET_END.length());
     }
     
     /**
      * Parses a JSP standard action: <jsp:actionName attr="value" ... />
      * or <jsp:actionName attr="value" ...>body</jsp:actionName>
      */
-    private JSPElementInfo parseStandardAction(String content, int startPos, String jspUri,
-                                              int line, int column) throws JSPParseException {
+    private JspElementInfo parseStandardAction(String content, int startPos, String jspUri,
+                                              int line, int column) throws JspParseException {
         
         // Extract the action name (after "<jsp:")
         int actionNameStart = startPos + STANDARD_ACTION_START.length();
@@ -398,7 +398,7 @@ public class TraditionalJSPParser implements JSPParser {
         }
         
         if (actionNameEnd == actionNameStart) {
-            throw new JSPParseException("Missing action name in standard action", jspUri, line, column);
+            throw new JspParseException("Missing action name in standard action", jspUri, line, column);
         }
         
         String actionName = content.substring(actionNameStart, actionNameEnd);
@@ -431,7 +431,7 @@ public class TraditionalJSPParser implements JSPParser {
         }
         
         if (tagEnd == -1) {
-            throw new JSPParseException("Unterminated standard action tag: jsp:" + actionName, 
+            throw new JspParseException("Unterminated standard action tag: jsp:" + actionName, 
                                        jspUri, line, column);
         }
         
@@ -447,7 +447,7 @@ public class TraditionalJSPParser implements JSPParser {
             String closeTag = "</jsp:" + actionName + ">";
             int closeTagPos = content.indexOf(closeTag, tagEnd);
             if (closeTagPos == -1) {
-                throw new JSPParseException("Missing closing tag for jsp:" + actionName,
+                throw new JspParseException("Missing closing tag for jsp:" + actionName,
                                            jspUri, line, column);
             }
             String bodyContent = content.substring(tagEnd, closeTagPos);
@@ -455,7 +455,7 @@ public class TraditionalJSPParser implements JSPParser {
             endPos = closeTagPos + closeTag.length();
         }
 
-        return new JSPElementInfo(element, endPos);
+        return new JspElementInfo(element, endPos);
     }
     
     /**
@@ -464,14 +464,14 @@ public class TraditionalJSPParser implements JSPParser {
      */
     private void parseNestedStandardActions(String body, String jspUri,
                                             int line, int column,
-                                            StandardActionElement parent) throws JSPParseException {
+                                            StandardActionElement parent) throws JspParseException {
         int pos = 0;
         while (pos < body.length()) {
             int nextAction = body.indexOf(STANDARD_ACTION_START, pos);
             if (nextAction == -1) {
                 break;
             }
-            JSPElementInfo info = parseStandardAction(body, nextAction, jspUri, line, column);
+            JspElementInfo info = parseStandardAction(body, nextAction, jspUri, line, column);
             parent.addChild(info.element);
             pos = info.endPos;
         }
@@ -481,7 +481,7 @@ public class TraditionalJSPParser implements JSPParser {
      * Parses directive attributes from a string.
      */
     private Map<String, String> parseAttributes(String attributeString, String jspUri, 
-                                              int line, int column) throws JSPParseException {
+                                              int line, int column) throws JspParseException {
         
         Map<String, String> attributes = new HashMap<>();
         
@@ -511,7 +511,7 @@ public class TraditionalJSPParser implements JSPParser {
             }
             
             if (pos == nameStart) {
-                throw new JSPParseException("Invalid attribute syntax", jspUri, line, column);
+                throw new JspParseException("Invalid attribute syntax", jspUri, line, column);
             }
             
             String name = attributeString.substring(nameStart, pos);
@@ -522,7 +522,7 @@ public class TraditionalJSPParser implements JSPParser {
             }
             
             if (pos >= attributeString.length() || attributeString.charAt(pos) != '=') {
-                throw new JSPParseException("Expected '=' after attribute name", jspUri, line, column);
+                throw new JspParseException("Expected '=' after attribute name", jspUri, line, column);
             }
             pos++; // Skip '='
             
@@ -532,13 +532,13 @@ public class TraditionalJSPParser implements JSPParser {
             }
             
             if (pos >= attributeString.length()) {
-                throw new JSPParseException("Expected attribute value", jspUri, line, column);
+                throw new JspParseException("Expected attribute value", jspUri, line, column);
             }
             
             // Parse quoted value
             char quote = attributeString.charAt(pos);
             if (quote != '"' && quote != '\'') {
-                throw new JSPParseException("Attribute value must be quoted", jspUri, line, column);
+                throw new JspParseException("Attribute value must be quoted", jspUri, line, column);
             }
             pos++; // Skip opening quote
             
@@ -548,7 +548,7 @@ public class TraditionalJSPParser implements JSPParser {
             }
             
             if (pos >= attributeString.length()) {
-                throw new JSPParseException("Unterminated attribute value", jspUri, line, column);
+                throw new JspParseException("Unterminated attribute value", jspUri, line, column);
             }
             
             String value = attributeString.substring(valueStart, pos);
@@ -583,7 +583,7 @@ public class TraditionalJSPParser implements JSPParser {
     /**
      * Processes directives to update page settings and taglib imports.
      */
-    private void processDirective(JSPPage page, DirectiveElement directive) {
+    private void processDirective(JspPage page, DirectiveElement directive) {
         if (directive.isPageDirective()) {
             processPageDirectiveAttributes(page, directive);
         } else if (directive.isTaglibDirective()) {
@@ -594,7 +594,7 @@ public class TraditionalJSPParser implements JSPParser {
     /**
      * Processes page directive attributes to update page settings.
      */
-    private void processPageDirectiveAttributes(JSPPage page, DirectiveElement directive) {
+    private void processPageDirectiveAttributes(JspPage page, DirectiveElement directive) {
         
         Map<String, String> attributes = directive.getAttributes();
         
@@ -663,7 +663,7 @@ public class TraditionalJSPParser implements JSPParser {
     /**
      * Processes taglib directive to register tag library imports.
      */
-    private void processTaglibDirective(JSPPage page, DirectiveElement directive) {
+    private void processTaglibDirective(JspPage page, DirectiveElement directive) {
         Map<String, String> attributes = directive.getAttributes();
         
         String prefix = attributes.get("prefix");
@@ -686,11 +686,11 @@ public class TraditionalJSPParser implements JSPParser {
     /**
      * Helper class to hold parsed JSP element information.
      */
-    private static class JSPElementInfo {
-        final JSPElement element;
+    private static class JspElementInfo {
+        final JspElement element;
         final int endPos;
         
-        JSPElementInfo(JSPElement element, int endPos) {
+        JspElementInfo(JspElement element, int endPos) {
             this.element = element;
             this.endPos = endPos;
         }

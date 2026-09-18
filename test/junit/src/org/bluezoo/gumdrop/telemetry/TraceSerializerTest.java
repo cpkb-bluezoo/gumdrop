@@ -9,7 +9,7 @@ import static org.junit.Assert.assertTrue;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import org.bluezoo.gumdrop.telemetry.protobuf.TraceSerializer;
+import org.bluezoo.gumdrop.telemetry.otlp.TraceSerializer;
 
 /**
  * JUnit 4 test class for TraceSerializer.

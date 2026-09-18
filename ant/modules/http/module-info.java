@@ -10,7 +10,6 @@ module org.bluezoo.gumdrop.http {
     exports org.bluezoo.gumdrop.http.qpack;
     exports org.bluezoo.gumdrop.websocket;
     exports org.bluezoo.gumdrop.websocket.client;
-    exports org.bluezoo.gumdrop.health;
     exports org.bluezoo.gumdrop.auth.oauth;
     exports org.bluezoo.gumdrop.http.doh;
 }

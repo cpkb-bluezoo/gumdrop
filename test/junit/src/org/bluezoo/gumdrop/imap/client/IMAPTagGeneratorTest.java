@@ -25,19 +25,19 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link IMAPTagGenerator}.
+ * Unit tests for {@link ImapTagGenerator}.
  */
 public class IMAPTagGeneratorTest {
 
     @Test
     public void testFirstTag() {
-        IMAPTagGenerator gen = new IMAPTagGenerator();
+        ImapTagGenerator gen = new ImapTagGenerator();
         assertEquals("A000", gen.next());
     }
 
     @Test
     public void testSequentialTags() {
-        IMAPTagGenerator gen = new IMAPTagGenerator();
+        ImapTagGenerator gen = new ImapTagGenerator();
         assertEquals("A000", gen.next());
         assertEquals("A001", gen.next());
         assertEquals("A002", gen.next());
@@ -45,7 +45,7 @@ public class IMAPTagGeneratorTest {
 
     @Test
     public void testTagFormat() {
-        IMAPTagGenerator gen = new IMAPTagGenerator();
+        ImapTagGenerator gen = new ImapTagGenerator();
         String tag = gen.next();
         assertEquals(4, tag.length());
         assertTrue(Character.isLetter(tag.charAt(0)));
@@ -56,7 +56,7 @@ public class IMAPTagGeneratorTest {
 
     @Test
     public void testPrefixRollover() {
-        IMAPTagGenerator gen = new IMAPTagGenerator();
+        ImapTagGenerator gen = new ImapTagGenerator();
         for (int i = 0; i < 999; i++) {
             gen.next();
         }
@@ -67,7 +67,7 @@ public class IMAPTagGeneratorTest {
 
     @Test
     public void testZWraparound() {
-        IMAPTagGenerator gen = new IMAPTagGenerator();
+        ImapTagGenerator gen = new ImapTagGenerator();
         // Advance to Z prefix
         for (int i = 0; i < 25 * 1000; i++) {
             gen.next();
@@ -83,7 +83,7 @@ public class IMAPTagGeneratorTest {
 
     @Test
     public void testReset() {
-        IMAPTagGenerator gen = new IMAPTagGenerator();
+        ImapTagGenerator gen = new ImapTagGenerator();
         gen.next();
         gen.next();
         gen.next();
@@ -93,7 +93,7 @@ public class IMAPTagGeneratorTest {
 
     @Test
     public void testUniqueTags() {
-        IMAPTagGenerator gen = new IMAPTagGenerator();
+        ImapTagGenerator gen = new ImapTagGenerator();
         java.util.Set<String> seen = new java.util.HashSet<String>();
         for (int i = 0; i < 2000; i++) {
             String tag = gen.next();

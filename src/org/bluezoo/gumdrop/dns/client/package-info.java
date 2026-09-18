@@ -22,20 +22,20 @@
 /**
  * Asynchronous, callback-based DNS resolver with a pluggable transport.
  *
- * <p>{@link org.bluezoo.gumdrop.dns.client.DNSResolver} is the client
+ * <p>{@link org.bluezoo.gumdrop.dns.client.DnsResolver} is the client
  * applications use, consulting {@code /etc/hosts} ({@link
  * org.bluezoo.gumdrop.dns.client.HostsFile}) and {@code
  * /etc/resolv.conf} ({@link org.bluezoo.gumdrop.dns.client.ResolvConf})
  * before querying, and caching responses by TTL across query types
- * ({@link org.bluezoo.gumdrop.dns.client.DNSMultiQTypeCache}). The wire
+ * ({@link org.bluezoo.gumdrop.dns.client.DnsMultiQTypeCache}). The wire
  * transport is pluggable via {@link
- * org.bluezoo.gumdrop.dns.client.DNSClientTransport}, one persistent
+ * org.bluezoo.gumdrop.dns.client.DnsClientTransport}, one persistent
  * connection per configured server reused for the resolver's lifetime:
- * {@link org.bluezoo.gumdrop.dns.client.UDPDNSClientTransport} (plain
+ * {@link org.bluezoo.gumdrop.dns.client.UdpDnsClientTransport} (plain
  * UDP, the default, falling back to TCP on truncation), {@link
- * org.bluezoo.gumdrop.dns.client.TCPDNSClientTransport} (RFC 7766 plain
+ * org.bluezoo.gumdrop.dns.client.TcpDnsClientTransport} (RFC 7766 plain
  * DNS-over-TCP, or RFC 7858 DNS-over-TLS via {@link
- * org.bluezoo.gumdrop.dns.client.TCPDNSClientTransport#createDoT()},
+ * org.bluezoo.gumdrop.dns.client.TcpDnsClientTransport#createDoT()},
  * with the "dot" ALPN identifier and either SPKI pinning or a pluggable
  * {@code X509TrustManager}), and {@link
  * org.bluezoo.gumdrop.dns.client.DoQClientTransport} (DNS-over-QUIC, RFC
@@ -43,7 +43,7 @@
  * org.bluezoo.gumdrop.dns.client.DoQConnectionPool}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.dns.client.DNSResolver
+ * @see org.bluezoo.gumdrop.dns.client.DnsResolver
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9250">RFC 9250 - DNS over QUIC</a>
  */
 package org.bluezoo.gumdrop.dns.client;

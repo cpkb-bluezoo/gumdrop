@@ -54,7 +54,7 @@ import javax.net.ssl.X509TrustManager;
  *         myDelegateTrustManager,
  *         "ab:cd:ef:01:23:...", "12:34:56:78:...");
  *
- * // Use with TCPTransportFactory.setTrustManager(tm)
+ * // Use with TcpTransportFactory.setTrustManager(tm)
  * factory.setTrustManager(tm);
  * }</pre>
  *

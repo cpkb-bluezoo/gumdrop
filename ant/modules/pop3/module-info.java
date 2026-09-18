@@ -5,7 +5,6 @@ module org.bluezoo.gumdrop.pop3 {
     requires org.bluezoo.gumdrop.mailbox;
 
     exports org.bluezoo.gumdrop.pop3;
-    exports org.bluezoo.gumdrop.pop3.handler;
+    exports org.bluezoo.gumdrop.pop3.server;
     exports org.bluezoo.gumdrop.pop3.client;
-    exports org.bluezoo.gumdrop.pop3.client.handler;
 }

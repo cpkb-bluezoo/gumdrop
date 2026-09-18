@@ -50,7 +50,7 @@ class WebDAVLock {
 
     WebDAVLock(Path path, Scope scope, Type type, int depth,
                String owner, long timeoutSeconds) {
-        this.token = DAVConstants.LOCK_TOKEN_SCHEME + UUID.randomUUID().toString();
+        this.token = DavConstants.LOCK_TOKEN_SCHEME + UUID.randomUUID().toString();
         this.path = path;
         this.scope = scope;
         this.type = type;
@@ -112,10 +112,10 @@ class WebDAVLock {
         if (path.equals(targetPath)) {
             return true;
         }
-        if (depth == DAVConstants.DEPTH_INFINITY) {
+        if (depth == DavConstants.DEPTH_INFINITY) {
             return targetPath.startsWith(path);
         }
-        if (depth == DAVConstants.DEPTH_1) {
+        if (depth == DavConstants.DEPTH_1) {
             Path parent = targetPath.getParent();
             return parent != null && parent.equals(path);
         }

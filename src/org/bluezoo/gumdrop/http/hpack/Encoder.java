@@ -46,7 +46,7 @@ import org.bluezoo.gumdrop.http.Header;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7541">RFC 7541</a>
  */
-public class Encoder extends HPACKConstants {
+public class Encoder extends HpackConstants {
 
     private static final Charset US_ASCII = StandardCharsets.US_ASCII;
 

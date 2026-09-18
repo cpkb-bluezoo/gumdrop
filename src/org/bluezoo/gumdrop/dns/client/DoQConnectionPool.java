@@ -45,16 +45,16 @@ import org.bluezoo.gumdrop.TimerHandle;
  * for a server is requested, an existing connection is returned if
  * still open; otherwise a new one is created.
  *
- * <p>This class implements {@link DNSClientTransport} so it can be used
+ * <p>This class implements {@link DnsClientTransport} so it can be used
  * as a drop-in replacement for {@code DoQClientTransport} in
- * {@link DNSResolver}.
+ * {@link DnsResolver}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoQClientTransport
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9250#section-5.5.1">
  *      RFC 9250 section 5.5.1</a>
  */
-public class DoQConnectionPool implements DNSClientTransport {
+public class DoQConnectionPool implements DnsClientTransport {
 
     private static final Logger LOGGER =
             Logger.getLogger(DoQConnectionPool.class.getName());
@@ -106,7 +106,7 @@ public class DoQConnectionPool implements DNSClientTransport {
 
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
-                     DNSClientTransportHandler handler) throws IOException {
+                     DnsClientTransportHandler handler) throws IOException {
         String serverKey = server.getHostAddress() + ":" + port;
         synchronized (pool) {
             PoolEntry existing = pool.get(serverKey);
@@ -190,7 +190,7 @@ public class DoQConnectionPool implements DNSClientTransport {
 
     static final class PoolEntry {
         DoQClientTransport transport;
-        DNSClientTransportHandler handler;
+        DnsClientTransportHandler handler;
         SelectorLoop loop;
         InetAddress server;
         int port;

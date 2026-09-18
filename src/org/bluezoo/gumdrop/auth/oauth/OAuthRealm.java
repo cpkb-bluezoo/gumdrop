@@ -22,15 +22,15 @@
 package org.bluezoo.gumdrop.auth.oauth;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.json.JSONParser;
 import org.bluezoo.json.JSONDefaultHandler;
 import org.bluezoo.json.JSONException;
@@ -124,7 +124,7 @@ import javax.crypto.spec.SecretKeySpec;
  * <realm id="oauth" class="org.bluezoo.gumdrop.auth.oauth.OAuthRealm"
  *        configFile="oauth.properties"/>
  * 
- * <server class="org.bluezoo.gumdrop.imap.IMAPListener"
+ * <server class="org.bluezoo.gumdrop.imap.ImapListener"
  *         port="993" secure="true"
  *         realm="#oauth"/>
  * }</pre>
@@ -145,8 +145,8 @@ public class OAuthRealm implements Realm {
     /**
      * Supported SASL mechanisms for OAuth realm.
      */
-    private static final Set<SASLMechanism> SUPPORTED_MECHANISMS =
-        Collections.unmodifiableSet(EnumSet.of(SASLMechanism.OAUTHBEARER));
+    private static final Set<SaslMechanism> SUPPORTED_MECHANISMS =
+        Collections.unmodifiableSet(EnumSet.of(SaslMechanism.OAUTHBEARER));
     
     // Configuration properties
     private final String authorizationServerUrl;
@@ -237,16 +237,24 @@ public class OAuthRealm implements Realm {
         this.jwtAudience = config.getProperty("oauth.jwt.audience");
         this.jwtClockSkewSeconds = Long.parseLong(
                 config.getProperty("oauth.jwt.clock.skew", "30"));
-        // Configure logging level
-        String logLevel = config.getProperty("oauth.log.level", "INFO");
-        try {
-            LOGGER.setLevel(Level.parse(logLevel));
-        } catch (IllegalArgumentException e) {
-            LOGGER.warning(MessageFormat.format(
-                    L10N.getString("warn.invalid_log_level"), logLevel));
+        // Optional per-realm log level; do not default to INFO here — that
+        // overrides container/logging.properties and floods unit tests that
+        // construct many short-lived realms.
+        String logLevel = config.getProperty("oauth.log.level");
+        if (logLevel != null && !logLevel.isEmpty()) {
+            try {
+                LOGGER.setLevel(Level.parse(logLevel));
+            } catch (IllegalArgumentException e) {
+                LOGGER.warning(MessageFormat.format(
+                        L10N.getString("warn.invalid_log_level"), logLevel));
+            }
         }
-        String msg = MessageFormat.format(L10N.getString("info.oauth.init"), authorizationServerUrl, serverHost, serverPort, useHttps, cacheEnabled, roleScopeMapping.size());
-        LOGGER.info(msg);
+        if (LOGGER.isLoggable(Level.FINE)) {
+            String msg = MessageFormat.format(L10N.getString("info.oauth.init"),
+                    authorizationServerUrl, serverHost, serverPort, useHttps,
+                    cacheEnabled, roleScopeMapping.size());
+            LOGGER.fine(msg);
+        }
     }
     
     // ─────────────────────────────────────────────────────────────────────────────
@@ -263,7 +271,7 @@ public class OAuthRealm implements Realm {
     }
     
     @Override
-    public Set<SASLMechanism> getSupportedSASLMechanisms() {
+    public Set<SaslMechanism> getSupportedSASLMechanisms() {
         return SUPPORTED_MECHANISMS;
     }
 
@@ -440,7 +448,7 @@ public class OAuthRealm implements Realm {
             byte[] signatureBytes = urlDecoder.decode(parts[2]);
             
             // Parse header to determine algorithm
-            JWTClaimsHandler headerHandler = new JWTClaimsHandler(null);
+            JwtClaimsHandler headerHandler = new JwtClaimsHandler(null);
             parseJsonString(headerJson, headerHandler);
             String alg = headerHandler.getString("alg");
             if (alg == null) {
@@ -456,7 +464,7 @@ public class OAuthRealm implements Realm {
             }
             
             // Parse payload claims
-            JWTClaimsHandler claimsHandler = new JWTClaimsHandler(jwtAudience);
+            JwtClaimsHandler claimsHandler = new JwtClaimsHandler(jwtAudience);
             parseJsonString(payloadJson, claimsHandler);
             
             // RFC 7519 §4.1.4 — exp is required; a token with no expiry is rejected.
@@ -592,7 +600,7 @@ public class OAuthRealm implements Realm {
     /**
      * Parses a JSON string using the streaming parser.
      */
-    private static void parseJsonString(String json, JWTClaimsHandler handler)
+    private static void parseJsonString(String json, JwtClaimsHandler handler)
             throws JSONException {
         JSONParser parser = new JSONParser();
         parser.setContentHandler(handler);
@@ -616,13 +624,13 @@ public class OAuthRealm implements Realm {
         String requestBody = "token=" + URLEncoder.encode(accessToken, StandardCharsets.UTF_8.name()) +
                            "&token_type_hint=access_token";
         byte[] bodyBytes = requestBody.getBytes(StandardCharsets.UTF_8);
-        // Create HTTP client
-        HTTPClient client;
-        if (selectorLoop != null) {
-            client = new HTTPClient(selectorLoop, serverHost, serverPort);
-        } else {
-            client = new HTTPClient(serverHost, serverPort);
+        if (selectorLoop == null) {
+            throw new IllegalStateException(
+                    "OAuthRealm.performTokenIntrospection requires a SelectorLoop "
+                            + "(bind via forSelectorLoop) to obtain a runtime");
         }
+        // Create HTTP client
+        HttpClient client = new HttpClient(selectorLoop, serverHost, serverPort);
         client.setSecure(useHttps);
         // Use credentials for automatic authentication
         client.credentials(clientId, clientSecret);
@@ -630,7 +638,7 @@ public class OAuthRealm implements Realm {
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<TokenValidationResult> result = new AtomicReference<TokenValidationResult>();
         // Create response handler with streaming JSON parsing
-        DefaultHTTPResponseHandler responseHandler = new DefaultHTTPResponseHandler() {
+        DefaultHttpResponseHandler responseHandler = new DefaultHttpResponseHandler() {
             private final IntrospectionResponseHandler jsonHandler = new IntrospectionResponseHandler();
             private final JSONParser jsonParser = new JSONParser();
             private boolean parserInitialized = false;
@@ -638,13 +646,13 @@ public class OAuthRealm implements Realm {
             private int statusCode = 0;
             
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 statusCode = response.getStatus().code;
                 initParser();
             }
             
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 statusCode = response.getStatus().code;
                 String msg = MessageFormat.format(L10N.getString("err.oauth_token_introspection_error"), statusCode);
                 LOGGER.warning(msg);
@@ -705,13 +713,13 @@ public class OAuthRealm implements Realm {
         };
         
         // Connect and make request
-        client.connect(new HTTPClientHandler() {
+        client.connect(selectorLoop.getGumdrop(), new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 LOGGER.fine(L10N.getString("debug.oauth_connected"));
                 
                 // Create and send the POST request
-                HTTPRequest request = client.post(introspectionEndpoint);
+                HttpRequest request = client.post(introspectionEndpoint);
                 request.header("Content-Type", "application/x-www-form-urlencoded");
                 request.header("Accept", "application/json");
                 request.header("Authorization", basicAuthHeader);
@@ -818,8 +826,12 @@ public class OAuthRealm implements Realm {
                 }
                 
                 mapping.put(role, scopes);
-                String msg = MessageFormat.format(L10N.getString("info.oauth_mapped_role"), role, joinStrings(scopes, ", "));
-                LOGGER.info(msg);
+                if (LOGGER.isLoggable(Level.FINE)) {
+                    String msg = MessageFormat.format(
+                            L10N.getString("info.oauth_mapped_role"), role,
+                            joinStrings(scopes, ", "));
+                    LOGGER.fine(msg);
+                }
             }
         }
         
@@ -930,7 +942,7 @@ public class OAuthRealm implements Realm {
      * number values by key, used for both the JOSE header and the
      * JWT claims set.
      */
-    static class JWTClaimsHandler extends JSONDefaultHandler {
+    static class JwtClaimsHandler extends JSONDefaultHandler {
 
         private final String expectedAudience;
         private String currentKey;
@@ -939,7 +951,7 @@ public class OAuthRealm implements Realm {
         private final Map<String, String> strings = new HashMap<String, String>();
         private final Map<String, Long> numbers = new HashMap<String, Long>();
 
-        JWTClaimsHandler(String expectedAudience) {
+        JwtClaimsHandler(String expectedAudience) {
             this.expectedAudience = expectedAudience;
         }
 

@@ -18,7 +18,7 @@
   along with gumdrop; if not, write to the Free Software
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 -->
-<project name='gumdrop' default='dist'>
+<project name='gumdrop' default='dist' xmlns:jacoco='antlib:org.jacoco.ant'>
 
   <!-- Project version -->
   <property name='version' value='2.2.1-SNAPSHOT'/>
@@ -27,6 +27,7 @@
   <property file='boms/versions.properties'/>
   <property name='gonzalez.jar' value='gonzalez-core-${gonzalez.version}.jar'/>
   <property name='jsonparser.jar' value='jsonparser-${jsonparser.version}.jar'/>
+  <property name='jprotobuf.jar' value='jprotobuf-${jprotobuf.version}.jar'/>
   <property name='servlet.jar' value='jakarta.servlet-api-${jakarta.servlet.api.version}.jar'/>
   <property name='jakarta.annotation.jar' value='jakarta.annotation-api-${jakarta.annotation.api.version}.jar'/>
   <property name='jakarta.persistence.jar' value='jakarta.persistence-api-${jakarta.persistence.api.version}.jar'/>
@@ -37,6 +38,14 @@
   <property name='jaxws.jar' value='jaxws-api-${jaxws.api.version}.jar'/>
   <property name='junit.jar' value='junit-${junit.version}.jar'/>
   <property name='hamcrest.jar' value='hamcrest-${hamcrest.version}.jar'/>
+  <property name='jacoco.ant.jar' value='org.jacoco.ant-${jacoco.version}.jar'/>
+  <property name='jacoco.core.jar' value='org.jacoco.core-${jacoco.version}.jar'/>
+  <property name='jacoco.report.jar' value='org.jacoco.report-${jacoco.version}.jar'/>
+  <property name='jacoco.agent.jar' value='org.jacoco.agent-${jacoco.version}.jar'/>
+  <property name='jacoco.agent.runtime.jar' value='org.jacoco.agent-${jacoco.version}-runtime.jar'/>
+  <property name='jacoco.asm.jar' value='asm-${jacoco.asm.version}.jar'/>
+  <property name='jacoco.asm.commons.jar' value='asm-commons-${jacoco.asm.version}.jar'/>
+  <property name='jacoco.asm.tree.jar' value='asm-tree-${jacoco.asm.version}.jar'/>
 
   <!-- Compiled classes: build/{core,mime,http,servlet,bootstrap,…}; release jars: dist/ -->
   <property name='build.dir' location='build'/>
@@ -66,7 +75,13 @@
   <property name='build.bootstrap' location='${build.dir}/bootstrap'/>
   <property name='manager' location='manager'/>
   <property name='dist' location='dist'/>
-  <property name='test' location='test'/>
+  <!-- testdir: tree holding junit/ and integration/. Do not define a property
+       named "test" — Maven/Gradle users often pass -Dtest=SomeClass, which
+       would redirect every ${test}/… path into a junk directory at repo root. -->
+  <property name='testdir' location='test'/>
+  <property name='junit.coverage.dir' location='${testdir}/junit/coverage'/>
+  <property name='junit.coverage.exec' location='${junit.coverage.dir}/jacoco.exec'/>
+  <property name='junit.report.dir' location='${testdir}/junit/report'/>
   <property name='gumdrop.jar' location='${dist}/gumdrop.jar'/>
   <property name='gumdrop.core.jar' location='${dist}/gumdrop-core.jar'/>
   <property name='gumdrop.mime.jar' location='${dist}/gumdrop-mime.jar'/>
@@ -135,18 +150,20 @@
     <delete dir='${build.dir}'/>
     <delete dir='${dist}'/>
     <delete dir='${manager}/WEB-INF/classes'/>
-    <delete dir='${test}/cluster/WEB-INF/classes'/>
+    <delete dir='${testdir}/cluster/WEB-INF/classes'/>
   </target>
 
   <target name='clean-junit'>
-    <delete dir='${test}/junit/classes'/>
-    <delete dir='${test}/junit/results'/>
+    <delete dir='${testdir}/junit/classes'/>
+    <delete dir='${testdir}/junit/results'/>
+    <delete dir='${junit.coverage.dir}'/>
+    <delete dir='${junit.report.dir}'/>
   </target>
 
   <target name='clean-integration'>
-    <delete dir='${test}/integration/classes'/>
-    <delete dir='${test}/integration/results'/>
-    <delete dir='${test}/integration/webapp/WEB-INF/classes'/>
+    <delete dir='${testdir}/integration/classes'/>
+    <delete dir='${testdir}/integration/results'/>
+    <delete dir='${testdir}/integration/webapp/WEB-INF/classes'/>
   </target>
 
   <!-- Download compile/runtime dependencies (versions from boms/versions.properties).
@@ -160,6 +177,8 @@
          dest='${lib}/${gonzalez.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/org/bluezoo/jsonparser/${jsonparser.version}/jsonparser-${jsonparser.version}.jar'
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/bluezoo/jprotobuf/${jprotobuf.version}/jprotobuf-${jprotobuf.version}.jar'
+         dest='${lib}/${jprotobuf.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/jakarta/servlet/jakarta.servlet-api/${jakarta.servlet.api.version}/jakarta.servlet-api-${jakarta.servlet.api.version}.jar'
          dest='${lib}/${servlet.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/jakarta/annotation/jakarta.annotation-api/${jakarta.annotation.api.version}/jakarta.annotation-api-${jakarta.annotation.api.version}.jar'
@@ -178,15 +197,66 @@
          dest='${lib}/${jaxws.jar}' skipexisting='true'/>
   </target>
 
+  <!-- Fail fast when -Dtest=SomeClass (Maven-style) is passed: that property
+       name is not the Gumdrop test tree and used to create junk dirs at repo root. -->
+  <target name='reject-maven-test-property'>
+    <fail message='Do not pass -Dtest=… to Ant (you set test=${test}). Run one class with: ant junit-test -Djunit.includes=**/AsyncDiskOffloadBoundaryTest.java'>
+      <condition>
+        <and>
+          <isset property='test'/>
+          <not>
+            <available file='${test}/junit/src' type='dir'/>
+          </not>
+        </and>
+      </condition>
+    </fail>
+  </target>
+
+  <property name='junit.includes' value='**/*Test.java'/>
+
   <!-- Download test-only dependencies (JUnit, Hamcrest). Not invoked by
        compile/dist; junit-build and integration-build depend on this. -->
-  <target name='resolve-test-deps' description='Download JUnit and Hamcrest into test/junit/lib/'>
-    <mkdir dir='${test}/junit/lib'/>
+  <target name='resolve-test-deps' depends='reject-maven-test-property'
+          description='Download JUnit and Hamcrest into test/junit/lib/'>
+    <mkdir dir='${testdir}/junit/lib'/>
     <get src='https://repo1.maven.org/maven2/junit/junit/${junit.version}/junit-${junit.version}.jar'
-         dest='${test}/junit/lib/${junit.jar}' skipexisting='true'/>
+         dest='${testdir}/junit/lib/${junit.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/org/hamcrest/hamcrest/${hamcrest.version}/hamcrest-${hamcrest.version}.jar'
-         dest='${test}/junit/lib/${hamcrest.jar}' skipexisting='true'/>
+         dest='${testdir}/junit/lib/${hamcrest.jar}' skipexisting='true'/>
   </target>
+
+  <!-- JaCoCo for optional junit-coverage only (not downloaded by ant test). -->
+  <target name='resolve-jacoco' depends='reject-maven-test-property'
+          description='Download JaCoCo Ant task into test/junit/lib/'>
+    <mkdir dir='${testdir}/junit/lib'/>
+    <get src='https://repo1.maven.org/maven2/org/jacoco/org.jacoco.ant/${jacoco.version}/${jacoco.ant.jar}'
+         dest='${testdir}/junit/lib/${jacoco.ant.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/jacoco/org.jacoco.core/${jacoco.version}/${jacoco.core.jar}'
+         dest='${testdir}/junit/lib/${jacoco.core.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/jacoco/org.jacoco.report/${jacoco.version}/${jacoco.report.jar}'
+         dest='${testdir}/junit/lib/${jacoco.report.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/${jacoco.version}/${jacoco.agent.jar}'
+         dest='${testdir}/junit/lib/${jacoco.agent.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/${jacoco.version}/${jacoco.agent.runtime.jar}'
+         dest='${testdir}/junit/lib/${jacoco.agent.runtime.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/ow2/asm/asm/${jacoco.asm.version}/${jacoco.asm.jar}'
+         dest='${testdir}/junit/lib/${jacoco.asm.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/ow2/asm/asm-commons/${jacoco.asm.version}/${jacoco.asm.commons.jar}'
+         dest='${testdir}/junit/lib/${jacoco.asm.commons.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/ow2/asm/asm-tree/${jacoco.asm.version}/${jacoco.asm.tree.jar}'
+         dest='${testdir}/junit/lib/${jacoco.asm.tree.jar}' skipexisting='true'/>
+  </target>
+
+  <path id='jacoco.ant.classpath'>
+    <pathelement location='${testdir}/junit/lib/${jacoco.ant.jar}'/>
+    <pathelement location='${testdir}/junit/lib/${jacoco.core.jar}'/>
+    <pathelement location='${testdir}/junit/lib/${jacoco.report.jar}'/>
+    <pathelement location='${testdir}/junit/lib/${jacoco.agent.jar}'/>
+    <pathelement location='${testdir}/junit/lib/${jacoco.agent.runtime.jar}'/>
+    <pathelement location='${testdir}/junit/lib/${jacoco.asm.jar}'/>
+    <pathelement location='${testdir}/junit/lib/${jacoco.asm.commons.jar}'/>
+    <pathelement location='${testdir}/junit/lib/${jacoco.asm.tree.jar}'/>
+  </path>
 
   <!-- Refresh the bundled Mozilla Public Suffix List (SEC-048). Run
        periodically to pick up new/changed TLD rules; always overwrites
@@ -221,9 +291,9 @@
     </copy>
   </target>
 
-  <!-- LDAPRealm (depends on ldap client in core) -->
+  <!-- LdapRealm (depends on ldap client in core) -->
   <target name='build-ldap' depends='build-core-main'
-          description='Compile gumdrop-ldap module jar (LDAPRealm)'>
+          description='Compile gumdrop-ldap module jar (LdapRealm)'>
     <mkdir dir='${build.ldap}'/>
     <javac srcdir='${src}' destdir='${build.ldap}' debug='true'
            release='${java.release.version}'
@@ -376,8 +446,10 @@
       <fileset dir='${lib}'>
         <include name='${gonzalez.jar}'/>
         <include name='${jsonparser.jar}'/>
+        <include name='${jprotobuf.jar}'/>
         <include name='${servlet.jar}'/>
         <include name='${javamail.jar}'/>
+        <include name='${jakarta.annotation.jar}'/>
         <include name='${annotation.jar}'/>
         <include name='${ejb.jar}'/>
         <include name='${persistence.jar}'/>
@@ -393,7 +465,7 @@
       <manifest>
         <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
         <attribute name='Container-Jar' value='gumdrop.jar'/>
-        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar}'/>
+        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${jakarta.annotation.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar} ${jprotobuf.jar}'/>
       </manifest>
     </jar>
   </target>
@@ -417,14 +489,28 @@
     <echo file='${build.core}/META-INF/gumdrop-manager-war.md5' message='${manager.war.md5}'/>
   </target>
 
+  <!-- Sample ROOT webapp: keep WEB-INF/classes in sync with TestServlet.java (Jakarta Servlet). -->
+  <target name='web-root-classes' depends='resolve-deps'
+          description='Compile sample ROOT webapp classes under web/WEB-INF/classes'>
+    <mkdir dir='web/WEB-INF/classes'/>
+    <javac srcdir='web' destdir='web/WEB-INF/classes' includeantruntime='false'
+           release='${java.release.version}'>
+      <classpath>
+        <pathelement location='${lib}/${servlet.jar}'/>
+      </classpath>
+      <include name='TestServlet.java'/>
+    </javac>
+  </target>
+
   <!-- Production install tree: bin/, lib/, webapps/, conf/ -->
-  <target name='assemble-container' depends='jar,bootstrap-jar,manager-war,resolve-deps'
+  <target name='assemble-container' depends='jar,bootstrap-jar,manager-war,web-root-classes'
           description='Assemble servlet container distribution directory'>
     <delete dir='${container.home}' quiet='true'/>
     <mkdir dir='${container.home}/bin'/>
     <mkdir dir='${container.home}/lib'/>
     <mkdir dir='${container.home}/webapps'/>
     <mkdir dir='${container.home}/conf'/>
+    <!-- Copies from the repo; chmod applies only under ${dist}/ (never sources). -->
     <copy file='bin/gumdrop.sh' todir='${container.home}/bin'/>
     <copy file='bin/gumdrop.bat' todir='${container.home}/bin'/>
     <chmod file='${container.home}/bin/gumdrop.sh' perm='ugo+rx'/>
@@ -437,8 +523,10 @@
       <fileset dir='${lib}'>
         <include name='${gonzalez.jar}'/>
         <include name='${jsonparser.jar}'/>
+        <include name='${jprotobuf.jar}'/>
         <include name='${servlet.jar}'/>
         <include name='${javamail.jar}'/>
+        <include name='${jakarta.annotation.jar}'/>
         <include name='${annotation.jar}'/>
         <include name='${ejb.jar}'/>
         <include name='${persistence.jar}'/>
@@ -446,19 +534,23 @@
       </fileset>
     </copy>
     <copy file='${manager.war}' tofile='${container.home}/webapps/manager.war'/>
-    <copy file='conf/gumdroprc.xml.example' todir='${container.home}/conf'/>
     <copy file='etc/realm-servlet.xml' tofile='${container.home}/conf/realm-servlet.xml'/>
+    <copy file='etc/server.xml' tofile='${container.home}/conf/server.xml'/>
+    <copy file='etc/server-tls.xml' tofile='${container.home}/conf/server-tls.xml'/>
     <copy file='logging.properties' todir='${container.home}'/>
     <copy todir='${container.home}/webapps/ROOT'>
       <fileset dir='web'/>
     </copy>
     <copy file='COPYING' tofile='${container.home}/LICENSE'/>
     <copy file='README.md' todir='${container.home}'/>
+    <!-- Repo-root start / start.bat are for git checkouts only; not copied here. -->
     <!-- Stable path for Docker / CI regardless of version string -->
     <delete dir='${container.home.stable}' quiet='true'/>
     <copy todir='${container.home.stable}'>
       <fileset dir='${container.home}'/>
     </copy>
+    <!-- Ant fileset copy does not preserve executable bits on gumdrop.sh -->
+    <chmod file='${container.home.stable}/bin/gumdrop.sh' perm='ugo+rx'/>
   </target>
 
   <target name='container-zip' depends='assemble-container'
@@ -587,6 +679,7 @@
       <classpath>
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
+        <pathelement location='${lib}/${jprotobuf.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${annotation.jar}'/>
@@ -607,8 +700,8 @@
   </target>
 
   <target name='cluster-test'>
-    <mkdir dir='${test}/cluster/WEB-INF/classes'/>
-    <javac srcdir='${test}/cluster' destdir='${test}/cluster/WEB-INF/classes' debug='true'
+    <mkdir dir='${testdir}/cluster/WEB-INF/classes'/>
+    <javac srcdir='${testdir}/cluster' destdir='${testdir}/cluster/WEB-INF/classes' debug='true'
            release='${java.release.version}'
            includeantruntime='false'>
       <classpath>
@@ -618,59 +711,108 @@
   </target>
 
   <target name='junit-build' depends='resolve-test-deps,build-modules'>
-    <mkdir dir='${test}/junit/classes'/>
-    <javac srcdir='${test}/junit/src' destdir='${test}/junit/classes' debug='true'
+    <mkdir dir='${testdir}/junit/classes'/>
+    <javac srcdir='${testdir}/junit/src' destdir='${testdir}/junit/classes' debug='true'
            release='${java.release.version}'
            includeantruntime='false'>
       <classpath>
-        <pathelement location='${test}/junit/lib/${junit.jar}'/>
+        <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
         <path refid='server.classes'/>
-        <pathelement location='${lib}/${gonzalez.jar}'/>
-        <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${javamail.jar}'/>
-        <pathelement location='${lib}/${servlet.jar}'/>
+        <path refid='lib.compile.classpath'/>
         <pathelement location='${lib}/${jsp.jar}'/>
       </classpath>
     </javac>
-    <copy todir='${test}/junit/classes'>
-      <fileset dir='${test}/junit/src'>
+    <copy todir='${testdir}/junit/classes'>
+      <fileset dir='${testdir}/junit/src'>
         <include name='**/*.eml'/>
       </fileset>
+      <fileset dir='${testdir}/junit/resources'/>
     </copy>
   </target>
 
   <target name='junit-test' depends='junit-build'>
-    <mkdir dir='${test}/junit/results'/>
-    <junit printsummary='yes' haltonfailure='yes' haltonerror='yes'>
+    <mkdir dir='${testdir}/junit/results'/>
+    <junit printsummary='yes' haltonfailure='yes' haltonerror='yes'
+           logfailedtests='true'>
+      <sysproperty key='java.util.logging.config.file'
+                   value='${testdir}/junit/resources/logging-unit-test.properties'/>
       <classpath>
-        <pathelement location='${test}/junit/classes'/>
-        <pathelement location='${test}/junit/lib/${junit.jar}'/>
-        <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
+        <pathelement location='${testdir}/junit/classes'/>
+        <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
+        <pathelement location='${testdir}/junit/lib/${hamcrest.jar}'/>
         <path refid='server.classes'/>
-        <pathelement location='${lib}/${gonzalez.jar}'/>
-        <pathelement location='${lib}/${jsonparser.jar}'/>
-        <pathelement location='${lib}/${javamail.jar}'/>
-        <pathelement location='${lib}/${servlet.jar}'/>
+        <path refid='lib.compile.classpath'/>
         <pathelement location='${lib}/${jsp.jar}'/>
       </classpath>
-      <batchtest fork="yes" todir="${test}/junit/results">
-        <fileset dir="${test}/junit/src">
-          <include name="**/*Test.java" />
+      <batchtest fork="yes" todir="${testdir}/junit/results">
+        <fileset dir="${testdir}/junit/src">
+          <include name="${junit.includes}" />
         </fileset>
       </batchtest>
+      <!-- Per-testcase detail goes to ${testdir}/junit/results only; do not
+           mirror plain formatter to the console (parameterized suites such
+           as HPACK story tests would print dozens of passing lines per class).
+           Failures are still echoed via logfailedtests and haltonfailure. -->
       <formatter type="plain" />
-      <!-- Also stream full per-test failure detail (stack traces,
-           assertion messages) straight to the console, not just the
-           per-class summary line: otherwise a CI failure gives no way
-           to tell what actually broke without re-running locally, since
-           CI doesn't upload the file-based reports above as artifacts. -->
-      <formatter type="plain" usefile="false" />
       <!--formatter type="xml" /-->
     </junit>
   </target>
 
   <!-- Main test target that runs all available tests -->
   <target name='test' depends='junit-test' description='Run all unit tests'>
+  </target>
+
+  <!-- Unit-test coverage report (not part of ant test). HTML under test/junit/report/. -->
+  <target name='junit-coverage' depends='junit-build,resolve-jacoco'
+          description='Run unit tests with JaCoCo and write HTML report to test/junit/report/'>
+    <taskdef uri='antlib:org.jacoco.ant' resource='org/jacoco/ant/antlib.xml'>
+      <classpath refid='jacoco.ant.classpath'/>
+    </taskdef>
+    <mkdir dir='${testdir}/junit/results'/>
+    <mkdir dir='${junit.coverage.dir}'/>
+    <delete file='${junit.coverage.exec}' quiet='true'/>
+    <delete dir='${junit.report.dir}' quiet='true'/>
+    <mkdir dir='${junit.report.dir}'/>
+    <jacoco:coverage destfile='${junit.coverage.exec}'
+                     excludes='java/**:javax/**:sun/**:com/sun/**:jdk/**'>
+      <junit fork='yes' printsummary='yes' haltonfailure='yes' haltonerror='yes'
+             logfailedtests='true'>
+        <sysproperty key='java.util.logging.config.file'
+                     value='${testdir}/junit/resources/logging-unit-test.properties'/>
+        <classpath>
+          <pathelement location='${testdir}/junit/classes'/>
+          <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
+          <pathelement location='${testdir}/junit/lib/${hamcrest.jar}'/>
+          <path refid='server.classes'/>
+          <path refid='lib.compile.classpath'/>
+          <pathelement location='${lib}/${jsp.jar}'/>
+        </classpath>
+        <batchtest fork='yes' todir='${testdir}/junit/results'>
+          <fileset dir='${testdir}/junit/src'>
+            <include name='${junit.includes}'/>
+          </fileset>
+        </batchtest>
+        <formatter type='plain'/>
+      </junit>
+    </jacoco:coverage>
+    <jacoco:report>
+      <executiondata>
+        <file file='${junit.coverage.exec}'/>
+      </executiondata>
+      <structure name='gumdrop'>
+        <classfiles>
+          <fileset dir='${build.dir}'>
+            <include name='**/*.class'/>
+            <exclude name='**/module-info.class'/>
+          </fileset>
+        </classfiles>
+        <sourcefiles encoding='utf-8'>
+          <fileset dir='${src}'/>
+        </sourcefiles>
+      </structure>
+      <html destdir='${junit.report.dir}'/>
+    </jacoco:report>
+    <echo message='JaCoCo HTML report: ${junit.report.dir}/index.html'/>
   </target>
 
   <!-- Phase 3: verify modular jars resolve on the module path -->
@@ -681,6 +823,7 @@
     <pathelement location='${dist}/gumdrop-servlet.jar'/>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
+    <pathelement location='${lib}/${jprotobuf.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>
 
@@ -695,17 +838,18 @@
   </target>
 
   <!-- Build integration tests -->
-  <target name='integration-build' depends='resolve-test-deps,build-modules'>
-    <mkdir dir='${test}/integration/classes'/>
-    <javac srcdir='${test}/integration/src'
-           destdir='${test}/integration/classes'
+  <target name='integration-build' depends='junit-build,build-modules'>
+    <mkdir dir='${testdir}/integration/classes'/>
+    <javac srcdir='${testdir}/integration/src'
+           destdir='${testdir}/integration/classes'
            release='${java.release.version}'
            includeantruntime='false'
            debug='true'>
       <classpath>
         <path refid='server.classes'/>
-        <pathelement location='${test}/junit/lib/${junit.jar}'/>
-        <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
+        <pathelement location='${testdir}/junit/classes'/>
+        <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
+        <pathelement location='${testdir}/junit/lib/${hamcrest.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
       </classpath>
@@ -714,12 +858,14 @@
 
   <!-- Common integration test classpath -->
   <path id='integration.classpath'>
-    <pathelement location='${test}/integration/classes'/>
-    <pathelement location='${test}/junit/lib/${junit.jar}'/>
-    <pathelement location='${test}/junit/lib/${hamcrest.jar}'/>
+    <pathelement location='${testdir}/integration/classes'/>
+    <pathelement location='${testdir}/junit/classes'/>
+    <pathelement location='${testdir}/junit/lib/${junit.jar}'/>
+    <pathelement location='${testdir}/junit/lib/${hamcrest.jar}'/>
     <path refid='server.classes'/>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
+    <pathelement location='${lib}/${jprotobuf.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>
@@ -738,13 +884,13 @@
   <macrodef name='integration-junit'>
     <attribute name='includes'/>
     <sequential>
-      <mkdir dir='${test}/integration/results/xml'/>
-      <mkdir dir='${test}/integration/results/reports'/>
+      <mkdir dir='${testdir}/integration/results/xml'/>
+      <mkdir dir='${testdir}/integration/results/reports'/>
       <junit printsummary='yes' haltonfailure='yes' haltonerror='yes' fork='yes'
              showoutput='true' logfailedtests='true'>
         <classpath refid='integration.classpath'/>
-        <batchtest fork='yes' todir='${test}/integration/results/xml'>
-          <fileset dir='${test}/integration/src'>
+        <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
+          <fileset dir='${testdir}/integration/src'>
             <include name='@{includes}'/>
           </fileset>
         </batchtest>
@@ -753,7 +899,7 @@
         <!-- XML output for CI/CD and HTML report generation -->
         <formatter type='xml'/>
         <!-- System properties for test configuration -->
-        <sysproperty key='test.results.dir' value='${test}/integration/results'/>
+        <sysproperty key='test.results.dir' value='${testdir}/integration/results'/>
       </junit>
     </sequential>
   </macrodef>
@@ -798,9 +944,9 @@
   <target name='integration-test-servlet' depends='integration-build'
           description='Run servlet container integration tests'>
     <!-- Copy test servlet and filter classes to webapp WEB-INF/classes -->
-    <mkdir dir='${test}/integration/webapp/WEB-INF/classes'/>
-    <copy todir='${test}/integration/webapp/WEB-INF/classes'>
-      <fileset dir='${test}/integration/classes'>
+    <mkdir dir='${testdir}/integration/webapp/WEB-INF/classes'/>
+    <copy todir='${testdir}/integration/webapp/WEB-INF/classes'>
+      <fileset dir='${testdir}/integration/classes'>
         <include name='**/servlet/TestServlet.class'/>
         <include name='**/servlet/TestServlet$*.class'/>
         <include name='**/servlet/TestFilter.class'/>
@@ -946,19 +1092,57 @@
   <!-- Generate HTML test reports from XML results -->
   <target name='integration-report'
           description='Generate HTML report from integration test results'>
-    <mkdir dir='${test}/integration/results/html'/>
-    <junitreport todir='${test}/integration/results/reports'>
-      <fileset dir='${test}/integration/results/xml'>
+    <mkdir dir='${testdir}/integration/results/html'/>
+    <junitreport todir='${testdir}/integration/results/reports'>
+      <fileset dir='${testdir}/integration/results/xml'>
         <include name='TEST-*.xml'/>
       </fileset>
-      <report format='frames' todir='${test}/integration/results/html'/>
+      <report format='frames' todir='${testdir}/integration/results/html'/>
     </junitreport>
-    <echo message='HTML report generated at: ${test}/integration/results/html/index.html'/>
+    <echo message='HTML report generated at: ${testdir}/integration/results/html/index.html'/>
+  </target>
+
+  <!-- Loopback-only integration tests: real sockets/selectors on
+       127.0.0.1 / UNIX domain, no external brokers or TLS fixtures.
+       Formerly under test/junit and incorrectly run by CI via ant test. -->
+  <target name='integration-test-loopback' depends='integration-build'
+          description='Run loopback transport/protocol integration tests'>
+    <mkdir dir='${testdir}/integration/results/xml'/>
+    <junit printsummary='yes' haltonfailure='yes' haltonerror='yes' fork='yes'
+           showoutput='true' logfailedtests='true'>
+      <classpath refid='integration.classpath'/>
+      <batchtest fork='yes' todir='${testdir}/integration/results/xml'>
+        <fileset dir='${testdir}/integration/src'>
+          <include name='**/*EndToEndTest.java'/>
+          <include name='**/*CompositionTest.java'/>
+          <include name='**/UdpEndpointIntegrationTest.java'/>
+          <include name='**/UDPTransportFactoryConnectTest.java'/>
+          <include name='**/SelectorLoopCrashIsolationTest.java'/>
+          <include name='**/ClientEndpointUnixSocketTest.java'/>
+          <include name='**/AcceptSelectorLoopRawAcceptorTest.java'/>
+          <include name='**/Connect*WireTest.java'/>
+          <include name='**/amqp/client/AMQPClientIntegrationTest.java'/>
+          <include name='**/QuicPluggableDatagramPathTest.java'/>
+          <include name='**/QuicHandshakeAsyncOffloadTest.java'/>
+          <include name='**/DNSServiceTest.java'/>
+          <include name='**/MDNSServiceTest.java'/>
+          <include name='**/HandshakeEngineLoopbackTest.java'/>
+          <include name='**/Tls12HandshakeEngineLoopbackTest.java'/>
+          <include name='**/TlsHandshakeAsyncOffloadTest.java'/>
+          <include name='**/FTPPasswordOffloadTest.java'/>
+          <include name='**/IMAPFetchBatchingTest.java'/>
+          <include name='**/WebDAVPropfindDeadPropertiesParallelTest.java'/>
+        </fileset>
+      </batchtest>
+      <formatter type='plain' usefile='false'/>
+      <formatter type='xml'/>
+      <sysproperty key='test.results.dir' value='${testdir}/integration/results'/>
+    </junit>
   </target>
 
   <!-- Run all integration tests -->
   <target name='integration-test'
-          depends='integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls'
+          depends='integration-test-loopback,integration-test-http,integration-test-http-client,integration-test-smtp,integration-test-pop3,integration-test-imap,integration-test-ftp,integration-test-servlet,integration-test-telemetry,integration-test-buffer,integration-test-tls,integration-test-websocket,integration-test-dtls'
           description='Run all integration tests'>
   </target>
 
@@ -976,9 +1160,9 @@
   <!-- Clean integration test results -->
   <target name='integration-clean'
           description='Clean integration test results'>
-    <delete dir='${test}/integration/classes'/>
-    <delete dir='${test}/integration/results'/>
-    <delete dir='${test}/integration/webapp/WEB-INF/classes'/>
+    <delete dir='${testdir}/integration/classes'/>
+    <delete dir='${testdir}/integration/results'/>
+    <delete dir='${testdir}/integration/webapp/WEB-INF/classes'/>
   </target>
 
 </project>

@@ -29,6 +29,7 @@ import java.net.SocketAddress;
 import java.net.StandardProtocolFamily;
 import java.net.UnixDomainSocketAddress;
 import java.nio.channels.CancelledKeyException;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -73,7 +74,7 @@ public class AcceptSelectorLoop implements Runnable {
      * doing so would stall acceptance of new connections on every
      * other listener until it returns. Queue the channel or hand it
      * off to another thread/{@link SelectorLoop} instead, the way
-     * {@code FTPClientDataConnectionCoordinator} does.
+     * {@code FtpClientDataConnectionCoordinator} does.
      */
     public interface RawAcceptHandler {
         void accepted(SocketChannel sc) throws IOException;
@@ -174,15 +175,15 @@ public class AcceptSelectorLoop implements Runnable {
     }
 
     /**
-     * Pending registration containing either a TCPListener (needs binding),
+     * Pending registration containing either a TcpListener (needs binding),
      * or a raw accept handler with a pre-bound ServerSocketChannel.
      */
     private static class PendingRegistration {
-        final TCPListener listener;
+        final TcpListener listener;
         final RawAcceptHandler rawHandler;
         final ServerSocketChannel channel; // null if listener needs binding
 
-        PendingRegistration(TCPListener listener) {
+        PendingRegistration(TcpListener listener) {
             this.listener = listener;
             this.rawHandler = null;
             this.channel = null;
@@ -213,7 +214,7 @@ public class AcceptSelectorLoop implements Runnable {
      *
      * @param server the endpoint server to register
      */
-    public void registerListener(TCPListener server) {
+    public void registerListener(TcpListener server) {
         pendingRegistrations.add(new PendingRegistration(server));
         if (selector != null) {
             selector.wakeup();
@@ -230,6 +231,9 @@ public class AcceptSelectorLoop implements Runnable {
      * @param handler the handler to receive accepted connections
      */
     public void registerRawAcceptor(ServerSocketChannel channel, RawAcceptHandler handler) {
+        if (!channel.isOpen()) {
+            return;
+        }
         pendingRegistrations.add(new PendingRegistration(handler, channel));
         if (selector != null) {
             selector.wakeup();
@@ -248,6 +252,19 @@ public class AcceptSelectorLoop implements Runnable {
                 } else if (pending.listener != null) {
                     doRegisterListener(pending.listener);
                 }
+            } catch (ClosedChannelException e) {
+                // FTP client PORT/EPRT and similar paths may close the
+                // ServerSocketChannel before this loop drains the pending
+                // registration queue; that is normal, not a server fault.
+                if (pending.rawHandler == null && LOGGER.isLoggable(Level.SEVERE)) {
+                    LOGGER.log(Level.SEVERE,
+                            "Failed to register server: "
+                                    + pending.listener.getDescription()
+                                    + ": " + e.getMessage());
+                } else if (pending.rawHandler != null
+                        && LOGGER.isLoggable(Level.FINE)) {
+                    LOGGER.fine("Raw acceptor closed before registration");
+                }
             } catch (IOException e) {
                 String desc;
                 if (pending.rawHandler != null) {
@@ -255,8 +272,11 @@ public class AcceptSelectorLoop implements Runnable {
                 } else {
                     desc = pending.listener.getDescription();
                 }
-                LOGGER.log(Level.SEVERE,
-                        "Failed to register server: " + desc, e);
+                if (LOGGER.isLoggable(Level.SEVERE)) {
+                    LOGGER.log(Level.SEVERE,
+                            "Failed to register server: " + desc + ": "
+                                    + e.getMessage());
+                }
             }
         }
     }
@@ -274,7 +294,7 @@ public class AcceptSelectorLoop implements Runnable {
         }
     }
 
-    private void doRegisterListener(TCPListener server)
+    private void doRegisterListener(TcpListener server)
             throws IOException {
         String socketPath = server.getPath();
         if (socketPath != null) {
@@ -284,7 +304,7 @@ public class AcceptSelectorLoop implements Runnable {
         }
     }
 
-    private void doRegisterUnixListener(TCPListener server, String socketPath)
+    private void doRegisterUnixListener(TcpListener server, String socketPath)
             throws IOException {
         Path path = Path.of(socketPath);
         Files.deleteIfExists(path);
@@ -315,7 +335,7 @@ public class AcceptSelectorLoop implements Runnable {
         server.addServerChannel(ssc);
     }
 
-    private void doRegisterTcpListener(TCPListener server)
+    private void doRegisterTcpListener(TcpListener server)
             throws IOException {
         Set<InetAddress> addrs = server.getAddresses();
         int port = server.getPort();
@@ -366,9 +386,9 @@ public class AcceptSelectorLoop implements Runnable {
                 try {
                     SocketAddress remoteAddress = sc.getRemoteAddress();
 
-                    if (attachment instanceof TCPListener) {
+                    if (attachment instanceof TcpListener) {
                         acceptListener(
-                                (TCPListener) attachment, sc, remoteAddress);
+                                (TcpListener) attachment, sc, remoteAddress);
                     } else if (attachment instanceof RawAcceptHandler) {
                         // ServerSocketChannel.accept() always returns a
                         // channel in blocking mode, regardless of the
@@ -426,7 +446,7 @@ public class AcceptSelectorLoop implements Runnable {
         }
     }
 
-    private void acceptListener(TCPListener server, final SocketChannel sc,
+    private void acceptListener(TcpListener server, final SocketChannel sc,
             final SocketAddress remoteAddress) throws IOException {
         if (!server.acceptConnection(remoteAddress)) {
             logRejection(remoteAddress);
@@ -442,8 +462,8 @@ public class AcceptSelectorLoop implements Runnable {
         // endpoint, so it stays on the accept thread.
         server.connectionOpened(remoteAddress);
 
-        // Everything else - protocol handler construction, SSLEngine
-        // creation, buffer pool acquisition in TCPEndpoint.init(), and the
+        // Everything else - protocol handler construction, TLS setup in
+        // TcpEndpoint.init(), buffer pool acquisition, and the
         // handler's connected() callback (which for text protocols writes
         // the greeting banner and for HTTP arms the idle timer) - is real
         // per-connection work that must not run serially on the single
@@ -454,11 +474,11 @@ public class AcceptSelectorLoop implements Runnable {
         // per-loop timer rather than falling back to the shared
         // process-wide one (which only register() would otherwise assign,
         // one selector iteration later).
-        final TCPListener listener = server;
+        final TcpListener listener = server;
         workerLoop.invokeLater(new Runnable() {
             @Override
             public void run() {
-                TCPEndpoint endpoint;
+                TcpEndpoint endpoint;
                 try {
                     endpoint = listener.newEndpoint(sc, workerLoop);
                 } catch (IOException e) {

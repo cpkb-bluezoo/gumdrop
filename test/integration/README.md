@@ -15,6 +15,9 @@ ant integration-test
 # Run all tests with full reporting
 ant integration-test-full
 
+# Loopback transport/protocol tests (no TLS fixtures or external brokers)
+ant integration-test-loopback
+
 # Run specific protocol tests
 ant integration-test-http
 ant integration-test-smtp

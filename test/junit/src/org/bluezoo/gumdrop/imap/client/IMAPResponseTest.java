@@ -25,7 +25,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link IMAPResponse}.
+ * Unit tests for {@link ImapResponse}.
  */
 public class IMAPResponseTest {
 
@@ -33,7 +33,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseTaggedOk() {
-        IMAPResponse r = IMAPResponse.parse("A001 OK LOGIN completed");
+        ImapResponse r = ImapResponse.parse("A001 OK LOGIN completed");
         assertNotNull(r);
         assertTrue(r.isTagged());
         assertTrue(r.isOk());
@@ -44,7 +44,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseTaggedOkWithResponseCode() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "A002 OK [READ-WRITE] SELECT completed");
         assertNotNull(r);
         assertTrue(r.isTagged());
@@ -56,7 +56,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseTaggedOkWithCapabilityCode() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "A003 OK [CAPABILITY IMAP4rev1 IDLE] Logged in");
         assertNotNull(r);
         assertTrue(r.isOk());
@@ -67,7 +67,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseTaggedOkWithAppendUid() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "A004 OK [APPENDUID 38505 3955] APPEND completed");
         assertNotNull(r);
         assertTrue(r.isOk());
@@ -76,7 +76,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseTaggedOkMinimal() {
-        IMAPResponse r = IMAPResponse.parse("A001 OK");
+        ImapResponse r = ImapResponse.parse("A001 OK");
         assertNotNull(r);
         assertTrue(r.isTagged());
         assertTrue(r.isOk());
@@ -87,7 +87,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseTaggedNo() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "A005 NO [AUTHENTICATIONFAILED] Invalid credentials");
         assertNotNull(r);
         assertTrue(r.isTagged());
@@ -100,7 +100,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseTaggedNoSimple() {
-        IMAPResponse r = IMAPResponse.parse("A006 NO Mailbox not found");
+        ImapResponse r = ImapResponse.parse("A006 NO Mailbox not found");
         assertNotNull(r);
         assertTrue(r.isNo());
         assertEquals("Mailbox not found", r.getMessage());
@@ -111,7 +111,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseTaggedBad() {
-        IMAPResponse r = IMAPResponse.parse("A007 BAD Syntax error");
+        ImapResponse r = ImapResponse.parse("A007 BAD Syntax error");
         assertNotNull(r);
         assertTrue(r.isTagged());
         assertTrue(r.isBad());
@@ -124,7 +124,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedOk() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "* OK [CAPABILITY IMAP4rev1 STARTTLS] Welcome");
         assertNotNull(r);
         assertTrue(r.isUntagged());
@@ -137,7 +137,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedOkNoCode() {
-        IMAPResponse r = IMAPResponse.parse("* OK Server ready");
+        ImapResponse r = ImapResponse.parse("* OK Server ready");
         assertNotNull(r);
         assertTrue(r.isUntagged());
         assertTrue(r.isOk());
@@ -149,7 +149,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedData() {
-        IMAPResponse r = IMAPResponse.parse("* 172 EXISTS");
+        ImapResponse r = ImapResponse.parse("* 172 EXISTS");
         assertNotNull(r);
         assertTrue(r.isUntagged());
         assertNull(r.getStatus());
@@ -158,7 +158,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedCapability() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "* CAPABILITY IMAP4rev1 STARTTLS AUTH=PLAIN");
         assertNotNull(r);
         assertTrue(r.isUntagged());
@@ -169,7 +169,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedList() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "* LIST (\\HasNoChildren) \"/\" \"INBOX\"");
         assertNotNull(r);
         assertTrue(r.isUntagged());
@@ -179,7 +179,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedSearch() {
-        IMAPResponse r = IMAPResponse.parse("* SEARCH 2 3 6");
+        ImapResponse r = ImapResponse.parse("* SEARCH 2 3 6");
         assertNotNull(r);
         assertTrue(r.isUntagged());
         assertEquals("SEARCH 2 3 6", r.getMessage());
@@ -187,7 +187,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedFetch() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "* 1 FETCH (FLAGS (\\Seen) UID 42)");
         assertNotNull(r);
         assertTrue(r.isUntagged());
@@ -197,7 +197,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedBye() {
-        IMAPResponse r = IMAPResponse.parse("* BYE Server shutting down");
+        ImapResponse r = ImapResponse.parse("* BYE Server shutting down");
         assertNotNull(r);
         assertTrue(r.isUntagged());
         assertNull(r.getStatus());
@@ -208,7 +208,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedOkPermanentFlags() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited");
         assertNotNull(r);
         assertTrue(r.isOk());
@@ -218,7 +218,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedOkUidValidity() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "* OK [UIDVALIDITY 3857529045] UIDs valid");
         assertNotNull(r);
         assertTrue(r.isOk());
@@ -228,7 +228,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseUntaggedOkUidNext() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "* OK [UIDNEXT 4392] Predicted next UID");
         assertNotNull(r);
         assertTrue(r.isOk());
@@ -239,7 +239,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseContinuation() {
-        IMAPResponse r = IMAPResponse.parse("+ Ready for literal data");
+        ImapResponse r = ImapResponse.parse("+ Ready for literal data");
         assertNotNull(r);
         assertTrue(r.isContinuation());
         assertFalse(r.isTagged());
@@ -249,7 +249,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseContinuationEmpty() {
-        IMAPResponse r = IMAPResponse.parse("+");
+        ImapResponse r = ImapResponse.parse("+");
         assertNotNull(r);
         assertTrue(r.isContinuation());
         assertEquals("", r.getMessage());
@@ -257,7 +257,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testParseContinuationSaslChallenge() {
-        IMAPResponse r = IMAPResponse.parse("+ dGVzdA==");
+        ImapResponse r = ImapResponse.parse("+ dGVzdA==");
         assertNotNull(r);
         assertTrue(r.isContinuation());
         assertEquals("dGVzdA==", r.getMessage());
@@ -268,57 +268,57 @@ public class IMAPResponseTest {
     @Test
     public void testParseLiteralSize() {
         assertEquals(342,
-                IMAPResponse.parseLiteralSize(
+                ImapResponse.parseLiteralSize(
                         "* 1 FETCH (BODY[TEXT] {342}"));
     }
 
     @Test
     public void testParseLiteralSizeLarge() {
         assertEquals(100000,
-                IMAPResponse.parseLiteralSize(
+                ImapResponse.parseLiteralSize(
                         "BODY[] {100000}"));
     }
 
     @Test
     public void testParseLiteralSizeNoLiteral() {
         assertEquals(-1,
-                IMAPResponse.parseLiteralSize(
+                ImapResponse.parseLiteralSize(
                         "* 1 FETCH (FLAGS (\\Seen))"));
     }
 
     @Test
     public void testParseLiteralSizeNull() {
-        assertEquals(-1, IMAPResponse.parseLiteralSize(null));
+        assertEquals(-1, ImapResponse.parseLiteralSize(null));
     }
 
     @Test
     public void testParseLiteralSizeInvalid() {
         assertEquals(-1,
-                IMAPResponse.parseLiteralSize("{abc}"));
+                ImapResponse.parseLiteralSize("{abc}"));
     }
 
     // ── Invalid input ──
 
     @Test
     public void testParseNull() {
-        assertNull(IMAPResponse.parse(null));
+        assertNull(ImapResponse.parse(null));
     }
 
     @Test
     public void testParseEmpty() {
-        assertNull(IMAPResponse.parse(""));
+        assertNull(ImapResponse.parse(""));
     }
 
     @Test
     public void testParseNoSpace() {
-        assertNull(IMAPResponse.parse("garbage"));
+        assertNull(ImapResponse.parse("garbage"));
     }
 
     // ── toString ──
 
     @Test
     public void testToStringTaggedOk() {
-        IMAPResponse r = IMAPResponse.parse("A001 OK Done");
+        ImapResponse r = ImapResponse.parse("A001 OK Done");
         assertNotNull(r);
         String s = r.toString();
         assertTrue(s.contains("A001"));
@@ -328,7 +328,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testToStringUntagged() {
-        IMAPResponse r = IMAPResponse.parse("* 5 EXISTS");
+        ImapResponse r = ImapResponse.parse("* 5 EXISTS");
         assertNotNull(r);
         String s = r.toString();
         assertTrue(s.contains("*"));
@@ -337,7 +337,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testToStringContinuation() {
-        IMAPResponse r = IMAPResponse.parse("+ go ahead");
+        ImapResponse r = ImapResponse.parse("+ go ahead");
         assertNotNull(r);
         String s = r.toString();
         assertTrue(s.contains("+"));
@@ -346,7 +346,7 @@ public class IMAPResponseTest {
 
     @Test
     public void testToStringWithResponseCode() {
-        IMAPResponse r = IMAPResponse.parse(
+        ImapResponse r = ImapResponse.parse(
                 "A001 OK [READ-WRITE] Selected");
         assertNotNull(r);
         String s = r.toString();
@@ -357,31 +357,31 @@ public class IMAPResponseTest {
 
     @Test
     public void testTypeAccessors() {
-        IMAPResponse tagged = IMAPResponse.parse("A001 OK Done");
+        ImapResponse tagged = ImapResponse.parse("A001 OK Done");
         assertNotNull(tagged);
-        assertEquals(IMAPResponse.Type.TAGGED, tagged.getType());
+        assertEquals(ImapResponse.Type.TAGGED, tagged.getType());
 
-        IMAPResponse untagged = IMAPResponse.parse("* OK Hello");
+        ImapResponse untagged = ImapResponse.parse("* OK Hello");
         assertNotNull(untagged);
-        assertEquals(IMAPResponse.Type.UNTAGGED, untagged.getType());
+        assertEquals(ImapResponse.Type.UNTAGGED, untagged.getType());
 
-        IMAPResponse cont = IMAPResponse.parse("+ ready");
+        ImapResponse cont = ImapResponse.parse("+ ready");
         assertNotNull(cont);
-        assertEquals(IMAPResponse.Type.CONTINUATION, cont.getType());
+        assertEquals(ImapResponse.Type.CONTINUATION, cont.getType());
     }
 
     @Test
     public void testStatusAccessors() {
-        IMAPResponse ok = IMAPResponse.parse("A001 OK Done");
+        ImapResponse ok = ImapResponse.parse("A001 OK Done");
         assertNotNull(ok);
-        assertEquals(IMAPResponse.Status.OK, ok.getStatus());
+        assertEquals(ImapResponse.Status.OK, ok.getStatus());
 
-        IMAPResponse no = IMAPResponse.parse("A001 NO Fail");
+        ImapResponse no = ImapResponse.parse("A001 NO Fail");
         assertNotNull(no);
-        assertEquals(IMAPResponse.Status.NO, no.getStatus());
+        assertEquals(ImapResponse.Status.NO, no.getStatus());
 
-        IMAPResponse bad = IMAPResponse.parse("A001 BAD Error");
+        ImapResponse bad = ImapResponse.parse("A001 BAD Error");
         assertNotNull(bad);
-        assertEquals(IMAPResponse.Status.BAD, bad.getStatus());
+        assertEquals(ImapResponse.Status.BAD, bad.getStatus());
     }
 }

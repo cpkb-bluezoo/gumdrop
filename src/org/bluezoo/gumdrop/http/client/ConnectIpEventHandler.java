@@ -31,7 +31,7 @@ import org.bluezoo.gumdrop.http.ConnectIpRoute;
  * Receives events for a client-initiated RFC 9484 CONNECT-IP tunnel.
  * Implement this interface to receive events, and pass an instance to a
  * transport's CONNECT-IP entry point (e.g. {@code
- * HTTP3ClientHandler#connectIp}), or use {@link ConnectIpClient} for
+ * Http3ClientHandler#connectIp}), or use {@link ConnectIpClient} for
  * automatic transport negotiation.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

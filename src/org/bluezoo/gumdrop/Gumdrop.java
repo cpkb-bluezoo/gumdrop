@@ -21,24 +21,23 @@
 
 package org.bluezoo.gumdrop;
 
-import java.io.File;
 import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.dns.client.ResolvConf;
 import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
@@ -46,36 +45,29 @@ import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
 /**
  * Central configuration and lifecycle manager for the Gumdrop server.
  *
- * <p>Gumdrop is a singleton that manages the core infrastructure for event-driven
- * I/O processing: worker SelectorLoops, the AcceptSelectorLoop for TCP servers,
- * and the scheduled timer for timeouts.
+ * <p>Manages the core infrastructure for event-driven I/O processing:
+ * worker SelectorLoops, the AcceptSelectorLoop for TCP servers, and the
+ * scheduled timer for timeouts.
  *
  * <h4>Server Mode</h4>
  * <pre>{@code
- * // Get instance with configuration
- * Gumdrop gumdrop = Gumdrop.getInstance(new File("/etc/gumdroprc"));
- *
- * // Or configure programmatically
- * Gumdrop gumdrop = Gumdrop.getInstance();
- * gumdrop.addService(myServletService);
- * gumdrop.addService(mySmtpService);
- *
- * // Start processing
- * gumdrop.start();
+ * // Boot a fresh instance and compose servers against it
+ * Gumdrop gumdrop = Gumdrop.boot();
+ * gumdrop.addServer(myServletServer);
+ * gumdrop.addServer(mySmtpServer);
  * }</pre>
  *
  * <h4>Client Mode</h4>
  * <pre>{@code
- * // Clients use getInstance() internally - no setup needed
+ * Gumdrop gumdrop = Gumdrop.boot();
  * RedisClient client = new RedisClient("localhost", 6379);
- * client.connect(handler);
- * // Infrastructure auto-starts on connect, auto-stops when done
+ * client.connect(gumdrop, handler);
  * }</pre>
  *
  * <h4>Lifecycle</h4>
  * <ul>
- *   <li>Infrastructure is created lazily on first {@code getInstance()} call</li>
- *   <li>{@code start()} begins event processing</li>
+ *   <li>{@link #boot()} / {@link #boot(GumdropConfig)} create and start a
+ *       fresh instance</li>
  *   <li>Auto-shutdown when no server listeners and no active handlers remain</li>
  *   <li>Can restart after shutdown by calling {@code start()} again</li>
  *   <li>JVM shutdown hook ensures cleanup</li>
@@ -86,12 +78,6 @@ import org.bluezoo.gumdrop.mailbox.spi.MailboxLifecycle;
 public class Gumdrop {
 
     public static final String VERSION = "2.0";
-
-    /** Default worker count for client-only mode (no configuration). */
-    private static final int CLIENT_MODE_WORKERS = 1;
-
-    /** Default worker count for server mode (with configuration). */
-    private static final int SERVER_MODE_WORKERS = Runtime.getRuntime().availableProcessors() * 2;
 
     /**
      * Default graceful-drain timeout in milliseconds. On shutdown, the server
@@ -110,15 +96,11 @@ public class Gumdrop {
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.L10N");
     static final Logger LOGGER = Logger.getLogger(Gumdrop.class.getName());
 
-    // Singleton instance. Volatile so the unlocked fast-path read in
-    // getInstance(File) below is safe once construction has completed.
-    private static volatile Gumdrop instance;
-
-    // Services (own and manage their listeners)
-    private final List<Service> services;
+    // Application-tier protocol servers (own and manage their listeners)
+    private final List<Server> servers;
 
     // Server listeners (controls AcceptSelectorLoop lifecycle)
-    private final List<TCPListener> serverListeners;
+    private final List<TcpListener> serverListeners;
 
     // Active channel handlers (internal bookkeeping for selector dispatch)
     private final Set<ChannelHandler> activeHandlers;
@@ -134,8 +116,6 @@ public class Gumdrop {
     private ScheduledTimer scheduledTimer;
     private StorageExecutor storageExecutor;
     private CryptoExecutor cryptoExecutor;
-    // Configurator (manages DI lifecycle)
-    private GumdropConfigurator configurator;
 
     // State
     private volatile boolean started;
@@ -151,7 +131,7 @@ public class Gumdrop {
     private volatile boolean ready;
 
     // Guards the decision-and-flag step of checkAutoShutdown() (checking
-    // activeClients/services/serverListeners are empty and publishing
+    // activeClients/servers/serverListeners are empty and publishing
     // pendingAsyncShutdown) so it is atomic with start()'s own read of
     // pendingAsyncShutdown/started (issue #426): without this, a client's
     // disconnect could be judged "nothing left running" and decide to tear
@@ -163,107 +143,79 @@ public class Gumdrop {
     // shutdown()/join() itself, so it cannot serialise unrelated drains.
     private final Object lifecycleLock = new Object();
 
+    /** True while {@link #shutdown()} is running (hook, signal, or interrupt). */
+    private boolean shutdownInProgress;
+
+    /**
+     * Thread blocked in {@link #awaitShutdown()}, signalled on {@code SIGTERM}
+     * so graceful teardown runs there (logging still works) instead of on the
+     * JVM shutdown-hook thread (often after {@code LogManager} has closed handlers).
+     */
+    private volatile Thread launcherThread;
+
     /**
      * Graceful-drain timeout in milliseconds. Overridable via the
-     * {@code gumdrop.drainTimeoutMs} system property (and, from
-     * {@link #main}, the {@code GUMDROP_DRAIN_TIMEOUT_MS} environment
-     * variable). 0 disables draining (immediate force-close on shutdown).
+     * {@code gumdrop.drainTimeoutMs} system property, or explicitly via
+     * {@link #setDrainTimeoutMs} / {@link GumdropConfig#drainTimeoutMs}.
+     * 0 disables draining (immediate force-close on shutdown).
      */
     private volatile long drainTimeoutMs =
             Long.getLong("gumdrop.drainTimeoutMs", DEFAULT_DRAIN_TIMEOUT_MS);
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Singleton access
+    // Construction
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns the singleton Gumdrop instance, creating it if necessary.
+     * Creates and starts a new {@code Gumdrop} instance with the given
+     * configuration. Each call constructs a fresh instance, which the
+     * caller is responsible for threading through to whatever servers,
+     * listeners, and clients it composes (e.g. {@code
+     * server.start(gumdrop)}, {@code client.connect(gumdrop, handler)}).
      *
-     * <p>This method creates a minimal instance suitable for client-only use:
-     * <ul>
-     *   <li>1 worker thread</li>
-     *   <li>No listeners configured</li>
-     *   <li>No AcceptSelectorLoop (created on first addTCPListener)</li>
-     * </ul>
+     * <p>Named {@code boot} rather than {@code start} because the latter
+     * is already the instance lifecycle method ({@link #start()}) this
+     * factory calls internally — Java does not allow a static and
+     * instance method to share a name and parameter list.
      *
-     * <p>For server mode with configuration file, use {@link #getInstance(File)}.
-     *
-     * @return the singleton Gumdrop instance
+     * @param config the configuration
+     * @return a new, started Gumdrop instance
      */
-    public static Gumdrop getInstance() {
-        return getInstance(null);
+    public static Gumdrop boot(GumdropConfig config) {
+        Gumdrop gumdrop = new Gumdrop(config.getWorkerThreads());
+        gumdrop.setDrainTimeoutMs(config.getDrainTimeoutMs());
+        gumdrop.start();
+        return gumdrop;
     }
 
     /**
-     * Returns the singleton Gumdrop instance, creating it if necessary.
+     * {@link #boot(GumdropConfig)} with default configuration.
      *
-     * <p>If a configuration file is provided, a {@link GumdropConfigurator}
-     * is discovered via {@link ServiceLoader} and used to parse and wire
-     * the configuration. The default implementation uses the built-in
-     * gumdroprc XML parser and dependency injection container.
-     *
-     * <p>If the configuration file is null, a minimal client-only instance
-     * is created with 1 worker thread.
-     *
-     * @param gumdroprc the configuration file, or null for client-only mode
-     * @return the singleton Gumdrop instance
+     * @return a new, started Gumdrop instance
      */
-    public static Gumdrop getInstance(File gumdroprc) {
-        // Unlocked fast path: once the singleton is constructed, every
-        // subsequent call (e.g. the per-request idle-timeout reset on the
-        // HTTP hot path) hits this and never contends the class lock.
-        Gumdrop result = instance;
-        if (result != null) {
-            return result;
-        }
-        synchronized (Gumdrop.class) {
-            if (instance == null) {
-                int workerCount;
-                if (gumdroprc != null && gumdroprc.exists()) {
-                    workerCount = Integer.getInteger("gumdrop.workers",
-                            SERVER_MODE_WORKERS);
-                } else {
-                    workerCount = CLIENT_MODE_WORKERS;
-                }
-
-                instance = new Gumdrop(workerCount);
-
-                if (gumdroprc != null && gumdroprc.exists()) {
-                    GumdropConfigurator configurator = loadConfigurator();
-                    try {
-                        configurator.configure(instance, gumdroprc);
-                        instance.configurator = configurator;
-                    } catch (Exception e) {
-                        String message = MessageFormat.format(
-                                L10N.getString("err.parse_configuration"),
-                                gumdroprc);
-                        LOGGER.log(Level.SEVERE, message, e);
-                    }
-                }
-            }
-            return instance;
-        }
+    public static Gumdrop boot() {
+        return boot(GumdropConfig.create());
     }
 
     /**
-     * Discovers a {@link GumdropConfigurator} via {@link ServiceLoader},
-     * falling back to the default implementation if none is found.
+     * Boots a runtime, registers one or more {@link Server}s, and blocks until
+     * shutdown completes. This is the lifecycle tail of the former
+     * {@code Gumdrop.main}: the JVM shutdown hook registered in the
+     * {@link Gumdrop} constructor (via {@link #boot()}) calls {@link #shutdown()}
+     * on {@code SIGTERM}; Ctrl+C typically interrupts {@link #awaitShutdown()}
+     * and triggers {@code shutdown()} directly.
+     *
+     * @param servers protocol servers to manage (each receives {@link Server#start(Gumdrop)})
+     * @return the instance that was shut down (for tests or post-mortem inspection)
+     * @throws InterruptedException if the waiting thread is interrupted after shutdown
      */
-    private static GumdropConfigurator loadConfigurator() {
-        ServiceLoader<GumdropConfigurator> loader =
-                ServiceLoader.load(GumdropConfigurator.class);
-        Iterator<GumdropConfigurator> it = loader.iterator();
-        if (it.hasNext()) {
-            return it.next();
+    public static Gumdrop serve(Server... servers) throws InterruptedException {
+        Gumdrop gumdrop = boot();
+        for (Server server : servers) {
+            gumdrop.addServer(server);
         }
-        try {
-            return (GumdropConfigurator) Class.forName(
-                    "org.bluezoo.gumdrop.config.DefaultConfigurator")
-                    .getDeclaredConstructor().newInstance();
-        } catch (Exception e) {
-            throw new RuntimeException(
-                    "No GumdropConfigurator found on classpath", e);
-        }
+        gumdrop.awaitShutdown();
+        return gumdrop;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -271,16 +223,17 @@ public class Gumdrop {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Private constructor - use getInstance() to obtain the singleton.
+     * Private constructor - use {@link #boot()} / {@link #boot(GumdropConfig)}
+     * to create an instance.
      */
     private Gumdrop(int workerCount) {
         if (workerCount < 1) {
             throw new IllegalArgumentException("workerCount must be at least 1");
         }
 
-        this.services = Collections.synchronizedList(new ArrayList<Service>());
+        this.servers = Collections.synchronizedList(new ArrayList<Server>());
         this.serverListeners =
-                Collections.synchronizedList(new ArrayList<TCPListener>());
+                Collections.synchronizedList(new ArrayList<TcpListener>());
         this.activeHandlers = Collections.newSetFromMap(new ConcurrentHashMap<ChannelHandler, Boolean>());
         this.activeClients = Collections.newSetFromMap(new ConcurrentHashMap<ClientEndpoint, Boolean>());
         this.workerCount = workerCount;
@@ -303,39 +256,39 @@ public class Gumdrop {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Service management
+    // Server registry (application-tier protocol servers)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Adds a service to be managed by Gumdrop.
+     * Adds a protocol server to be managed by Gumdrop.
      *
-     * <p>If Gumdrop has already been started, the service is started
+     * <p>If Gumdrop has already been started, the server is started
      * immediately and its TCP listeners are registered with the accept
-     * loop. Otherwise, the service is queued and will be started when
+     * loop. Otherwise, the server is queued and will be started when
      * {@link #start()} is called.
      *
-     * @param service the service to add
+     * @param server the server to add
      */
-    public void addService(Service service) {
-        services.add(service);
+    public void addServer(Server server) {
+        servers.add(server);
 
         if (started) {
-            service.start();
-            registerServiceListeners(service);
+            server.start(this);
+            registerServerListeners(server);
         }
     }
 
     /**
-     * Removes a service from Gumdrop and stops it.
+     * Removes a protocol server from Gumdrop and stops it.
      *
-     * @param service the service to remove
+     * @param server the server to remove
      */
-    public void removeService(Service service) {
-        services.remove(service);
-        unregisterServiceListeners(service);
-        service.stop();
+    public void removeServer(Server server) {
+        servers.remove(server);
+        unregisterServerListeners(server);
+        server.stop();
 
-        if (services.isEmpty() && serverListeners.isEmpty()
+        if (servers.isEmpty() && serverListeners.isEmpty()
                 && acceptLoopRunning) {
             acceptLoop.shutdown();
             acceptLoopRunning = false;
@@ -345,26 +298,56 @@ public class Gumdrop {
     }
 
     /**
-     * Returns the collection of services managed by this Gumdrop
-     * instance.
+     * Returns the protocol servers managed by this Gumdrop instance.
      *
-     * @return unmodifiable view of the services
+     * @return unmodifiable view of the servers
      */
-    public List<Service> getServices() {
-        return Collections.unmodifiableList(services);
+    public List<Server> getServers() {
+        return Collections.unmodifiableList(servers);
     }
 
     /**
-     * Registers a service's TCP listeners with the accept loop.
+     * @deprecated use {@link #addServer(Server)}
+     */
+    @Deprecated
+    public void addService(Service service) {
+        addServer(service);
+    }
+
+    /**
+     * @deprecated use {@link #removeServer(Server)}
+     */
+    @Deprecated
+    public void removeService(Service service) {
+        removeServer(service);
+    }
+
+    /**
+     * @deprecated use {@link #getServers()}
+     */
+    @Deprecated
+    public List<Service> getServices() {
+        List<Service> legacy = new ArrayList<Service>(servers.size());
+        for (int i = 0; i < servers.size(); i++) {
+            Server server = servers.get(i);
+            if (server instanceof Service) {
+                legacy.add((Service) server);
+            }
+        }
+        return Collections.unmodifiableList(legacy);
+    }
+
+    /**
+     * Registers a server's TCP listeners with the accept loop.
      * Listeners that manage their own I/O (e.g. QUIC) are tracked
      * but not registered for TCP accept.
      */
-    private void registerServiceListeners(Service service) {
-        List<?> listeners = service.getListeners();
+    private void registerServerListeners(Server server) {
+        List<?> listeners = server.getListeners();
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
-            if (listener instanceof TCPListener) {
-                TCPListener ep = (TCPListener) listener;
+            if (listener instanceof TcpListener) {
+                TcpListener ep = (TcpListener) listener;
                 serverListeners.add(ep);
                 if (ep.requiresTcpAccept()) {
                     ensureAcceptLoop();
@@ -375,14 +358,14 @@ public class Gumdrop {
     }
 
     /**
-     * Unregisters a service's TCP listeners from the accept loop.
+     * Unregisters a server's TCP listeners from the accept loop.
      */
-    private void unregisterServiceListeners(Service service) {
-        List<?> listeners = service.getListeners();
+    private void unregisterServerListeners(Server server) {
+        List<?> listeners = server.getListeners();
         for (int i = 0; i < listeners.size(); i++) {
             Object listener = listeners.get(i);
-            if (listener instanceof TCPListener) {
-                TCPListener ep = (TCPListener) listener;
+            if (listener instanceof TcpListener) {
+                TcpListener ep = (TcpListener) listener;
                 serverListeners.remove(ep);
                 if (ep.requiresTcpAccept()) {
                     ep.closeServerChannels();
@@ -415,9 +398,9 @@ public class Gumdrop {
     /**
      * Adds a standalone endpoint server to be managed by Gumdrop.
      *
-     * <p>For endpoints that are part of a {@link Service}, use
-     * {@link #addService(Service)} instead. This method is for
-     * standalone endpoints not owned by any service.
+     * <p>For endpoints that are part of a {@link Server}, use
+     * {@link #addServer(Server)} instead. This method is for
+     * standalone endpoints not owned by any protocol server.
      *
      * <p>If Gumdrop has already been started, the server is registered
      * immediately and begins accepting connections. Otherwise, it will
@@ -425,9 +408,9 @@ public class Gumdrop {
      *
      * @param server the endpoint server to add
      */
-    public void addListener(TCPListener server) {
+    public void addListener(TcpListener server) {
         serverListeners.add(server);
-        server.start();
+        server.start(this);
 
         if (started) {
             ensureAcceptLoop();
@@ -443,7 +426,7 @@ public class Gumdrop {
      *
      * @param server the endpoint server to remove
      */
-    public void removeListener(TCPListener server) {
+    public void removeListener(TcpListener server) {
         serverListeners.remove(server);
         server.stop();
         server.closeServerChannels();
@@ -462,7 +445,7 @@ public class Gumdrop {
      *
      * @return unmodifiable view of the server listeners
      */
-    public Collection<TCPListener> getListeners() {
+    public Collection<TcpListener> getListeners() {
         return Collections.unmodifiableList(serverListeners);
     }
 
@@ -579,7 +562,16 @@ public class Gumdrop {
             if (needsInit) {
                 doStart();
             }
-            return nextWorkerLoop();
+            SelectorLoop loop = nextWorkerLoop();
+            synchronized (lifecycleLock) {
+                if (pendingAsyncShutdown != null) {
+                    continue;
+                }
+            }
+            if (!loop.isRunning()) {
+                continue;
+            }
+            return loop;
         }
     }
 
@@ -587,14 +579,20 @@ public class Gumdrop {
      * Deregisters an active client connection.
      *
      * <p>Called when a client connection closes, fails, or is explicitly
-     * closed. If no services, listeners, or clients remain, triggers
+     * closed. If no protocol servers, listeners, or clients remain, triggers
      * automatic shutdown.
      *
      * @param client the client endpoint to deregister
      */
     public void removeClient(ClientEndpoint client) {
-        activeClients.remove(client);
-        checkAutoShutdown();
+        Thread shutdownThread;
+        synchronized (lifecycleLock) {
+            activeClients.remove(client);
+            shutdownThread = scheduleAutoShutdownIfIdleLocked();
+        }
+        if (shutdownThread != null) {
+            shutdownThread.start();
+        }
     }
 
     /**
@@ -641,12 +639,12 @@ public class Gumdrop {
         draining = false;
 
         // Snapshot the standalone listeners added via addListener() before
-        // start(). registerServiceListeners() below appends service-owned
+        // start(). registerServerListeners() below appends server-owned
         // listeners to serverListeners, so we capture the standalone ones now
         // to register them exactly once (and avoid double-registering the
         // service listeners, which register themselves).
-        List<TCPListener> standaloneListeners =
-                new ArrayList<TCPListener>(serverListeners);
+        List<TcpListener> standaloneListeners =
+                new ArrayList<TcpListener>(serverListeners);
 
         // Create or recreate scheduled timer
         if (scheduledTimer == null || !scheduledTimer.isRunning()) {
@@ -662,7 +660,7 @@ public class Gumdrop {
         }
 
         // Create the shared crypto worker pool. TLS handshake delegated
-        // tasks (SSLEngine NEED_TASK -- RSA/ECDHE key exchange, certificate
+        // tasks (in-tree TLS handshake offload -- RSA/ECDHE key exchange, certificate
         // chain validation) are CPU-bound work with no non-blocking JDK
         // API; offloaded here so a burst of new TLS connections never
         // stalls a SelectorLoop's other connections.
@@ -673,12 +671,12 @@ public class Gumdrop {
         startMailboxLifecycle();
 
         // Parse /etc/hosts (or Windows hosts) once off the selector so the
-        // first DNSResolver.resolve after accept cannot stall a reactor
+        // first DnsResolver.resolve after accept cannot stall a reactor
         // thread on cold hosts-file I/O.
         HostsFile.warm();
 
         // Parse /etc/resolv.conf once off the selector so the first
-        // DNSResolver.forLoop() call cannot stall a reactor thread on cold
+        // DnsResolver.forLoop() call cannot stall a reactor thread on cold
         // resolver-configuration I/O (see ResolvConf.warm()).
         ResolvConf.warm();
 
@@ -687,12 +685,14 @@ public class Gumdrop {
             workerLoops = new SelectorLoop[workerCount];
             for (int i = 0; i < workerCount; i++) {
                 workerLoops[i] = new SelectorLoop(i + 1);
+                workerLoops[i].setGumdrop(this);
             }
         } else {
             // Recreate any loops that were shut down
             for (int i = 0; i < workerCount; i++) {
                 if (!workerLoops[i].isRunning()) {
                     workerLoops[i] = new SelectorLoop(i + 1);
+                    workerLoops[i].setGumdrop(this);
                 }
             }
         }
@@ -702,27 +702,27 @@ public class Gumdrop {
             loop.start();
         }
 
-        // Start all registered services and collect their TCP listeners
-        for (int i = 0; i < services.size(); i++) {
-            Service service = services.get(i);
-            service.start();
-            registerServiceListeners(service);
+        // Start all registered protocol servers and collect their TCP listeners
+        for (int i = 0; i < servers.size(); i++) {
+            Server server = servers.get(i);
+            server.start(this);
+            registerServerListeners(server);
         }
 
         // Standalone listeners that don't use the TCP accept loop (e.g.
-        // HTTP3Listener's QUIC/UDP bind) can't complete their own start()
+        // Http3Listener's QUIC/UDP bind) can't complete their own start()
         // if addListener() ran before workerLoops existed — their start()
         // call at addListener() time deferred in that case. Give them a
         // second chance now that the worker-loop pool is ready (issue #106).
-        for (TCPListener listener : standaloneListeners) {
+        for (TcpListener listener : standaloneListeners) {
             if (!listener.requiresTcpAccept()) {
-                listener.start();
+                listener.start(this);
             }
         }
 
         // Start AcceptSelectorLoop if we have TCP listeners
         boolean hasTcpListeners = false;
-        for (TCPListener listener : serverListeners) {
+        for (TcpListener listener : serverListeners) {
             if (listener.requiresTcpAccept()) {
                 hasTcpListeners = true;
                 break;
@@ -733,9 +733,9 @@ public class Gumdrop {
             ensureAcceptLoop();
             // Register standalone listeners added before start(). Listeners
             // added after start() are registered directly by addListener(),
-            // and service-owned listeners were registered by
-            // registerServiceListeners() above.
-            for (TCPListener listener : standaloneListeners) {
+            // and protocol-server-owned listeners were registered by
+            // registerServerListeners() above.
+            for (TcpListener listener : standaloneListeners) {
                 if (listener.requiresTcpAccept()) {
                     acceptLoop.registerListener(listener);
                 }
@@ -778,7 +778,7 @@ public class Gumdrop {
      * <p>Shutdown occurs when Gumdrop has been started and no first-class
      * lifecycle participants remain:
      * <ul>
-     *   <li>No services are registered</li>
+     *   <li>No protocol servers are registered</li>
      *   <li>No server listeners are registered</li>
      *   <li>No active client connections exist</li>
      * </ul>
@@ -789,54 +789,58 @@ public class Gumdrop {
      * {@link #shutdown()}.
      */
     private void checkAutoShutdown() {
-        // The emptiness check and the publishing of pendingAsyncShutdown
-        // must be atomic with claimStart()'s own read of the same field
-        // plus the started flag (issue #426): otherwise a disconnecting
-        // client's checkAutoShutdown() and a new client's start() can
-        // interleave so that start() observes neither a pending shutdown
-        // nor started==false, hands out a SelectorLoop reference, and only
-        // then sees the shutdown it missed tear that very loop down.
         Thread shutdownThread;
         synchronized (lifecycleLock) {
-            if (!started) {
-                return;
-            }
-            if (!(services.isEmpty() && serverListeners.isEmpty()
-                    && activeClients.isEmpty())) {
-                return;
-            }
-            // Always dispatch to a separate thread, even when not called
-            // from a worker loop's own thread: removeClient() can be
-            // invoked from a ClientEndpoint's disconnected()/error()
-            // callback, which runs on the SelectorLoop thread handling
-            // that very connection -- making this a reentrant call from a
-            // worker loop's own thread. shutdown() below calls
-            // SelectorLoop.awaitQuiesce() on every loop including this
-            // one, and a thread cannot join itself: awaitQuiesce()
-            // short-circuits without actually waiting, but shutdown()
-            // never checks that return value, so it proceeds believing
-            // every loop is stopped while this one's thread is still
-            // alive and mid-unwind. A concurrent nextWorkerLoop()/start()
-            // call from another thread then sees isRunning()==true (the
-            // thread hasn't exited yet) and hands out a reference to it --
-            // whatever gets registered on it afterwards is silently lost
-            // the moment this thread finishes exiting its dispatch loop,
-            // since nothing will ever come back to process it. Running
-            // shutdown() off-thread unconditionally lets awaitQuiesce()
-            // perform a real join() for every loop, closing the window
-            // entirely -- provided every path back into this instance
-            // (start(), in practice) waits for that thread first; see
-            // claimStart().
-            shutdownThread = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    shutdown();
-                }
-            }, "gumdrop-auto-shutdown");
-            shutdownThread.setDaemon(true);
-            pendingAsyncShutdown = shutdownThread;
+            shutdownThread = scheduleAutoShutdownIfIdleLocked();
         }
-        shutdownThread.start();
+        if (shutdownThread != null) {
+            shutdownThread.start();
+        }
+    }
+
+    /**
+     * Schedules asynchronous {@link #shutdown()} when nothing remains to
+     * keep this instance running. Caller must hold {@link #lifecycleLock}.
+     */
+    private Thread scheduleAutoShutdownIfIdleLocked() {
+        if (!started) {
+            return null;
+        }
+        if (!(servers.isEmpty() && serverListeners.isEmpty()
+                && activeClients.isEmpty())) {
+            return null;
+        }
+        if (pendingAsyncShutdown != null) {
+            return null;
+        }
+        // Always dispatch to a separate thread, even when not called from a
+        // worker loop's own thread: removeClient() can be invoked from a
+        // ClientEndpoint's disconnected()/error() callback, which runs on the
+        // SelectorLoop thread handling that very connection -- making this a
+        // reentrant call from a worker loop's own thread. shutdown() below
+        // calls SelectorLoop.awaitQuiesce() on every loop including this one,
+        // and a thread cannot join itself: awaitQuiesce() short-circuits
+        // without actually waiting, but shutdown() never checks that return
+        // value, so it proceeds believing every loop is stopped while this
+        // one's thread is still alive and mid-unwind. A concurrent
+        // nextWorkerLoop()/start() call from another thread then sees
+        // isRunning()==true (the thread hasn't exited yet) and hands out a
+        // reference to it -- whatever gets registered on it afterwards is
+        // silently lost the moment this thread finishes exiting its dispatch
+        // loop, since nothing will ever come back to process it. Running
+        // shutdown() off-thread unconditionally lets awaitQuiesce() perform a
+        // real join() for every loop, closing the window entirely -- provided
+        // every path back into this instance (start(), in practice) waits for
+        // that thread first; see claimStart().
+        Thread shutdownThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                shutdown();
+            }
+        }, "gumdrop-auto-shutdown");
+        shutdownThread.setDaemon(true);
+        pendingAsyncShutdown = shutdownThread;
+        return shutdownThread;
     }
 
     /**
@@ -911,19 +915,53 @@ public class Gumdrop {
      *   <li><b>Drain</b> — wait up to {@link #getDrainTimeoutMs()} for the
      *       currently-open connections to finish naturally while the worker
      *       loops keep running.</li>
-     *   <li><b>Force stop</b> — stop services, clear state, and shut down the
-     *       worker loops, scheduled timer, storage pool, and configurator.</li>
+     *   <li><b>Force stop</b> — stop protocol servers, clear state, and shut down the
+     *       worker loops, scheduled timer, and storage pool.</li>
      * </ol>
      *
      * <p>After shutdown, {@link #start()} can be called again to restart.
      */
     public void shutdown() {
-        if (!started) {
+        if (!acquireShutdownLease()) {
             return;
         }
+        try {
+            doShutdown();
+        } finally {
+            synchronized (lifecycleLock) {
+                started = false;
+                draining = false;
+                shutdownInProgress = false;
+                lifecycleLock.notifyAll();
+            }
+            flushConsoleLogging();
+        }
+    }
 
-        if (LOGGER.isLoggable(Level.INFO)) {
-            LOGGER.info(L10N.getString("info.closing_servers"));
+    /**
+     * Claims the one-at-a-time shutdown lease, or returns false if shutdown
+     * already finished or is running on another thread.
+     */
+    private boolean acquireShutdownLease() {
+        synchronized (lifecycleLock) {
+            if (!started) {
+                return false;
+            }
+            if (shutdownInProgress) {
+                return false;
+            }
+            shutdownInProgress = true;
+            return true;
+        }
+    }
+
+    private void doShutdown() {
+        long drainTimeout = drainTimeoutMs;
+        if (drainTimeout > 0) {
+            operatorInfo(MessageFormat.format(
+                    L10N.getString("info.closing_servers"), drainTimeout));
+        } else {
+            operatorInfo(L10N.getString("info.closing_servers_no_drain"));
         }
 
         // No longer ready: fail readiness immediately so load balancers stop
@@ -939,28 +977,27 @@ public class Gumdrop {
         // Close server channels now so no new connections are admitted, but
         // keep the listener objects so their in-flight counts can be observed
         // during the drain phase below.
-        for (TCPListener server :
-                new ArrayList<TCPListener>(serverListeners)) {
+        for (TcpListener server :
+                new ArrayList<TcpListener>(serverListeners)) {
             server.closeServerChannels();
         }
 
         // ── Phase 2: drain in-flight connections (bounded) ──
-        long drainTimeout = drainTimeoutMs;
         if (drainTimeout > 0) {
             awaitConnectionsDrained(drainTimeout);
         }
 
         // ── Phase 3: force stop ──
-        // Stop all services (services stop their own listeners)
-        for (int i = 0; i < services.size(); i++) {
-            Service service = services.get(i);
-            service.stop();
+        // Stop all protocol servers (servers stop their own listeners)
+        for (int i = 0; i < servers.size(); i++) {
+            Server server = servers.get(i);
+            server.stop();
         }
-        services.clear();
+        servers.clear();
 
         // Stop any standalone server listeners
-        for (TCPListener server :
-                new ArrayList<TCPListener>(serverListeners)) {
+        for (TcpListener server :
+                new ArrayList<TcpListener>(serverListeners)) {
             server.stop();
             server.closeServerChannels();
         }
@@ -972,15 +1009,17 @@ public class Gumdrop {
 
         // Close DNS resolvers bound to worker loops
         for (SelectorLoop loop : workerLoops) {
-            DNSResolver.removeForLoop(loop);
+            DnsResolver.removeForLoop(loop);
         }
 
         // Stop worker loops, then wait briefly for each to flush and exit.
-        for (SelectorLoop loop : workerLoops) {
-            loop.shutdown();
-        }
-        for (SelectorLoop loop : workerLoops) {
-            loop.awaitQuiesce(LOOP_QUIESCE_TIMEOUT_MS);
+        if (workerLoops != null) {
+            for (SelectorLoop loop : workerLoops) {
+                loop.shutdown();
+            }
+            for (SelectorLoop loop : workerLoops) {
+                loop.awaitQuiesce(LOOP_QUIESCE_TIMEOUT_MS);
+            }
         }
 
         // Stop scheduled timer
@@ -1000,17 +1039,37 @@ public class Gumdrop {
 
         stopMailboxLifecycle();
 
-        // Shutdown configurator (destroy singleton components)
-        if (configurator != null) {
-            configurator.shutdown();
-            configurator = null;
+        operatorInfo(L10N.getString("info.servers_closed"));
+    }
+
+    /**
+     * Operator-visible lifecycle line (matches {@link org.bluezoo.gumdrop.util.LaconicFormatter}).
+     * Written to stderr so Ctrl+C / {@code SIGTERM} still show progress after
+     * {@code LogManager} shutdown hooks close JUL handlers.
+     */
+    private static void operatorInfo(String message) {
+        System.err.println("INFO: " + message);
+        System.err.flush();
+    }
+
+    private void awaitShutdownFinished() throws InterruptedException {
+        synchronized (lifecycleLock) {
+            while (shutdownInProgress) {
+                lifecycleLock.wait();
+            }
         }
+    }
 
-        started = false;
-        draining = false;
-
-        if (LOGGER.isLoggable(Level.FINE)) {
-            LOGGER.fine("Gumdrop shutdown complete");
+    private static void flushConsoleLogging() {
+        for (Logger logger = LOGGER; logger != null; logger = logger.getParent()) {
+            Handler[] handlers = logger.getHandlers();
+            for (int i = 0; i < handlers.length; i++) {
+                handlers[i].flush();
+            }
+        }
+        Handler[] rootHandlers = Logger.getLogger("").getHandlers();
+        for (int i = 0; i < rootHandlers.length; i++) {
+            rootHandlers[i].flush();
         }
     }
 
@@ -1062,8 +1121,8 @@ public class Gumdrop {
      */
     private int activeServerConnectionCount() {
         int total = 0;
-        for (TCPListener listener :
-                new ArrayList<TCPListener>(serverListeners)) {
+        for (TcpListener listener :
+                new ArrayList<TcpListener>(serverListeners)) {
             total += listener.getActiveConnectionCount();
         }
         return total;
@@ -1116,6 +1175,37 @@ public class Gumdrop {
         }
         for (SelectorLoop loop : workerLoops) {
             loop.join();
+        }
+    }
+
+    /**
+     * Blocks until {@link #shutdown()} has finished and all selector threads
+     * have exited. Intended for {@code main} after {@link #boot()} /
+     * {@link #addServer(Server)}.
+     *
+     * <p>On Unix, Ctrl+C often {@linkplain Thread#interrupt() interrupts} the
+     * blocked thread instead of running JVM shutdown hooks first. This method
+     * treats that interrupt as a shutdown request and calls {@link #shutdown()}
+     * before waiting again. {@code SIGTERM} and the registered shutdown hook
+     * still call {@code shutdown()} as usual; repeated calls are harmless.
+     *
+     * @throws InterruptedException if interrupted while waiting for shutdown
+     */
+    public void awaitShutdown() throws InterruptedException {
+        launcherThread = Thread.currentThread();
+        try {
+            try {
+                join();
+            } catch (InterruptedException e) {
+                Thread.interrupted();
+                shutdown();
+            }
+            awaitShutdownFinished();
+            Thread.interrupted();
+            join();
+        } finally {
+            launcherThread = null;
+            flushConsoleLogging();
         }
     }
 
@@ -1257,72 +1347,18 @@ public class Gumdrop {
 
         @Override
         public void run() {
+            Thread launcher = launcherThread;
+            if (launcher != null) {
+                launcher.interrupt();
+                try {
+                    launcher.join();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return;
+            }
             shutdown();
         }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Main entry point
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Main entry point for running Gumdrop as a standalone server.
-     *
-     * @param args command line arguments (optional: path to gumdroprc)
-     */
-    public static void main(String[] args) {
-        // Determine configuration file location. Search order:
-        //   1. explicit command-line argument
-        //   2. GUMDROP_CONFIG environment variable (12-factor / container)
-        //   3. ~/.gumdroprc
-        //   4. /etc/gumdroprc
-        File gumdroprc = null;
-        if (args.length > 0) {
-            gumdroprc = new File(args[0]);
-        } else {
-            String envConfig = System.getenv("GUMDROP_CONFIG");
-            if (envConfig != null && !envConfig.isEmpty()) {
-                gumdroprc = new File(envConfig);
-            } else {
-                gumdroprc = new File(System.getProperty("user.home")
-                        + File.separator + ".gumdroprc");
-            }
-        }
-        if (!gumdroprc.exists()) {
-            gumdroprc = new File("/etc/gumdroprc");
-        }
-        if (!gumdroprc.exists()) {
-            System.out.println(L10N.getString("err.syntax"));
-            System.exit(1);
-        }
-
-        System.out.println(L10N.getString("banner"));
-
-        // Get instance with configuration
-        Gumdrop gumdrop = getInstance(gumdroprc);
-
-        // Allow the graceful-drain timeout to be tuned per environment.
-        String drainEnv = System.getenv("GUMDROP_DRAIN_TIMEOUT_MS");
-        if (drainEnv != null && !drainEnv.isEmpty()) {
-            try {
-                gumdrop.setDrainTimeoutMs(Long.parseLong(drainEnv.trim()));
-            } catch (NumberFormatException e) {
-                LOGGER.warning(MessageFormat.format(
-                        L10N.getString("warn.invalid_drain_timeout_env"), drainEnv));
-            }
-        }
-
-        // Start
-        gumdrop.start();
-
-        // Wait for shutdown
-        try {
-            gumdrop.join();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        LOGGER.info(L10N.getString("info.gumdrop_end_loop"));
     }
 
     private void startMailboxLifecycle() {

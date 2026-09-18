@@ -21,64 +21,15 @@
 
 package org.bluezoo.gumdrop;
 
-import java.util.List;
-
 /**
- * A service represents a unit of application logic that owns one or more
- * transport listeners (endpoints).
+ * Legacy name for {@link Server}. New code should use {@link Server} and
+ * {@link Gumdrop#addServer(Server)}.
  *
- * <p>Services are the primary configuration entity in Gumdrop. Each service
- * defines <em>what</em> to do with connections or requests (protocol
- * behaviour, authentication, routing), while its listeners define
- * <em>where</em> to listen (ports, addresses, TLS configuration).
- *
- * <p>The lifecycle contract is:
- * <ol>
- * <li>{@link #start()} initialises application logic, then wires and
- *     starts all listeners.</li>
- * <li>{@link #stop()} stops all listeners (static and dynamic), then
- *     tears down application logic.</li>
- * </ol>
- *
- * <p>Services may own both <em>static</em> listeners (declared in
- * configuration) and <em>dynamic</em> listeners (created at runtime,
- * e.g., FTP data connections or cluster multicast endpoints).
- * {@link #getListeners()} returns all current listeners of both kinds.
- *
+ * @deprecated as of Gumdrop 3.0; use {@link Server} instead. Protocol
+ *             facades will be renamed {@code *Server} in subsequent taxonomy
+ *             slices (see CONTRIBUTING.md).
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see TCPListener
  */
-public interface Service {
-
-    /**
-     * Returns all current listeners owned by this service, including
-     * both static (configured) and dynamic (runtime-created) listeners.
-     *
-     * <p>The returned list may change over the lifetime of the service
-     * as dynamic listeners are created and destroyed.
-     *
-     * @return a list of listener endpoints, never null
-     */
-    // Raw type is intentional here: implementations return lists of
-    // different concrete Listener subtypes (e.g. List<MQTTListener>,
-    // List<SOCKSListener>), and this method is implemented by several
-    // service classes outside the scope of this change; parameterizing
-    // it would ripple unrelated [unchecked] warnings into those classes.
-    @SuppressWarnings("rawtypes")
-    List getListeners();
-
-    /**
-     * Starts this service. Implementations should first initialise
-     * application-level resources (containers, thread pools, caches),
-     * then wire and start each listener.
-     */
-    void start();
-
-    /**
-     * Stops this service. Implementations should first stop all
-     * listeners (both static and dynamic), then tear down
-     * application-level resources.
-     */
-    void stop();
-
+@Deprecated
+public interface Service extends Server {
 }

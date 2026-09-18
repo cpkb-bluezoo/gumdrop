@@ -21,12 +21,13 @@
 
 package org.bluezoo.gumdrop.servlet.session;
 
-import org.bluezoo.gumdrop.UDPEndpoint;
+import org.bluezoo.gumdrop.UdpEndpoint;
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.UDPTransportFactory;
+import org.bluezoo.gumdrop.UdpTransportFactory;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 
 import javax.crypto.Cipher;
@@ -142,8 +143,8 @@ public class Cluster {
     // Telemetry metrics (null if not configured)
     private ClusterMetrics metrics;
 
-    private UDPEndpoint endpoint;
-    private UDPTransportFactory transportFactory;
+    private UdpEndpoint endpoint;
+    private UdpTransportFactory transportFactory;
     private TelemetryConfig telemetryConfig;
 
     /**
@@ -289,8 +290,8 @@ public class Cluster {
         return "cluster";
     }
 
-    public void open() throws IOException {
-        transportFactory = new UDPTransportFactory();
+    public void open(Gumdrop gumdrop) throws IOException {
+        transportFactory = new UdpTransportFactory();
         transportFactory.start();
 
         DatagramChannel channel = DatagramChannel.open(protocolFamily);
@@ -313,7 +314,7 @@ public class Cluster {
         channel.setOption(StandardSocketOptions.IP_MULTICAST_IF, networkInterface);
         channel.join(group, networkInterface);
 
-        endpoint = transportFactory.createServerEndpoint(channel, new ClusterProtocolHandler());
+        endpoint = transportFactory.createServerEndpoint(gumdrop, channel, new ClusterProtocolHandler());
 
         // Initialize metrics if telemetry is configured
         initializeMetrics();

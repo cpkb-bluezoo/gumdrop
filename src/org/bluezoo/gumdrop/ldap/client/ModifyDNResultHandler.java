@@ -25,7 +25,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * Handler for modify DN (rename/move) operation results.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPSession#modifyDN
+ * @see LdapSession#modifyDN
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.9">RFC 4511 §4.9 — ModifyDN</a>
  */
 public interface ModifyDNResultHandler {
@@ -46,7 +46,7 @@ public interface ModifyDNResultHandler {
      * @param result the operation result
      * @param session operations for further directory access
      */
-    void handleModifyDNResult(LDAPResult result, LDAPSession session);
+    void handleModifyDNResult(LdapResult result, LdapSession session);
 
 }
 

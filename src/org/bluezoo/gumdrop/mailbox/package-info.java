@@ -28,7 +28,7 @@
  * over several {@code Mailbox} instances; {@link
  * org.bluezoo.gumdrop.mailbox.MailboxFactory} creates either for a given
  * backend. {@link org.bluezoo.gumdrop.mailbox.MessageDescriptor} (and
- * IMAP's richer {@link org.bluezoo.gumdrop.mailbox.IMAPMessageDescriptor})
+ * IMAP's richer {@link org.bluezoo.gumdrop.mailbox.ImapMessageDescriptor})
  * describe one message's metadata; {@link
  * org.bluezoo.gumdrop.mailbox.AsyncMessageContent}/{@link
  * org.bluezoo.gumdrop.mailbox.AsyncMessageWriter} provide non-blocking
@@ -43,7 +43,7 @@
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.pop3.POP3Listener
- * @see org.bluezoo.gumdrop.imap.IMAPListener
+ * @see org.bluezoo.gumdrop.pop3.Pop3Listener
+ * @see org.bluezoo.gumdrop.imap.ImapListener
  */
 package org.bluezoo.gumdrop.mailbox;

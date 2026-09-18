@@ -10,7 +10,25 @@ Run the unit tests:
 ant test
 ```
 
-This runs the JUnit test suite. For a full test run including integration tests (HTTP, SMTP, IMAP, POP3, FTP, servlet, etc.):
+To run one unit test class (do **not** use Maven-style `-Dtest=…`; that is rejected by `build.xml`):
+
+```bash
+ant junit-test -Djunit.includes=**/AsyncDiskOffloadBoundaryTest.java
+```
+
+Optional unit-test line coverage (not run in CI by default):
+
+```bash
+ant junit-coverage
+```
+
+This runs the same unit suite as `ant test` with the JaCoCo agent, writes execution
+data under `test/junit/coverage/`, and an HTML report under `test/junit/report/`
+(open `index.html` in a browser). JUnit plain results still go to `test/junit/results/`.
+
+This runs the JUnit suite under `test/junit/src`: **logic-only** tests with no real network I/O (no loopback sockets, no Gumdrop accept/worker loops driving live channels). Anything that opens sockets, sends datagrams, or runs end-to-end over the network stack belongs under `test/integration/src` and is run via `ant integration-test` (or `ant integration-test-loopback` for the loopback-only slice).
+
+For a full test run including integration tests (HTTP, SMTP, IMAP, POP3, FTP, servlet, etc.):
 
 ```bash
 ant test-all
@@ -262,7 +280,7 @@ String result = sb.toString();
 
 **Acceptable (builder pattern):**
 ```java
-DNSMessage response = new DNSMessage.Builder()
+DnsMessage response = new DnsMessage.Builder()
     .id(query.getId())
     .flags(FLAG_QR | FLAG_RA)
     .build();
@@ -491,7 +509,7 @@ if (appendBuffer != null) {
 Errors in parsers or codecs that are caught and handled internally, or represent malformed data from external sources:
 ```java
 // Good - hardcoded, internal parsing error
-throw new ASN1Exception("Invalid tag: 0x" + Integer.toHexString(tag));
+throw new Asn1Exception("Invalid tag: 0x" + Integer.toHexString(tag));
 
 // Good - hardcoded, protocol violation
 throw new ProtocolException("Invalid HPACK index: " + index);
@@ -539,6 +557,30 @@ Gumdrop uses its own telemetry system which is compatible with OpenTelemetry
 and uses the same concepts. When adding new features consider if they
 require a new span within the current trace. When implementing, if there are
 any error conditions ensure that they are logged into the trace.
+
+## Gumdrop 3 naming conventions
+
+Gumdrop 3 renames public types for **role clarity** and **consistent camelCase
+acronyms** (hopf precedent). Remaining legacy public types and their targets
+are listed in `test/junit/resources/gumdrop3-legacy-type-renames.properties`.
+
+**New public types** in `src/org/bluezoo/gumdrop` must follow these rules:
+
+1. **Acronyms** — only the first letter capitalised per word:
+   `HttpServer`, `SmtpClient`, `DnsMessage`, `Pop3Server` (not `HttpServer`,
+   `SmtpClient`, …).
+2. **Application tier** — listener + handler wiring uses `*Server`, not
+   `*Service` (`HttpServer`, `SmtpServer`). Do not add new `*Service` types.
+3. **Client reply handlers** — in `{protocol}.client` packages, never prefix
+   with `Server` for remote-side replies (`EhloReplyHandler`, not
+   `ServerEhloReplyHandler`).
+4. **Handlers and facades** — server SPIs use `*RequestHandler` / staged server
+   handlers; dial facades use `*Client`.
+
+During migration, legacy names remain in the tree. Any **new** public type that
+still uses a legacy pattern must be listed in
+`test/junit/resources/gumdrop3-legacy-type-renames.properties` with its target
+name; `Gumdrop3NamingConventionTest` enforces this inventory.
 
 ## Summary
 

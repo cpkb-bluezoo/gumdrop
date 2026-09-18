@@ -29,7 +29,7 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpRoute;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.Headers;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
@@ -37,7 +37,7 @@ import org.bluezoo.gumdrop.http.HttpDatagramContext;
  * Protocol handler for CONNECT-IP client connections over HTTP/1.1 (RFC
  * 9484 section 4.2, RFC 9110 section 7.8).
  *
- * <p>Extends {@link HTTPClientProtocolHandler} exactly the way {@link
+ * <p>Extends {@link HttpClientProtocolHandler} exactly the way {@link
  * ConnectUdpClientProtocolHandler} does for RFC 9298: before the
  * upgrade, HTTP parsing proceeds normally; once a {@code 101 Switching
  * Protocols} response with {@code Upgrade: connect-ip} is received,
@@ -49,10 +49,10 @@ import org.bluezoo.gumdrop.http.HttpDatagramContext;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see ConnectIpClient
- * @see HTTPClientProtocolHandler
+ * @see HttpClientProtocolHandler
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9484">RFC 9484</a>
  */
-class ConnectIpClientProtocolHandler extends HTTPClientProtocolHandler {
+class ConnectIpClientProtocolHandler extends HttpClientProtocolHandler {
 
     private final ConnectIpEventHandler eventHandler;
 
@@ -69,7 +69,7 @@ class ConnectIpClientProtocolHandler extends HTTPClientProtocolHandler {
      * @param port the target port
      * @param secure whether this is a secure (TLS) connection
      */
-    ConnectIpClientProtocolHandler(HTTPClientHandler clientHandler,
+    ConnectIpClientProtocolHandler(HttpClientHandler clientHandler,
                                    ConnectIpEventHandler eventHandler,
                                    String host, int port,
                                    boolean secure) {
@@ -80,14 +80,14 @@ class ConnectIpClientProtocolHandler extends HTTPClientProtocolHandler {
     /**
      * Exposes the inherited Alt-Svc listener hook to {@link
      * ConnectIpClient}, in the same package but not a subclass of {@link
-     * HTTPClientProtocolHandler}. An override cannot narrow the inherited
+     * HttpClientProtocolHandler}. An override cannot narrow the inherited
      * method's access, so this stays {@code protected} -- callers in this
      * package (like {@link ConnectIpClient}) can still reach it.
      *
      * @param listener the listener, or null to disable
      */
     @Override
-    protected void setAltSvcListener(AltSvcListener listener) {
+    public void setAltSvcListener(AltSvcListener listener) {
         super.setAltSvcListener(listener);
     }
 
@@ -101,7 +101,7 @@ class ConnectIpClientProtocolHandler extends HTTPClientProtocolHandler {
 
     /** RFC 9484 section 4.2: validates and switches to CONNECT-IP tunnel mode. */
     @Override
-    protected boolean handleProtocolSwitch(HTTPStatus status, Headers headers) {
+    protected boolean handleProtocolSwitch(HttpStatus status, Headers headers) {
         if (!"connect-ip".equalsIgnoreCase(headers.getValue("upgrade"))) {
             return false;
         }
@@ -117,7 +117,7 @@ class ConnectIpClientProtocolHandler extends HTTPClientProtocolHandler {
 
         // Drain any pipelined capsule bytes left in the current receive()
         // call's buffer beyond what the lexer has consumed so far -- see
-        // HTTPClientProtocolHandler#currentReceiveBuffer -- after opened(),
+        // HttpClientProtocolHandler#currentReceiveBuffer -- after opened(),
         // so the application always sees acceptance before any datagram.
         if (currentReceiveBuffer != null && currentReceiveBuffer.hasRemaining()) {
             dispatchCapsules(currentReceiveBuffer);
@@ -210,7 +210,7 @@ class ConnectIpClientProtocolHandler extends HTTPClientProtocolHandler {
      * org.bluezoo.gumdrop.http.h3.H3ClientConnectUdpResponseHandler}'s
      * own documentation for why a single class cannot implement both
      * {@link ConnectIpClientSession} and an interface that (like {@link
-     * HTTPResponseHandler}) also declares a differently-meaning {@code
+     * HttpResponseHandler}) also declares a differently-meaning {@code
      * close()} -- not a concern for this particular class today, but kept
      * consistent with the pattern regardless.
      */

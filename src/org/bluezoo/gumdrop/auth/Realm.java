@@ -61,7 +61,7 @@ import javax.crypto.spec.SecretKeySpec;
  * with a client connection bound to the specified loop.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see SASLMechanism
+ * @see SaslMechanism
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4422">RFC 4422: SASL Framework</a>
  */
 public interface Realm {
@@ -96,23 +96,23 @@ public interface Realm {
      *
      * <p>The relationship between mechanisms and realm methods:
      * <ul>
-     *   <li>{@link SASLMechanism#PLAIN}, {@link SASLMechanism#LOGIN} - 
+     *   <li>{@link SaslMechanism#PLAIN}, {@link SaslMechanism#LOGIN} - 
      *       require {@link #passwordMatch}</li>
-     *   <li>{@link SASLMechanism#CRAM_MD5} - 
+     *   <li>{@link SaslMechanism#CRAM_MD5} - 
      *       requires {@link #getCramMD5Response}</li>
-     *   <li>{@link SASLMechanism#DIGEST_MD5} - 
+     *   <li>{@link SaslMechanism#DIGEST_MD5} - 
      *       requires {@link #getDigestHA1}</li>
-     *   <li>{@link SASLMechanism#SCRAM_SHA_256} - 
+     *   <li>{@link SaslMechanism#SCRAM_SHA_256} - 
      *       requires {@link #getScramCredentials}</li>
-     *   <li>{@link SASLMechanism#EXTERNAL} - 
+     *   <li>{@link SaslMechanism#EXTERNAL} - 
      *       requires {@link #authenticateCertificate}</li>
-     *   <li>{@link SASLMechanism#OAUTHBEARER} - 
+     *   <li>{@link SaslMechanism#OAUTHBEARER} - 
      *       requires {@link #validateBearerToken}</li>
      * </ul>
      *
      * @return an unmodifiable set of supported SASL mechanisms
      */
-    Set<SASLMechanism> getSupportedSASLMechanisms();
+    Set<SaslMechanism> getSupportedSASLMechanisms();
 
     /**
      * RFC 4616 — verifies that the given password matches the stored credentials

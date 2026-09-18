@@ -41,7 +41,7 @@ class DefaultDeliveryRequirements implements DeliveryRequirements {
     private Instant releaseTime;
     private Instant deliverByDeadline;
     private Boolean deliverByReturn;
-    private DSNReturn dsnReturn;
+    private DsnReturn dsnReturn;
     private String dsnEnvelopeId;
 
     /**
@@ -121,7 +121,7 @@ class DefaultDeliveryRequirements implements DeliveryRequirements {
     }
 
     @Override
-    public DSNReturn getDsnReturn() {
+    public DsnReturn getDsnReturn() {
         return dsnReturn;
     }
 
@@ -130,7 +130,7 @@ class DefaultDeliveryRequirements implements DeliveryRequirements {
      * 
      * @param dsnReturn the return type (FULL or HDRS)
      */
-    void setDsnReturn(DSNReturn dsnReturn) {
+    void setDsnReturn(DsnReturn dsnReturn) {
         this.dsnReturn = dsnReturn;
     }
 

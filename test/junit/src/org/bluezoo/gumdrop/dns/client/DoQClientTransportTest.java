@@ -38,7 +38,7 @@ public class DoQClientTransportTest {
     /**
      * RFC 9250 section 4.5: only QUERY and NOTIFY opcodes may ride 0-RTT
      * early data -- checked directly against the raw wire bytes (before
-     * any {@code DNSMessage} parse), matching {@code
+     * any {@code DnsMessage} parse), matching {@code
      * DoQClientTransport.isEarlyDataEligible}'s own comment about the
      * header byte layout (RFC 1035 section 4.1.1: {@code QR(1) OPCODE(4)
      * ...}).
@@ -50,20 +50,20 @@ public class DoQClientTransportTest {
         method.setAccessible(true);
 
         assertTrue("QUERY should be 0-RTT-eligible",
-                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DNSMessage.OPCODE_QUERY)));
+                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DnsMessage.OPCODE_QUERY)));
         assertTrue("NOTIFY should be 0-RTT-eligible",
-                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DNSMessage.OPCODE_NOTIFY)));
+                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DnsMessage.OPCODE_NOTIFY)));
         assertFalse("STATUS should not be 0-RTT-eligible",
-                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DNSMessage.OPCODE_STATUS)));
+                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DnsMessage.OPCODE_STATUS)));
         assertFalse("IQUERY should not be 0-RTT-eligible",
-                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DNSMessage.OPCODE_IQUERY)));
+                (Boolean) method.invoke(null, header(org.bluezoo.gumdrop.dns.DnsMessage.OPCODE_IQUERY)));
         assertFalse("A too-short buffer should not be eligible",
                 (Boolean) method.invoke(null, java.nio.ByteBuffer.wrap(new byte[] {0, 0})));
     }
 
     // Builds a minimal 3-byte prefix of a DNS header (ID(2) + the flags
     // byte containing QR(1)/OPCODE(4)) -- enough for isEarlyDataEligible's
-    // own header-byte check, without needing a full DNSMessage.
+    // own header-byte check, without needing a full DnsMessage.
     private static java.nio.ByteBuffer header(int opcode) {
         byte flagsHighByte = (byte) ((opcode << 3) & 0xFF);
         return java.nio.ByteBuffer.wrap(new byte[] {0, 0, flagsHighByte});
@@ -81,7 +81,7 @@ public class DoQClientTransportTest {
         final boolean[] errorReported = {false};
         java.nio.ByteBuffer data = java.nio.ByteBuffer.allocate(12);
 
-        DNSClientTransportHandler handler = new DNSClientTransportHandler() {
+        DnsClientTransportHandler handler = new DnsClientTransportHandler() {
             @Override
             public void onReceive(java.nio.ByteBuffer response) {
             }

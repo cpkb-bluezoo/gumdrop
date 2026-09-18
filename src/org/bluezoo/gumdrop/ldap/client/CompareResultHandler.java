@@ -28,7 +28,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * attribute value without retrieving the entry.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPSession#compare
+ * @see LdapSession#compare
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.10">RFC 4511 §4.10 — Compare</a>
  */
 public interface CompareResultHandler {
@@ -40,7 +40,7 @@ public interface CompareResultHandler {
      * 
      * @param session operations for further directory access
      */
-    void handleCompareTrue(LDAPSession session);
+    void handleCompareTrue(LdapSession session);
 
     /**
      * Called when the comparison does not match.
@@ -49,7 +49,7 @@ public interface CompareResultHandler {
      * 
      * @param session operations for further directory access
      */
-    void handleCompareFalse(LDAPSession session);
+    void handleCompareFalse(LdapSession session);
 
     /**
      * Called when the compare operation fails.
@@ -64,7 +64,7 @@ public interface CompareResultHandler {
      * @param result the failure result
      * @param session operations for further directory access
      */
-    void handleCompareFailure(LDAPResult result, LDAPSession session);
+    void handleCompareFailure(LdapResult result, LdapSession session);
 
 }
 

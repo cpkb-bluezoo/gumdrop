@@ -31,59 +31,59 @@ public class MQTTPropertiesTest {
 
     @Test
     public void testEmptyProperties() {
-        assertTrue(MQTTProperties.EMPTY.isEmpty());
-        assertEquals(0, MQTTProperties.EMPTY.encodedLength());
+        assertTrue(MqttProperties.EMPTY.isEmpty());
+        assertEquals(0, MqttProperties.EMPTY.encodedLength());
     }
 
     @Test
     public void testIntegerPropertyRoundTrip() {
-        MQTTProperties props = new MQTTProperties();
-        props.setIntegerProperty(MQTTProperties.SESSION_EXPIRY_INTERVAL, 300);
-        props.setIntegerProperty(MQTTProperties.RECEIVE_MAXIMUM, 20);
+        MqttProperties props = new MqttProperties();
+        props.setIntegerProperty(MqttProperties.SESSION_EXPIRY_INTERVAL, 300);
+        props.setIntegerProperty(MqttProperties.RECEIVE_MAXIMUM, 20);
 
         ByteBuffer buf = ByteBuffer.allocate(256);
         props.encode(buf);
         buf.flip();
 
-        MQTTProperties decoded = MQTTProperties.decode(buf);
+        MqttProperties decoded = MqttProperties.decode(buf);
         assertEquals(Integer.valueOf(300),
-                decoded.getIntegerProperty(MQTTProperties.SESSION_EXPIRY_INTERVAL));
+                decoded.getIntegerProperty(MqttProperties.SESSION_EXPIRY_INTERVAL));
         assertEquals(Integer.valueOf(20),
-                decoded.getIntegerProperty(MQTTProperties.RECEIVE_MAXIMUM));
+                decoded.getIntegerProperty(MqttProperties.RECEIVE_MAXIMUM));
     }
 
     @Test
     public void testStringPropertyRoundTrip() {
-        MQTTProperties props = new MQTTProperties();
-        props.setStringProperty(MQTTProperties.CONTENT_TYPE, "application/json");
+        MqttProperties props = new MqttProperties();
+        props.setStringProperty(MqttProperties.CONTENT_TYPE, "application/json");
 
         ByteBuffer buf = ByteBuffer.allocate(256);
         props.encode(buf);
         buf.flip();
 
-        MQTTProperties decoded = MQTTProperties.decode(buf);
+        MqttProperties decoded = MqttProperties.decode(buf);
         assertEquals("application/json",
-                decoded.getStringProperty(MQTTProperties.CONTENT_TYPE));
+                decoded.getStringProperty(MqttProperties.CONTENT_TYPE));
     }
 
     @Test
     public void testBinaryPropertyRoundTrip() {
-        MQTTProperties props = new MQTTProperties();
+        MqttProperties props = new MqttProperties();
         byte[] data = {0x01, 0x02, 0x03, 0x04};
-        props.setBinaryProperty(MQTTProperties.CORRELATION_DATA, data);
+        props.setBinaryProperty(MqttProperties.CORRELATION_DATA, data);
 
         ByteBuffer buf = ByteBuffer.allocate(256);
         props.encode(buf);
         buf.flip();
 
-        MQTTProperties decoded = MQTTProperties.decode(buf);
+        MqttProperties decoded = MqttProperties.decode(buf);
         assertArrayEquals(data,
-                decoded.getBinaryProperty(MQTTProperties.CORRELATION_DATA));
+                decoded.getBinaryProperty(MqttProperties.CORRELATION_DATA));
     }
 
     @Test
     public void testUserPropertiesRoundTrip() {
-        MQTTProperties props = new MQTTProperties();
+        MqttProperties props = new MqttProperties();
         props.addUserProperty("key1", "value1");
         props.addUserProperty("key2", "value2");
 
@@ -91,7 +91,7 @@ public class MQTTPropertiesTest {
         props.encode(buf);
         buf.flip();
 
-        MQTTProperties decoded = MQTTProperties.decode(buf);
+        MqttProperties decoded = MqttProperties.decode(buf);
         List<String[]> userProps = decoded.getUserProperties();
         assertNotNull(userProps);
         assertEquals(2, userProps.size());
@@ -103,19 +103,19 @@ public class MQTTPropertiesTest {
 
     @Test
     public void testBytePropertyRoundTrip() {
-        MQTTProperties props = new MQTTProperties();
-        props.setIntegerProperty(MQTTProperties.PAYLOAD_FORMAT_INDICATOR, 1);
-        props.setIntegerProperty(MQTTProperties.MAXIMUM_QOS, 1);
+        MqttProperties props = new MqttProperties();
+        props.setIntegerProperty(MqttProperties.PAYLOAD_FORMAT_INDICATOR, 1);
+        props.setIntegerProperty(MqttProperties.MAXIMUM_QOS, 1);
 
         ByteBuffer buf = ByteBuffer.allocate(256);
         props.encode(buf);
         buf.flip();
 
-        MQTTProperties decoded = MQTTProperties.decode(buf);
+        MqttProperties decoded = MqttProperties.decode(buf);
         assertEquals(Integer.valueOf(1),
-                decoded.getIntegerProperty(MQTTProperties.PAYLOAD_FORMAT_INDICATOR));
+                decoded.getIntegerProperty(MqttProperties.PAYLOAD_FORMAT_INDICATOR));
         assertEquals(Integer.valueOf(1),
-                decoded.getIntegerProperty(MQTTProperties.MAXIMUM_QOS));
+                decoded.getIntegerProperty(MqttProperties.MAXIMUM_QOS));
     }
 
     @Test
@@ -124,7 +124,7 @@ public class MQTTPropertiesTest {
         buf.put((byte) 0); // property length = 0
         buf.flip();
 
-        MQTTProperties decoded = MQTTProperties.decode(buf);
-        assertSame(MQTTProperties.EMPTY, decoded);
+        MqttProperties decoded = MqttProperties.decode(buf);
+        assertSame(MqttProperties.EMPTY, decoded);
     }
 }

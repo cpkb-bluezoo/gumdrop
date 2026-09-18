@@ -48,7 +48,7 @@ public class WebDAVLockManagerTest {
 
         WebDAVLock lock = manager.lock(collection,
                 WebDAVLock.Scope.EXCLUSIVE, WRITE,
-                DAVConstants.DEPTH_INFINITY, "owner", 3600);
+                DavConstants.DEPTH_INFINITY, "owner", 3600);
         assertNotNull(lock);
         assertTrue(manager.isLocked(file));
         assertEquals(1, manager.getCoveringLocks(file).size());
@@ -64,7 +64,7 @@ public class WebDAVLockManagerTest {
                 0, "child", 3600));
         assertNull("exclusive lock on a descendant must block a new parent lock",
                 manager.lock(parent, WebDAVLock.Scope.SHARED, WRITE,
-                        DAVConstants.DEPTH_INFINITY, "parent", 3600));
+                        DavConstants.DEPTH_INFINITY, "parent", 3600));
     }
 
     @Test(timeout = 10000)

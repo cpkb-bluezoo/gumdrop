@@ -22,11 +22,11 @@
 package org.bluezoo.gumdrop.ftp.file;
 
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.ftp.FTPAuthenticationResult;
-import org.bluezoo.gumdrop.ftp.FTPConnectionHandler;
-import org.bluezoo.gumdrop.ftp.FTPConnectionMetadata;
-import org.bluezoo.gumdrop.ftp.FTPFileOperationResult;
-import org.bluezoo.gumdrop.ftp.FTPFileSystem;
+import org.bluezoo.gumdrop.ftp.FtpAuthenticationResult;
+import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
+import org.bluezoo.gumdrop.ftp.FtpConnectionMetadata;
+import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
+import org.bluezoo.gumdrop.ftp.FtpFileSystem;
 
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
@@ -49,25 +49,25 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class SimpleFTPHandler implements FTPConnectionHandler {
+public class SimpleFTPHandler implements FtpConnectionHandler {
     
     private static final Logger LOGGER = Logger.getLogger(SimpleFTPHandler.class.getName());
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
     
-    private final FTPFileSystem fileSystem;
+    private final FtpFileSystem fileSystem;
     private final Realm realm;
     
-    public SimpleFTPHandler(FTPFileSystem fileSystem) {
+    public SimpleFTPHandler(FtpFileSystem fileSystem) {
         this(fileSystem, null);
     }
     
-    public SimpleFTPHandler(FTPFileSystem fileSystem, Realm realm) {
+    public SimpleFTPHandler(FtpFileSystem fileSystem, Realm realm) {
         this.fileSystem = fileSystem;
         this.realm = realm;
     }
     
     @Override
-    public String connected(FTPConnectionMetadata metadata) {
+    public String connected(FtpConnectionMetadata metadata) {
         String clientHost = metadata.getClientAddress() != null ? 
                            metadata.getClientAddress().getHostString() : "unknown";
         LOGGER.info(MessageFormat.format(
@@ -78,15 +78,15 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
     }
     
     @Override
-    public FTPAuthenticationResult authenticate(String username, String password, 
-                                              String account, FTPConnectionMetadata metadata) {
+    public FtpAuthenticationResult authenticate(String username, String password, 
+                                              String account, FtpConnectionMetadata metadata) {
         
         if (username == null || username.trim().isEmpty()) {
-            return FTPAuthenticationResult.INVALID_USER;
+            return FtpAuthenticationResult.INVALID_USER;
         }
         
         if (password == null) {
-            return FTPAuthenticationResult.NEED_PASSWORD;
+            return FtpAuthenticationResult.NEED_PASSWORD;
         }
         
         String clientHost = metadata.getClientAddress() != null ? 
@@ -100,38 +100,38 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
                 if (authenticated) {
                     LOGGER.info(MessageFormat.format(
                             L10N.getString("info.simple_ftp_realm_auth_success"), username, clientHost));
-                    return FTPAuthenticationResult.SUCCESS;
+                    return FtpAuthenticationResult.SUCCESS;
                 } else {
                     LOGGER.warning(MessageFormat.format(
                             L10N.getString("warn.simple_ftp_auth_failed"), clientHost));
-                    return FTPAuthenticationResult.INVALID_PASSWORD;
+                    return FtpAuthenticationResult.INVALID_PASSWORD;
                 }
             } else {
                 // Simple authentication - accept any non-empty password
                 if (password.trim().isEmpty()) {
-                    return FTPAuthenticationResult.INVALID_PASSWORD;
+                    return FtpAuthenticationResult.INVALID_PASSWORD;
                 }
 
                 LOGGER.info(MessageFormat.format(
                         L10N.getString("info.simple_ftp_simple_auth_success"), username, clientHost));
-                return FTPAuthenticationResult.SUCCESS;
+                return FtpAuthenticationResult.SUCCESS;
             }
 
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, MessageFormat.format(
                     L10N.getString("warn.simple_ftp_auth_error"), clientHost), e);
-            return FTPAuthenticationResult.INVALID_PASSWORD;
+            return FtpAuthenticationResult.INVALID_PASSWORD;
         }
     }
     
     @Override
-    public FTPFileSystem getFileSystem(FTPConnectionMetadata metadata) {
+    public FtpFileSystem getFileSystem(FtpConnectionMetadata metadata) {
         return fileSystem;
     }
     
     @Override
     public void transferStarting(String path, boolean upload, long size, 
-                               FTPConnectionMetadata metadata) {
+                               FtpConnectionMetadata metadata) {
         String direction = upload ? "upload" : "download";
         String sizeStr = (size >= 0) ? " (" + size + " bytes)" : "";
         LOGGER.info(MessageFormat.format(
@@ -141,7 +141,7 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
     
     @Override
     public void transferProgress(String path, boolean upload, ByteBuffer data, 
-                               long totalBytesTransferred, FTPConnectionMetadata metadata) {
+                               long totalBytesTransferred, FtpConnectionMetadata metadata) {
         // Log progress every 1MB for demo purposes
         if (totalBytesTransferred % (1024 * 1024) == 0) {
             String direction = upload ? "upload" : "download";
@@ -153,7 +153,7 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
     
     @Override
     public void transferCompleted(String path, boolean upload, long totalBytesTransferred, 
-                                boolean success, FTPConnectionMetadata metadata) {
+                                boolean success, FtpConnectionMetadata metadata) {
         String direction = upload ? "upload" : "download";
         String status = success ? "completed" : "failed";
         LOGGER.info(MessageFormat.format(
@@ -162,20 +162,20 @@ public class SimpleFTPHandler implements FTPConnectionHandler {
     }
     
     @Override
-    public FTPFileOperationResult handleSiteCommand(String command, FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult handleSiteCommand(String command, FtpConnectionMetadata metadata) {
         // Demo SITE command handling
         LOGGER.info(MessageFormat.format(
                 L10N.getString("info.simple_ftp_site_command"), metadata.getAuthenticatedUser(), command));
         
         if (command.toUpperCase().startsWith("HELP")) {
-            return FTPFileOperationResult.SUCCESS;
+            return FtpFileOperationResult.SUCCESS;
         }
         
-        return FTPFileOperationResult.NOT_SUPPORTED;
+        return FtpFileOperationResult.NOT_SUPPORTED;
     }
     
     @Override
-    public void disconnected(FTPConnectionMetadata metadata) {
+    public void disconnected(FtpConnectionMetadata metadata) {
         LOGGER.info(MessageFormat.format(
                 L10N.getString("info.simple_ftp_disconnected"),
                 metadata.getClientAddress(), metadata.getAuthenticatedUser()));

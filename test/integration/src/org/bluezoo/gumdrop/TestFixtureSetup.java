@@ -95,7 +95,6 @@ public class TestFixtureSetup {
     public void setupAll() throws Exception {
         createDirectories();
         setupCertificates();
-        validateConfigs();
         createManifest();
     }
 
@@ -194,37 +193,6 @@ public class TestFixtureSetup {
             log.println("ERROR: Failed to generate certificates: " + e.getMessage());
             errors++;
             throw e;
-        }
-    }
-
-    /**
-     * Validates test configuration files.
-     */
-    public void validateConfigs() {
-        log.println();
-        log.println("=== Validating Configurations ===");
-        
-        String[] configs = {
-            "test/integration/config/http-server-test.xml",
-            "test/integration/config/https-server-test.xml",
-            "test/integration/config/smtp-server-test.xml",
-            "test/integration/config/pop3-maildir-server-test.xml",
-            "test/integration/config/pop3-mbox-server-test.xml"
-        };
-        
-        for (String config : configs) {
-            File f = new File(config);
-            if (f.exists()) {
-                if (f.canRead()) {
-                    log.println("OK: " + config);
-                } else {
-                    log.println("WARNING: Cannot read: " + config);
-                    warnings++;
-                }
-            } else {
-                log.println("WARNING: Missing config: " + config);
-                warnings++;
-            }
         }
     }
 

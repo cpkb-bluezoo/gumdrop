@@ -22,11 +22,12 @@
 package org.bluezoo.gumdrop.smtp;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
 import org.junit.After;
@@ -55,7 +56,7 @@ import javax.crypto.spec.SecretKeySpec;
  * both SCRAM round trips (client-first and client-final). See {@code
  * org.bluezoo.gumdrop.imap.IMAPScramCredentialsOffloadTest} for the full
  * background -- this is the SMTP counterpart, exercising {@code
- * SMTPProtocolHandler}'s own SCRAM call sites.
+ * SmtpProtocolHandler}'s own SCRAM call sites.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -73,12 +74,7 @@ public class SMTPScramCredentialsOffloadTest {
     @Before
     public void setUp() throws Exception {
         StorageExecutor.workThreadObserver = null;
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("StorageExecutor must exist after Gumdrop.start()",
                 gumdrop.getStorageExecutor());
     }
@@ -93,11 +89,12 @@ public class SMTPScramCredentialsOffloadTest {
 
     @Test(timeout = 20000)
     public void scramCredentialDerivationRunsOffSelectorLoopThread() throws Exception {
-        SMTPListener listener = new SMTPListener();
+        SmtpListener listener = new SmtpListener();
         listener.setRealm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
 
-        SMTPProtocolHandler handler = new SMTPProtocolHandler(listener, null);
+        SmtpProtocolHandler handler = new SmtpProtocolHandler(listener, null);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(25);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
         endpoint.setSecure(true);
         handler.connected(endpoint);
 
@@ -189,7 +186,7 @@ public class SMTPScramCredentialsOffloadTest {
 
         byte[] storedKey = java.security.MessageDigest.getInstance("SHA-256").digest(clientKey);
 
-        byte[] clientSignature = SASLUtils.hmacSHA256(storedKey,
+        byte[] clientSignature = SaslUtils.hmacSHA256(storedKey,
                 authMessage.getBytes(StandardCharsets.UTF_8));
         byte[] proof = new byte[clientSignature.length];
         for (int i = 0; i < proof.length; i++) {
@@ -216,8 +213,8 @@ public class SMTPScramCredentialsOffloadTest {
     private static final class Pbkdf2ScramRealm implements Realm {
         private final String user;
         private final String password;
-        private static final Set<SASLMechanism> SUPPORTED =
-                Collections.unmodifiableSet(EnumSet.of(SASLMechanism.SCRAM_SHA_256));
+        private static final Set<SaslMechanism> SUPPORTED =
+                Collections.unmodifiableSet(EnumSet.of(SaslMechanism.SCRAM_SHA_256));
 
         Pbkdf2ScramRealm(String user, String password) {
             this.user = user;
@@ -230,7 +227,7 @@ public class SMTPScramCredentialsOffloadTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
 

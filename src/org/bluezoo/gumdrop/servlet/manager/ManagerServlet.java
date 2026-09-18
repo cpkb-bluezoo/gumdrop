@@ -62,8 +62,8 @@ public class ManagerServlet extends HttpServlet {
                         ? ResourceBundle.getBundle(L10N_NAME)
                         : ResourceBundle.getBundle(L10N_NAME, locale);
 
-        ManagerContextService ctx = (ManagerContextService) getServletContext();
-        ManagerContainerService container = ctx.getContainer();
+        ManagerContextServer ctx = (ManagerContextServer) getServletContext();
+        ManagerContainerServer container = ctx.getContainer();
         ThreadPoolExecutor threadPool = ctx.getWorkerThreadPool();
 
         String contextPath = request.getContextPath();
@@ -116,7 +116,7 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendThreadPoolSection(StringBuilder buf, ResourceBundle resources, 
-                                         ManagerContextService ctx, ThreadPoolExecutor threadPool) {
+                                         ManagerContextServer ctx, ThreadPoolExecutor threadPool) {
         buf.append("  <section class='card thread-pool'>\n");
         buf.append("    <h2>").append(resources.getString("threads")).append("</h2>\n");
         
@@ -166,12 +166,12 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendContextsSection(StringBuilder buf, ResourceBundle resources, 
-                                       ManagerContainerService container, String managerContextPath) {
+                                       ManagerContainerServer container, String managerContextPath) {
         buf.append("  <section class='card contexts'>\n");
         buf.append("    <h2>").append(resources.getString("contexts")).append("</h2>\n");
         buf.append("    <div class='context-list'>\n");
         
-        for (ManagerContextService context : container.getContexts()) {
+        for (ManagerContextServer context : container.getContexts()) {
             appendContextCard(buf, resources, context, managerContextPath);
         }
         
@@ -180,7 +180,7 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendContextCard(StringBuilder buf, ResourceBundle resources, 
-                                   ManagerContextService context, String managerContextPath) {
+                                   ManagerContextServer context, String managerContextPath) {
         HitStatistics stats = context.getHitStatistics();
         String icon = context.getSmallIcon();
         if (icon == null) {
@@ -249,7 +249,7 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendFiltersSection(StringBuilder buf, ResourceBundle resources, 
-                                      ManagerContextService context, String managerContextPath) {
+                                      ManagerContextServer context, String managerContextPath) {
         Map<String,? extends FilterRegistration> filters = context.getFilterRegistrations();
         if (filters.isEmpty()) {
             return;
@@ -295,7 +295,7 @@ public class ManagerServlet extends HttpServlet {
     }
     
     private void appendServletsSection(StringBuilder buf, ResourceBundle resources, 
-                                       ManagerContextService context, String managerContextPath) {
+                                       ManagerContextServer context, String managerContextPath) {
         Map<String,? extends ServletRegistration> servlets = context.getServletRegistrations();
         if (servlets.isEmpty()) {
             return;
@@ -373,8 +373,8 @@ public class ManagerServlet extends HttpServlet {
                         : ResourceBundle.getBundle(ManagerServlet.class.getName(), locale);
 
         String contextPath = request.getContextPath();
-        ManagerContextService ctx = (ManagerContextService) getServletContext();
-        ManagerContainerService container = ctx.getContainer();
+        ManagerContextServer ctx = (ManagerContextServer) getServletContext();
+        ManagerContainerServer container = ctx.getContainer();
         ThreadPoolExecutor threadPool = ctx.getWorkerThreadPool();
 
         for (Enumeration<String> names = request.getParameterNames(); names.hasMoreElements(); ) {
@@ -403,7 +403,7 @@ public class ManagerServlet extends HttpServlet {
                         return;
                     }
                 } else if ("reload".equals(name)) {
-                    ManagerContextService context = container.getContext(value);
+                    ManagerContextServer context = container.getContext(value);
                     try {
                         context.reload();
                     } catch (Exception e) {

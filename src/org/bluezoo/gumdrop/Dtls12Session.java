@@ -54,7 +54,7 @@ final class Dtls12Session implements TlsRecordSink {
     private static final Logger LOGGER = Logger.getLogger(Dtls12Session.class.getName());
 
     private final Dtls12HandshakeConfig config;
-    private final UDPEndpoint endpoint;
+    private final UdpEndpoint endpoint;
     private final InetSocketAddress remoteAddress;
 
     private Dtls12RecordEngine engine;
@@ -67,7 +67,7 @@ final class Dtls12Session implements TlsRecordSink {
     private SecurityInfo securityInfo;
     private final long handshakeStartTime = System.currentTimeMillis();
 
-    Dtls12Session(Dtls12HandshakeConfig config, UDPEndpoint endpoint, InetSocketAddress remoteAddress) {
+    Dtls12Session(Dtls12HandshakeConfig config, UdpEndpoint endpoint, InetSocketAddress remoteAddress) {
         this.config = config;
         this.endpoint = endpoint;
         this.remoteAddress = remoteAddress;
@@ -356,11 +356,13 @@ final class Dtls12Session implements TlsRecordSink {
         endpoint.onDtlsSessionFailed(remoteAddress, new IOException(reason));
     }
 
-    private static HandshakeAsyncOffload handshakeOffload(final UDPEndpoint endpoint) {
-        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint));
+    private static HandshakeAsyncOffload handshakeOffload(final UdpEndpoint endpoint) {
+        SelectorLoop loop = endpoint.getSelectorLoop();
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
+        return new TlsHandshakeAsyncOffload(loopExecutor(endpoint), gumdrop);
     }
 
-    private static Executor loopExecutor(final UDPEndpoint endpoint) {
+    private static Executor loopExecutor(final UdpEndpoint endpoint) {
         return new Executor() {
             @Override
             public void execute(Runnable task) {

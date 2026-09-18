@@ -55,7 +55,7 @@ import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
 import org.bluezoo.gumdrop.util.SniCredentialsResolver;
-import org.bluezoo.gumdrop.util.TLSUtils;
+import org.bluezoo.gumdrop.util.TlsUtils;
 
 /**
  * Configuration and bootstrap for QUIC transports.
@@ -406,7 +406,7 @@ public class QuicTransportFactory extends TransportFactory {
      * Sets whether this server requires address validation via a Retry
      * packet (RFC 9000 section 8.1.2) before accepting a new connection.
      * Default {@code false} on the factory itself so programmatic and
-     * test engines stay opt-in; {@code HTTP3Listener} and
+     * test engines stay opt-in; {@code Http3Listener} and
      * {@code DoQListener} turn Retry <em>on</em> by default and expose
      * {@code require-retry} to opt into a more permissive (no-Retry)
      * mode for trusted networks. Has no effect on client-mode engines.
@@ -526,7 +526,7 @@ public class QuicTransportFactory extends TransportFactory {
                     serverCredentials = PemCredentials.loadServerCredentials(certFile, keyFile);
                 } else if (keystoreFile != null && keystorePass != null) {
                     if (isSNIEnabled()) {
-                        KeyStore keyStore = TLSUtils.loadKeyStore(
+                        KeyStore keyStore = TlsUtils.loadKeyStore(
                                 keystoreFile, keystorePass, keystoreFormat);
                         serverCredentialsResolver = new SniCredentialsResolver(
                                 keyStore, keystorePass, sniHostnameToAlias, sniDefaultAlias);
@@ -537,7 +537,7 @@ public class QuicTransportFactory extends TransportFactory {
                                     sniHostnameToAlias.size()));
                         }
                     } else {
-                        serverCredentials = TLSUtils.loadServerCredentials(
+                        serverCredentials = TlsUtils.loadServerCredentials(
                                 keystoreFile, keystorePass, keystoreFormat);
                     }
                 }
@@ -562,7 +562,7 @@ public class QuicTransportFactory extends TransportFactory {
         if (explicitTrustManager != null) {
             base = explicitTrustManager;
         } else if (truststoreFile != null && truststorePass != null) {
-            base = firstX509TrustManager(TLSUtils.loadTrustManagers(
+            base = firstX509TrustManager(TlsUtils.loadTrustManagers(
                     truststoreFile, truststorePass, truststoreFormat));
         } else if (caFile != null) {
             base = PemCredentials.loadTrustManager(caFile);
@@ -784,7 +784,7 @@ public class QuicTransportFactory extends TransportFactory {
         // 4.6.1) -- rather than later, asynchronously, from this
         // engine's own SelectorLoop thread the way ConnectionAcceptedHandler
         // always does. Calling connect() from any other thread (the
-        // normal case -- e.g. HTTPClient.connect() is typically called
+        // normal case -- e.g. HttpClient.connect() is typically called
         // by application code, not from a SelectorLoop thread) would
         // otherwise let earlyDataHandler's own QuicConnection-touching
         // work run concurrently with this engine's own packet processing

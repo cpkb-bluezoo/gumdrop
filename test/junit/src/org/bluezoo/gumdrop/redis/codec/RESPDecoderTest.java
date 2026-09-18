@@ -30,17 +30,17 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link RESPDecoder}.
+ * Unit tests for {@link RespDecoder}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class RESPDecoderTest {
 
-    private RESPDecoder decoder;
+    private RespDecoder decoder;
 
     @Before
     public void setUp() {
-        decoder = new RESPDecoder();
+        decoder = new RespDecoder();
     }
 
     private ByteBuffer wrap(String data) {
@@ -50,7 +50,7 @@ public class RESPDecoderTest {
     private void recv(String data) {
         try {
             decoder.receive(wrap(data));
-        } catch (RESPException e) {
+        } catch (RespException e) {
             throw new AssertionError(e);
         }
     }
@@ -58,7 +58,7 @@ public class RESPDecoderTest {
     private void recv(ByteBuffer data) {
         try {
             decoder.receive(data);
-        } catch (RESPException e) {
+        } catch (RespException e) {
             throw new AssertionError(e);
         }
     }
@@ -68,9 +68,9 @@ public class RESPDecoderTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testDecodeSimpleString() throws RESPException {
+    public void testDecodeSimpleString() throws RespException {
         recv("+OK\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isSimpleString());
@@ -78,25 +78,25 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testDecodeSimpleStringPong() throws RESPException {
+    public void testDecodeSimpleStringPong() throws RespException {
         recv("+PONG\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals("PONG", value.asString());
     }
 
     @Test
-    public void testDecodeEmptySimpleString() throws RESPException {
+    public void testDecodeEmptySimpleString() throws RespException {
         recv("+\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals("", value.asString());
     }
 
     @Test
-    public void testDecodeSimpleStringWithSpaces() throws RESPException {
+    public void testDecodeSimpleStringWithSpaces() throws RespException {
         recv("+hello world\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals("hello world", value.asString());
     }
@@ -106,9 +106,9 @@ public class RESPDecoderTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testDecodeError() throws RESPException {
+    public void testDecodeError() throws RespException {
         recv("-ERR unknown command\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isError());
@@ -117,17 +117,17 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testDecodeWrongTypeError() throws RESPException {
+    public void testDecodeWrongTypeError() throws RespException {
         recv("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals("WRONGTYPE", value.getErrorType());
     }
 
     @Test
-    public void testDecodeMovedError() throws RESPException {
+    public void testDecodeMovedError() throws RespException {
         recv("-MOVED 3999 127.0.0.1:6381\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals("MOVED", value.getErrorType());
         assertEquals("MOVED 3999 127.0.0.1:6381", value.getErrorMessage());
@@ -138,9 +138,9 @@ public class RESPDecoderTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testDecodeInteger() throws RESPException {
+    public void testDecodeInteger() throws RespException {
         recv(":1000\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isInteger());
@@ -148,31 +148,31 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testDecodeZero() throws RESPException {
+    public void testDecodeZero() throws RespException {
         recv(":0\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals(0, value.asLong());
     }
 
     @Test
-    public void testDecodeNegativeInteger() throws RESPException {
+    public void testDecodeNegativeInteger() throws RespException {
         recv(":-500\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals(-500, value.asLong());
     }
 
     @Test
-    public void testDecodeLargeInteger() throws RESPException {
+    public void testDecodeLargeInteger() throws RespException {
         recv(":9223372036854775807\r\n"); // Long.MAX_VALUE
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals(Long.MAX_VALUE, value.asLong());
     }
 
-    @Test(expected = RESPException.class)
-    public void testDecodeInvalidInteger() throws RESPException {
+    @Test(expected = RespException.class)
+    public void testDecodeInvalidInteger() throws RespException {
         recv(":abc\r\n");
         decoder.next();
     }
@@ -182,9 +182,9 @@ public class RESPDecoderTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testDecodeBulkString() throws RESPException {
+    public void testDecodeBulkString() throws RespException {
         recv("$5\r\nhello\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isBulkString());
@@ -192,33 +192,33 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testDecodeEmptyBulkString() throws RESPException {
+    public void testDecodeEmptyBulkString() throws RespException {
         recv("$0\r\n\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals("", value.asString());
     }
 
     @Test
-    public void testDecodeNullBulkString() throws RESPException {
+    public void testDecodeNullBulkString() throws RespException {
         recv("$-1\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isNull());
     }
 
     @Test
-    public void testDecodeBulkStringWithCRLF() throws RESPException {
+    public void testDecodeBulkStringWithCRLF() throws RespException {
         // "foo\r\nbar" is 8 bytes: f, o, o, \r, \n, b, a, r
         recv("$8\r\nfoo\r\nbar\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertEquals("foo\r\nbar", value.asString());
     }
 
     @Test
-    public void testDecodeBulkStringWithBinaryData() throws RESPException {
+    public void testDecodeBulkStringWithBinaryData() throws RespException {
         // Create a buffer with binary data
         ByteBuffer buf = ByteBuffer.allocate(20);
         buf.put("$4\r\n".getBytes(StandardCharsets.UTF_8));
@@ -227,14 +227,14 @@ public class RESPDecoderTest {
         buf.flip();
 
         recv(buf);
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         byte[] bytes = value.asBytes();
         assertArrayEquals(new byte[] { 0x00, 0x01, (byte) 0xFF, 0x7F }, bytes);
     }
 
-    @Test(expected = RESPException.class)
-    public void testDecodeInvalidBulkStringLength() throws RESPException {
+    @Test(expected = RespException.class)
+    public void testDecodeInvalidBulkStringLength() throws RespException {
         recv("$abc\r\nhello\r\n");
         decoder.next();
     }
@@ -244,9 +244,9 @@ public class RESPDecoderTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testDecodeEmptyArray() throws RESPException {
+    public void testDecodeEmptyArray() throws RespException {
         recv("*0\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isArray());
@@ -254,31 +254,31 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testDecodeNullArray() throws RESPException {
+    public void testDecodeNullArray() throws RespException {
         recv("*-1\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertTrue(value.isNull());
     }
 
     @Test
-    public void testDecodeArrayOfBulkStrings() throws RESPException {
+    public void testDecodeArrayOfBulkStrings() throws RespException {
         recv("*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertTrue(value.isArray());
-        List<RESPValue> elements = value.asArray();
+        List<RespValue> elements = value.asArray();
         assertEquals(2, elements.size());
         assertEquals("foo", elements.get(0).asString());
         assertEquals("bar", elements.get(1).asString());
     }
 
     @Test
-    public void testDecodeArrayOfIntegers() throws RESPException {
+    public void testDecodeArrayOfIntegers() throws RespException {
         recv("*3\r\n:1\r\n:2\r\n:3\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
-        List<RESPValue> elements = value.asArray();
+        List<RespValue> elements = value.asArray();
         assertEquals(3, elements.size());
         assertEquals(1, elements.get(0).asLong());
         assertEquals(2, elements.get(1).asLong());
@@ -286,11 +286,11 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testDecodeMixedArray() throws RESPException {
+    public void testDecodeMixedArray() throws RespException {
         recv("*4\r\n+OK\r\n:100\r\n$5\r\nhello\r\n*0\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
-        List<RESPValue> elements = value.asArray();
+        List<RespValue> elements = value.asArray();
         assertEquals(4, elements.size());
         assertTrue(elements.get(0).isSimpleString());
         assertTrue(elements.get(1).isInteger());
@@ -299,11 +299,11 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testDecodeArrayWithNullElement() throws RESPException {
+    public void testDecodeArrayWithNullElement() throws RespException {
         recv("*3\r\n$3\r\nfoo\r\n$-1\r\n$3\r\nbar\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
-        List<RESPValue> elements = value.asArray();
+        List<RespValue> elements = value.asArray();
         assertEquals(3, elements.size());
         assertEquals("foo", elements.get(0).asString());
         assertTrue(elements.get(1).isNull());
@@ -311,19 +311,19 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testDecodeNestedArray() throws RESPException {
+    public void testDecodeNestedArray() throws RespException {
         recv("*2\r\n*2\r\n:1\r\n:2\r\n*2\r\n:3\r\n:4\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
-        List<RESPValue> outer = value.asArray();
+        List<RespValue> outer = value.asArray();
         assertEquals(2, outer.size());
 
-        List<RESPValue> inner1 = outer.get(0).asArray();
+        List<RespValue> inner1 = outer.get(0).asArray();
         assertEquals(2, inner1.size());
         assertEquals(1, inner1.get(0).asLong());
         assertEquals(2, inner1.get(1).asLong());
 
-        List<RESPValue> inner2 = outer.get(1).asArray();
+        List<RespValue> inner2 = outer.get(1).asArray();
         assertEquals(2, inner2.size());
         assertEquals(3, inner2.get(0).asLong());
         assertEquals(4, inner2.get(1).asLong());
@@ -334,54 +334,54 @@ public class RESPDecoderTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testIncompleteSimpleString() throws RESPException {
+    public void testIncompleteSimpleString() throws RespException {
         recv("+OK");
         assertNull(decoder.next());
 
         recv("\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
         assertEquals("OK", value.asString());
     }
 
     @Test
-    public void testIncompleteBulkString() throws RESPException {
+    public void testIncompleteBulkString() throws RespException {
         recv("$5\r\nhel");
         assertNull(decoder.next());
 
         recv("lo\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
         assertEquals("hello", value.asString());
     }
 
     @Test
-    public void testIncompleteArray() throws RESPException {
+    public void testIncompleteArray() throws RespException {
         recv("*2\r\n$3\r\nfoo\r\n");
         assertNull(decoder.next());
 
         recv("$3\r\nbar\r\n");
-        RESPValue value = decoder.next();
-        List<RESPValue> elements = value.asArray();
+        RespValue value = decoder.next();
+        List<RespValue> elements = value.asArray();
         assertEquals(2, elements.size());
     }
 
     @Test
-    public void testMultipleCompleteValuesInOneReceive() throws RESPException {
+    public void testMultipleCompleteValuesInOneReceive() throws RespException {
         recv("+OK\r\n:100\r\n$3\r\nfoo\r\n");
 
-        RESPValue v1 = decoder.next();
+        RespValue v1 = decoder.next();
         assertEquals("OK", v1.asString());
 
-        RESPValue v2 = decoder.next();
+        RespValue v2 = decoder.next();
         assertEquals(100, v2.asLong());
 
-        RESPValue v3 = decoder.next();
+        RespValue v3 = decoder.next();
         assertEquals("foo", v3.asString());
 
         assertNull(decoder.next());
     }
 
     @Test
-    public void testByteByByteDecoding() throws RESPException {
+    public void testByteByByteDecoding() throws RespException {
         String data = "+OK\r\n";
         for (int i = 0; i < data.length() - 1; i++) {
             recv(data.substring(i, i + 1));
@@ -389,7 +389,7 @@ public class RESPDecoderTest {
         }
 
         recv(data.substring(data.length() - 1));
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
         assertEquals("OK", value.asString());
     }
 
@@ -398,13 +398,13 @@ public class RESPDecoderTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testReset() throws RESPException {
+    public void testReset() throws RespException {
         recv("+partial");
         decoder.reset();
         assertEquals(0, decoder.bufferedBytes());
 
         recv("+OK\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
         assertEquals("OK", value.asString());
     }
 
@@ -420,13 +420,13 @@ public class RESPDecoderTest {
     }
 
     @Test
-    public void testBufferGrowth() throws RESPException {
+    public void testBufferGrowth() throws RespException {
         // Create a decoder with small initial capacity
-        decoder = new RESPDecoder(8);
+        decoder = new RespDecoder(8);
 
         // Send data larger than initial capacity
         recv("$20\r\n12345678901234567890\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
         assertEquals("12345678901234567890", value.asString());
     }
 
@@ -434,14 +434,14 @@ public class RESPDecoderTest {
     // Error cases
     // ─────────────────────────────────────────────────────────────────────────
 
-    @Test(expected = RESPException.class)
-    public void testUnknownTypePrefix() throws RESPException {
+    @Test(expected = RespException.class)
+    public void testUnknownTypePrefix() throws RespException {
         recv("X123\r\n");
         decoder.next();
     }
 
-    @Test(expected = RESPException.class)
-    public void testInvalidArrayCount() throws RESPException {
+    @Test(expected = RespException.class)
+    public void testInvalidArrayCount() throws RespException {
         recv("*abc\r\n");
         decoder.next();
     }
@@ -451,12 +451,12 @@ public class RESPDecoderTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testNextOnEmptyBuffer() throws RESPException {
+    public void testNextOnEmptyBuffer() throws RespException {
         assertNull(decoder.next());
     }
 
     @Test
-    public void testReceiveEmptyBuffer() throws RESPException {
+    public void testReceiveEmptyBuffer() throws RespException {
         recv(ByteBuffer.allocate(0));
         assertNull(decoder.next());
     }
@@ -466,36 +466,36 @@ public class RESPDecoderTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    public void testRoundtripCommand() throws RESPException {
-        RESPEncoder encoder = new RESPEncoder();
+    public void testRoundtripCommand() throws RespException {
+        RespEncoder encoder = new RespEncoder();
         ByteBuffer encoded = encoder.encodeCommand("SET", new String[] { "key", "value" });
 
         // Decode as array
         recv(encoded);
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertTrue(value.isArray());
-        List<RESPValue> elements = value.asArray();
+        List<RespValue> elements = value.asArray();
         assertEquals(3, elements.size());
         assertEquals("SET", elements.get(0).asString());
         assertEquals("key", elements.get(1).asString());
         assertEquals("value", elements.get(2).asString());
     }
 
-    @Test(expected = RESPException.class)
-    public void testHugeArrayCountRejected() throws RESPException {
+    @Test(expected = RespException.class)
+    public void testHugeArrayCountRejected() throws RespException {
         StringBuilder sb = new StringBuilder();
         sb.append('*');
-        sb.append(RESPDecoder.MAX_COLLECTION_ELEMENTS + 1);
+        sb.append(RespDecoder.MAX_COLLECTION_ELEMENTS + 1);
         sb.append("\r\n");
         recv(ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.UTF_8)));
         decoder.next();
     }
 
-    @Test(expected = RESPException.class)
-    public void testDeepNestingRejected() throws RESPException {
+    @Test(expected = RespException.class)
+    public void testDeepNestingRejected() throws RespException {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i <= RESPDecoder.MAX_NESTING_DEPTH; i++) {
+        for (int i = 0; i <= RespDecoder.MAX_NESTING_DEPTH; i++) {
             sb.append("*1\r\n");
         }
         recv(ByteBuffer.wrap(sb.toString().getBytes(StandardCharsets.UTF_8)));

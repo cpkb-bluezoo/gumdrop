@@ -22,7 +22,7 @@
 package org.bluezoo.gumdrop.mime.rfc5322;
 
 import org.bluezoo.gumdrop.mime.ContentID;
-import org.bluezoo.gumdrop.mime.MIMEParser;
+import org.bluezoo.gumdrop.mime.MimeParser;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.CharsetDecoder;
@@ -85,7 +85,7 @@ public class MessageIDParser {
 				int atIndex = value.position();
 				int savedLimit = value.limit();
 				value.position(startLocal).limit(atIndex);
-				String localPart = MIMEParser.decodeSlice(value, decoder);
+				String localPart = MimeParser.decodeSlice(value, decoder);
 				value.limit(savedLimit);
 				value.position(atIndex + 1);
 				int startDomain = value.position();
@@ -94,7 +94,7 @@ public class MessageIDParser {
 				}
 				int gtIndex = value.position();
 				value.position(startDomain).limit(gtIndex);
-				String domain = MIMEParser.decodeSlice(value, decoder);
+				String domain = MimeParser.decodeSlice(value, decoder);
 				value.limit(savedLimit);
 				value.position(gtIndex + 1);
 				boolean smtputf8 = isSmtpUtf8(decoder);

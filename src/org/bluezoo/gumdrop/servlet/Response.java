@@ -22,8 +22,8 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.HTTPConstants;
-import org.bluezoo.gumdrop.http.HTTPDateFormat;
+import org.bluezoo.gumdrop.http.HttpConstants;
+import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
 
@@ -60,11 +60,11 @@ class Response implements HttpServletResponse {
 
     private static final Logger LOGGER = Logger.getLogger(Response.class.getName());
 
-    // HTTPDateFormat is thread-safe; these formatters are shared across worker
+    // HttpDateFormat is thread-safe; these formatters are shared across worker
     // threads. expiresDateFormat is an immutable java.time formatter, and UTF-8
     // encoding uses a fresh (thread-safe) encoder per call, so none of the
     // request-path formatting shares mutable state.
-    static final DateFormat dateFormat = new HTTPDateFormat();
+    static final DateFormat dateFormat = new HttpDateFormat();
     static final DateTimeFormatter expiresDateFormat =
             DateTimeFormatter.ofPattern("EEEE, dd-MM-yyyy HH:mm:ss zzz")
                     .withZone(ZoneId.systemDefault());
@@ -234,7 +234,7 @@ class Response implements HttpServletResponse {
     }
 
     public void sendError(int sc) throws IOException {
-        sendError(sc, HTTPConstants.getMessage(sc), null, null);
+        sendError(sc, HttpConstants.getMessage(sc), null, null);
     }
 
     public void sendError(int sc, String msg) throws IOException {
@@ -295,7 +295,7 @@ class Response implements HttpServletResponse {
                 commit();
                 return;
             }
-            String httpMessage = HTTPConstants.getMessage(sc);
+            String httpMessage = HttpConstants.getMessage(sc);
             StringBuffer buf = new StringBuffer();
             buf.append("<html>\r\n\t<head>\r\n\t\t<title>");
             buf.append(Integer.toString(sc));

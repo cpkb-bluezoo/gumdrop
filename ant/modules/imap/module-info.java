@@ -5,7 +5,6 @@ module org.bluezoo.gumdrop.imap {
     requires org.bluezoo.gumdrop.mailbox;
 
     exports org.bluezoo.gumdrop.imap;
-    exports org.bluezoo.gumdrop.imap.handler;
+    exports org.bluezoo.gumdrop.imap.server;
     exports org.bluezoo.gumdrop.imap.client;
-    exports org.bluezoo.gumdrop.imap.client.handler;
 }

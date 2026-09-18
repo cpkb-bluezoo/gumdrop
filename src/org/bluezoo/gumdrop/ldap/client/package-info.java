@@ -24,18 +24,18 @@
  *
  * <p>Different state interfaces are provided at each stage of the
  * session, enforcing valid sequencing at compile time -- {@link
- * org.bluezoo.gumdrop.ldap.client.LDAPConnectionReady} (entry point) to
- * {@link org.bluezoo.gumdrop.ldap.client.LDAPConnected} (bind or
+ * org.bluezoo.gumdrop.ldap.client.LdapConnectionReady} (entry point) to
+ * {@link org.bluezoo.gumdrop.ldap.client.LdapConnected} (bind or
  * STARTTLS available) to, after STARTTLS, {@link
- * org.bluezoo.gumdrop.ldap.client.LDAPPostTLS} (bind only), finally
- * {@link org.bluezoo.gumdrop.ldap.client.LDAPSession} once bound, where
+ * org.bluezoo.gumdrop.ldap.client.LdapPostTLS} (bind only), finally
+ * {@link org.bluezoo.gumdrop.ldap.client.LdapSession} once bound, where
  * the full directory operation set (search, modify, add, delete,
  * compare, modify DN, extended operations) becomes available. Each
  * operation has a matching result handler interface, e.g. {@link
  * org.bluezoo.gumdrop.ldap.client.SearchResultHandler} delivers entries
  * as they arrive and a final completion callback rather than
  * accumulating the result set. {@link
- * org.bluezoo.gumdrop.ldap.client.LDAPResultCode} enumerates the RFC
+ * org.bluezoo.gumdrop.ldap.client.LdapResultCode} enumerates the RFC
  * 4511 section 4.1.9 result codes every operation's outcome is reported
  * against.
  *

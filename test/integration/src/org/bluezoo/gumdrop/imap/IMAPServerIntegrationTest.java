@@ -22,10 +22,11 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 
 import java.util.Collections;
@@ -47,7 +48,7 @@ import java.util.logging.Logger;
 import static org.junit.Assert.*;
 
 /**
- * Integration test for IMAPListener with mbox mailbox store.
+ * Integration test for ImapListener with mbox mailbox store.
  * 
  * <p>Tests IMAP server functionality including connection handling,
  * authentication, mailbox operations, and message access.
@@ -71,7 +72,7 @@ public class IMAPServerIntegrationTest {
         .build();
     
     private Gumdrop gumdrop;
-    private IMAPListener imapServer;
+    private ImapListener imapServer;
 
     /** Private temporary copy of the mbox fixture (deleted in teardown). */
     private Path mboxRoot;
@@ -95,18 +96,16 @@ public class IMAPServerIntegrationTest {
         TestRealm realm = new TestRealm();
         
         // Create IMAP server
-        imapServer = new IMAPListener();
+        imapServer = new ImapListener();
         imapServer.setPort(IMAP_PORT);
         imapServer.setAddresses("::1");
         imapServer.setRealm(realm);
         imapServer.setMailboxFactory(new MboxMailboxFactory(mboxRoot));
         imapServer.setAllowPlaintextLogin(true); // Allow plaintext login for testing
         
-        // Start server using singleton with lifecycle management
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
+        // Start server using its own dedicated runtime
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
         gumdrop.addListener(imapServer);
-        gumdrop.start();
         
         // Wait for server to be ready
         waitForPort(IMAP_PORT, 5000);
@@ -158,7 +157,7 @@ public class IMAPServerIntegrationTest {
     @Test
     public void testCapability() throws Exception {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("CAPABILITY");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("CAPABILITY");
             
             assertTrue("CAPABILITY should succeed", response.ok);
             
@@ -178,7 +177,7 @@ public class IMAPServerIntegrationTest {
     @Test
     public void testNoop() throws Exception {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("NOOP");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("NOOP");
             
             assertTrue("NOOP should succeed", response.ok);
         }
@@ -221,7 +220,7 @@ public class IMAPServerIntegrationTest {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             // List all mailboxes - use a non-empty reference to work around empty string parsing
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("LIST INBOX \"*\"");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("LIST INBOX \"*\"");
             
             // Skip if LIST parsing has issues
             if (response.bad) {
@@ -241,7 +240,7 @@ public class IMAPServerIntegrationTest {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("SELECT INBOX");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("SELECT INBOX");
             
             assertTrue("SELECT INBOX should succeed", response.ok);
             
@@ -267,7 +266,7 @@ public class IMAPServerIntegrationTest {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             // EXAMINE is like SELECT but read-only
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("EXAMINE INBOX");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("EXAMINE INBOX");
             
             assertTrue("EXAMINE INBOX should succeed", response.ok);
         }
@@ -278,7 +277,7 @@ public class IMAPServerIntegrationTest {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
-            IMAPClientHelper.IMAPResponse response = 
+            IMAPClientHelper.ImapResponse response = 
                 session.sendCommand("STATUS INBOX (MESSAGES RECENT UNSEEN)");
             
             assertTrue("STATUS should succeed", response.ok);
@@ -300,7 +299,7 @@ public class IMAPServerIntegrationTest {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("NAMESPACE");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("NAMESPACE");
             
             assertTrue("NAMESPACE should succeed", response.ok);
         }
@@ -312,7 +311,7 @@ public class IMAPServerIntegrationTest {
     public void testFetchMessageHeaders() throws Exception {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
-            IMAPClientHelper.IMAPResponse selectResp = session.sendCommand("SELECT INBOX");
+            IMAPClientHelper.ImapResponse selectResp = session.sendCommand("SELECT INBOX");
             
             // Check if mailbox has messages
             int messageCount = 0;
@@ -332,7 +331,7 @@ public class IMAPServerIntegrationTest {
             }
             
             // Fetch flags of message 1 (simplest FETCH)
-            IMAPClientHelper.IMAPResponse response = 
+            IMAPClientHelper.ImapResponse response = 
                 session.sendCommand("FETCH 1 FLAGS");
             
             // Skip if FETCH is not implemented
@@ -357,7 +356,7 @@ public class IMAPServerIntegrationTest {
     public void testFetchEnvelope() throws Exception {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
-            IMAPClientHelper.IMAPResponse selectResp = session.sendCommand("SELECT INBOX");
+            IMAPClientHelper.ImapResponse selectResp = session.sendCommand("SELECT INBOX");
             
             // Check if mailbox has messages
             int messageCount = 0;
@@ -377,7 +376,7 @@ public class IMAPServerIntegrationTest {
             }
             
             // Fetch envelope of message 1
-            IMAPClientHelper.IMAPResponse response = 
+            IMAPClientHelper.ImapResponse response = 
                 session.sendCommand("FETCH 1 ENVELOPE");
             
             // Skip if FETCH is not implemented
@@ -396,7 +395,7 @@ public class IMAPServerIntegrationTest {
             session.sendCommand("SELECT INBOX");
             
             // Search for all messages
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("SEARCH ALL");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("SEARCH ALL");
             
             assertTrue("SEARCH should succeed", response.ok);
             
@@ -417,7 +416,7 @@ public class IMAPServerIntegrationTest {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             session.sendCommand("SELECT INBOX");
             
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("CLOSE");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("CLOSE");
             
             assertTrue("CLOSE should succeed", response.ok);
         }
@@ -429,7 +428,7 @@ public class IMAPServerIntegrationTest {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             session.sendCommand("SELECT INBOX");
             
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("UNSELECT");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("UNSELECT");
             
             // UNSELECT may or may not be supported
             assertTrue("UNSELECT should succeed or be unsupported", 
@@ -443,7 +442,7 @@ public class IMAPServerIntegrationTest {
     public void testCommandBeforeLogin() throws Exception {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             // Try to LIST without logging in
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("LIST \"\" \"*\"");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("LIST \"\" \"*\"");
             
             // Should fail - not authenticated
             assertFalse("LIST before login should fail", response.ok);
@@ -454,7 +453,7 @@ public class IMAPServerIntegrationTest {
     public void testSelectBeforeLogin() throws Exception {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             // Try to SELECT without logging in
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("SELECT INBOX");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("SELECT INBOX");
             
             // Should fail - not authenticated
             assertFalse("SELECT before login should fail", response.ok);
@@ -467,7 +466,7 @@ public class IMAPServerIntegrationTest {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
             // Try to FETCH without selecting a mailbox
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("FETCH 1 FLAGS");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("FETCH 1 FLAGS");
             
             // Should fail - no mailbox selected
             assertFalse("FETCH before SELECT should fail", response.ok);
@@ -479,7 +478,7 @@ public class IMAPServerIntegrationTest {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
             IMAPClientHelper.login(session, TEST_USER, TEST_PASS);
             
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("SELECT NonExistent");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("SELECT NonExistent");
             
             // Should fail - mailbox doesn't exist
             assertTrue("SELECT nonexistent should return NO", response.no);
@@ -489,7 +488,7 @@ public class IMAPServerIntegrationTest {
     @Test
     public void testUnknownCommand() throws Exception {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("INVALID");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("INVALID");
             
             assertTrue("Unknown command should return BAD", response.bad);
         }
@@ -498,7 +497,7 @@ public class IMAPServerIntegrationTest {
     @Test
     public void testLogout() throws Exception {
         try (IMAPClientHelper.IMAPSession session = IMAPClientHelper.connect("::1", IMAP_PORT)) {
-            IMAPClientHelper.IMAPResponse response = session.sendCommand("LOGOUT");
+            IMAPClientHelper.ImapResponse response = session.sendCommand("LOGOUT");
             
             assertTrue("LOGOUT should succeed", response.ok);
             
@@ -524,7 +523,7 @@ public class IMAPServerIntegrationTest {
             assertTrue("LOGIN should succeed",
                 IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
 
-            IMAPClientHelper.IMAPResponse created = session.sendCommand("CREATE " + mailbox);
+            IMAPClientHelper.ImapResponse created = session.sendCommand("CREATE " + mailbox);
             assertTrue("CREATE should succeed: " + created, created.ok);
 
             String message = "Subject: Append Sync Test\r\n"
@@ -535,12 +534,12 @@ public class IMAPServerIntegrationTest {
 
             String tag = "X100";
             session.sendRaw(tag + " APPEND " + mailbox + " {" + size + "}");
-            IMAPClientHelper.IMAPResponse cont = session.readResponse(tag);
+            IMAPClientHelper.ImapResponse cont = session.readResponse(tag);
             assertFalse("Server should request continuation, not tag yet",
                     cont.ok || cont.no || cont.bad);
 
             session.sendRawNoNewline(message);
-            IMAPClientHelper.IMAPResponse result = session.readResponse(tag);
+            IMAPClientHelper.ImapResponse result = session.readResponse(tag);
             assertTrue("APPEND should succeed: " + result, result.ok);
         } finally {
             deleteMbox(mailbox);
@@ -554,7 +553,7 @@ public class IMAPServerIntegrationTest {
             assertTrue("LOGIN should succeed",
                 IMAPClientHelper.login(session, TEST_USER, TEST_PASS));
 
-            IMAPClientHelper.IMAPResponse created = session.sendCommand("CREATE " + mailbox);
+            IMAPClientHelper.ImapResponse created = session.sendCommand("CREATE " + mailbox);
             assertTrue("CREATE should succeed: " + created, created.ok);
 
             String message = "Subject: Append Literal+ Test\r\n"
@@ -569,7 +568,7 @@ public class IMAPServerIntegrationTest {
             String tag = "X200";
             session.sendRawNoNewline(
                     tag + " APPEND " + mailbox + " {" + size + "+}\r\n" + message);
-            IMAPClientHelper.IMAPResponse result = session.readResponse(tag);
+            IMAPClientHelper.ImapResponse result = session.readResponse(tag);
             assertTrue("LITERAL+ APPEND should succeed: " + result, result.ok);
         } finally {
             deleteMbox(mailbox);
@@ -600,7 +599,7 @@ public class IMAPServerIntegrationTest {
 
             assertTrue("SELECT source", session.sendCommand("SELECT " + source).ok);
 
-            IMAPClientHelper.IMAPResponse copy = session.sendCommand("COPY 1 " + target);
+            IMAPClientHelper.ImapResponse copy = session.sendCommand("COPY 1 " + target);
             assertTrue("COPY should return NO (unsupported): " + copy, copy.no);
             assertTrue("COPY NO should carry TRYCREATE: " + copy,
                     copy.statusMessage.contains("TRYCREATE"));
@@ -625,7 +624,7 @@ public class IMAPServerIntegrationTest {
 
             assertTrue("SELECT source", session.sendCommand("SELECT " + source).ok);
 
-            IMAPClientHelper.IMAPResponse move = session.sendCommand("MOVE 1 " + target);
+            IMAPClientHelper.ImapResponse move = session.sendCommand("MOVE 1 " + target);
             assertTrue("MOVE should return NO (unsupported): " + move, move.no);
             assertTrue("MOVE NO should carry TRYCREATE: " + move,
                     move.statusMessage.contains("TRYCREATE"));
@@ -644,11 +643,11 @@ public class IMAPServerIntegrationTest {
         int size = message.getBytes(java.nio.charset.StandardCharsets.US_ASCII).length;
         String tag = "P001";
         session.sendRaw(tag + " APPEND " + mailbox + " {" + size + "}");
-        IMAPClientHelper.IMAPResponse cont = session.readResponse(tag);
+        IMAPClientHelper.ImapResponse cont = session.readResponse(tag);
         assertFalse("Server should request continuation",
                 cont.ok || cont.no || cont.bad);
         session.sendRawNoNewline(message);
-        IMAPClientHelper.IMAPResponse result = session.readResponse(tag);
+        IMAPClientHelper.ImapResponse result = session.readResponse(tag);
         assertTrue("Setup APPEND should succeed: " + result, result.ok);
     }
 
@@ -667,8 +666,8 @@ public class IMAPServerIntegrationTest {
      */
     private static class TestRealm implements Realm {
         
-        private static final Set<SASLMechanism> SUPPORTED = 
-            Collections.unmodifiableSet(EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN));
+        private static final Set<SaslMechanism> SUPPORTED = 
+            Collections.unmodifiableSet(EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
         
         @Override
         public Realm forSelectorLoop(SelectorLoop loop) {
@@ -676,7 +675,7 @@ public class IMAPServerIntegrationTest {
         }
         
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
         

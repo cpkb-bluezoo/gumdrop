@@ -22,7 +22,7 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
 import org.junit.Test;
@@ -52,7 +52,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         ConnectUdpClientProtocolHandler handler =
                 new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
 
-        boolean handled = handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        boolean handled = handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
 
         assertTrue("a connect-udp Upgrade response must be accepted", handled);
         assertNotNull("opened() should have been called", eventHandler.session);
@@ -70,7 +70,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         headers.add(new Header("connection", "upgrade"));
         headers.add(new Header("upgrade", "websocket"));
 
-        boolean handled = handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, headers);
+        boolean handled = handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, headers);
 
         assertFalse("an unrelated Upgrade response must not be claimed", handled);
         assertNull("opened() should not have been called", eventHandler.session);
@@ -82,7 +82,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
         ConnectUdpClientProtocolHandler handler =
                 new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
-        handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
 
         byte[] udpPayload = "hello-target".getBytes(StandardCharsets.US_ASCII);
         ByteBuffer contextEncoded =
@@ -107,7 +107,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         RecordingEndpoint endpoint = new RecordingEndpoint();
         handler.endpoint = endpoint;
 
-        handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
         assertNotNull(eventHandler.session);
 
         byte[] udpPayload = "to-target".getBytes(StandardCharsets.US_ASCII);
@@ -131,7 +131,7 @@ public class ConnectUdpClientProtocolHandlerTest {
         RecordingConnectUdpHandler eventHandler = new RecordingConnectUdpHandler();
         ConnectUdpClientProtocolHandler handler =
                 new ConnectUdpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
-        handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
 
         handler.disconnected();
 

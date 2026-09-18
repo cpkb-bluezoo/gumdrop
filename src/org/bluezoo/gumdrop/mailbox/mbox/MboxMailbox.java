@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.mailbox.mbox;
 
-import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.mailbox.BackgroundWarmSkippedException;
 import org.bluezoo.gumdrop.mailbox.AsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.BufferedAsyncMessageContent;
 import org.bluezoo.gumdrop.mailbox.Flag;
@@ -228,8 +228,7 @@ public final class MboxMailbox implements Mailbox {
         // instead of racing to the OS lock below.
         gatePath = mboxFile.toRealPath();
         gate = acquireGateRef(gatePath);
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        MailboxIndexer indexer = (gumdrop != null) ? MailboxRuntime.getIndexer() : null;
+        MailboxIndexer indexer = MailboxRuntime.getIndexer();
         if (indexer != null && indexer.isCurrentThread()) {
             // Running on the single MailboxIndexer worker thread (a
             // background warming job): never block here. A concurrent
@@ -240,7 +239,8 @@ public final class MboxMailbox implements Mailbox {
             if (!gate.permit.tryAcquire()) {
                 releaseGateRef(gatePath, gate);
                 gate = null;
-                throw new IOException("Mailbox busy, skipping background warm: " + mboxFile);
+                throw new BackgroundWarmSkippedException(
+                        "Mailbox busy, skipping background warm: " + mboxFile);
             }
         } else {
             try {
@@ -1095,8 +1095,7 @@ public final class MboxMailbox implements Mailbox {
         // background warming job opened this mailbox and its index also
         // turns out to need a rebuild), do it inline instead of submitting
         // a second job that thread would have to wait on itself to run.
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        MailboxIndexer indexer = (gumdrop != null) ? MailboxRuntime.getIndexer() : null;
+        MailboxIndexer indexer = MailboxRuntime.getIndexer();
         if (indexer == null || indexer.isCurrentThread()) {
             rebuildSearchIndex();
             return;

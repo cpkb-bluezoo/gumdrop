@@ -1,0 +1,160 @@
+/*
+ * SelectorLoopCrashIsolationTest.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.util.concurrent.CountDownLatch;
+
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * Regression tests for issue #366: an uncaught {@code RuntimeException}
+ * while dispatching one connection's I/O must not terminate the shared
+ * {@link SelectorLoop} worker thread and strand every other connection
+ * on that loop.
+ *
+ * <p>Completion is synchronized via {@link ProtocolHandler#disconnected()}
+ * and a receive latch, not timed polling of endpoint state: {@link UdpEndpoint#close()}
+ * runs synchronously on the selector thread and signals {@code disconnected()}
+ * before dispatch returns.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
+public class SelectorLoopCrashIsolationTest {
+
+    private Gumdrop gumdrop;
+
+    @Before
+    public void setUp() {
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+    }
+
+    @After
+    public void tearDown() throws InterruptedException {
+        gumdrop.shutdown();
+        gumdrop.join();
+    }
+
+    @Test(timeout = 10000)
+    public void runtimeExceptionOnOneDatagramHandlerDoesNotKillSelectorLoop()
+            throws Exception {
+        SelectorLoop loop = new SelectorLoop(99);
+        loop.start();
+
+        UdpTransportFactory factory = new UdpTransportFactory();
+        factory.start();
+
+        final CountDownLatch faultyClosed = new CountDownLatch(1);
+        final CountDownLatch healthyReceived = new CountDownLatch(1);
+
+        ProtocolHandler faulty = new ProtocolHandler() {
+            @Override
+            public void receive(ByteBuffer data) {
+                throw new RuntimeException("deliberate dispatch failure");
+            }
+
+            @Override
+            public void connected(Endpoint endpoint) {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void disconnected() {
+                faultyClosed.countDown();
+            }
+
+            @Override
+            public void error(Exception cause) {
+            }
+        };
+
+        ProtocolHandler healthy = new ProtocolHandler() {
+            @Override
+            public void receive(ByteBuffer data) {
+                healthyReceived.countDown();
+            }
+
+            @Override
+            public void connected(Endpoint endpoint) {
+            }
+
+            @Override
+            public void securityEstablished(SecurityInfo info) {
+            }
+
+            @Override
+            public void disconnected() {
+            }
+
+            @Override
+            public void error(Exception cause) {
+            }
+        };
+
+        UdpEndpoint faultyEndpoint = factory.createServerEndpoint(
+                gumdrop, InetAddress.getLoopbackAddress(), 0, faulty, loop);
+        UdpEndpoint healthyEndpoint = factory.createServerEndpoint(
+                gumdrop, InetAddress.getLoopbackAddress(), 0, healthy, loop);
+
+        try {
+            InetSocketAddress faultyAddress =
+                    (InetSocketAddress) faultyEndpoint.getLocalAddress();
+            InetSocketAddress healthyAddress =
+                    (InetSocketAddress) healthyEndpoint.getLocalAddress();
+
+            DatagramChannel client = DatagramChannel.open();
+            try {
+                client.send(ByteBuffer.wrap("bad".getBytes()),
+                        faultyAddress);
+                faultyClosed.await();
+
+                client.send(ByteBuffer.wrap("ok".getBytes()),
+                        healthyAddress);
+                healthyReceived.await();
+
+                assertTrue("the SelectorLoop worker thread must keep running",
+                        loop.isRunning());
+                assertFalse("the faulty endpoint must be closed after the "
+                        + "dispatch failure",
+                        faultyEndpoint.isOpen());
+            } finally {
+                client.close();
+            }
+        } finally {
+            loop.shutdown();
+            loop.awaitQuiesce(2000);
+            healthyEndpoint.close();
+            faultyEndpoint.close();
+        }
+    }
+}

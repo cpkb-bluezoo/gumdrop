@@ -112,16 +112,16 @@ Key handler methods:
 </p>
 
 <ul>
-<li><code>connected(SMTPConnectionMetadata)</code> - connection established,
+<li><code>connected(SmtpConnectionMetadata)</code> - connection established,
 return false to reject early</li>
 <li><code>hello(extended, clientDomain, HelloCallback)</code> - HELO/EHLO received</li>
-<li><code>tlsStarted(SMTPConnectionMetadata)</code> - STARTTLS completed</li>
+<li><code>tlsStarted(SmtpConnectionMetadata)</code> - STARTTLS completed</li>
 <li><code>authenticated(user, method)</code> - AUTH succeeded</li>
 <li><code>mailFrom(senderAddress, MailFromCallback)</code> - sender evaluation</li>
 <li><code>rcptTo(recipientAddress, RcptToCallback)</code> - recipient validation</li>
-<li><code>startData(SMTPConnectionMetadata, DataStartCallback)</code> - DATA initiation</li>
+<li><code>startData(SmtpConnectionMetadata, DataStartCallback)</code> - DATA initiation</li>
 <li><code>messageContent(ByteBuffer)</code> - streaming message data</li>
-<li><code>endData(SMTPConnectionMetadata, DataEndCallback)</code> - message complete</li>
+<li><code>endData(SmtpConnectionMetadata, DataEndCallback)</code> - message complete</li>
 <li><code>reset()</code> - RSET command, clear transaction state</li>
 <li><code>disconnected()</code> - connection closed</li>
 </ul>
@@ -167,7 +167,7 @@ thread safety for all subsequent protocol operations.
 <h4>Connection Metadata</h4>
 
 <p>
-Handlers receive rich context through <code>SMTPConnectionMetadata</code>:
+Handlers receive rich context through <code>SmtpConnectionMetadata</code>:
 </p>
 
 <ul>
@@ -198,7 +198,7 @@ server.setHandlerFactory(new SMTPConnectionHandlerFactory() {
 <h3 id="pipeline">Processing Pipelines</h3>
 
 <p>
-Gumdrop provides a generic <code>SMTPPipeline</code> interface for processing
+Gumdrop provides a generic <code>SmtpPipeline</code> interface for processing
 messages as they stream through the server. This enables pluggable processing
 without modifying core SMTP code.
 </p>
@@ -210,7 +210,7 @@ The pipeline receives notifications at key SMTP stages:
 </p>
 
 <pre>
-public interface SMTPPipeline {
+public interface SmtpPipeline {
     void mailFrom(EmailAddress sender);       // MAIL FROM received
     void rcptTo(EmailAddress recipient);      // RCPT TO received
     WritableByteChannel getMessageChannel();  // Called at DATA start
@@ -262,7 +262,7 @@ the entire content in memory.
 
 <p>
 The <code>org.bluezoo.gumdrop.smtp.auth</code> package provides
-<code>AuthPipeline</code>, an implementation of <code>SMTPPipeline</code>
+<code>AuthPipeline</code>, an implementation of <code>SmtpPipeline</code>
 that performs SPF, DKIM, and DMARC validation.
 </p>
 
@@ -312,10 +312,10 @@ Configure the pipeline with callbacks for the checks you care about:
 AuthPipeline.Builder builder = new AuthPipeline.Builder(resolver, clientIP, heloHost);
 
 // SPF callback - invoked during MAIL FROM processing
-builder.onSPF(new SPFCallback() {
+builder.onSPF(new SpfCallback() {
     @Override
-    public void onResult(SPFResult result, String explanation) {
-        if (result == SPFResult.FAIL) {
+    public void onResult(SpfResult result, String explanation) {
+        if (result == SpfResult.FAIL) {
             mailFromCallback.mailFromReply(SenderPolicyResult.REJECT);
         } else {
             mailFromCallback.mailFromReply(SenderPolicyResult.ACCEPT);
@@ -324,19 +324,19 @@ builder.onSPF(new SPFCallback() {
 });
 
 // DKIM callback - invoked at end-of-data
-builder.onDKIM(new DKIMCallback() {
+builder.onDKIM(new DkimCallback() {
     @Override
-    public void onResult(DKIMResult result, String domain, String selector) {
+    public void onResult(DkimResult result, String domain, String selector) {
         // Store result for logging
     }
 });
 
 // DMARC callback - invoked after DKIM
-builder.onDMARC(new DMARCCallback() {
+builder.onDMARC(new DmarcCallback() {
     @Override
-    public void onResult(DMARCResult result, DMARCPolicy policy, String domain) {
+    public void onResult(DmarcResult result, DmarcPolicy policy, String domain) {
         // Can now respond to DATA command
-        if (result == DMARCResult.FAIL &amp;&amp; policy == DMARCPolicy.REJECT) {
+        if (result == DmarcResult.FAIL &amp;&amp; policy == DmarcPolicy.REJECT) {
             dataEndCallback.reply(DataEndReply.REJECT);
         } else {
             dataEndCallback.reply(DataEndReply.ACCEPT);
@@ -375,7 +375,7 @@ also just <code>example.com</code>, but for a different reason
 </p>
 
 <p>
-<code>DMARCValidator</code> computes this against the real
+<code>DmarcValidator</code> computes this against the real
 <a href="https://publicsuffix.org/list/">Mozilla Public Suffix List</a>,
 bundled as a classpath resource
 (<code>org/bluezoo/gumdrop/smtp/auth/public_suffix_list.dat</code>) and
@@ -391,7 +391,7 @@ publicsuffix.org.
 <h4>DMARCbis (RFC 9989)</h4>
 
 <p>
-<code>DMARCValidator</code> also implements the DMARC policy-and-alignment
+<code>DmarcValidator</code> also implements the DMARC policy-and-alignment
 additions from RFC 9989 ("DMARCbis"), which is largely additive and
 backward-compatible - existing <code>v=DMARC1</code> records continue to
 work unchanged:
@@ -408,7 +408,7 @@ it.</li>
 together with <code>psd=</code> below.</li>
 <li><b><code>psd=</code></b> - Public Suffix Domain flag. When the
 Organizational Domain (see above) has no DMARC record of its own,
-<code>DMARCValidator</code> queries one level above it; if that record
+<code>DmarcValidator</code> queries one level above it; if that record
 declares <code>psd=y</code>, its <code>np=</code> tag (falling back to
 <code>sp=</code>, then <code>p=</code>) governs. This covers the
 spec-intended case of a registry or other Public Suffix Operator
@@ -422,7 +422,7 @@ domains.</li>
 
 <p>
 RFC 9989 §4.1 also requires <code>v=DMARC1</code> to be the first tag in
-a record; <code>DMARCValidator</code> discards any record where it is
+a record; <code>DmarcValidator</code> discards any record where it is
 missing or not first, matching a malformed record.
 </p>
 
@@ -480,13 +480,13 @@ Convenience methods: <code>result.passed()</code>, <code>result.shouldReject()</
 <h4>DKIM Signing (RFC 6376 §5)</h4>
 
 <p>
-The <code>DKIMSigner</code> class generates DKIM-Signature headers for outbound
+The <code>DkimSigner</code> class generates DKIM-Signature headers for outbound
 messages. It supports both <b>rsa-sha256</b> (RFC 6376 §3.3) and
 <b>ed25519-sha256</b> (RFC 8463) algorithms, with configurable header and body
 canonicalization (simple or relaxed).
 </p>
 
-<pre><code>DKIMSigner signer = new DKIMSigner(privateKey, "example.com", "sel1");
+<pre><code>DkimSigner signer = new DkimSigner(privateKey, "example.com", "sel1");
 signer.setAlgorithm("rsa-sha256");
 signer.setHeaderCanonicalization("relaxed");
 signer.setBodyCanonicalization("relaxed");
@@ -513,12 +513,12 @@ the algorithm to <code>"ed25519-sha256"</code>.
 <h4>DMARC Aggregate Reporting (RFC 7489 §7.1, RFC 9990)</h4>
 
 <p>
-The <code>DMARCAggregateReport</code> class generates XML aggregate reports.
+The <code>DmarcAggregateReport</code> class generates XML aggregate reports.
 Reports can be sent to the domain owner's <code>rua=</code> address (now
 parsed from DMARC records).
 </p>
 
-<pre><code>DMARCAggregateReport report = new DMARCAggregateReport();
+<pre><code>DmarcAggregateReport report = new DmarcAggregateReport();
 report.setReporterOrgName("receiver.example.com");
 report.setReporterEmail("dmarc-reports@receiver.example.com");
 report.setReportId("report-12345");
@@ -526,7 +526,7 @@ report.setDateRange(beginEpoch, endEpoch);
 
 // Record results for each evaluated message. The RFC 9989/9990-aware
 // overload also takes np=, t=, pct, and how the record was found -
-// typically straight from the DMARCValidator that produced this result.
+// typically straight from the DmarcValidator that produced this result.
 report.addResult(sourceIP, headerFrom, policy, adkim, aspf,
     dmarcResult, spfResult, spfDomain, dkimResult, dkimDomain, selector,
     validator.getLastNp(), validator.getLastT(), pct,
@@ -536,7 +536,7 @@ report.addResult(sourceIP, headerFrom, policy, adkim, aspf,
 report.writeXML(outputStream);</code></pre>
 
 <p>
-The <code>DMARCValidator</code> parses the <code>rua=</code>,
+The <code>DmarcValidator</code> parses the <code>rua=</code>,
 <code>ruf=</code>, <code>fo=</code>, and <code>rf=</code> tags from DMARC
 records. After evaluation, call <code>getLastRua()</code> /
 <code>getLastRuf()</code> to obtain report destination URIs, and
@@ -546,12 +546,12 @@ records. After evaluation, call <code>getLastRua()</code> /
 <p>
 RFC 9990 adds <code>np</code>, <code>testing</code>, and
 <code>discovery_method</code> to <code>policy_published</code>, and an
-optional <code>report_metadata/generator</code>. <code>DMARCAggregateReport</code>
+optional <code>report_metadata/generator</code>. <code>DmarcAggregateReport</code>
 also now enforces RFC 9990's requirement that a single report cover
 exactly one Policy Domain - a second, distinct <code>headerFrom</code>
 passed to <code>addResult</code> throws <code>IllegalStateException</code>
 rather than silently producing a multi-domain report; use a separate
-<code>DMARCAggregateReport</code> instance per domain. <code>selector</code>
+<code>DmarcAggregateReport</code> instance per domain. <code>selector</code>
 is now always emitted for a reported DKIM signature (empty if unknown)
 rather than omitted, per RFC 9990 making it required. <code>pct</code> is
 retained for RFC 7489 backward compatibility even though RFC 9990 drops
@@ -562,7 +562,7 @@ for one that doesn't.
 <h4>DMARC Forensic / Failure Reporting (RFC 7489 §7.2, RFC 9991)</h4>
 
 <p>
-The <code>DMARCForensicReport</code> class generates per-message failure
+The <code>DmarcForensicReport</code> class generates per-message failure
 reports in the Abuse Reporting Format (ARF, RFC 5965) with DMARC-specific
 extensions (RFC 6591, RFC 9991). Reports are <code>multipart/report</code>
 MIME messages with three parts: a human-readable description, a
@@ -572,8 +572,8 @@ message headers.
 
 <pre><code>// Check if a forensic report should be generated
 String fo = validator.getLastFo();
-if (DMARCForensicReport.shouldReport(fo, spfResult, dkimResult, dmarcResult)) {
-    DMARCForensicReport report = new DMARCForensicReport();
+if (DmarcForensicReport.shouldReport(fo, spfResult, dkimResult, dmarcResult)) {
+    DmarcForensicReport report = new DmarcForensicReport();
     report.setReporterDomain("receiver.example.com");
     report.setSourceIP(clientIP);
     report.setHeaderFrom(fromDomain);
@@ -604,7 +604,7 @@ RFC 9991's <code>Identity-Alignment</code> field lists which mechanisms
 identity, or <code>none</code> if all did - distinct from a mechanism simply
 passing, since a pass without alignment to the From domain still doesn't
 satisfy DMARC. Call <code>setSpfAligned</code>/<code>setDkimAligned</code>
-with the values from <code>DMARCValidator.isLastSpfAligned()</code> /
+with the values from <code>DmarcValidator.isLastSpfAligned()</code> /
 <code>isLastDkimAligned()</code> for a correct field value; without them,
 it's approximated from the raw SPF/DKIM pass/fail, which is only accurate
 when alignment isn't being checked separately.
@@ -836,7 +836,7 @@ Supported XCLIENT attributes:
 <p>
 After XCLIENT, the session resets to the greeting state and the client must
 re-issue EHLO. The overridden values are reflected in
-<code>SMTPConnectionMetadata</code> for policy decisions.
+<code>SmtpConnectionMetadata</code> for policy decisions.
 </p>
 
 <p>
@@ -890,7 +890,7 @@ RCPT TO:&lt;user@example.org&gt; NOTIFY=SUCCESS,FAILURE ORCPT=rfc822;user@exampl
 </pre>
 
 <p>
-The DSN parameters are accessible through <code>SMTPConnectionMetadata</code>:
+The DSN parameters are accessible through <code>SmtpConnectionMetadata</code>:
 </p>
 
 <ul>
@@ -1034,7 +1034,7 @@ public void mailFrom(EmailAddress sender, boolean smtputf8,
         boolean returnOnFail = delivery.isDeliverByReturn();
     }
     if (delivery.hasDsnParameters()) {
-        DSNReturn ret = delivery.getDsnReturn();
+        DsnReturn ret = delivery.getDsnReturn();
         String envid = delivery.getDsnEnvelopeId();
     }
     callback.mailFromReply(SenderPolicyResult.ACCEPT);
@@ -1043,10 +1043,10 @@ public void mailFrom(EmailAddress sender, boolean smtputf8,
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>SMTPService Properties</h4>
+<h4>SmtpServer Properties</h4>
 
 <p>
-SMTP services (<code>org.bluezoo.gumdrop.smtp.SMTPService</code> subclasses) support:
+SMTP services (<code>org.bluezoo.gumdrop.smtp.server.SmtpServer</code> subclasses) support:
 </p>
 
 <ul>
@@ -1058,7 +1058,7 @@ SMTP services (<code>org.bluezoo.gumdrop.smtp.SMTPService</code> subclasses) sup
 <li><code>auth-required</code> &ndash; require authentication (for submission port)</li>
 </ul>
 
-<h4>SMTPListener Properties</h4>
+<h4>SmtpListener Properties</h4>
 
 <p>
 Each <code>&lt;listener&gt;</code> element within the service configures a listener:
@@ -1088,20 +1088,20 @@ Each <code>&lt;listener&gt;</code> element within the service configures a liste
     &lt;property name="max-message-size"&gt;52428800&lt;/property&gt;
 
     &lt;!-- MX listener (port 25) --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
             name="mx" port="25"
             keystore-file="keystore.p12" keystore-pass="secret"
             max-connections-per-ip="20"
             blocked-networks="10.0.0.0/8"/&gt;
 
     &lt;!-- Submission listener (port 587, auth required) --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
             name="submission" port="587"
             keystore-file="keystore.p12" keystore-pass="secret"
             auth-required="true"/&gt;
 
     &lt;!-- UNIX domain socket for local delivery agents --&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener"
+    &lt;listener class="org.bluezoo.gumdrop.smtp.SmtpListener"
             name="local" path="/var/run/smtp.sock"/&gt;
 &lt;/service&gt;
 </pre>
@@ -1168,7 +1168,7 @@ protocol events:
 </p>
 
 <pre>
-SMTPClient client = new SMTPClient("mail.example.com", 25);
+SmtpClient client = new SmtpClient("mail.example.com", 25);
 client.connect(new SMTPClientHandler() {
     @Override
     public void onConnected() {
@@ -1176,12 +1176,12 @@ client.connect(new SMTPClientHandler() {
     }
     
     @Override
-    public void onGreeting(SMTPResponse greeting, SMTPClientProtocolHandler handler) {
+    public void onGreeting(SmtpResponse greeting, SmtpClientProtocolHandler handler) {
         handler.ehlo("myhost.example.com");
     }
     
     @Override
-    public void onReply(SMTPResponse response, SMTPClientProtocolHandler handler) {
+    public void onReply(SmtpResponse response, SmtpClientProtocolHandler handler) {
         // Handle command responses
         if (response.isSuccess()) {
             // Proceed with next command
@@ -1194,7 +1194,7 @@ client.connect(new SMTPClientHandler() {
     }
     
     @Override
-    public void onError(SMTPException error) {
+    public void onError(SmtpException error) {
         // Handle protocol or connection errors
     }
     

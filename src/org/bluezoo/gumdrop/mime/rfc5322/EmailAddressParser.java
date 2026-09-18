@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.mime.rfc5322;
 
-import org.bluezoo.gumdrop.mime.MIMEParser;
-import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
+import org.bluezoo.gumdrop.mime.MimeParser;
+import org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Decoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharsetDecoder;
 import java.util.ArrayList;
@@ -102,7 +102,7 @@ public final class EmailAddressParser {
 				String displayName = null;
 				if (b != '<') {
 					byte[] stopBytes = new byte[] { '<', ':', ',', ';' };
-					displayName = RFC2047Decoder.decodeDisplayName(value, decoder, false, stopBytes);
+					displayName = Rfc2047Decoder.decodeDisplayName(value, decoder, false, stopBytes);
 					if (value.position() >= limit) {
 						// EOF after display phrase - may be bare addr-spec at end
 						if (displayName != null) {
@@ -142,7 +142,7 @@ public final class EmailAddressParser {
 				}
 				int savedLimit = value.limit();
 				value.position(localRange[0]).limit(localRange[1]);
-				String localPart = MIMEParser.decodeSlice(value, decoder);
+				String localPart = MimeParser.decodeSlice(value, decoder);
 				value.limit(savedLimit);
 				if (value.position() >= limit || value.get(value.position()) != '@') {
 					break;
@@ -153,7 +153,7 @@ public final class EmailAddressParser {
 					break;
 				}
 				value.position(domainRange[0]).limit(domainRange[1]);
-				String domain = MIMEParser.decodeSlice(value, decoder);
+				String domain = MimeParser.decodeSlice(value, decoder);
 				value.limit(savedLimit);
 				if (value.position() >= limit || value.get(value.position()) != '>') {
 					break;

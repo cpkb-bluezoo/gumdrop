@@ -22,11 +22,11 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -34,6 +34,7 @@ import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ResourceBundle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -49,21 +50,22 @@ import java.util.logging.Logger;
  * {@code pauseRequestBody()}/{@code resumeRequestBody()} — rather than
  * blocking the SelectorLoop thread when the servlet reads slower than the
  * network delivers), and response body data is streamed to {@link
- * HTTPResponseState} as the servlet writes it, rather than buffered in
+ * HttpResponseState} as the servlet writes it, rather than buffered in
  * full (issue #120).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class ServletHandler extends DefaultHTTPRequestHandler {
+public class ServletHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(ServletHandler.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
-    private final ServletService service;
     private final Container container;
     private final int bufferSize;
 
     // The HTTP response state - provides connection info and response sending
-    private HTTPResponseState state;
+    private HttpResponseState state;
 
     // Non-blocking bridge for delivering request body to the servlet
     private RequestBodyStream bodyStream;
@@ -91,25 +93,21 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     private boolean bodyStarted;
     private volatile boolean writePossibleScheduled;
 
-    ServletHandler(ServletService service, Container container, int bufferSize) {
-        this.service = service;
+    public ServletHandler(Container container, int bufferSize) {
         this.container = container;
         this.bufferSize = bufferSize;
     }
 
-    /**
-     * Returns the servlet service.
-     */
-    ServletService getService() {
-        return service;
+    Container getContainer() {
+        return container;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // HTTPRequestHandler implementation
+    // HttpRequestHandler implementation
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         this.state = state;
 
         // Check if this is trailer headers (after body)
@@ -167,17 +165,17 @@ class ServletHandler extends DefaultHTTPRequestHandler {
             response = new Response(this, request, bufferSize);
 
             // Dispatch to worker thread for servlet execution
-            service.serviceRequest(this);
+            container.serviceRequest(this);
 
         } catch (IOException e) {
-            String message = ServletService.L10N.getString("error.create_pipe");
+            String message = L10N.getString("error.create_pipe");
             LOGGER.log(Level.SEVERE, message, e);
-            sendError(HTTPStatus.INTERNAL_SERVER_ERROR);
+            sendError(HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
     @Override
-    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
         if (bodyStream == null) {
             return;
         }
@@ -197,12 +195,12 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void endRequestBody(HTTPResponseState state) {
+    public void endRequestBody(HttpResponseState state) {
         requestFinished.set(true);
     }
 
     @Override
-    public void requestComplete(HTTPResponseState state) {
+    public void requestComplete(HttpResponseState state) {
         // Signal EOF to the servlet's InputStream
         if (bodyStream != null) {
             bodyStream.finish();
@@ -218,10 +216,10 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Returns the HTTPResponseState for this request.
+     * Returns the HttpResponseState for this request.
      * This provides connection info, TLS info, and response sending.
      */
-    HTTPResponseState getState() {
+    HttpResponseState getState() {
         return state;
     }
 
@@ -231,10 +229,6 @@ class ServletHandler extends DefaultHTTPRequestHandler {
 
     Response getResponse() {
         return response;
-    }
-
-    Container getContainer() {
-        return container;
     }
 
     /**
@@ -268,7 +262,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
      * connection's I/O thread.
      */
     void dispatchWorkerTask(Runnable task, Runnable onRejected) {
-        service.executeWorker(task, onRejected);
+        container.executeWorker(task, onRejected);
     }
 
     boolean isResponseWritable() {
@@ -338,7 +332,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
             if (response != null && response.isNonBlockingWrite()) {
                 scheduleWritePossibleNotification();
                 throw new IllegalStateException(
-                        ServletService.L10N.getString("err.write_not_ready"));
+                        L10N.getString("err.write_not_ready"));
             }
             awaitWritable();
         }
@@ -464,7 +458,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
 
     private Headers buildResponseHeaders() {
         Headers headers = new Headers();
-        headers.status(HTTPStatus.fromCode(statusCode));
+        headers.status(HttpStatus.fromCode(statusCode));
         if (responseHeaders != null) {
             for (Header header : responseHeaders) {
                 headers.add(header);
@@ -523,19 +517,19 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     /**
      * Sheds this request with a 503 Service Unavailable response.
      *
-     * <p>Called by {@link ServletService#serviceRequest} on the SelectorLoop
+     * <p>Called by {@link Container#serviceRequest} on the SelectorLoop
      * thread when the worker pool and its bounded queue are both saturated,
      * providing backpressure instead of unbounded queueing.
      */
-    void serviceUnavailable() {
-        sendError(HTTPStatus.SERVICE_UNAVAILABLE);
+    public void serviceUnavailable() {
+        sendError(HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Private methods
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void sendError(HTTPStatus status) {
+    private void sendError(HttpStatus status) {
         Headers headers = new Headers();
         headers.status(status);
         headers.add("Content-Length", "0");
@@ -544,7 +538,7 @@ class ServletHandler extends DefaultHTTPRequestHandler {
     }
 
     /**
-     * Sends the buffered response via {@link HTTPResponseState}.
+     * Sends the buffered response via {@link HttpResponseState}.
      *
      * <p>If the response state is owned by a SelectorLoop and we are not
      * on that thread, the actual send is marshalled onto the SelectorLoop

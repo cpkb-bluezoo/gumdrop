@@ -23,22 +23,24 @@
  * Non-blocking FTP client (RFC 959) for driving remote or in-process FTP
  * servers.
  *
- * <p>{@link org.bluezoo.gumdrop.ftp.client.FTPClientProtocolHandler}
- * drives the control connection; different state interfaces (package
- * {@link org.bluezoo.gumdrop.ftp.client.handler}) are provided at each
- * stage of the protocol, so only the commands valid at that point can be
- * issued. Replies are parsed by a streaming {@link
- * org.bluezoo.gumdrop.ByteStreamLexer}-based reader rather than a
- * buffered-line model, so a multi-line reply never needs to be
- * materialised whole before dispatch.
+ * <p>{@link org.bluezoo.gumdrop.ftp.client.FtpClientProtocolHandler}
+ * drives the control connection; different state interfaces (e.g. {@link
+ * org.bluezoo.gumdrop.ftp.client.ClientLoginState}, {@link
+ * org.bluezoo.gumdrop.ftp.client.ClientAuthenticatedState}) are provided at
+ * each stage of the protocol, so only the commands valid at that point can
+ * be issued, and each interface exposes only the commands legal at that
+ * point so the compiler rejects out-of-sequence calls. Replies are parsed
+ * by a streaming {@link org.bluezoo.gumdrop.ByteStreamLexer}-based reader
+ * rather than a buffered-line model, so a multi-line reply never needs to
+ * be materialised whole before dispatch.
  *
  * <p>FTP is a two-connection protocol: the control connection above
  * handles commands and replies, while data connections (PASV/EPSV/PORT/
  * EPRT for RETR/STOR/LIST) are negotiated and managed separately,
- * mirroring the server side's own {@code FTPDataConnectionCoordinator}.
+ * mirroring the server side's own {@code FtpDataConnectionCoordinator}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.ftp.client.FTPClientProtocolHandler
+ * @see org.bluezoo.gumdrop.ftp.client.FtpClientProtocolHandler
  * @see org.bluezoo.gumdrop.ftp
  * @see <a href="https://www.rfc-editor.org/rfc/rfc959">RFC 959</a> (FTP)
  */

@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * Represents a modification to an LDAP entry attribute (RFC 4511 section 4.6).
  * 
- * <p>Modifications are used with the {@link LDAPSession#modify} operation
+ * <p>Modifications are used with the {@link LdapSession#modify} operation
  * to change attribute values in directory entries.
  * 
  * <p>Each modification specifies:
@@ -39,7 +39,7 @@ import java.util.List;
  * </ul>
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPSession#modify
+ * @see LdapSession#modify
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.6">RFC 4511 §4.6</a>
  */
 public class Modification {

@@ -32,15 +32,15 @@ import java.util.Map;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for RESP3 type decoding in {@link RESPDecoder}.
+ * Unit tests for RESP3 type decoding in {@link RespDecoder}.
  */
 public class RESP3DecoderTest {
 
-    private RESPDecoder decoder;
+    private RespDecoder decoder;
 
     @Before
     public void setUp() {
-        decoder = new RESPDecoder();
+        decoder = new RespDecoder();
     }
 
     private ByteBuffer wrap(String data) {
@@ -50,7 +50,7 @@ public class RESP3DecoderTest {
     private void recv(String data) {
         try {
             decoder.receive(wrap(data));
-        } catch (RESPException e) {
+        } catch (RespException e) {
             throw new AssertionError(e);
         }
     }
@@ -58,20 +58,20 @@ public class RESP3DecoderTest {
     // Map type
 
     @Test
-    public void testDecodeMap() throws RESPException {
+    public void testDecodeMap() throws RespException {
         recv("%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isMap());
-        Map<RESPValue, RESPValue> map = value.asMap();
+        Map<RespValue, RespValue> map = value.asMap();
         assertEquals(2, map.size());
     }
 
     @Test
-    public void testDecodeEmptyMap() throws RESPException {
+    public void testDecodeEmptyMap() throws RespException {
         recv("%0\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isMap());
@@ -81,22 +81,22 @@ public class RESP3DecoderTest {
     // Set type
 
     @Test
-    public void testDecodeSet() throws RESPException {
+    public void testDecodeSet() throws RespException {
         recv("~3\r\n+a\r\n+b\r\n+c\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isSet());
-        List<RESPValue> elements = value.asArray();
+        List<RespValue> elements = value.asArray();
         assertEquals(3, elements.size());
     }
 
     // Double type
 
     @Test
-    public void testDecodeDouble() throws RESPException {
+    public void testDecodeDouble() throws RespException {
         recv(",3.14\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isDouble());
@@ -104,27 +104,27 @@ public class RESP3DecoderTest {
     }
 
     @Test
-    public void testDecodeDoubleInfinity() throws RESPException {
+    public void testDecodeDoubleInfinity() throws RespException {
         recv(",inf\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertTrue(Double.isInfinite(value.asDouble()));
         assertTrue(value.asDouble() > 0);
     }
 
     @Test
-    public void testDecodeDoubleNegativeInfinity() throws RESPException {
+    public void testDecodeDoubleNegativeInfinity() throws RespException {
         recv(",-inf\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertTrue(Double.isInfinite(value.asDouble()));
         assertTrue(value.asDouble() < 0);
     }
 
     @Test
-    public void testDecodeDoubleNaN() throws RESPException {
+    public void testDecodeDoubleNaN() throws RespException {
         recv(",nan\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertTrue(Double.isNaN(value.asDouble()));
     }
@@ -132,9 +132,9 @@ public class RESP3DecoderTest {
     // Boolean type
 
     @Test
-    public void testDecodeBooleanTrue() throws RESPException {
+    public void testDecodeBooleanTrue() throws RespException {
         recv("#t\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isBoolean());
@@ -142,9 +142,9 @@ public class RESP3DecoderTest {
     }
 
     @Test
-    public void testDecodeBooleanFalse() throws RESPException {
+    public void testDecodeBooleanFalse() throws RespException {
         recv("#f\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isBoolean());
@@ -154,25 +154,25 @@ public class RESP3DecoderTest {
     // Null type
 
     @Test
-    public void testDecodeNull() throws RESPException {
+    public void testDecodeNull() throws RespException {
         recv("_\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
-        assertEquals(RESPType.NULL, value.getType());
+        assertEquals(RespType.NULL, value.getType());
         assertNull(value.asString());
     }
 
     // Push type
 
     @Test
-    public void testDecodePush() throws RESPException {
+    public void testDecodePush() throws RespException {
         recv(">3\r\n+message\r\n+channel\r\n$5\r\nhello\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isPush());
-        List<RESPValue> elements = value.asPush();
+        List<RespValue> elements = value.asPush();
         assertEquals(3, elements.size());
         assertEquals("message", elements.get(0).asString());
         assertEquals("channel", elements.get(1).asString());
@@ -181,9 +181,9 @@ public class RESP3DecoderTest {
     // Verbatim string type
 
     @Test
-    public void testDecodeVerbatimString() throws RESPException {
+    public void testDecodeVerbatimString() throws RespException {
         recv("=15\r\ntxt:Some string\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isVerbatimString());
@@ -194,9 +194,9 @@ public class RESP3DecoderTest {
     // Big number type
 
     @Test
-    public void testDecodeBigNumber() throws RESPException {
+    public void testDecodeBigNumber() throws RespException {
         recv("(3492890328409238509324850943850943825024385\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isBigNumber());
@@ -206,9 +206,9 @@ public class RESP3DecoderTest {
     // Blob error type
 
     @Test
-    public void testDecodeBlobError() throws RESPException {
+    public void testDecodeBlobError() throws RespException {
         recv("!11\r\nERR unknown\r\n");
-        RESPValue value = decoder.next();
+        RespValue value = decoder.next();
 
         assertNotNull(value);
         assertTrue(value.isBlobError());
@@ -219,28 +219,28 @@ public class RESP3DecoderTest {
     // Type prefix roundtrip
 
     @Test
-    public void testResp3TypePrefixes() throws RESPException {
-        assertEquals(RESPType.MAP, RESPType.fromPrefix((byte) '%'));
-        assertEquals(RESPType.SET, RESPType.fromPrefix((byte) '~'));
-        assertEquals(RESPType.DOUBLE, RESPType.fromPrefix((byte) ','));
-        assertEquals(RESPType.BOOLEAN, RESPType.fromPrefix((byte) '#'));
-        assertEquals(RESPType.NULL, RESPType.fromPrefix((byte) '_'));
-        assertEquals(RESPType.PUSH, RESPType.fromPrefix((byte) '>'));
-        assertEquals(RESPType.VERBATIM_STRING, RESPType.fromPrefix((byte) '='));
-        assertEquals(RESPType.BIG_NUMBER, RESPType.fromPrefix((byte) '('));
-        assertEquals(RESPType.BLOB_ERROR, RESPType.fromPrefix((byte) '!'));
+    public void testResp3TypePrefixes() throws RespException {
+        assertEquals(RespType.MAP, RespType.fromPrefix((byte) '%'));
+        assertEquals(RespType.SET, RespType.fromPrefix((byte) '~'));
+        assertEquals(RespType.DOUBLE, RespType.fromPrefix((byte) ','));
+        assertEquals(RespType.BOOLEAN, RespType.fromPrefix((byte) '#'));
+        assertEquals(RespType.NULL, RespType.fromPrefix((byte) '_'));
+        assertEquals(RespType.PUSH, RespType.fromPrefix((byte) '>'));
+        assertEquals(RespType.VERBATIM_STRING, RespType.fromPrefix((byte) '='));
+        assertEquals(RespType.BIG_NUMBER, RespType.fromPrefix((byte) '('));
+        assertEquals(RespType.BLOB_ERROR, RespType.fromPrefix((byte) '!'));
     }
 
     // Incomplete data returns null
 
     @Test
-    public void testIncompleteMapReturnsNull() throws RESPException {
+    public void testIncompleteMapReturnsNull() throws RespException {
         recv("%2\r\n+first\r\n");
         assertNull(decoder.next());
     }
 
     @Test
-    public void testIncompleteDoubleReturnsNull() throws RESPException {
+    public void testIncompleteDoubleReturnsNull() throws RespException {
         recv(",3.14");
         assertNull(decoder.next());
     }
@@ -249,17 +249,17 @@ public class RESP3DecoderTest {
 
     @Test
     public void testResp3ToString() {
-        assertEquals(",3.14", RESPValue.doubleValue(3.14).toString());
-        assertEquals("#t", RESPValue.booleanValue(true).toString());
-        assertEquals("#f", RESPValue.booleanValue(false).toString());
-        assertEquals("_", RESPValue.resp3Null().toString());
-        assertEquals("(12345", RESPValue.bigNumber("12345").toString());
+        assertEquals(",3.14", RespValue.doubleValue(3.14).toString());
+        assertEquals("#t", RespValue.booleanValue(true).toString());
+        assertEquals("#f", RespValue.booleanValue(false).toString());
+        assertEquals("_", RespValue.resp3Null().toString());
+        assertEquals("(12345", RespValue.bigNumber("12345").toString());
     }
 
-    @Test(expected = RESPException.class)
-    public void testHugeMapCountRejected() throws RESPException {
+    @Test(expected = RespException.class)
+    public void testHugeMapCountRejected() throws RespException {
         StringBuilder sb = new StringBuilder();
-        sb.append('%').append(RESPDecoder.MAX_COLLECTION_ELEMENTS + 1).append("\r\n");
+        sb.append('%').append(RespDecoder.MAX_COLLECTION_ELEMENTS + 1).append("\r\n");
         recv(sb.toString());
         decoder.next();
     }

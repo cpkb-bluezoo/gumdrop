@@ -27,12 +27,17 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -40,11 +45,14 @@ import org.junit.rules.Timeout;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -87,8 +95,24 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         .build();
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/http-client-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        TlsConfig tls = TlsConfig.keystore(
+                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
+        HttpServer plaintext = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(HTTP_PORT)
+                        .addresses(InetAddress.getByName(TEST_HOST)))
+                .streamHandler(new EchoHandlerFactory())
+                .server();
+        HttpServer secure = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(HTTPS_PORT)
+                        .addresses(InetAddress.getByName(TEST_HOST))
+                        .secure(true)
+                        .tls(tls))
+                .streamHandler(new EchoHandlerFactory())
+                .server();
+        return Arrays.asList(plaintext, secure);
     }
 
     @Override
@@ -123,14 +147,14 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      *
      * @param host the target host
      * @param port the target port
-     * @return connected HTTPClientProtocolHandler
+     * @return connected HttpClientProtocolHandler
      * @throws Exception if connection fails
      */
-    private HTTPClientProtocolHandler createConnectedClient(String host, int port) throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+    private HttpClientProtocolHandler createConnectedClient(String host, int port) throws Exception {
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
-        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
-                new HTTPClientHandler() {
+        HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
+                new HttpClientHandler() {
                     @Override
                     public void onConnected(Endpoint endpoint) {}
                     @Override
@@ -142,8 +166,8 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 },
                 host, port, false);
 
-        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
-        client.connect(endpointHandler);
+        ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), host, port);
+        client.connect(gumdrop, endpointHandler);
 
         long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
         while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
@@ -163,14 +187,14 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      *
      * @param host the target host
      * @param port the target port
-     * @return connected HTTPClientProtocolHandler configured for HTTP/2 prior knowledge
+     * @return connected HttpClientProtocolHandler configured for HTTP/2 prior knowledge
      * @throws Exception if connection fails
      */
-    private HTTPClientProtocolHandler createH2PriorKnowledgeClient(String host, int port) throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+    private HttpClientProtocolHandler createH2PriorKnowledgeClient(String host, int port) throws Exception {
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
-        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
-                new HTTPClientHandler() {
+        HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
+                new HttpClientHandler() {
                     @Override
                     public void onConnected(Endpoint endpoint) {}
                     @Override
@@ -183,8 +207,8 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 host, port, false);
         endpointHandler.setH2WithPriorKnowledge(true);
 
-        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
-        client.connect(endpointHandler);
+        ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), host, port);
+        client.connect(gumdrop, endpointHandler);
 
         long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
         while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
@@ -202,18 +226,18 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      *
      * @param host the target host
      * @param port the target port
-     * @return connected HTTPClientProtocolHandler
+     * @return connected HttpClientProtocolHandler
      * @throws Exception if connection fails
      */
-    private HTTPClientProtocolHandler createSecureConnectedClient(String host, int port) throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+    private HttpClientProtocolHandler createSecureConnectedClient(String host, int port) throws Exception {
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.setSecure(true);
         factory.setApplicationProtocols("h2", "http/1.1");
         factory.setTrustManager(certManager.createClientTrustManager());
         factory.start();
 
-        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
-                new HTTPClientHandler() {
+        HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
+                new HttpClientHandler() {
                     @Override
                     public void onConnected(Endpoint endpoint) {}
                     @Override
@@ -227,8 +251,8 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
                 },
                 host, port, true);
 
-        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(), host, port);
-        client.connect(endpointHandler);
+        ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(), host, port);
+        client.connect(gumdrop, endpointHandler);
 
         long deadline = System.currentTimeMillis() + ASYNC_TIMEOUT_SECONDS * 1000L;
         while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
@@ -267,22 +291,22 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testHTTP11SimpleGET() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         client.setH2cUpgradeEnabled(false); // Force HTTP/1.1
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HTTPRequest request = client.get("/test");
-        request.send(new DefaultHTTPResponseHandler() {
+        HttpRequest request = client.get("/test");
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -300,13 +324,13 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
-        assertEquals("Should be HTTP/1.1", HTTPVersion.HTTP_1_1, client.getVersion());
+        assertEquals("Should be HTTP/1.1", HttpVersion.HTTP_1_1, client.getVersion());
         client.close();
 
         assertTrue("Request should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
         assertNotNull("Should receive status", status.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
     }
 
     /**
@@ -316,22 +340,22 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testHTTP11HEAD() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         client.setH2cUpgradeEnabled(false); // Force HTTP/1.1
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HTTPRequest request = client.head("/test");
-        request.send(new DefaultHTTPResponseHandler() {
+        HttpRequest request = client.head("/test");
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -349,12 +373,12 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
-        assertEquals("Should be HTTP/1.1", HTTPVersion.HTTP_1_1, client.getVersion());
+        assertEquals("Should be HTTP/1.1", HttpVersion.HTTP_1_1, client.getVersion());
         client.close();
 
         assertTrue("Request should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
     }
 
     /**
@@ -362,22 +386,22 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testHTTP11DELETE() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         client.setH2cUpgradeEnabled(false); // Force HTTP/1.1
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HTTPRequest request = client.delete("/test");
-        request.send(new DefaultHTTPResponseHandler() {
+        HttpRequest request = client.delete("/test");
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -395,7 +419,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
-        assertEquals("Should be HTTP/1.1", HTTPVersion.HTTP_1_1, client.getVersion());
+        assertEquals("Should be HTTP/1.1", HttpVersion.HTTP_1_1, client.getVersion());
         client.close();
 
         assertTrue("Request should complete", completed);
@@ -409,22 +433,22 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testHTTP11OPTIONS() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         client.setH2cUpgradeEnabled(false); // Force HTTP/1.1
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HTTPRequest request = client.options("*");
-        request.send(new DefaultHTTPResponseHandler() {
+        HttpRequest request = client.options("*");
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -442,17 +466,17 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
-        assertEquals("Should be HTTP/1.1", HTTPVersion.HTTP_1_1, client.getVersion());
+        assertEquals("Should be HTTP/1.1", HttpVersion.HTTP_1_1, client.getVersion());
         client.close();
 
         assertTrue("Request should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
     }
 
     @Test
     public void testHTTP11POSTWithContentLength() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         
         // Disable h2c upgrade - this test is specifically for HTTP/1.1
         client.setH2cUpgradeEnabled(false);
@@ -461,23 +485,23 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         byte[] contentBytes = testContent.getBytes(StandardCharsets.UTF_8);
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<String> responseBody = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HTTPRequest request = client.post("/echo");
+        HttpRequest request = client.post("/echo");
         request.header("Content-Type", "text/plain");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -513,7 +537,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("Request should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
 
         String body = responseBody.get();
         assertNotNull("Should have response body", body);
@@ -538,8 +562,8 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
             Files.write(bodyFile, testContent.getBytes(StandardCharsets.UTF_8));
 
             List<String> requestHeaders = new ArrayList<String>();
-            HTTPClient.runRequest(
-                    Gumdrop.getInstance().nextWorkerLoop(),
+            HttpClient.runRequest(
+                    gumdrop, gumdrop.nextWorkerLoop(),
                     TEST_HOST, HTTP_PORT, "http", "/echo", "POST",
                     requestHeaders,
                     bodyFile.toString(), outputFile.toString(),
@@ -559,7 +583,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testHTTP11ChunkedPOST() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
         
         // Disable h2c upgrade - this test is specifically for HTTP/1.1
         client.setH2cUpgradeEnabled(false);
@@ -570,23 +594,23 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         String fullContent = chunk1 + chunk2 + chunk3;
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<String> responseBody = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HTTPRequest request = client.post("/echo");
+        HttpRequest request = client.post("/echo");
         request.header("Content-Type", "text/plain");
         request.header("Transfer-Encoding", "chunked");
 
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -625,7 +649,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("Request should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
 
         String body = responseBody.get();
         assertNotNull("Should have response body", body);
@@ -635,7 +659,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testHTTP11LargeChunkedUpload() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // Create large content (64KB)
         byte[] largeContent = new byte[65536];
@@ -644,22 +668,22 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         }
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HTTPRequest request = client.post("/echo");
+        HttpRequest request = client.post("/echo");
         request.header("Content-Type", "application/octet-stream");
         request.header("Transfer-Encoding", "chunked");
 
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -700,7 +724,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("Request should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
 
         // Verify content was echoed correctly
         byte[] receivedContent = bodyBuffer.toByteArray();
@@ -726,7 +750,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testH2cUpgradeWithOptions() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // h2c upgrade is automatic on plaintext connections
         System.out.println("Testing h2c upgrade with OPTIONS request...");
@@ -734,19 +758,19 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         // Send OPTIONS request - h2c upgrade headers will be added automatically
         // If server accepts, we get 101 -> switch to HTTP/2 -> response on stream 1
         CountDownLatch optionsLatch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> optionsStatus = new AtomicReference<>();
+        AtomicReference<HttpStatus> optionsStatus = new AtomicReference<>();
         AtomicReference<Exception> optionsError = new AtomicReference<>();
 
-        HTTPRequest optionsRequest = client.options("*");
-        optionsRequest.send(new DefaultHTTPResponseHandler() {
+        HttpRequest optionsRequest = client.options("*");
+        optionsRequest.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 optionsStatus.set(response.getStatus());
                 System.out.println("OPTIONS ok response: " + response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 optionsStatus.set(response.getStatus());
                 System.out.println("OPTIONS error response: " + response.getStatus());
             }
@@ -770,17 +794,17 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertNull("OPTIONS should not fail: " + optionsError.get(), optionsError.get());
 
         // Check if upgrade happened
-        HTTPVersion version = client.getVersion();
+        HttpVersion version = client.getVersion();
         System.out.println("HTTP version after OPTIONS: " + version);
         System.out.println("OPTIONS status: " + optionsStatus.get());
 
         // Whether h2c upgrade succeeded or not, we should have a valid response
         assertNotNull("Should have OPTIONS status", optionsStatus.get());
         
-        if (version == HTTPVersion.HTTP_2_0) {
+        if (version == HttpVersion.HTTP_2_0) {
             System.out.println("h2c upgrade successful! Connection is now HTTP/2.");
             // The actual response to OPTIONS comes over HTTP/2 (not the 101)
-            assertEquals("Should receive 200 OK for OPTIONS", HTTPStatus.OK, optionsStatus.get());
+            assertEquals("Should receive 200 OK for OPTIONS", HttpStatus.OK, optionsStatus.get());
         } else {
             System.out.println("Server did not upgrade to h2c, continuing with HTTP/1.1");
             // Server declined h2c, which is valid - got HTTP/1.1 response
@@ -796,7 +820,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testH2cPOSTWithContentLength() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // h2c upgrade is automatic on plaintext connections
         // Send POST - connection will include upgrade headers and handle the transition
@@ -804,23 +828,23 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         byte[] contentBytes = testContent.getBytes(StandardCharsets.UTF_8);
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<String> responseBody = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HTTPRequest request = client.post("/echo");
+        HttpRequest request = client.post("/echo");
         request.header("Content-Type", "text/plain");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -854,14 +878,14 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         
         // After request completes, check if we're on HTTP/2
-        HTTPVersion version = client.getVersion();
+        HttpVersion version = client.getVersion();
         System.out.println("After POST: version=" + version + " status=" + status.get());
         
         client.close();
 
         assertTrue("POST should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
 
         String body = responseBody.get();
         assertNotNull("Should have response body", body);
@@ -878,7 +902,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
      */
     @Test
     public void testH2cChunkedPOST() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // h2c upgrade is automatic - just send the chunked POST
         String chunk1 = "First chunk of data. ";
@@ -887,23 +911,23 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         String fullContent = chunk1 + chunk2 + chunk3;
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<String> responseBody = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HTTPRequest request = client.post("/echo");
+        HttpRequest request = client.post("/echo");
         request.header("Content-Type", "text/plain");
         // No Content-Length - will be sent as DATA frames
 
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -942,7 +966,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("HTTP/2 chunked POST should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
 
         String body = responseBody.get();
         assertNotNull("Should have response body", body);
@@ -960,21 +984,21 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
     @Test
     public void testH2PriorKnowledge() throws Exception {
         // Must set prior knowledge BEFORE connecting
-        HTTPClientProtocolHandler client = createH2PriorKnowledgeClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createH2PriorKnowledgeClient(TEST_HOST, HTTP_PORT);
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HTTPRequest request = client.get("/test");
-        request.send(new DefaultHTTPResponseHandler() {
+        HttpRequest request = client.get("/test");
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -993,14 +1017,14 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
         // Should be HTTP/2 immediately (no upgrade needed)
-        HTTPVersion version = client.getVersion();
+        HttpVersion version = client.getVersion();
         
         client.close();
 
         assertTrue("Request should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
-        assertEquals("Should be HTTP/2 with prior knowledge", HTTPVersion.HTTP_2_0, version);
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
+        assertEquals("Should be HTTP/2 with prior knowledge", HttpVersion.HTTP_2_0, version);
     }
 
     /**
@@ -1009,29 +1033,29 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
     @Test
     public void testH2PriorKnowledgePOST() throws Exception {
         // Must set prior knowledge BEFORE connecting
-        HTTPClientProtocolHandler client = createH2PriorKnowledgeClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createH2PriorKnowledgeClient(TEST_HOST, HTTP_PORT);
 
         String testContent = "Hello from HTTP/2 with prior knowledge!";
         byte[] contentBytes = testContent.getBytes(StandardCharsets.UTF_8);
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<String> responseBody = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HTTPRequest request = client.post("/echo");
+        HttpRequest request = client.post("/echo");
         request.header("Content-Type", "text/plain");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -1064,14 +1088,14 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         boolean completed = latch.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
-        HTTPVersion version = client.getVersion();
+        HttpVersion version = client.getVersion();
         
         client.close();
 
         assertTrue("POST should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
-        assertEquals("Should be HTTP/2", HTTPVersion.HTTP_2_0, version);
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
+        assertEquals("Should be HTTP/2", HttpVersion.HTTP_2_0, version);
         
         String body = responseBody.get();
         assertNotNull("Should have response body", body);
@@ -1084,21 +1108,21 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testHTTPSSimpleGET() throws Exception {
-        HTTPClientProtocolHandler client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
+        HttpClientProtocolHandler client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
 
-        HTTPRequest request = client.get("/test");
-        request.send(new DefaultHTTPResponseHandler() {
+        HttpRequest request = client.get("/test");
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -1120,34 +1144,34 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         assertTrue("HTTPS request should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
         assertNotNull("Should receive status", status.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
     }
 
     @Test
     public void testHTTPSPOSTWithContentVerification() throws Exception {
-        HTTPClientProtocolHandler client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
+        HttpClientProtocolHandler client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
 
         String testContent = "Secure content for HTTPS POST verification test!";
         byte[] contentBytes = testContent.getBytes(StandardCharsets.UTF_8);
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<String> responseBody = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HTTPRequest request = client.post("/echo");
+        HttpRequest request = client.post("/echo");
         request.header("Content-Type", "text/plain");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -1183,7 +1207,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("HTTPS POST should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
 
         String body = responseBody.get();
         assertNotNull("Should have response body", body);
@@ -1193,7 +1217,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testHTTPSChunkedUpload() throws Exception {
-        HTTPClientProtocolHandler client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
+        HttpClientProtocolHandler client = createSecureConnectedClient(TEST_HOST, HTTPS_PORT);
 
         String chunk1 = "HTTPS chunk one. ";
         String chunk2 = "HTTPS chunk two. ";
@@ -1201,27 +1225,27 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         String fullContent = chunk1 + chunk2 + chunk3;
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<String> responseBody = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HTTPRequest request = client.post("/echo");
+        HttpRequest request = client.post("/echo");
         request.header("Content-Type", "text/plain");
         // For HTTP/1.1, we need Transfer-Encoding: chunked for streaming without Content-Length
         // For HTTP/2, DATA frames handle this automatically
-        if (client.getVersion() == HTTPVersion.HTTP_1_1) {
+        if (client.getVersion() == HttpVersion.HTTP_1_1) {
             request.header("Transfer-Encoding", "chunked");
         }
 
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -1259,7 +1283,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("HTTPS chunked upload should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
 
         String body = responseBody.get();
         assertNotNull("Should have response body", body);
@@ -1273,7 +1297,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     @Test
     public void testContentIntegrity() throws Exception {
-        HTTPClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
+        HttpClientProtocolHandler client = createConnectedClient(TEST_HOST, HTTP_PORT);
 
         // Create content with a specific pattern for verification
         StringBuilder contentBuilder = new StringBuilder();
@@ -1286,22 +1310,22 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
         byte[] contentBytes = originalContent.getBytes(StandardCharsets.UTF_8);
 
         CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        HTTPRequest request = client.post("/echo");
+        HttpRequest request = client.post("/echo");
         request.header("Content-Type", "text/plain; charset=UTF-8");
         request.header("Content-Length", String.valueOf(contentBytes.length));
 
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -1336,7 +1360,7 @@ public class HTTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         assertTrue("Request should complete", completed);
         assertNull("Should not fail: " + error.get(), error.get());
-        assertEquals("Should receive 200 OK", HTTPStatus.OK, status.get());
+        assertEquals("Should receive 200 OK", HttpStatus.OK, status.get());
 
         String receivedContent = new String(bodyBuffer.toByteArray(), StandardCharsets.UTF_8);
         assertTrue("Received content should contain original content",

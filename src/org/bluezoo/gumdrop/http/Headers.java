@@ -264,7 +264,7 @@ public class Headers extends ArrayList<Header> {
      *
      * @param status the HTTP status
      */
-    public void status(HTTPStatus status) {
+    public void status(HttpStatus status) {
         set(":status", Integer.toString(status.code));
     }
 

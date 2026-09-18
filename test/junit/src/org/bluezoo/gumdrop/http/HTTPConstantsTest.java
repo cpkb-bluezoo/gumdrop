@@ -7,13 +7,13 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link HTTPConstants}.
+ * Unit tests for {@link HttpConstants}.
  */
 public class HTTPConstantsTest {
 
     /**
      * getMessageBytes is a pre-encoded, allocation-free counterpart to
-     * getMessage for wire-writing callers (HTTPProtocolHandler); it must
+     * getMessage for wire-writing callers (HttpProtocolHandler); it must
      * describe the exact same text for every known code, and fall back
      * the same way for an unknown one.
      */
@@ -21,85 +21,85 @@ public class HTTPConstantsTest {
     public void testGetMessageBytesMatchesGetMessageForKnownCodes() {
         int[] codes = { 100, 200, 204, 301, 400, 404, 418, 500, 511 };
         for (int code : codes) {
-            byte[] expected = HTTPConstants.getMessage(code).getBytes(StandardCharsets.US_ASCII);
+            byte[] expected = HttpConstants.getMessage(code).getBytes(StandardCharsets.US_ASCII);
             assertArrayEquals("mismatch for status " + code,
-                    expected, HTTPConstants.getMessageBytes(code));
+                    expected, HttpConstants.getMessageBytes(code));
         }
     }
 
     @Test
     public void testGetMessageBytesUnknownCodeFallsBackLikeGetMessage() {
-        byte[] expected = HTTPConstants.getMessage(999).getBytes(StandardCharsets.US_ASCII);
-        assertArrayEquals(expected, HTTPConstants.getMessageBytes(999));
+        byte[] expected = HttpConstants.getMessage(999).getBytes(StandardCharsets.US_ASCII);
+        assertArrayEquals(expected, HttpConstants.getMessageBytes(999));
     }
 
     @Test
     public void testGetMessageKnownCodes() {
-        assertEquals("Continue", HTTPConstants.getMessage(100));
-        assertEquals("OK", HTTPConstants.getMessage(200));
-        assertEquals("Moved Permanently", HTTPConstants.getMessage(301));
-        assertEquals("Bad Request", HTTPConstants.getMessage(400));
-        assertEquals("Not Found", HTTPConstants.getMessage(404));
-        assertEquals("Internal Server Error", HTTPConstants.getMessage(500));
+        assertEquals("Continue", HttpConstants.getMessage(100));
+        assertEquals("OK", HttpConstants.getMessage(200));
+        assertEquals("Moved Permanently", HttpConstants.getMessage(301));
+        assertEquals("Bad Request", HttpConstants.getMessage(400));
+        assertEquals("Not Found", HttpConstants.getMessage(404));
+        assertEquals("Internal Server Error", HttpConstants.getMessage(500));
     }
 
     @Test
     public void testGetMessageAllInformational() {
-        assertEquals("Continue", HTTPConstants.getMessage(100));
-        assertEquals("Switching Protocols", HTTPConstants.getMessage(101));
-        assertEquals("Processing", HTTPConstants.getMessage(102));
-        assertEquals("Early Hints", HTTPConstants.getMessage(103));
+        assertEquals("Continue", HttpConstants.getMessage(100));
+        assertEquals("Switching Protocols", HttpConstants.getMessage(101));
+        assertEquals("Processing", HttpConstants.getMessage(102));
+        assertEquals("Early Hints", HttpConstants.getMessage(103));
     }
 
     @Test
     public void testGetMessageRedirectionCodes() {
-        assertEquals("Multiple Choices", HTTPConstants.getMessage(300));
-        assertEquals("Found", HTTPConstants.getMessage(302));
-        assertEquals("See Other", HTTPConstants.getMessage(303));
-        assertEquals("Not Modified", HTTPConstants.getMessage(304));
-        assertEquals("Temporary Redirect", HTTPConstants.getMessage(307));
-        assertEquals("Permanent Redirect", HTTPConstants.getMessage(308));
+        assertEquals("Multiple Choices", HttpConstants.getMessage(300));
+        assertEquals("Found", HttpConstants.getMessage(302));
+        assertEquals("See Other", HttpConstants.getMessage(303));
+        assertEquals("Not Modified", HttpConstants.getMessage(304));
+        assertEquals("Temporary Redirect", HttpConstants.getMessage(307));
+        assertEquals("Permanent Redirect", HttpConstants.getMessage(308));
     }
 
     @Test
     public void testGetMessageWebDAVCodes() {
-        assertEquals("Multi-Status", HTTPConstants.getMessage(207));
-        assertEquals("Already Reported", HTTPConstants.getMessage(208));
-        assertEquals("Locked", HTTPConstants.getMessage(423));
-        assertEquals("Failed Dependency", HTTPConstants.getMessage(424));
-        assertEquals("Insufficient Storage", HTTPConstants.getMessage(507));
-        assertEquals("Loop Detected", HTTPConstants.getMessage(508));
+        assertEquals("Multi-Status", HttpConstants.getMessage(207));
+        assertEquals("Already Reported", HttpConstants.getMessage(208));
+        assertEquals("Locked", HttpConstants.getMessage(423));
+        assertEquals("Failed Dependency", HttpConstants.getMessage(424));
+        assertEquals("Insufficient Storage", HttpConstants.getMessage(507));
+        assertEquals("Loop Detected", HttpConstants.getMessage(508));
     }
 
     @Test
     public void testGetMessageTeapot() {
-        assertEquals("I'm a Teapot", HTTPConstants.getMessage(418));
+        assertEquals("I'm a Teapot", HttpConstants.getMessage(418));
     }
 
     @Test
     public void testGetMessageUnknownCode() {
-        assertEquals("Unknown Status Code", HTTPConstants.getMessage(999));
-        assertEquals("Unknown Status Code", HTTPConstants.getMessage(0));
-        assertEquals("Unknown Status Code", HTTPConstants.getMessage(-1));
+        assertEquals("Unknown Status Code", HttpConstants.getMessage(999));
+        assertEquals("Unknown Status Code", HttpConstants.getMessage(0));
+        assertEquals("Unknown Status Code", HttpConstants.getMessage(-1));
     }
 
     @Test
     public void testMessagesMapNotEmpty() {
-        assertFalse(HTTPConstants.messages.isEmpty());
+        assertFalse(HttpConstants.messages.isEmpty());
     }
 
     @Test
     public void testMessagesMapContainsStandardCodes() {
-        assertTrue(HTTPConstants.messages.containsKey(200));
-        assertTrue(HTTPConstants.messages.containsKey(404));
-        assertTrue(HTTPConstants.messages.containsKey(500));
+        assertTrue(HttpConstants.messages.containsKey(200));
+        assertTrue(HttpConstants.messages.containsKey(404));
+        assertTrue(HttpConstants.messages.containsKey(500));
     }
 
     @Test
     public void testRFC9110ReasonPhrases() {
-        assertEquals("Content Too Large", HTTPConstants.getMessage(413));
-        assertEquals("URI Too Long", HTTPConstants.getMessage(414));
-        assertEquals("Range Not Satisfiable", HTTPConstants.getMessage(416));
-        assertEquals("Unprocessable Content", HTTPConstants.getMessage(422));
+        assertEquals("Content Too Large", HttpConstants.getMessage(413));
+        assertEquals("URI Too Long", HttpConstants.getMessage(414));
+        assertEquals("Range Not Satisfiable", HttpConstants.getMessage(416));
+        assertEquals("Unprocessable Content", HttpConstants.getMessage(422));
     }
 }

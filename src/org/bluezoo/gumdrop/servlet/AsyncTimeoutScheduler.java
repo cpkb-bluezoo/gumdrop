@@ -37,7 +37,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-final class AsyncTimeoutScheduler implements Runnable {
+public final class AsyncTimeoutScheduler implements Runnable {
 
     private static final Logger LOGGER = Logger.getLogger(AsyncTimeoutScheduler.class.getName());
     private static final AtomicLong TIMER_ID_GENERATOR = new AtomicLong(0);
@@ -48,7 +48,7 @@ final class AsyncTimeoutScheduler implements Runnable {
     private Thread thread;
     private volatile boolean active;
 
-    AsyncTimeoutScheduler() {
+    public AsyncTimeoutScheduler() {
         this.queue = new PriorityQueue<TimeoutEntry>();
         this.lock = new ReentrantLock();
         this.condition = lock.newCondition();
@@ -57,7 +57,7 @@ final class AsyncTimeoutScheduler implements Runnable {
     /**
      * Starts this scheduler.
      */
-    void start() {
+    public void start() {
         if (thread != null && thread.isAlive()) {
             return;
         }
@@ -150,7 +150,7 @@ final class AsyncTimeoutScheduler implements Runnable {
     /**
      * Shuts down this scheduler.
      */
-    void shutdown() {
+    public void shutdown() {
         active = false;
         lock.lock();
         try {

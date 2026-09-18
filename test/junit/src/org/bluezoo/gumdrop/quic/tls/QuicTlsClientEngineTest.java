@@ -26,6 +26,7 @@ import org.junit.Test;
 import java.lang.reflect.Field;
 import java.util.List;
 
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
@@ -131,6 +132,11 @@ public class QuicTlsClientEngineTest {
         @Override
         public void execute(Runnable task) {
             task.run();
+        }
+
+        @Override
+        public SelectorLoop getSelectorLoop() {
+            return null;
         }
 
         @Override

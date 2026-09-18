@@ -23,8 +23,8 @@
  * MIME parsing: multipart content, content-type/content-disposition
  * headers, and Base64/quoted-printable transfer encodings.
  *
- * <p>{@link org.bluezoo.gumdrop.mime.MIMEParser} is a streaming parser
- * delivering parsed parts to a {@link org.bluezoo.gumdrop.mime.MIMEHandler};
+ * <p>{@link org.bluezoo.gumdrop.mime.MimeParser} is a streaming parser
+ * delivering parsed parts to a {@link org.bluezoo.gumdrop.mime.MimeHandler};
  * {@link org.bluezoo.gumdrop.mime.ContentType} and {@link
  * org.bluezoo.gumdrop.mime.ContentDisposition} parse and represent those
  * headers; {@link org.bluezoo.gumdrop.mime.Base64Decoder} and {@link

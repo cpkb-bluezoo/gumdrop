@@ -29,12 +29,12 @@ import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 
 /**
- * Default in-memory implementation of {@link MQTTMessageStore}.
+ * Default in-memory implementation of {@link MqttMessageStore}.
  *
  * <p>Payloads are accumulated in a {@link ByteArrayOutputStream} and
- * committed as a {@code byte[]} wrapped in an {@link MQTTMessageContent}.
- * The {@link MQTTMessageContent#isBuffered()} method always returns
- * {@code true}, and {@link MQTTMessageContent#asByteArray()} returns
+ * committed as a {@code byte[]} wrapped in an {@link MqttMessageContent}.
+ * The {@link MqttMessageContent#isBuffered()} method always returns
+ * {@code true}, and {@link MqttMessageContent#asByteArray()} returns
  * the backing array directly.
  *
  * <p>This preserves the same memory characteristics as the pre-store
@@ -43,14 +43,14 @@ import java.nio.channels.ReadableByteChannel;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class InMemoryMessageStore implements MQTTMessageStore {
+public class InMemoryMessageStore implements MqttMessageStore {
 
     @Override
-    public MQTTMessageWriter createWriter() {
+    public MqttMessageWriter createWriter() {
         return new InMemoryWriter();
     }
 
-    static class InMemoryWriter implements MQTTMessageWriter {
+    static class InMemoryWriter implements MqttMessageWriter {
 
         private ByteArrayOutputStream buf = new ByteArrayOutputStream();
 
@@ -70,7 +70,7 @@ public class InMemoryMessageStore implements MQTTMessageStore {
         }
 
         @Override
-        public MQTTMessageContent commit() {
+        public MqttMessageContent commit() {
             byte[] data = buf.toByteArray();
             buf = null;
             return new InMemoryContent(data);
@@ -96,7 +96,7 @@ public class InMemoryMessageStore implements MQTTMessageStore {
      * In-memory content backed by a byte array.
      * Visible for use in coalesced delivery paths.
      */
-    public static class InMemoryContent implements MQTTMessageContent {
+    public static class InMemoryContent implements MqttMessageContent {
 
         private byte[] data;
 

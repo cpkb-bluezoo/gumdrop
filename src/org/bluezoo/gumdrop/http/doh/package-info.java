@@ -23,10 +23,10 @@
  * DNS-over-HTTPS (RFC 8484) client transport.
  *
  * <p>{@link org.bluezoo.gumdrop.http.doh.DoHClientTransport} implements
- * {@link org.bluezoo.gumdrop.dns.client.DNSClientTransport} by sending
+ * {@link org.bluezoo.gumdrop.dns.client.DnsClientTransport} by sending
  * the raw DNS wire-format query as an HTTP POST body (content type
  * {@code application/dns-message}, RFC 8484 section 4.1) over {@link
- * org.bluezoo.gumdrop.http.client.HTTPClient}, to a configurable URI
+ * org.bluezoo.gumdrop.http.HttpClient}, to a configurable URI
  * template path (default {@code /dns-query}) on port 443.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

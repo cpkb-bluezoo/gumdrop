@@ -56,9 +56,9 @@ event-driven parsing with <a href="https://github.com/cpkb-bluezoo/gonzalez">Gon
 <h3 id="overview">Overview</h3>
 
 <p>
-A Gumdrop microservice is an <code>HTTPService</code> with a custom
-<code>HTTPRequestHandlerFactory</code>. The factory creates
-<code>HTTPRequestHandler</code> instances for each request. Handlers receive
+A Gumdrop microservice is an <code>HttpServer</code> composed with a custom
+<code>HttpStreamHandler</code>, which binds an
+<code>HttpRequestHandler</code> instance for each request. Handlers receive
 events in sequence:
 </p>
 
@@ -138,13 +138,13 @@ import java.nio.ByteBuffer;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-class XmlEchoHandler extends DefaultHTTPRequestHandler {
+class XmlEchoHandler extends DefaultHttpRequestHandler {
     private final Parser parser = new Parser();
     private final EchoContentHandler contentHandler = new EchoContentHandler();
     private boolean bodyStarted;
 
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         if (!"POST".equals(headers.getMethod())) {
             sendError(state, 405, "Method Not Allowed");
             return;
@@ -164,12 +164,12 @@ class XmlEchoHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void startRequestBody(HTTPResponseState state) {
+    public void startRequestBody(HttpResponseState state) {
         bodyStarted = true;
     }
 
     @Override
-    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
         if (!bodyStarted) return;
         try {
             parser.receive(data);
@@ -179,7 +179,7 @@ class XmlEchoHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void endRequestBody(HTTPResponseState state) {
+    public void endRequestBody(HttpResponseState state) {
         if (!bodyStarted) return;
         try {
             parser.close();
@@ -189,7 +189,7 @@ class XmlEchoHandler extends DefaultHTTPRequestHandler {
         }
     }
 
-    private void sendXmlResponse(HTTPResponseState state) throws IOException {
+    private void sendXmlResponse(HttpResponseState state) throws IOException {
         String root = contentHandler.getRootElement();
         String text = contentHandler.getText();
 
@@ -204,7 +204,7 @@ class XmlEchoHandler extends DefaultHTTPRequestHandler {
         xml.close();
 
         Headers response = new Headers();
-        response.status(HTTPStatus.OK);
+        response.status(HttpStatus.OK);
         response.add("content-type", "application/xml");
         state.headers(response);
         state.startResponseBody();
@@ -213,9 +213,9 @@ class XmlEchoHandler extends DefaultHTTPRequestHandler {
         state.complete();
     }
 
-    private void sendError(HTTPResponseState state, int code, String message) {
+    private void sendError(HttpResponseState state, int code, String message) {
         Headers response = new Headers();
-        response.status(HTTPStatus.fromCode(code));
+        response.status(HttpStatus.fromCode(code));
         response.add("content-type", "text/plain");
         state.headers(response);
         state.startResponseBody();
@@ -226,39 +226,35 @@ class XmlEchoHandler extends DefaultHTTPRequestHandler {
 }
 </pre>
 
-<h4>Step 3: Create the Service and Factory</h4>
+<h4>Step 3: Create the Stream Handler</h4>
 
 <p>
-Extend <code>HTTPService</code> and provide a handler factory. The factory
-routes requests (here, all POST requests to <code>/echo</code> get the
-XML handler):
+Compose a custom <code>HttpStreamHandler</code> instead of subclassing
+<code>HttpServer</code>. Routing happens in the bound
+<code>HttpRequestHandler</code>'s own <code>headers()</code> callback (here,
+all POST requests to <code>/echo</code> get the XML handler, everything else
+gets a plain 404):
 </p>
 
 <pre>
 import org.bluezoo.gumdrop.http.*;
+import org.bluezoo.gumdrop.http.server.*;
 
-public class XmlEchoService extends HTTPService {
-
-    @Override
-    protected void initService() {
-        // No resources to initialise
-    }
+public class XmlEchoStreamHandler implements HttpStreamHandler {
 
     @Override
-    protected HTTPRequestHandlerFactory getHandlerFactory() {
-        return new XmlEchoHandlerFactory();
-    }
-
-    private static class XmlEchoHandlerFactory implements HTTPRequestHandlerFactory {
-        @Override
-        public HTTPRequestHandler createHandler(HTTPResponseState state,
-                                                Headers headers) {
-            String path = headers.getValue(":path");
-            if ("/echo".equals(path) && "POST".equals(headers.getMethod())) {
-                return new XmlEchoHandler();
+    public HttpRequestHandler openStream(HttpResponseState state) {
+        return new DefaultHttpRequestHandler() {
+            @Override
+            public void headers(HttpResponseState state, Headers headers) {
+                String path = headers.getValue(":path");
+                if ("/echo".equals(path) && "POST".equals(headers.getMethod())) {
+                    new XmlEchoHandler().headers(state, headers);
+                } else {
+                    NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
+                }
             }
-            return null;  // 404
-        }
+        };
     }
 }
 </pre>
@@ -266,17 +262,18 @@ public class XmlEchoService extends HTTPService {
 <h4>Step 4: Wire and Start</h4>
 
 <p>
-Add the service to Gumdrop and configure a listener. See
+Compose the handler onto an <code>HttpServer</code> and start it. See
 <a href="#configuration">Configuration</a> for XML-based setup.
 </p>
 
 <pre>
+HttpServer server = HttpServer.compose()
+        .listener(new Http2Listener().port(9090))
+        .streamHandler(new XmlEchoStreamHandler())
+        .server();
+
 Gumdrop gumdrop = Gumdrop.getInstance();
-XmlEchoService service = new XmlEchoService();
-HTTPListener listener = new HTTPListener();
-listener.setPort(9090);
-service.addListener(listener);
-gumdrop.addService(service);
+gumdrop.addServer(server);
 gumdrop.start();
 
 // Block until shutdown (Ctrl+C); JVM shutdown hook calls gumdrop.shutdown()
@@ -357,13 +354,13 @@ import java.nio.ByteBuffer;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-class LookupHandler extends DefaultHTTPRequestHandler {
+class LookupHandler extends DefaultHttpRequestHandler {
     private final String downstreamHost;
     private final int downstreamPort;
     private final JSONParser jsonParser = new JSONParser();
     private final LookupRequestHandler requestHandler = new LookupRequestHandler();
     private boolean parserInitialised;
-    private HTTPResponseState pendingState;
+    private HttpResponseState pendingState;
 
     LookupHandler(String host, int port) {
         this.downstreamHost = host;
@@ -371,7 +368,7 @@ class LookupHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         if (!"POST".equals(headers.getMethod())) {
             sendError(state, 405, "Method Not Allowed");
             return;
@@ -387,12 +384,12 @@ class LookupHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void startRequestBody(HTTPResponseState state) {
+    public void startRequestBody(HttpResponseState state) {
         // Body starting
     }
 
     @Override
-    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
         if (!parserInitialised) {
             jsonParser.setContentHandler(requestHandler);
             parserInitialised = true;
@@ -405,7 +402,7 @@ class LookupHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void endRequestBody(HTTPResponseState state) {
+    public void endRequestBody(HttpResponseState state) {
         try {
             jsonParser.close();
         } catch (JSONException e) {
@@ -422,31 +419,31 @@ class LookupHandler extends DefaultHTTPRequestHandler {
         callDownstream(state, query);
     }
 
-    private void callDownstream(HTTPResponseState state, String query) {
+    private void callDownstream(HttpResponseState state, String query) {
         SelectorLoop loop = state.getSelectorLoop();
-        HTTPClient client = (loop != null)
-            ? new HTTPClient(loop, downstreamHost, downstreamPort)
-            : new HTTPClient(downstreamHost, downstreamPort);
+        HttpClient client = (loop != null)
+            ? new HttpClient(loop, downstreamHost, downstreamPort)
+            : new HttpClient(downstreamHost, downstreamPort);
 
         // Propagate trace context so the distributed trace remains connected
         client.setTrace(state.getTrace());
 
-        client.connect(new HTTPClientHandler() {
+        client.connect(new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
-                HTTPRequest request = client.post("/lookup");
+                HttpRequest request = client.post("/lookup");
                 request.header("Content-Type", "application/json");
                 request.header("Accept", "application/json");
 
-                DefaultHTTPResponseHandler responseHandler =
-                    new DefaultHTTPResponseHandler() {
+                DefaultHttpResponseHandler responseHandler =
+                    new DefaultHttpResponseHandler() {
                     private final JSONParser responseParser = new JSONParser();
                     private final LookupResponseHandler jsonHandler =
                         new LookupResponseHandler();
                     private boolean parserInit;
 
                     @Override
-                    public void ok(HTTPResponse response) {
+                    public void ok(HttpResponse response) {
                         responseParser.setContentHandler(jsonHandler);
                         try { responseParser.reset(); } catch (Exception e) { /* ignore */ }
                         parserInit = true;
@@ -497,10 +494,10 @@ class LookupHandler extends DefaultHTTPRequestHandler {
         });
     }
 
-    private void sendJsonResponse(HTTPResponseState state, String result) {
+    private void sendJsonResponse(HttpResponseState state, String result) {
         String json = "{\"result\":\"" + escapeJson(result != null ? result : "") + "\"}";
         Headers response = new Headers();
-        response.status(HTTPStatus.OK);
+        response.status(HttpStatus.OK);
         response.add("content-type", "application/json");
         state.headers(response);
         state.startResponseBody();
@@ -509,9 +506,9 @@ class LookupHandler extends DefaultHTTPRequestHandler {
         state.complete();
     }
 
-    private void sendError(HTTPResponseState state, int code, String message) {
+    private void sendError(HttpResponseState state, int code, String message) {
         Headers response = new Headers();
-        response.status(HTTPStatus.fromCode(code));
+        response.status(HttpStatus.fromCode(code));
         response.add("content-type", "text/plain");
         state.headers(response);
         state.startResponseBody();
@@ -554,23 +551,29 @@ class LookupResponseHandler extends JSONDefaultHandler {
 }
 </pre>
 
-<h4>Step 4: Service with Downstream Configuration</h4>
+<h4>Step 4: Stream Handler with Downstream Configuration</h4>
 
 <pre>
-public class LookupService extends HTTPService {
-    private String downstreamHost = "localhost";
-    private int downstreamPort = 9091;
+public class LookupStreamHandler implements HttpStreamHandler {
+    private final String downstreamHost;
+    private final int downstreamPort;
 
-    public void setDownstreamHost(String host) { downstreamHost = host; }
-    public void setDownstreamPort(int port) { downstreamPort = port; }
+    public LookupStreamHandler(String downstreamHost, int downstreamPort) {
+        this.downstreamHost = downstreamHost;
+        this.downstreamPort = downstreamPort;
+    }
 
     @Override
-    protected HTTPRequestHandlerFactory getHandlerFactory() {
-        return (state, headers) -> {
-            if ("/lookup".equals(headers.getPath())) {
-                return new LookupHandler(downstreamHost, downstreamPort);
+    public HttpRequestHandler openStream(HttpResponseState state) {
+        return new DefaultHttpRequestHandler() {
+            @Override
+            public void headers(HttpResponseState state, Headers headers) {
+                if ("/lookup".equals(headers.getPath())) {
+                    new LookupHandler(downstreamHost, downstreamPort).headers(state, headers);
+                } else {
+                    NotFoundHttpRequestHandler.INSTANCE.headers(state, headers);
+                }
             }
-            return null;
         };
     }
 }
@@ -579,7 +582,7 @@ public class LookupService extends HTTPService {
 <h4>SelectorLoop Affinity</h4>
 
 <p>
-When creating the <code>HTTPClient</code>, pass <code>state.getSelectorLoop()</code>
+When creating the <code>HttpClient</code>, pass <code>state.getSelectorLoop()</code>
 so the outbound connection uses the same worker thread as the inbound request.
 This avoids context switches and keeps I/O on a single thread. If
 <code>getSelectorLoop()</code> returns null (e.g. in tests), the client falls
@@ -589,42 +592,35 @@ back to Gumdrop's default worker assignment.
 <h3 id="configuration">Configuration</h3>
 
 <p>
-Microservices can be configured via <code>gumdroprc</code> like any other
-service. Example for the XML echo service:
+Microservices are wired in Java, not XML (see
+<a href="configuration.html">Application composition</a>). Compose the echo
+service:
 </p>
 
 <pre>
-&lt;service id="echo" class="com.example.XmlEchoService"&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-    &lt;property name="port"&gt;9090&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+HttpServer echo = HttpServer.compose()
+        .listener(new Http2Listener().port(9090))
+        .streamHandler(new XmlEchoStreamHandler())
+        .server();
 </pre>
 
 <p>
-For the lookup service with downstream configuration:
+For the lookup service, downstream configuration is just constructor
+arguments — no property injection framework needed:
 </p>
 
 <pre>
-&lt;service id="lookup" class="com.example.LookupService"&gt;
-  &lt;property name="downstream-host"&gt;api.internal&lt;/property&gt;
-  &lt;property name="downstream-port"&gt;9091&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-    &lt;property name="port"&gt;9092&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+HttpServer lookup = HttpServer.compose()
+        .listener(new Http2Listener().port(9092))
+        .streamHandler(new LookupStreamHandler("api.internal", 9091))
+        .server();
 </pre>
-
-<p>
-See <a href="configuration.html">Configuration</a> for property naming
-conventions (<code>downstream-host</code> maps to <code>setDownstreamHost</code>)
-and the full dependency injection framework.
-</p>
 
 <h3>Summary</h3>
 
 <ul>
-<li>Extend <code>HTTPService</code> and implement <code>getHandlerFactory()</code></li>
+<li>Compose a custom <code>HttpStreamHandler</code> onto <code>HttpServer</code> —
+    don't subclass <code>HttpServer</code> for application logic</li>
 <li>Feed <code>requestBodyContent(ByteBuffer)</code> chunks directly to
     <code>Parser.receive()</code> (Gonzalez) or <code>JSONParser.receive()</code>
     (jsonparser) &mdash; never buffer the entire body</li>

@@ -30,15 +30,15 @@
  * <h2>Key Components</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.pop3.client.POP3Client} -
+ *   <li>{@link org.bluezoo.gumdrop.pop3.client.Pop3Client} -
  *       High-level facade for connecting to POP3 servers</li>
- *   <li>{@link org.bluezoo.gumdrop.pop3.client.POP3ClientProtocolHandler} -
+ *   <li>{@link org.bluezoo.gumdrop.pop3.client.Pop3ClientProtocolHandler} -
  *       Handles POP3 protocol exchanges with transparent dot-unstuffing</li>
- *   <li>{@link org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting} -
+ *   <li>{@link org.bluezoo.gumdrop.pop3.client.RemoteGreeting} -
  *       Entry point callback interface for receiving the initial greeting</li>
- *   <li>{@link org.bluezoo.gumdrop.pop3.client.handler.ClientAuthorizationState} -
+ *   <li>{@link org.bluezoo.gumdrop.pop3.client.ClientAuthorizationState} -
  *       State interface for AUTHORIZATION commands (CAPA, USER, APOP, AUTH, STLS)</li>
- *   <li>{@link org.bluezoo.gumdrop.pop3.client.handler.ClientTransactionState} -
+ *   <li>{@link org.bluezoo.gumdrop.pop3.client.ClientTransactionState} -
  *       State interface for TRANSACTION commands (STAT, LIST, RETR, DELE, etc.)</li>
  * </ul>
  *
@@ -53,16 +53,52 @@
  *   <li>Streaming message content without memory buffering</li>
  *   <li>Transparent dot-unstuffing for RETR and TOP responses</li>
  *   <li>Type-safe stateful handler pattern enforcing correct command sequences</li>
- *   <li>Async DNS resolution via the gumdrop DNSResolver</li>
+ *   <li>Async DNS resolution via the gumdrop DnsResolver</li>
  * </ul>
  *
- * <p>Different state interfaces (package {@link
- * org.bluezoo.gumdrop.pop3.client.handler}) are provided at each stage
+ * <p>Different state interfaces in this package are provided at each stage
  * of the protocol, so only the commands valid at that point can be
  * issued -- compile-time safety against protocol violations.
  *
+ * <h2>Server Reply Handler Interfaces</h2>
+ * <p>These interfaces define callbacks your handler receives for server
+ * responses:
+ * <ul>
+ *   <li>{@link RemoteGreeting} - Entry point for new connections</li>
+ *   <li>{@link CapaReplyHandler} - Receives CAPA response</li>
+ *   <li>{@link UserReplyHandler} - Receives USER response</li>
+ *   <li>{@link PassReplyHandler} - Receives PASS response</li>
+ *   <li>{@link ApopReplyHandler} - Receives APOP response</li>
+ *   <li>{@link StlsReplyHandler} - Receives STLS response</li>
+ *   <li>{@link AuthReplyHandler} - Receives AUTH responses</li>
+ *   <li>{@link AuthAbortHandler} - Receives AUTH abort response</li>
+ *   <li>{@link StatReplyHandler} - Receives STAT response</li>
+ *   <li>{@link ListReplyHandler} - Receives LIST response</li>
+ *   <li>{@link RetrReplyHandler} - Receives RETR content (streamed)</li>
+ *   <li>{@link DeleReplyHandler} - Receives DELE response</li>
+ *   <li>{@link RsetReplyHandler} - Receives RSET response</li>
+ *   <li>{@link TopReplyHandler} - Receives TOP content (streamed)</li>
+ *   <li>{@link UidlReplyHandler} - Receives UIDL response</li>
+ *   <li>{@link NoopReplyHandler} - Receives NOOP response</li>
+ *   <li>{@link ReplyHandler} - Base reply handler interface</li>
+ * </ul>
+ *
+ * <h2>Client State Interfaces</h2>
+ * <p>These interfaces are provided to your handler callbacks, allowing you
+ * to issue POP3 commands at the appropriate protocol stage:
+ * <ul>
+ *   <li>{@link ClientAuthorizationState} - AUTHORIZATION state
+ *       (CAPA, USER, APOP, AUTH, STLS, QUIT)</li>
+ *   <li>{@link ClientPasswordState} - After USER accepted (PASS, QUIT)</li>
+ *   <li>{@link ClientPostStls} - After STLS succeeds
+ *       (CAPA, USER, APOP, AUTH, QUIT)</li>
+ *   <li>{@link ClientTransactionState} - TRANSACTION state
+ *       (STAT, LIST, RETR, DELE, RSET, TOP, UIDL, NOOP, QUIT)</li>
+ *   <li>{@link ClientAuthExchange} - SASL authentication exchange</li>
+ * </ul>
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.pop3.client.POP3Client
+ * @see org.bluezoo.gumdrop.pop3.client.Pop3Client
  * @see org.bluezoo.gumdrop.pop3
  * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 — POP3</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2449">RFC 2449 — POP3 Extension Mechanism</a>

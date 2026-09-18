@@ -138,7 +138,7 @@ public final class IntegrationTlsClient {
 
     private static byte[] run(String host, int port, X509TrustManager trustManager, int timeoutMs, Session session)
             throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.setSecure(true);
         factory.setApplicationProtocols("http/1.1");
         factory.setTrustManager(trustManager != null ? trustManager : new EmptyX509TrustManager());
@@ -149,9 +149,10 @@ public final class IntegrationTlsClient {
         java.util.concurrent.atomic.AtomicBoolean tlsEstablished = new java.util.concurrent.atomic.AtomicBoolean();
         ByteArrayOutputStream inbound = new ByteArrayOutputStream();
 
-        ClientEndpoint client = new ClientEndpoint(factory, Gumdrop.getInstance().nextWorkerLoop(),
+        Gumdrop gumdrop = Gumdrop.boot();
+        ClientEndpoint client = new ClientEndpoint(factory, gumdrop.nextWorkerLoop(),
                 InetAddress.getByName(host), port);
-        client.connect(new ProtocolHandler() {
+        client.connect(gumdrop, new ProtocolHandler() {
             private Endpoint endpoint;
 
             @Override

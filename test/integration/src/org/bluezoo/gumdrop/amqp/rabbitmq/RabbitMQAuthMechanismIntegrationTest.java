@@ -21,13 +21,14 @@
 
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
-import org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.RecoveryPolicy;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.RecoveryHandler;
+import org.bluezoo.gumdrop.amqp.client.RecoveryListener;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -54,18 +55,23 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private AMQPClientRecovery client;
+    private AmqpClientRecovery client;
+    private Gumdrop gumdrop;
 
     @Before
     public void checkBrokerReachable() {
         Assume.assumeTrue(RabbitMQTestSupport.NOT_REACHABLE_MESSAGE,
                 RabbitMQTestSupport.isPlaintextReachable());
+        gumdrop = Gumdrop.boot();
     }
 
     @After
     public void tearDown() {
         if (client != null) {
             client.close();
+        }
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
         }
     }
 
@@ -76,17 +82,17 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
     @Test
     public void testPlainMechanismConnects() throws Exception {
-        client = new AMQPClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .mechanism("PLAIN");
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(ClientChannel channel) {
                         channelRef.set(channel);
@@ -102,17 +108,17 @@ public class RabbitMQAuthMechanismIntegrationTest {
     /** RabbitMQ implements AMQPLAIN itself (it's a RabbitMQ extension) -- a real cross-implementation check. */
     @Test
     public void testAmqplainMechanismConnects() throws Exception {
-        client = new AMQPClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .mechanism("AMQPLAIN");
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(ClientChannel channel) {
                         channelRef.set(channel);
@@ -127,7 +133,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
 
     @Test
     public void testWrongPasswordIsRejectedNotSilentlyAccepted() throws Exception {
-        client = new AMQPClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, "definitely-the-wrong-password")
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .recoveryPolicy(new RecoveryPolicy().withMaxAttempts(1));
@@ -140,7 +146,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
                 failedLatch.countDown();
             }
         });
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 connectedLatch.countDown();
@@ -158,7 +164,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
         // over a plain, non-mTLS listener -- requesting one must fail
         // fast (mechanism-not-offered) rather than silently falling back
         // to PLAIN or hanging waiting for a challenge that never comes.
-        client = new AMQPClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .mechanism("EXTERNAL")
@@ -171,7 +177,7 @@ public class RabbitMQAuthMechanismIntegrationTest {
                 failedLatch.countDown();
             }
         });
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
                 fail("should never reach onFirstConnect requesting EXTERNAL over a plain listener");

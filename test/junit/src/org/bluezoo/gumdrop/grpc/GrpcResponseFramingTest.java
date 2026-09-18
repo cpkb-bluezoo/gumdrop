@@ -7,7 +7,7 @@
 
 package org.bluezoo.gumdrop.grpc;
 
-import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ByteBufferChannel;
 import org.junit.Test;
 
 import java.lang.reflect.Field;

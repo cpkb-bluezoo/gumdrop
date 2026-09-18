@@ -8,6 +8,7 @@
   <path id='lib.compile.classpath'>
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
+    <pathelement location='${lib}/${jprotobuf.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${annotation.jar}'/>
@@ -70,7 +71,7 @@
   <import file='compile-jpms.xml'/>
 
   <!-- util + jakarta JSP stubs (mime and the rest of core depend on this).
-       crypto/tls compile here too: util (TLSUtils/SniCredentialsResolver)
+       crypto/tls compile here too: util (TlsUtils/SniCredentialsResolver)
        depends on tls.ServerCredentials, and tls depends on crypto, a
        one-way dependency (neither crypto nor tls depends back on util),
        so they compile safely in the same pass ahead of build-core-main,
@@ -191,7 +192,7 @@
     </copy>
   </target>
 
-  <target name='build-mailbox-module' depends='build-mime-module'>
+  <target name='build-mailbox-module' depends='build-core-main,build-mime-module'>
     <mkdir dir='${build.mailbox}'/>
     <javac srcdir='${src}' destdir='${build.mailbox}' debug='true'
            release='${java.release.version}' sourcepath=''

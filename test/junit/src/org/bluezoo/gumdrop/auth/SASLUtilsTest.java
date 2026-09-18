@@ -10,7 +10,7 @@ import java.util.Map;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link SASLUtils}.
+ * Unit tests for {@link SaslUtils}.
  */
 public class SASLUtilsTest {
 
@@ -19,51 +19,51 @@ public class SASLUtilsTest {
     @Test
     public void testEncodeBase64Bytes() {
         byte[] data = "Hello, World!".getBytes(StandardCharsets.US_ASCII);
-        String encoded = SASLUtils.encodeBase64(data);
+        String encoded = SaslUtils.encodeBase64(data);
         assertEquals("SGVsbG8sIFdvcmxkIQ==", encoded);
     }
 
     @Test
     public void testEncodeBase64String() {
-        assertEquals("SGVsbG8=", SASLUtils.encodeBase64("Hello"));
+        assertEquals("SGVsbG8=", SaslUtils.encodeBase64("Hello"));
     }
 
     @Test
     public void testDecodeBase64() {
-        byte[] decoded = SASLUtils.decodeBase64("SGVsbG8=");
+        byte[] decoded = SaslUtils.decodeBase64("SGVsbG8=");
         assertEquals("Hello", new String(decoded, StandardCharsets.UTF_8));
     }
 
     @Test
     public void testDecodeBase64ToString() {
-        assertEquals("Hello, World!", SASLUtils.decodeBase64ToString("SGVsbG8sIFdvcmxkIQ=="));
+        assertEquals("Hello, World!", SaslUtils.decodeBase64ToString("SGVsbG8sIFdvcmxkIQ=="));
     }
 
     @Test
     public void testBase64RoundTrip() {
         String original = "The quick brown fox";
-        String encoded = SASLUtils.encodeBase64(original);
-        assertEquals(original, SASLUtils.decodeBase64ToString(encoded));
+        String encoded = SaslUtils.encodeBase64(original);
+        assertEquals(original, SaslUtils.decodeBase64ToString(encoded));
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testDecodeBase64Invalid() {
-        SASLUtils.decodeBase64("not valid base64!!!");
+        SaslUtils.decodeBase64("not valid base64!!!");
     }
 
     // ========== Nonce ==========
 
     @Test
     public void testGenerateNonce() {
-        String nonce = SASLUtils.generateNonce(16);
+        String nonce = SaslUtils.generateNonce(16);
         assertNotNull(nonce);
         assertEquals(32, nonce.length()); // 16 bytes = 32 hex chars
     }
 
     @Test
     public void testGenerateNonceUniqueness() {
-        String n1 = SASLUtils.generateNonce(16);
-        String n2 = SASLUtils.generateNonce(16);
+        String n1 = SaslUtils.generateNonce(16);
+        String n2 = SaslUtils.generateNonce(16);
         assertNotEquals(n1, n2);
     }
 
@@ -71,7 +71,7 @@ public class SASLUtilsTest {
 
     @Test
     public void testMd5() {
-        byte[] hash = SASLUtils.md5("".getBytes(StandardCharsets.UTF_8));
+        byte[] hash = SaslUtils.md5("".getBytes(StandardCharsets.UTF_8));
         assertNotNull(hash);
         assertEquals(16, hash.length);
     }
@@ -79,13 +79,13 @@ public class SASLUtilsTest {
     @Test
     public void testMd5KnownValue() {
         // MD5("abc") = 900150983cd24fb0d6963f7d28e17f72
-        String hex = SASLUtils.md5Hex("abc".getBytes(StandardCharsets.UTF_8));
+        String hex = SaslUtils.md5Hex("abc".getBytes(StandardCharsets.UTF_8));
         assertEquals("900150983cd24fb0d6963f7d28e17f72", hex);
     }
 
     @Test
     public void testMd5Hex() {
-        String hex = SASLUtils.md5Hex("test".getBytes(StandardCharsets.UTF_8));
+        String hex = SaslUtils.md5Hex("test".getBytes(StandardCharsets.UTF_8));
         assertNotNull(hex);
         assertEquals(32, hex.length());
         assertTrue(hex.matches("[0-9a-f]+"));
@@ -95,7 +95,7 @@ public class SASLUtilsTest {
 
     @Test
     public void testSha256() {
-        byte[] hash = SASLUtils.sha256("".getBytes(StandardCharsets.UTF_8));
+        byte[] hash = SaslUtils.sha256("".getBytes(StandardCharsets.UTF_8));
         assertNotNull(hash);
         assertEquals(32, hash.length);
     }
@@ -103,7 +103,7 @@ public class SASLUtilsTest {
     @Test
     public void testSha256KnownValue() {
         // SHA-256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
-        byte[] hash = SASLUtils.sha256("abc".getBytes(StandardCharsets.UTF_8));
+        byte[] hash = SaslUtils.sha256("abc".getBytes(StandardCharsets.UTF_8));
         StringBuilder sb = new StringBuilder();
         for (byte b : hash) {
             sb.append(String.format("%02x", b & 0xff));
@@ -117,7 +117,7 @@ public class SASLUtilsTest {
     public void testHmacMD5() {
         byte[] key = "secret".getBytes(StandardCharsets.UTF_8);
         byte[] data = "message".getBytes(StandardCharsets.UTF_8);
-        byte[] hmac = SASLUtils.hmacMD5(key, data);
+        byte[] hmac = SaslUtils.hmacMD5(key, data);
         assertNotNull(hmac);
         assertEquals(16, hmac.length);
     }
@@ -126,7 +126,7 @@ public class SASLUtilsTest {
     public void testHmacSHA256() {
         byte[] key = "secret".getBytes(StandardCharsets.UTF_8);
         byte[] data = "message".getBytes(StandardCharsets.UTF_8);
-        byte[] hmac = SASLUtils.hmacSHA256(key, data);
+        byte[] hmac = SaslUtils.hmacSHA256(key, data);
         assertNotNull(hmac);
         assertEquals(32, hmac.length);
     }
@@ -135,8 +135,8 @@ public class SASLUtilsTest {
     public void testHmacMD5Deterministic() {
         byte[] key = "key".getBytes(StandardCharsets.UTF_8);
         byte[] data = "data".getBytes(StandardCharsets.UTF_8);
-        byte[] h1 = SASLUtils.hmacMD5(key, data);
-        byte[] h2 = SASLUtils.hmacMD5(key, data);
+        byte[] h1 = SaslUtils.hmacMD5(key, data);
+        byte[] h2 = SaslUtils.hmacMD5(key, data);
         assertArrayEquals(h1, h2);
     }
 
@@ -144,7 +144,7 @@ public class SASLUtilsTest {
 
     @Test
     public void testComputeCramMD5Response() {
-        String response = SASLUtils.computeCramMD5Response("password", "<challenge@host>");
+        String response = SaslUtils.computeCramMD5Response("password", "<challenge@host>");
         assertNotNull(response);
         assertEquals(32, response.length());
         assertTrue(response.matches("[0-9a-f]+"));
@@ -152,8 +152,8 @@ public class SASLUtilsTest {
 
     @Test
     public void testComputeCramMD5ResponseDeterministic() {
-        String r1 = SASLUtils.computeCramMD5Response("pass", "<1234@host>");
-        String r2 = SASLUtils.computeCramMD5Response("pass", "<1234@host>");
+        String r1 = SaslUtils.computeCramMD5Response("pass", "<1234@host>");
+        String r2 = SaslUtils.computeCramMD5Response("pass", "<1234@host>");
         assertEquals(r1, r2);
     }
 
@@ -161,22 +161,22 @@ public class SASLUtilsTest {
     public void testVerifyCramMD5() {
         String challenge = "<test@example.com>";
         String password = "mypassword";
-        String digest = SASLUtils.computeCramMD5Response(password, challenge);
+        String digest = SaslUtils.computeCramMD5Response(password, challenge);
         String response = "user " + digest;
-        assertTrue(SASLUtils.verifyCramMD5(response, challenge, password));
+        assertTrue(SaslUtils.verifyCramMD5(response, challenge, password));
     }
 
     @Test
     public void testVerifyCramMD5WrongPassword() {
         String challenge = "<test@example.com>";
-        String digest = SASLUtils.computeCramMD5Response("correctpassword", challenge);
+        String digest = SaslUtils.computeCramMD5Response("correctpassword", challenge);
         String response = "user " + digest;
-        assertFalse(SASLUtils.verifyCramMD5(response, challenge, "wrongpassword"));
+        assertFalse(SaslUtils.verifyCramMD5(response, challenge, "wrongpassword"));
     }
 
     @Test
     public void testVerifyCramMD5InvalidFormat() {
-        assertFalse(SASLUtils.verifyCramMD5("nospacehere", "<challenge>", "pass"));
+        assertFalse(SaslUtils.verifyCramMD5("nospacehere", "<challenge>", "pass"));
     }
 
     // ========== DIGEST-MD5 ==========
@@ -184,7 +184,7 @@ public class SASLUtilsTest {
     @Test
     public void testParseDigestParams() {
         String response = "realm=\"example.com\",nonce=\"abc123\",qop=\"auth\",charset=utf-8";
-        Map<String, String> params = SASLUtils.parseDigestParams(response);
+        Map<String, String> params = SaslUtils.parseDigestParams(response);
 
         assertEquals("example.com", params.get("realm"));
         assertEquals("abc123", params.get("nonce"));
@@ -195,7 +195,7 @@ public class SASLUtilsTest {
     @Test
     public void testParseDigestParamsUnquoted() {
         String response = "nc=00000001,qop=auth";
-        Map<String, String> params = SASLUtils.parseDigestParams(response);
+        Map<String, String> params = SaslUtils.parseDigestParams(response);
         assertEquals("00000001", params.get("nc"));
         assertEquals("auth", params.get("qop"));
     }
@@ -203,19 +203,19 @@ public class SASLUtilsTest {
     @Test
     public void testParseDigestParamsEscapedQuote() {
         String response = "realm=\"test\\\"realm\"";
-        Map<String, String> params = SASLUtils.parseDigestParams(response);
+        Map<String, String> params = SaslUtils.parseDigestParams(response);
         assertEquals("test\"realm", params.get("realm"));
     }
 
     @Test
     public void testParseDigestParamsEmpty() {
-        Map<String, String> params = SASLUtils.parseDigestParams("");
+        Map<String, String> params = SaslUtils.parseDigestParams("");
         assertTrue(params.isEmpty());
     }
 
     @Test
     public void testComputeDigestHA1() {
-        String ha1 = SASLUtils.computeDigestHA1("user", "realm", "pass");
+        String ha1 = SaslUtils.computeDigestHA1("user", "realm", "pass");
         assertNotNull(ha1);
         assertEquals(32, ha1.length());
         assertTrue(ha1.matches("[0-9a-f]+"));
@@ -223,8 +223,8 @@ public class SASLUtilsTest {
 
     @Test
     public void testComputeDigestHA1Deterministic() {
-        String h1 = SASLUtils.computeDigestHA1("alice", "example.com", "secret");
-        String h2 = SASLUtils.computeDigestHA1("alice", "example.com", "secret");
+        String h1 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
+        String h2 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
         assertEquals(h1, h2);
     }
 
@@ -238,16 +238,16 @@ public class SASLUtilsTest {
         String password = "secret";
         String host = "ldap.example.com";
 
-        SASLClientMechanism client = SASLUtils.createClient(
+        SaslClientMechanism client = SaslUtils.createClient(
                 "DIGEST-MD5", username, password, host);
-        String challenge1 = SASLUtils.generateDigestMD5Challenge(realm, nonce);
+        String challenge1 = SaslUtils.generateDigestMD5Challenge(realm, nonce);
         byte[] response1 = client.evaluateChallenge(
                 challenge1.getBytes(StandardCharsets.UTF_8));
 
-        Map<String, String> params = SASLUtils.parseDigestParams(
+        Map<String, String> params = SaslUtils.parseDigestParams(
                 new String(response1, StandardCharsets.UTF_8));
-        String serverHa1 = SASLUtils.computeDigestHA1(username, realm, password);
-        String rspauth = SASLUtils.verifyDigestMD5ClientResponse(serverHa1, nonce, params);
+        String serverHa1 = SaslUtils.computeDigestHA1(username, realm, password);
+        String rspauth = SaslUtils.verifyDigestMD5ClientResponse(serverHa1, nonce, params);
         assertNotNull("server-side verification of the client's own response must succeed", rspauth);
 
         // Must not throw: this is the server's genuine proof of shared-secret knowledge.
@@ -265,9 +265,9 @@ public class SASLUtilsTest {
         String password = "secret";
         String host = "ldap.example.com";
 
-        SASLClientMechanism client = SASLUtils.createClient(
+        SaslClientMechanism client = SaslUtils.createClient(
                 "DIGEST-MD5", username, password, host);
-        String challenge1 = SASLUtils.generateDigestMD5Challenge(realm, nonce);
+        String challenge1 = SaslUtils.generateDigestMD5Challenge(realm, nonce);
         client.evaluateChallenge(challenge1.getBytes(StandardCharsets.UTF_8));
 
         // A spoofed/on-path server (or a MITM replaying an unrelated
@@ -293,16 +293,16 @@ public class SASLUtilsTest {
         String password = "secret";
         String host = "ldap.example.com";
 
-        SASLClientMechanism client = SASLUtils.createClient(
+        SaslClientMechanism client = SaslUtils.createClient(
                 "DIGEST-MD5", username, password, host);
-        String challenge1 = SASLUtils.generateDigestMD5Challenge(realm, nonce);
+        String challenge1 = SaslUtils.generateDigestMD5Challenge(realm, nonce);
         byte[] response1 = client.evaluateChallenge(
                 challenge1.getBytes(StandardCharsets.UTF_8));
-        Map<String, String> params = SASLUtils.parseDigestParams(
+        Map<String, String> params = SaslUtils.parseDigestParams(
                 new String(response1, StandardCharsets.UTF_8));
 
-        String serverHa1 = SASLUtils.computeDigestHA1(username, realm, password);
-        String rspauth = SASLUtils.verifyDigestMD5ClientResponse(serverHa1, nonce, params);
+        String serverHa1 = SaslUtils.computeDigestHA1(username, realm, password);
+        String rspauth = SaslUtils.verifyDigestMD5ClientResponse(serverHa1, nonce, params);
 
         assertNotNull("the server must accept a genuine client response "
                 + "computed with the correct credentials", rspauth);
@@ -321,23 +321,23 @@ public class SASLUtilsTest {
         String username = "alice";
         String host = "ldap.example.com";
 
-        SASLClientMechanism client = SASLUtils.createClient(
+        SaslClientMechanism client = SaslUtils.createClient(
                 "DIGEST-MD5", username, "correct-password", host);
-        String challenge1 = SASLUtils.generateDigestMD5Challenge(realm, nonce);
+        String challenge1 = SaslUtils.generateDigestMD5Challenge(realm, nonce);
         byte[] response1 = client.evaluateChallenge(
                 challenge1.getBytes(StandardCharsets.UTF_8));
-        Map<String, String> params = SASLUtils.parseDigestParams(
+        Map<String, String> params = SaslUtils.parseDigestParams(
                 new String(response1, StandardCharsets.UTF_8));
 
-        String wrongHa1 = SASLUtils.computeDigestHA1(username, realm, "wrong-password");
-        assertNull(SASLUtils.verifyDigestMD5ClientResponse(wrongHa1, nonce, params));
+        String wrongHa1 = SaslUtils.computeDigestHA1(username, realm, "wrong-password");
+        assertNull(SaslUtils.verifyDigestMD5ClientResponse(wrongHa1, nonce, params));
     }
 
     // ========== Challenge generation ==========
 
     @Test
     public void testGenerateDigestMD5Challenge() {
-        String challenge = SASLUtils.generateDigestMD5Challenge("example.com", "abc123");
+        String challenge = SaslUtils.generateDigestMD5Challenge("example.com", "abc123");
         assertTrue(challenge.contains("realm=\"example.com\""));
         assertTrue(challenge.contains("nonce=\"abc123\""));
         assertTrue(challenge.contains("qop=\"auth\""));
@@ -346,7 +346,7 @@ public class SASLUtilsTest {
 
     @Test
     public void testGenerateScramServerFirst() {
-        String msg = SASLUtils.generateScramServerFirst("nonce123", "c2FsdA==", 4096);
+        String msg = SaslUtils.generateScramServerFirst("nonce123", "c2FsdA==", 4096);
         assertEquals("r=nonce123,s=c2FsdA==,i=4096", msg);
     }
 
@@ -355,7 +355,7 @@ public class SASLUtilsTest {
     @Test
     public void testParsePlainCredentials() {
         byte[] creds = "\0alice\0password".getBytes(StandardCharsets.UTF_8);
-        String[] parsed = SASLUtils.parsePlainCredentials(creds);
+        String[] parsed = SaslUtils.parsePlainCredentials(creds);
 
         assertEquals(3, parsed.length);
         assertEquals("", parsed[0]);        // authzid
@@ -366,7 +366,7 @@ public class SASLUtilsTest {
     @Test
     public void testParsePlainCredentialsWithAuthzid() {
         byte[] creds = "admin\0alice\0password".getBytes(StandardCharsets.UTF_8);
-        String[] parsed = SASLUtils.parsePlainCredentials(creds);
+        String[] parsed = SaslUtils.parsePlainCredentials(creds);
 
         assertEquals("admin", parsed[0]);
         assertEquals("alice", parsed[1]);
@@ -376,13 +376,13 @@ public class SASLUtilsTest {
     @Test(expected = IllegalArgumentException.class)
     public void testParsePlainCredentialsInvalid() {
         byte[] creds = "no-null-bytes".getBytes(StandardCharsets.UTF_8);
-        SASLUtils.parsePlainCredentials(creds);
+        SaslUtils.parsePlainCredentials(creds);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testParsePlainCredentialsOnlyOneNull() {
         byte[] creds = "one\0null".getBytes(StandardCharsets.UTF_8);
-        SASLUtils.parsePlainCredentials(creds);
+        SaslUtils.parsePlainCredentials(creds);
     }
 
     // ========== OAUTHBEARER ==========
@@ -390,7 +390,7 @@ public class SASLUtilsTest {
     @Test
     public void testParseOAuthBearerCredentials() {
         String creds = "n,a=user@example.com,\u0001auth=Bearer mytoken\u0001\u0001";
-        Map<String, String> parsed = SASLUtils.parseOAuthBearerCredentials(creds);
+        Map<String, String> parsed = SaslUtils.parseOAuthBearerCredentials(creds);
 
         assertEquals("user@example.com", parsed.get("user"));
         assertEquals("mytoken", parsed.get("token"));
@@ -399,7 +399,7 @@ public class SASLUtilsTest {
     @Test
     public void testParseOAuthBearerCredentialsNoUser() {
         String creds = "n,,\u0001auth=Bearer tok123\u0001\u0001";
-        Map<String, String> parsed = SASLUtils.parseOAuthBearerCredentials(creds);
+        Map<String, String> parsed = SaslUtils.parseOAuthBearerCredentials(creds);
 
         assertNull(parsed.get("user"));
         assertEquals("tok123", parsed.get("token"));
@@ -408,7 +408,7 @@ public class SASLUtilsTest {
     @Test
     public void testParseOAuthBearerCredentialsNoCtrlA() {
         String creds = "n,a=user@example.com,";
-        Map<String, String> parsed = SASLUtils.parseOAuthBearerCredentials(creds);
+        Map<String, String> parsed = SaslUtils.parseOAuthBearerCredentials(creds);
         assertTrue(parsed.isEmpty());
     }
 
@@ -416,7 +416,7 @@ public class SASLUtilsTest {
 
     @Test
     public void testCreateClientPlain() {
-        SASLClientMechanism mech = SASLUtils.createClient("PLAIN", "user", "pass", "host");
+        SaslClientMechanism mech = SaslUtils.createClient("PLAIN", "user", "pass", "host");
         assertNotNull(mech);
         assertEquals("PLAIN", mech.getMechanismName());
         assertTrue(mech.hasInitialResponse());
@@ -424,7 +424,7 @@ public class SASLUtilsTest {
 
     @Test
     public void testCreateClientCramMD5() {
-        SASLClientMechanism mech = SASLUtils.createClient("CRAM-MD5", "user", "pass", "host");
+        SaslClientMechanism mech = SaslUtils.createClient("CRAM-MD5", "user", "pass", "host");
         assertNotNull(mech);
         assertEquals("CRAM-MD5", mech.getMechanismName());
         assertFalse(mech.hasInitialResponse());
@@ -432,7 +432,7 @@ public class SASLUtilsTest {
 
     @Test
     public void testCreateClientExternal() {
-        SASLClientMechanism mech = SASLUtils.createClient("EXTERNAL", null, null, null);
+        SaslClientMechanism mech = SaslUtils.createClient("EXTERNAL", null, null, null);
         assertNotNull(mech);
         assertEquals("EXTERNAL", mech.getMechanismName());
         assertTrue(mech.hasInitialResponse());
@@ -440,23 +440,23 @@ public class SASLUtilsTest {
 
     @Test
     public void testCreateClientUnknown() {
-        assertNull(SASLUtils.createClient("UNKNOWN_MECH", "user", "pass", "host"));
+        assertNull(SaslUtils.createClient("UNKNOWN_MECH", "user", "pass", "host"));
     }
 
     @Test
     public void testCreateClientNull() {
-        assertNull(SASLUtils.createClient(null, "user", "pass", "host"));
+        assertNull(SaslUtils.createClient(null, "user", "pass", "host"));
     }
 
     @Test
     public void testCreateClientCaseInsensitive() {
-        assertNotNull(SASLUtils.createClient("plain", "user", "pass", "host"));
-        assertNotNull(SASLUtils.createClient("cram-md5", "user", "pass", "host"));
+        assertNotNull(SaslUtils.createClient("plain", "user", "pass", "host"));
+        assertNotNull(SaslUtils.createClient("cram-md5", "user", "pass", "host"));
     }
 
     @Test
     public void testPlainClientEvaluateChallenge() throws Exception {
-        SASLClientMechanism mech = SASLUtils.createClient("PLAIN", "alice", "secret", "host");
+        SaslClientMechanism mech = SaslUtils.createClient("PLAIN", "alice", "secret", "host");
         byte[] response = mech.evaluateChallenge(new byte[0]);
 
         // Format: \0alice\0secret
@@ -467,7 +467,7 @@ public class SASLUtilsTest {
 
     @Test
     public void testExternalClientEvaluateChallenge() throws Exception {
-        SASLClientMechanism mech = SASLUtils.createClient("EXTERNAL", null, null, null);
+        SaslClientMechanism mech = SaslUtils.createClient("EXTERNAL", null, null, null);
         byte[] response = mech.evaluateChallenge(new byte[0]);
         assertEquals(0, response.length);
         assertTrue(mech.isComplete());
@@ -475,6 +475,6 @@ public class SASLUtilsTest {
 
     @Test
     public void testCreateClientGssapiWithoutSubject() {
-        assertNull(SASLUtils.createClient("GSSAPI", "user", null, "host"));
+        assertNull(SaslUtils.createClient("GSSAPI", "user", null, "host"));
     }
 }

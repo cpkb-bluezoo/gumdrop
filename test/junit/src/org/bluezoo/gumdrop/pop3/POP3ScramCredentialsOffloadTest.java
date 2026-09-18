@@ -22,11 +22,12 @@
 package org.bluezoo.gumdrop.pop3;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
@@ -59,7 +60,7 @@ import javax.crypto.spec.SecretKeySpec;
  * both SCRAM round trips (client-first and client-final). See {@code
  * org.bluezoo.gumdrop.imap.IMAPScramCredentialsOffloadTest} for the full
  * background -- this is the POP3 counterpart, exercising {@code
- * POP3ProtocolHandler}'s own SCRAM call sites.
+ * Pop3ProtocolHandler}'s own SCRAM call sites.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -79,12 +80,7 @@ public class POP3ScramCredentialsOffloadTest {
     public void setUp() throws Exception {
         tempRoot = Files.createTempDirectory("gumdrop-pop3-scram-offload");
         StorageExecutor.workThreadObserver = null;
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("StorageExecutor must exist after Gumdrop.start()",
                 gumdrop.getStorageExecutor());
     }
@@ -110,8 +106,9 @@ public class POP3ScramCredentialsOffloadTest {
         listener.setRealm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
 
-        POP3ProtocolHandler handler = new POP3ProtocolHandler(listener);
+        Pop3ProtocolHandler handler = new Pop3ProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
         handler.connected(endpoint);
 
         final List<String> observedThreads = Collections.synchronizedList(new ArrayList<String>());
@@ -198,7 +195,7 @@ public class POP3ScramCredentialsOffloadTest {
 
         byte[] storedKey = java.security.MessageDigest.getInstance("SHA-256").digest(clientKey);
 
-        byte[] clientSignature = SASLUtils.hmacSHA256(storedKey,
+        byte[] clientSignature = SaslUtils.hmacSHA256(storedKey,
                 authMessage.getBytes(StandardCharsets.UTF_8));
         byte[] proof = new byte[clientSignature.length];
         for (int i = 0; i < proof.length; i++) {
@@ -239,8 +236,8 @@ public class POP3ScramCredentialsOffloadTest {
     private static final class Pbkdf2ScramRealm implements Realm {
         private final String user;
         private final String password;
-        private static final Set<SASLMechanism> SUPPORTED =
-                Collections.unmodifiableSet(EnumSet.of(SASLMechanism.SCRAM_SHA_256));
+        private static final Set<SaslMechanism> SUPPORTED =
+                Collections.unmodifiableSet(EnumSet.of(SaslMechanism.SCRAM_SHA_256));
 
         Pbkdf2ScramRealm(String user, String password) {
             this.user = user;
@@ -253,7 +250,7 @@ public class POP3ScramCredentialsOffloadTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
 
@@ -291,6 +288,6 @@ public class POP3ScramCredentialsOffloadTest {
         }
     }
 
-    private static final class TestPOP3Listener extends POP3Listener {
+    private static final class TestPOP3Listener extends Pop3Listener {
     }
 }

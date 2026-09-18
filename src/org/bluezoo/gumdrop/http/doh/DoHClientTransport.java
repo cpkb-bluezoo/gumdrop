@@ -30,17 +30,17 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import org.bluezoo.gumdrop.dns.client.DNSClientTransport;
-import org.bluezoo.gumdrop.dns.client.DNSClientTransportHandler;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
-import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import javax.net.ssl.X509TrustManager;
@@ -63,10 +63,10 @@ import javax.net.ssl.X509TrustManager;
  * <p>RFC 8484 section 5.1: the default port is 443 (standard HTTPS).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSClientTransport
+ * @see DnsClientTransport
  * @see <a href="https://www.rfc-editor.org/rfc/rfc8484">RFC 8484</a>
  */
-public class DoHClientTransport implements DNSClientTransport {
+public class DoHClientTransport implements DnsClientTransport {
 
     // RFC 8484 section 6
     static final String DNS_MESSAGE_CONTENT_TYPE = "application/dns-message";
@@ -80,8 +80,8 @@ public class DoHClientTransport implements DNSClientTransport {
     private static final ScheduledExecutorService TIMER =
             createTimerExecutor();
 
-    private HTTPClient httpClient;
-    private DNSClientTransportHandler handler;
+    private HttpClient httpClient;
+    private DnsClientTransportHandler handler;
     private volatile boolean connected;
 
     private String path = DEFAULT_PATH;
@@ -140,12 +140,16 @@ public class DoHClientTransport implements DNSClientTransport {
 
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
-                     DNSClientTransportHandler handler) throws IOException {
+                     DnsClientTransportHandler handler) throws IOException {
+        if (loop == null || loop.getGumdrop() == null) {
+            throw new IOException(
+                    "DoHClientTransport requires a SelectorLoop owned by a running Gumdrop");
+        }
         this.handler = handler;
         if (port <= 0) {
             port = DEFAULT_DOH_PORT;
         }
-        httpClient = new HTTPClient(server.getHostAddress(), port);
+        httpClient = new HttpClient(loop, server.getHostAddress(), port);
         httpClient.setSecure(true);
         if (clientCredentials != null) {
             httpClient.setClientCredentials(clientCredentials);
@@ -153,7 +157,7 @@ public class DoHClientTransport implements DNSClientTransport {
         if (trustManager != null) {
             httpClient.setTrustManager(trustManager);
         }
-        httpClient.connect(new HTTPClientHandler() {
+        httpClient.connect(loop.getGumdrop(), new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 connected = true;
@@ -188,7 +192,7 @@ public class DoHClientTransport implements DNSClientTransport {
         byte[] queryBytes = new byte[data.remaining()];
         data.get(queryBytes);
 
-        HTTPRequest request = httpClient.post(path);
+        HttpRequest request = httpClient.post(path);
         // RFC 8484 section 4.1
         request.header("Content-Type", DNS_MESSAGE_CONTENT_TYPE);
         request.header("Accept", DNS_MESSAGE_CONTENT_TYPE);
@@ -228,25 +232,25 @@ public class DoHClientTransport implements DNSClientTransport {
      * Accumulates the HTTP response body (the DNS wire-format response)
      * and delivers it to the transport handler on completion.
      */
-    private static class DoHResponseHandler implements HTTPResponseHandler {
+    private static class DoHResponseHandler implements HttpResponseHandler {
 
-        private final DNSClientTransportHandler handler;
+        private final DnsClientTransportHandler handler;
         private final ByteArrayOutputStream accumulator =
                 new ByteArrayOutputStream(512);
         private boolean success;
 
-        DoHResponseHandler(DNSClientTransportHandler handler) {
+        DoHResponseHandler(DnsClientTransportHandler handler) {
             this.handler = handler;
         }
 
         // RFC 8484 section 4.2.1: a successful response uses HTTP 200
         @Override
-        public void ok(HTTPResponse response) {
+        public void ok(HttpResponse response) {
             success = true;
         }
 
         @Override
-        public void error(HTTPResponse response) {
+        public void error(HttpResponse response) {
             handler.onError(new IOException(
                     "DoH server returned HTTP error: " + response));
         }

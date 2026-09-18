@@ -61,16 +61,18 @@ Gumdrop&rsquo;s gRPC support lives in <code>org.bluezoo.gumdrop.grpc</code>:
 <ul>
 <li><b>grpc.client</b> &ndash; <code>GrpcClient</code> composes the HTTP client,
 adds gRPC framing around request/response bodies</li>
-<li><b>grpc.server</b> &ndash; <code>GrpcHandlerFactory</code> implements
-<code>HTTPRequestHandlerFactory</code>, routes gRPC paths to <code>GrpcHandler</code></li>
+<li><b>grpc.server</b> &ndash; <code>GrpcRequestHandler</code> implements
+<code>HttpStreamHandler</code>, routes gRPC paths to <code>GrpcHandler</code></li>
 <li><b>grpc.proto</b> &ndash; .proto parser, Proto model, <code>ProtoMessageHandler</code>,
 <code>ProtoModelAdapter</code>, <code>ProtoModelSerializer</code></li>
 </ul>
 
 <p>
 The client uses the HTTP client as-is (composition, not extension). The server
-integrates via the existing <code>HTTPRequestHandlerFactory</code> pattern.
-Both HTTP/2 and HTTP/3 are supported.
+integrates the same way every <code>HttpServer</code> application does:
+implement <code>HttpStreamHandler</code> and pass it to
+<code>HttpServer.compose().streamHandler(...)</code>. Both HTTP/2 and HTTP/3
+are supported.
 </p>
 
 <h3 id="proto-model">Proto Model and .proto Parser</h3>
@@ -132,7 +134,7 @@ The Proto model provides:
 <p>
 Gumdrop does not use generated protobuf classes. Instead, it uses an
 event-oriented API similar to <code>JSONContentHandler</code> and
-<code>MIMEHandler</code>. Implement <code>ProtoMessageHandler</code> to receive
+<code>MimeHandler</code>. Implement <code>ProtoMessageHandler</code> to receive
 semantic events:
 </p>
 
@@ -167,14 +169,14 @@ some methods.
 <h3 id="server">gRPC Server</h3>
 
 <p>
-Implement <code>GrpcService</code> to handle RPC calls:
+Implement <code>GrpcServer</code> to handle RPC calls:
 </p>
 
 <pre>
 import org.bluezoo.gumdrop.grpc.server.*;
 import java.nio.ByteBuffer;
 
-public class UserGrpcService implements GrpcService {
+public class UserGrpcService implements GrpcServer {
 
     @Override
     public void unaryCall(String path, ByteBuffer request, GrpcResponseSender response) {
@@ -200,25 +202,25 @@ public class UserGrpcService implements GrpcService {
 </ul>
 
 <p>
-Create a <code>GrpcHandlerFactory</code> and wire it to your HTTP service.
-The factory routes requests where <code>:path</code> matches
+Create a <code>GrpcRequestHandler</code> and compose it onto an
+<code>HttpServer</code>. It routes requests where <code>:path</code> matches
 <code>/package.Service/Method</code> and <code>content-type</code> is
 <code>application/grpc</code>:
 </p>
 
 <pre>
 ProtoFile protoFile = ProtoFileParser.parse(protoSource);
-GrpcService service = new UserGrpcService();
-GrpcHandlerFactory grpcFactory = new GrpcHandlerFactory(protoFile, service);
+GrpcServer service = new UserGrpcService();
+GrpcRequestHandler grpcHandler = new GrpcRequestHandler(protoFile, service);
 
-// Set on your HTTP service (see Integration below)
+// Compose on your HttpServer (see Integration below)
 </pre>
 
 <h3 id="client">gRPC Client</h3>
 
 <p>
 The gRPC client composes the <a href="http.html#client">HTTP client</a>. Create
-an <code>HTTPClient</code>, connect, then use <code>GrpcClient</code> for
+an <code>HttpClient</code>, connect, then use <code>GrpcClient</code> for
 unary calls:
 </p>
 
@@ -226,13 +228,13 @@ unary calls:
 import org.bluezoo.gumdrop.grpc.client.*;
 import org.bluezoo.gumdrop.http.client.*;
 
-HTTPClient httpClient = new HTTPClient("localhost", 50051);
+HttpClient httpClient = new HttpClient("localhost", 50051);
 httpClient.setSecure(true);  // TLS for production
 
 ProtoFile protoFile = ProtoFileParser.parse(protoSource);
 GrpcClient grpcClient = new GrpcClient(protoFile);
 
-httpClient.connect(new HTTPClientHandler() {
+httpClient.connect(new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
         // Serialize request (see Serialization below)
         ByteBuffer requestMessage = ...;
@@ -297,7 +299,7 @@ To serialize a request or parse a response, use the Proto model with
 
 <pre>
 import org.bluezoo.gumdrop.grpc.proto.*;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.protobuf.ProtobufWriter;
 
 ByteArrayOutputStream out = new ByteArrayOutputStream();
 ProtobufWriter writer = new ProtobufWriter(out);
@@ -321,7 +323,7 @@ responses, parse manually:
 
 <pre>
 import org.bluezoo.gumdrop.grpc.proto.*;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
+import org.bluezoo.protobuf.ProtobufParser;
 
 ProtoModelAdapter adapter = new ProtoModelAdapter(protoFile, myHandler);
 ProtobufParser parser = new ProtobufParser(adapter);
@@ -335,64 +337,62 @@ adapter.endRootMessage();
 <h3 id="integration">Integration with HTTP Services</h3>
 
 <p>
-An <code>HTTPService</code> has a single <code>HTTPRequestHandlerFactory</code>.
-To serve both gRPC and other content (e.g. servlets, static files), use a
-composite factory that delegates to <code>GrpcHandlerFactory</code> first:
+An <code>HttpServer</code> composes a single <code>HttpStreamHandler</code>.
+To serve both gRPC and other content (e.g. servlets, static files) on one
+port, route on <code>content-type</code> in an outer stream handler and
+delegate to <code>GrpcRequestHandler</code>'s per-stream handler when it
+matches, or to a fallback <code>HttpStreamHandler</code> otherwise:
 </p>
 
 <pre>
-public class CompositeHandlerFactory implements HTTPRequestHandlerFactory {
+public final class GrpcOrHttpStreamHandler implements HttpStreamHandler {
 
-    private final GrpcHandlerFactory grpcFactory;
-    private final HTTPRequestHandlerFactory fallback;
+    private final GrpcRequestHandler grpcHandler;
+    private final HttpStreamHandler fallback;
 
-    public CompositeHandlerFactory(ProtoFile protoFile, GrpcService grpcService,
-                                   HTTPRequestHandlerFactory fallback) {
-        this.grpcFactory = new GrpcHandlerFactory(protoFile, grpcService);
+    public GrpcOrHttpStreamHandler(ProtoFile protoFile, GrpcServer grpcService,
+                                   HttpStreamHandler fallback) {
+        this.grpcHandler = new GrpcRequestHandler(protoFile, grpcService);
         this.fallback = fallback;
     }
 
     @Override
-    public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
-        HTTPRequestHandler handler = grpcFactory.createHandler(state, headers);
-        if (handler != null) {
-            return handler;
-        }
-        return fallback != null ? fallback.createHandler(state, headers) : null;
-    }
+    public HttpRequestHandler openStream(HttpResponseState state) {
+        return new DefaultHttpRequestHandler() {
+            private HttpRequestHandler delegate;
 
-    @Override
-    public Set&lt;String&gt; getSupportedMethods() {
-        return null;  // use defaults (includes POST for gRPC)
+            @Override
+            public void headers(HttpResponseState state, Headers headers) {
+                boolean grpc = "application/grpc".equals(headers.getValue("content-type"));
+                delegate = grpc ? grpcHandler.openStream(state) : fallback.openStream(state);
+                delegate.headers(state, headers);
+            }
+
+            // forward startRequestBody/requestBodyContent/endRequestBody/
+            // requestComplete/failed to `delegate` the same way
+        };
     }
 }
-</pre>
 
-<p>
-<code>GrpcHandlerFactory.createHandler</code> returns <code>null</code> when
-the path or content-type does not match gRPC, so the fallback factory handles
-other requests.
-</p>
+HttpServer server = HttpServer.compose()
+        .secureEndpoint(50051, TlsConfig.keystore(Path.of("keystore.p12"), "changeit"))
+        .streamHandler(new GrpcOrHttpStreamHandler(protoFile, grpcService,
+                new ServletRequestHandler(container)))
+        .server();
+</pre>
 
 <h4>Standalone gRPC Service</h4>
 
 <p>
-For a gRPC-only service, set the factory directly:
+For a gRPC-only service, compose <code>GrpcRequestHandler</code> directly:
 </p>
 
 <pre>
-HTTPService service = new HTTPService() {
-    protected HTTPRequestHandlerFactory getHandlerFactory() {
-        return new GrpcHandlerFactory(protoFile, grpcService);
-    }
-};
-HTTPListener listener = new HTTPListener();
-listener.setPort(50051);
-listener.setSecure(true);
-listener.setKeystoreFile("keystore.p12");
-listener.setKeystorePass("changeit");
-service.addListener(listener);
-service.start();
+HttpServer server = HttpServer.compose()
+        .secureEndpoint(50051, TlsConfig.keystore(Path.of("keystore.p12"), "changeit"))
+        .streamHandler(new GrpcRequestHandler(protoFile, grpcService))
+        .server();
+server.start();
 </pre>
 
 <p>

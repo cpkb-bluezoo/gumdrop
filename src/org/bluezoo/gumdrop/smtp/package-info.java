@@ -22,18 +22,18 @@
 /**
  * SMTP (RFC 5321) server for receiving and relaying email.
  *
- * <p>{@link org.bluezoo.gumdrop.smtp.SMTPService} is the abstract base
- * for SMTP application services, owning configuration and creating
- * per-connection handlers; {@link org.bluezoo.gumdrop.smtp.SMTPListener}
+ * <p>{@link org.bluezoo.gumdrop.smtp.server.SmtpServer} owns listeners,
+ * configuration, and session composition (do not subclass for application
+ * logic, use {@code compose()}); {@link org.bluezoo.gumdrop.smtp.SmtpListener}
  * is the TCP transport listener; {@link
- * org.bluezoo.gumdrop.smtp.SMTPProtocolHandler} handles one session and
+ * org.bluezoo.gumdrop.smtp.SmtpProtocolHandler} handles one session and
  * its command processing. The protocol flow is modeled as a sequence of
- * stages ({@link org.bluezoo.gumdrop.smtp.handler}): each stage hands
+ * stages ({@link org.bluezoo.gumdrop.smtp.server}): each stage hands
  * the application a handler interface exposing only the commands legal
  * at that point, and a state interface to accept or reject them, so
  * out-of-order responses aren't possible to write.
  *
- * <p>{@link org.bluezoo.gumdrop.smtp.SMTPPipeline} lets message content
+ * <p>{@link org.bluezoo.gumdrop.smtp.SmtpPipeline} lets message content
  * be processed as it streams in, without buffering the whole message --
  * {@link org.bluezoo.gumdrop.smtp.auth.AuthPipeline} (SPF/DKIM/DMARC) is
  * one such pipeline, obtained from a handler's {@code getPipeline()}.
@@ -67,7 +67,7 @@
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6710">RFC 6710 - MT-PRIORITY</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4865">RFC 4865 - FUTURERELEASE</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc2852">RFC 2852 - DELIVERBY</a>
- * @see org.bluezoo.gumdrop.smtp.handler
+ * @see org.bluezoo.gumdrop.smtp.server
  * @see org.bluezoo.gumdrop.smtp.auth
  * @see org.bluezoo.gumdrop.smtp.client
  */

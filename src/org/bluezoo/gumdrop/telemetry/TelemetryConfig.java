@@ -35,18 +35,19 @@ import java.util.logging.Logger;
 
 /**
  * Top-level telemetry configuration for Gumdrop.
- * Configured via dependency injection in the gumdroprc file.
- * 
+ * Composed in Java and attached to a listener with {@link
+ * org.bluezoo.gumdrop.Listener#setTelemetryConfig}.
+ *
  * <p>The presence of a TelemetryConfig (non-null) on a connector indicates
  * that telemetry is enabled. There is no separate "enabled" flag.
  *
  * <p>Example configuration:
  * <pre>
- * &lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
- *     &lt;property name="service-name"&gt;my-service&lt;/property&gt;
- *     &lt;property name="service-version"&gt;1.0.0&lt;/property&gt;
- *     &lt;property name="endpoint"&gt;http://localhost:4318&lt;/property&gt;
- * &lt;/component&gt;
+ * TelemetryConfig telemetry = new TelemetryConfig();
+ * telemetry.setServiceName("my-service");
+ * telemetry.setServiceVersion("1.0.0");
+ * telemetry.setEndpoint("http://localhost:4318");
+ * telemetry.init();
  * </pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -751,9 +752,8 @@ public class TelemetryConfig {
     }
 
     /**
-     * Initializes the telemetry configuration.
-     * This method is called automatically by the ComponentRegistry after
-     * all properties have been set via the gumdroprc configuration file.
+     * Initializes the telemetry configuration, after configuration
+     * properties have been set.
      *
      * <p>When export is configured, a {@link TelemetryExporter} is created via
      * {@link ServiceLoader} from {@link TelemetryExporterFactory} implementations

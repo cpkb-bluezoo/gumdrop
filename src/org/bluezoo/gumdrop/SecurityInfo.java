@@ -29,18 +29,13 @@ import java.security.cert.Certificate;
  * <p>This interface provides a transport-agnostic view of the negotiated
  * security parameters, supporting all secure transports:
  * <ul>
- * <li>TCP with TLS (backed by JSSE SSLSession)</li>
- * <li>UDP with DTLS (backed by JSSE SSLSession)</li>
+ * <li>TCP with TLS 1.2/1.3 (in-tree {@link org.bluezoo.gumdrop.tls.TlsRecordEngine})</li>
+ * <li>UDP with DTLS 1.2/1.3 (in-tree DTLS record engines)</li>
  * <li>QUIC (always TLS 1.3, backed by {@link org.bluezoo.gumdrop.quic.QuicSecurityInfo})</li>
  * </ul>
  *
- * <p>Implementations:
- * <ul>
- * <li>JSSESecurityInfo -- wraps an SSLEngine's session (TCP TLS, UDP DTLS)</li>
- * <li>{@link org.bluezoo.gumdrop.quic.QuicSecurityInfo} -- reads negotiated
- *     TLS 1.3 state from the QUIC connection</li>
- * <li>{@link NullSecurityInfo} -- singleton for plaintext endpoints</li>
- * </ul>
+ * <p>Implementations are package-private; handlers depend on this interface
+ * only. {@link NullSecurityInfo} is used for plaintext endpoints.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Endpoint#getSecurityInfo()
@@ -113,7 +108,7 @@ public interface SecurityInfo {
      *
      * <p>Session resumption allows faster connection establishment by
      * reusing cryptographic parameters from a previous session.
-     * For JSSE (TLS/DTLS), this delegates to the SSLSession.
+     * For TCP TLS and DTLS, this reflects in-tree session resumption state.
      * For QUIC, TLS 1.3 uses session tickets rather than traditional
      * resumption, so this always returns false.
      * For plaintext endpoints, this returns false.

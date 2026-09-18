@@ -31,7 +31,7 @@ import java.util.List;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 
 /**
- * Unit tests for {@link DMARCMessageHandler} — RFC 7489 §7.6.
+ * Unit tests for {@link DmarcMessageHandler} — RFC 7489 §7.6.
  *
  * <p>Covers GHSA-j73j-4776-j4j8: a message containing more than one
  * {@code From:} header (which RFC 5322 §3.6.2 forbids) must not have its
@@ -40,7 +40,7 @@ import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
  */
 public class DMARCMessageHandlerTest {
 
-    private static class RecordingCallback implements DMARCMessageHandler.FromDomainCallback {
+    private static class RecordingCallback implements DmarcMessageHandler.FromDomainCallback {
         final List<String> domains = new ArrayList<>();
 
         @Override
@@ -56,7 +56,7 @@ public class DMARCMessageHandlerTest {
     @Test
     public void testSingleFromHeaderReportsDomain() throws Exception {
         RecordingCallback callback = new RecordingCallback();
-        DMARCMessageHandler handler = new DMARCMessageHandler(callback, null);
+        DmarcMessageHandler handler = new DmarcMessageHandler(callback, null);
 
         handler.addressHeader("From", address("alice", "example.com"));
 
@@ -66,7 +66,7 @@ public class DMARCMessageHandlerTest {
     @Test
     public void testDuplicateFromHeaderInvalidatesDomain() throws Exception {
         RecordingCallback callback = new RecordingCallback();
-        DMARCMessageHandler handler = new DMARCMessageHandler(callback, null);
+        DmarcMessageHandler handler = new DmarcMessageHandler(callback, null);
 
         // First occurrence: spoofed/attacker-chosen address.
         handler.addressHeader("From", address("attacker", "evil.example"));
@@ -74,7 +74,7 @@ public class DMARCMessageHandlerTest {
         handler.addressHeader("From", address("real", "example.com"));
 
         // Whatever domain a normal downstream MUA might display, the
-        // handler must not hand DMARCValidator a usable domain once a
+        // handler must not hand DmarcValidator a usable domain once a
         // duplicate From is seen — the last reported value must be null,
         // not either candidate domain.
         assertFalse("duplicate From must not report a usable domain",
@@ -86,7 +86,7 @@ public class DMARCMessageHandlerTest {
     @Test
     public void testThirdFromHeaderStaysInvalidated() throws Exception {
         RecordingCallback callback = new RecordingCallback();
-        DMARCMessageHandler handler = new DMARCMessageHandler(callback, null);
+        DmarcMessageHandler handler = new DmarcMessageHandler(callback, null);
 
         handler.addressHeader("From", address("a", "one.example"));
         handler.addressHeader("From", address("b", "two.example"));

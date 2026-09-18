@@ -33,7 +33,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link FTPClientLexer}, verifying exact token content for
+ * Unit tests for {@link FtpClientLexer}, verifying exact token content for
  * the {@code CODE [SEP TEXT] CRLF} reply grammar (RFC 959 §4.2), which is
  * identical to SMTP's — see {@code SMTPClientLexerTest} for the pattern
  * this mirrors.
@@ -43,28 +43,28 @@ import static org.junit.Assert.*;
 public class FTPClientLexerTest {
 
     static class Event {
-        final FTPClientLexer.Token type;
+        final FtpClientLexer.Token type;
         final String text;
-        Event(FTPClientLexer.Token type, String text) {
+        Event(FtpClientLexer.Token type, String text) {
             this.type = type;
             this.text = text;
         }
     }
 
-    static class RecordingHandler implements ByteStreamLexer.Handler<FTPClientLexer.Token> {
+    static class RecordingHandler implements ByteStreamLexer.Handler<FtpClientLexer.Token> {
         final List<Event> events = new ArrayList<Event>();
         int tokenTooLongCount;
-        FTPClientLexer lexerRef;
+        FtpClientLexer lexerRef;
 
         @Override
-        public boolean token(FTPClientLexer.Token type, ByteBuffer window) {
+        public boolean token(FtpClientLexer.Token type, ByteBuffer window) {
             byte[] copy = new byte[window.remaining()];
             window.get(copy);
             events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
-            if (type == FTPClientLexer.Token.CRLF) {
+            if (type == FtpClientLexer.Token.CRLF) {
                 lexerRef.resetForNextLine();
             }
-            return type == FTPClientLexer.Token.DASH || type == FTPClientLexer.Token.SP;
+            return type == FtpClientLexer.Token.DASH || type == FtpClientLexer.Token.SP;
         }
 
         @Override
@@ -80,7 +80,7 @@ public class FTPClientLexerTest {
         String reconstructedText() {
             StringBuilder sb = new StringBuilder();
             for (Event e : events) {
-                if (e.type == FTPClientLexer.Token.TEXT) {
+                if (e.type == FtpClientLexer.Token.TEXT) {
                     sb.append(e.text);
                 }
             }
@@ -90,7 +90,7 @@ public class FTPClientLexerTest {
         List<String> codes() {
             List<String> result = new ArrayList<String>();
             for (Event e : events) {
-                if (e.type == FTPClientLexer.Token.CODE) {
+                if (e.type == FtpClientLexer.Token.CODE) {
                     result.add(e.text);
                 }
             }
@@ -98,8 +98,8 @@ public class FTPClientLexerTest {
         }
     }
 
-    private static FTPClientLexer newLexer(RecordingHandler handler) {
-        FTPClientLexer lexer = new FTPClientLexer(handler, Integer.MAX_VALUE);
+    private static FtpClientLexer newLexer(RecordingHandler handler) {
+        FtpClientLexer lexer = new FtpClientLexer(handler, Integer.MAX_VALUE);
         handler.lexerRef = lexer;
         return lexer;
     }
@@ -112,11 +112,11 @@ public class FTPClientLexerTest {
     public void testSingleLineReplyWithText() {
         RecordingHandler handler = new RecordingHandler();
         newLexer(handler).feed(bytesOf("220 Service ready\r\n"));
-        assertEquals(FTPClientLexer.Token.CODE, handler.events.get(0).type);
+        assertEquals(FtpClientLexer.Token.CODE, handler.events.get(0).type);
         assertEquals("220", handler.events.get(0).text);
-        assertEquals(FTPClientLexer.Token.SP, handler.events.get(1).type);
+        assertEquals(FtpClientLexer.Token.SP, handler.events.get(1).type);
         assertEquals("Service ready", handler.reconstructedText());
-        assertEquals(FTPClientLexer.Token.CRLF,
+        assertEquals(FtpClientLexer.Token.CRLF,
                 handler.events.get(handler.events.size() - 1).type);
     }
 
@@ -126,14 +126,14 @@ public class FTPClientLexerTest {
         newLexer(handler).feed(bytesOf("220\r\n"));
         assertEquals(2, handler.events.size());
         assertEquals("220", handler.events.get(0).text);
-        assertEquals(FTPClientLexer.Token.CRLF, handler.events.get(1).type);
+        assertEquals(FtpClientLexer.Token.CRLF, handler.events.get(1).type);
     }
 
     @Test
     public void testContinuationDash() {
         RecordingHandler handler = new RecordingHandler();
         newLexer(handler).feed(bytesOf("150-About to open data connection\r\n"));
-        assertEquals(FTPClientLexer.Token.DASH, handler.events.get(1).type);
+        assertEquals(FtpClientLexer.Token.DASH, handler.events.get(1).type);
         assertEquals("About to open data connection", handler.reconstructedText());
     }
 
@@ -158,14 +158,14 @@ public class FTPClientLexerTest {
         RecordingHandler handler = new RecordingHandler();
         newLexer(handler).feed(bytesOf("\r\n"));
         assertEquals(1, handler.events.size());
-        assertEquals(FTPClientLexer.Token.CRLF, handler.events.get(0).type);
+        assertEquals(FtpClientLexer.Token.CRLF, handler.events.get(0).type);
     }
 
     @Test
     public void testShortLineEmitsPartialCode() {
         RecordingHandler handler = new RecordingHandler();
         newLexer(handler).feed(bytesOf("22\r\n"));
-        assertEquals(FTPClientLexer.Token.CODE, handler.events.get(0).type);
+        assertEquals(FtpClientLexer.Token.CODE, handler.events.get(0).type);
         assertEquals("22", handler.events.get(0).text);
     }
 
@@ -189,7 +189,7 @@ public class FTPClientLexerTest {
 
         for (int chunkSize = 1; chunkSize <= bytes.length; chunkSize++) {
             RecordingHandler handler = new RecordingHandler();
-            FTPClientLexer lexer = newLexer(handler);
+            FtpClientLexer lexer = newLexer(handler);
             ByteBuffer netIn = ByteBuffer.allocate(256);
             int offset = 0;
             while (offset < bytes.length) {

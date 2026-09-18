@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.servlet.jsp;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public abstract class AbstractJSPElement implements JSPElement {
+public abstract class AbstractJSPElement implements JspElement {
 
     private final int lineNumber;
     private final int columnNumber;

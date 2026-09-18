@@ -1,0 +1,1914 @@
+/*
+ * HttpClient.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.http;
+
+import java.io.IOException;
+import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.ResourceBundle;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import javax.net.ssl.X509TrustManager;
+
+import org.bluezoo.gumdrop.ClientEndpoint;
+import org.bluezoo.gumdrop.ClientEndpointPool;
+import org.bluezoo.gumdrop.client.ClientConnect;
+import org.bluezoo.gumdrop.client.ClientDefaults;
+import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.SelectorLoop;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
+import org.bluezoo.gumdrop.dns.client.HostsFile;
+import org.bluezoo.gumdrop.dns.client.ResolveCallback;
+import org.bluezoo.gumdrop.http.client.AltSvcCache;
+import org.bluezoo.gumdrop.http.client.AltSvcListener;
+import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
+import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpClientProtocolHandler;
+import org.bluezoo.gumdrop.http.client.HttpMethodSafety;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.http.h3.Http3ClientHandler;
+import org.bluezoo.gumdrop.telemetry.Trace;
+import org.bluezoo.gumdrop.quic.QuicConnection;
+import org.bluezoo.gumdrop.quic.QuicEngine;
+import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.tls.TlsConfig;
+import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
+import org.bluezoo.gumdrop.websocket.WebSocketExtension;
+
+/**
+ * High-level HTTP client facade.
+ *
+ * <p>This class provides a simple, concrete API for making HTTP requests.
+ * It internally creates either a {@link TcpTransportFactory} (for
+ * HTTP/1.1 and HTTP/2) or a {@link QuicTransportFactory} (for HTTP/3),
+ * wiring the appropriate protocol handler and forwarding lifecycle
+ * events to the caller's {@link HttpClientHandler}.
+ *
+ * <p>HTTP/2 connection modes (RFC 9113 section 3):
+ * <ul>
+ *   <li>TLS with ALPN "h2" (section 3.2) -- default for secure connections</li>
+ *   <li>h2c cleartext upgrade (section 3.1, deprecated by RFC 9113 but
+ *       intentionally retained) -- see {@link #setH2cUpgradeEnabled}</li>
+ *   <li>Prior knowledge (section 3.3) -- see {@link #setH2WithPriorKnowledge}</li>
+ * </ul>
+ *
+ * <h4>Basic Usage</h4>
+ * <pre>{@code
+ * HttpClient client = new HttpClient("api.example.com", 443);
+ * client.setSecure(true);
+ * client.connect(new HttpClientHandler() {
+ *     public void onConnected(Endpoint endpoint) {
+ *         HttpRequest req = client.get("/users");
+ *         req.send(responseHandler);
+ *     }
+ *     public void onSecurityEstablished(SecurityInfo info) { }
+ *     public void onError(Exception cause) { cause.printStackTrace(); }
+ *     public void onDisconnected() { }
+ * });
+ * }</pre>
+ *
+ * <h4>With explicit SelectorLoop (server integration)</h4>
+ * <pre>{@code
+ * HttpClient client = new HttpClient(selectorLoop, "api.example.com", 443);
+ * }</pre>
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see HttpClientHandler
+ * @see HttpRequest
+ */
+public class HttpClient implements AltSvcListener {
+
+    private static final Logger LOGGER =
+            Logger.getLogger(HttpClient.class.getName());
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
+
+    private String host;
+    private int port;
+    private String socketPath;
+    private SelectorLoop selectorLoop;
+    private InetAddress hostAddress;
+    private DnsResolver dnsResolver;
+
+    // Configuration (set before connect)
+    private final TlsConfig tls = new TlsConfig();
+    private boolean secure;
+    private String username;
+    private String password;
+    private boolean h2Enabled = true;
+    private boolean h2cUpgradeEnabled = true;
+    private boolean h2WithPriorKnowledge;
+    private boolean h3Enabled;
+    private boolean altSvcEnabled = true;
+    private boolean dnsHttpsRecordEnabled = true;
+    private boolean earlyDataEnabled;
+    private boolean blockPrivateAddresses;
+    private long idleTimeoutMs;
+    private ClientEndpointPool connectionPool;
+
+    /** Trace context for automatic traceparent propagation on outbound requests. */
+    private Trace traceContext;
+    private ClientEndpointPool.PoolEntry poolEntry;
+
+    // Internal transport components (created at connect time)
+    private TcpTransportFactory transportFactory;
+    private ClientEndpoint clientEndpoint;
+    private HttpClientProtocolHandler endpointHandler;
+
+    // HTTP/3 transport components (created at connect time)
+    private QuicTransportFactory quicTransportFactory;
+    private QuicEngine quicEngine;
+    private Http3ClientHandler h3Handler;
+
+    // Alt-Svc upgrade state
+    private volatile boolean h3UpgradeInProgress;
+    private HttpClientHandler connectHandler;
+
+    private Gumdrop gumdrop;
+
+    /**
+     * Creates a client for fluent dial configuration before {@link #connect}.
+     */
+    public HttpClient() {
+        this.port = 443;
+    }
+
+    /**
+     * Creates an HTTP client for the given host and port.
+     *
+     * <p>Uses the next available worker loop from the global
+     * {@link Gumdrop} instance. DNS resolution is deferred until
+     * {@link #connect} is called.
+     *
+     * @param host the remote hostname or IP address
+     * @param port the remote port
+     */
+    public HttpClient(String host, int port) {
+        this(null, host, port);
+    }
+
+    /**
+     * Creates an HTTP client with an explicit selector loop.
+     *
+     * <p>Use this constructor when integrating with server-side code
+     * that has its own selector loop management. DNS resolution is
+     * deferred until {@link #connect} is called.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param host the remote hostname or IP address
+     * @param port the remote port
+     */
+    public HttpClient(SelectorLoop selectorLoop, String host, int port) {
+        this.selectorLoop = selectorLoop;
+        this.host = host;
+        this.port = port;
+        this.socketPath = null;
+    }
+
+    /**
+     * Creates an HTTP client for the given address and port.
+     *
+     * @param host the remote host address
+     * @param port the remote port
+     */
+    public HttpClient(InetAddress host, int port) {
+        this(null, host, port);
+    }
+
+    /**
+     * Creates an HTTP client with an explicit selector loop and address.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param host the remote host address
+     * @param port the remote port
+     */
+    public HttpClient(SelectorLoop selectorLoop, InetAddress host,
+                      int port) {
+        this.selectorLoop = selectorLoop;
+        this.host = host.getHostAddress();
+        this.hostAddress = host;
+        this.port = port;
+        this.socketPath = null;
+    }
+
+    /**
+     * Creates an HTTP client for a UNIX domain socket, mirroring {@link
+     * org.bluezoo.gumdrop.TcpListener#setPath} on the server side.
+     *
+     * <p>Uses the next available worker loop from the global {@link
+     * Gumdrop} instance. Incompatible with {@link #setH3Enabled(boolean)}
+     * -- HTTP/3 is inherently QUIC/UDP and has no filesystem-socket
+     * equivalent -- and with DNS/Alt-Svc transport negotiation, both
+     * skipped entirely for a path-based client. The {@code Host} header
+     * (HTTP/1.1) and {@code :authority} pseudo-header (HTTP/2) sent on
+     * requests default to {@code localhost}, matching common convention
+     * for clients dialing a UNIX domain socket (e.g. curl's
+     * {@code --unix-socket}); set an explicit header on individual
+     * requests to override.
+     *
+     * @param path the UNIX domain socket path
+     */
+    public HttpClient(String path) {
+        this(null, path);
+    }
+
+    /**
+     * Creates an HTTP client for a UNIX domain socket with an explicit
+     * selector loop.
+     *
+     * <p>Use this constructor when integrating with server-side code
+     * that has its own selector loop management. See {@link #HttpClient(
+     * String)} for the incompatibilities/defaults that apply to every
+     * UNIX-domain-socket client.
+     *
+     * @param selectorLoop the selector loop, or null to use a Gumdrop worker
+     * @param path the UNIX domain socket path
+     */
+    public HttpClient(SelectorLoop selectorLoop, String path) {
+        if (path == null) {
+            throw new NullPointerException("path");
+        }
+        this.selectorLoop = selectorLoop;
+        this.host = null;
+        this.port = -1;
+        this.socketPath = path;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Configuration (before connect)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Sets whether this client uses TLS.
+     *
+     * @param secure true for TLS
+     */
+    public void setSecure(boolean secure) {
+        this.secure = secure;
+    }
+
+    /**
+     * Sets this client's own identity (certificate chain and private key)
+     * to present if the server requests client certificate authentication
+     * (mTLS).
+     *
+     * @param clientCredentials the client's own credentials
+     */
+    public void setClientCredentials(ServerCredentials clientCredentials) {
+        tls.serverCredentials(clientCredentials);
+    }
+
+    /**
+     * Sets a custom trust manager for TLS certificate verification.
+     *
+     * @param trustManager the trust manager, or null to use defaults
+     * @see org.bluezoo.gumdrop.util.PinnedCertTrustManager
+     * @see org.bluezoo.gumdrop.util.EmptyX509TrustManager
+     */
+    public void setTrustManager(X509TrustManager trustManager) {
+        tls.trustManager(trustManager);
+    }
+
+    /**
+     * Sets the trace context for automatic propagation of the traceparent
+     * header on outbound requests.
+     *
+     * <p>When making calls from within an HTTP request handler, pass
+     * {@code state.getTrace()} so that the distributed trace remains
+     * connected across service boundaries. If telemetry is configured
+     * and a trace exists, the traceparent header is added automatically
+     * to every request; callers need not add it manually.
+     *
+     * @param trace the trace to propagate, or null to disable
+     */
+    public void setTrace(Trace trace) {
+        this.traceContext = trace;
+        if (endpointHandler != null) {
+            endpointHandler.setTraceContext(trace);
+        }
+    }
+
+    /**
+     * Sets the keystore file for client certificate authentication.
+     *
+     * @param path the keystore file path
+     */
+    public void setKeystoreFile(Path path) {
+        tls.keystoreFile(path);
+    }
+
+    public void setKeystoreFile(String path) {
+        tls.keystoreFile(Path.of(path));
+    }
+
+    /**
+     * Sets the keystore password.
+     *
+     * @param password the keystore password
+     */
+    public void setKeystorePass(String password) {
+        tls.keystorePass(password);
+    }
+
+    /**
+     * Sets the keystore format (e.g. JKS, PKCS12).
+     *
+     * @param format the keystore format
+     */
+    public void setKeystoreFormat(String format) {
+        tls.keystoreFormat(format);
+    }
+
+    /**
+     * Sets HTTP Basic Authentication credentials.
+     *
+     * @param username the username
+     * @param password the password
+     * @return this client
+     */
+    public HttpClient credentials(String username, String password) {
+        this.username = username;
+        this.password = password;
+        return this;
+    }
+
+    /**
+     * Enables or disables HTTP/2 over TLS (h2).
+     *
+     * @param enabled true to enable HTTP/2
+     */
+    public void setH2Enabled(boolean enabled) {
+        this.h2Enabled = enabled;
+    }
+
+    /**
+     * Enables or disables HTTP/2 upgrade from HTTP/1.1 (h2c).
+     *
+     * <p>RFC 9113 section 3.1 deprecates this mechanism, but it is
+     * intentionally retained for backward compatibility.
+     *
+     * @param enabled true to enable h2c upgrade
+     */
+    public void setH2cUpgradeEnabled(boolean enabled) {
+        this.h2cUpgradeEnabled = enabled;
+    }
+
+    /**
+     * Enables or disables HTTP/2 with prior knowledge (no upgrade).
+     *
+     * <p>Per RFC 9113 section 3.3, the client sends the connection preface
+     * immediately without negotiation.
+     *
+     * @param enabled true to connect with prior knowledge of HTTP/2
+     */
+    public void setH2WithPriorKnowledge(boolean enabled) {
+        this.h2WithPriorKnowledge = enabled;
+    }
+
+    /**
+     * Forces HTTP/3 over QUIC, bypassing automatic transport negotiation.
+     *
+     * <p>By default (this not called), {@link #connect(HttpClientHandler)}
+     * negotiates the transport automatically: a DNS HTTPS record
+     * advertising "h3" support (see {@link #setDnsHttpsRecordEnabled(boolean)}),
+     * then a cached Alt-Svc discovery ({@link AltSvcCache}), then plain TCP
+     * (HTTP/2 via ALPN/h2c, else HTTP/1.1). Calling this with {@code true}
+     * skips all of that and connects via QUIC with ALPN "h3" directly, with
+     * no fallback. HTTP/3 requires TLS 1.3 (built into QUIC), so
+     * the {@link #setSecure(boolean)} flag is implicitly true.
+     *
+     * <p>If PEM certificate/key files are needed for client authentication,
+     * set them via {@link #setCertFile(String)} and
+     * {@link #setKeyFile(String)}.
+     *
+     * @param enabled true to force HTTP/3
+     */
+    public void setH3Enabled(boolean enabled) {
+        this.h3Enabled = enabled;
+    }
+
+    /**
+     * Enables or disables Alt-Svc header discovery and automatic
+     * HTTP/3 upgrade.
+     *
+     * <p>When enabled (the default), the client inspects Alt-Svc
+     * response headers, may transparently open an HTTP/3 connection for
+     * this instance, and caches the discovery ({@link AltSvcCache}) for
+     * later connections to the same host. Disable this when a specific
+     * protocol version is required.
+     *
+     * @param enabled true to enable Alt-Svc discovery
+     */
+    public void setAltSvcEnabled(boolean enabled) {
+        this.altSvcEnabled = enabled;
+    }
+
+    /**
+     * Enables or disables DNS HTTPS-record discovery (RFC 9460) of HTTP/3
+     * support, checked before connecting.
+     *
+     * <p>When enabled (the default), {@link #connect(HttpClientHandler)}
+     * queries an HTTPS record for the target host via gumdrop's async
+     * {@link DnsResolver} before choosing a transport; if it advertises
+     * "h3" ALPN support, the connection uses QUIC directly. This is the
+     * first tier of automatic negotiation, checked ahead of the
+     * {@link AltSvcCache}.
+     *
+     * @param enabled true to enable DNS HTTPS-record discovery
+     */
+    public void setDnsHttpsRecordEnabled(boolean enabled) {
+        this.dnsHttpsRecordEnabled = enabled;
+    }
+
+    /**
+     * Enables or disables QUIC 0-RTT early data (RFC 9001 section 4.6.1)
+     * for HTTP/3 connections.
+     *
+     * <p>When enabled, if a session ticket was cached from a previous
+     * connection to the same destination ({@link org.bluezoo.gumdrop.quic.SessionTicketCache}),
+     * a GET/HEAD/OPTIONS/TRACE request issued immediately after
+     * {@link #connect(HttpClientHandler)} may ride the very first flight of
+     * packets, before the TLS handshake completes -- see
+     * {@link HttpMethodSafety}. Disabled by default: 0-RTT data has no
+     * anti-replay guarantee at the transport layer, so this is an explicit
+     * opt-in.
+     *
+     * @param enabled true to enable 0-RTT
+     */
+    public void setEarlyDataEnabled(boolean enabled) {
+        this.earlyDataEnabled = enabled;
+    }
+
+    /**
+     * Sets the PEM certificate chain file for QUIC client authentication.
+     *
+     * @param path the PEM file path
+     */
+    public void setCertFile(Path path) {
+        tls.certFile(path);
+    }
+
+    public void setCertFile(String path) {
+        tls.certFile(Path.of(path));
+    }
+
+    /**
+     * Sets the PEM private key file for QUIC client authentication.
+     *
+     * @param path the PEM file path
+     */
+    public void setKeyFile(Path path) {
+        tls.keyFile(path);
+    }
+
+    public void setKeyFile(String path) {
+        tls.keyFile(Path.of(path));
+    }
+
+    /**
+     * Sets whether to verify the peer's TLS certificate. Defaults to
+     * {@code true}. Applies to both TCP/TLS and QUIC/H3 connections.
+     *
+     * @param verify true to verify the peer certificate
+     */
+    public void setVerifyPeer(boolean verify) {
+        tls.verifyPeer(verify);
+    }
+
+    /**
+     * When {@code true}, connections to loopback, private, link-local, and
+     * cloud-metadata addresses (169.254.169.254) are rejected. Disabled by
+     * default. Enable when passing user-controlled URLs to guard against SSRF.
+     *
+     * @param block true to block private/internal addresses
+     */
+    public void setBlockPrivateAddresses(boolean block) {
+        this.blockPrivateAddresses = block;
+    }
+
+    private void checkNotPrivate(InetAddress addr) throws IOException {
+        if (!blockPrivateAddresses) {
+            return;
+        }
+        if (addr.isLoopbackAddress() || addr.isLinkLocalAddress()
+                || addr.isSiteLocalAddress() || addr.isAnyLocalAddress()
+                || addr.isMulticastAddress()) {
+            throw new IOException("SSRF protection: connection to "
+                    + addr.getHostAddress() + " is not permitted");
+        }
+        // Block cloud metadata addresses (IPv4 169.254.169.254, IPv6 fd00:ec2::254)
+        byte[] raw = addr.getAddress();
+        if (raw.length == 4 && raw[0] == (byte) 169 && raw[1] == (byte) 254
+                && raw[2] == (byte) 169 && raw[3] == (byte) 254) {
+            throw new IOException("SSRF protection: connection to "
+                    + addr.getHostAddress() + " is not permitted");
+        }
+    }
+
+    /**
+     * Sets the idle connection timeout in milliseconds.
+     * When positive, the connection is closed after the specified
+     * period of inactivity (RFC 9113 section 9.1).
+     *
+     * @param ms timeout in milliseconds, 0 to disable
+     */
+    public void setIdleTimeoutMs(long ms) {
+        this.idleTimeoutMs = ms;
+    }
+
+    /**
+     * Sets an optional connection pool for endpoint reuse.
+     *
+     * <p>When set, the client checks the pool for an idle endpoint
+     * before creating a new connection. On request completion with
+     * keep-alive, the endpoint is released back to the pool.
+     *
+     * <p>Pool targets include {@link SelectorLoop} affinity, so
+     * each I/O thread gets its own bucket of pooled connections.
+     *
+     * @param pool the connection pool, or null to disable pooling
+     * @see ClientEndpointPool
+     */
+    public void setConnectionPool(ClientEndpointPool pool) {
+        this.connectionPool = pool;
+    }
+
+    public HttpClient host(String host) {
+        this.host = host;
+        this.hostAddress = null;
+        this.socketPath = null;
+        return this;
+    }
+
+    public HttpClient host(InetAddress hostAddress) {
+        if (hostAddress == null) {
+            throw new NullPointerException("hostAddress");
+        }
+        this.hostAddress = hostAddress;
+        this.host = hostAddress.getHostAddress();
+        this.socketPath = null;
+        return this;
+    }
+
+    public HttpClient port(int port) {
+        this.port = port;
+        return this;
+    }
+
+    public HttpClient socketPath(String socketPath) {
+        if (socketPath == null) {
+            throw new NullPointerException("socketPath");
+        }
+        this.socketPath = socketPath;
+        this.host = null;
+        this.hostAddress = null;
+        return this;
+    }
+
+    public HttpClient selectorLoop(SelectorLoop selectorLoop) {
+        this.selectorLoop = selectorLoop;
+        return this;
+    }
+
+    public HttpClient dnsResolver(DnsResolver dnsResolver) {
+        this.dnsResolver = dnsResolver;
+        return this;
+    }
+
+    public DnsResolver getDnsResolver() {
+        return dnsResolver;
+    }
+
+    /**
+     * Sets whether this client uses TLS. Returns {@code this} for fluent
+     * configuration.
+     */
+    public HttpClient secure(boolean secure) {
+        setSecure(secure);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient clientCredentials(ServerCredentials clientCredentials) {
+        setClientCredentials(clientCredentials);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient trustManager(X509TrustManager trustManager) {
+        setTrustManager(trustManager);
+        return this;
+    }
+
+    /**
+     * Trust the JVM default CA store (required before {@link #secure(boolean)}
+     * can enable TLS).
+     */
+    public HttpClient trustJvm() {
+        tls.trustJvm();
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient trace(Trace trace) {
+        setTrace(trace);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient keystoreFile(Path path) {
+        setKeystoreFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient keystorePass(String password) {
+        setKeystorePass(password);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient keystoreFormat(String format) {
+        setKeystoreFormat(format);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient h2Enabled(boolean enabled) {
+        setH2Enabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient h2cUpgradeEnabled(boolean enabled) {
+        setH2cUpgradeEnabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient h2WithPriorKnowledge(boolean enabled) {
+        setH2WithPriorKnowledge(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient h3Enabled(boolean enabled) {
+        setH3Enabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient altSvcEnabled(boolean enabled) {
+        setAltSvcEnabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient dnsHttpsRecordEnabled(boolean enabled) {
+        setDnsHttpsRecordEnabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient earlyDataEnabled(boolean enabled) {
+        setEarlyDataEnabled(enabled);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient certFile(Path path) {
+        setCertFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient keyFile(Path path) {
+        setKeyFile(path);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient verifyPeer(boolean verify) {
+        setVerifyPeer(verify);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient blockPrivateAddresses(boolean block) {
+        setBlockPrivateAddresses(block);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient idleTimeoutMs(long ms) {
+        setIdleTimeoutMs(ms);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient connectionPool(ClientEndpointPool pool) {
+        setConnectionPool(pool);
+        return this;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Lifecycle
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Connects to the remote server.
+     *
+     * <p>Creates the transport factory, endpoint handler, and client
+     * endpoint, then initiates the connection. Lifecycle events are
+     * forwarded to the given handler.
+     *
+     * <p>If {@link #setH3Enabled(boolean)} is true, the connection uses
+     * QUIC with HTTP/3 instead of TCP.
+     *
+     * @param gumdrop the runtime this connection is made under
+     * @param handler the handler to receive connection lifecycle events
+     */
+    public void connect(Gumdrop gumdrop, final HttpClientHandler handler) {
+        this.gumdrop = gumdrop;
+        this.connectHandler = handler;
+        if (socketPath == null && host == null && hostAddress == null) {
+            handler.onError(new IllegalStateException(
+                    "host, host address, or socketPath is required"));
+            return;
+        }
+        if (Boolean.getBoolean("gumdrop.http.debug")) {
+            Logger.getLogger(HttpClient.class.getName()).info(
+                "[HttpClient] connect() "
+                + (socketPath != null ? socketPath : (host != null ? host : hostAddress) + ":" + port));
+        }
+
+        if (socketPath != null) {
+            if (h3Enabled) {
+                handler.onError(new IOException(
+                        "HTTP/3 is not supported over a UNIX domain socket"));
+                return;
+            }
+            connectTcp(handler);
+            return;
+        }
+
+        if (h3Enabled) {
+            if (hostAddress != null) {
+                try {
+                    checkNotPrivate(hostAddress);
+                } catch (IOException e) {
+                    handler.onError(e);
+                    return;
+                }
+                connectH3(hostAddress, port, host, handler);
+            } else {
+                resolveAndConnectH3(host, port, handler);
+            }
+            return;
+        }
+
+        discoverAndConnect(handler);
+    }
+
+    private DnsResolver effectiveResolver(SelectorLoop loop) {
+        return dnsResolver != null ? dnsResolver : DnsResolver.forLoop(loop);
+    }
+
+    /**
+     * Automatic transport negotiation, tier 1 (DNS HTTPS record) and tier 2
+     * (cached Alt-Svc discovery), falling through to {@link #connectTcp}
+     * (today's HTTP/2-via-ALPN-or-h2c / HTTP/1.1 behaviour) when neither
+     * applies.
+     *
+     * <p>Skipped entirely -- straight to {@link #connectTcp} -- when there
+     * is no hostname to query: a literal {@link InetAddress} was given at
+     * construction, {@link #host} is itself a literal IP, or it's
+     * {@code localhost} (matching {@link DnsResolver#resolve}'s own
+     * loopback fast-path; a real DNS round trip for loopback targets would
+     * otherwise slow down/break every test and tool connecting locally).
+     */
+    private void discoverAndConnect(final HttpClientHandler handler) {
+        if (hostAddress != null || host == null) {
+            connectTcp(handler);
+            return;
+        }
+        if (!dnsHttpsRecordEnabled || isUndiscoverableHost(host)) {
+            // Skip only the DNS round trip -- the AltSvcCache tier is a
+            // fast, in-memory lookup, worth checking even for localhost/
+            // literal-IP targets.
+            connectViaAltSvcCacheOrTcp(handler);
+            return;
+        }
+
+        SelectorLoop loop = selectorLoop;
+        if (loop == null) {
+            loop = gumdrop.nextWorkerLoop();
+        }
+        if (loop == null) {
+            connectTcp(handler);
+            return;
+        }
+
+        DnsResolver resolver = effectiveResolver(loop);
+        resolver.queryHTTPS(host, new DnsQueryCallback() {
+            @Override
+            public void onResponse(DnsMessage response) {
+                for (DnsResourceRecord rr : response.getAnswers()) {
+                    if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
+                        continue;
+                    }
+                    if (rr.getSVCBAlpnProtocols().contains("h3")) {
+                        int svcbPort = rr.getSVCBPort();
+                        int targetPort = svcbPort > 0 ? svcbPort : port;
+                        h3Enabled = true;
+                        resolveAndConnectH3(host, targetPort, handler);
+                        return;
+                    }
+                }
+                connectViaAltSvcCacheOrTcp(handler);
+            }
+
+            @Override
+            public void onError(String error) {
+                connectViaAltSvcCacheOrTcp(handler);
+            }
+        });
+    }
+
+    private void connectViaAltSvcCacheOrTcp(HttpClientHandler handler) {
+        AltSvcCache.Entry cached = AltSvcCache.get(host, port);
+        if (cached != null) {
+            h3Enabled = true;
+            String altHost = cached.getH3Host();
+            if (altHost != null) {
+                resolveAndConnectH3(altHost, cached.getH3Port(), handler);
+            } else {
+                resolveAndConnectH3(host, cached.getH3Port(), handler);
+            }
+            return;
+        }
+        connectTcp(handler);
+    }
+
+    /**
+     * Copies TLS dial settings into this client (used when another facade
+     * delegates to {@link HttpClient} on the HTTP/3 path).
+     */
+    public HttpClient importTls(TlsConfig source) {
+        tls.copyFrom(source);
+        return this;
+    }
+
+    public TlsConfig getTls() {
+        return tls;
+    }
+
+    /**
+     * Returns true if {@code hostname} isn't worth issuing a DNS HTTPS-record
+     * query for: a literal IPv4/IPv6 address, or loopback.
+     */
+    private static boolean isUndiscoverableHost(String hostname) {
+        if ("localhost".equalsIgnoreCase(hostname)
+                || "localhost.".equalsIgnoreCase(hostname)) {
+            return true;
+        }
+        return HostsFile.parseLiteralIPv4(hostname) != null
+                || HostsFile.parseLiteralIPv6(hostname) != null;
+    }
+
+    /**
+     * Today's TCP-first behaviour: HTTP/2 via ALPN (secure) or h2c upgrade
+     * (cleartext), else HTTP/1.1 -- all already automatic, plus the
+     * existing reactive Alt-Svc upgrade once connected.
+     */
+    private void connectTcp(final HttpClientHandler handler) {
+        transportFactory = new TcpTransportFactory();
+        ClientConnect.prepareTls(secure, tls, transportFactory);
+        // RFC 9113 section 3.2 / RFC 7301: advertise HTTP/2 via ALPN on TLS so
+        // the server can negotiate "h2". Without this the ClientHello carries
+        // no ALPN protocols and the connection always falls back to HTTP/1.1,
+        // even against an h2-capable server. "http/1.1" is offered as the
+        // mandatory fallback token. HttpClientProtocolHandler.securityEstablished()
+        // adopts whichever protocol the server selects. (h2c prior knowledge is
+        // a cleartext path and does not use ALPN.)
+        if (secure && h2Enabled && !h2WithPriorKnowledge) {
+            transportFactory.setApplicationProtocols("h2", "http/1.1");
+        }
+
+        HttpClientHandler poolAwareHandler = connectionPool != null
+                ? wrapHandlerForPool(handler) : handler;
+
+        // RFC 9110 section 7.2 / RFC 9113 section 8.3.1: a UNIX domain
+        // socket has no hostname of its own to put in the Host header /
+        // :authority pseudo-header -- "localhost" matches common
+        // convention for clients dialing a UNIX domain socket (e.g.
+        // curl's --unix-socket). The matching default port keeps
+        // sendHTTP11Request's port-suffix check from adding one.
+        endpointHandler = (socketPath != null)
+                ? new HttpClientProtocolHandler(
+                        poolAwareHandler, "localhost", secure ? 443 : 80, secure)
+                : new HttpClientProtocolHandler(
+                        poolAwareHandler, host, port, secure);
+        if (traceContext != null) {
+            endpointHandler.setTraceContext(traceContext);
+        }
+        if (altSvcEnabled) {
+            endpointHandler.setAltSvcListener(this);
+        }
+        if (username != null) {
+            endpointHandler.credentials(username, password);
+        }
+        endpointHandler.setH2Enabled(h2Enabled);
+        endpointHandler.setH2cUpgradeEnabled(h2cUpgradeEnabled);
+        if (h2WithPriorKnowledge) {
+            endpointHandler.setH2WithPriorKnowledge(true);
+        }
+        if (idleTimeoutMs > 0) {
+            endpointHandler.setIdleTimeoutMs(idleTimeoutMs);
+        }
+
+        try {
+            if (socketPath != null) {
+                clientEndpoint = (selectorLoop != null)
+                        ? new ClientEndpoint(transportFactory, selectorLoop, socketPath)
+                        : new ClientEndpoint(transportFactory, socketPath);
+            } else if (hostAddress != null) {
+                checkNotPrivate(hostAddress);
+                if (selectorLoop != null) {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, selectorLoop,
+                            hostAddress, port);
+                } else {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, hostAddress, port);
+                }
+            } else {
+                if (selectorLoop != null) {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, selectorLoop,
+                            host, port);
+                } else {
+                    clientEndpoint = new ClientEndpoint(
+                            transportFactory, host, port);
+                }
+            }
+            applyDnsResolver(clientEndpoint);
+            clientEndpoint.connect(gumdrop, endpointHandler);
+        } catch (IOException e) {
+            handler.onError(e);
+        }
+    }
+
+    private void applyDnsResolver(ClientEndpoint endpoint) {
+        if (dnsResolver != null) {
+            endpoint.setDnsResolver(dnsResolver);
+        }
+    }
+
+    private HttpClientHandler wrapHandlerForPool(
+            final HttpClientHandler delegate) {
+        final AtomicBoolean registered = new AtomicBoolean(false);
+        return new HttpClientHandler() {
+            @Override
+            public void onConnected(Endpoint endpoint) {
+                if (registered.compareAndSet(false, true)) {
+                    registerWithPool(endpoint);
+                }
+                delegate.onConnected(endpoint);
+            }
+
+            @Override
+            public void onSecurityEstablished(SecurityInfo info) {
+                delegate.onSecurityEstablished(info);
+            }
+
+            @Override
+            public void onError(Exception cause) {
+                delegate.onError(cause);
+            }
+
+            @Override
+            public void onDisconnected() {
+                delegate.onDisconnected();
+            }
+        };
+    }
+
+    private void registerWithPool(Endpoint ep) {
+        if (connectionPool == null) {
+            return;
+        }
+        InetAddress resolved = hostAddress;
+        if (resolved == null && clientEndpoint != null) {
+            resolved = clientEndpoint.getHost();
+        }
+        if (resolved != null) {
+            SelectorLoop loop = selectorLoop;
+            if (loop == null && clientEndpoint != null) {
+                loop = clientEndpoint.getSelectorLoop();
+            }
+            ClientEndpointPool.PoolTarget target =
+                    new ClientEndpointPool.PoolTarget(
+                            resolved, port, secure, loop);
+            poolEntry = connectionPool.register(target, ep);
+        }
+    }
+
+    private void releaseToPool() {
+        if (poolEntry != null) {
+            connectionPool.release(poolEntry);
+            poolEntry = null;
+        }
+    }
+
+    /**
+     * Connects to a target host using HTTP/3 over QUIC.
+     *
+     * @param targetAddress the address to connect to (may differ from origin)
+     * @param targetPort the port to connect to
+     * @param serverName the TLS SNI hostname (the original origin)
+     * @param handler the handler to receive connection lifecycle events
+     */
+    private void connectH3(final InetAddress targetAddress,
+                           final int targetPort,
+                           final String serverName,
+                           final HttpClientHandler handler) {
+        SelectorLoop loop = selectorLoop;
+        if (loop == null) {
+            loop = gumdrop.nextWorkerLoop();
+        }
+        if (loop == null) {
+            handler.onError(new IOException(
+                    "No SelectorLoop available for HTTP/3"));
+            return;
+        }
+
+        quicTransportFactory = new QuicTransportFactory();
+        quicTransportFactory.setApplicationProtocols("h3");
+        TlsConfig effective = ClientDefaults.effectiveTls(tls);
+        ClientConnect.applyToQuicFactory(effective, quicTransportFactory);
+        quicTransportFactory.setEarlyDataEnabled(earlyDataEnabled);
+
+        try {
+            quicTransportFactory.start();
+        } catch (RuntimeException e) {
+            handler.onError(new IOException(
+                    "Failed to start QUIC transport: " + e.getMessage()));
+            return;
+        }
+
+        try {
+            quicEngine = quicTransportFactory.connect(
+                    targetAddress, targetPort,
+                    new QuicEngine.ConnectionAcceptedHandler() {
+                        @Override
+                        public void connectionAccepted(
+                                QuicConnection connection) {
+                            // Idempotent: if 0-RTT already constructed
+                            // h3Handler and told the application the
+                            // connection is ready (see EarlyDataHandler
+                            // below), don't do so again here -- just flush
+                            // anything deferred pending establishment.
+                            // Either way, this callback is the one place
+                            // that reports the handshake itself as done.
+                            if (h3Handler == null) {
+                                h3Handler = new Http3ClientHandler(connection);
+                                handler.onConnected(null);
+                            } else {
+                                h3Handler.runDeferredRequests();
+                            }
+                            handler.onSecurityEstablished(
+                                    connection.getSecurityInfo());
+                        }
+                    },
+                    new QuicEngine.EarlyDataHandler() {
+                        @Override
+                        public void earlyDataReady(QuicConnection connection) {
+                            // RFC 9001 section 4.6.1: 0-RTT send keys are
+                            // ready, well before the handshake completes.
+                            // Construct h3Handler and let the application
+                            // start issuing requests now -- H3Request gates
+                            // any non-0-RTT-eligible method behind full
+                            // establishment (see HttpMethodSafety), so this
+                            // is safe even if the application immediately
+                            // issues a POST.
+                            h3Handler = new Http3ClientHandler(connection);
+                            handler.onConnected(null);
+                        }
+                    },
+                    loop, serverName);
+        } catch (IOException e) {
+            handler.onError(e);
+        }
+    }
+
+    private void resolveAndConnectH3(final String targetHost,
+                                     final int targetPort,
+                                     final HttpClientHandler handler) {
+        SelectorLoop loop = selectorLoop;
+        if (loop == null) {
+            loop = gumdrop.nextWorkerLoop();
+        }
+        if (loop == null) {
+            handler.onError(new IOException(
+                    "No SelectorLoop available for DNS resolution"));
+            return;
+        }
+        DnsResolver resolver = effectiveResolver(loop);
+        resolver.resolve(targetHost, new ResolveCallback() {
+            @Override
+            public void onResolved(List<InetAddress> addresses) {
+                hostAddress = addresses.get(0);
+                try {
+                    checkNotPrivate(hostAddress);
+                } catch (IOException e) {
+                    handler.onError(e);
+                    return;
+                }
+                connectH3(hostAddress, targetPort, targetHost, handler);
+            }
+
+            @Override
+            public void onError(String error) {
+                handler.onError(new IOException(
+                        "DNS resolution failed for " + targetHost
+                        + ": " + error));
+            }
+        });
+    }
+
+    /**
+     * Returns whether the connection is open and ready for requests.
+     *
+     * @return true if connected and open
+     */
+    public boolean isOpen() {
+        if (h3Handler != null) {
+            return !h3Handler.isGoaway();
+        }
+        return endpointHandler != null && endpointHandler.isOpen();
+    }
+
+    /**
+     * Closes the connection and deregisters from Gumdrop's lifecycle
+     * tracking.
+     */
+    public void close() {
+        if (h3Handler != null) {
+            h3Handler.close();
+        }
+        if (quicEngine != null) {
+            quicEngine.close();
+        }
+        if (poolEntry != null) {
+            releaseToPool();
+        } else {
+            if (endpointHandler != null) {
+                endpointHandler.close();
+            }
+            if (clientEndpoint != null) {
+                clientEndpoint.close();
+            }
+        }
+    }
+
+    /**
+     * Returns the negotiated HTTP version.
+     *
+     * @return the HTTP version, or null if not yet negotiated
+     */
+    public HttpVersion getVersion() {
+        if (h3Handler != null) {
+            return HttpVersion.HTTP_3;
+        }
+        if (endpointHandler == null) {
+            return null;
+        }
+        return endpointHandler.getVersion();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Request factory (delegates to endpoint handler)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Creates a GET request.
+     *
+     * @param path the request path
+     * @return the HTTP request
+     */
+    public HttpRequest get(String path) {
+        return request("GET", path);
+    }
+
+    /**
+     * Creates a POST request.
+     *
+     * @param path the request path
+     * @return the HTTP request
+     */
+    public HttpRequest post(String path) {
+        return request("POST", path);
+    }
+
+    /**
+     * Creates a PUT request.
+     *
+     * @param path the request path
+     * @return the HTTP request
+     */
+    public HttpRequest put(String path) {
+        return request("PUT", path);
+    }
+
+    /**
+     * Creates a DELETE request.
+     *
+     * @param path the request path
+     * @return the HTTP request
+     */
+    public HttpRequest delete(String path) {
+        return request("DELETE", path);
+    }
+
+    /**
+     * Creates a HEAD request.
+     *
+     * @param path the request path
+     * @return the HTTP request
+     */
+    public HttpRequest head(String path) {
+        return request("HEAD", path);
+    }
+
+    /**
+     * Creates an OPTIONS request.
+     *
+     * @param path the request path
+     * @return the HTTP request
+     */
+    public HttpRequest options(String path) {
+        return request("OPTIONS", path);
+    }
+
+    /**
+     * Creates a PATCH request.
+     *
+     * @param path the request path
+     * @return the HTTP request
+     */
+    public HttpRequest patch(String path) {
+        return request("PATCH", path);
+    }
+
+    /**
+     * Creates a request with the given HTTP method.
+     *
+     * @param method the HTTP method
+     * @param path the request path
+     * @return the HTTP request
+     */
+    public HttpRequest request(String method, String path) {
+        if (h3Handler != null) {
+            String scheme = "https";
+            String authority = host;
+            if (port != 443) {
+                authority = host + ":" + port;
+            }
+            return new org.bluezoo.gumdrop.http.h3.H3Request(
+                    h3Handler, method, path, authority, scheme, traceContext);
+        }
+        return endpointHandler.request(method, path);
+    }
+
+    /**
+     * Initiates a WebSocket-over-HTTP/3 connection via Extended CONNECT
+     * (RFC 9220 section 3). Requires {@link #setH3Enabled(boolean)} and a
+     * completed connection (called after {@link HttpClientHandler#onSecurityEstablished}).
+     *
+     * @param path the request path
+     * @param subprotocol the WebSocket subprotocol to request, or null
+     * @param extensions the extensions to offer, or null/empty for none
+     * @param wsHandler the handler to receive WebSocket events
+     */
+    public void connectWebSocket(String path, String subprotocol,
+            List<WebSocketExtension> extensions, WebSocketEventHandler wsHandler) {
+        if (h3Handler == null) {
+            wsHandler.error(new IllegalStateException(
+                    "WebSocket-over-HTTP/3 requires setH3Enabled(true) and an established connection"));
+            return;
+        }
+        String authority = host;
+        if (port != 443) {
+            authority = host + ":" + port;
+        }
+        h3Handler.connectWebSocket(authority, path, subprotocol, extensions, wsHandler);
+    }
+
+    /**
+     * Initiates a CONNECT-UDP tunnel over HTTP/3 Extended CONNECT (RFC
+     * 9298 section 3). Requires {@link #setH3Enabled(boolean)} and a
+     * completed connection (called after {@link HttpClientHandler#onSecurityEstablished}).
+     *
+     * @param targetHost the UDP target's host (hostname or literal address)
+     * @param targetPort the UDP target's port
+     * @param handler the handler to receive CONNECT-UDP events
+     */
+    public void connectUdp(String targetHost, int targetPort, ConnectUdpEventHandler handler) {
+        if (h3Handler == null) {
+            handler.error(new IllegalStateException(
+                    "CONNECT-UDP over HTTP/3 requires setH3Enabled(true) and an established connection"));
+            return;
+        }
+        String authority = host;
+        if (port != 443) {
+            authority = host + ":" + port;
+        }
+        h3Handler.connectUdp(authority, targetHost, targetPort, handler);
+    }
+
+    /**
+     * Initiates a CONNECT-IP tunnel over HTTP/3 Extended CONNECT (RFC
+     * 9484 section 4.4). Requires {@link #setH3Enabled(boolean)} and a
+     * completed connection (called after {@link HttpClientHandler#onSecurityEstablished}).
+     *
+     * @param target the target scope hint ({@link
+     *               org.bluezoo.gumdrop.http.ConnectIpTarget#WILDCARD}
+     *               for "unspecified", the common case, or a hostname/IP prefix)
+     * @param ipProto the IP protocol scope hint ({@link
+     *                org.bluezoo.gumdrop.http.ConnectIpTarget#WILDCARD}
+     *                for "unspecified", or a decimal Internet Protocol Number)
+     * @param handler the handler to receive CONNECT-IP events
+     */
+    public void connectIp(String target, String ipProto, ConnectIpEventHandler handler) {
+        if (h3Handler == null) {
+            handler.error(new IllegalStateException(
+                    "CONNECT-IP over HTTP/3 requires setH3Enabled(true) and an established connection"));
+            return;
+        }
+        String authority = host;
+        if (port != 443) {
+            authority = host + ":" + port;
+        }
+        h3Handler.connectIp(authority, target, ipProto, handler);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Alt-Svc discovery
+    // ═══════════════════════════════════════════════════════════════════
+
+    @Override
+    public void altSvcReceived(String value) {
+        if (socketPath != null) {
+            // Alt-Svc advertises an alternate network address/port for
+            // this origin to upgrade to (typically HTTP/3) -- meaningless
+            // for a UNIX-domain-socket-addressed origin, which has
+            // neither a network address to cache one against nor a QUIC
+            // upgrade path available at all (see the connect() guard).
+            return;
+        }
+        AltSvcListener.H3Entry parsed = AltSvcListener.parseAltSvcH3(value);
+        if (parsed == null) {
+            return;
+        }
+
+        String altHost = null;
+        if (parsed.hostLength > 0) {
+            altHost = AltSvcListener.extractAltSvcHost(value, parsed.hostLength);
+        }
+        int altPort = parsed.port;
+
+        // Cache for future connections/instances to this origin, regardless
+        // of whether this instance itself upgrades below.
+        AltSvcCache.put(host, port, altHost, altPort, parsed.maxAgeSeconds);
+
+        if (h3Handler != null || h3UpgradeInProgress) {
+            return;
+        }
+
+        if (LOGGER.isLoggable(Level.INFO)) {
+            LOGGER.info(MessageFormat.format(
+                    L10N.getString("info.altsvc_h3_discovered"),
+                    altHost != null ? altHost : host, altPort));
+        }
+
+        h3UpgradeInProgress = true;
+        // RFC 7838's Alt-Svc is purely advisory for *future* requests to
+        // this origin -- it says nothing about the request whose response
+        // this header arrived on, which may still be streaming in (and,
+        // for a non-idempotent method, may not yet be confirmed to have
+        // taken effect). New requests already route to h3Handler as soon
+        // as it's set (see request()), in parallel with this h1/h2
+        // connection still draining -- that part is safe and unconditional
+        // per the design. What must NOT happen is tearing down this
+        // connection while it still has streams open: closeWhenIdle()
+        // (called once h3 is ready, via the wrapper below) defers that
+        // until every stream this connection already accepted has
+        // genuinely finished, rather than aborting it out from under a
+        // still-in-flight request.
+        HttpClientHandler upgradeHandler = new AltSvcUpgradeHandler(connectHandler);
+        if (altHost != null) {
+            resolveAndConnectH3(altHost, altPort, upgradeHandler);
+        } else if (hostAddress != null) {
+            connectH3(hostAddress, altPort, host, upgradeHandler);
+        } else {
+            resolveAndConnectH3(host, altPort, upgradeHandler);
+        }
+    }
+
+    // Wraps the application's own connectHandler for the Alt-Svc-triggered
+    // same-instance h3 upgrade specifically (not the normal connect()
+    // path, where there is no earlier h1/h2 connection to worry about):
+    // once h3 is genuinely ready, tells the old connection it may close
+    // once idle, then delegates to the real handler unchanged.
+    private final class AltSvcUpgradeHandler implements HttpClientHandler {
+
+        private final HttpClientHandler delegate;
+
+        AltSvcUpgradeHandler(HttpClientHandler delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void onConnected(Endpoint endpoint) {
+            if (endpointHandler != null) {
+                endpointHandler.closeWhenIdle();
+            }
+            delegate.onConnected(endpoint);
+        }
+
+        @Override
+        public void onSecurityEstablished(SecurityInfo info) {
+            delegate.onSecurityEstablished(info);
+        }
+
+        @Override
+        public void onError(Exception cause) {
+            delegate.onError(cause);
+        }
+
+        @Override
+        public void onDisconnected() {
+            delegate.onDisconnected();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CLI entry point
+    // ═══════════════════════════════════════════════════════════════════
+
+    private static void printUsage() {
+        System.err.println(
+                "Usage: HttpClient [options] <URL>\n"
+                + "\n"
+                + "Options:\n"
+                + "  -X <method>       HTTP method (default: GET)\n"
+                + "  -H <name:value>   Add request header (repeatable)\n"
+                + "  -d <file>         Request body from file (- for stdin)\n"
+                + "  -o <file>         Write response body to file"
+                        + " (default: stdout)\n"
+                + "  --http1.1         Force HTTP/1.1 only\n"
+                + "  --http2           Force HTTP/2"
+                        + " (prior knowledge / ALPN)\n"
+                + "  --http3           Force HTTP/3 (QUIC)\n"
+                + "  -E <cert>:<key>   PEM client certificate and key\n"
+                + "  -k                Skip TLS peer certificate verification"
+                        + " (INSECURE; debugging only)\n"
+                + "  -v                Verbose (print response headers)\n"
+                + "  -I                HEAD request (headers only)\n"
+                + "\n"
+                + "URL format: [http|https]://host[:port][/path]\n"
+                + "Default port: 80 for http, 443 for https\n");
+    }
+
+    /**
+     * CLI entry point for making HTTP requests.
+     *
+     * @param args command-line arguments
+     */
+    public static void main(String[] args) {
+        String method = "GET";
+        List<String> requestHeaders = new ArrayList<String>();
+        String bodyFile = null;
+        String outputFile = null;
+        String forceVersion = null;
+        String pemCert = null;
+        String pemKey = null;
+        boolean skipVerify = false;
+        boolean verbose = false;
+        boolean headersOnly = false;
+        String url = null;
+
+        for (int i = 0; i < args.length; i++) {
+            String arg = args[i];
+            if ("-X".equals(arg)) {
+                if (++i >= args.length) {
+                    System.err.println("Missing argument for -X");
+                    System.exit(1);
+                }
+                method = args[i];
+            } else if ("-H".equals(arg)) {
+                if (++i >= args.length) {
+                    System.err.println("Missing argument for -H");
+                    System.exit(1);
+                }
+                requestHeaders.add(args[i]);
+            } else if ("-d".equals(arg)) {
+                if (++i >= args.length) {
+                    System.err.println("Missing argument for -d");
+                    System.exit(1);
+                }
+                bodyFile = args[i];
+            } else if ("-o".equals(arg)) {
+                if (++i >= args.length) {
+                    System.err.println("Missing argument for -o");
+                    System.exit(1);
+                }
+                outputFile = args[i];
+            } else if ("--http1.1".equals(arg)) {
+                forceVersion = "1.1";
+            } else if ("--http2".equals(arg)) {
+                forceVersion = "2";
+            } else if ("--http3".equals(arg)) {
+                forceVersion = "3";
+            } else if ("-E".equals(arg)) {
+                if (++i >= args.length) {
+                    System.err.println("Missing argument for -E");
+                    System.exit(1);
+                }
+                String certKeyArg = args[i];
+                int colonPos = certKeyArg.indexOf(':');
+                if (colonPos < 0) {
+                    System.err.println(
+                            "Invalid -E format, expected cert:key");
+                    System.exit(1);
+                }
+                pemCert = certKeyArg.substring(0, colonPos);
+                pemKey = certKeyArg.substring(colonPos + 1);
+            } else if ("-k".equals(arg)) {
+                skipVerify = true;
+            } else if ("-v".equals(arg)) {
+                verbose = true;
+            } else if ("-I".equals(arg)) {
+                headersOnly = true;
+                method = "HEAD";
+            } else if (arg.startsWith("-")) {
+                System.err.println("Unknown option: " + arg);
+                printUsage();
+                System.exit(1);
+            } else {
+                url = arg;
+            }
+        }
+
+        if (url == null) {
+            printUsage();
+            System.exit(1);
+        }
+
+        String scheme;
+        String hostPort;
+        String path;
+        if (url.startsWith("https://")) {
+            scheme = "https";
+            hostPort = url.substring(8);
+        } else if (url.startsWith("http://")) {
+            scheme = "http";
+            hostPort = url.substring(7);
+        } else {
+            System.err.println("URL must start with http:// or https://");
+            System.exit(1);
+            return;
+        }
+
+        int slashPos = hostPort.indexOf('/');
+        if (slashPos >= 0) {
+            path = hostPort.substring(slashPos);
+            hostPort = hostPort.substring(0, slashPos);
+        } else {
+            path = "/";
+        }
+
+        String targetHost;
+        int targetPort;
+        int colonPos = hostPort.lastIndexOf(':');
+        if (colonPos >= 0) {
+            targetHost = hostPort.substring(0, colonPos);
+            try {
+                targetPort = Integer.parseInt(
+                        hostPort.substring(colonPos + 1));
+            } catch (NumberFormatException e) {
+                System.err.println("Invalid port number");
+                System.exit(1);
+                return;
+            }
+        } else {
+            targetHost = hostPort;
+            targetPort = "https".equals(scheme) ? 443 : 80;
+        }
+
+        Gumdrop gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1));
+        SelectorLoop loop = gumdrop.nextWorkerLoop();
+
+        try {
+            runRequest(gumdrop, loop, targetHost, targetPort, scheme, path, method,
+                    requestHeaders, bodyFile, outputFile, forceVersion,
+                    pemCert, pemKey, skipVerify, verbose, headersOnly);
+        } catch (Exception e) {
+            System.err.println("Error: " + e.getMessage());
+            gumdrop.shutdown();
+            try {
+                gumdrop.join();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+            System.exit(1);
+        }
+
+        gumdrop.shutdown();
+        try {
+            gumdrop.join();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+        System.exit(0);
+    }
+
+    // Public (not private) so integration tests can drive the CLI's
+    // actual request/response file handling without going through
+    // main()'s System.exit() calls.
+    public static void runRequest(
+            final Gumdrop gumdrop,
+            final SelectorLoop loop,
+            final String targetHost, final int targetPort,
+            final String scheme, final String path,
+            final String method, final List<String> requestHeaders,
+            final String bodyFile, final String outputFile,
+            final String forceVersion,
+            final String pemCert, final String pemKey,
+            final boolean skipVerify,
+            final boolean verbose, final boolean headersOnly)
+            throws Exception {
+
+        final HttpClient client =
+                new HttpClient(loop, targetHost, targetPort);
+
+        boolean isSecure = "https".equals(scheme);
+        client.setSecure(isSecure);
+        client.setVerifyPeer(!skipVerify);
+
+        if (pemCert != null) {
+            client.setCertFile(pemCert);
+        }
+        if (pemKey != null) {
+            client.setKeyFile(pemKey);
+        }
+
+        if ("3".equals(forceVersion)) {
+            client.setH3Enabled(true);
+        } else if ("2".equals(forceVersion)) {
+            if (isSecure) {
+                client.setH2Enabled(true);
+            } else {
+                client.setH2WithPriorKnowledge(true);
+            }
+        } else if ("1.1".equals(forceVersion)) {
+            client.setH2Enabled(false);
+            client.setH2cUpgradeEnabled(false);
+        }
+
+        client.setAltSvcEnabled(false);
+
+        final CountDownLatch connectLatch = new CountDownLatch(1);
+        final CountDownLatch doneLatch = new CountDownLatch(1);
+        final AtomicReference<Exception> connectError = new AtomicReference<Exception>();
+
+        client.connect(gumdrop, new HttpClientHandler() {
+            @Override
+            public void onConnected(Endpoint endpoint) {
+                connectLatch.countDown();
+            }
+
+            @Override
+            public void onSecurityEstablished(SecurityInfo info) {
+                connectLatch.countDown();
+            }
+
+            @Override
+            public void onError(Exception cause) {
+                connectError.set(cause);
+                connectLatch.countDown();
+                doneLatch.countDown();
+            }
+
+            @Override
+            public void onDisconnected() {
+                doneLatch.countDown();
+            }
+        });
+
+        connectLatch.await();
+
+        Exception connErr = connectError.get();
+        if (connErr != null) {
+            throw connErr;
+        }
+
+        if (verbose) {
+            HttpVersion version = client.getVersion();
+            if (version != null) {
+                System.err.println("* Connected via " + version);
+            }
+        }
+
+        final boolean outputToStdout = outputFile == null || "-".equals(outputFile);
+        final WritableByteChannel out;
+        if (!outputToStdout) {
+            out = FileChannel.open(Path.of(outputFile),
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+        } else {
+            out = Channels.newChannel(System.out);
+        }
+
+        final AtomicReference<Exception> responseError = new AtomicReference<Exception>();
+        final CountDownLatch responseLatch = new CountDownLatch(1);
+
+        HttpRequest req = client.request(method, path);
+
+        for (int i = 0; i < requestHeaders.size(); i++) {
+            String hdr = requestHeaders.get(i);
+            int cp = hdr.indexOf(':');
+            if (cp > 0) {
+                String name = hdr.substring(0, cp).trim();
+                String value = hdr.substring(cp + 1).trim();
+                req.header(name, value);
+            }
+        }
+
+        if (bodyFile != null) {
+            boolean bodyFromStdin = "-".equals(bodyFile);
+            ReadableByteChannel bodyIn = bodyFromStdin
+                    ? Channels.newChannel(System.in)
+                    : FileChannel.open(Path.of(bodyFile), StandardOpenOption.READ);
+            req.startRequestBody(createResponseHandler(
+                    out, outputToStdout, verbose, headersOnly, responseLatch,
+                    responseError, client));
+            ByteBuffer buf = ByteBuffer.allocate(8192);
+            int n;
+            while ((n = bodyIn.read(buf)) >= 0) {
+                if (n > 0) {
+                    buf.flip();
+                    req.requestBodyContent(buf);
+                    buf.clear();
+                }
+            }
+            req.endRequestBody();
+            if (!bodyFromStdin) {
+                bodyIn.close();
+            }
+        } else {
+            req.send(createResponseHandler(
+                    out, outputToStdout, verbose, headersOnly, responseLatch,
+                    responseError, client));
+        }
+
+        responseLatch.await();
+
+        if (!outputToStdout) {
+            out.close();
+        }
+
+        client.close();
+
+        Exception respErr = responseError.get();
+        if (respErr != null) {
+            throw respErr;
+        }
+    }
+
+    private static HttpResponseHandler createResponseHandler(
+            final WritableByteChannel out,
+            final boolean outputToStdout,
+            final boolean verbose,
+            final boolean headersOnly,
+            final CountDownLatch doneLatch,
+            final AtomicReference<Exception> errorRef,
+            final HttpClient client) {
+        return new DefaultHttpResponseHandler() {
+
+            @Override
+            public void ok(HttpResponse response) {
+                if (verbose || headersOnly) {
+                    HttpVersion version = client.getVersion();
+                    String versionStr = version != null
+                            ? version.toString() : "HTTP/?";
+                    System.err.println(versionStr + " "
+                            + response.getStatus().code + " "
+                            + response.getStatus());
+                }
+            }
+
+            @Override
+            public void error(HttpResponse response) {
+                if (verbose || headersOnly) {
+                    HttpVersion version = client.getVersion();
+                    String versionStr = version != null
+                            ? version.toString() : "HTTP/?";
+                    System.err.println(versionStr + " "
+                            + response.getStatus().code + " "
+                            + response.getStatus());
+                }
+            }
+
+            @Override
+            public void header(String name, String value) {
+                if (verbose || headersOnly) {
+                    System.err.println(name + ": " + value);
+                }
+            }
+
+            @Override
+            public void startResponseBody() {
+                if (verbose || headersOnly) {
+                    System.err.println();
+                }
+            }
+
+            @Override
+            public void responseBodyContent(ByteBuffer data) {
+                if (headersOnly) {
+                    return;
+                }
+                try {
+                    while (data.hasRemaining()) {
+                        out.write(data);
+                    }
+                    if (outputToStdout) {
+                        System.out.flush();
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.WARNING,
+                            "Error writing response body", e);
+                }
+            }
+
+            @Override
+            public void close() {
+                doneLatch.countDown();
+            }
+
+            @Override
+            public void failed(Exception ex) {
+                errorRef.set(ex);
+                doneLatch.countDown();
+            }
+        };
+    }
+}

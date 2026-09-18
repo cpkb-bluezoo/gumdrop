@@ -25,9 +25,9 @@ import org.bluezoo.gumdrop.mailbox.Flag;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentID;
 import org.bluezoo.gumdrop.mime.ContentType;
-import org.bluezoo.gumdrop.mime.MIMELocator;
-import org.bluezoo.gumdrop.mime.MIMEParseException;
-import org.bluezoo.gumdrop.mime.MIMEVersion;
+import org.bluezoo.gumdrop.mime.MimeLocator;
+import org.bluezoo.gumdrop.mime.MimeParseException;
+import org.bluezoo.gumdrop.mime.MimeVersion;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageParser;
@@ -113,7 +113,7 @@ public class MessageIndexBuilder {
             if (!handler.isHeadersComplete()) {
                 parser.close();
             }
-        } catch (MIMEParseException e) {
+        } catch (MimeParseException e) {
             // If headers are complete, ignore parsing errors (e.g., incomplete body)
             if (!handler.isHeadersComplete()) {
                 throw new IOException("Failed to parse message for indexing", e);
@@ -175,72 +175,72 @@ public class MessageIndexBuilder {
         private OffsetDateTime sentDate;
         private boolean headersComplete = false;
 
-        // MIMEHandler methods
+        // MimeHandler methods
 
         @Override
-        public void setLocator(MIMELocator locator) {
+        public void setLocator(MimeLocator locator) {
             // Not needed for indexing
         }
 
         @Override
-        public void startEntity(String boundary) throws MIMEParseException {
+        public void startEntity(String boundary) throws MimeParseException {
             // Not needed for indexing
         }
 
         @Override
-        public void contentType(ContentType contentType) throws MIMEParseException {
+        public void contentType(ContentType contentType) throws MimeParseException {
             // Not needed for indexing
         }
 
         @Override
-        public void contentDisposition(ContentDisposition contentDisposition) throws MIMEParseException {
+        public void contentDisposition(ContentDisposition contentDisposition) throws MimeParseException {
             // Not needed for indexing
         }
 
         @Override
-        public void contentTransferEncoding(String encoding) throws MIMEParseException {
+        public void contentTransferEncoding(String encoding) throws MimeParseException {
             // Not needed for indexing
         }
 
         @Override
-        public void contentID(ContentID contentID) throws MIMEParseException {
+        public void contentID(ContentID contentID) throws MimeParseException {
             // Not needed for indexing
         }
 
         @Override
-        public void contentDescription(String description) throws MIMEParseException {
+        public void contentDescription(String description) throws MimeParseException {
             // Not needed for indexing
         }
 
         @Override
-        public void mimeVersion(MIMEVersion version) throws MIMEParseException {
+        public void mimeVersion(MimeVersion version) throws MimeParseException {
             // Not needed for indexing
         }
 
         @Override
-        public void endHeaders() throws MIMEParseException {
+        public void endHeaders() throws MimeParseException {
             headersComplete = true;
         }
 
         @Override
-        public void bodyContent(ByteBuffer data) throws MIMEParseException {
+        public void bodyContent(ByteBuffer data) throws MimeParseException {
             // We don't index body content
         }
 
         @Override
-        public void unexpectedContent(ByteBuffer data) throws MIMEParseException {
+        public void unexpectedContent(ByteBuffer data) throws MimeParseException {
             // Ignore unexpected content
         }
 
         @Override
-        public void endEntity(String boundary) throws MIMEParseException {
+        public void endEntity(String boundary) throws MimeParseException {
             // Not needed for indexing
         }
 
         // MessageHandler methods
 
         @Override
-        public void header(String name, String value) throws MIMEParseException {
+        public void header(String name, String value) throws MimeParseException {
             String lowerName = name.toLowerCase(Locale.ROOT);
             if ("subject".equals(lowerName) && subject == null) {
                 subject = value;
@@ -249,12 +249,12 @@ public class MessageIndexBuilder {
         }
 
         @Override
-        public void unexpectedHeader(String name, String value) throws MIMEParseException {
+        public void unexpectedHeader(String name, String value) throws MimeParseException {
             // Ignore malformed headers for indexing
         }
 
         @Override
-        public void dateHeader(String name, OffsetDateTime date) throws MIMEParseException {
+        public void dateHeader(String name, OffsetDateTime date) throws MimeParseException {
             if ("Date".equalsIgnoreCase(name) && sentDate == null) {
                 sentDate = date;
             }
@@ -262,7 +262,7 @@ public class MessageIndexBuilder {
 
         @Override
         public void addressHeader(String name, List<EmailAddress> addresses) 
-                throws MIMEParseException {
+                throws MimeParseException {
             String lowerName = name.toLowerCase(Locale.ROOT);
             List<String> target;
             
@@ -295,7 +295,7 @@ public class MessageIndexBuilder {
 
         @Override
         public void messageIDHeader(String name, List<ContentID> messageIDs) 
-                throws MIMEParseException {
+                throws MimeParseException {
             if ("Message-ID".equalsIgnoreCase(name) && messageId == null && !messageIDs.isEmpty()) {
                 // Use the structured ContentID - format as <local@domain>
                 ContentID mid = messageIDs.get(0);
@@ -304,7 +304,7 @@ public class MessageIndexBuilder {
         }
 
         @Override
-        public void obsoleteStructure(ObsoleteStructureType type) throws MIMEParseException {
+        public void obsoleteStructure(ObsoleteStructureType type) throws MimeParseException {
             // Ignore for indexing purposes
         }
 

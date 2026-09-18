@@ -310,8 +310,8 @@ public class TlsRecordEngineTest {
                 task.run();
             }
         };
-        HandshakeAsyncOffload clientOffload = new TlsHandshakeAsyncOffload(loopExecutor);
-        HandshakeAsyncOffload serverOffload = new TlsHandshakeAsyncOffload(loopExecutor);
+        HandshakeAsyncOffload clientOffload = new TlsHandshakeAsyncOffload(loopExecutor, null);
+        HandshakeAsyncOffload serverOffload = new TlsHandshakeAsyncOffload(loopExecutor, null);
         TlsRecordEngine client = new TlsRecordEngine(clientConfig(), clientOffload);
         TlsRecordEngine server = new TlsRecordEngine(serverConfig(), serverOffload);
         RecordingSink clientSink = new RecordingSink();

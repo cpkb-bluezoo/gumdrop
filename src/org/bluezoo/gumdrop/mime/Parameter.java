@@ -104,7 +104,7 @@ public final class Parameter {
 	public String toHeaderValue() {
 		if (isAscii(value)) {
 			// ASCII value - use traditional format
-			if (MIMEUtils.isToken(value)) {
+			if (MimeUtils.isToken(value)) {
 				return name + "=" + value;
 			} else {
 				return name + "=\"" + escapeQuotedString(value) + "\"";

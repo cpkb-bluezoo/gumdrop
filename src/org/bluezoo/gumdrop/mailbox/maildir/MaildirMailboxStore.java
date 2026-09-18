@@ -21,7 +21,6 @@
 
 package org.bluezoo.gumdrop.mailbox.maildir;
 
-import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxAttribute;
 import org.bluezoo.gumdrop.mailbox.MailboxNameCodec;
@@ -163,8 +162,7 @@ public class MaildirMailboxStore implements MailboxStore {
     }
 
     private void enqueueEagerIndexWarming() {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        MailboxIndexer indexer = (gumdrop != null) ? MailboxRuntime.getIndexer() : null;
+        MailboxIndexer indexer = MailboxRuntime.getIndexer();
         if (indexer == null) {
             return;
         }

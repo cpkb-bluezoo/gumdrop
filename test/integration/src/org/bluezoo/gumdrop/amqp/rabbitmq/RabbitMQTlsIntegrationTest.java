@@ -21,15 +21,18 @@
 
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
-import org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.BasicProperties;
+
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.DeliveryHandler;
+import org.bluezoo.gumdrop.amqp.client.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.RecoveryHandler;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueDeclareHandler;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -76,7 +79,8 @@ public class RabbitMQTlsIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private AMQPClientRecovery client;
+    private AmqpClientRecovery client;
+    private Gumdrop gumdrop;
 
     @Before
     public void checkBrokerReachable() {
@@ -85,12 +89,16 @@ public class RabbitMQTlsIntegrationTest {
                         + ", or CA cert file " + RabbitMQTestSupport.CA_CERT_FILE + " unreadable"
                         + " -- see RabbitMQTestSupport's class Javadoc",
                 RabbitMQTestSupport.isTlsReachable());
+        gumdrop = Gumdrop.boot();
     }
 
     @After
     public void tearDown() {
         if (client != null) {
             client.close();
+        }
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
         }
     }
 
@@ -128,8 +136,8 @@ public class RabbitMQTlsIntegrationTest {
         }
     }
 
-    private AMQPClientRecovery newTlsClient() throws IOException, CertificateException {
-        return new AMQPClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.TLS_PORT)
+    private AmqpClientRecovery newTlsClient() throws IOException, CertificateException {
+        return new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.TLS_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .setSecure(true)
@@ -147,10 +155,10 @@ public class RabbitMQTlsIntegrationTest {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(ClientChannel channel) {
                         channelRef.set(channel);
@@ -172,16 +180,16 @@ public class RabbitMQTlsIntegrationTest {
         CountDownLatch deliveredLatch = new CountDownLatch(1);
         AtomicReference<String> deliveredBody = new AtomicReference<>();
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
                         // durable=true: RabbitMQ 4.x rejects non-durable, non-exclusive
                         // "transient_nonexcl" queues by default -- see the equivalent
                         // comment in RabbitMQPlaintextIntegrationTest.
-                        channel.queueDeclare(queue, true, false, true, null, new ServerQueueDeclareHandler() {
+                        channel.queueDeclare(queue, true, false, true, null, new QueueDeclareHandler() {
                             @Override
                             public void handleQueueDeclareOk(String q, long mc, long cc) {
                                 channel.basicConsume(queue, "", false, false, null,
@@ -194,7 +202,7 @@ public class RabbitMQTlsIntegrationTest {
                                             }
 
                                             @Override
-                                            public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.client.BasicProperties properties,
+                                            public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.BasicProperties properties,
                                                     long bodySize) {
                                             }
 
@@ -211,7 +219,7 @@ public class RabbitMQTlsIntegrationTest {
                                                 deliveredLatch.countDown();
                                             }
                                         },
-                                        new ServerConsumeHandler() {
+                                        new ConsumeHandler() {
                                             @Override
                                             public void handleConsumeOk(String consumerTag) {
                                                 PublishBody body = channel.basicPublish("", queue, false, null, 14);

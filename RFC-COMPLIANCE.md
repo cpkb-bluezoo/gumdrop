@@ -33,11 +33,11 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| TYPE values (A, NS, CNAME, SOA, PTR, MX, TXT) | 3.2.2 | Compliant | All standard types implemented in `DNSType` |
+| TYPE values (A, NS, CNAME, SOA, PTR, MX, TXT) | 3.2.2 | Compliant | All standard types implemented in `DnsType` |
 | QTYPE values (AXFR, MAILB, MAILA, ANY) | 3.2.3 | Partial | Only ANY(255) implemented; AXFR/MAILB/MAILA omitted (zone transfer not supported) |
 | CLASS values (IN, CH, HS) | 3.2.4 | Compliant | CS(2) omitted as explicitly obsolete |
 | QCLASS ANY | 3.2.5 | Compliant | ANY(255) implemented |
-| RR format (NAME, TYPE, CLASS, TTL, RDLENGTH, RDATA) | 3.2.1 | Compliant | `DNSResourceRecord` stores all fields |
+| RR format (NAME, TYPE, CLASS, TTL, RDLENGTH, RDATA) | 3.2.1 | Compliant | `DnsResourceRecord` stores all fields |
 | A RDATA (4-octet IPv4) | 3.4.1 | Compliant | Factory method and accessor |
 | CNAME RDATA (domain name) | 3.3.1 | Compliant | |
 | NS RDATA (domain name) | 3.3.11 | Compliant | |
@@ -47,7 +47,7 @@
 | SOA RDATA (MNAME, RNAME, SERIAL, REFRESH, RETRY, EXPIRE, MINIMUM) | 3.3.13 | Compliant | |
 | Label length limit (63 octets) | 2.3.4 | Compliant | Validated in `encodeName()` |
 | Total name length limit (255 octets) | 2.3.4 | Compliant | Validated in `encodeName()` and `decodeName()` |
-| Case-insensitive name comparison | 2.3.3 | Compliant | `DNSQuestion.equals()`, `DNSResourceRecord.equals()`, `CacheKey` |
+| Case-insensitive name comparison | 2.3.3 | Compliant | `DnsQuestion.equals()`, `DnsResourceRecord.equals()`, `CacheKey` |
 
 #### Section 4 — Messages
 
@@ -63,18 +63,18 @@
 | Resource record format | 4.1.3 | Compliant | |
 | Name compression (decoding) | 4.1.4 | Compliant | Pointer following with loop limit |
 | Name compression (encoding) | 4.1.4 | Compliant | `serialize()` uses `writeNameCompressed()` with suffix-based compression table |
-| UDP transport on port 53 | 4.2.1 | Compliant | `DNSListener`, `UDPDNSClientTransport` |
+| UDP transport on port 53 | 4.2.1 | Compliant | `DnsListener`, `UdpDnsClientTransport` |
 | UDP message size limit (512 octets) | 4.2.1 | Compliant | Server proxy uses 512-byte buffer |
-| TCP 2-byte length prefix | 4.2.2 | Compliant | `DoTProtocolHandler`, `TCPDNSClientTransport` |
+| TCP 2-byte length prefix | 4.2.2 | Compliant | `DoTProtocolHandler`, `TcpDnsClientTransport` |
 | TCP max message size (65535) | 4.2.2 | Compliant | |
-| Unknown type handling | 4.1.3 | Compliant | RFC 3597: raw type/class values preserved in `DNSResourceRecord` |
-| Unknown class handling | 4.1.3 | Compliant | RFC 3597: raw type/class values preserved in `DNSResourceRecord` |
+| Unknown type handling | 4.1.3 | Compliant | RFC 3597: raw type/class values preserved in `DnsResourceRecord` |
+| Unknown class handling | 4.1.3 | Compliant | RFC 3597: raw type/class values preserved in `DnsResourceRecord` |
 
 #### Section 6 — Name Server Implementation
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Standard query processing | 6.2 | Compliant | `DNSService.processQuery()` handles standard queries |
+| Standard query processing | 6.2 | Compliant | `DnsServer.processQuery()` handles standard queries |
 | OPCODE validation | 6.2 | Compliant | Non-query opcodes return NOTIMP |
 | RCODE responses | 6.2 | Compliant | FORMERR, SERVFAIL, NXDOMAIN used appropriately |
 
@@ -82,13 +82,13 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Transform user request into query | 7.1 | Compliant | `DNSResolver.query()` |
+| Transform user request into query | 7.1 | Compliant | `DnsResolver.query()` |
 | Sending queries to multiple servers | 7.2 | Compliant | Timeout/retry across server list |
 | Processing responses (ID matching) | 7.3 | Compliant | `handleResponse()` matches by ID |
-| Using the cache (TTL-based) | 7.4 | Compliant | `DNSCache` with TTL expiry |
+| Using the cache (TTL-based) | 7.4 | Compliant | `DnsCache` with TTL expiry |
 | RD flag set in queries | 4.1.1 | Compliant | Stub resolver sets `FLAG_RD` |
 | Truncation → TCP retry (resolver) | 4.2.1 | Compliant | `retryOverTcpAsync()` |
-| Truncation → TCP retry (server proxy) | 4.2.1 | Compliant | `DNSService.retryOverTcp()` retries upstream query over TCP when TC bit is set |
+| Truncation → TCP retry (server proxy) | 4.2.1 | Compliant | `DnsServer.retryOverTcp()` retries upstream query over TCP when TC bit is set |
 
 ---
 
@@ -104,8 +104,8 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| SRV record type (33) | All | Compliant | `DNSType.SRV`, `DNSResourceRecord.srv()` factory, accessors for priority/weight/port/target |
-| SRV query support | All | Compliant | `DNSResolver.querySRV()` |
+| SRV record type (33) | All | Compliant | `DnsType.SRV`, `DnsResourceRecord.srv()` factory, accessors for priority/weight/port/target |
+| SRV query support | All | Compliant | `DnsResolver.querySRV()` |
 
 ---
 
@@ -123,11 +123,11 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Client cookie (8 octets) in EDNS0 option 10 | 4, 5.1 | Compliant | `DNSCookie.getClientCookie()` — 8-byte random value included in queries |
-| Server cookie generation via HMAC | 5.2 | Compliant | `DNSCookie.generateServerCookie()` — HMAC-SHA256 of client IP + client cookie |
-| Server cookie validation | 5.2 | Compliant | `DNSCookie.validateServerCookie()` |
-| Client caches server cookie per server | 5.1 | Compliant | `DNSCookie.processResponseCookie()` per-server cache |
-| EDNS0 option parsing | 4 | Compliant | `DNSCookie.findEdnsOption()` |
+| Client cookie (8 octets) in EDNS0 option 10 | 4, 5.1 | Compliant | `DnsCookie.getClientCookie()` — 8-byte random value included in queries |
+| Server cookie generation via HMAC | 5.2 | Compliant | `DnsCookie.generateServerCookie()` — HMAC-SHA256 of client IP + client cookie |
+| Server cookie validation | 5.2 | Compliant | `DnsCookie.validateServerCookie()` |
+| Client caches server cookie per server | 5.1 | Compliant | `DnsCookie.processResponseCookie()` per-server cache |
+| EDNS0 option parsing | 4 | Compliant | `DnsCookie.findEdnsOption()` |
 
 ---
 
@@ -144,9 +144,9 @@
 | SHOULD reuse connections | 3.4 | Compliant | Persistent TCP connections |
 | SHOULD NOT close immediately after response | 3.4 | Compliant | |
 | MUST be robust to idle termination | 3.4 | Compliant | Disconnect handler present |
-| SHOULD enable TLS session resumption | 3.4 | Compliant | `TCPTransportFactory.configureTlsSessionCache()` sets cache size and timeout on both server and client session contexts |
-| SHOULD use TCP Fast Open for re-establishment | 3.4 | Compliant | `TCPTransportFactory.setTcpFastOpen()` enabled for DoT in `TCPDNSClientTransport` |
-| Clients SHOULD use Strict usage profile | 4.2 | Compliant | `SPKIPinnedCertTrustManager` verifies SPKI SHA-256 hash; `TCPDNSClientTransport.setPinnedSPKIFingerprints()` |
+| SHOULD enable TLS session resumption | 3.4 | Compliant | `TcpTransportFactory.configureTlsSessionCache()` sets cache size and timeout on both server and client session contexts |
+| SHOULD use TCP Fast Open for re-establishment | 3.4 | Compliant | `TcpTransportFactory.setTcpFastOpen()` enabled for DoT in `TcpDnsClientTransport` |
+| Clients SHOULD use Strict usage profile | 4.2 | Compliant | `SpkiPinnedCertTrustManager` verifies SPKI SHA-256 hash; `TcpDnsClientTransport.setPinnedSPKIFingerprints()` |
 
 ---
 
@@ -187,7 +187,7 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Cache NXDOMAIN responses | 3 | Compliant | `DNSCache.cacheNegative()` |
+| Cache NXDOMAIN responses | 3 | Compliant | `DnsCache.cacheNegative()` |
 | Negative TTL from SOA MINIMUM | 5 | Compliant | `min(SOA.TTL, SOA.MINIMUM)` with configurable fallback |
 | Discard expired negative entries | 5 | Compliant | TTL-based expiry |
 
@@ -197,10 +197,10 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| OPT pseudo-RR type (41) | 6.1.1 | Compliant | `DNSResourceRecord.opt()` factory, `getUdpPayloadSize()` accessor |
-| EDNS0 in queries | 6.1.1 | Compliant | `DNSResolver.query()` and `DNSService.proxyToUpstream()` include OPT record |
-| EDNS0 UDP payload size | 6.2.3 | Compliant | `DNSMessage.DEFAULT_EDNS_UDP_SIZE` (4096), upstream buffer sized accordingly |
-| DO bit (DNSSEC OK) | 6.1.3 | Compliant | `DNSResourceRecord.EDNS_FLAG_DO`, `opt(size, flags, data)` factory, `getEDNSFlags()` |
+| OPT pseudo-RR type (41) | 6.1.1 | Compliant | `DnsResourceRecord.opt()` factory, `getUdpPayloadSize()` accessor |
+| EDNS0 in queries | 6.1.1 | Compliant | `DnsResolver.query()` and `DnsServer.proxyToUpstream()` include OPT record |
+| EDNS0 UDP payload size | 6.2.3 | Compliant | `DnsMessage.DEFAULT_EDNS_UDP_SIZE` (4096), upstream buffer sized accordingly |
+| DO bit (DNSSEC OK) | 6.1.3 | Compliant | `DnsResourceRecord.EDNS_FLAG_DO`, `opt(size, flags, data)` factory, `getEDNSFlags()` |
 
 ---
 
@@ -208,8 +208,8 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Trust anchor management | 5 | Compliant | `DNSSECTrustAnchor` with IANA root KSK DS records and custom anchors |
-| Validation states (secure/insecure/bogus/indeterminate) | 5 | Compliant | `DNSSECStatus` enum |
+| Trust anchor management | 5 | Compliant | `DnssecTrustAnchor` with IANA root KSK DS records and custom anchors |
+| Validation states (secure/insecure/bogus/indeterminate) | 5 | Compliant | `DnssecStatus` enum |
 
 ---
 
@@ -217,16 +217,16 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| DNSKEY record type (48) | 2 | Compliant | `DNSType.DNSKEY`, RDATA accessors for flags/protocol/algorithm/public key |
-| RRSIG record type (46) | 3 | Compliant | `DNSType.RRSIG`, full RDATA accessors for all fields |
-| NSEC record type (47) | 4 | Compliant | `DNSType.NSEC`, next domain name and type bit map parsing |
-| DS record type (43) | 5 | Compliant | `DNSType.DS`, key tag/algorithm/digest type/digest accessors |
-| Key tag computation | Appendix B | Compliant | `DNSResourceRecord.computeKeyTag()` running sum algorithm |
-| Canonical DNS name ordering | 6.1 | Compliant | `DNSSECValidator.compareCanonical()` label-by-label from root |
-| Canonical RRset form | 6.3 | Compliant | `DNSSECValidator.buildCanonicalRRset()` — lowercase, original TTL, sorted |
-| RRSIG verification | 3.1.8.1 | Compliant | `DNSSECValidator.verifyRRSIG()` — signed data = RRSIG header + canonical RRset |
-| DS verification | 5.2 | Compliant | `DNSSECValidator.verifyDS()` — hash(owner name + DNSKEY RDATA) |
-| Type bit map encoding | 4.1.2 | Compliant | `DNSResourceRecord.parseTypeBitMaps()` — window block + bitmap |
+| DNSKEY record type (48) | 2 | Compliant | `DnsType.DNSKEY`, RDATA accessors for flags/protocol/algorithm/public key |
+| RRSIG record type (46) | 3 | Compliant | `DnsType.RRSIG`, full RDATA accessors for all fields |
+| NSEC record type (47) | 4 | Compliant | `DnsType.NSEC`, next domain name and type bit map parsing |
+| DS record type (43) | 5 | Compliant | `DnsType.DS`, key tag/algorithm/digest type/digest accessors |
+| Key tag computation | Appendix B | Compliant | `DnsResourceRecord.computeKeyTag()` running sum algorithm |
+| Canonical DNS name ordering | 6.1 | Compliant | `DnssecValidator.compareCanonical()` label-by-label from root |
+| Canonical RRset form | 6.3 | Compliant | `DnssecValidator.buildCanonicalRRset()` — lowercase, original TTL, sorted |
+| RRSIG verification | 3.1.8.1 | Compliant | `DnssecValidator.verifyRRSIG()` — signed data = RRSIG header + canonical RRset |
+| DS verification | 5.2 | Compliant | `DnssecValidator.verifyDS()` — hash(owner name + DNSKEY RDATA) |
+| Type bit map encoding | 4.1.2 | Compliant | `DnsResourceRecord.parseTypeBitMaps()` — window block + bitmap |
 
 ---
 
@@ -235,12 +235,12 @@
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | DO bit in EDNS0 | 3.2.1 | Compliant | Set in resolver and server upstream queries when DNSSEC enabled |
-| AD flag (Authenticated Data) | 3.2.3 | Compliant | `DNSMessage.FLAG_AD`, `isAuthenticatedData()` |
-| CD flag (Checking Disabled) | 3.2.2 | Compliant | `DNSMessage.FLAG_CD`, `isCheckingDisabled()` |
+| AD flag (Authenticated Data) | 3.2.3 | Compliant | `DnsMessage.FLAG_AD`, `isAuthenticatedData()` |
+| CD flag (Checking Disabled) | 3.2.2 | Compliant | `DnsMessage.FLAG_CD`, `isCheckingDisabled()` |
 | RRSIG signature validation | 5.3 | Compliant | RSA-SHA256/512, ECDSA P-256/P-384, Ed25519, Ed448 via JCA |
-| Chain of trust validation | 5.3.1 | Compliant | `DNSSECChainValidator` — async DNSKEY/DS fetching to trust anchor |
-| NSEC denial-of-existence | 5.4 | Compliant | `DNSSECValidator.verifyNSEC()` — name-between and type absence |
-| Strip DNSSEC records when DO not set | 3.2.1 | Compliant | `DNSService.stripDNSSECRecords()` |
+| Chain of trust validation | 5.3.1 | Compliant | `DnssecChainValidator` — async DNSKEY/DS fetching to trust anchor |
+| NSEC denial-of-existence | 5.4 | Compliant | `DnssecValidator.verifyNSEC()` — name-between and type absence |
+| Strip DNSSEC records when DO not set | 3.2.1 | Compliant | `DnsServer.stripDNSSECRecords()` |
 
 ---
 
@@ -248,11 +248,11 @@
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| NSEC3 record type (50) | 3 | Compliant | `DNSType.NSEC3`, full RDATA accessors |
-| NSEC3PARAM record type (51) | 4 | Compliant | `DNSType.NSEC3PARAM`, RDATA accessors |
-| NSEC3 hash computation | 5 | Compliant | `DNSSECValidator.nsec3Hash()` — iterated SHA-1 with salt |
-| NSEC3 denial-of-existence | 8 | Compliant | `DNSSECValidator.verifyNSEC3()` — hash comparison |
-| Base32hex encoding | 3.3 | Compliant | `DNSSECValidator.base32HexEncode()` (RFC 4648 section 7) |
+| NSEC3 record type (50) | 3 | Compliant | `DnsType.NSEC3`, full RDATA accessors |
+| NSEC3PARAM record type (51) | 4 | Compliant | `DnsType.NSEC3PARAM`, RDATA accessors |
+| NSEC3 hash computation | 5 | Compliant | `DnssecValidator.nsec3Hash()` — iterated SHA-1 with salt |
+| NSEC3 denial-of-existence | 8 | Compliant | `DnssecValidator.verifyNSEC3()` — hash comparison |
+| Base32hex encoding | 3.3 | Compliant | `DnssecValidator.base32HexEncode()` (RFC 4648 section 7) |
 
 ---
 
@@ -368,25 +368,25 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| TYPE A (ASCII, default) MUST be accepted | 3.1.1.1 | Compliant | Default type in `FTPConnectionMetadata` |
+| TYPE A (ASCII, default) MUST be accepted | 3.1.1.1 | Compliant | Default type in `FtpConnectionMetadata` |
 | TYPE I (Image/Binary) SHOULD be accepted | 3.1.1.3 | Compliant | Mapped to `BINARY` enum |
 | TYPE E (EBCDIC) | 3.1.1.2 | Accepted | Type set in metadata but no actual EBCDIC conversion |
-| TYPE L requires mandatory byte-size parameter | 3.1.1.4 | Compliant | `doType()` parses byte-size, stores in `FTPConnectionMetadata.localByteSize`; 501 if missing |
+| TYPE L requires mandatory byte-size parameter | 3.1.1.4 | Compliant | `doType()` parses byte-size, stores in `FtpConnectionMetadata.localByteSize`; 501 if missing |
 | Format control parameter (N/T/C) for ASCII/EBCDIC | 3.1.1.5 | Partial | Not parsed; NON-PRINT assumed — acceptable as it is the default |
 | STRU F (File, default) MUST be accepted | 3.1.2.1 | Compliant | Default in `doStru()` |
 | STRU R (Record) MUST be accepted for text types | 3.1.2.2 | Compliant | Accepted (200) when transfer type is ASCII or EBCDIC; 504 for IMAGE/LOCAL |
 | STRU P (Page) — optional | 3.1.2.3 | Not implemented | 504 correct for optional feature |
-| MODE S (Stream, default) MUST be accepted | 3.4.1 | Compliant | Default in `FTPConnectionMetadata` |
+| MODE S (Stream, default) MUST be accepted | 3.4.1 | Compliant | Default in `FtpConnectionMetadata` |
 | MODE B (Block) — optional | 3.4.2 | Not implemented | 504 correct |
 | MODE C (Compressed) — optional | 3.4.3 | Not implemented | 504 correct |
-| ASCII transfer CRLF line endings | 3.1.1.1 | Compliant | `FTPAsciiLineEndings`: bare LF expanded to CRLF on download, CR stripped on upload; wired into the async download/upload handlers |
+| ASCII transfer CRLF line endings | 3.1.1.1 | Compliant | `FtpAsciiLineEndings`: bare LF expanded to CRLF on download, CR stripped on upload; wired into the async download/upload handlers |
 | Stream mode EOF by closing connection | 3.4.1 | Compliant | Data connection closed after transfer |
 
 #### Section 4.1.1 — Access Control Commands
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| USER command | 4.1.1 | Compliant | `doUser()` delegates to `FTPConnectionHandler` |
+| USER command | 4.1.1 | Compliant | `doUser()` delegates to `FtpConnectionHandler` |
 | PASS command | 4.1.1 | Compliant | `doPass()` requires prior USER |
 | ACCT command | 4.1.1 | Compliant | `doAcct()` supports 3-stage authentication |
 | CWD command | 4.1.1 | Compliant | `doCwd()` with authorization check |
@@ -412,9 +412,9 @@ practices.
 |-------------|---------|--------|-------|
 | RETR command | 4.1.3 | Compliant | Async download with restart offset support |
 | STOR command | 4.1.3 | Compliant | Async upload with quota checking |
-| STOU command | 4.1.3 | Compliant | Generates unique filename via `FTPFileSystem` |
+| STOU command | 4.1.3 | Compliant | Generates unique filename via `FtpFileSystem` |
 | APPE command | 4.1.3 | Compliant | Append mode supported |
-| ALLO command | 4.1.3 | Compliant | Delegates to `FTPFileSystem.allocateSpace()` |
+| ALLO command | 4.1.3 | Compliant | Delegates to `FtpFileSystem.allocateSpace()` |
 | REST command | 4.1.3 | Compliant | Sets restart offset for next RETR |
 | RNFR/RNTO sequence | 4.1.3 | Compliant | Validates source exists before accepting rename |
 | ABOR command | 4.1.3 | Compliant | Sends 426 then 226 when transfer in progress; 226 only otherwise |
@@ -422,7 +422,7 @@ practices.
 | RMD command | 4.1.3 | Compliant | |
 | MKD command | 4.1.3 | Compliant | Replies 257 with pathname |
 | PWD command | 4.1.3 | Compliant | Replies 257 with quoted pathname |
-| LIST command | 4.1.3 | Compliant | Unix ls -l format via `FTPFileInfo.formatAsListingLine()` |
+| LIST command | 4.1.3 | Compliant | Unix ls -l format via `FtpFileInfo.formatAsListingLine()` |
 | NLST command | 4.1.3 | Compliant | Returns file names only (one per line) via `TransferType.NAME_LIST` |
 | SITE command | 4.1.3 | Compliant | QUOTA and SETQUOTA sub-commands implemented |
 | SYST command | 4.1.3 | Compliant | Returns system type |
@@ -444,10 +444,10 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Active mode (server connects to client) | 3.2 | Compliant | `FTPDataConnectionCoordinator.connectActiveModeAsync()` (blocking connect offloaded to the storage pool, never the selector loop) |
-| Passive mode (server listens) | 3.2 | Compliant | `FTPDataConnectionCoordinator.setupPassiveMode()` |
+| Active mode (server connects to client) | 3.2 | Compliant | `FtpDataConnectionCoordinator.connectActiveModeAsync()` (blocking connect offloaded to the storage pool, never the selector loop) |
+| Passive mode (server listens) | 3.2 | Compliant | `FtpDataConnectionCoordinator.setupPassiveMode()` |
 | Connection opened per transfer | 3.3 | Compliant | `cleanup()` called after each transfer |
-| Default port 21 | 5.2 | Compliant | `FTPListener.FTP_DEFAULT_PORT` |
+| Default port 21 | 5.2 | Compliant | `FtpListener.FTP_DEFAULT_PORT` |
 
 ---
 
@@ -465,9 +465,9 @@ practices.
 | CCC — server MAY refuse | 6 | Compliant | Returns 533 |
 | PBSZ required before PROT | 9 | Compliant | `doProt()` checks `pbszSet` flag |
 | AUTH requires TLS availability | 4 | Compliant | Checks `server.isSTARTTLSAvailable()` |
-| Certificate-based authentication | 10 | Compliant | `securityEstablished()` uses `SASLUtils.authenticateExternal()` |
+| Certificate-based authentication | 10 | Compliant | `securityEstablished()` uses `SaslUtils.authenticateExternal()` |
 | Data connection IP verification | 10 | Compliant | `acceptDataConnection()` rejects connections whose source IP differs from the control connection |
-| Implicit FTPS on port 990 | — | Compliant | `FTPListener.getPort()` returns 990 when `secure=true` and no explicit port set |
+| Implicit FTPS on port 990 | — | Compliant | `FtpListener.getPort()` returns 990 when `secure=true` and no explicit port set |
 
 ---
 
@@ -538,27 +538,27 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Request-line format: method SP request-target SP HTTP-version | 3 | Compliant | `processRequestLine()` in `HTTPProtocolHandler` |
+| Request-line format: method SP request-target SP HTTP-version | 3 | Compliant | `processRequestLine()` in `HttpProtocolHandler` |
 | US-ASCII decoding of request-line | 2.1 | Compliant | `US_ASCII_DECODER` used |
 | 414 URI Too Long for oversized request-target | 3 | Compliant | `MAX_LINE_LENGTH` check |
 | 400 Bad Request for malformed request-line | 3 | Compliant | Multiple validation checks |
 | 501 Not Implemented for unrecognised method | 3 | Compliant | `isMethodSupported()` |
-| 505 HTTP Version Not Supported | 3 | Compliant | `HTTPVersion.UNKNOWN` case |
-| HTTP-version parsing | 2.3 | Compliant | `HTTPVersion.fromString()` |
+| 505 HTTP Version Not Supported | 3 | Compliant | `HttpVersion.UNKNOWN` case |
+| HTTP-version parsing | 2.3 | Compliant | `HttpVersion.fromString()` |
 
 #### Section 5 — Field Syntax
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | field-line = field-name ":" OWS field-value OWS | 5.1 | Compliant | `processHeaderLine()` |
-| No whitespace between field-name and colon | 5.1 | Compliant | `Header` constructor validates via `HTTPUtils.isValidHeaderName()` |
+| No whitespace between field-name and colon | 5.1 | Compliant | `Header` constructor validates via `HttpUtils.isValidHeaderName()` |
 | obs-fold handling: reject or replace with SP | 5.2 | Compliant | Replaces obs-fold with SP (replaces leading HTAB with SP) |
 | ISO-8859-1 decoding for field values | 5.5 | Compliant | `ISO_8859_1_DECODER` used |
 | 431 Request Header Fields Too Large | 5 | Compliant | `MAX_LINE_LENGTH` check |
 | Host header MUST be present in HTTP/1.1 | 3.2 | Compliant | `endHeaders()` validates |
 | Duplicate Host header MUST be rejected (400) | 3.2 | Compliant | `endHeaders()` checks `hostCount != 1` |
 | Case-insensitive header name lookup | 5.1 | Compliant | `Headers.getValue()` uses `equalsIgnoreCase()` |
-| Token character validation | 5.6.2 | Compliant | `HTTPUtils.TOKEN_CHARS` lookup table (updated to RFC 9110) |
+| Token character validation | 5.6.2 | Compliant | `HttpUtils.TOKEN_CHARS` lookup table (updated to RFC 9110) |
 
 #### Section 6-7 — Message Body and Transfer Coding
 
@@ -578,7 +578,7 @@ practices.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | status-line = HTTP-version SP status-code SP reason-phrase CRLF | 4 | Compliant | `writeStatusLineAndHeaders()` |
-| Reason phrases per RFC 9110 | 4 | Compliant | `HTTPConstants.messages` (updated to RFC 9110 section 15) |
+| Reason phrases per RFC 9110 | 4 | Compliant | `HttpConstants.messages` (updated to RFC 9110 section 15) |
 
 #### Section 9 — Connection Management
 
@@ -590,7 +590,7 @@ practices.
 | Pipelining: respond in order | 9.3.2 | Compliant | Sequential state machine ensures order |
 | Connection: close echoed in response | 9.6 | Compliant | Added in `sendResponseHeaders()` |
 | Graceful shutdown via Connection: close | 9.6 | Compliant | `maxRequestsPerConnection` triggers `closeConnection` after configured limit |
-| Idle connection timeout | 9.8 | Compliant | Configurable `idleTimeoutMs` in `HTTPListener`; timer resets on each `receive()` |
+| Idle connection timeout | 9.8 | Compliant | Configurable `idleTimeoutMs` in `Http2Listener`; timer resets on each `receive()` |
 
 ---
 
@@ -601,8 +601,8 @@ practices.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | field-name is case-insensitive | 5.1 | Compliant | `Headers` class uses `equalsIgnoreCase()` |
-| token = 1*tchar | 5.6.2 | Compliant | `HTTPUtils.TOKEN_CHARS` (updated reference from RFC 7230) |
-| field-value validation | 5.5 | Compliant | `HTTPUtils.HEADER_VALUE_CHARS` |
+| token = 1*tchar | 5.6.2 | Compliant | `HttpUtils.TOKEN_CHARS` (updated reference from RFC 7230) |
+| field-value validation | 5.5 | Compliant | `HttpUtils.HEADER_VALUE_CHARS` |
 
 #### Section 6.6 — Date and Server
 
@@ -610,14 +610,14 @@ practices.
 |-------------|---------|--------|-------|
 | Date header SHOULD be sent in responses | 6.6.1 | Compliant | Added in `Stream.sendResponseHeaders()` |
 | Server header | 10.2.4 | Compliant | "gumdrop/VERSION" added in responses |
-| IMF-fixdate format for Date header | 5.6.7 | Compliant | `HTTPDateFormat` outputs "GMT" (fixed from numeric offset) |
+| IMF-fixdate format for Date header | 5.6.7 | Compliant | `HttpDateFormat` outputs "GMT" (fixed from numeric offset) |
 | Parse all three date formats | 5.6.7 | Compliant | IMF-fixdate, RFC 850, asctime all parsed |
 
 #### Section 9 — Methods
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Method = token | 9.1 | Compliant | `HTTPUtils.isValidMethod()` |
+| Method = token | 9.1 | Compliant | `HttpUtils.isValidMethod()` |
 | GET (safe, idempotent) | 9.3.1 | Compliant | |
 | HEAD: response MUST NOT contain a body | 9.3.2 | Compliant | `sendResponseBody()` suppresses body data when method is HEAD |
 | POST | 9.3.3 | Compliant | |
@@ -646,7 +646,7 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| 401 MUST include WWW-Authenticate | 11.6.1 | Compliant | `HTTPAuthenticationProvider.generateChallenge()` produces challenge |
+| 401 MUST include WWW-Authenticate | 11.6.1 | Compliant | `HttpAuthenticationProvider.generateChallenge()` produces challenge |
 | Basic authentication | 11.7.1 | Compliant | RFC 7617 |
 | Digest authentication | 11.7.1 | Compliant | RFC 7616 |
 | Bearer authentication | 11.7.1 | Compliant | RFC 6750 |
@@ -657,16 +657,16 @@ practices.
 |-------------|---------|--------|-------|
 | Upgrade header field | 7.8 | Compliant | Parsed in `Stream.streamEndHeaders()` |
 | 101 Switching Protocols | 15.2.2 | Compliant | Sent for h2c and WebSocket upgrades |
-| h2c upgrade | 7.8 | Compliant | `completeH2cUpgrade()` in `HTTPProtocolHandler` |
+| h2c upgrade | 7.8 | Compliant | `completeH2cUpgrade()` in `HttpProtocolHandler` |
 | WebSocket upgrade (RFC 6455) | 7.8 | Compliant | `Stream.upgradeToWebSocket()` |
 
 #### Section 15 — Status Codes
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| All standard status codes defined | 15 | Compliant | `HTTPStatus` enum covers all RFC 9110 codes |
-| Reason phrases match RFC 9110 | 15 | Compliant | `HTTPConstants` updated (413, 414, 416, 422 reason phrases corrected) |
-| 103 Early Hints (RFC 8297) | 15.2 | Compliant | `HTTPResponseState.sendInformational()` sends 1xx responses before the final response; implemented for HTTP/1.1, HTTP/2, and HTTP/3; 1xx headers skip Server/Date/Connection per RFC 9110 section 15.2; HTTP/1.0 silently no-ops |
+| All standard status codes defined | 15 | Compliant | `HttpStatus` enum covers all RFC 9110 codes |
+| Reason phrases match RFC 9110 | 15 | Compliant | `HttpConstants` updated (413, 414, 416, 422 reason phrases corrected) |
+| 103 Early Hints (RFC 8297) | 15.2 | Compliant | `HttpResponseState.sendInformational()` sends 1xx responses before the final response; implemented for HTTP/1.1, HTTP/2, and HTTP/3; 1xx headers skip Server/Date/Connection per RFC 9110 section 15.2; HTTP/1.0 silently no-ops |
 | 418 I'm a Teapot | 15.5.19 | Compliant | |
 
 ---
@@ -679,7 +679,7 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| ALPN negotiation with "h2" | 3.2 | Compliant | `HTTPListener.configureTransportFactory()` sets ALPN |
+| ALPN negotiation with "h2" | 3.2 | Compliant | `Http2Listener.configureTransportFactory()` sets ALPN |
 | h2c cleartext upgrade | 3.1 | Compliant | `completeH2cUpgrade()` — deprecated by RFC 9113, intentionally retained |
 | Prior knowledge (cleartext) | 3.3 | Compliant | PRI preface parsed in `processRequestLine()` |
 | Client connection preface (24-octet magic) | 3.4 | Compliant | Validated in `receivePri()` and `receiveFrameData()` |
@@ -743,9 +743,9 @@ practices.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Static table (61 entries) | Appendix A | Compliant | `HPACKConstants.STATIC_TABLE` |
+| Static table (61 entries) | Appendix A | Compliant | `HpackConstants.STATIC_TABLE` |
 | Dynamic table management | 4 | Compliant | Encoder/Decoder maintain per-connection dynamic tables |
-| Entry size = name_len + value_len + 32 | 4.1 | Compliant | `HPACKConstants.headerSize()` |
+| Entry size = name_len + value_len + 32 | 4.1 | Compliant | `HpackConstants.headerSize()` |
 | Dynamic table size update | 6.3 | Compliant | Decoder handles 0x20 opcode |
 | Integer representation | 5.1 | Compliant | `encodeInteger()` / `decodeInteger()` |
 | String literal / Huffman encoding | 5.2 | Compliant | `Huffman.encode()` / `Huffman.decode()` |
@@ -775,7 +775,7 @@ practices.
 | TLS 1.2+ required for h2 | 9.2 | Compliant | Listeners pin `TlsVersion.TLS_1_2` or `TLS_1_3`; only AEAD suites offered |
 | TLS 1.3 RECOMMENDED | 9.2 | Compliant | Default TCP TLS version is TLS 1.3 |
 | TLS 1.2 cipher suite blocklist (server) | 9.2.2 | Compliant | `isBlockedH2CipherSuite()` in `securityEstablished()`; GOAWAY INADEQUATE_SECURITY |
-| ALPN configured in HTTPListener | 3.2 | Compliant | `setApplicationProtocols("h2", "http/1.1")` |
+| ALPN configured in Http2Listener | 3.2 | Compliant | `setApplicationProtocols("h2", "http/1.1")` |
 | Idle connection timeout (server) | 9.1 | Compliant | Graceful GOAWAY for HTTP/2; configurable via `idleTimeoutMs` |
 
 ## HTTP/2 Client — RFC 9113
@@ -908,7 +908,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| ALPN "h3" negotiation | 3.1 | Compliant | `HTTP3Listener.createTransportFactory()` sets ALPN "h3" |
+| ALPN "h3" negotiation | 3.1 | Compliant | `Http3Listener.createTransportFactory()` sets ALPN "h3" |
 | TLS 1.3 mandatory | 3 | Compliant | QUIC mandates TLS 1.3 via the in-tree engine |
 | SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | SETTINGS_MAX_FIELD_SECTION_SIZE | 4.2.2 / 7.2.4.1 | Compliant | Advertised as 8192 (matching HTTP/2); inbound HEADERS over the ceiling abort the stream with `H3_EXCESSIVE_LOAD`; outbound HEADERS honour the peer's advertised value |
@@ -920,9 +920,9 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| HEADERS frame initiates request | 4.1 | Compliant | `HTTP3ServerHandler.onHeaders()` creates `H3Stream` |
-| DATA frame carries body | 4.1 | Compliant | `HTTP3ServerHandler.onData()` dispatches to `H3Stream` |
-| FIN completes message | 4.1 | Compliant | `HTTP3ServerHandler.onFinished()` calls `handler.requestComplete()` |
+| HEADERS frame initiates request | 4.1 | Compliant | `Http3ServerHandler.onHeaders()` creates `H3Stream` |
+| DATA frame carries body | 4.1 | Compliant | `Http3ServerHandler.onData()` dispatches to `H3Stream` |
+| FIN completes message | 4.1 | Compliant | `Http3ServerHandler.onFinished()` calls `handler.requestComplete()` |
 | Request pseudo-headers (:method, :scheme, :path) | 4.3.1 | Compliant | `H3Stream.onHeaders()` validates mandatory pseudo-headers; CONNECT exempted from :scheme/:path |
 | Malformed request detection | 4.1.2 | Compliant | Missing pseudo-headers return 400 and close the stream |
 | Connection-specific header stripping | 4.2 | Compliant | `H3Stream.flushHeaders()` strips Connection, Keep-Alive, Proxy-Connection, Transfer-Encoding, Upgrade |
@@ -944,7 +944,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 |-------------|---------|--------|-------|
 | Server push (PUSH_PROMISE) | 4.6 | Not implemented | `H3Stream.pushPromise()` returns false |
 | GOAWAY reception (from client) | 5.2 | Compliant | Records the ID, rejects a later GOAWAY with a greater identifier (`H3_ID_ERROR`), rejects new streams beyond the announced ID, sends a server GOAWAY in response |
-| GOAWAY sending (graceful shutdown) | 5.2 | Compliant | `HTTP3ServerHandler.close()` sends GOAWAY with highest client-initiated stream ID before resetting streams |
+| GOAWAY sending (graceful shutdown) | 5.2 | Compliant | `Http3ServerHandler.close()` sends GOAWAY with highest client-initiated stream ID before resetting streams |
 | Stream reset handling | 8 | Compliant | `onReset()` ends span and cleans up stream |
 | Request cancellation | 8 | Compliant | `H3Stream.cancel()` resets stream |
 | HTTP/3 error codes | 8.1 | Compliant | `H3ErrorCode` constants; unpermitted push frames and premature control/QPACK closure use the RFC 9114 codes |
@@ -954,11 +954,11 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| WebSocket over HTTP/3 | RFC 9220 | Implemented | Extended CONNECT with `:protocol = "websocket"`, `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, `H3Stream.upgradeToWebSocket()` bridges to `WebSocketConnection`, `HTTP3WebSocketListener` for service integration |
+| WebSocket over HTTP/3 | RFC 9220 | Implemented | Extended CONNECT with `:protocol = "websocket"`, `SETTINGS_ENABLE_CONNECT_PROTOCOL = 1`, `H3Stream.upgradeToWebSocket()` bridges to `WebSocketConnection`, `WebSocketRequestHandler` for application-level integration |
 | 103 Early Hints (RFC 8297) | RFC 9114 s4 | Implemented | `H3Stream.sendInformational()` sends 1xx HEADERS; state tracked by `responseStarted`; `flushHeaders()` sends the final response after 1xx |
 | Extensible priorities (server) | RFC 9218 4 | Compliant | `Priority` header passed through to handler in request headers |
-| QUIC transport parameter tuning | RFC 9000 18 | Compliant | `HTTP3Listener` exposes `setQuicMax*()` setters that delegate to `QuicTransportFactory` |
-| Authentication | RFC 9110 11 | Compliant | `H3Stream.onHeaders()` checks Authorization header via `HTTPAuthenticationProvider` |
+| QUIC transport parameter tuning | RFC 9000 18 | Compliant | `Http3Listener` exposes `setQuicMax*()` setters that delegate to `QuicTransportFactory` |
+| Authentication | RFC 9110 11 | Compliant | `H3Stream.onHeaders()` checks Authorization header via `HttpAuthenticationProvider` |
 | Telemetry / tracing | — | Compliant | `H3Stream.initTelemetrySpan()` / `endTelemetrySpan()` with OpenTelemetry attributes |
 | HTTP Datagrams | RFC 9297 | Compliant | `SETTINGS_H3_DATAGRAM=1`; quarter-stream-ID demux of QUIC DATAGRAM; Capsule Protocol (`DATAGRAM` capsule + `Capsule-Protocol`) on H1/H2/H3 data streams |
 
@@ -970,20 +970,20 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| ALPN "h3" negotiation | 3.1 | Compliant | `HTTPClient.connectH3()` sets ALPN "h3" on `QuicTransportFactory` |
+| ALPN "h3" negotiation | 3.1 | Compliant | `HttpClient.connectH3()` sets ALPN "h3" on `QuicTransportFactory` |
 | TLS 1.3 mandatory | 3 | Compliant | QUIC mandates TLS 1.3 via the in-tree engine |
 | SETTINGS frame exchange | 7.2.4 | Compliant | SETTINGS is required first and only-once on the control stream (`H3_MISSING_SETTINGS` / `H3_FRAME_UNEXPECTED`); unknown identifiers ignored |
 | SETTINGS_MAX_FIELD_SECTION_SIZE | 4.2.2 / 7.2.4.1 | Compliant | Advertised as 8192; inbound response HEADERS over the ceiling abort the stream with `H3_EXCESSIVE_LOAD`; outbound request HEADERS honour the peer's advertised value |
 | SETTINGS_H3_DATAGRAM | RFC 9297 2.1.1 | Compliant | Always advertised as 1; same SETTINGS validation as the server |
 | QPACK dynamic table capacity | RFC 9204 3.2.3 | Compliant | `DEFAULT_QPACK_MAX_TABLE_CAPACITY = 4096` in `H3ControlStream` |
-| Alt-Svc discovery | 3.1 | Compliant | `HTTPClient.altSvcReceived()` parses `h3="host:port"` and initiates QUIC connection |
+| Alt-Svc discovery | 3.1 | Compliant | `HttpClient.altSvcReceived()` parses `h3="host:port"` and initiates QUIC connection |
 
 ### HTTP/3 Client Request Sending — RFC 9114 section 4
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Request pseudo-headers (:method, :scheme, :authority, :path) | 4.3.1 | Compliant | `H3Request.buildHeaders()` emits all four pseudo-headers in order |
-| HEADERS frame sent on new stream | 4.1 | Compliant | `HTTP3ClientHandler.sendRequest()` |
+| HEADERS frame sent on new stream | 4.1 | Compliant | `Http3ClientHandler.sendRequest()` |
 | DATA frames for request body | 4.1 | Compliant | `sendRequestBody()` via `H3Stream.sendBody()`; buffers in `PendingWrite` when send window is exhausted and drains in `resumePendingWrites()` |
 | FIN to complete request | 4.1 | Compliant | `H3Request.endRequestBody()` sends empty buffer with fin=true |
 | GOAWAY rejection of new requests | 5.2 | Compliant | `sendRequest()` returns -1 with IOException when goaway is set |
@@ -1006,7 +1006,7 @@ with TLS 1.3 handled by the in-tree `org.bluezoo.gumdrop.tls` engine via
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | GOAWAY reception | 5.2 | Compliant | Validates client-initiated bidi stream ID and monotonicity (`H3_ID_ERROR`); fails unprocessed streams (ID > last) with retryable IOException |
-| Connection readiness callback | 3 | Compliant | `HTTP3ClientHandler.onConnectionReady()` fires readyCallback then polls |
+| Connection readiness callback | 3 | Compliant | `Http3ClientHandler.onConnectionReady()` fires readyCallback then polls |
 | Resource cleanup | — | Compliant | `close()` resets all streams and closes the QUIC connection |
 
 ---
@@ -1028,7 +1028,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | QUIC v2 support | RFC 9369 | Not implemented | Only QUIC version 1 is supported |
 | Handshake (server accepts) | 7 | Compliant | `QuicEngine` constructs `QuicTlsServerEngine` + `QuicConnection` per Initial |
 | Handshake (client initiates) | 7 | Compliant | `QuicEngine.connectTo()` sends Initial packet |
-| Retry-based address validation | 8.1.2 | Compliant | `QuicEngine.sendRetry`; `HTTP3Listener` / `DoQListener` enable Retry by default; `require-retry=false` opts into the permissive (no-Retry) mode for trusted networks |
+| Retry-based address validation | 8.1.2 | Compliant | `QuicEngine.sendRetry`; `Http3Listener` / `DoQListener` enable Retry by default; `require-retry=false` opts into the permissive (no-Retry) mode for trusted networks |
 | HANDSHAKE_DONE confirmation | 7.3 | Compliant | `QuicConnection.checkEstablished()` detects established state |
 | TLS 1.3 via in-tree engine | RFC 9001 | Compliant | `HandshakeEngine` integrated via `QuicTlsClientEngine`/`QuicTlsServerEngine` |
 | Idle timeout | 10.1 | Compliant | `QuicConnection` idle timeout handling |
@@ -1076,7 +1076,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | `SETTINGS_H3_DATAGRAM` (0x33) | 2.1.1 / 4 | Compliant | Always advertised as 1 (client and server) so the setting does not stick out; value > 1 is `H3_SETTINGS_ERROR` |
 | Require QUIC DATAGRAM support | 2.1.1 | Compliant | `SETTINGS_H3_DATAGRAM=1` without peer `max_datagram_frame_size > 0` is `H3_SETTINGS_ERROR` |
 | HTTP/3 Datagram format | 2.1 | Compliant | QUIC DATAGRAM payload is Quarter Stream ID varint + HTTP Datagram payload (`H3Datagram`); stream ID must be client-initiated bidi (0 mod 4) |
-| Demultiplex by stream ID | 2.1 | Compliant | `HTTP3ServerHandler` / `HTTP3ClientHandler` `setDatagramHandler`; unknown stream ID is dropped; a known stream whose handler does not `wantsDatagrams()` is reset with `H3_DATAGRAM_ERROR` |
+| Demultiplex by stream ID | 2.1 | Compliant | `Http3ServerHandler` / `Http3ClientHandler` `setDatagramHandler`; unknown stream ID is dropped; a known stream whose handler does not `wantsDatagrams()` is reset with `H3_DATAGRAM_ERROR` |
 | Datagrams before SETTINGS | 2.1.1 | Compliant | HTTP Datagram received before `SETTINGS_H3_DATAGRAM=1` closes the connection with `H3_DATAGRAM_ERROR` |
 | Capsule Protocol | 3 | Compliant | `Capsule-Protocol: ?1` (`?1` / `1` / `true`) parses DATA as capsules; `DATAGRAM` capsule type 0x00; other types via `capsuleReceived`; truncated capsule on FIN is a stream error |
 | Send path | 2.1 / 3.5 | Compliant | HTTP/3 uses QUIC DATAGRAM when the peer advertised SETTINGS; otherwise a DATAGRAM capsule if capsule mode is on. HTTP/1.1 and HTTP/2 send capsules only |
@@ -1088,7 +1088,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Requirement | RFC 9051 Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Server greeting (OK/PREAUTH/BYE) | 7.1 | Compliant | `sendGreeting()` sends OK with CAPABILITY |
-| State machine (NOT_AUTHENTICATED → AUTHENTICATED → SELECTED → LOGOUT) | 3 | Compliant | `dispatchCommand()` routes by `IMAPState` |
+| State machine (NOT_AUTHENTICATED → AUTHENTICATED → SELECTED → LOGOUT) | 3 | Compliant | `dispatchCommand()` routes by `ImapState` |
 | Tag validation | 2.2.1 | Compliant | `isValidTag()` checks ASTRING-CHAR excluding `+` |
 | Command-tag matching in responses | 7.1 | Compliant | `sendTaggedOk/No/Bad()` echo the command tag |
 
@@ -1096,7 +1096,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | RFC 9051 Section | Status | Notes |
 |-------------|---------|--------|-------|
-| CAPABILITY | 6.1.1 | Compliant | `handleCapability()`, capability string built in `IMAPListener.getCapabilities()` |
+| CAPABILITY | 6.1.1 | Compliant | `handleCapability()`, capability string built in `ImapListener.getCapabilities()` |
 | NOOP | 6.1.2 | Compliant | `handleNoop()`, sends mailbox updates if selected |
 | LOGOUT | 6.1.3 | Compliant | `handleLogout()`, sends BYE then OK |
 
@@ -1187,7 +1187,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | RFC | Status | Notes |
 |-------------|---------|--------|-------|
-| Plaintext (port 143) | RFC 9051 | Compliant | `IMAPClient` with default port |
+| Plaintext (port 143) | RFC 9051 | Compliant | `ImapClient` with default port |
 | Implicit TLS (IMAPS, port 993) | RFC 8314 §3.3 | Compliant | `setSecure(true)` |
 | STARTTLS upgrade | RFC 9051 §6.2.1 | Compliant | `starttls()` sends STARTTLS, handler upgrades |
 | Server greeting parsing (OK/PREAUTH/BYE) | RFC 9051 §7.1 | Compliant | `dispatchGreeting()` |
@@ -1242,7 +1242,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | RFC 9051 Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Tagged responses (OK/NO/BAD) | 7.1 | Compliant | `IMAPResponse.parse()` |
+| Tagged responses (OK/NO/BAD) | 7.1 | Compliant | `ImapResponse.parse()` |
 | Untagged responses (* ...) | 7.2–7.5 | Compliant | `dispatchUntagged()` |
 | Continuation requests (+ ...) | 7.5 | Compliant | `dispatchContinuation()` |
 | Literal data ({count}CRLF data) | 4.3 | Compliant | `LiteralTracker` byte-counting |
@@ -1257,7 +1257,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | RFC Section | Status | Notes |
 |---|---|---|---|
-| Three-state model (AUTHORIZATION, TRANSACTION, UPDATE) | 1939 §3 | Compliant | `POP3State` enum, `handleCommand()` dispatch |
+| Three-state model (AUTHORIZATION, TRANSACTION, UPDATE) | 1939 §3 | Compliant | `Pop3State` enum, `handleCommand()` dispatch |
 | Server greeting (+OK with optional APOP timestamp) | 1939 §4 | Compliant | `sendGreeting()`, APOP timestamp generation |
 | 512-octet maximum command length | 1939 §4 | Compliant | `MAX_LINE_LENGTH = 512` enforced by LineParser |
 | Auto-logout inactivity timer (≥10 min recommended) | 1939 §3 | Compliant | `transactionTimeoutMs` (default 10 min) |
@@ -1334,7 +1334,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | RFC Section | Status | Notes |
 |---|---|---|---|
-| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `POP3Listener` secure mode |
+| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `Pop3Listener` secure mode |
 | STLS before authentication | 2595 §4 | Compliant | STLS only in AUTHORIZATION state |
 | SASL TLS-only mechanism gating | 5034 | Compliant | `mech.requiresTLS()` check in CAPA and AUTH |
 | Login delay after failed auth | — | Compliant | `enforceLoginDelay()` with configurable delay |
@@ -1349,7 +1349,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 |---|---|---|---|
 | Parse server greeting (+OK / -ERR) | 1939 §4 | Compliant | `dispatchGreeting()` |
 | Extract APOP timestamp from greeting | 1939 §7 | Compliant | `parseApopTimestamp()` |
-| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `POP3Client.setSecure(true)` |
+| Implicit TLS (POP3S, port 995) | 8314 §3.3 | Compliant | `Pop3Client.setSecure(true)` |
 | STLS upgrade (STARTTLS) | 2595 §4 | Compliant | `stls()` → `endpoint.startTLS()` |
 
 ### Authentication
@@ -1380,12 +1380,12 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | RFC Section | Status | Notes |
 |---|---|---|---|
-| +OK status indicator | 1939 §3 | Compliant | `POP3Response.parse()` |
-| -ERR status indicator | 1939 §3 | Compliant | `POP3Response.parse()` |
-| SASL continuation (+ ...) | 5034 §4 | Compliant | `POP3Response.parse()` |
+| +OK status indicator | 1939 §3 | Compliant | `Pop3Response.parse()` |
+| -ERR status indicator | 1939 §3 | Compliant | `Pop3Response.parse()` |
+| SASL continuation (+ ...) | 5034 §4 | Compliant | `Pop3Response.parse()` |
 | Multi-line response termination | 1939 §3 | Compliant | `DotUnstuffer` state machine |
 | Dot-unstuffing | 1939 §3 | Compliant | `DotUnstuffer` — handles cross-buffer splits |
-| Streaming content delivery | — | Compliant | `ServerRetrReplyHandler.handleMessageContent()` with backpressure |
+| Streaming content delivery | — | Compliant | `RetrReplyHandler.handleMessageContent()` with backpressure |
 
 ---
 
@@ -1396,11 +1396,11 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Requirement | RFC | Status | Implementation |
 |---|---|---|---|
 | LDAPv3 protocol version | 4511 §4.2 | Compliant | `bind()` sends version=3 |
-| BER encoding (ITU-T X.690) | 4511 §5.1 | Compliant | `BEREncoder` / `BERDecoder` |
+| BER encoding (ITU-T X.690) | 4511 §5.1 | Compliant | `BerEncoder` / `BerDecoder` |
 | LDAPMessage envelope (messageID + protocolOp) | 4511 §4.2 | Compliant | `processMessage()` — decode sequence, extract messageID and tag |
 | Message ID correlation | 4511 §4.1.1 | Compliant | `pendingCallbacks` map keyed by messageID |
 | Incremental message IDs | 4511 §4.1.1.1 | Compliant | `AtomicInteger nextMessageId` |
-| LDAPS (implicit TLS, port 636) | 4513 §3.1.3 | Compliant | `LDAPClient.setSecure(true)` → `TCPTransportFactory.setSecure()` |
+| LDAPS (implicit TLS, port 636) | 4513 §3.1.3 | Compliant | `LdapClient.setSecure(true)` → `TcpTransportFactory.setSecure()` |
 | STARTTLS extended operation | 4511 §4.14, 4513 §3 | Compliant | `startTLS()` sends ExtendedRequest with OID `1.3.6.1.4.1.1466.20037` |
 | TLS handshake after STARTTLS | 4513 §3 | Compliant | `securityEstablished()` → `handleTLSEstablished()` callback |
 
@@ -1412,7 +1412,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Anonymous bind | 4511 §4.2.1 | Compliant | `bindAnonymous()` — empty DN and password |
 | BindResponse handling | 4511 §4.2.2 | Compliant | `handleBindResponse()` — dispatches success/failure; handles `serverSaslCreds` [7] |
 | Rebind on existing connection | 4511 §4.2 | Compliant | `rebind()` / `rebindSASL()` delegate to `bind()` / `bindSASL()` |
-| SASL bind | 4513 §5.2 | Compliant | `bindSASL(SASLClientMechanism)` — context tag [3], multi-step `SASL_BIND_IN_PROGRESS` (code 14) handled internally via native `SASLUtils` crypto (non-blocking); GSSAPI (RFC 4752) supported with worker-thread offloading for KDC contact |
+| SASL bind | 4513 §5.2 | Compliant | `bindSASL(SaslClientMechanism)` — context tag [3], multi-step `SASL_BIND_IN_PROGRESS` (code 14) handled internally via native `SaslUtils` crypto (non-blocking); GSSAPI (RFC 4752) supported with worker-thread offloading for KDC contact |
 
 ### Search Operations
 
@@ -1431,7 +1431,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Filter encoding — approximate (~=) | 4515 §4 | Compliant | `encodeFilter()` — context tag 8, AttributeValueAssertion |
 | Filter encoding — extensible match (:=) | 4515 §4 | Compliant | `encodeExtensibleMatchFilter()` — context tag 9, MatchingRuleAssertion |
 | SearchResultEntry handling | 4511 §4.5.2 | Compliant | `handleSearchResultEntry()` — parses DN + attributes |
-| SearchResultDone handling | 4511 §4.5.2 | Compliant | `handleSearchResultDone()` — parses LDAPResult |
+| SearchResultDone handling | 4511 §4.5.2 | Compliant | `handleSearchResultDone()` — parses LdapResult |
 | SearchResultReference handling | 4511 §4.5.3 | Compliant | `handleSearchResultReference()` — parses referral URLs |
 
 ### Modify Operations
@@ -1459,11 +1459,11 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | STARTTLS ExtendedRequest | 4511 §4.14 | Compliant | `startTLS()` → `extended(OID_STARTTLS)` |
 | UnbindRequest | 4511 §4.3 | Compliant | `unbind()` — application tag 2, no response expected |
 
-### LDAPResult Parsing
+### LdapResult Parsing
 
 | Requirement | RFC | Status | Implementation |
 |---|---|---|---|
-| Result code | 4511 §4.1.9 | Compliant | `parseResult()` — maps to `LDAPResultCode` enum |
+| Result code | 4511 §4.1.9 | Compliant | `parseResult()` — maps to `LdapResultCode` enum |
 | Matched DN | 4511 §4.1.9 | Compliant | `parseResult()` — extracted from response |
 | Diagnostic message | 4511 §4.1.9 | Compliant | `parseResult()` — extracted from response |
 | Referrals | 4511 §4.1.9 | Compliant | `parseResult()` — context tag 3, parsed as URL list |
@@ -1486,25 +1486,25 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Spec | Status | Implementation |
 |---|---|---|---|
-| Command encoding (array of bulk strings) | RESP spec — Sending commands | Compliant | `RESPEncoder.encodeCommand()` — `*N\r\n$len\r\narg\r\n...` |
-| Simple String response (`+`) | RESP spec — Simple Strings | Compliant | `RESPDecoder` parses `+...\r\n` → `RESPType.SIMPLE_STRING` |
-| Error response (`-`) | RESP spec — Errors | Compliant | `RESPDecoder` parses `-...\r\n` → `RESPType.ERROR` |
-| Integer response (`:`) | RESP spec — Integers | Compliant | `RESPDecoder` parses `:N\r\n` → `RESPType.INTEGER` (signed 64-bit) |
-| Bulk String response (`$`) | RESP spec — Bulk Strings | Compliant | `RESPDecoder` parses `$len\r\ndata\r\n` → `RESPType.BULK_STRING` |
-| Array response (`*`) | RESP spec — Arrays | Compliant | `RESPDecoder` parses `*N\r\n...` → `RESPType.ARRAY` (recursive) |
-| Null Bulk String (`$-1\r\n`) | RESP spec — Bulk Strings | Compliant | `RESPValue.nullValue()` dispatched to `handleNull()` |
-| Null Array (`*-1\r\n`) | RESP spec — Arrays | Compliant | `RESPValue.nullValue()` dispatched to `handleNull()` |
-| Streaming decode (partial data) | RESP spec | Compliant | `RESPDecoder.receive()` accumulates; `next()` returns when complete |
+| Command encoding (array of bulk strings) | RESP spec — Sending commands | Compliant | `RespEncoder.encodeCommand()` — `*N\r\n$len\r\narg\r\n...` |
+| Simple String response (`+`) | RESP spec — Simple Strings | Compliant | `RespDecoder` parses `+...\r\n` → `RespType.SIMPLE_STRING` |
+| Error response (`-`) | RESP spec — Errors | Compliant | `RespDecoder` parses `-...\r\n` → `RespType.ERROR` |
+| Integer response (`:`) | RESP spec — Integers | Compliant | `RespDecoder` parses `:N\r\n` → `RespType.INTEGER` (signed 64-bit) |
+| Bulk String response (`$`) | RESP spec — Bulk Strings | Compliant | `RespDecoder` parses `$len\r\ndata\r\n` → `RespType.BULK_STRING` |
+| Array response (`*`) | RESP spec — Arrays | Compliant | `RespDecoder` parses `*N\r\n...` → `RespType.ARRAY` (recursive) |
+| Null Bulk String (`$-1\r\n`) | RESP spec — Bulk Strings | Compliant | `RespValue.nullValue()` dispatched to `handleNull()` |
+| Null Array (`*-1\r\n`) | RESP spec — Arrays | Compliant | `RespValue.nullValue()` dispatched to `handleNull()` |
+| Streaming decode (partial data) | RESP spec | Compliant | `RespDecoder.receive()` accumulates; `next()` returns when complete |
 | Pipelining (multiple commands in-flight) | RESP spec — Pipelining | Compliant | FIFO `pendingCommands` queue correlates responses to callbacks |
-| RESP3 Map (`%`) | RESP3 spec — Map | Compliant | `RESPDecoder` parses `%N\r\n...` → `RESPType.MAP`, flattened for `ArrayResultHandler` |
-| RESP3 Set (`~`) | RESP3 spec — Set | Compliant | `RESPDecoder` parses `~N\r\n...` → `RESPType.SET` |
-| RESP3 Double (`,`) | RESP3 spec — Double | Compliant | `RESPDecoder` parses `,value\r\n` including inf/nan |
-| RESP3 Boolean (`#`) | RESP3 spec — Boolean | Compliant | `RESPDecoder` parses `#t`/`#f` → `RESPType.BOOLEAN` |
-| RESP3 Null (`_`) | RESP3 spec — Null | Compliant | `RESPDecoder` parses `_\r\n` → `RESPType.NULL` |
-| RESP3 Push (`>`) | RESP3 spec — Push | Compliant | `RESPDecoder` parses `>N\r\n...` → `RESPType.PUSH`, Pub/Sub dispatch |
-| RESP3 Verbatim String (`=`) | RESP3 spec — Verbatim String | Compliant | `RESPDecoder` parses `=len\r\nenc:data\r\n` with encoding hint |
-| RESP3 Big Number (`(`) | RESP3 spec — Big Number | Compliant | `RESPDecoder` parses `(value\r\n` → `RESPType.BIG_NUMBER` |
-| RESP3 Blob Error (`!`) | RESP3 spec — Blob Error | Compliant | `RESPDecoder` parses `!len\r\ndata\r\n` → `RESPType.BLOB_ERROR` |
+| RESP3 Map (`%`) | RESP3 spec — Map | Compliant | `RespDecoder` parses `%N\r\n...` → `RespType.MAP`, flattened for `ArrayResultHandler` |
+| RESP3 Set (`~`) | RESP3 spec — Set | Compliant | `RespDecoder` parses `~N\r\n...` → `RespType.SET` |
+| RESP3 Double (`,`) | RESP3 spec — Double | Compliant | `RespDecoder` parses `,value\r\n` including inf/nan |
+| RESP3 Boolean (`#`) | RESP3 spec — Boolean | Compliant | `RespDecoder` parses `#t`/`#f` → `RespType.BOOLEAN` |
+| RESP3 Null (`_`) | RESP3 spec — Null | Compliant | `RespDecoder` parses `_\r\n` → `RespType.NULL` |
+| RESP3 Push (`>`) | RESP3 spec — Push | Compliant | `RespDecoder` parses `>N\r\n...` → `RespType.PUSH`, Pub/Sub dispatch |
+| RESP3 Verbatim String (`=`) | RESP3 spec — Verbatim String | Compliant | `RespDecoder` parses `=len\r\nenc:data\r\n` with encoding hint |
+| RESP3 Big Number (`(`) | RESP3 spec — Big Number | Compliant | `RespDecoder` parses `(value\r\n` → `RespType.BIG_NUMBER` |
+| RESP3 Blob Error (`!`) | RESP3 spec — Blob Error | Compliant | `RespDecoder` parses `!len\r\ndata\r\n` → `RespType.BLOB_ERROR` |
 
 ### Connection and Authentication
 
@@ -1516,7 +1516,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | SELECT (database index) | Redis command — SELECT | Compliant | `select(index, handler)` |
 | ECHO | Redis command — ECHO | Compliant | `echo(message, handler)` |
 | QUIT | Redis command — QUIT | Compliant | `quit()` — sends QUIT then closes |
-| TLS connection | Redis 6+ TLS | Compliant | `RedisClient.setSecure(true)` → `TCPTransportFactory.setSecure()` |
+| TLS connection | Redis 6+ TLS | Compliant | `RedisClient.setSecure(true)` → `TcpTransportFactory.setSecure()` |
 | HELLO (RESP3 negotiation) | Redis 6+ — HELLO | Compliant | `hello(protover, handler)` and `hello(protover, user, pass, handler)` |
 | CLIENT SETNAME | Redis command — CLIENT SETNAME | Compliant | `clientSetName(name, handler)` |
 | CLIENT GETNAME | Redis command — CLIENT GETNAME | Compliant | `clientGetName(handler)` |
@@ -1782,9 +1782,9 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Body canonicalization | §3.4.3–3.4.4 | **Compliant** | relaxed/simple |
 | DKIM-Signature field parsing | §3.5 | **Compliant** | All required tags |
 | RSA-SHA256 algorithm | §3.3 | **Compliant** | Default algorithm |
-| Raw header byte capture | §3.4 | **Compliant** | DKIMMessageParser |
+| Raw header byte capture | §3.4 | **Compliant** | DkimMessageParser |
 | Body hash computation | §3.7 | **Compliant** | From raw bytes |
-| DKIM signing | §5 | **Compliant** | DKIMSigner — full signing with body/header canonicalization |
+| DKIM signing | §5 | **Compliant** | DkimSigner — full signing with body/header canonicalization |
 | Ed25519-SHA256 | RFC 8463 | **Compliant** | Signing and verification; raw 32-byte key parsing (§4) |
 | Result codes | §6.1 | **Compliant** | PASS, FAIL, NONE, TEMPERROR, PERMERROR, POLICY, NEUTRAL |
 
@@ -1798,14 +1798,14 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | TXT record parsing | §6.3 | **Compliant** | p=, sp=, adkim=, aspf=, pct= tags |
 | Identifier alignment | §3.1 | **Compliant** | SPF and DKIM alignment |
 | Organizational domain | §3.2 | **Compliant** | Domain hierarchy resolution |
-| SPF result aggregation | §6 | **Compliant** | Via SPFCallback |
-| DKIM result aggregation | §6 | **Compliant** | Via DKIMCallback |
+| SPF result aggregation | §6 | **Compliant** | Via SpfCallback |
+| DKIM result aggregation | §6 | **Compliant** | Via DkimCallback |
 | Policy evaluation / verdict | §6.3 | **Compliant** | PASS, FAIL, NONE, TEMPERROR, PERMERROR |
 | Policy actions | §6.3 | **Compliant** | NONE, QUARANTINE, REJECT |
-| From domain extraction | §6 | **Compliant** | DMARCMessageHandler |
+| From domain extraction | §6 | **Compliant** | DmarcMessageHandler |
 | AuthPipeline integration | — | **Compliant** | SPF at MAIL FROM, DKIM/DMARC at end-of-data |
-| Aggregate reporting (rua=) | §7.1 | **Compliant** | DMARCAggregateReport — XML report per Appendix C schema |
-| Forensic / failure reporting | §7.2 | **Compliant** | DMARCForensicReport — ARF format per RFC 5965/6591; fo=/rf= parsing |
+| Aggregate reporting (rua=) | §7.1 | **Compliant** | DmarcAggregateReport — XML report per Appendix C schema |
+| Forensic / failure reporting | §7.2 | **Compliant** | DmarcForensicReport — ARF format per RFC 5965/6591; fo=/rf= parsing |
 
 ---
 
@@ -1897,8 +1897,8 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Sec-WebSocket-Key validation | §4.2.1 | **Compliant** | 16-byte base64 nonce verified |
 | Sec-WebSocket-Version: 13 | §4.2.1 | **Compliant** | Exact match required |
 | Sec-WebSocket-Accept calculation | §4.2.2 | **Compliant** | GUID + SHA-1 + Base64 |
-| 101 Switching Protocols response | §4.2.2 | **Compliant** | Via HTTPResponseState.upgradeToWebSocket() |
-| Sec-WebSocket-Protocol negotiation | §4.2.2 | **Compliant** | Via WebSocketService.selectSubprotocol() |
+| 101 Switching Protocols response | §4.2.2 | **Compliant** | Via HttpResponseState.upgradeToWebSocket() |
+| Sec-WebSocket-Protocol negotiation | §4.2.2 | **Compliant** | Via WebSocketServer.selectSubprotocol() |
 | Sec-WebSocket-Extensions | §9.1 | **Compliant** | Extension negotiation framework; permessage-deflate (RFC 7692) |
 
 ### Opening Handshake — Client (§4.1)
@@ -1987,20 +1987,20 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |---|---|---|---|
-| MIME-Version header parsing | RFC 2045 §4 | **Compliant** | `MIMEParser.handleMIMEVersionHeader()` → `MIMEHandler.mimeVersion()` |
-| Content-Type header parsing | RFC 2045 §5 | **Compliant** | `MIMEParser.handleContentTypeHeader()` → `ContentTypeParser` |
-| Content-Type parameter list (token, quoted-string) | RFC 2045 §5.1 | **Compliant** | `ContentTypeParser.parseParameterList()` with `MIMEUtils.isToken()` |
-| Content-Transfer-Encoding header | RFC 2045 §6.1 | **Compliant** | `MIMEParser.handleContentTransferEncodingHeader()` handles 7bit/8bit/binary/base64/qp |
+| MIME-Version header parsing | RFC 2045 §4 | **Compliant** | `MimeParser.handleMIMEVersionHeader()` → `MimeHandler.mimeVersion()` |
+| Content-Type header parsing | RFC 2045 §5 | **Compliant** | `MimeParser.handleContentTypeHeader()` → `ContentTypeParser` |
+| Content-Type parameter list (token, quoted-string) | RFC 2045 §5.1 | **Compliant** | `ContentTypeParser.parseParameterList()` with `MimeUtils.isToken()` |
+| Content-Transfer-Encoding header | RFC 2045 §6.1 | **Compliant** | `MimeParser.handleContentTransferEncodingHeader()` handles 7bit/8bit/binary/base64/qp |
 | Quoted-Printable decoding | RFC 2045 §6.7 | **Compliant** | `QuotedPrintableDecoder.decode()` — soft line breaks, hex escape, end-of-stream |
 | Base64 decoding | RFC 2045 §6.8 | **Compliant** | `Base64Decoder.decode()` — streaming, handles incomplete quads, skips whitespace |
 | Base64 line length validation | RFC 2045 §6.8 | **Compliant** | Optional strict mode rejects lines exceeding 76 characters |
-| Content-ID header | RFC 2045 §7 | **Compliant** | `MIMEParser.handleContentIDHeader()` → `ContentID` / `ContentIDParser` |
-| Content-Description header | RFC 2045 §8 | **Compliant** | `MIMEParser.handleContentDescriptionHeader()` with RFC 2047 decoding |
-| Multipart boundary detection | RFC 2046 §5.1.1 | **Compliant** | `MIMEParser.detectBoundary()` / `checkBoundary()` — delimiter, close-delimiter, LWSP after |
-| Boundary validation (1–70 chars) | RFC 2046 §5.1.1 | **Compliant** | `MIMEUtils.isValidBoundary()` |
-| Multipart preamble/epilogue | RFC 2046 §5.1.1 | **Compliant** | `MIMEHandler.unexpectedContent()` delivers preamble/epilogue to handler |
-| Nested multipart entities | RFC 2046 §5.1 | **Compliant** | `MIMEParser` tracks boundary stack, `startEntity()`/`endEntity()` lifecycle |
-| Header line folding (obs-fold) | RFC 5322 §2.2 | **Compliant** | `MIMEParser.headerLine()` handles continuation lines |
+| Content-ID header | RFC 2045 §7 | **Compliant** | `MimeParser.handleContentIDHeader()` → `ContentID` / `ContentIDParser` |
+| Content-Description header | RFC 2045 §8 | **Compliant** | `MimeParser.handleContentDescriptionHeader()` with RFC 2047 decoding |
+| Multipart boundary detection | RFC 2046 §5.1.1 | **Compliant** | `MimeParser.detectBoundary()` / `checkBoundary()` — delimiter, close-delimiter, LWSP after |
+| Boundary validation (1–70 chars) | RFC 2046 §5.1.1 | **Compliant** | `MimeUtils.isValidBoundary()` |
+| Multipart preamble/epilogue | RFC 2046 §5.1.1 | **Compliant** | `MimeHandler.unexpectedContent()` delivers preamble/epilogue to handler |
+| Nested multipart entities | RFC 2046 §5.1 | **Compliant** | `MimeParser` tracks boundary stack, `startEntity()`/`endEntity()` lifecycle |
+| Header line folding (obs-fold) | RFC 5322 §2.2 | **Compliant** | `MimeParser.headerLine()` handles continuation lines |
 
 ### Content-Type / Content-Disposition / Content-ID
 
@@ -2010,21 +2010,21 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Content-Disposition structured value | RFC 2183 | **Compliant** | `ContentDisposition` — disposition-type, parameters |
 | Content-ID structured value | RFC 2045 §7 / RFC 5322 §3.6.4 | **Compliant** | `ContentID` with `ContentIDParser` |
 | Parameter continuations (name*0, name*1) | RFC 2231 §3 | **Compliant** | `ContentTypeParser.parseParameterList()` with RFC 2231 decoding |
-| Extended parameter values (charset''encoded) | RFC 2231 §4 | **Compliant** | `ContentTypeParser.parseParameterList()` / `RFC2231Decoder` |
+| Extended parameter values (charset''encoded) | RFC 2231 §4 | **Compliant** | `ContentTypeParser.parseParameterList()` / `Rfc2231Decoder` |
 
 ### Encoded Words (RFC 2047)
 
 | Requirement | Section | Status | Notes |
 |---|---|---|---|
-| Encoded-word decoding (=?charset?encoding?text?=) | RFC 2047 §2 | **Compliant** | `RFC2047Decoder` — B and Q encodings |
-| Encoded-word encoding | RFC 2047 §2 | **Compliant** | `RFC2047Encoder` — encoded-words limited to 75 characters per RFC 2047 §2 |
-| RFC 2231 language in encoded words | RFC 2231 §5 | **Compliant** | `RFC2047Decoder` handles `=?charset*lang?...?=` |
+| Encoded-word decoding (=?charset?encoding?text?=) | RFC 2047 §2 | **Compliant** | `Rfc2047Decoder` — B and Q encodings |
+| Encoded-word encoding | RFC 2047 §2 | **Compliant** | `Rfc2047Encoder` — encoded-words limited to 75 characters per RFC 2047 §2 |
+| RFC 2231 language in encoded words | RFC 2231 §5 | **Compliant** | `Rfc2047Decoder` handles `=?charset*lang?...?=` |
 
 ### Internet Message Format (RFC 5322)
 
 | Requirement | Section | Status | Notes |
 |---|---|---|---|
-| Email message parsing (headers + body) | RFC 5322 §2 | **Compliant** | `MessageParser` extends `MIMEParser` |
+| Email message parsing (headers + body) | RFC 5322 §2 | **Compliant** | `MessageParser` extends `MimeParser` |
 | Email address parsing (addr-spec, name-addr) | RFC 5322 §3.4 | **Compliant** | `EmailAddressParser` — mailbox, group, display-name |
 | Group email addresses | RFC 5322 §3.4 | **Compliant** | `GroupEmailAddress` |
 | Date/time formatting | RFC 5322 §3.3 | **Compliant** | `MessageDateTimeFormatter` |
@@ -2039,14 +2039,14 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |---|---|---|---|
-| SASL mechanism enumeration | RFC 4422 | **Compliant** | `SASLMechanism` enum; `Realm.getSupportedSASLMechanisms()` |
-| PLAIN mechanism | RFC 4616 §2 | **Compliant** | `SASLUtils.parsePlainCredentials()` — authzid NUL authcid NUL password |
-| LOGIN mechanism | draft-murchison-sasl-login | **Compliant** | `SASLMechanism.LOGIN` declared; server handlers support it |
-| CRAM-MD5 mechanism | RFC 2195 §2 | **Compliant** | `SASLUtils.generateCramMD5Challenge()`, `computeCramMD5Response()`, `verifyCramMD5()` |
-| DIGEST-MD5 mechanism | RFC 2831 §2.1 | **Compliant** | `SASLUtils.generateDigestMD5Challenge()`, `parseDigestParams()`, `computeDigestHA1()` |
-| SCRAM-SHA-256 mechanism | RFC 5802 §5 / RFC 7677 | **Compliant** | `SASLUtils.generateScramServerFirst()`; `Realm.getScramCredentials()` with PBKDF2 derivation |
-| OAUTHBEARER mechanism | RFC 7628 §3.1 | **Compliant** | `SASLUtils.parseOAuthBearerCredentials()` — GS2 header + Bearer token |
-| EXTERNAL mechanism | RFC 4422 Appendix A | **Compliant** | `SASLUtils.authenticateExternal()` — certificate extraction + authzid handling |
+| SASL mechanism enumeration | RFC 4422 | **Compliant** | `SaslMechanism` enum; `Realm.getSupportedSASLMechanisms()` |
+| PLAIN mechanism | RFC 4616 §2 | **Compliant** | `SaslUtils.parsePlainCredentials()` — authzid NUL authcid NUL password |
+| LOGIN mechanism | draft-murchison-sasl-login | **Compliant** | `SaslMechanism.LOGIN` declared; server handlers support it |
+| CRAM-MD5 mechanism | RFC 2195 §2 | **Compliant** | `SaslUtils.generateCramMD5Challenge()`, `computeCramMD5Response()`, `verifyCramMD5()` |
+| DIGEST-MD5 mechanism | RFC 2831 §2.1 | **Compliant** | `SaslUtils.generateDigestMD5Challenge()`, `parseDigestParams()`, `computeDigestHA1()` |
+| SCRAM-SHA-256 mechanism | RFC 5802 §5 / RFC 7677 | **Compliant** | `SaslUtils.generateScramServerFirst()`; `Realm.getScramCredentials()` with PBKDF2 derivation |
+| OAUTHBEARER mechanism | RFC 7628 §3.1 | **Compliant** | `SaslUtils.parseOAuthBearerCredentials()` — GS2 header + Bearer token |
+| EXTERNAL mechanism | RFC 4422 Appendix A | **Compliant** | `SaslUtils.authenticateExternal()` — certificate extraction + authzid handling |
 | APOP mechanism | RFC 1939 | **Compliant** | `Realm.getApopResponse()` |
 | Proxy authorization (authzid) | RFC 4422 §4.2 | **Compliant** | `Realm.authorizeAs()` |
 
@@ -2054,20 +2054,20 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |---|---|---|---|
-| Base64 encoding/decoding | RFC 4648 §4 | **Compliant** | `SASLUtils.encodeBase64()` / `decodeBase64()` |
-| HMAC-MD5 | RFC 2104 | **Compliant** | `SASLUtils.hmacMD5()` |
-| HMAC-SHA256 | RFC 2104 | **Compliant** | `SASLUtils.hmacSHA256()` |
-| MD5 hash | RFC 1321 | **Compliant** | `SASLUtils.md5()` / `md5Hex()` |
-| SHA-256 hash | FIPS 180-4 | **Compliant** | `SASLUtils.sha256()` |
+| Base64 encoding/decoding | RFC 4648 §4 | **Compliant** | `SaslUtils.encodeBase64()` / `decodeBase64()` |
+| HMAC-MD5 | RFC 2104 | **Compliant** | `SaslUtils.hmacMD5()` |
+| HMAC-SHA256 | RFC 2104 | **Compliant** | `SaslUtils.hmacSHA256()` |
+| MD5 hash | RFC 1321 | **Compliant** | `SaslUtils.md5()` / `md5Hex()` |
+| SHA-256 hash | FIPS 180-4 | **Compliant** | `SaslUtils.sha256()` |
 
 ### Realm Implementations
 
 | Requirement | Section | Status | Notes |
 |---|---|---|---|
 | BasicRealm — XML-based credential store | — | **Compliant** | Supports PLAIN, LOGIN, CRAM-MD5, DIGEST-MD5, SCRAM-SHA-256, EXTERNAL |
-| LDAPRealm — LDAP simple bind | RFC 4513 §5.1.1 | **Compliant** | `LDAPRealm.passwordMatch()` performs search-then-bind |
-| LDAPRealm — LDAP search filter | RFC 4515 | **Compliant** | `LDAPRealm.setUserFilter()` with placeholder substitution |
-| LDAPRealm — SASL bind | RFC 4513 §5.2 | **Compliant** | `setSaslMechanism()` enables SASL for service and user binds via `SASLUtils.createClient()` (PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL, GSSAPI) |
+| LdapRealm — LDAP simple bind | RFC 4513 §5.1.1 | **Compliant** | `LdapRealm.passwordMatch()` performs search-then-bind |
+| LdapRealm — LDAP search filter | RFC 4515 | **Compliant** | `LdapRealm.setUserFilter()` with placeholder substitution |
+| LdapRealm — SASL bind | RFC 4513 §5.2 | **Compliant** | `setSaslMechanism()` enables SASL for service and user binds via `SaslUtils.createClient()` (PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL, GSSAPI) |
 
 ---
 
@@ -2106,11 +2106,11 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Client sends VER + NMETHODS + METHODS | §3 | **Compliant** | `SOCKSProtocolHandler.handleSOCKS5MethodNegotiation()` parses client greeting; `SOCKSClientHandler.sendSOCKS5MethodRequest()` sends it |
-| Server selects one method and responds VER + METHOD | §3 | **Compliant** | `SOCKSProtocolHandler.sendSOCKS5MethodSelection()` |
+| Client sends VER + NMETHODS + METHODS | §3 | **Compliant** | `SocksProtocolHandler.handleSOCKS5MethodNegotiation()` parses client greeting; `SocksClientHandler.sendSOCKS5MethodRequest()` sends it |
+| Server selects one method and responds VER + METHOD | §3 | **Compliant** | `SocksProtocolHandler.sendSOCKS5MethodSelection()` |
 | VER must be 0x05 | §3 | **Compliant** | `handleVersionDetect()` checks first byte |
 | Method 0x00 — NO AUTHENTICATION REQUIRED | §3 | **Compliant** | `SOCKS5_AUTH_NONE` accepted when no Realm configured |
-| Method 0x01 — GSSAPI | §3 | **Compliant** | `SOCKS5_AUTH_GSSAPI` selected when GSSAPIServer available; see RFC 1961 |
+| Method 0x01 — GSSAPI | §3 | **Compliant** | `SOCKS5_AUTH_GSSAPI` selected when GssapiServer available; see RFC 1961 |
 | Method 0x02 — USERNAME/PASSWORD | §3 | **Compliant** | `SOCKS5_AUTH_USERNAME_PASSWORD` selected when Realm configured; see RFC 1929 |
 | Method 0xFF — NO ACCEPTABLE METHODS | §3 | **Compliant** | Sent when no client-offered methods are supported |
 | Method selection priority | §3 | **Compliant** | GSSAPI > USERNAME/PASSWORD > NONE (mirrors server security preference) |
@@ -2119,12 +2119,12 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Request format: VER + CMD + RSV + ATYP + DST.ADDR + DST.PORT | §4 | **Compliant** | `SOCKSProtocolHandler.handleSOCKS5Request()` parses full request; `SOCKSClientHandler.sendSOCKS5ConnectRequest()` constructs it |
+| Request format: VER + CMD + RSV + ATYP + DST.ADDR + DST.PORT | §4 | **Compliant** | `SocksProtocolHandler.handleSOCKS5Request()` parses full request; `SocksClientHandler.sendSOCKS5ConnectRequest()` constructs it |
 | CMD 0x01 CONNECT | §4 | **Compliant** | Full CONNECT flow: resolve → filter → upstream connect → relay |
-| CMD 0x02 BIND | §4 | **Compliant** | `SOCKSProtocolHandler.handleBind()` creates `SOCKSBindRelay` for single-use accept; see BIND procedure below |
-| CMD 0x03 UDP ASSOCIATE | §4, §7 | **Compliant** | `SOCKSProtocolHandler.handleUDPAssociate()` creates `SOCKSUDPRelay` with per-association UDP ports; see §7 below |
+| CMD 0x02 BIND | §4 | **Compliant** | `SocksProtocolHandler.handleBind()` creates `SocksBindRelay` for single-use accept; see BIND procedure below |
+| CMD 0x03 UDP ASSOCIATE | §4, §7 | **Compliant** | `SocksProtocolHandler.handleUDPAssociate()` creates `SocksUdpRelay` with per-association UDP ports; see §7 below |
 | RSV byte MUST be 0x00 | §4 | **Compliant** | Consumed and ignored on parse; set to 0x00 on send |
-| Reply after CONNECT success: relay data bidirectionally | §4 | **Compliant** | `SOCKSRelay` handles bidirectional forwarding after success reply |
+| Reply after CONNECT success: relay data bidirectionally | §4 | **Compliant** | `SocksRelay` handles bidirectional forwarding after success reply |
 
 #### Section 4 — BIND procedure
 
@@ -2132,17 +2132,17 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 |-------------|---------|--------|-------|
 | BIND request uses same format as CONNECT (VER + CMD + RSV + ATYP + DST.ADDR + DST.PORT) | §4 | **Compliant** | Parsed by the same `handleSOCKS5Request()` / `handleSOCKS4Request()` code paths |
 | DST.ADDR and DST.PORT used to evaluate the BIND request | §4 | **Compliant** | DST.ADDR used for incoming peer IP validation; custom `BindHandler` receives the full request |
-| First reply: BND.ADDR/BND.PORT of the listen socket | §4 | **Compliant** | `SOCKSBindRelay.start()` binds ephemeral port; reply sent via `sendSOCKS5ReplyWithPort` / `sendSOCKS4ReplyWithAddr` |
+| First reply: BND.ADDR/BND.PORT of the listen socket | §4 | **Compliant** | `SocksBindRelay.start()` binds ephemeral port; reply sent via `sendSOCKS5ReplyWithPort` / `sendSOCKS4ReplyWithAddr` |
 | Second reply: BND.ADDR/BND.PORT of the connecting peer | §4 | **Compliant** | Sent in `onBindAccepted()` with the accepted peer's address and port |
-| After second reply: bidirectional relay | §4 | **Compliant** | Standard `SOCKSRelay` handles data forwarding with backpressure and metrics |
-| Server validates incoming peer IP against DST.ADDR | §4 | **Compliant** | `SOCKSBindRelay.accepted()` validates source IP unless DST.ADDR was 0.0.0.0 |
+| After second reply: bidirectional relay | §4 | **Compliant** | Standard `SocksRelay` handles data forwarding with backpressure and metrics |
+| Server validates incoming peer IP against DST.ADDR | §4 | **Compliant** | `SocksBindRelay.accepted()` validates source IP unless DST.ADDR was 0.0.0.0 |
 
 #### Section 5 — Addressing
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | ATYP 0x01 — IPv4 (4 octets) | §5 | **Compliant** | Server and client both handle IPv4 addresses |
-| ATYP 0x03 — DOMAINNAME (1-octet length + FQDN) | §5 | **Compliant** | Server resolves via async `DNSResolver`; client sends for proxy-side resolution |
+| ATYP 0x03 — DOMAINNAME (1-octet length + FQDN) | §5 | **Compliant** | Server resolves via async `DnsResolver`; client sends for proxy-side resolution |
 | ATYP 0x04 — IPv6 (16 octets) | §5 | **Compliant** | Server and client both handle IPv6 addresses |
 | Unrecognized ATYP | §5 | **Compliant** | Server replies REP=0x08 (address type not supported); client reports error |
 
@@ -2150,14 +2150,14 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Reply format: VER + REP + RSV + ATYP + BND.ADDR + BND.PORT | §6 | **Compliant** | `SOCKSProtocolHandler.sendSOCKS5Reply()` constructs full reply |
+| Reply format: VER + REP + RSV + ATYP + BND.ADDR + BND.PORT | §6 | **Compliant** | `SocksProtocolHandler.sendSOCKS5Reply()` constructs full reply |
 | REP 0x00 — succeeded | §6 | **Compliant** | Sent after upstream connection established |
 | REP 0x01 — general SOCKS server failure | §6 | **Compliant** | Used when max relays exceeded or upstream I/O error |
 | REP 0x02 — connection not allowed by ruleset | §6 | **Compliant** | Used when CIDR destination filter blocks the request |
-| REP 0x03 — network unreachable | §6 | **Defined** | Constant defined in `SOCKSConstants` |
+| REP 0x03 — network unreachable | §6 | **Defined** | Constant defined in `SocksConstants` |
 | REP 0x04 — host unreachable | §6 | **Compliant** | Used when DNS resolution fails |
 | REP 0x05 — connection refused | §6 | **Compliant** | Used when upstream connect fails |
-| REP 0x06 — TTL expired | §6 | **Defined** | Constant defined in `SOCKSConstants` |
+| REP 0x06 — TTL expired | §6 | **Defined** | Constant defined in `SocksConstants` |
 | REP 0x07 — command not supported | §6 | **Compliant** | Used for unrecognized command values |
 | REP 0x08 — address type not supported | §6 | **Compliant** | Used for unrecognized ATYP values |
 | BND.ADDR + BND.PORT in success reply | §6 | **Compliant** | Server-bound address and port included in reply |
@@ -2166,15 +2166,15 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| UDP ASSOCIATE reply contains BND.ADDR + BND.PORT for client-facing UDP | §7 | **Compliant** | `SOCKSProtocolHandler.handleUDPAssociate()` replies with the ephemeral port from `SOCKSUDPRelay` |
-| UDP request header: RSV (2) + FRAG (1) + ATYP (1) + DST.ADDR (variable) + DST.PORT (2) + DATA | §7 | **Compliant** | `SOCKSUDPHeader.parse()` and `SOCKSUDPHeader.encode()` implement the full header codec |
+| UDP ASSOCIATE reply contains BND.ADDR + BND.PORT for client-facing UDP | §7 | **Compliant** | `SocksProtocolHandler.handleUDPAssociate()` replies with the ephemeral port from `SocksUdpRelay` |
+| UDP request header: RSV (2) + FRAG (1) + ATYP (1) + DST.ADDR (variable) + DST.PORT (2) + DATA | §7 | **Compliant** | `SocksUDPHeader.parse()` and `SocksUDPHeader.encode()` implement the full header codec |
 | ATYP 0x01 (IPv4), 0x03 (DOMAINNAME), 0x04 (IPv6) in UDP header | §7 | **Compliant** | All three address types parsed and encoded |
-| FRAG field: implementations not supporting fragmentation MUST drop datagrams with FRAG != 0x00 | §7 | **Compliant** | `SOCKSUDPRelay` silently drops fragmented datagrams per spec |
+| FRAG field: implementations not supporting fragmentation MUST drop datagrams with FRAG != 0x00 | §7 | **Compliant** | `SocksUdpRelay` silently drops fragmented datagrams per spec |
 | Server MUST know expected source IP and drop datagrams from unexpected sources | §7 | **Compliant** | Source IP validated against DST.ADDR from request (or TCP remote address if 0.0.0.0) |
-| Association terminates when TCP control connection terminates | §7 | **Compliant** | `SOCKSProtocolHandler.disconnected()` closes the `SOCKSUDPRelay` when TCP closes |
-| Response datagrams encapsulated with UDP request header (source host as DST.ADDR/DST.PORT) | §7 | **Compliant** | `SOCKSUDPRelay.UpstreamHandler` encapsulates responses via `SOCKSUDPHeader.encode()` |
+| Association terminates when TCP control connection terminates | §7 | **Compliant** | `SocksProtocolHandler.disconnected()` closes the `SocksUdpRelay` when TCP closes |
+| Response datagrams encapsulated with UDP request header (source host as DST.ADDR/DST.PORT) | §7 | **Compliant** | `SocksUdpRelay.UpstreamHandler` encapsulates responses via `SocksUDPHeader.encode()` |
 | Server relays datagrams silently, dropping those it cannot or will not relay | §7 | **Compliant** | Blocked destinations and DNS failures result in silent drop |
-| DOMAINNAME resolution for UDP destinations | §7 | **Compliant** | Async resolution via `DNSResolver.forLoop()` |
+| DOMAINNAME resolution for UDP destinations | §7 | **Compliant** | Async resolution via `DnsResolver.forLoop()` |
 
 ---
 
@@ -2185,10 +2185,10 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | Sub-negotiation version 0x01 | §2 | **Compliant** | `SOCKS5_AUTH_USERPASS_VERSION = 0x01` |
-| Client sends VER + ULEN + UNAME + PLEN + PASSWD | §2 | **Compliant** | `SOCKSProtocolHandler.handleSOCKS5UsernamePassword()` parses; `SOCKSClientHandler.sendUsernamePassword()` sends |
+| Client sends VER + ULEN + UNAME + PLEN + PASSWD | §2 | **Compliant** | `SocksProtocolHandler.handleSOCKS5UsernamePassword()` parses; `SocksClientHandler.sendUsernamePassword()` sends |
 | ULEN: 1–255 octets | §2 | **Compliant** | Length read as unsigned byte |
 | PLEN: 1–255 octets | §2 | **Compliant** | Length read as unsigned byte |
-| Server responds VER + STATUS | §2 | **Compliant** | `SOCKSProtocolHandler.sendSOCKS5AuthResult()` |
+| Server responds VER + STATUS | §2 | **Compliant** | `SocksProtocolHandler.sendSOCKS5AuthResult()` |
 | STATUS 0x00 = success | §2 | **Compliant** | Proceeds to SOCKS5 request phase |
 | STATUS != 0x00 = failure, MUST close connection | §2 | **Compliant** | Server sends failure status and closes; client detects and reports error |
 | Credentials verified against Realm | §2 | **Compliant** | `Realm.passwordMatch()` validates credentials |
@@ -2201,7 +2201,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Frame format: VER(0x01) + MTYP + LEN(2) + TOKEN(var) | §3 | **Compliant** | `SOCKSProtocolHandler.handleSOCKS5GSSAPI()` parses; `sendSOCKS5GSSAPIToken()` constructs |
+| Frame format: VER(0x01) + MTYP + LEN(2) + TOKEN(var) | §3 | **Compliant** | `SocksProtocolHandler.handleSOCKS5GSSAPI()` parses; `sendSOCKS5GSSAPIToken()` constructs |
 | MTYP 0x01 — authentication message | §3 | **Compliant** | `SOCKS5_GSSAPI_MSG_AUTH = 0x01` |
 | MTYP 0x02 — per-message encapsulation | §3, §5 | **Defined** | Constant defined for completeness; per-message encapsulation intentionally unsupported (see §5 below) |
 
@@ -2228,21 +2228,21 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Request: VER(0x04) + CD + DSTPORT(2) + DSTIP(4) + USERID + NULL | §Request | **Compliant** | `SOCKSProtocolHandler.handleSOCKS4Request()` parses; `SOCKSClientHandler.sendSOCKS4Connect()` constructs |
+| Request: VER(0x04) + CD + DSTPORT(2) + DSTIP(4) + USERID + NULL | §Request | **Compliant** | `SocksProtocolHandler.handleSOCKS4Request()` parses; `SocksClientHandler.sendSOCKS4Connect()` constructs |
 | CD=1 CONNECT | §Request | **Compliant** | Full CONNECT flow supported |
-| CD=2 BIND | §Request | **Compliant** | `SOCKSProtocolHandler.handleBind()` creates `SOCKSBindRelay` with `RawAcceptHandler`; two-reply flow with peer validation |
+| CD=2 BIND | §Request | **Compliant** | `SocksProtocolHandler.handleBind()` creates `SocksBindRelay` with `RawAcceptHandler`; two-reply flow with peer validation |
 | USERID null-terminated | §Request | **Compliant** | `readNullTerminatedString()` in ISO 8859-1 encoding |
-| USERID passed through in `SOCKSRequest` | §Request | **Compliant** | Available to `ConnectHandler` for custom authorization |
+| USERID passed through in `SocksRequest` | §Request | **Compliant** | Available to `ConnectHandler` for custom authorization |
 
 #### Reply Format
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Reply: VN(0x00) + CD + DSTPORT(2) + DSTIP(4) | §Reply | **Compliant** | `SOCKSProtocolHandler.sendSOCKS4Reply()` |
+| Reply: VN(0x00) + CD + DSTPORT(2) + DSTIP(4) | §Reply | **Compliant** | `SocksProtocolHandler.sendSOCKS4Reply()` |
 | CD=0x5a (90) — request granted | §Reply | **Compliant** | Sent after successful upstream connection |
 | CD=0x5b (91) — request rejected or failed | §Reply | **Compliant** | Used for all error cases |
-| CD=0x5c (92) — identd not reachable | §Reply | **Defined** | Constant defined in `SOCKSConstants`; not sent (no identd integration) |
-| CD=0x5d (93) — identd userid mismatch | §Reply | **Defined** | Constant defined in `SOCKSConstants`; not sent (no identd integration) |
+| CD=0x5c (92) — identd not reachable | §Reply | **Defined** | Constant defined in `SocksConstants`; not sent (no identd integration) |
+| CD=0x5d (93) — identd userid mismatch | §Reply | **Defined** | Constant defined in `SocksConstants`; not sent (no identd integration) |
 
 ---
 
@@ -2252,8 +2252,8 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 |-------------|---------|--------|-------|
 | DSTIP = 0.0.0.x (x != 0) triggers server-side DNS | — | **Compliant** | `handleSOCKS4Request()` detects magic IP; hostname follows after userid NULL |
 | Hostname appended after USERID NULL terminator | — | **Compliant** | `readNullTerminatedString()` reads hostname |
-| Server resolves hostname before connecting | — | **Compliant** | Async resolution via `DNSResolver.forLoop()` |
-| Client sends 0.0.0.1 + hostname for domain targets | — | **Compliant** | `SOCKSClientHandler.sendSOCKS4Connect()` uses SOCKS4a for unresolvable/IPv6 destinations |
+| Server resolves hostname before connecting | — | **Compliant** | Async resolution via `DnsResolver.forLoop()` |
+| Client sends 0.0.0.1 + hostname for domain targets | — | **Compliant** | `SocksClientHandler.sendSOCKS4Connect()` uses SOCKS4a for unresolvable/IPv6 destinations |
 
 ---
 
@@ -2261,13 +2261,13 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Client method negotiation (SOCKS5) | RFC 1928 §3 | **Compliant** | `SOCKSClientHandler.sendSOCKS5MethodRequest()` offers NO_AUTH and/or USERNAME_PASSWORD |
-| Client username/password auth (SOCKS5) | RFC 1929 §2 | **Compliant** | `SOCKSClientHandler.sendUsernamePassword()` sends sub-negotiation |
-| Client CONNECT request (SOCKS5) | RFC 1928 §4 | **Compliant** | `SOCKSClientHandler.sendSOCKS5ConnectRequest()` with IPv4/IPv6/DOMAINNAME |
-| Client reply parsing (SOCKS5) | RFC 1928 §6 | **Compliant** | `SOCKSClientHandler.handleSOCKS5Reply()` handles all ATYP variants |
-| Client CONNECT request (SOCKS4/4a) | SOCKS4 §Request | **Compliant** | `SOCKSClientHandler.sendSOCKS4Connect()` with SOCKS4a fallback |
-| Client reply parsing (SOCKS4) | SOCKS4 §Reply | **Compliant** | `SOCKSClientHandler.handleSOCKS4Reply()` checks CD=0x5a |
-| Composable handler wrapping | — | **Compliant** | `SOCKSClientHandler` wraps any `ProtocolHandler` for transparent tunneling |
+| Client method negotiation (SOCKS5) | RFC 1928 §3 | **Compliant** | `SocksClientHandler.sendSOCKS5MethodRequest()` offers NO_AUTH and/or USERNAME_PASSWORD |
+| Client username/password auth (SOCKS5) | RFC 1929 §2 | **Compliant** | `SocksClientHandler.sendUsernamePassword()` sends sub-negotiation |
+| Client CONNECT request (SOCKS5) | RFC 1928 §4 | **Compliant** | `SocksClientHandler.sendSOCKS5ConnectRequest()` with IPv4/IPv6/DOMAINNAME |
+| Client reply parsing (SOCKS5) | RFC 1928 §6 | **Compliant** | `SocksClientHandler.handleSOCKS5Reply()` handles all ATYP variants |
+| Client CONNECT request (SOCKS4/4a) | SOCKS4 §Request | **Compliant** | `SocksClientHandler.sendSOCKS4Connect()` with SOCKS4a fallback |
+| Client reply parsing (SOCKS4) | SOCKS4 §Reply | **Compliant** | `SocksClientHandler.handleSOCKS4Reply()` checks CD=0x5a |
+| Composable handler wrapping | — | **Compliant** | `SocksClientHandler` wraps any `ProtocolHandler` for transparent tunneling |
 
 ---
 
@@ -2281,7 +2281,7 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 
 Server-side and client-side, across HTTP/1.1, HTTP/2, and HTTP/3. The
 client is available both as a low-level API per transport
-(`HTTP3ClientHandler#connectUdp`, `HTTPClient#connectUdp`) and as the
+(`Http3ClientHandler#connectUdp`, `HttpClient#connectUdp`) and as the
 high-level `ConnectUdpClient` facade, which negotiates the transport
 automatically (DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN,
 HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
@@ -2295,7 +2295,7 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 | URI Template `/.well-known/masque/udp/{target_host}/{target_port}/` | §3 | **Compliant** | `ConnectUdpTarget.parse()` / `.encode()` |
 | Percent-encoding of target_host (e.g. IPv6 literals) | §3 | **Compliant** | `ConnectUdpTarget` strict percent-decode/encode |
 | HTTP/2 and HTTP/3: Extended CONNECT (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `Stream.acceptConnectUdp()` (H2), `H3Stream.acceptConnectUdp()` (H3); mirrors RFC 8441 WebSocket |
-| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-udp` (RFC 9110 §7.8) | §3 | **Compliant** | `Stream.acceptConnectUdp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HTTPConnectionLike.switchToStreamTunnelMode()` |
+| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-udp` (RFC 9110 §7.8) | §3 | **Compliant** | `Stream.acceptConnectUdp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HttpConnectionLike.switchToStreamTunnelMode()` |
 | 2xx response accepts the request (H2/H3) | §3 | **Compliant** | `200` sent via `sendResponseHeaders`/`flushHeaders` before any datagram relay begins |
 | `Capsule-Protocol: ?1` request header required | §3 | **Compliant** | `Capsule.capsuleProtocolEnabled()`; missing/false header rejected with `400` |
 | Non-2xx / malformed request rejected | §3 | **Compliant** | `ConnectUdpRequestHandler.rejectRequest()`: `400` (malformed), `403` (policy-denied target), `502` (DNS failure or upstream socket error) |
@@ -2304,11 +2304,11 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| HTTP/3: Extended CONNECT request (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `HTTP3ClientHandler.connectUdp()`; mirrors `connectWebSocket()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
-| HTTP/2: Extended CONNECT request | §3 | **Compliant** | `ConnectUdpClient` sends via the generic `HTTPRequest` API (`:protocol` is just another header at that layer), same as `WebSocketClient#connectExtendedConnect`; response handled by `H2ConnectUdpResponseHandler` |
+| HTTP/3: Extended CONNECT request (`:method: CONNECT`, `:protocol: connect-udp`) | §3 | **Compliant** | `Http3ClientHandler.connectUdp()`; mirrors `connectWebSocket()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
+| HTTP/2: Extended CONNECT request | §3 | **Compliant** | `ConnectUdpClient` sends via the generic `HttpRequest` API (`:protocol` is just another header at that layer), same as `WebSocketClient#connectExtendedConnect`; response handled by `H2ConnectUdpResponseHandler` |
 | HTTP/1.1: HTTP Upgrade request (`Upgrade: connect-udp`, RFC 9110 §7.8) | §3 | **Compliant** | `ConnectUdpClientProtocolHandler.handleProtocolSwitch()`, mirroring `WebSocketClientProtocolHandler`'s use of the same extension hook |
 | `Capsule-Protocol: ?1` request header | §3 | **Compliant** | Sent on every transport's request |
-| `2xx`/`101` response accepted, rejection reported as a failure | §3 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler` (ordinary `HTTPResponseHandler`s), `ConnectUdpClientProtocolHandler` (H1.1) |
+| `2xx`/`101` response accepted, rejection reported as a failure | §3 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler` (ordinary `HttpResponseHandler`s), `ConnectUdpClientProtocolHandler` (H1.1) |
 | Automatic transport negotiation | §3 | **Compliant** | `ConnectUdpClient`: DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN, HTTP/1.1 fallback — mirrors `WebSocketClient` |
 
 #### Section 4 — Context IDs and Capsules
@@ -2322,11 +2322,11 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| Client-to-target datagram relay | §5 | **Compliant** | `ConnectUdpRelay.receiveDatagram()` forwards decoded payload to a connected `UDPEndpoint` |
-| Target-to-client datagram relay | §5 | **Compliant** | `ConnectUdpRelay.UpstreamHandler.receive()` re-encodes with Context ID 0 and calls `HTTPResponseState.sendDatagram()` |
+| Client-to-target datagram relay | §5 | **Compliant** | `ConnectUdpRelay.receiveDatagram()` forwards decoded payload to a connected `UdpEndpoint` |
+| Target-to-client datagram relay | §5 | **Compliant** | `ConnectUdpRelay.UpstreamHandler.receive()` re-encodes with Context ID 0 and calls `HttpResponseState.sendDatagram()` |
 | Client-side outbound datagrams | §5 | **Compliant** | `ConnectUdpSession.sendDatagram()`, capsule-framed (RFC 9297 §3.5) on every transport — for HTTP/3 this works whether or not native QUIC DATAGRAM is negotiated |
 | Client-side inbound datagrams | §5 | **Compliant** | `H3ClientConnectUdpResponseHandler`/`H2ConnectUdpResponseHandler`/`ConnectUdpClientProtocolHandler`'s `datagramReceived()`; HTTP/3 delivers via either native QUIC DATAGRAM or the capsule fallback — `H3ClientStream` dispatches both identically |
-| Target address/port fixed for the life of the request (single target, not per-datagram) | §5 | **Compliant** | One `UDPTransportFactory.connect()` upstream socket per accepted request |
+| Target address/port fixed for the life of the request (single target, not per-datagram) | §5 | **Compliant** | One `UdpTransportFactory.connect()` upstream socket per accepted request |
 | Idle relay teardown | §5 | **Compliant** (implementation choice, not RFC-mandated) | `ConnectUdpRelay` closes after a configurable idle timeout (default 5 minutes) with no traffic in either direction |
 | Target approval before relaying | §9 (Security Considerations) | **Compliant** | `ConnectUdpPolicy` — deliberately no permissive default implementation, to avoid an open relay by default |
 
@@ -2342,7 +2342,7 @@ HTTP/1.1 fallback) the same way `WebSocketClient` does for WebSocket.
 
 Server-side and client-side, across HTTP/1.1, HTTP/2, and HTTP/3. The
 client is available both as a low-level API per transport
-(`HTTP3ClientHandler#connectIp`, `HTTPClient#connectIp`) and as the
+(`Http3ClientHandler#connectIp`, `HttpClient#connectIp`) and as the
 high-level `ConnectIpClient` facade, which negotiates the transport
 automatically the same way `ConnectUdpClient`/`WebSocketClient` do.
 
@@ -2362,7 +2362,7 @@ automatically the same way `ConnectUdpClient`/`WebSocketClient` do.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | HTTP/2 and HTTP/3: Extended CONNECT (`:method: CONNECT`, `:protocol: connect-ip`) | §4.4/§4.5 | **Compliant** | `Stream.acceptConnectIp()` (H2), `H3Stream.acceptConnectIp()` (H3) — both share their implementation with `acceptConnectUdp()`, differing only in the `:protocol`/`Upgrade` token |
-| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-ip` (RFC 9110 §7.8) | §4.2 | **Compliant** | `Stream.acceptConnectIp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HTTPConnectionLike.switchToStreamTunnelMode()` |
+| HTTP/1.1: HTTP Upgrade with `Upgrade: connect-ip` (RFC 9110 §7.8) | §4.2 | **Compliant** | `Stream.acceptConnectIp()` HTTP/1.1 branch sends `101 Switching Protocols` and calls `HttpConnectionLike.switchToStreamTunnelMode()` |
 | 2xx response accepts the request (H2/H3) | §4.4/§4.5 | **Compliant** | `200` sent via `sendResponseHeaders`/`flushHeaders` before any packet forwarding begins |
 | `Capsule-Protocol: ?1` request header required | §4.2–4.5 | **Compliant** | `Capsule.capsuleProtocolEnabled()`; missing/false header rejected with `400` |
 | Non-2xx / malformed request rejected | §4 | **Compliant** | `ConnectIpRequestHandler`: `400` (malformed), `403` (policy-denied target) |
@@ -2371,11 +2371,11 @@ automatically the same way `ConnectUdpClient`/`WebSocketClient` do.
 
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
-| HTTP/3: Extended CONNECT request | §4.4 | **Compliant** | `HTTP3ClientHandler.connectIp()`; mirrors `connectUdp()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
-| HTTP/2: Extended CONNECT request | §4.4 | **Compliant** | `ConnectIpClient` sends via the generic `HTTPRequest` API, same as `ConnectUdpClient#connectExtendedConnect`; response handled by `H2ConnectIpResponseHandler` |
+| HTTP/3: Extended CONNECT request | §4.4 | **Compliant** | `Http3ClientHandler.connectIp()`; mirrors `connectUdp()`'s `SETTINGS_ENABLE_CONNECT_PROTOCOL` gate |
+| HTTP/2: Extended CONNECT request | §4.4 | **Compliant** | `ConnectIpClient` sends via the generic `HttpRequest` API, same as `ConnectUdpClient#connectExtendedConnect`; response handled by `H2ConnectIpResponseHandler` |
 | HTTP/1.1: HTTP Upgrade request (`Upgrade: connect-ip`) | §4.2 | **Compliant** | `ConnectIpClientProtocolHandler.handleProtocolSwitch()`, mirroring `ConnectUdpClientProtocolHandler`'s use of the same extension hook |
 | `Capsule-Protocol: ?1` request header | §4.2–4.5 | **Compliant** | Sent on every transport's request |
-| `2xx`/`101` response accepted, rejection reported as a failure | §4 | **Compliant** | `H3ClientConnectIpResponseHandler`/`H2ConnectIpResponseHandler` (ordinary `HTTPResponseHandler`s), `ConnectIpClientProtocolHandler` (H1.1) |
+| `2xx`/`101` response accepted, rejection reported as a failure | §4 | **Compliant** | `H3ClientConnectIpResponseHandler`/`H2ConnectIpResponseHandler` (ordinary `HttpResponseHandler`s), `ConnectIpClientProtocolHandler` (H1.1) |
 | Automatic transport negotiation | §4 | **Compliant** | `ConnectIpClient`: DNS HTTPS-record discovery, cached Alt-Svc, HTTP/2 ALPN, HTTP/1.1 fallback — mirrors `ConnectUdpClient`/`WebSocketClient` |
 
 #### Section 4.7 — Capsules
@@ -2383,10 +2383,10 @@ automatically the same way `ConnectUdpClient`/`WebSocketClient` do.
 | Requirement | Section | Status | Notes |
 |-------------|---------|--------|-------|
 | `ADDRESS_ASSIGN` (0x01): server-to-client, zero or more `Address` records | §4.7.1 | **Compliant** | `ConnectIpAddress.TYPE_ADDRESS_ASSIGN`, `.encodeList()`/`.decodeList()`; sent via `ConnectIpSession.sendAddressAssign()` |
-| `ADDRESS_REQUEST` (0x02): client-to-server, one or more `Address` records, non-zero unique Request ID | §4.7.2 | **Compliant** | `ConnectIpAddress.TYPE_ADDRESS_REQUEST`; delivered to `IpPacketHandler.addressRequested()` via `ConnectIpRequestHandler.capsuleReceived()`, using `HTTPRequestHandler`'s already-generic capsule-delivery path (RFC 9297) |
+| `ADDRESS_REQUEST` (0x02): client-to-server, one or more `Address` records, non-zero unique Request ID | §4.7.2 | **Compliant** | `ConnectIpAddress.TYPE_ADDRESS_REQUEST`; delivered to `IpPacketHandler.addressRequested()` via `ConnectIpRequestHandler.capsuleReceived()`, using `HttpRequestHandler`'s already-generic capsule-delivery path (RFC 9297) |
 | `ROUTE_ADVERTISEMENT` (0x03): server-to-client, zero or more non-overlapping `IP Address Range` records | §4.7.3 | **Compliant** | `ConnectIpRoute.TYPE_ROUTE_ADVERTISEMENT`, `.encodeList()`/`.decodeList()`; sent via `ConnectIpSession.sendRouteAdvertisement()` |
 | `Address`/`IP Address Range` wire format (Request ID varint, IP Version octet, 32/128-bit address, prefix length/protocol octet) | §4.7.1–4.7.3 | **Compliant** | Exact field widths/order per the RFC's packet diagrams |
-| Unknown capsule types ignored | RFC 9297 §3.2 | **Compliant** | `ConnectIpRequestHandler.capsuleReceived()` only reacts to `ADDRESS_REQUEST`; `HTTPRequestHandler.capsuleReceived()`'s own default is a no-op |
+| Unknown capsule types ignored | RFC 9297 §3.2 | **Compliant** | `ConnectIpRequestHandler.capsuleReceived()` only reacts to `ADDRESS_REQUEST`; `HttpRequestHandler.capsuleReceived()`'s own default is a no-op |
 | Client-side `ADDRESS_ASSIGN`/`ROUTE_ADVERTISEMENT` delivery | §4.7.1/§4.7.3 | **Compliant** | `H3ClientConnectIpResponseHandler.capsuleReceived()` (via `H3ClientStream`'s already-generic per-capsule dispatch), `H2ConnectIpResponseHandler`/`ConnectIpClientProtocolHandler` (manual `CapsuleParser`, since H1.1/H2 have no such generic dispatch) |
 | Client-side `ADDRESS_REQUEST` sending | §4.7.2 | **Compliant** | `ConnectIpClientSession.sendAddressRequest()` on every transport |
 

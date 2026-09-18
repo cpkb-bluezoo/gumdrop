@@ -23,22 +23,23 @@
  * SOCKS proxy server (RFC 1928 SOCKS5, with RFC 1929 username/password
  * authentication and RFC 1961 GSSAPI).
  *
- * <p>{@link org.bluezoo.gumdrop.socks.SOCKSService} is the abstract
- * application service base; {@link
- * org.bluezoo.gumdrop.socks.DefaultSOCKSService} is a ready-to-use
- * implementation; {@link org.bluezoo.gumdrop.socks.SOCKSListener} is the
+ * <p>{@link org.bluezoo.gumdrop.socks.server.SocksServer} owns listeners,
+ * configuration, and {@code compose()}; a bare {@code compose()} with no
+ * session provider is a ready-to-use open proxy; {@link
+ * org.bluezoo.gumdrop.socks.SocksListener} is the
  * TCP transport listener, on port 1080 (plaintext) or 1081 (TLS); {@link
- * org.bluezoo.gumdrop.socks.SOCKSProtocolHandler} drives the handshake
- * and command dispatch, with policy decisions delegated to {@link
- * org.bluezoo.gumdrop.socks.handler}. CONNECT is relayed by {@link
- * org.bluezoo.gumdrop.socks.SOCKSRelay}, BIND by {@link
- * org.bluezoo.gumdrop.socks.SOCKSBindRelay}, and UDP ASSOCIATE by {@link
- * org.bluezoo.gumdrop.socks.SOCKSUDPRelay} (framing datagrams per {@link
- * org.bluezoo.gumdrop.socks.SOCKSUDPHeader}). Authentication runs
+ * org.bluezoo.gumdrop.socks.SocksProtocolHandler} drives the handshake
+ * and command dispatch, with policy decisions delegated to staged
+ * handler/state interfaces alongside {@code SocksServer} in {@link
+ * org.bluezoo.gumdrop.socks.server}. CONNECT is relayed by {@link
+ * org.bluezoo.gumdrop.socks.SocksRelay}, BIND by {@link
+ * org.bluezoo.gumdrop.socks.SocksBindRelay}, and UDP ASSOCIATE by {@link
+ * org.bluezoo.gumdrop.socks.SocksUdpRelay} (framing datagrams per {@link
+ * org.bluezoo.gumdrop.socks.SocksUDPHeader}). Authentication runs
  * through {@link org.bluezoo.gumdrop.auth.Realm}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.socks.SOCKSService
+ * @see org.bluezoo.gumdrop.socks.server.SocksServer
  * @see org.bluezoo.gumdrop.socks.client
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1928">RFC 1928</a>
  * @see <a href="https://datatracker.ietf.org/doc/html/rfc1929">RFC 1929</a>

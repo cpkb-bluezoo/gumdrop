@@ -61,7 +61,7 @@ architecture rather than pulling in a separate client thread model.
 <p>
 The AMQP client follows the same patterns as other Gumdrop clients (Redis,
 LDAP, SMTP). It uses AMQP 0-9-1 framing for wire-level communication, with a
-streaming, no-copy frame parser (<code>AMQPFrameParser</code>) modeled on
+streaming, no-copy frame parser (<code>AmqpFrameParser</code>) modeled on
 Gumdrop's HTTP/2 frame parser, so it never assumes a full frame or message
 body has arrived in a single read.
 </p>
@@ -69,10 +69,10 @@ body has arrived in a single read.
 <h4>Key Components</h4>
 
 <ul>
-<li><code>org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery</code> - the
+<li><code>org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery</code> - the
 recommended entry point: wraps a connection with automatic reconnection and
 topology/consumer replay</li>
-<li><code>org.bluezoo.gumdrop.amqp.client.AMQPClientProtocolHandler</code> -
+<li><code>org.bluezoo.gumdrop.amqp.client.AmqpClientProtocolHandler</code> -
 low-level endpoint handler implementing the AMQP 0-9-1 protocol for a single
 connection (no auto-reconnect)</li>
 <li><code>org.bluezoo.gumdrop.amqp.client.handler.ClientConnection</code> -
@@ -86,9 +86,9 @@ entry point callback fired once, on the first successful connection</li>
 optional callback for connection-lost/reconnecting/recovered lifecycle events</li>
 <li><code>org.bluezoo.gumdrop.amqp.client.handler.ClientHandshake</code> -
 sends credentials via <code>start-ok</code>, either as a PLAIN username/password
-convenience or as an arbitrary <code>SASLClientMechanism</code> (AMQPLAIN,
+convenience or as an arbitrary <code>SaslClientMechanism</code> (AMQPLAIN,
 EXTERNAL, GSSAPI)</li>
-<li>Codec classes (<code>AMQPFrame</code>, <code>AMQPMethod</code>,
+<li>Codec classes (<code>AmqpFrame</code>, <code>AmqpMethod</code>,
 <code>FieldTable</code>, <code>BasicProperties</code>, and per-class method
 codecs such as <code>ExchangeMethods</code>, <code>QueueMethods</code>,
 <code>BasicMethods</code>) - AMQP 0-9-1 wire encoding/decoding</li>
@@ -118,26 +118,26 @@ SelectorLoop thread.
 
 <p>
 Connect to a broker and declare a queue, then start consuming from it, using
-<code>AMQPClientRecovery</code>:
+<code>AmqpClientRecovery</code>:
 </p>
 
 <pre>
-AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
+AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
         .credentials("guest", "guest")
         .virtualHost("/")
         .recoveryListener(myListener); // optional
 
 client.connect(new RecoveryHandler() {
     public void onFirstConnect(ClientConnection connection) {
-        connection.channelOpen(1, new ServerChannelOpenHandler() {
+        connection.channelOpen(1, new ChannelOpenHandler() {
             public void handleChannelOpenOk(ClientChannel channel) {
                 channel.queueDeclare("my-queue", true, false, false, null,
-                        new ServerQueueDeclareHandler() {
+                        new QueueDeclareHandler() {
                             public void handleQueueDeclareOk(
                                     String queue, long msgCount, long consumerCount) { }
                         });
                 channel.basicConsume("my-queue", "", false, false, null,
-                        myDeliveryHandler, new ServerConsumeHandler() {
+                        myDeliveryHandler, new ConsumeHandler() {
                             public void handleConsumeOk(String consumerTag) { }
                         });
             }
@@ -147,7 +147,7 @@ client.connect(new RecoveryHandler() {
 </pre>
 
 <p>
-<code>AMQPClientRecovery</code> hides the full connection handshake
+<code>AmqpClientRecovery</code> hides the full connection handshake
 (protocol header, <code>connection.start</code>/<code>start-ok</code>,
 <code>tune</code>/<code>tune-ok</code>, <code>open</code>/<code>open-ok</code>)
 behind the stored host, port, credentials, virtual host, and TLS
@@ -159,14 +159,14 @@ initial successful connection - subsequent reconnects go straight to replay
 <h3 id="selector-affinity">SelectorLoop Affinity</h3>
 
 <p>
-Like other Gumdrop clients, <code>AMQPClientRecovery</code> can be pinned to
+Like other Gumdrop clients, <code>AmqpClientRecovery</code> can be pinned to
 a specific worker <code>SelectorLoop</code> so that connection I/O runs on
 the same event-loop thread as the code driving it:
 </p>
 
 <pre>
 SelectorLoop loop = ((Request) req).getEndpoint().getSelectorLoop();
-AMQPClientRecovery client = new AMQPClientRecovery(loop, "broker.example.com", 5672)
+AmqpClientRecovery client = new AmqpClientRecovery(loop, "broker.example.com", 5672)
         .credentials("guest", "guest");
 </pre>
 
@@ -190,8 +190,8 @@ Operations exposed on <code>ClientConnection</code>:
 </p>
 
 <ul>
-<li><code>channelOpen(channelId, ServerChannelOpenHandler)</code></li>
-<li><code>close(replyCode, replyText, ServerCloseHandler)</code></li>
+<li><code>channelOpen(channelId, ChannelOpenHandler)</code></li>
+<li><code>close(replyCode, replyText, CloseHandler)</code></li>
 </ul>
 
 <p>
@@ -199,24 +199,24 @@ Operations exposed on <code>ClientChannel</code>:
 </p>
 
 <ul>
-<li><code>close(...)</code> &#8594; <code>ServerChannelCloseHandler</code></li>
-<li><code>exchangeDeclare(...)</code> &#8594; <code>ServerExchangeDeclareHandler</code></li>
-<li><code>queueDeclare(...)</code> &#8594; <code>ServerQueueDeclareHandler</code></li>
-<li><code>queueBind(...)</code> &#8594; <code>ServerQueueBindHandler</code></li>
+<li><code>close(...)</code> &#8594; <code>ChannelCloseHandler</code></li>
+<li><code>exchangeDeclare(...)</code> &#8594; <code>ExchangeDeclareHandler</code></li>
+<li><code>queueDeclare(...)</code> &#8594; <code>QueueDeclareHandler</code></li>
+<li><code>queueBind(...)</code> &#8594; <code>QueueBindHandler</code></li>
 <li><code>basicPublish(exchange, routingKey, mandatory, properties, bodySize)</code>
 - returns a streaming <code>PublishBody</code> writer</li>
-<li><code>basicConsume(queue, consumerTag, noAck, exclusive, arguments, DeliveryHandler, ServerConsumeHandler)</code></li>
-<li><code>basicCancel(consumerTag, ServerCancelHandler)</code></li>
+<li><code>basicConsume(queue, consumerTag, noAck, exclusive, arguments, DeliveryHandler, ConsumeHandler)</code></li>
+<li><code>basicCancel(consumerTag, CancelHandler)</code></li>
 <li><code>basicAck(deliveryTag, multiple)</code>,
 <code>basicNack(deliveryTag, multiple, requeue)</code> (RabbitMQ extension),
 <code>basicReject(deliveryTag, requeue)</code></li>
 <li><code>txSelect</code> / <code>txCommit</code> / <code>txRollback</code>
-&#8594; <code>ServerTxSelectHandler</code> / <code>ServerTxCommitHandler</code> /
-<code>ServerTxRollbackHandler</code></li>
+&#8594; <code>TxSelectHandler</code> / <code>TxCommitHandler</code> /
+<code>TxRollbackHandler</code></li>
 <li><code>setFlowListener(FlowListener)</code> (broker-initiated
 <code>channel.flow</code>, always auto-acknowledged) and
-<code>flow(active, ServerFlowHandler)</code> (client-initiated)</li>
-<li><code>confirmSelect(ServerConfirmSelectHandler)</code> (RabbitMQ
+<code>flow(active, FlowHandler)</code> (client-initiated)</li>
+<li><code>confirmSelect(ConfirmSelectHandler)</code> (RabbitMQ
 extension) and <code>setConfirmListener(ConfirmListener)</code></li>
 </ul>
 
@@ -268,7 +268,7 @@ channel.basicConsume("my-queue", "", false, false, null,
                 }
             }
         },
-        new ServerConsumeHandler() {
+        new ConsumeHandler() {
             @Override
             public void handleConsumeOk(String consumerTag) { }
         });
@@ -286,7 +286,7 @@ transaction round-trip:
 </p>
 
 <pre>
-channel.confirmSelect(new ServerConfirmSelectHandler() {
+channel.confirmSelect(new ConfirmSelectHandler() {
     @Override
     public void handleConfirmSelectOk() {
         channel.setConfirmListener(new ConfirmListener() {
@@ -308,11 +308,11 @@ channel.confirmSelect(new ServerConfirmSelectHandler() {
 
 <p>
 The client supports implicit TLS (AMQPS, typically port 5671), configured on
-<code>AMQPClientRecovery</code> before connecting:
+<code>AmqpClientRecovery</code> before connecting:
 </p>
 
 <pre>
-AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5671)
+AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5671)
         .credentials("guest", "guest")
         .setSecure(true)
         .setKeystoreFile("/path/to/keystore.p12")
@@ -339,7 +339,7 @@ choice fails clearly rather than silently falling back to <code>PLAIN</code>:
 </p>
 
 <pre>
-AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
+AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
         .credentials("appuser", "s3cret")
         .mechanism("AMQPLAIN");
 </pre>
@@ -351,7 +351,7 @@ credentials:
 </p>
 
 <pre>
-AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5671)
+AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5671)
         .setSecure(true)
         .setKeystoreFile(Paths.get("/path/to/client-cert.p12"))
         .setKeystorePass("changeit")
@@ -369,17 +369,17 @@ contact, so it must never run on the connection's own event-loop thread:
 Subject subject = loginWithKeytab("amqp-client@EXAMPLE.COM", "/etc/keytabs/amqp-client.keytab");
 ExecutorService kerberosExecutor = Executors.newSingleThreadExecutor();
 
-AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
+AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
         .mechanism("GSSAPI")
         .gssapiCredentials(subject, "amqp@broker.example.com", kerberosExecutor);
 </pre>
 
 <p>
 For lower-level control (or mechanisms this convenience API doesn't cover),
-<code>ClientHandshake</code> accepts any <code>SASLClientMechanism</code>
-directly — see <code>org.bluezoo.gumdrop.auth.SASLUtils#createClient</code>
-— via <code>startOk(SASLClientMechanism, ServerTuneHandler)</code> or, for
-blocking mechanisms, <code>startOk(SASLClientMechanism, ServerTuneHandler,
+<code>ClientHandshake</code> accepts any <code>SaslClientMechanism</code>
+directly — see <code>org.bluezoo.gumdrop.auth.SaslUtils#createClient</code>
+— via <code>startOk(SaslClientMechanism, TuneHandler)</code> or, for
+blocking mechanisms, <code>startOk(SaslClientMechanism, TuneHandler,
 ExecutorService)</code>. Multi-step mechanisms are handled transparently:
 the client responds to as many <code>connection.secure</code> challenges as
 the broker sends before <code>connection.tune</code>.
@@ -388,7 +388,7 @@ the broker sends before <code>connection.tune</code>.
 <h3 id="recovery">Automatic Connection Recovery</h3>
 
 <p>
-<code>AMQPClientRecovery</code> automatically reconnects when the connection
+<code>AmqpClientRecovery</code> automatically reconnects when the connection
 is lost - whether from a broker-initiated close, a transport error, or an
 <code>IOException</code> at connect time:
 </p>
@@ -411,7 +411,7 @@ current endpoint</li>
 </ul>
 
 <pre>
-AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
+AmqpClientRecovery client = new AmqpClientRecovery("broker.example.com", 5672)
         .credentials("guest", "guest")
         .recoveryPolicy(RecoveryPolicy.exponentialBackoff()
                 .withInitialDelay(1000)
@@ -447,22 +447,22 @@ AMQPClientRecovery client = new AMQPClientRecovery("broker.example.com", 5672)
 <pre>
 public class OrderServlet extends HttpServlet {
 
-    private final AMQPClientRecovery amqp;
+    private final AmqpClientRecovery amqp;
     private volatile ClientChannel channel;
 
     public OrderServlet() {
-        amqp = new AMQPClientRecovery("broker.example.com", 5672)
+        amqp = new AmqpClientRecovery("broker.example.com", 5672)
                 .credentials("app", "secret")
                 .virtualHost("/orders");
         amqp.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(ClientChannel ch) {
                         channel = ch;
                         channel.exchangeDeclare("orders", "topic", true, false,
-                                false, null, new ServerExchangeDeclareHandler() {
+                                false, null, new ExchangeDeclareHandler() {
                                     @Override
                                     public void handleExchangeDeclareOk() { }
                                 });
@@ -495,24 +495,24 @@ public class OrderServlet extends HttpServlet {
 public class OrderWorker {
 
     public void start() {
-        AMQPClientRecovery amqp = new AMQPClientRecovery("broker.example.com", 5672)
+        AmqpClientRecovery amqp = new AmqpClientRecovery("broker.example.com", 5672)
                 .credentials("worker", "secret")
                 .virtualHost("/orders");
 
         amqp.connect(new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(ClientChannel channel) {
                         channel.queueDeclare("order-processing", true, false,
-                                false, null, new ServerQueueDeclareHandler() {
+                                false, null, new QueueDeclareHandler() {
                                     @Override
                                     public void handleQueueDeclareOk(
                                             String queue, long msgCount, long consumerCount) {
                                         channel.queueBind("order-processing", "orders",
                                                 "order.created", null,
-                                                new ServerQueueBindHandler() {
+                                                new QueueBindHandler() {
                                                     @Override
                                                     public void handleQueueBindOk() {
                                                         consume(channel);
@@ -541,7 +541,7 @@ public class OrderWorker {
                         }
                     }
                 },
-                new ServerConsumeHandler() {
+                new ConsumeHandler() {
                     @Override
                     public void handleConsumeOk(String consumerTag) { }
                 });

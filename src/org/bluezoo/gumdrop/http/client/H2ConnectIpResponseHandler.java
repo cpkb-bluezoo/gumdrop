@@ -33,13 +33,13 @@ import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
 /**
  * RFC 9484 -- bridges a generic HTTP/2 Extended CONNECT response ({@link
- * HTTPResponseHandler}) to a {@link ConnectIpEventHandler}/{@link
+ * HttpResponseHandler}) to a {@link ConnectIpEventHandler}/{@link
  * ConnectIpClientSession} pair.
  *
  * <p>Unlike the h3 client (which has its own dedicated {@code
  * H3ClientStream}, and so gets generic per-capsule-type dispatch for
  * free -- see {@code H3ClientConnectIpResponseHandler}), h2 responses
- * route generically through {@link HTTPResponseHandler} with no such
+ * route generically through {@link HttpResponseHandler} with no such
  * dispatch of their own: {@link #responseBodyContent} parses each DATA
  * frame's bytes as Capsule Protocol capsules (RFC 9297 section 3.2)
  * itself, delivering {@link Capsule#TYPE_DATAGRAM} payloads (RFC 9484
@@ -51,28 +51,28 @@ import org.bluezoo.gumdrop.http.HttpDatagramContext;
  * @see ConnectIpClient
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9484">RFC 9484</a>
  */
-class H2ConnectIpResponseHandler extends DefaultHTTPResponseHandler {
+class H2ConnectIpResponseHandler extends DefaultHttpResponseHandler {
 
-    private final HTTPRequest request;
+    private final HttpRequest request;
     private final ConnectIpEventHandler eventHandler;
     private final CapsuleParser capsuleParser = new CapsuleParser();
 
     private boolean opened;
     private boolean failed;
 
-    H2ConnectIpResponseHandler(HTTPRequest request, ConnectIpEventHandler eventHandler) {
+    H2ConnectIpResponseHandler(HttpRequest request, ConnectIpEventHandler eventHandler) {
         this.request = request;
         this.eventHandler = eventHandler;
     }
 
     @Override
-    public void ok(HTTPResponse response) {
+    public void ok(HttpResponse response) {
         // Nothing to do yet -- acceptance is signalled from
         // startResponseBody(), once headers are known complete.
     }
 
     @Override
-    public void error(HTTPResponse response) {
+    public void error(HttpResponse response) {
         failed = true;
         eventHandler.error(new IOException(
                 "CONNECT-IP request failed: " + response.getStatus()));
@@ -145,9 +145,9 @@ class H2ConnectIpResponseHandler extends DefaultHTTPResponseHandler {
      */
     private static class H2ClientConnectIpSession implements ConnectIpClientSession {
 
-        private final HTTPRequest request;
+        private final HttpRequest request;
 
-        H2ClientConnectIpSession(HTTPRequest request) {
+        H2ClientConnectIpSession(HttpRequest request) {
             this.request = request;
         }
 

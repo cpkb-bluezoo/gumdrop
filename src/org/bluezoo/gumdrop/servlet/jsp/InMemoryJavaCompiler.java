@@ -148,7 +148,7 @@ public class InMemoryJavaCompiler {
      * @return the compilation result
      */
     public CompilationResult compile(String className, String sourceCode, 
-                                     Map<Integer, JSPSourceLocation> lineMapping) {
+                                     Map<Integer, JspSourceLocation> lineMapping) {
         
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<JavaFileObject>();
         
@@ -206,7 +206,7 @@ public class InMemoryJavaCompiler {
                 int javaColumn = (int) diagnostic.getColumnNumber();
                 String message = diagnostic.getMessage(null);
                 
-                JSPSourceLocation jspLocation = null;
+                JspSourceLocation jspLocation = null;
                 if (lineMapping != null) {
                     jspLocation = lineMapping.get(javaLine);
                 }
@@ -369,9 +369,9 @@ public class InMemoryJavaCompiler {
         private final int javaLine;
         private final int javaColumn;
         private final String message;
-        private final JSPSourceLocation jspLocation;
+        private final JspSourceLocation jspLocation;
         
-        CompilationError(int javaLine, int javaColumn, String message, JSPSourceLocation jspLocation) {
+        CompilationError(int javaLine, int javaColumn, String message, JspSourceLocation jspLocation) {
             this.javaLine = javaLine;
             this.javaColumn = javaColumn;
             this.message = message;
@@ -393,7 +393,7 @@ public class InMemoryJavaCompiler {
         /**
          * Returns the JSP source location, or null if not mapped.
          */
-        public JSPSourceLocation getJspLocation() {
+        public JspSourceLocation getJspLocation() {
             return jspLocation;
         }
         

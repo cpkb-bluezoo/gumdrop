@@ -107,17 +107,17 @@ public final class MetricJsonSerializer {
         w.writeKey("attributes");
         w.writeStartArray();
 
-        OTLPJsonUtil.writeStringKeyValue(w, "service.name", serviceName);
+        OtlpJsonUtil.writeStringKeyValue(w, "service.name", serviceName);
 
         if (serviceVersion != null) {
-            OTLPJsonUtil.writeStringKeyValue(w, "service.version", serviceVersion);
+            OtlpJsonUtil.writeStringKeyValue(w, "service.version", serviceVersion);
         }
         if (serviceNamespace != null) {
-            OTLPJsonUtil.writeStringKeyValue(w, "service.namespace", serviceNamespace);
+            OtlpJsonUtil.writeStringKeyValue(w, "service.namespace", serviceNamespace);
         }
         if (resourceAttributes != null) {
             for (Map.Entry<String, String> entry : resourceAttributes.entrySet()) {
-                OTLPJsonUtil.writeStringKeyValue(w, entry.getKey(), entry.getValue());
+                OtlpJsonUtil.writeStringKeyValue(w, entry.getKey(), entry.getValue());
             }
         }
 
@@ -249,7 +249,7 @@ public final class MetricJsonSerializer {
         Attributes attrs = point.getAttributes();
         if (attrs != null && !attrs.isEmpty()) {
             w.writeKey("attributes");
-            OTLPJsonUtil.writeAttributes(w, attrs.asList());
+            OtlpJsonUtil.writeAttributes(w, attrs.asList());
         }
 
         w.writeEndObject();
@@ -289,7 +289,7 @@ public final class MetricJsonSerializer {
         Attributes attrs = point.getAttributes();
         if (attrs != null && !attrs.isEmpty()) {
             w.writeKey("attributes");
-            OTLPJsonUtil.writeAttributes(w, attrs.asList());
+            OtlpJsonUtil.writeAttributes(w, attrs.asList());
         }
 
         w.writeKey("min");

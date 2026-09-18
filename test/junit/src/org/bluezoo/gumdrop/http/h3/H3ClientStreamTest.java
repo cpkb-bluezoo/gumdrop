@@ -16,8 +16,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.bluezoo.gumdrop.http.Header;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
-import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
 import org.bluezoo.gumdrop.http.client.PushPromise;
 import org.bluezoo.gumdrop.http.qpack.Decoder;
 import org.bluezoo.gumdrop.http.qpack.SimpleEncoder;
@@ -246,9 +246,9 @@ public class H3ClientStreamTest {
         f.setAccessible(true);
         return f.get(stream);
     }
-    private H3ClientStream createStream(HTTPResponseHandler handler) throws Exception {
+    private H3ClientStream createStream(HttpResponseHandler handler) throws Exception {
         // connection is null: this test exercises response parsing in
-        // isolation, without a real HTTP3ClientHandler/QuicConnection
+        // isolation, without a real Http3ClientHandler/QuicConnection
         // stack -- H3ClientStream tolerates this (see its own source).
         H3ClientStream stream = new H3ClientStream(null, new Decoder(4096), handler);
         setField(stream, "streamId", 1L);
@@ -283,16 +283,16 @@ public class H3ClientStreamTest {
         return ((Enum<?>) f.get(stream)).name();
     }
 
-    private static class StubResponseHandler implements HTTPResponseHandler {
-        HTTPResponse okResponse;
-        HTTPResponse errorResponse;
+    private static class StubResponseHandler implements HttpResponseHandler {
+        HttpResponse okResponse;
+        HttpResponse errorResponse;
         Exception failedException;
         String lastHeaderName;
         String lastHeaderValue;
         final List<String> headerNames = new ArrayList<String>();
 
-        @Override public void ok(HTTPResponse response) { okResponse = response; }
-        @Override public void error(HTTPResponse response) { errorResponse = response; }
+        @Override public void ok(HttpResponse response) { okResponse = response; }
+        @Override public void error(HttpResponse response) { errorResponse = response; }
         @Override public void header(String name, String value) {
             lastHeaderName = name;
             lastHeaderValue = value;

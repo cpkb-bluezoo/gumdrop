@@ -25,7 +25,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link RESPException}.
+ * Unit tests for {@link RespException}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -33,14 +33,14 @@ public class RESPExceptionTest {
 
     @Test
     public void testExceptionMessage() {
-        RESPException ex = new RESPException("Test error message");
+        RespException ex = new RespException("Test error message");
         assertEquals("Test error message", ex.getMessage());
     }
 
     @Test
     public void testExceptionWithCause() {
         IllegalArgumentException cause = new IllegalArgumentException("Original error");
-        RESPException ex = new RESPException("Wrapper message", cause);
+        RespException ex = new RespException("Wrapper message", cause);
 
         assertEquals("Wrapper message", ex.getMessage());
         assertSame(cause, ex.getCause());
@@ -48,17 +48,17 @@ public class RESPExceptionTest {
 
     @Test
     public void testExceptionIsCheckedException() {
-        // RESPException should extend Exception (not RuntimeException)
-        RESPException ex = new RESPException("Test");
+        // RespException should extend Exception (not RuntimeException)
+        RespException ex = new RespException("Test");
         assertTrue(ex instanceof Exception);
         // Verify it's not a RuntimeException by checking its superclass
-        assertFalse(RuntimeException.class.isAssignableFrom(RESPException.class));
+        assertFalse(RuntimeException.class.isAssignableFrom(RespException.class));
     }
 
     @Test
     public void testExceptionHasSerialVersionUID() {
         // Just verify it can be created without issues
-        RESPException ex = new RESPException("Test");
+        RespException ex = new RespException("Test");
         assertNotNull(ex);
     }
 

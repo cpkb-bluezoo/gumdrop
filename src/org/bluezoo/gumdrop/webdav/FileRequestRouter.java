@@ -1,0 +1,117 @@
+/*
+ * FileRequestRouter.java
+ * Copyright (C) 2025, 2026 Chris Burdess
+ */
+
+package org.bluezoo.gumdrop.webdav;
+
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Opens a fresh {@link FileHandler} for each HTTP stream.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4918">RFC 4918</a>
+ */
+public final class FileRequestRouter implements HttpStreamHandler {
+
+    private final Path rootPath;
+    private final boolean allowWrite;
+    private final boolean webdavEnabled;
+    private final String allowedOptions;
+    private final String[] welcomeFiles;
+    private final Map<String, String> contentTypes;
+
+    private final WebDAVLockManager lockManager;
+    private final DeadPropertyStore deadPropertyStore;
+
+    public FileRequestRouter(Path rootPath, boolean allowWrite,
+                      String welcomeFile) {
+        this(rootPath, allowWrite, welcomeFile, false, null);
+    }
+
+    public FileRequestRouter(Path rootPath, boolean allowWrite,
+                      String welcomeFile, boolean webdavEnabled) {
+        this(rootPath, allowWrite, welcomeFile, webdavEnabled, null);
+    }
+
+    public FileRequestRouter(Path rootPath, boolean allowWrite,
+                      String welcomeFile, boolean webdavEnabled,
+                      DeadPropertyStore deadPropertyStore) {
+        this.rootPath = rootPath;
+        this.allowWrite = allowWrite;
+        this.webdavEnabled = webdavEnabled;
+
+        if (webdavEnabled && allowWrite) {
+            this.allowedOptions = "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK";
+        } else if (webdavEnabled) {
+            this.allowedOptions = "OPTIONS, GET, HEAD, PROPFIND";
+        } else if (allowWrite) {
+            this.allowedOptions = "OPTIONS, GET, HEAD, PUT, DELETE";
+        } else {
+            this.allowedOptions = "OPTIONS, GET, HEAD";
+        }
+
+        if (welcomeFile != null && !welcomeFile.trim().isEmpty()) {
+            int fileCount = 1;
+            for (int i = 0; i < welcomeFile.length(); i++) {
+                if (welcomeFile.charAt(i) == ',') {
+                    fileCount++;
+                }
+            }
+            welcomeFiles = new String[fileCount];
+            int fileIndex = 0;
+            int start = 0;
+            int length = welcomeFile.length();
+            while (start <= length && fileIndex < fileCount) {
+                int end = welcomeFile.indexOf(',', start);
+                if (end < 0) {
+                    end = length;
+                }
+                welcomeFiles[fileIndex++] = welcomeFile.substring(start, end).trim();
+                start = end + 1;
+            }
+        } else {
+            welcomeFiles = new String[]{"index.html"};
+        }
+
+        this.contentTypes = new HashMap<String, String>();
+        contentTypes.put("html", "text/html");
+        contentTypes.put("htm", "text/html");
+        contentTypes.put("txt", "text/plain");
+        contentTypes.put("css", "text/css");
+        contentTypes.put("js", "application/javascript");
+        contentTypes.put("json", "application/json");
+        contentTypes.put("xml", "application/xml");
+        contentTypes.put("pdf", "application/pdf");
+        contentTypes.put("jpg", "image/jpeg");
+        contentTypes.put("jpeg", "image/jpeg");
+        contentTypes.put("png", "image/png");
+        contentTypes.put("gif", "image/gif");
+        contentTypes.put("svg", "image/svg+xml");
+        contentTypes.put("ico", "image/x-icon");
+        contentTypes.put("zip", "application/zip");
+        contentTypes.put("jar", "application/java-archive");
+        contentTypes.put("mp3", "audio/mpeg");
+        contentTypes.put("mp4", "video/mp4");
+        contentTypes.put("webm", "video/webm");
+
+        this.lockManager = webdavEnabled
+                ? new WebDAVLockManager() : null;
+        this.deadPropertyStore = deadPropertyStore;
+    }
+
+    @Override
+    public HttpRequestHandler openStream(HttpResponseState stream) {
+        return new FileHandler(rootPath, allowWrite, webdavEnabled,
+                allowedOptions, welcomeFiles, contentTypes,
+                lockManager, deadPropertyStore);
+    }
+
+}

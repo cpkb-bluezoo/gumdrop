@@ -13,24 +13,24 @@ public class HTTPUtilsSecurityTest {
 
     @Test
     public void testChunkedAsFinalCoding() {
-        assertTrue(HTTPUtils.isChunkedTransferEncoding("chunked"));
-        assertFalse(HTTPUtils.isChunkedTransferEncoding("gzip, chunked"));
-        assertFalse(HTTPUtils.isChunkedTransferEncoding("chunked, gzip"));
-        assertFalse(HTTPUtils.isChunkedTransferEncoding("xchunked"));
+        assertTrue(HttpUtils.isChunkedTransferEncoding("chunked"));
+        assertFalse(HttpUtils.isChunkedTransferEncoding("gzip, chunked"));
+        assertFalse(HttpUtils.isChunkedTransferEncoding("chunked, gzip"));
+        assertFalse(HttpUtils.isChunkedTransferEncoding("xchunked"));
     }
 
     @Test
     public void testValidateContentLengthSimple() {
-        assertEquals(100, HTTPUtils.validateContentLength("100"));
+        assertEquals(100, HttpUtils.validateContentLength("100"));
     }
 
     @Test
     public void testValidateContentLengthMultipleDifferent() {
-        assertEquals(-1, HTTPUtils.validateContentLength("100, 200"));
+        assertEquals(-1, HttpUtils.validateContentLength("100, 200"));
     }
 
     @Test
     public void testValidateContentLengthMultipleEqual() {
-        assertEquals(200, HTTPUtils.validateContentLength("200, 200"));
+        assertEquals(200, HttpUtils.validateContentLength("200, 200"));
     }
 }

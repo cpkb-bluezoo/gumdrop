@@ -5,5 +5,5 @@ module org.bluezoo.gumdrop.socks {
 
     exports org.bluezoo.gumdrop.socks;
     exports org.bluezoo.gumdrop.socks.client;
-    exports org.bluezoo.gumdrop.socks.handler;
+    exports org.bluezoo.gumdrop.socks.server;
 }

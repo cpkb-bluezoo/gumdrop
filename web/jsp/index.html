@@ -102,7 +102,7 @@ features like JSP property groups, taglib processing, and automatic includes.
         <li>XML expression elements (<code>&lt;jsp:expression&gt;</code>)</li>
         <li>Automatic format detection and appropriate parser selection</li>
     </ul>
-    <p><strong>What you'll learn:</strong> How Gumdrop's JSPParserFactory automatically detects 
+    <p><strong>What you'll learn:</strong> How Gumdrop's JspParserFactory automatically detects 
        JSP format and uses either TraditionalJSPParser or XMLJSPParser, both generating 
        identical servlet code from different syntax formats.</p>
 </div>
@@ -121,7 +121,7 @@ features like JSP property groups, taglib processing, and automatic includes.
     <p><strong>What you'll learn:</strong> How Gumdrop's JSP implementation enforces 
        configuration-based restrictions during parsing, providing administrators control 
        over script usage for security and architectural compliance.</p>
-    <p><strong>Expected Result:</strong> <em>JSPParseException: Scripting is disabled for this JSP page</em></p>
+    <p><strong>Expected Result:</strong> <em>JspParseException: Scripting is disabled for this JSP page</em></p>
 </div>
 
 <div class="example-card">
@@ -154,7 +154,7 @@ features like JSP property groups, taglib processing, and automatic includes.
         <li>Shared variable and method declarations</li>
         <li>Performance timing and request information</li>
     </ul>
-    <p><strong>What you'll learn:</strong> How Gumdrop's JSPPropertyGroupResolver handles 
+    <p><strong>What you'll learn:</strong> How Gumdrop's JspPropertyGroupResolver handles 
        multiple property groups, applies preludes and codas cumulatively, and integrates 
        them seamlessly into the generated servlet code.</p>
 </div>
@@ -192,8 +192,8 @@ different aspects of JSP configuration:</p>
     <h3>🏗️ Gumdrop JSP Architecture</h3>
     <p>Gumdrop's JSP implementation provides a complete JSP 2.0+ processing pipeline:</p>
     <ol>
-        <li><strong>JSPPropertyGroupResolver:</strong> Matches URLs to configuration and merges properties</li>
-        <li><strong>JSPParserFactory:</strong> Auto-detects JSP format and selects appropriate parser</li>
+        <li><strong>JspPropertyGroupResolver:</strong> Matches URLs to configuration and merges properties</li>
+        <li><strong>JspParserFactory:</strong> Auto-detects JSP format and selects appropriate parser</li>
         <li><strong>Dual Parser Architecture:</strong> TraditionalJSPParser and XMLJSPParser with automatic format detection</li>
         <li><strong>AST Generation:</strong> Creates in-memory representation of JSP structure</li>
         <li><strong>TaglibRegistry:</strong> Resolves taglib URIs and processes TLD files</li>
@@ -220,10 +220,10 @@ different aspects of JSP configuration:</p>
 directory, including:</p>
 
 <ul>
-    <li><code>JSPParser</code> interface and implementations</li>
-    <li><code>JSPPropertyGroupResolver</code> for configuration processing</li>
+    <li><code>JspParser</code> interface and implementations</li>
+    <li><code>JspPropertyGroupResolver</code> for configuration processing</li>
     <li><code>TaglibRegistry</code> and <code>TldParser</code> for custom tag support</li>
-    <li><code>JSPCodeGenerator</code> for servlet code generation</li>
+    <li><code>JspCodeGenerator</code> for servlet code generation</li>
     <li>Complete AST element hierarchy for JSP representation</li>
 </ul>
 

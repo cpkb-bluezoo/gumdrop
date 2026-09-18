@@ -23,13 +23,13 @@ package org.bluezoo.gumdrop.smtp.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.smtp.DeliveryRequirements;
-import org.bluezoo.gumdrop.smtp.SMTPPipeline;
-import org.bluezoo.gumdrop.smtp.SMTPService;
-import org.bluezoo.gumdrop.smtp.handler.*;
+import org.bluezoo.gumdrop.smtp.SmtpPipeline;
+import org.bluezoo.gumdrop.smtp.server.SmtpServer;
+import org.bluezoo.gumdrop.smtp.server.*;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -59,7 +59,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class AcceptAllService extends SMTPService {
+public class AcceptAllService extends SmtpServer {
 
     private static final Logger logger =
             Logger.getLogger(AcceptAllService.class.getName());
@@ -76,7 +76,7 @@ public class AcceptAllService extends SMTPService {
     private String expectedPassword = "testpass";
 
     @Override
-    protected ClientConnected createHandler(TCPListener endpoint) {
+    public ClientConnected openSession(TcpListener endpoint) {
         return new AcceptAllHandler();
     }
 
@@ -217,7 +217,7 @@ public class AcceptAllService extends SMTPService {
         // ── MailFromHandler ──
 
         @Override
-        public SMTPPipeline getPipeline() {
+        public SmtpPipeline getPipeline() {
             return null;
         }
 

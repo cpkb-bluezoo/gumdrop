@@ -28,10 +28,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.HTTPVersion;
-import org.bluezoo.gumdrop.http.h3.HTTP3Listener;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.http.h3.Http3Listener;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -42,7 +44,7 @@ import org.junit.rules.Timeout;
 import static org.junit.Assert.*;
 
 /**
- * Proves the second tier of {@link HTTPClient}'s automatic transport
+ * Proves the second tier of {@link HttpClient}'s automatic transport
  * negotiation (a cached {@link AltSvcCache} h3 discovery) actually drives a
  * real connection to the production HTTP/3 stack -- not merely that the
  * cache/parsing logic is correct in isolation.
@@ -73,7 +75,7 @@ public class HTTP3AutoNegotiationIntegrationTest {
             .build();
 
     private static Gumdrop gumdrop;
-    private static HTTP3Listener listener;
+    private static Http3Listener listener;
 
     @BeforeClass
     public static void startServer() throws Exception {
@@ -94,16 +96,15 @@ public class HTTP3AutoNegotiationIntegrationTest {
 
         System.setProperty("gumdrop.workers", "2");
 
-        listener = new HTTP3Listener();
+        listener = new Http3Listener();
         listener.setPort(H3_PORT);
         listener.setAddresses(TEST_HOST);
         listener.setCertFile(pemCert.getAbsolutePath());
         listener.setKeyFile(pemKey.getAbsolutePath());
-        listener.setHandlerFactory(new EchoHandlerFactory());
+        listener.setStreamHandler(new EchoHandlerFactory());
 
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
-        gumdrop.start();
 
         Thread.sleep(1000);
     }
@@ -127,14 +128,14 @@ public class HTTP3AutoNegotiationIntegrationTest {
         // (TEST_HOST:ORIGIN_PORT) advertises h3 on H3_PORT.
         AltSvcCache.put(TEST_HOST, ORIGIN_PORT, null, H3_PORT, 3600);
         try {
-            HTTPClient client = new HTTPClient(TEST_HOST, ORIGIN_PORT);
+            HttpClient client = new HttpClient(TEST_HOST, ORIGIN_PORT);
             // Neither setH3Enabled(true) nor any manual transport choice --
             // this is exactly the "just connect" application code path.
             client.setVerifyPeer(false);
 
             final CountDownLatch connected = new CountDownLatch(1);
             final AtomicReference<Exception> error = new AtomicReference<>();
-            client.connect(new HTTPClientHandler() {
+            client.connect(gumdrop, new HttpClientHandler() {
                 @Override
                 public void onConnected(Endpoint endpoint) {
                 }
@@ -160,7 +161,7 @@ public class HTTP3AutoNegotiationIntegrationTest {
             assertNull("Connection failed: " + error.get(), error.get());
             assertEquals("A cached h3 Alt-Svc entry should have driven an "
                     + "automatic HTTP/3 connection with no explicit setH3Enabled(true)",
-                    HTTPVersion.HTTP_3, client.getVersion());
+                    HttpVersion.HTTP_3, client.getVersion());
 
             client.close();
         } finally {

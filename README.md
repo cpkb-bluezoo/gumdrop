@@ -333,8 +333,9 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - unified socket handler interface
     - extension negotiation framework (RFC 6455 §9) with permessage-deflate
       compression (RFC 7692)
-    - WebSocket over HTTP/3 (RFC 9220) via Extended CONNECT with
-      `HTTP3WebSocketListener`
+    - WebSocket over HTTP/3 (RFC 9220) and HTTP/2 (RFC 8441) via Extended
+      CONNECT, unified with the HTTP/1.1 upgrade path in
+      `WebSocketRequestHandler`
     - configurable maximum message size with close code 1009 enforcement
     - close code validation (RFC 6455 §7.4) rejecting reserved wire codes
     - SecureRandom masking keys (RFC 6455 §5.3)
@@ -365,7 +366,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - QoS 0, 1, 2 publish and subscribe
         - Last Will and Testament
         - MQTT 5.0 version negotiation
-        - MQTTMessageContent delivery for streaming large received payloads
+        - MqttMessageContent delivery for streaming large received payloads
     - OpenTelemetry instrumentation (connections, publishes, subscribes,
       authentication, session duration, payload size)
     - localized log and error messages (English, French, Spanish, German)
@@ -418,8 +419,8 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - configurable max concurrent relays and idle relay timeout
     - fully async, non-blocking — DNS resolution, upstream connect, and
       TLS handshake all handled asynchronously
-    - abstract SOCKSService for custom implementations
-    - DefaultSOCKSService for zero-config operation
+    - abstract SocksServer for custom implementations
+    - DefaultSOCKSServer for zero-config operation
     - composable SOCKS client handler for tunneling any protocol through
       a SOCKS proxy (HTTP, SMTP, IMAP, MQTT, Redis, LDAP, etc.)
 - OpenTelemetry
@@ -447,7 +448,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
         - OAUTHBEARER (requires TLS)
         - GSSAPI/Kerberos (RFC 4752) — keytab-based, event-loop safe
         - EXTERNAL for TLS client certificates
-- LDAP client and LDAPRealm
+- LDAP client and LdapRealm
     - fully asynchronous LDAPv3 client (RFC 4511)
     - simple bind (RFC 4513 §5.1) and SASL bind (RFC 4513 §5.2)
         - PLAIN, CRAM-MD5, DIGEST-MD5, EXTERNAL — all non-blocking
@@ -456,7 +457,7 @@ Gumdrop is essentially at parity with Netty on plaintext HTTP/1.1 and JSON, ahea
     - search, modify, add, delete, compare, modifyDN, extended operations
     - abandon, controls (request/response), unsolicited notifications
     - intermediate response handling, full search filter support (~=, :=)
-    - LDAPRealm for LDAP-backed authentication across all protocols
+    - LdapRealm for LDAP-backed authentication across all protocols
         - search-then-bind pattern with configurable user filter
         - role/group membership via memberOf attribute
         - certificate-to-user mapping (binary or subject DN mode)
@@ -493,11 +494,11 @@ There is extensive documentation for all Gumdrop features:
 - [Javadoc package and class documentation](https://cpkb-bluezoo.github.io/gumdrop/doc/)
 - [RFC compliance matrix](RFC-COMPLIANCE.md) showing extent of support for mandatory and optional RFC features
 - [Framework comparison](docs/FRAMEWORK-COMPARISON.md) — deployment size and speed vs Netty, Jetty, Tomcat, Spring Boot
-- [Container & cloud deployment](docs/CONTAINER-DEPLOYMENT.md) — Docker/Kubernetes, graceful drain, health endpoint, resource-safety knobs, and horizontal-scale constraints
+- [Cloud container deployment](docs/CONTAINER-DEPLOYMENT.md) — Docker/Podman/Kubernetes for custom Gumdrop apps and the optional servlet-container image; lifecycle, sizing, and scaling (local servlet smoke: [BUILDING.md](BUILDING.md))
 
 ## Configuration
 
-See the [Configuration documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on configuration including `gumdroprc`, dependency injection, and component wiring. For the in-tree TLS/DTLS stack (versions, cipher suites, ALPN, SNI, mTLS), see [TLS & DTLS](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html). For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls).
+See the [Composition documentation](https://cpkb-bluezoo.github.io/gumdrop/web/configuration.html) for details on assembling servers, listeners, and handlers in Java. For the in-tree TLS/DTLS stack (versions, cipher suites, ALPN, SNI, mTLS), see [TLS & DTLS](https://cpkb-bluezoo.github.io/gumdrop/web/tls.html). For TLS certificates (HTTPS, HTTP/3, local development with mkcert), see the [Security documentation](https://cpkb-bluezoo.github.io/gumdrop/web/security.html#tls).
 
 ## Building and running
 

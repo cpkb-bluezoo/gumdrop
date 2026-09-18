@@ -49,7 +49,7 @@ import java.util.Map;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class StandardActionElement implements JSPElement {
+public class StandardActionElement implements JspElement {
     
     // Standard action names
     public static final String INCLUDE_ACTION = "include";
@@ -63,7 +63,7 @@ public class StandardActionElement implements JSPElement {
     private final Map<String, String> attributes;
     private final int lineNumber;
     private final int columnNumber;
-    private final List<JSPElement> children = new ArrayList<>();
+    private final List<JspElement> children = new ArrayList<>();
     
     /**
      * Creates a new standard action element.
@@ -165,7 +165,7 @@ public class StandardActionElement implements JSPElement {
      *
      * @param child the child element
      */
-    public void addChild(JSPElement child) {
+    public void addChild(JspElement child) {
         children.add(child);
     }
 
@@ -174,12 +174,12 @@ public class StandardActionElement implements JSPElement {
      *
      * @return an unmodifiable list of child elements
      */
-    public List<JSPElement> getChildren() {
+    public List<JspElement> getChildren() {
         return Collections.unmodifiableList(children);
     }
 
     @Override
-    public void accept(JSPElementVisitor visitor) throws Exception {
+    public void accept(JspElementVisitor visitor) throws Exception {
         visitor.visitStandardAction(this);
     }
     

@@ -62,7 +62,7 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4918#section-4">RFC 4918 section 4</a>
  */
-final class DeadPropertyStore {
+public final class DeadPropertyStore {
 
     private static final Logger LOGGER =
             Logger.getLogger(DeadPropertyStore.class.getName());
@@ -87,7 +87,7 @@ final class DeadPropertyStore {
     static final String PROPS_ATTR_XML = "xml";
 
     /** Storage mode. */
-    enum Mode {
+    public enum Mode {
         /** Try xattr first, fall back to sidecar. */
         AUTO,
         /** Only use extended attributes. */
@@ -101,8 +101,9 @@ final class DeadPropertyStore {
     private Mode mode = Mode.AUTO;
     private boolean xattrSupported;
     private boolean xattrChecked;
+    private volatile Gumdrop gumdrop;
 
-    DeadPropertyStore() {
+    public DeadPropertyStore() {
     }
 
     /**
@@ -110,8 +111,21 @@ final class DeadPropertyStore {
      *
      * @param mode the storage mode
      */
-    void setMode(Mode mode) {
+    public void setMode(Mode mode) {
         this.mode = mode;
+    }
+
+    /**
+     * Sets the runtime whose {@link StorageExecutor} backs blocking
+     * dead-property work. Called by {@link FileHandler} on every request
+     * (this store is shared across the connections a single {@code
+     * FileHandler} configuration serves, so it has no owning connection
+     * of its own to read this from).
+     *
+     * @param gumdrop the owning runtime, or null if none is running
+     */
+    void setGumdrop(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
     }
 
     /**
@@ -119,7 +133,7 @@ final class DeadPropertyStore {
      *
      * @return the storage mode
      */
-    Mode getMode() {
+    public Mode getMode() {
         return mode;
     }
 
@@ -400,7 +414,7 @@ final class DeadPropertyStore {
      */
     private void runOnStorage(final DeadPropertyCallback callback,
                               final Runnable work) {
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        Gumdrop gumdrop = this.gumdrop;
         StorageExecutor exec =
                 (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {
@@ -413,7 +427,7 @@ final class DeadPropertyStore {
             return;
         }
         // Dispatch callbacks on the storage thread: this class has no
-        // HTTPResponseState; FileHandler already tolerates dead-property
+        // HttpResponseState; FileHandler already tolerates dead-property
         // callbacks off the SelectorLoop (same as AFC completions today).
         Executor inline = new Executor() {
             @Override

@@ -21,10 +21,10 @@
 
 package org.bluezoo.gumdrop.ftp.file;
 
-import org.bluezoo.gumdrop.ftp.FTPConnectionMetadata;
-import org.bluezoo.gumdrop.ftp.FTPFileInfo;
-import org.bluezoo.gumdrop.ftp.FTPFileOperationResult;
-import org.bluezoo.gumdrop.ftp.FTPFileSystem;
+import org.bluezoo.gumdrop.ftp.FtpConnectionMetadata;
+import org.bluezoo.gumdrop.ftp.FtpFileInfo;
+import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
+import org.bluezoo.gumdrop.ftp.FtpFileSystem;
 
 import java.io.File;
 import java.io.IOException;
@@ -48,7 +48,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Concrete {@link FTPFileSystem} backed by the local OS file system.
+ * Concrete {@link FtpFileSystem} backed by the local OS file system.
  * Implements the NVFS (RFC 959 section 2.2) and TVFS (RFC 3659 section 6)
  * semantics with a chrooted root directory.
  *
@@ -70,7 +70,7 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class BasicFTPFileSystem implements FTPFileSystem {
+public class BasicFTPFileSystem implements FtpFileSystem {
     
     private static final Logger LOGGER = Logger.getLogger(BasicFTPFileSystem.class.getName());
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
@@ -207,7 +207,7 @@ public class BasicFTPFileSystem implements FTPFileSystem {
     }
     
     @Override
-    public List<FTPFileInfo> listDirectory(String path, FTPConnectionMetadata metadata) {
+    public List<FtpFileInfo> listDirectory(String path, FtpConnectionMetadata metadata) {
         try {
             Path dirPath = resolveSecurePath(path);
             
@@ -225,13 +225,13 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                 return null;
             }
             
-            List<FTPFileInfo> files = new ArrayList<>();
+            List<FtpFileInfo> files = new ArrayList<>();
             
             File[] children = dirPath.toFile().listFiles();
             if (children != null) {
                 for (File child : children) {
                     try {
-                        FTPFileInfo fileInfo = createFileInfo(child.toPath());
+                        FtpFileInfo fileInfo = createFileInfo(child.toPath());
                         if (fileInfo != null) {
                             files.add(fileInfo);
                         }
@@ -266,7 +266,7 @@ public class BasicFTPFileSystem implements FTPFileSystem {
     private static final String FALLBACK_GROUP = "users";
 
     /**
-     * Creates FTPFileInfo from a local file path.
+     * Creates FtpFileInfo from a local file path.
      *
      * <p>Uses a single {@link Files#readAttributes(Path, Class, java.nio.file.LinkOption...)}
      * call to get type, size, mtime, owner, group, and real POSIX mode bits
@@ -280,7 +280,7 @@ public class BasicFTPFileSystem implements FTPFileSystem {
      * approximation (still only 3 access calls instead of 7) on filesystems
      * without POSIX attribute support.
      */
-    private FTPFileInfo createFileInfo(Path filePath) throws IOException {
+    private FtpFileInfo createFileInfo(Path filePath) throws IOException {
         try {
             PosixFileAttributes attrs =
                     Files.readAttributes(filePath, PosixFileAttributes.class);
@@ -293,9 +293,9 @@ public class BasicFTPFileSystem implements FTPFileSystem {
             Instant lastModified = attrs.lastModifiedTime().toInstant();
 
             if (attrs.isDirectory()) {
-                return new FTPFileInfo(name, lastModified, owner, group, permissions);
+                return new FtpFileInfo(name, lastModified, owner, group, permissions);
             }
-            return new FTPFileInfo(name, attrs.size(), lastModified, owner, group, permissions);
+            return new FtpFileInfo(name, attrs.size(), lastModified, owner, group, permissions);
         } catch (NoSuchFileException e) {
             return null;
         } catch (UnsupportedOperationException e) {
@@ -309,7 +309,7 @@ public class BasicFTPFileSystem implements FTPFileSystem {
      * (approximated, process-access-based) permission string rather than
      * the original 4 stats + 7 access checks.
      */
-    private FTPFileInfo createFileInfoFallback(Path filePath) throws IOException {
+    private FtpFileInfo createFileInfoFallback(Path filePath) throws IOException {
         BasicFileAttributes attrs;
         try {
             attrs = Files.readAttributes(filePath, BasicFileAttributes.class);
@@ -328,14 +328,14 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                 + (r ? 'r' : '-') + '-' + '-';
 
         if (attrs.isDirectory()) {
-            return new FTPFileInfo(name, lastModified, FALLBACK_OWNER, FALLBACK_GROUP, permissions);
+            return new FtpFileInfo(name, lastModified, FALLBACK_OWNER, FALLBACK_GROUP, permissions);
         }
-        return new FTPFileInfo(name, attrs.size(), lastModified, FALLBACK_OWNER, FALLBACK_GROUP, permissions);
+        return new FtpFileInfo(name, attrs.size(), lastModified, FALLBACK_OWNER, FALLBACK_GROUP, permissions);
     }
     
     @Override
     public DirectoryChangeResult changeDirectory(String path, String currentDirectory, 
-                                               FTPConnectionMetadata metadata) {
+                                               FtpConnectionMetadata metadata) {
         try {
             // Handle relative paths
             String targetPath;
@@ -351,11 +351,11 @@ public class BasicFTPFileSystem implements FTPFileSystem {
             Path dirPath = resolveSecurePath(targetPath);
             
             if (!Files.exists(dirPath)) {
-                return new DirectoryChangeResult(FTPFileOperationResult.NOT_FOUND, currentDirectory);
+                return new DirectoryChangeResult(FtpFileOperationResult.NOT_FOUND, currentDirectory);
             }
             
             if (!Files.isDirectory(dirPath)) {
-                return new DirectoryChangeResult(FTPFileOperationResult.IS_FILE, currentDirectory);
+                return new DirectoryChangeResult(FtpFileOperationResult.IS_FILE, currentDirectory);
             }
             
             // Convert back to FTP path format
@@ -365,19 +365,19 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                 LOGGER.fine("Changed directory from " + currentDirectory + " to " + newFtpPath);
             }
             
-            return new DirectoryChangeResult(FTPFileOperationResult.SUCCESS, newFtpPath);
+            return new DirectoryChangeResult(FtpFileOperationResult.SUCCESS, newFtpPath);
             
         } catch (SecurityException e) {
             LOGGER.log(Level.WARNING, "Security violation in changeDirectory: " + path, e);
-            return new DirectoryChangeResult(FTPFileOperationResult.ACCESS_DENIED, currentDirectory);
+            return new DirectoryChangeResult(FtpFileOperationResult.ACCESS_DENIED, currentDirectory);
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Error changing directory: " + path, e);
-            return new DirectoryChangeResult(FTPFileOperationResult.FILE_SYSTEM_ERROR, currentDirectory);
+            return new DirectoryChangeResult(FtpFileOperationResult.FILE_SYSTEM_ERROR, currentDirectory);
         }
     }
     
     @Override
-    public FTPFileInfo getFileInfo(String path, FTPConnectionMetadata metadata) {
+    public FtpFileInfo getFileInfo(String path, FtpConnectionMetadata metadata) {
         try {
             Path filePath = resolveSecurePath(path);
             return createFileInfo(filePath);
@@ -390,16 +390,16 @@ public class BasicFTPFileSystem implements FTPFileSystem {
     }
     
     @Override
-    public FTPFileOperationResult createDirectory(String path, FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult createDirectory(String path, FtpConnectionMetadata metadata) {
         if (readOnly) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
         
         try {
             Path dirPath = resolveSecurePath(path);
             
             if (Files.exists(dirPath)) {
-                return FTPFileOperationResult.ALREADY_EXISTS;
+                return FtpFileOperationResult.ALREADY_EXISTS;
             }
             
             Files.createDirectories(dirPath);
@@ -408,41 +408,41 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                 LOGGER.fine("Created directory: " + path);
             }
             
-            return FTPFileOperationResult.SUCCESS;
+            return FtpFileOperationResult.SUCCESS;
             
         } catch (SecurityException e) {
             LOGGER.log(Level.WARNING, "Security violation in createDirectory: " + path, e);
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error creating directory: " + path, e);
-            return FTPFileOperationResult.FILE_SYSTEM_ERROR;
+            return FtpFileOperationResult.FILE_SYSTEM_ERROR;
         }
     }
     
     @Override
-    public FTPFileOperationResult removeDirectory(String path, FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult removeDirectory(String path, FtpConnectionMetadata metadata) {
         if (readOnly) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
         
         try {
             Path dirPath = resolveSecurePath(path);
             
             if (!Files.exists(dirPath)) {
-                return FTPFileOperationResult.NOT_FOUND;
+                return FtpFileOperationResult.NOT_FOUND;
             }
             
             if (!Files.isDirectory(dirPath)) {
-                return FTPFileOperationResult.IS_FILE;
+                return FtpFileOperationResult.IS_FILE;
             }
             
             // Check if directory is empty
             try {
                 if (Files.list(dirPath).findAny().isPresent()) {
-                    return FTPFileOperationResult.DIRECTORY_NOT_EMPTY;
+                    return FtpFileOperationResult.DIRECTORY_NOT_EMPTY;
                 }
             } catch (IOException e) {
-                return FTPFileOperationResult.FILE_SYSTEM_ERROR;
+                return FtpFileOperationResult.FILE_SYSTEM_ERROR;
             }
             
             Files.delete(dirPath);
@@ -451,32 +451,32 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                 LOGGER.fine("Removed directory: " + path);
             }
             
-            return FTPFileOperationResult.SUCCESS;
+            return FtpFileOperationResult.SUCCESS;
             
         } catch (SecurityException e) {
             LOGGER.log(Level.WARNING, "Security violation in removeDirectory: " + path, e);
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error removing directory: " + path, e);
-            return FTPFileOperationResult.FILE_SYSTEM_ERROR;
+            return FtpFileOperationResult.FILE_SYSTEM_ERROR;
         }
     }
     
     @Override
-    public FTPFileOperationResult deleteFile(String path, FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult deleteFile(String path, FtpConnectionMetadata metadata) {
         if (readOnly) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
         
         try {
             Path filePath = resolveSecurePath(path);
             
             if (!Files.exists(filePath)) {
-                return FTPFileOperationResult.NOT_FOUND;
+                return FtpFileOperationResult.NOT_FOUND;
             }
             
             if (Files.isDirectory(filePath)) {
-                return FTPFileOperationResult.IS_DIRECTORY;
+                return FtpFileOperationResult.IS_DIRECTORY;
             }
             
             Files.delete(filePath);
@@ -485,22 +485,22 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                 LOGGER.fine("Deleted file: " + path);
             }
             
-            return FTPFileOperationResult.SUCCESS;
+            return FtpFileOperationResult.SUCCESS;
             
         } catch (SecurityException e) {
             LOGGER.log(Level.WARNING, "Security violation in deleteFile: " + path, e);
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, "Error deleting file: " + path, e);
-            return FTPFileOperationResult.FILE_SYSTEM_ERROR;
+            return FtpFileOperationResult.FILE_SYSTEM_ERROR;
         }
     }
     
     @Override
-    public FTPFileOperationResult rename(String fromPath, String toPath, 
-                                       FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult rename(String fromPath, String toPath, 
+                                       FtpConnectionMetadata metadata) {
         if (readOnly) {
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         }
         
         try {
@@ -508,11 +508,11 @@ public class BasicFTPFileSystem implements FTPFileSystem {
             Path targetFile = resolveSecurePath(toPath);
             
             if (!Files.exists(sourceFile)) {
-                return FTPFileOperationResult.NOT_FOUND;
+                return FtpFileOperationResult.NOT_FOUND;
             }
             
             if (Files.exists(targetFile)) {
-                return FTPFileOperationResult.ALREADY_EXISTS;
+                return FtpFileOperationResult.ALREADY_EXISTS;
             }
             
             Files.move(sourceFile, targetFile);
@@ -521,22 +521,22 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                 LOGGER.fine("Renamed " + fromPath + " to " + toPath);
             }
             
-            return FTPFileOperationResult.SUCCESS;
+            return FtpFileOperationResult.SUCCESS;
             
         } catch (SecurityException e) {
             LOGGER.log(Level.WARNING, MessageFormat.format(
                     L10N.getString("warn.rename_security_violation"), fromPath, toPath), e);
-            return FTPFileOperationResult.ACCESS_DENIED;
+            return FtpFileOperationResult.ACCESS_DENIED;
         } catch (IOException e) {
             LOGGER.log(Level.WARNING, MessageFormat.format(
                     L10N.getString("warn.rename_error"), fromPath, toPath), e);
-            return FTPFileOperationResult.FILE_SYSTEM_ERROR;
+            return FtpFileOperationResult.FILE_SYSTEM_ERROR;
         }
     }
     
     @Override
     public ReadableByteChannel openForReading(String path, long restartOffset, 
-                                            FTPConnectionMetadata metadata) {
+                                            FtpConnectionMetadata metadata) {
         try {
             Path filePath = resolveSecurePath(path);
             
@@ -582,7 +582,7 @@ public class BasicFTPFileSystem implements FTPFileSystem {
     
     @Override
     public WritableByteChannel openForWriting(String path, boolean append, 
-                                            FTPConnectionMetadata metadata) {
+                                            FtpConnectionMetadata metadata) {
         if (readOnly) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.fine("Write denied - file system is read-only: " + path);
@@ -641,7 +641,7 @@ public class BasicFTPFileSystem implements FTPFileSystem {
 
     @Override
     public Path resolvePathForAsyncRead(String path, long restartOffset,
-            FTPConnectionMetadata metadata) {
+            FtpConnectionMetadata metadata) {
         try {
             return resolveSecurePath(path);
         } catch (SecurityException e) {
@@ -653,7 +653,7 @@ public class BasicFTPFileSystem implements FTPFileSystem {
 
     @Override
     public Path resolvePathForAsyncWrite(String path, boolean append,
-            FTPConnectionMetadata metadata) {
+            FtpConnectionMetadata metadata) {
         if (readOnly) {
             // Fall back to the synchronous path, which denies the write.
             return null;
@@ -669,16 +669,16 @@ public class BasicFTPFileSystem implements FTPFileSystem {
 
     @Override
     public UniqueNameResult generateUniqueName(String basePath, String suggestedName, 
-                                             FTPConnectionMetadata metadata) {
+                                             FtpConnectionMetadata metadata) {
         if (readOnly) {
-            return new UniqueNameResult(FTPFileOperationResult.ACCESS_DENIED, null);
+            return new UniqueNameResult(FtpFileOperationResult.ACCESS_DENIED, null);
         }
         
         try {
             Path baseDir = resolveSecurePath(basePath);
             
             if (!Files.exists(baseDir) || !Files.isDirectory(baseDir)) {
-                return new UniqueNameResult(FTPFileOperationResult.NOT_FOUND, null);
+                return new UniqueNameResult(FtpFileOperationResult.NOT_FOUND, null);
             }
             
             // Generate unique filename; strip any path separators from the
@@ -708,13 +708,13 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                            (name + "_" + counter + extension);
                 uniqueFile = baseDir.resolve(uniqueName).normalize();
                 if (!uniqueFile.startsWith(rootPath)) {
-                    return new UniqueNameResult(FTPFileOperationResult.ACCESS_DENIED, null);
+                    return new UniqueNameResult(FtpFileOperationResult.ACCESS_DENIED, null);
                 }
                 counter++;
             } while (Files.exists(uniqueFile) && counter < 10000); // Prevent infinite loops
             
             if (Files.exists(uniqueFile)) {
-                return new UniqueNameResult(FTPFileOperationResult.FILE_SYSTEM_ERROR, null);
+                return new UniqueNameResult(FtpFileOperationResult.FILE_SYSTEM_ERROR, null);
             }
             
             String ftpPath = basePath.endsWith("/") ? 
@@ -725,25 +725,25 @@ public class BasicFTPFileSystem implements FTPFileSystem {
                 LOGGER.fine("Generated unique name: " + ftpPath);
             }
             
-            return new UniqueNameResult(FTPFileOperationResult.SUCCESS, ftpPath);
+            return new UniqueNameResult(FtpFileOperationResult.SUCCESS, ftpPath);
             
         } catch (SecurityException e) {
             LOGGER.log(Level.WARNING, "Security violation in generateUniqueName: " + basePath, e);
-            return new UniqueNameResult(FTPFileOperationResult.ACCESS_DENIED, null);
+            return new UniqueNameResult(FtpFileOperationResult.ACCESS_DENIED, null);
         } catch (Exception e) {
             LOGGER.log(Level.WARNING, "Error generating unique name: " + basePath, e);
-            return new UniqueNameResult(FTPFileOperationResult.FILE_SYSTEM_ERROR, null);
+            return new UniqueNameResult(FtpFileOperationResult.FILE_SYSTEM_ERROR, null);
         }
     }
     
     @Override
-    public FTPFileOperationResult allocateSpace(String path, long size, 
-                                              FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult allocateSpace(String path, long size, 
+                                              FtpConnectionMetadata metadata) {
         // ALLO is typically a no-op for modern file systems
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.fine("ALLO command for " + path + " (" + size + " bytes) - no-op");
         }
-        return FTPFileOperationResult.SUCCESS;
+        return FtpFileOperationResult.SUCCESS;
     }
     
     /**

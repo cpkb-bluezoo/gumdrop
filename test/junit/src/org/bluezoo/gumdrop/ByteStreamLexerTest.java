@@ -208,7 +208,7 @@ public class ByteStreamLexerTest {
 
         // Simulate the transport contract: a persistent growable buffer,
         // fed one byte at a time, compacted between feeds exactly as
-        // TCPEndpoint.processInbound() does.
+        // TcpEndpoint.processInbound() does.
         ByteBuffer netIn = ByteBuffer.allocate(256);
         byte[] wire = line.getBytes(StandardCharsets.US_ASCII);
         for (int i = 0; i < wire.length; i++) {

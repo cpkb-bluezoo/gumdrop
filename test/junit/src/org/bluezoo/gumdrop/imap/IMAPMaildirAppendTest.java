@@ -22,9 +22,10 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
@@ -50,7 +51,7 @@ import java.util.Set;
  * (scalability review finding #130 / follow-up architectural review): a
  * Maildir-backed mailbox is the only implementation of
  * {@code openAsyncAppend}, so it is the only path that exercises
- * {@code IMAPProtocolHandler.finishAppendViaWriter}, which chains off the
+ * {@code ImapProtocolHandler.finishAppendViaWriter}, which chains off the
  * writer's own async completion handlers instead of blocking a
  * StorageExecutor thread on a latch waiting for a different thread pool.
  *
@@ -64,12 +65,7 @@ public class IMAPMaildirAppendTest {
     @Before
     public void setUp() throws Exception {
         tempRoot = Files.createTempDirectory("gumdrop-imap-maildir-append");
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("StorageExecutor must exist after Gumdrop.start()",
                 gumdrop.getStorageExecutor());
     }
@@ -91,13 +87,14 @@ public class IMAPMaildirAppendTest {
         Files.createDirectories(userDir.resolve("new"));
         Files.createDirectories(userDir.resolve("tmp"));
 
-        IMAPListener listener = new IMAPListener();
+        ImapListener listener = new ImapListener();
         listener.setRealm(new AcceptingRealm("editor", "editor"));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
         listener.setAllowPlaintextLogin(true);
 
-        IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
+        ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
         handler.connected(endpoint);
 
         endpoint.clearResponses();
@@ -176,9 +173,9 @@ public class IMAPMaildirAppendTest {
     private static final class AcceptingRealm implements Realm {
         private final String user;
         private final String pass;
-        private static final Set<SASLMechanism> SUPPORTED =
+        private static final Set<SaslMechanism> SUPPORTED =
                 Collections.unmodifiableSet(
-                        EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN));
+                        EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
 
         AcceptingRealm(String user, String pass) {
             this.user = user;
@@ -191,7 +188,7 @@ public class IMAPMaildirAppendTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
 

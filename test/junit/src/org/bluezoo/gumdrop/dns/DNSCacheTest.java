@@ -30,7 +30,7 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * Regression tests for {@link DNSCache}'s eviction bookkeeping (scalability
+ * Regression tests for {@link DnsCache}'s eviction bookkeeping (scalability
  * review finding #129). Refreshing or removing a cached entry used to do a
  * linear {@code PriorityQueue.remove()} under a process-wide lock, making
  * repeated TTL refreshes for the same key, or a full {@code evictExpired()}
@@ -40,22 +40,22 @@ import static org.junit.Assert.*;
  */
 public class DNSCacheTest {
 
-    private static DNSQuestion question(String name) {
-        return new DNSQuestion(name, DNSType.A, DNSClass.IN);
+    private static DnsQuestion question(String name) {
+        return new DnsQuestion(name, DnsType.A, DnsClass.IN);
     }
 
-    private static List<DNSResourceRecord> aRecord(String name, int ttl) throws Exception {
-        return Arrays.asList(DNSResourceRecord.a(name, ttl,
+    private static List<DnsResourceRecord> aRecord(String name, int ttl) throws Exception {
+        return Arrays.asList(DnsResourceRecord.a(name, ttl,
                 InetAddress.getByName("192.0.2.1")));
     }
 
     @Test
     public void testCacheAndLookupRoundTrip() throws Exception {
-        DNSCache cache = new DNSCache();
-        DNSQuestion q = question("example.com");
+        DnsCache cache = new DnsCache();
+        DnsQuestion q = question("example.com");
         cache.cache(q, aRecord("example.com", 300));
 
-        List<DNSResourceRecord> found = cache.lookup(q);
+        List<DnsResourceRecord> found = cache.lookup(q);
         assertNotNull(found);
         assertEquals(1, found.size());
         assertEquals(1, cache.size());
@@ -66,8 +66,8 @@ public class DNSCacheTest {
         // Before the fix, every refresh below did an O(n) PriorityQueue.remove()
         // under expiryLock; this test exercises the volume that would make that
         // pathologically slow, and checks the cache stays correct throughout.
-        DNSCache cache = new DNSCache();
-        DNSQuestion q = question("refreshed.example.com");
+        DnsCache cache = new DnsCache();
+        DnsQuestion q = question("refreshed.example.com");
 
         for (int i = 0; i < 5000; i++) {
             cache.cache(q, aRecord("refreshed.example.com", 300));
@@ -79,9 +79,9 @@ public class DNSCacheTest {
 
     @Test
     public void testEvictExpiredRemovesOnlyExpiredEntries() throws Exception {
-        DNSCache cache = new DNSCache();
-        DNSQuestion expiring = question("expiring.example.com");
-        DNSQuestion longLived = question("longlived.example.com");
+        DnsCache cache = new DnsCache();
+        DnsQuestion expiring = question("expiring.example.com");
+        DnsQuestion longLived = question("longlived.example.com");
 
         // TTL of 0 means "do not cache" (RFC 1035 3.2.1), so use a very short
         // positive TTL and rely on isExpired()'s wall-clock check; since we
@@ -98,7 +98,7 @@ public class DNSCacheTest {
     @Test
     public void testEvictionUnderMaxEntriesKeepsCacheBounded() throws Exception {
         int maxEntries = 200;
-        DNSCache cache = new DNSCache(maxEntries, 300);
+        DnsCache cache = new DnsCache(maxEntries, 300);
 
         for (int i = 0; i < maxEntries * 2; i++) {
             String name = "host" + i + ".example.com";
@@ -111,8 +111,8 @@ public class DNSCacheTest {
 
     @Test
     public void testRemoveViaExpiredLookupThenRecacheWorks() throws Exception {
-        DNSCache cache = new DNSCache();
-        DNSQuestion q = question("negative.example.com");
+        DnsCache cache = new DnsCache();
+        DnsQuestion q = question("negative.example.com");
 
         cache.cacheNegative("negative.example.com");
         assertTrue(cache.isNegativelyCached("negative.example.com"));

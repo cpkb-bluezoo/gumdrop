@@ -34,16 +34,42 @@
 <p class="back-link"><a href="index.html">&larr; Back to Main Page</a></p>
 
 <p>
-The <code>WebDAVService</code> is a complete, production-ready HTTP file
-service built on the Gumdrop framework. It serves static files from a
-filesystem directory with high performance, and optionally provides full
-WebDAV (RFC 2518) distributed authoring support. Because it is an
-<a href="http.html">HTTP service</a>, it can be configured with any
-combination of HTTP/3, HTTP/2, and HTTP/1.1 listeners.
+Gumdrop 3 serves static files and WebDAV through an
+<code>HttpServer</code> composed with a
+<strong><code>WebDAVRequestHandler</code></strong> (WebDAV is a tradename —
+use <strong>WebDAV</strong>, not <code>Webdav</code>, in public API names).
+It is a complete, production-ready HTTP file server: it serves static files
+from a filesystem directory with high performance, and optionally provides
+full WebDAV (RFC 4918) distributed authoring support.
+</p>
+
+<p>
+Because the handler runs on the shared <a href="http.html">HTTP</a> stack,
+any combination of HTTP/3, HTTP/2, and HTTP/1.1 listeners can be attached to
+the same <code>HttpServer</code>.
+</p>
+
+<h3 id="composition">Composition (Gumdrop 3)</h3>
+
+<pre>
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(8080))
+    .streamHandler(WebDAVRequestHandler.builder()
+        .rootPath(Path.of("/var/www/html"))
+        .welcomeFile("index.html")
+        .allowWrite(false)
+        .webdavEnabled(true)
+        .build())
+    .server();
+</pre>
+
+<p>
+See <a href="configuration.html">Application composition</a>.
 </p>
 
 <h3>Contents</h3>
 <ul>
+<li><a href="#composition">Composition (Gumdrop 3)</a></li>
 <li><a href="#file-server">File Server</a></li>
 <li><a href="#webdav">WebDAV Support</a></li>
 <li><a href="#webdav-methods">WebDAV Methods</a></li>
@@ -72,24 +98,24 @@ file extension</li>
 <h4>Configuration</h4>
 
 <pre>
-&lt;service id="files" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
-  &lt;property name="root-path"&gt;/var/www/html&lt;/property&gt;
-  &lt;property name="welcome-file"&gt;index.html&lt;/property&gt;
-  &lt;property name="allow-write"&gt;false&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-    &lt;property name="port"&gt;8080&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(8080))
+    .streamHandler(WebDAVRequestHandler.builder()
+        .rootPath(Path.of("/var/www/html"))
+        .welcomeFile("index.html")
+        .allowWrite(false)
+        .build())
+    .server();
 </pre>
 
 <p>
-Properties:
+Builder methods:
 </p>
 <ul>
-<li><code>rootPath</code> - filesystem directory to serve (required)</li>
-<li><code>welcomeFile</code> - default file for directory requests (default:
+<li><code>rootPath(Path)</code> - filesystem directory to serve (required)</li>
+<li><code>welcomeFile(String)</code> - default file for directory requests (default:
 <code>index.html</code>)</li>
-<li><code>allowWrite</code> - enable PUT and DELETE methods (default:
+<li><code>allowWrite(boolean)</code> - enable PUT and DELETE methods (default:
 <code>false</code>)</li>
 </ul>
 
@@ -120,25 +146,20 @@ multiplexing when serving mixed content (HTML, CSS, JavaScript, images).
 <h4>HTTP/3 Support</h4>
 
 <p>
-To serve files over HTTP/3 as well as HTTP/2 and HTTP/1.1, add both an
-<code>HTTPListener</code> and an <code>HTTP3Listener</code>:
+To serve files over HTTP/3 as well as HTTP/2 and HTTP/1.1, use
+<code>secureEndpoint</code> to wire both transports on the same port and
+shared TLS material:
 </p>
 
 <pre>
-&lt;service id="files" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
-  &lt;property name="root-path"&gt;/var/www/html&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
-  &lt;/listener&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="cert-file"&gt;cert.pem&lt;/property&gt;
-    &lt;property name="key-file"&gt;key.pem&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "changeit");
+
+HttpServer server = HttpServer.compose()
+    .secureEndpoint(443, tls)
+    .streamHandler(WebDAVRequestHandler.builder()
+        .rootPath(Path.of("/var/www/html"))
+        .build())
+    .server();
 </pre>
 
 <p>
@@ -158,14 +179,14 @@ Cyberduck to access the file server as a network drive.
 <h4>Enabling WebDAV</h4>
 
 <pre>
-&lt;service id="webdav" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
-  &lt;property name="root-path"&gt;/var/www/dav&lt;/property&gt;
-  &lt;property name="allow-write"&gt;true&lt;/property&gt;
-  &lt;property name="webdav-enabled"&gt;true&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-    &lt;property name="port"&gt;8080&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(8080))
+    .streamHandler(WebDAVRequestHandler.builder()
+        .rootPath(Path.of("/var/www/dav"))
+        .allowWrite(true)
+        .webdavEnabled(true)
+        .build())
+    .server();
 </pre>
 
 <p>
@@ -254,15 +275,15 @@ The dead property storage mode is configurable:
 </p>
 
 <pre>
-&lt;service id="webdav" class="org.bluezoo.gumdrop.webdav.WebDAVService"&gt;
-  &lt;property name="root-path"&gt;/var/www/dav&lt;/property&gt;
-  &lt;property name="allow-write"&gt;true&lt;/property&gt;
-  &lt;property name="webdav-enabled"&gt;true&lt;/property&gt;
-  &lt;property name="dead-property-storage"&gt;auto&lt;/property&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-    &lt;property name="port"&gt;8080&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+HttpServer server = HttpServer.compose()
+    .listener(new Http2Listener().port(8080))
+    .streamHandler(WebDAVRequestHandler.builder()
+        .rootPath(Path.of("/var/www/dav"))
+        .allowWrite(true)
+        .webdavEnabled(true)
+        .deadPropertyStorage("auto")
+        .build())
+    .server();
 </pre>
 
 <table class="config">

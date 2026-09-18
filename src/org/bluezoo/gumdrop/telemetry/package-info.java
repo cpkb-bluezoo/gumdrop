@@ -49,7 +49,7 @@
  *   <li>{@link org.bluezoo.gumdrop.telemetry.metrics} - metric instrument types</li>
  *   <li>{@link org.bluezoo.gumdrop.telemetry.otlp} - OTLP/HTTP and OTLP/gRPC export</li>
  *   <li>{@link org.bluezoo.gumdrop.telemetry.json} - OTLP JSON Lines file/stdout export</li>
- *   <li>{@link org.bluezoo.gumdrop.telemetry.protobuf} - the Protocol Buffers codec OTLP export uses</li>
+ *   <li>{@code org.bluezoo:jprotobuf} - wire-format codec shared with gRPC and session replication</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

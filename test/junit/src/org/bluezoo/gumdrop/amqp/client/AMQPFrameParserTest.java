@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.AmqpFrame;
+import org.bluezoo.gumdrop.amqp.AmqpFrameHandler;
+import org.bluezoo.gumdrop.amqp.AmqpFrameParser;
+
 import org.junit.Before;
 import org.junit.Test;
 
@@ -34,12 +38,12 @@ import static org.junit.Assert.*;
 public class AMQPFrameParserTest {
 
     private RecordingHandler handler;
-    private AMQPFrameParser parser;
+    private AmqpFrameParser parser;
 
     @Before
     public void setUp() {
         handler = new RecordingHandler();
-        parser = new AMQPFrameParser(handler);
+        parser = new AmqpFrameParser(handler);
     }
 
     private static byte[] bytes(ByteBuffer buf) {
@@ -50,7 +54,7 @@ public class AMQPFrameParserTest {
 
     @Test
     public void testSingleFrameDeliveredWhole() {
-        ByteBuffer encoded = AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 1,
+        ByteBuffer encoded = AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 1,
                 ByteBuffer.wrap("hello".getBytes(StandardCharsets.US_ASCII)));
 
         parser.receive(encoded);
@@ -64,15 +68,15 @@ public class AMQPFrameParserTest {
 
     @Test
     public void testHeartbeatFrame() {
-        parser.receive(AMQPFrame.encodeHeartbeat());
+        parser.receive(AmqpFrame.encodeHeartbeat());
         assertEquals(1, handler.heartbeats);
     }
 
     @Test
     public void testHeaderAndBodyFrames() {
-        ByteBuffer header = AMQPFrame.encode(AMQPFrame.TYPE_HEADER, 2,
+        ByteBuffer header = AmqpFrame.encode(AmqpFrame.TYPE_HEADER, 2,
                 ByteBuffer.wrap(new byte[] { 1, 2, 3 }));
-        ByteBuffer body = AMQPFrame.encode(AMQPFrame.TYPE_BODY, 2,
+        ByteBuffer body = AmqpFrame.encode(AmqpFrame.TYPE_BODY, 2,
                 ByteBuffer.wrap("payload data".getBytes(StandardCharsets.US_ASCII)));
 
         parser.receive(header);
@@ -93,7 +97,7 @@ public class AMQPFrameParserTest {
     // leaves an incomplete frame's bytes untouched each time.
     @Test
     public void testFrameSplitAcrossManyReceiveCalls() {
-        byte[] all = bytes(AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 5,
+        byte[] all = bytes(AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 5,
                 ByteBuffer.wrap("split across reads".getBytes(StandardCharsets.US_ASCII))));
 
         for (int len = 1; len < all.length; len++) {
@@ -123,10 +127,10 @@ public class AMQPFrameParserTest {
 
     @Test
     public void testIncompletePayloadLeavesPositionUnchanged() {
-        ByteBuffer full = AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 0,
+        ByteBuffer full = AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 0,
                 ByteBuffer.wrap("abcdefgh".getBytes(StandardCharsets.US_ASCII)));
         ByteBuffer partial = full.duplicate();
-        partial.limit(AMQPFrame.HEADER_SIZE + 3); // header complete, payload is not
+        partial.limit(AmqpFrame.HEADER_SIZE + 3); // header complete, payload is not
 
         int posBefore = partial.position();
         parser.receive(partial);
@@ -137,9 +141,9 @@ public class AMQPFrameParserTest {
 
     @Test
     public void testMultipleFramesInOneBufferAllDelivered() {
-        ByteBuffer f1 = AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 1,
+        ByteBuffer f1 = AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 1,
                 ByteBuffer.wrap("first".getBytes(StandardCharsets.US_ASCII)));
-        ByteBuffer f2 = AMQPFrame.encode(AMQPFrame.TYPE_BODY, 1,
+        ByteBuffer f2 = AmqpFrame.encode(AmqpFrame.TYPE_BODY, 1,
                 ByteBuffer.wrap("second".getBytes(StandardCharsets.US_ASCII)));
 
         ByteBuffer combined = ByteBuffer.allocate(f1.remaining() + f2.remaining());
@@ -156,7 +160,7 @@ public class AMQPFrameParserTest {
 
     @Test
     public void testTrailingPartialFrameNotConsumedAfterCompleteOnesAreDelivered() {
-        ByteBuffer complete = AMQPFrame.encode(AMQPFrame.TYPE_METHOD, 1,
+        ByteBuffer complete = AmqpFrame.encode(AmqpFrame.TYPE_METHOD, 1,
                 ByteBuffer.wrap("complete".getBytes(StandardCharsets.US_ASCII)));
         byte[] partialTail = { 1, 0, 0 }; // start of another frame's header, incomplete
 
@@ -175,8 +179,8 @@ public class AMQPFrameParserTest {
 
     @Test
     public void testBadFrameEndReportsError() {
-        ByteBuffer buf = ByteBuffer.allocate(AMQPFrame.OVERHEAD);
-        buf.put((byte) AMQPFrame.TYPE_METHOD);
+        ByteBuffer buf = ByteBuffer.allocate(AmqpFrame.OVERHEAD);
+        buf.put((byte) AmqpFrame.TYPE_METHOD);
         buf.putShort((short) 0);
         buf.putInt(0);
         buf.put((byte) 0x00); // wrong frame-end, should be 0xCE
@@ -191,8 +195,8 @@ public class AMQPFrameParserTest {
     @Test
     public void testOversizedFrameReportsError() {
         parser.setMaxFrameSize(100);
-        ByteBuffer buf = ByteBuffer.allocate(AMQPFrame.HEADER_SIZE);
-        buf.put((byte) AMQPFrame.TYPE_METHOD);
+        ByteBuffer buf = ByteBuffer.allocate(AmqpFrame.HEADER_SIZE);
+        buf.put((byte) AmqpFrame.TYPE_METHOD);
         buf.putShort((short) 0);
         buf.putInt(1000); // declared size exceeds maxFrameSize
         buf.flip();
@@ -204,7 +208,7 @@ public class AMQPFrameParserTest {
 
     @Test
     public void testUnknownFrameTypeReportsError() {
-        ByteBuffer buf = AMQPFrame.encode(99, 0, ByteBuffer.wrap(new byte[0]));
+        ByteBuffer buf = AmqpFrame.encode(99, 0, ByteBuffer.wrap(new byte[0]));
         parser.receive(buf);
         assertEquals(1, handler.errors.size());
     }
@@ -219,7 +223,7 @@ public class AMQPFrameParserTest {
         }
     }
 
-    private static final class RecordingHandler implements AMQPFrameHandler {
+    private static final class RecordingHandler implements AmqpFrameHandler {
         final List<Recorded> methodFrames = new ArrayList<Recorded>();
         final List<Recorded> headerFrames = new ArrayList<Recorded>();
         final List<Recorded> bodyFrames = new ArrayList<Recorded>();

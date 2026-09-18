@@ -6,17 +6,17 @@ import java.net.UnknownHostException;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
-import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
+import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
- * Unit tests for {@link SOCKSRequest}.
+ * Unit tests for {@link SocksRequest}.
  */
 public class SOCKSRequestTest {
 
     @Test
     public void testSOCKS4ConnectWithAddress() throws UnknownHostException {
         InetAddress addr = InetAddress.getByAddress(new byte[]{10, 0, 0, 1});
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS4_VERSION, SOCKS4_CMD_CONNECT,
                 addr, null, 80, "myuser", null);
 
@@ -32,7 +32,7 @@ public class SOCKSRequestTest {
 
     @Test
     public void testSOCKS4aConnectWithHostname() {
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS4_VERSION, SOCKS4_CMD_CONNECT,
                 null, "example.com", 443, "user1", null);
 
@@ -45,7 +45,7 @@ public class SOCKSRequestTest {
     public void testSOCKS5Connect() throws UnknownHostException {
         InetAddress addr = InetAddress.getByAddress(
                 new byte[]{(byte) 192, (byte) 168, 1, 1});
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS5_VERSION, SOCKS5_CMD_CONNECT,
                 addr, null, 8080, null, "alice");
 
@@ -60,7 +60,7 @@ public class SOCKSRequestTest {
 
     @Test
     public void testSOCKS5ConnectWithHostname() {
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS5_VERSION, SOCKS5_CMD_CONNECT,
                 null, "host.example.org", 22, null, null);
 
@@ -73,7 +73,7 @@ public class SOCKSRequestTest {
     @Test
     public void testToStringSOCKS4Connect() throws UnknownHostException {
         InetAddress addr = InetAddress.getByAddress(new byte[]{10, 0, 0, 1});
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS4_VERSION, SOCKS4_CMD_CONNECT,
                 addr, null, 80, "bob", null);
 
@@ -85,7 +85,7 @@ public class SOCKSRequestTest {
 
     @Test
     public void testToStringSOCKS4aBind() {
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS4_VERSION, SOCKS4_CMD_BIND,
                 null, "ftp.example.com", 21, "user", null);
 
@@ -97,7 +97,7 @@ public class SOCKSRequestTest {
     @Test
     public void testToStringSOCKS5Connect() throws UnknownHostException {
         InetAddress addr = InetAddress.getByAddress(new byte[]{8, 8, 8, 8});
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS5_VERSION, SOCKS5_CMD_CONNECT,
                 addr, null, 53, null, "alice");
 
@@ -109,7 +109,7 @@ public class SOCKSRequestTest {
     @Test
     public void testToStringSOCKS5Bind() throws UnknownHostException {
         InetAddress addr = InetAddress.getByAddress(new byte[]{1, 2, 3, 4});
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS5_VERSION, SOCKS5_CMD_BIND,
                 addr, null, 4000, null, null);
 
@@ -120,7 +120,7 @@ public class SOCKSRequestTest {
 
     @Test
     public void testToStringSOCKS5UDPAssociate() {
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS5_VERSION, SOCKS5_CMD_UDP_ASSOCIATE,
                 null, null, 0, null, null);
 
@@ -130,7 +130,7 @@ public class SOCKSRequestTest {
 
     @Test
     public void testToStringNoAddressNoHost() {
-        SOCKSRequest req = new SOCKSRequest(
+        SocksRequest req = new SocksRequest(
                 SOCKS5_VERSION, SOCKS5_CMD_CONNECT,
                 null, null, 9090, null, null);
 

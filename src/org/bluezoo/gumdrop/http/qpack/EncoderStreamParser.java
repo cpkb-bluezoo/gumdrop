@@ -37,7 +37,7 @@ import java.nio.ByteBuffer;
  *
  * <p>This parser does not distinguish "instruction is merely truncated
  * so far" from "instruction is genuinely malformed": both surface as an
- * underflow from {@link PrefixedInteger#decode} or {@link QPACKStrings#read}
+ * underflow from {@link PrefixedInteger#decode} or {@link QpackStrings#read}
  * partway through a parse attempt, and both are currently treated as
  * "not enough data yet, retry once more bytes arrive" -- a real gap
  * against a hostile or buggy peer (a malformed instruction could stall
@@ -124,14 +124,14 @@ final class EncoderStreamParser {
         int firstByte = buf.get() & 0xff;
         boolean isStatic = (firstByte & 0x40) != 0;
         long nameIndex = PrefixedInteger.decode(buf, firstByte, 6);
-        byte[] value = QPACKStrings.read(buf, 7);
+        byte[] value = QpackStrings.read(buf, 7);
         handler.insertWithNameReference(isStatic, nameIndex, value);
     }
 
     // RFC 9204 section 4.3.3: '01|H|NameLength(5+)' name + value string literal
     private void parseInsertWithLiteralName(ByteBuffer buf) throws ProtocolException {
-        byte[] name = QPACKStrings.read(buf, 5);
-        byte[] value = QPACKStrings.read(buf, 7);
+        byte[] name = QpackStrings.read(buf, 5);
+        byte[] value = QpackStrings.read(buf, 7);
         handler.insertWithLiteralName(name, value);
     }
 

@@ -25,7 +25,7 @@ package org.bluezoo.gumdrop.grpc.proto;
  * High-level semantic handler for protobuf message parsing events.
  *
  * <p>Analogous to {@link org.bluezoo.json.JSONContentHandler} and
- * {@link org.bluezoo.gumdrop.mime.MIMEHandler}. Receives semantic events
+ * {@link org.bluezoo.gumdrop.mime.MimeHandler}. Receives semantic events
  * (message start/end, field name and value) rather than low-level wire format.
  * The application implements this interface to process messages without
  * building in-memory structures.

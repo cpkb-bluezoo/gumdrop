@@ -24,15 +24,15 @@
  * email authentication for the SMTP server.
  *
  * <p>{@link org.bluezoo.gumdrop.smtp.auth.AuthPipeline} implements
- * {@link org.bluezoo.gumdrop.smtp.SMTPPipeline}: returned from a
+ * {@link org.bluezoo.gumdrop.smtp.SmtpPipeline}: returned from a
  * handler's {@code getPipeline()}, it runs the SPF check on MAIL FROM
  * (after a DNS lookup), hashes the message body from the raw bytes as
  * they stream past for DKIM signature verification, and evaluates DMARC
  * policy (combining the SPF/DKIM results with domain alignment) once the
  * message is complete -- results arrive via {@link
- * org.bluezoo.gumdrop.smtp.auth.SPFCallback}, {@link
- * org.bluezoo.gumdrop.smtp.auth.DKIMCallback}, and {@link
- * org.bluezoo.gumdrop.smtp.auth.DMARCCallback} respectively, registered
+ * org.bluezoo.gumdrop.smtp.auth.SpfCallback}, {@link
+ * org.bluezoo.gumdrop.smtp.auth.DkimCallback}, and {@link
+ * org.bluezoo.gumdrop.smtp.auth.DmarcCallback} respectively, registered
  * on the pipeline's builder. Message headers are parsed via {@link
  * org.bluezoo.gumdrop.mime.rfc5322.MessageParser}; a caller-supplied
  * {@code MessageHandler} can observe the same parse to process content
@@ -43,7 +43,7 @@
  * callback receives, for the handler to act on.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.SMTPPipeline
+ * @see org.bluezoo.gumdrop.smtp.SmtpPipeline
  * @see org.bluezoo.gumdrop.smtp.auth.AuthPipeline
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7208">RFC 7208 - SPF</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc6376">RFC 6376 - DKIM</a>

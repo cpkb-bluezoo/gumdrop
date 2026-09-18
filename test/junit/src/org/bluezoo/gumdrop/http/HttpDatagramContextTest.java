@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -141,9 +142,9 @@ public class HttpDatagramContextTest {
         assertArrayEquals(payload, remaining(decoded.getPayload()));
     }
 
-    // ── HTTPResponseState.sendDatagram(long, ByteBuffer) convenience ──
+    // ── HttpResponseState.sendDatagram(long, ByteBuffer) convenience ──
 
-    private static final class CapturingResponseState implements HTTPResponseState {
+    private static final class CapturingResponseState implements HttpResponseState {
         byte[] sent;
 
         @Override
@@ -156,7 +157,7 @@ public class HttpDatagramContextTest {
         @Override public SocketAddress getLocalAddress() { return null; }
         @Override public boolean isSecure() { return true; }
         @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public HTTPVersion getVersion() { return HTTPVersion.HTTP_3; }
+        @Override public HttpVersion getVersion() { return HttpVersion.HTTP_3; }
         @Override public String getScheme() { return "https"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }

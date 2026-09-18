@@ -28,7 +28,7 @@ import static org.junit.Assert.*;
 
 /**
  * QPACK counterpart to {@code HPACKConstantsStaticTableIndexTest}: verifies
- * {@code QPACKConstants.STATIC_TABLE_INDEX} matches a brute-force linear
+ * {@code QpackConstants.STATIC_TABLE_INDEX} matches a brute-force linear
  * scan of the real RFC 9204 Appendix A table for every real entry, and for
  * the miss/duplicate-name cases its shape allows. Unlike HPACK's table,
  * QPACK's is zero-indexed with no unused placeholder entry - worth pinning
@@ -37,7 +37,7 @@ import static org.junit.Assert.*;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class QPACKConstantsStaticTableIndexTest extends QPACKConstants {
+public class QPACKConstantsStaticTableIndexTest extends QpackConstants {
 
     private static int bruteForceIndexOf(Header header) {
         return STATIC_TABLE.indexOf(header);

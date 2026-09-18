@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.redis.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.redis.codec.RESPValue;
+import org.bluezoo.gumdrop.redis.codec.RespValue;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -163,12 +163,12 @@ public class RedisClientProtocolHandlerTest {
     @Test
     public void testScanResponseDispatched() {
         final AtomicReference<String> cursorRef = new AtomicReference<>();
-        final AtomicReference<List<RESPValue>> elementsRef = new AtomicReference<>();
+        final AtomicReference<List<RespValue>> elementsRef = new AtomicReference<>();
 
         RedisSession session = sessionRef.get();
         session.scan("0", new ScanResultHandler() {
             @Override
-            public void handleResult(String cursor, List<RESPValue> elements, RedisSession s) {
+            public void handleResult(String cursor, List<RespValue> elements, RedisSession s) {
                 cursorRef.set(cursor);
                 elementsRef.set(elements);
             }
@@ -414,12 +414,12 @@ public class RedisClientProtocolHandlerTest {
 
     @Test
     public void testResp3MapDispatchedToArrayHandler() {
-        final AtomicReference<List<RESPValue>> resultRef = new AtomicReference<>();
+        final AtomicReference<List<RespValue>> resultRef = new AtomicReference<>();
 
         RedisSession session = sessionRef.get();
         session.command(new ArrayResultHandler() {
             @Override
-            public void handleResult(List<RESPValue> array, RedisSession s) {
+            public void handleResult(List<RespValue> array, RedisSession s) {
                 resultRef.set(array);
             }
             @Override
@@ -521,13 +521,13 @@ public class RedisClientProtocolHandlerTest {
     }
 
     static class StubArrayHandler implements ArrayResultHandler {
-        @Override public void handleResult(List<RESPValue> array, RedisSession s) {}
+        @Override public void handleResult(List<RespValue> array, RedisSession s) {}
         @Override public void handleNull(RedisSession s) {}
         @Override public void handleError(String error, RedisSession s) {}
     }
 
     static class StubScanHandler implements ScanResultHandler {
-        @Override public void handleResult(String cursor, List<RESPValue> elements, RedisSession s) {}
+        @Override public void handleResult(String cursor, List<RespValue> elements, RedisSession s) {}
         @Override public void handleError(String error, RedisSession s) {}
     }
 

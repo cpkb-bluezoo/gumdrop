@@ -74,7 +74,7 @@ DNS, etc.) so they're discoverable via Bonjour/Avahi/<code>dns-sd -B</code>.
 <h3 id="architecture">Architecture</h3>
 
 <p>
-The DNS server is built on Gumdrop's <code>UDPEndpoint</code> abstraction,
+The DNS server is built on Gumdrop's <code>UdpEndpoint</code> abstraction,
 which provides non-blocking UDP I/O using the same SelectorLoop architecture as
 TCP servers. Each DNS query arrives as a datagram, is parsed, processed, and
 the response is sent back—all within the event-driven framework.
@@ -83,7 +83,7 @@ the response is sent back—all within the event-driven framework.
 <h4>Query Processing Flow</h4>
 
 <ol>
-<li><b>Receive</b> - UDP datagram arrives, parsed into <code>DNSMessage</code></li>
+<li><b>Receive</b> - UDP datagram arrives, parsed into <code>DnsMessage</code></li>
 <li><b>Cache lookup</b> - check for cached response (if caching enabled)</li>
 <li><b>Custom resolution</b> - call <code>resolve()</code> for local handling</li>
 <li><b>Upstream proxy</b> - forward to upstream DNS servers if not resolved locally</li>
@@ -94,12 +94,12 @@ the response is sent back—all within the event-driven framework.
 <h4>Core Components</h4>
 
 <ul>
-<li><code>DNSService</code> - the application service; handles queries, caching, and proxying</li>
-<li><code>DNSListener</code>, <code>DoTListener</code>, <code>DoQListener</code> - transport listeners (see <a href="#listeners">Listeners</a>)</li>
-<li><code>DNSMessage</code> - parses and serializes DNS wire format</li>
-<li><code>DNSQuestion</code> - represents a query question</li>
-<li><code>DNSResourceRecord</code> - represents answer records</li>
-<li><code>DNSCache</code> - in-memory response cache with TTL support</li>
+<li><code>DnsServer</code> - the application service; handles queries, caching, and proxying</li>
+<li><code>DnsListener</code>, <code>DoTListener</code>, <code>DoQListener</code> - transport listeners (see <a href="#listeners">Listeners</a>)</li>
+<li><code>DnsMessage</code> - parses and serializes DNS wire format</li>
+<li><code>DnsQuestion</code> - represents a query question</li>
+<li><code>DnsResourceRecord</code> - represents answer records</li>
+<li><code>DnsCache</code> - in-memory response cache with TTL support</li>
 </ul>
 
 <h3 id="features">Features</h3>
@@ -141,7 +141,7 @@ TLS credentials via the same <code>secure</code>/<code>keystore-file</code>/
 <code>dtls-version</code> / <code>cipher-suites</code> as documented in
 <a href="tls.html">TLS &amp; DTLS</a>. DTLS session state (one
 in-tree DTLS session per peer) is maintained per remote address on
-the shared UDP socket, so a single <code>DNSListener</code> serves many
+the shared UDP socket, so a single <code>DnsListener</code> serves many
 concurrent DTLS clients without one client's handshake interfering with
 another's. Handshake flights are retransmitted with exponential backoff
 (RFC 6347 &sect;4.2.4) when a client is slow or a packet is lost, and a
@@ -216,13 +216,13 @@ resolver callback model.
 <p>Configuration:</p>
 <pre>
 // Enable DNSSEC on the client resolver
-DNSResolver resolver = new DNSResolver();
+DnsResolver resolver = new DnsResolver();
 resolver.setDnssecEnabled(true);
 resolver.addServer("8.8.8.8");
 resolver.open();
 
 // Enable DNSSEC-aware proxying on the server
-DNSService service = new DNSService();
+DnsServer service = new DnsServer();
 service.setDnssecEnabled(true);
 </pre>
 
@@ -270,7 +270,7 @@ TCP Fast Open to send data during the TCP handshake, saving a round trip</li>
 Strict privacy profile, the client can be configured with SHA-256 hashes of
 the server's Subject Public Key Info (SPKI). After the TLS handshake, the
 server's leaf certificate public key is verified against the configured pins
-via <code>SPKIPinnedCertTrustManager</code></li>
+via <code>SpkiPinnedCertTrustManager</code></li>
 <li><b>Connection pooling (RFC 7766)</b> — <code>TCPDNSConnectionPool</code>
 maintains persistent TCP connections to upstream servers with configurable
 maximum connections, idle timeout, and connection lifetime</li>
@@ -309,7 +309,7 @@ content type. The response body contains the raw DNS wire-format answer.
 </p>
 
 <ul>
-<li>Uses Gumdrop's existing <code>HTTPClient</code> infrastructure (HTTP/2
+<li>Uses Gumdrop's existing <code>HttpClient</code> infrastructure (HTTP/2
 with TLS)</li>
 <li>Configurable URI path (default <code>/dns-query</code>)</li>
 <li>Default port 443 with HTTPS</li>
@@ -320,7 +320,7 @@ UDP and port 853 are blocked</li>
 <h3 id="custom">Custom Resolution</h3>
 
 <p>
-The DNS service is designed for extension. By subclassing <code>DNSService</code>
+The DNS service is designed for extension. By subclassing <code>DnsServer</code>
 and overriding the <code>resolve()</code> method, you can implement custom name
 resolution for any use case.
 </p>
@@ -328,11 +328,11 @@ resolution for any use case.
 <h4>The resolve() Method</h4>
 
 <pre>
-protected DNSMessage resolve(DNSMessage query)
+protected DnsMessage resolve(DnsMessage query)
 </pre>
 
 <p>
-Return a <code>DNSMessage</code> response to handle the query locally, or return
+Return a <code>DnsMessage</code> response to handle the query locally, or return
 <code>null</code> to proxy the query to upstream servers. This simple contract
 makes it easy to:
 </p>
@@ -348,7 +348,7 @@ makes it easy to:
 <h4>Example: Internal Domain Resolution</h4>
 
 <pre>
-public class InternalDNSService extends DNSService {
+public class InternalDNSService extends DnsServer {
     
     private Map&lt;String, InetAddress&gt; internalHosts = new HashMap&lt;&gt;();
     
@@ -359,20 +359,20 @@ public class InternalDNSService extends DNSService {
     }
     
     @Override
-    protected DNSMessage resolve(DNSMessage query) {
-        DNSQuestion question = query.getQuestions().get(0);
+    protected DnsMessage resolve(DnsMessage query) {
+        DnsQuestion question = query.getQuestions().get(0);
         String name = question.getName();
         
         // Handle .internal domain
         if (name.endsWith(".internal")) {
             InetAddress addr = internalHosts.get(name);
             if (addr != null) {
-                List&lt;DNSResourceRecord&gt; answers = new ArrayList&lt;&gt;();
-                answers.add(DNSResourceRecord.a(name, 300, addr));
+                List&lt;DnsResourceRecord&gt; answers = new ArrayList&lt;&gt;();
+                answers.add(DnsResourceRecord.a(name, 300, addr));
                 return query.createResponse(answers);
             }
             // Name not found in internal domain
-            return query.createErrorResponse(DNSMessage.RCODE_NXDOMAIN);
+            return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
         }
         
         // All other queries go to upstream
@@ -384,7 +384,7 @@ public class InternalDNSService extends DNSService {
 <h4>Example: DNS-Based Ad Blocking</h4>
 
 <pre>
-public class AdBlockingDNSService extends DNSService {
+public class AdBlockingDNSService extends DnsServer {
     
     private Set&lt;String&gt; blockedDomains = new HashSet&lt;&gt;();
     
@@ -393,14 +393,14 @@ public class AdBlockingDNSService extends DNSService {
     }
     
     @Override
-    protected DNSMessage resolve(DNSMessage query) {
-        DNSQuestion question = query.getQuestions().get(0);
+    protected DnsMessage resolve(DnsMessage query) {
+        DnsQuestion question = query.getQuestions().get(0);
         String name = question.getName().toLowerCase();
         
         // Check against blocklist
         if (blockedDomains.contains(name)) {
             // Return NXDOMAIN for blocked domains
-            return query.createErrorResponse(DNSMessage.RCODE_NXDOMAIN);
+            return query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
         }
         
         // Allow through to upstream
@@ -412,23 +412,23 @@ public class AdBlockingDNSService extends DNSService {
 <h4>Example: Dynamic Service Discovery</h4>
 
 <pre>
-public class ServiceDiscoveryDNS extends DNSService {
+public class ServiceDiscoveryDNS extends DnsServer {
     
     private ServiceRegistry registry;
     
     @Override
-    protected DNSMessage resolve(DNSMessage query) {
-        DNSQuestion question = query.getQuestions().get(0);
+    protected DnsMessage resolve(DnsMessage query) {
+        DnsQuestion question = query.getQuestions().get(0);
         
         // Handle SRV queries for service discovery
-        if (question.getType() == DNSType.SRV) {
+        if (question.getType() == DnsType.SRV) {
             String serviceName = question.getName();
             List&lt;ServiceInstance&gt; instances = registry.lookup(serviceName);
             
             if (!instances.isEmpty()) {
-                List&lt;DNSResourceRecord&gt; answers = new ArrayList&lt;&gt;();
+                List&lt;DnsResourceRecord&gt; answers = new ArrayList&lt;&gt;();
                 for (ServiceInstance inst : instances) {
-                    answers.add(DNSResourceRecord.srv(serviceName, 300,
+                    answers.add(DnsResourceRecord.srv(serviceName, 300,
                         inst.getPriority(), inst.getWeight(),
                         inst.getPort(), inst.getHostname()));
                 }
@@ -444,33 +444,33 @@ public class ServiceDiscoveryDNS extends DNSService {
 <h3 id="records">Record Types</h3>
 
 <p>
-The <code>DNSResourceRecord</code> class provides factory methods for common
+The <code>DnsResourceRecord</code> class provides factory methods for common
 record types:
 </p>
 
 <table border="1" cellpadding="5">
 <tr><th>Type</th><th>Factory Method</th><th>Description</th></tr>
-<tr><td>A</td><td><code>DNSResourceRecord.a(name, ttl, address)</code></td>
+<tr><td>A</td><td><code>DnsResourceRecord.a(name, ttl, address)</code></td>
 <td>IPv4 address</td></tr>
-<tr><td>AAAA</td><td><code>DNSResourceRecord.aaaa(name, ttl, address)</code></td>
+<tr><td>AAAA</td><td><code>DnsResourceRecord.aaaa(name, ttl, address)</code></td>
 <td>IPv6 address</td></tr>
-<tr><td>CNAME</td><td><code>DNSResourceRecord.cname(name, ttl, canonical)</code></td>
+<tr><td>CNAME</td><td><code>DnsResourceRecord.cname(name, ttl, canonical)</code></td>
 <td>Canonical name (alias)</td></tr>
-<tr><td>MX</td><td><code>DNSResourceRecord.mx(name, ttl, priority, exchange)</code></td>
+<tr><td>MX</td><td><code>DnsResourceRecord.mx(name, ttl, priority, exchange)</code></td>
 <td>Mail exchange</td></tr>
-<tr><td>NS</td><td><code>DNSResourceRecord.ns(name, ttl, nameserver)</code></td>
+<tr><td>NS</td><td><code>DnsResourceRecord.ns(name, ttl, nameserver)</code></td>
 <td>Authoritative name server</td></tr>
-<tr><td>PTR</td><td><code>DNSResourceRecord.ptr(name, ttl, hostname)</code></td>
+<tr><td>PTR</td><td><code>DnsResourceRecord.ptr(name, ttl, hostname)</code></td>
 <td>Pointer (reverse DNS)</td></tr>
-<tr><td>SOA</td><td><code>DNSResourceRecord.soa(...)</code></td>
+<tr><td>SOA</td><td><code>DnsResourceRecord.soa(...)</code></td>
 <td>Start of authority</td></tr>
-<tr><td>TXT</td><td><code>DNSResourceRecord.txt(name, ttl, text)</code></td>
+<tr><td>TXT</td><td><code>DnsResourceRecord.txt(name, ttl, text)</code></td>
 <td>Text record</td></tr>
-<tr><td>SRV</td><td><code>DNSResourceRecord.srv(name, ttl, priority, weight, port, target)</code></td>
+<tr><td>SRV</td><td><code>DnsResourceRecord.srv(name, ttl, priority, weight, port, target)</code></td>
 <td>Service location</td></tr>
-<tr><td>HTTPS</td><td><code>DNSResourceRecord.https(name, ttl, priority, target, params)</code></td>
+<tr><td>HTTPS</td><td><code>DnsResourceRecord.https(name, ttl, priority, target, params)</code></td>
 <td>HTTPS service binding (RFC 9460)</td></tr>
-<tr><td>SVCB</td><td><code>DNSResourceRecord.svcb(name, ttl, priority, target, params)</code></td>
+<tr><td>SVCB</td><td><code>DnsResourceRecord.svcb(name, ttl, priority, target, params)</code></td>
 <td>General service binding (RFC 9460)</td></tr>
 </table>
 
@@ -478,7 +478,7 @@ record types:
 HTTPS and SVCB share the same RDATA shape (priority, target name, and a map
 of SvcParamKey &rarr; value); <code>params</code> is a
 <code>Map&lt;Integer, byte[]&gt;</code> keyed by SvcParamKey, e.g.
-<code>DNSResourceRecord.SVCB_PARAM_ALPN</code> or
+<code>DnsResourceRecord.SVCB_PARAM_ALPN</code> or
 <code>SVCB_PARAM_PORT</code>, with <code>encodeSVCBAlpn(List&lt;String&gt;)</code>
 and <code>encodeSVCBPort(int)</code> helpers to build the corresponding
 values; <code>params</code> may be <code>null</code>/empty. A
@@ -510,7 +510,7 @@ provide RDATA accessor methods:
 <h3 id="metrics">Metrics</h3>
 
 <p>
-When a <code>TelemetryConfig</code> is set on the service, <code>DNSServerMetrics</code>
+When a <code>TelemetryConfig</code> is set on the service, <code>DnsServerMetrics</code>
 records the following OpenTelemetry metrics. Each metric includes a
 <code>dns.transport</code> attribute (<code>udp</code>, <code>dot</code>, or
 <code>doq</code>) identifying the listener that handled the query.
@@ -533,100 +533,93 @@ records the following OpenTelemetry metrics. Each metric includes a
 <h4 id="listeners">Listeners</h4>
 
 <p>
-A DNSService can have <b>multiple listeners</b>. Each listener exposes the same
+A DnsServer can have <b>multiple listeners</b>. Each listener exposes the same
 resolution logic over a different transport. You can combine any of the following:
 </p>
 
 <table border="1" cellpadding="5">
 <tr><th>Listener</th><th>Class</th><th>Transport</th><th>Description</th></tr>
-<tr><td>DNSListener</td><td><code>org.bluezoo.gumdrop.dns.DNSListener</code></td><td>UDP</td><td>Standard DNS over UDP, default port 53</td></tr>
+<tr><td>DnsListener</td><td><code>org.bluezoo.gumdrop.dns.DnsListener</code></td><td>UDP</td><td>Standard DNS over UDP, default port 53</td></tr>
 <tr><td>DoTListener</td><td><code>org.bluezoo.gumdrop.dns.DoTListener</code></td><td>TCP + TLS</td><td>DNS over TLS (DoT), default port 853</td></tr>
 <tr><td>DoQListener</td><td><code>org.bluezoo.gumdrop.dns.DoQListener</code></td><td>QUIC</td><td>DNS over QUIC (DoQ), default port 853</td></tr>
 </table>
 
 <p>
-Configure one or more <code>&lt;listener&gt;</code> elements per service. For example,
-you can serve plain DNS on 5353 and DoT on 853 from the same service.
+Attach one or more listeners per server with <code>.listener(...)</code>. For
+example, you can serve plain DNS on 5353 and DoT on 853 from the same server.
 </p>
 
-<h4>DNSService Properties</h4>
+<h4>UpstreamRelayHandler</h4>
 
 <p>
-Property names use kebab-case in configuration; the dependency injection
-framework maps them to camelCase setters (e.g. <code>upstream-servers</code>
-&rarr; <code>setUpstreamServers</code>). Same convention as HTTP and other services.
+<code>DnsServer.compose()</code> with no handler answers empty (NOERROR, zero
+RRs) — no implicit upstream relay. Attach <code>UpstreamRelayHandler</code>
+explicitly for the forwarding/caching behaviour:
 </p>
 
 <ul>
-<li><code>upstream-servers</code> - space-separated list of upstream DNS servers</li>
-<li><code>use-system-resolvers</code> - use <code>/etc/resolv.conf</code> nameservers
+<li><code>upstreamServers(String)</code> - space-separated list of upstream DNS servers</li>
+<li><code>useSystemResolvers(boolean)</code> - use <code>/etc/resolv.conf</code> nameservers
 (default: true)</li>
-<li><code>cache-enabled</code> - enable response caching (default: true)</li>
-<li><code>addresses</code> - bind addresses (default: all interfaces)</li>
+<li><code>cacheEnabled(boolean)</code> - enable response caching (default: true)</li>
+<li><code>dnssecEnabled(boolean)</code> - enable DNSSEC validation</li>
 </ul>
 
-<h4>Listener Properties</h4>
+<h4>Listener Options</h4>
 
 <ul>
-<li><code>port</code> - listening port (optional). If omitted, defaults are:
-    <code>DNSListener</code> 53, <code>DoTListener</code> 853, <code>DoQListener</code> 853.</li>
+<li><code>.port(int)</code> - listening port (optional). If omitted, defaults are:
+    <code>DnsListener</code> 53, <code>DoTListener</code> 853, <code>DoQListener</code> 853.</li>
+<li><code>.addresses(InetAddress...)</code> - bind addresses (default: all interfaces)</li>
 </ul>
 
-<h4>TLS/DTLS/QUIC Properties (DoTListener, DoQListener)</h4>
+<h4>TLS/DTLS/QUIC Options (DoTListener, DoQListener)</h4>
 
 <p>
 DoT (TCP+TLS) and DoQ (QUIC) use the same in-tree TLS stack and the same
-server-identity properties as other listeners (keystore or PEM). DTLS on
-<code>DNSListener</code> follows the same rules when <code>secure</code> is
-enabled:
+<code>TlsConfig</code> as other listeners. DTLS on <code>DnsListener</code>
+follows the same rules when <code>.secure(true)</code> is set:
 </p>
 
 <ul>
-<li><code>secure</code> - enable DTLS/TLS (default: false; DoTListener is always secure)</li>
-<li><code>keystore-file</code> - path to keystore file (PKCS#12 or JKS)</li>
-<li><code>keystore-pass</code> - keystore password</li>
-<li><code>cert-file</code> / <code>key-file</code> - PEM alternative to keystore</li>
-<li><code>need-client-auth</code> - require client certificates (default: false)</li>
-<li><code>require-retry</code> - (DoQ only) require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
+<li><code>.secure(boolean)</code> - enable DTLS/TLS (default: false; DoTListener is always secure)</li>
+<li><code>.tls(TlsConfig)</code> - keystore, PEM, or <code>ServerCredentials</code> identity material</li>
+<li><code>setNeedClientAuth(boolean)</code> - require client certificates (default: false)</li>
+<li><code>setRequireRetry(boolean)</code> - (DoQ only) require RFC 9000 section 8.1.2 Retry before accepting a new connection (default: true; set false for a trusted network)</li>
 </ul>
 
-<h4>Example Configuration</h4>
+<h4>Example Composition</h4>
 
 <pre>
-&lt;!-- DNS proxy on non-privileged port --&gt;
-&lt;service id="dns" class="org.bluezoo.gumdrop.dns.DNSService"&gt;
-    &lt;property name="upstream-servers"&gt;8.8.8.8 1.1.1.1&lt;/property&gt;
-    &lt;property name="cache-enabled"&gt;true&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DNSListener"
-            port="5353"/&gt;
-&lt;/service&gt;
+// DNS proxy on non-privileged port
+DnsServer dns = DnsServer.compose()
+    .listener(new DnsListener().port(5353))
+    .handler(UpstreamRelayHandler.builder()
+        .upstreamServers("8.8.8.8 1.1.1.1")
+        .cacheEnabled(true)
+        .build())
+    .server();
 
-&lt;!-- DNS with DoT listener (keystore-file / keystore-pass like HTTP/SMTP) --&gt;
-&lt;service id="dns-secure" class="org.bluezoo.gumdrop.dns.DNSService"&gt;
-    &lt;property name="upstream-servers"&gt;8.8.8.8&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DNSListener"
-            port="53"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DoTListener"
-            port="853" secure="true"
-            keystore-file="keystore.p12"
-            keystore-pass="secret"/&gt;
-&lt;/service&gt;
+// DNS with DoT listener (same TlsConfig as HTTP/SMTP)
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
+DnsServer dnsSecure = DnsServer.compose()
+    .listener(new DnsListener().port(53))
+    .listener(new DoTListener().port(853).secure(true).tls(tls))
+    .handler(UpstreamRelayHandler.builder()
+        .upstreamServers("8.8.8.8")
+        .build())
+    .server();
 
-&lt;!-- DNS with UDP, DoT, and DoQ listeners (same keystore on DoT and DoQ) --&gt;
-&lt;service id="dns-full" class="org.bluezoo.gumdrop.dns.DNSService"&gt;
-    &lt;property name="upstream-servers"&gt;8.8.8.8 1.1.1.1&lt;/property&gt;
-    &lt;property name="cache-enabled"&gt;true&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DNSListener"
-            port="5353"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DoTListener"
-            port="853" secure="true"
-            keystore-file="keystore.p12"
-            keystore-pass="secret"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.dns.DoQListener"
-            port="853" secure="true"
-            keystore-file="keystore.p12"
-            keystore-pass="secret"/&gt;
-&lt;/service&gt;
+// DNS with UDP, DoT, and DoQ listeners (same keystore on DoT and DoQ)
+DnsServer dnsFull = DnsServer.compose()
+    .listener(new DnsListener().port(5353))
+    .listener(new DoTListener().port(853).secure(true).tls(tls))
+    .listener(new DoQListener().port(853).secure(true).tls(tls))
+    .handler(UpstreamRelayHandler.builder()
+        .upstreamServers("8.8.8.8 1.1.1.1")
+        .cacheEnabled(true)
+        .build())
+    .server();
 </pre>
 
 <h4>Upstream Server Format</h4>
@@ -645,16 +638,16 @@ Upstream servers can be specified with optional ports:
 <h3 id="resolver">DNS Resolver (Client)</h3>
 
 <p>
-<code>DNSResolver</code> is an <b>asynchronous DNS client</b> for outbound lookups.
+<code>DnsResolver</code> is an <b>asynchronous DNS client</b> for outbound lookups.
 It uses non-blocking I/O and delivers results via the
-<code>DNSQueryCallback</code> interface. Use it when your Gumdrop service needs to resolve names (e.g. MX
+<code>DnsQueryCallback</code> interface. Use it when your Gumdrop service needs to resolve names (e.g. MX
 lookups for SMTP, TXT for SPF/DKIM/DMARC, or A/AAAA for connecting to backends).
 </p>
 
-<h4>Using DNSResolver Inside Gumdrop Services</h4>
+<h4>Using DnsResolver Inside Gumdrop Services</h4>
 
 <p>
-You can configure a <code>DNSResolver</code> as a component and inject it into
+You can configure a <code>DnsResolver</code> as a component and inject it into
 services that need DNS. The resolver runs on the event loop. When you set the
 resolver's SelectorLoop to match the handler's endpoint (see
 <b>SelectorLoop Affinity</b> below), callbacks are invoked on the same thread as
@@ -672,13 +665,13 @@ extra locking.
 Configure upstream servers (e.g. <code>upstream-servers</code> or
 <code>use-system-resolvers</code>), then call <code>queryA</code>,
 <code>queryTXT</code>, <code>queryMX</code>, etc. with a
-<code>DNSQueryCallback</code>. Results and errors are delivered asynchronously.
+<code>DnsQueryCallback</code>. Results and errors are delivered asynchronously.
 </p>
 
 <h4>SelectorLoop Affinity</h4>
 
 <p>
-When a <code>DNSResolver</code> is used from a Gumdrop service (e.g. an HTTP
+When a <code>DnsResolver</code> is used from a Gumdrop service (e.g. an HTTP
 or SMTP handler), set the resolver's <b>SelectorLoop</b> to the same loop as the
 connection's endpoint. That way all DNS callbacks run on the same thread as the
 handler, avoiding cross-thread coordination.
@@ -698,11 +691,11 @@ SelectorLoop loop = endpoint.getSelectorLoop();
 resolver.setSelectorLoop(loop);
 resolver.open();
 
-resolver.queryTXT("_dmarc.example.com", new DNSQueryCallback() {
-    public void onResponse(DNSMessage response) {
+resolver.queryTXT("_dmarc.example.com", new DnsQueryCallback() {
+    public void onResponse(DnsMessage response) {
         // Runs on the same SelectorLoop thread as the handler
-        for (DNSResourceRecord rr : response.getAnswers()) {
-            if (rr.getType() == DNSType.TXT) {
+        for (DnsResourceRecord rr : response.getAnswers()) {
+            if (rr.getType() == DnsType.TXT) {
                 String txt = rr.getTxtData();
                 // Use result...
             }
@@ -725,17 +718,17 @@ assigns one loop per service.
 <h4>Client Transports</h4>
 
 <p>
-The resolver uses a pluggable <code>DNSClientTransport</code> interface.
+The resolver uses a pluggable <code>DnsClientTransport</code> interface.
 The default is plain UDP, but you can select any of the following:
 </p>
 
 <table border="1" cellpadding="5">
 <tr><th>Transport</th><th>Class</th><th>RFC</th><th>Default Port</th></tr>
-<tr><td>UDP</td><td><code>UDPDNSClientTransport</code></td>
+<tr><td>UDP</td><td><code>UdpDnsClientTransport</code></td>
 <td>RFC 1035</td><td>53</td></tr>
-<tr><td>TCP</td><td><code>TCPDNSClientTransport</code></td>
+<tr><td>TCP</td><td><code>TcpDnsClientTransport</code></td>
 <td>RFC 1035</td><td>53</td></tr>
-<tr><td>DoT</td><td><code>TCPDNSClientTransport</code> (secure)</td>
+<tr><td>DoT</td><td><code>TcpDnsClientTransport</code> (secure)</td>
 <td>RFC 7858</td><td>853</td></tr>
 <tr><td>DoQ</td><td><code>DoQClientTransport</code></td>
 <td>RFC 9250</td><td>853</td></tr>
@@ -744,7 +737,7 @@ The default is plain UDP, but you can select any of the following:
 </table>
 
 <p>
-To use DoT, create a <code>TCPDNSClientTransport</code> with
+To use DoT, create a <code>TcpDnsClientTransport</code> with
 <code>setSecure(true)</code> and optionally configure SPKI fingerprints
 for the Strict privacy profile. For DoQ, use <code>DoQClientTransport</code>
 or <code>DoQConnectionPool</code> for persistent connections. For DoH, use
@@ -754,7 +747,7 @@ or <code>DoQConnectionPool</code> for persistent connections. For DoH, use
 <h4>Truncated Response Retry</h4>
 
 <p>
-When a UDP response has the TC (truncated) flag set, <code>DNSResolver</code>
+When a UDP response has the TC (truncated) flag set, <code>DnsResolver</code>
 automatically retries over TCP using standard DNS-over-TCP framing (2-byte
 length prefix, RFC 1035 section 4.2.2). The retry is transparent to the caller.
 </p>
@@ -762,15 +755,15 @@ length prefix, RFC 1035 section 4.2.2). The retry is transparent to the caller.
 <h4>SRV Record Queries</h4>
 
 <p>
-<code>DNSResolver</code> provides a convenience method for SRV lookups
+<code>DnsResolver</code> provides a convenience method for SRV lookups
 (RFC 2782) commonly used for service discovery:
 </p>
 
 <pre>
 resolver.querySRV("_xmpp-server._tcp.example.com",
-        new DNSQueryCallback() {
-    public void onResponse(DNSMessage response) {
-        for (DNSResourceRecord rr : response.getAnswers()) {
+        new DnsQueryCallback() {
+    public void onResponse(DnsMessage response) {
+        for (DnsResourceRecord rr : response.getAnswers()) {
             System.out.println(rr.getSRVTarget() + ":"
                 + rr.getSRVPort()
                 + " (priority=" + rr.getSRVPriority()
@@ -791,7 +784,7 @@ The <code>org.bluezoo.gumdrop.mdns</code> package implements multicast DNS
 package's caching proxy, mDNS is a peer protocol: every host on the local
 network both answers queries about itself and can query others, over a
 single shared UDP multicast group rather than client/server request-response
-to a fixed upstream. A Gumdrop instance running <code>MDNSService</code>
+to a fixed upstream. A Gumdrop instance running <code>MdnsServer</code>
 claims a <code>.local</code> hostname, defends it against conflicts,
 answers other hosts' queries for it, and (optionally) publishes DNS-SD
 records advertising its own other configured services.
@@ -800,22 +793,22 @@ records advertising its own other configured services.
 <h4 id="mdns-architecture">Architecture</h4>
 
 <ul>
-<li><code>MDNSService</code> &ndash; owns configuration, the probing/announcing
+<li><code>MdnsServer</code> &ndash; owns configuration, the probing/announcing
 state machine for this instance's own hostname, the record cache, and the
 public <code>query()</code>/<code>lookup()</code> API</li>
-<li><code>MDNSListener</code> &ndash; the UDP multicast transport: binds port
+<li><code>MdnsListener</code> &ndash; the UDP multicast transport: binds port
 5353 and joins the mDNS group (<code>224.0.0.251</code>) on every up,
 multicast-capable, non-loopback, non-point-to-point network interface</li>
-<li><code>MDNSCache</code> &ndash; the querier-side record cache, with RFC
+<li><code>MdnsCache</code> &ndash; the querier-side record cache, with RFC
 6762 section 5.2 active refresh and section 10.2 cache-flush semantics</li>
-<li><code>DNSSDAdvertiser</code> &ndash; builds RFC 6763 PTR/SRV/TXT records
+<li><code>DnssdAdvertiser</code> &ndash; builds RFC 6763 PTR/SRV/TXT records
 for this Gumdrop instance's own configured services</li>
 </ul>
 
 <p>
 mDNS reuses the standard DNS wire format almost entirely &mdash;
-<code>DNSMessage</code>, <code>DNSQuestion</code>, <code>DNSResourceRecord</code>,
-<code>DNSType</code>, and <code>DNSClass</code> from the <code>dns</code>
+<code>DnsMessage</code>, <code>DnsQuestion</code>, <code>DnsResourceRecord</code>,
+<code>DnsType</code>, and <code>DnsClass</code> from the <code>dns</code>
 package are shared as-is between both packages (see
 <a href="#mdns-wire">Wire Format Extensions</a> below for the two small
 additions mDNS needed). Everything else &mdash; the probing/announcing
@@ -823,20 +816,20 @@ state machine, the active-refresh cache, and DNS-SD &mdash; is specific to
 the <code>mdns</code> package: mDNS is a continuous, stateful peer rather
 than the unicast proxy's largely stateless per-request model, so it needed
 its own cache and its own service/listener pair rather than extending
-<code>DNSService</code>/<code>DNSCache</code> directly.
+<code>DnsServer</code>/<code>DnsCache</code> directly.
 </p>
 
 <p>
 All mutable mDNS state (probe/announce state, the cache, pending timers) is
 touched only from datagram handling and timer callbacks, both of which are
-always invoked on the owning <code>MDNSListener</code>'s single transport
+always invoked on the owning <code>MdnsListener</code>'s single transport
 thread &mdash; there is no separate synchronization anywhere in the package.
 </p>
 
 <h4 id="mdns-lifecycle">Probing, Announcing &amp; Withdrawal</h4>
 
 <p>
-On <code>start()</code>, <code>MDNSService</code> runs the RFC 6762 section 8
+On <code>start()</code>, <code>MdnsServer</code> runs the RFC 6762 section 8
 lifecycle for its own hostname:
 </p>
 
@@ -885,17 +878,17 @@ since parsing an ordinary mDNS packet would otherwise fail outright with an
 </p>
 
 <ul>
-<li><code>DNSQuestion.isUnicastResponseRequested()</code> &ndash; the QU bit;
+<li><code>DnsQuestion.isUnicastResponseRequested()</code> &ndash; the QU bit;
 excluded from <code>equals()</code>/<code>hashCode()</code> since it's a
 transport hint, not part of question identity</li>
-<li><code>DNSResourceRecord.isCacheFlush()</code></li>
-<li><code>DNSResourceRecord.withCacheFlush()</code> &ndash; returns a copy of
+<li><code>DnsResourceRecord.isCacheFlush()</code></li>
+<li><code>DnsResourceRecord.withCacheFlush()</code> &ndash; returns a copy of
 a record with the bit set, for building unique (as opposed to shared, e.g.
 PTR) records</li>
-<li><code>DNSResourceRecord.CACHE_FLUSH_BIT</code> &ndash; the raw bit value,
+<li><code>DnsResourceRecord.CACHE_FLUSH_BIT</code> &ndash; the raw bit value,
 for callers constructing a record directly via the RFC 3597
 raw-class-preserving constructor</li>
-<li><code>DNSResourceRecord.txt(name, ttl, List&lt;String&gt;)</code> &ndash;
+<li><code>DnsResourceRecord.txt(name, ttl, List&lt;String&gt;)</code> &ndash;
 a TXT record from several independent character-strings (one per list
 entry), as DNS-SD's <code>key=value</code> attribute pairs need, distinct
 from the existing single-string <code>txt(name, ttl, String)</code> which
@@ -905,19 +898,19 @@ splits one long value across the 255-byte character-string boundary instead</li>
 <h4 id="mdns-query">Querying &amp; the Record Cache</h4>
 
 <p>
-Besides answering for its own hostname, <code>MDNSService</code> can query
+Besides answering for its own hostname, <code>MdnsServer</code> can query
 for other hosts' records:
 </p>
 
 <pre>
-mdnsService.query("printer.local", DNSType.A);
+mdnsService.query("printer.local", DnsType.A);
 // ... answers arrive asynchronously as other hosts respond ...
-List&lt;DNSResourceRecord&gt; answers = mdnsService.lookup("printer.local", DNSType.A);
+List&lt;DnsResourceRecord&gt; answers = mdnsService.lookup("printer.local", DnsType.A);
 </pre>
 
 <p>
-Answers are kept in an <code>MDNSCache</code>, separate from the unicast
-<code>DNSCache</code> because mDNS caching works differently in two ways
+Answers are kept in an <code>MdnsCache</code>, separate from the unicast
+<code>DnsCache</code> because mDNS caching works differently in two ways
 that matter: the cache-flush bit means "this is now the complete record set
 for this name/type" (anything cached but not re-asserted in a cache-flush
 batch is removed, though only after a one-second grace period in case a
@@ -932,19 +925,18 @@ gets the same one-second grace removal as a cache-flush eviction (section
 <h4 id="dnssd">DNS-SD Service Advertisement</h4>
 
 <p>
-Once announced, <code>MDNSService</code> (by default) also publishes RFC
+Once announced, <code>MdnsServer</code> (by default) also publishes RFC
 6763 DNS-SD records for this Gumdrop instance's other configured services,
 so they're discoverable via <code>dns-sd -B _services._dns-sd._udp local.</code>
-or a Bonjour/Avahi browser. This reads
-<code>Gumdrop.getInstance().getServices()</code> at announce time, so
-<b>the <code>mdns</code> service must be declared last</b> in
-<code>gumdroprc.xml</code> &mdash; services start in document order, and any
-service started after <code>mdns</code> won't have its listener ports
-picked up yet.
+or a Bonjour/Avahi browser. This reads <code>gumdrop.getServers()</code> at
+announce time, so <b>the <code>mdns</code> server must be added to the
+<code>Gumdrop</code> instance last</b> — call <code>gumdrop.addServer(...)</code>
+for every other server first; a server added after <code>mdns</code> won't
+have its listener ports picked up yet.
 </p>
 
 <p>
-For each listener across every service, <code>DNSSDAdvertiser</code> maps
+For each listener across every service, <code>DnssdAdvertiser</code> maps
 its <code>getDescription()</code> value to a DNS-SD service type using a
 deliberately conservative table of long-established Bonjour service types
 &mdash; not the full IANA registry, and not a guess at every protocol
@@ -965,7 +957,7 @@ Gumdrop can serve:
 
 <p>
 A listener whose description isn't in this table &mdash; including
-internal-only listeners like <code>health</code> or <code>cluster</code>,
+internal-only listeners like <code>cluster</code>,
 and protocols without a clearly-established DNS-SD type such as
 <code>mqtt</code>, <code>socks</code>, or the WebSocket/HTTP3/DoQ variants
 &mdash; is silently skipped rather than treated as an error, so adding a new
@@ -990,49 +982,51 @@ per-instance records and do.
 
 <h4 id="mdns-config">Configuration</h4>
 
-<h4>MDNSService Properties</h4>
+<h4>MdnsServer Setters</h4>
 
 <ul>
-<li><code>hostname</code> &ndash; the label to probe for and advertise as
+<li><code>setHostname(String)</code> &ndash; the label to probe for and advertise as
 <code>&lt;hostname&gt;.local</code> (optional). If omitted, the JVM's local
 hostname (domain suffix stripped) is used, falling back to
 <code>"gumdrop"</code></li>
-<li><code>advertise-services</code> &ndash; auto-advertise this instance's
+<li><code>setAdvertiseServices(boolean)</code> &ndash; auto-advertise this instance's
 other configured services via DNS-SD (default: true)</li>
-<li><code>excluded-services</code> &ndash; space-separated
+<li><code>setExcludedServices(String)</code> &ndash; space-separated
 <code>Listener.getDescription()</code> values to never advertise via DNS-SD
 even if otherwise eligible (e.g. <code>"dns"</code>)</li>
 </ul>
 
-<h4>MDNSListener Properties</h4>
+<h4>MdnsListener Options</h4>
 
 <ul>
-<li><code>port</code> &ndash; UDP port (default: 5353). mDNS's port isn't
+<li><code>.port(int)</code> &ndash; UDP port (default: 5353). mDNS's port isn't
 meaningfully configurable in practice &mdash; it's part of the protocol, and
 changing it means real mDNS clients on the network can no longer find this
-host; the property exists mainly for testing</li>
+host; the setter exists mainly for testing</li>
 </ul>
 
-<h4>Example Configuration</h4>
+<h4>Example Composition</h4>
 
 <pre>
-&lt;!-- mDNS + DNS-SD auto-advertisement. Must be declared LAST in this
-     file: DNS-SD reads every other configured service's listeners at
-     announce time, and services start in document order. --&gt;
-&lt;service id="mdns" class="org.bluezoo.gumdrop.mdns.MDNSService"&gt;
-    &lt;property name="hostname" value="gumdrop"/&gt;
-    &lt;property name="advertise-services" value="true"/&gt;
+MdnsServer mdns = new MdnsServer();
+mdns.setHostname("gumdrop");
+mdns.setAdvertiseServices(true);
+mdns.addListener(new MdnsListener());
 
-    &lt;listener class="org.bluezoo.gumdrop.mdns.MDNSListener"/&gt;
-&lt;/service&gt;
+// mDNS + DNS-SD auto-advertisement. Must be added to the Gumdrop
+// instance LAST: DNS-SD reads every other server's listeners at
+// announce time, once they're already registered.
+gumdrop.addServer(otherServer1);
+gumdrop.addServer(otherServer2);
+gumdrop.addServer(mdns);
 </pre>
 
 <p>
 Note: mDNS's UDP port 5353 is the same port the DNS proxy example above
-uses for its non-privileged <code>DNSListener</code> (see
-<a href="#configuration">Configuration</a>) &mdash; declaring both in the
-same <code>gumdroprc.xml</code> collides. Use a different port for the
-unicast <code>DNSListener</code>, or omit it, if running both.
+uses for its non-privileged <code>DnsListener</code> (see
+<a href="#configuration">Configuration</a>) &mdash; running both on the same
+host collides. Use a different port for the unicast <code>DnsListener</code>,
+or omit it, if running both.
 </p>
 
 <h4>Known Limitations</h4>
@@ -1052,22 +1046,22 @@ unlike the host's own address record(s)</li>
 
 <p>
 The DNS server showcases Gumdrop's UDP protocol support through the
-<code>UDPEndpoint</code> abstraction, created via <code>UDPTransportFactory</code>.
+<code>UdpEndpoint</code> abstraction, created via <code>UdpTransportFactory</code>.
 This demonstrates how to build UDP-based services within the event-driven framework.
 </p>
 
-<h4>UDPEndpoint</h4>
+<h4>UdpEndpoint</h4>
 
 <p>
-<code>UDPEndpoint</code> is the UDP equivalent of <code>TCPEndpoint</code>.
+<code>UdpEndpoint</code> is the UDP equivalent of <code>TcpEndpoint</code>.
 Unlike TCP, there are no per-client endpoint objects—the server receives
 datagrams directly and sends responses to the source address. A
-<code>UDPEndpoint</code> is created by adding a <code>UDPTransportFactory</code>
-to a <code>UDPListener</code>.
+<code>UdpEndpoint</code> is created by adding a <code>UdpTransportFactory</code>
+to a <code>UdpListener</code>.
 </p>
 
 <pre>
-public abstract class UDPEndpoint extends Endpoint {
+public abstract class UdpEndpoint extends Endpoint {
     
     // Override to handle incoming datagrams
     protected abstract void receive(ByteBuffer data, InetSocketAddress source);
@@ -1080,8 +1074,8 @@ public abstract class UDPEndpoint extends Endpoint {
 <h4>Key Differences from TCP</h4>
 
 <table border="1" cellpadding="5">
-<tr><th>Aspect</th><th>TCP (TCPListener)</th><th>UDP (UDPEndpoint)</th></tr>
-<tr><td>Endpoint model</td><td>Per-client TCPEndpoint instances</td>
+<tr><th>Aspect</th><th>TCP (TcpListener)</th><th>UDP (UdpEndpoint)</th></tr>
+<tr><td>Endpoint model</td><td>Per-client TcpEndpoint instances</td>
 <td>Single endpoint, multiple sources</td></tr>
 <tr><td>Message boundaries</td><td>Stream-based, must frame</td>
 <td>Preserved per datagram</td></tr>
@@ -1095,15 +1089,15 @@ public abstract class UDPEndpoint extends Endpoint {
 
 <p>
 The DNS server serves as a template for building other UDP-based services.
-Create a <code>UDPListener</code> with a <code>UDPTransportFactory</code>
+Create a <code>UdpListener</code> with a <code>UdpTransportFactory</code>
 and provide an <code>ProtocolHandler</code> to process datagrams:
 </p>
 
 <pre>
-UDPListener server = new UDPListener();
+UdpListener server = new UdpListener();
 server.setPort(9000);
 server.setDescription("my-service");
-server.setTransportFactory(new UDPTransportFactory());
+server.setTransportFactory(new UdpTransportFactory());
 server.setHandlerFactory(new ProtocolHandlerFactory() {
     public ProtocolHandler createHandler() {
         return new MyUDPHandler();

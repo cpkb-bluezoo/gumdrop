@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.smtp.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.smtp.client.handler.*;
+import org.bluezoo.gumdrop.smtp.client.*;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,13 +40,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for SMTPClientProtocolHandler — items 84-87:
+ * Unit tests for SmtpClientProtocolHandler — items 84-87:
  * EHLO capability parsing, MAIL FROM extension parameters,
  * RCPT TO DSN parameters, and VRFY/EXPN commands.
  */
 public class SMTPClientProtocolHandlerTest {
 
-    private SMTPClientProtocolHandler handler;
+    private SmtpClientProtocolHandler handler;
     private StubEndpoint endpoint;
     private final List<String> sentCommands = new ArrayList<>();
 
@@ -54,7 +54,7 @@ public class SMTPClientProtocolHandlerTest {
     public void setUp() {
         sentCommands.clear();
         endpoint = new StubEndpoint(sentCommands);
-        handler = new SMTPClientProtocolHandler(new ServerGreeting() {
+        handler = new SmtpClientProtocolHandler(new RemoteGreeting() {
             @Override
             public void handleGreeting(ClientHelloState hello,
                                        String message, boolean esmtp) {
@@ -462,7 +462,7 @@ public class SMTPClientProtocolHandlerTest {
         public org.bluezoo.gumdrop.TimerHandle scheduleTimer(long delayMs, Runnable callback) { return null; }
     }
 
-    static class TestEhloHandler implements ServerEhloReplyHandler {
+    static class TestEhloHandler implements EhloReplyHandler {
         private final List<String> caps;
 
         TestEhloHandler(List<String> caps) {
@@ -490,7 +490,7 @@ public class SMTPClientProtocolHandlerTest {
         public void handleServiceClosing(String message) { }
     }
 
-    static class TestMailFromHandler implements ServerMailFromReplyHandler {
+    static class TestMailFromHandler implements MailFromReplyHandler {
         @Override
         public void handleMailFromOk(ClientEnvelope envelope) { }
 
@@ -504,7 +504,7 @@ public class SMTPClientProtocolHandlerTest {
         public void handleServiceClosing(String message) { }
     }
 
-    static class TestRcptToHandler implements ServerRcptToReplyHandler {
+    static class TestRcptToHandler implements RcptToReplyHandler {
         @Override
         public void handleRcptToOk(ClientEnvelopeReady envelope) { }
 
@@ -518,7 +518,7 @@ public class SMTPClientProtocolHandlerTest {
         public void handleServiceClosing(String message) { }
     }
 
-    static class TestGenericReplyHandler implements ServerReplyHandler {
+    static class TestGenericReplyHandler implements ReplyHandler {
         private final AtomicReference<String> msg;
 
         TestGenericReplyHandler(AtomicReference<String> msg) {

@@ -23,13 +23,14 @@ package org.bluezoo.gumdrop.dns.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
 import org.junit.After;
@@ -49,7 +50,7 @@ import static org.junit.Assert.*;
  * Integration test that performs an HTTPS GET against a public test
  * server, exercising the full asynchronous DNS resolution path.
  *
- * <p>The hostname is resolved using Gumdrop's {@link DNSResolver}
+ * <p>The hostname is resolved using Gumdrop's {@link DnsResolver}
  * (not {@code InetAddress.getByName}), validating end-to-end that
  * the async resolver, transport, cache, and client wiring all work.
  *
@@ -63,15 +64,16 @@ public class DNSResolutionIntegrationTest {
     private static final int TEST_PORT = 443;
     private static final int TIMEOUT_SECONDS = 15;
 
+    private Gumdrop gumdrop;
+
     @Before
     public void setUp() {
-        System.setProperty("gumdrop.workers", "2");
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
     }
 
     @After
     public void tearDown() {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        if (gumdrop.isStarted()) {
+        if (gumdrop != null && gumdrop.isStarted()) {
             gumdrop.shutdown();
         }
     }
@@ -82,17 +84,17 @@ public class DNSResolutionIntegrationTest {
      */
     @Test
     public void testHTTPSGetWithDNSResolution() throws Exception {
-        HTTPClient client = new HTTPClient(TEST_HOST, TEST_PORT);
+        HttpClient client = new HttpClient(TEST_HOST, TEST_PORT);
         client.setSecure(true);
         client.setTrustManager(new EmptyX509TrustManager());
 
         CountDownLatch readyLatch = new CountDownLatch(1);
         CountDownLatch responseLatch = new CountDownLatch(1);
-        AtomicReference<HTTPStatus> status = new AtomicReference<>();
+        AtomicReference<HttpStatus> status = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
 
-        client.connect(new HTTPClientHandler() {
+        client.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
                 readyLatch.countDown();
@@ -122,15 +124,15 @@ public class DNSResolutionIntegrationTest {
         assertNull("Connection should not error: " + error.get(),
                 error.get());
 
-        HTTPRequest request = client.get("/get");
-        request.send(new DefaultHTTPResponseHandler() {
+        HttpRequest request = client.get("/get");
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 status.set(response.getStatus());
             }
 
@@ -162,7 +164,7 @@ public class DNSResolutionIntegrationTest {
         assertNull("Request should not fail: " + error.get(),
                 error.get());
         assertEquals("Should receive 200 OK",
-                HTTPStatus.OK, status.get());
+                HttpStatus.OK, status.get());
 
         String body = new String(bodyBuffer.toByteArray(),
                 StandardCharsets.UTF_8);
