@@ -562,6 +562,10 @@ explicitly for the forwarding/caching behaviour:
 <li><code>useSystemResolvers(boolean)</code> - use <code>/etc/resolv.conf</code> nameservers
 (default: true)</li>
 <li><code>cacheEnabled(boolean)</code> - enable response caching (default: true)</li>
+<li><code>serveStaleEnabled(boolean)</code> - RFC 8767: serve expired cache entries when upstream fails (default: true)</li>
+<li><code>staleRetentionSeconds(int)</code> - how long expired entries are kept for serve-stale (default: 86400; <code>0</code> evicts on expiry)</li>
+<li><code>staleAnswerTtl(int)</code> - TTL on stale answers (default: 30, per RFC 8767 section 4)</li>
+<li><code>serveStalePolicy(ServeStalePolicy)</code> - override or disable per-query stale policy (default: serve when stale data exists)</li>
 <li><code>dnssecEnabled(boolean)</code> - enable DNSSEC validation</li>
 </ul>
 

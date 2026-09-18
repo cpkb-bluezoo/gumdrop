@@ -13,6 +13,7 @@
 | RFC 9250 | DNS over Dedicated QUIC Connections (DoQ) | Implemented |
 | RFC 8484 | DNS Queries over HTTPS (DoH) | Implemented |
 | RFC 2308 | Negative Caching of DNS Queries | Implemented |
+| RFC 8767 | Serving Stale DNS Data | Implemented |
 | RFC 6891 | Extension Mechanisms for DNS (EDNS0) | Implemented |
 | RFC 8305 | Happy Eyeballs v2 | Concept (parallel A/AAAA) |
 | RFC 5452 | Measures for Making DNS More Resilient against Forged Answers | Implemented |
@@ -86,6 +87,7 @@
 | Sending queries to multiple servers | 7.2 | Compliant | Timeout/retry across server list |
 | Processing responses (ID matching) | 7.3 | Compliant | `handleResponse()` matches by ID |
 | Using the cache (TTL-based) | 7.4 | Compliant | `DnsCache` with TTL expiry |
+| Serve stale on upstream failure | RFC 8767 | Compliant | `DnsCache` stale retention; `UpstreamRelayHandler` + `ServeStalePolicy` |
 | RD flag set in queries | 4.1.1 | Compliant | Stub resolver sets `FLAG_RD` |
 | Truncation → TCP retry (resolver) | 4.2.1 | Compliant | `retryOverTcpAsync()` |
 | Truncation → TCP retry (server proxy) | 4.2.1 | Compliant | `DnsServer.retryOverTcp()` retries upstream query over TCP when TC bit is set |
@@ -190,6 +192,18 @@
 | Cache NXDOMAIN responses | 3 | Compliant | `DnsCache.cacheNegative()` |
 | Negative TTL from SOA MINIMUM | 5 | Compliant | `min(SOA.TTL, SOA.MINIMUM)` with configurable fallback |
 | Discard expired negative entries | 5 | Compliant | TTL-based expiry |
+
+---
+
+### RFC 8767 — Serving Stale DNS Data
+
+| Requirement | Section | Status | Notes |
+|-------------|---------|--------|-------|
+| Retain expired cache entries for stale window | 4 | Compliant | `DnsCache` `staleRetentionSeconds` (default 86400) |
+| Serve stale when refresh fails | 4 | Compliant | `UpstreamRelayHandler.tryServeStale()` on upstream timeout/error |
+| Cap stale answer TTL | 4 | Compliant | Default 30s via `staleAnswerTtl` / `lookupStale()` |
+| Background refresh after stale serve | 4 | Compliant | `scheduleBackgroundRefresh()` |
+| Configurable policy | — | Compliant | `ServeStalePolicy`, builder toggles; metric `dns.server.cache.stale_served` |
 
 ---
 

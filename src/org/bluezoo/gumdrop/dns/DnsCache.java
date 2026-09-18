@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * In-memory cache for DNS responses.
@@ -37,6 +38,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * TTL values in returned records are adjusted to reflect elapsed time
  * since caching (RFC 1035 section 3.2.1).
  * RFC 2308: negative caching of NXDOMAIN responses.
+ * RFC 8767: optional retention of expired entries for serve-stale.
  *
  * <p>RFC 2308 section 5: negative cache TTL is the minimum of the SOA
  * record's TTL and the SOA MINIMUM field from the authority section of
@@ -47,9 +49,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class DnsCache {
 
-    private static final int DEFAULT_MAX_ENTRIES = 10000;
+    public static final int DEFAULT_MAX_ENTRIES = 10000;
     // RFC 2308 section 5: negative TTL should be derived from SOA MINIMUM
-    private static final int DEFAULT_NEGATIVE_TTL = 300;
+    public static final int DEFAULT_NEGATIVE_TTL = 300;
+    /** RFC 8767: default stale retention (one day). */
+    public static final int DEFAULT_STALE_RETENTION_SECONDS = 86_400;
+    /** RFC 8767 section 4: recommended cap on stale answer TTL. */
+    public static final int DEFAULT_STALE_ANSWER_TTL = 30;
 
     private final Map<CacheKey, CacheEntry> cache;
     // The priority queue is not thread-safe; all mutations of it (and the
@@ -60,6 +66,7 @@ public class DnsCache {
     private final Object expiryLock = new Object();
     private final int maxEntries;
     private final int negativeTTL;
+    private final long staleRetentionMs;
 
     /**
      * Number of accumulated tombstones that must build up before a poll of
@@ -72,11 +79,26 @@ public class DnsCache {
 
     private final AtomicInteger deadCount = new AtomicInteger();
 
+    private static final AtomicLong TEST_CLOCK_SKEW_MS = new AtomicLong();
+
+    static void testingAdvanceClock(long millis) {
+        TEST_CLOCK_SKEW_MS.addAndGet(millis);
+    }
+
+    static void testingResetClock() {
+        TEST_CLOCK_SKEW_MS.set(0L);
+    }
+
+    private static long clockMillis() {
+        return System.currentTimeMillis() + TEST_CLOCK_SKEW_MS.get();
+    }
+
     /**
      * Creates a new DNS cache with default settings.
      */
     public DnsCache() {
-        this(DEFAULT_MAX_ENTRIES, DEFAULT_NEGATIVE_TTL);
+        this(DEFAULT_MAX_ENTRIES, DEFAULT_NEGATIVE_TTL,
+                DEFAULT_STALE_RETENTION_SECONDS);
     }
 
     /**
@@ -86,8 +108,23 @@ public class DnsCache {
      * @param negativeTTL TTL for negative (NXDOMAIN) cache entries in seconds
      */
     public DnsCache(int maxEntries, int negativeTTL) {
+        this(maxEntries, negativeTTL, DEFAULT_STALE_RETENTION_SECONDS);
+    }
+
+    /**
+     * Creates a new DNS cache.
+     *
+     * @param maxEntries maximum number of cache entries
+     * @param negativeTTL TTL for negative (NXDOMAIN) cache entries in seconds
+     * @param staleRetentionSeconds how long expired entries are kept for RFC
+     *                              8767 serve-stale ({@code 0} disables)
+     */
+    public DnsCache(int maxEntries, int negativeTTL,
+                    int staleRetentionSeconds) {
         this.maxEntries = maxEntries;
         this.negativeTTL = negativeTTL;
+        this.staleRetentionMs = staleRetentionSeconds <= 0
+                ? 0L : staleRetentionSeconds * 1000L;
         this.cache = new ConcurrentHashMap<>();
         this.expiryQueue = new PriorityQueue<>(new Comparator<EvictionEntry>() {
             @Override
@@ -113,11 +150,75 @@ public class DnsCache {
         }
 
         if (entry.isExpired()) {
-            removeFromCache(key);
+            if (entry.isPastStaleWindow(staleRetentionMs)) {
+                removeFromCache(key);
+            }
             return null;
         }
 
         return entry.getRecordsWithAdjustedTTL();
+    }
+
+    /**
+     * RFC 8767: returns a stale cache hit after the live TTL has expired but
+     * before the stale retention window ends.
+     *
+     * @param question the DNS question
+     * @param maxAnswerTtl maximum TTL to set on returned records (seconds)
+     * @return stale hit, or {@code null} if none
+     */
+    public StaleHit lookupStale(DnsQuestion question, int maxAnswerTtl) {
+        CacheKey key = new CacheKey(question);
+        CacheEntry entry = cache.get(key);
+        if (entry == null || entry.records == null) {
+            return null;
+        }
+        if (!entry.isExpired()) {
+            return null;
+        }
+        if (entry.isPastStaleWindow(staleRetentionMs)) {
+            removeFromCache(key);
+            return null;
+        }
+        return new StaleHit(
+                entry.getRecordsWithStaleTTL(maxAnswerTtl), false);
+    }
+
+    /**
+     * RFC 8767 stale negative cache hit.
+     */
+    public boolean lookupStaleNegative(String name) {
+        CacheKey key = new CacheKey(name, DnsType.ANY, DnsClass.IN, true);
+        CacheEntry entry = cache.get(key);
+        if (entry == null || entry.records != null) {
+            return false;
+        }
+        if (!entry.isExpired()) {
+            return false;
+        }
+        if (entry.isPastStaleWindow(staleRetentionMs)) {
+            removeFromCache(key);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * A serve-stale cache hit (positive or {@linkplain #lookupStaleNegative
+     * negative}).
+     */
+    public static final class StaleHit {
+        public final List<DnsResourceRecord> records;
+        public final boolean negative;
+
+        public StaleHit(List<DnsResourceRecord> records, boolean negative) {
+            this.records = records;
+            this.negative = negative;
+        }
+
+        public static StaleHit negativeHit() {
+            return new StaleHit(null, true);
+        }
     }
 
     /**
@@ -129,7 +230,13 @@ public class DnsCache {
     public DnssecStatus lookupStatus(DnsQuestion question) {
         CacheKey key = new CacheKey(question);
         CacheEntry entry = cache.get(key);
-        if (entry == null || entry.isExpired()) {
+        if (entry == null) {
+            return null;
+        }
+        if (entry.isExpired()) {
+            if (entry.isPastStaleWindow(staleRetentionMs)) {
+                removeFromCache(key);
+            }
             return null;
         }
         return entry.dnssecStatus;
@@ -150,7 +257,9 @@ public class DnsCache {
         }
 
         if (entry.isExpired()) {
-            removeFromCache(key);
+            if (entry.isPastStaleWindow(staleRetentionMs)) {
+                removeFromCache(key);
+            }
             return false;
         }
 
@@ -294,7 +403,8 @@ public class DnsCache {
         Iterator<Map.Entry<CacheKey, CacheEntry>> it = cache.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<CacheKey, CacheEntry> entry = it.next();
-            if (entry.getValue().isExpired()) {
+            CacheEntry value = entry.getValue();
+            if (value.isPastStaleWindow(staleRetentionMs)) {
                 removeFromCache(entry.getKey());
                 removed++;
             }
@@ -475,12 +585,19 @@ public class DnsCache {
             }
             this.originalTTL = ttl;
             this.dnssecStatus = dnssecStatus;
-            this.creationTime = System.currentTimeMillis();
+            this.creationTime = clockMillis();
             this.expiryTime = creationTime + (ttl * 1000L);
         }
 
         boolean isExpired() {
-            return System.currentTimeMillis() >= expiryTime;
+            return clockMillis() >= expiryTime;
+        }
+
+        boolean isPastStaleWindow(long staleRetentionMs) {
+            if (staleRetentionMs <= 0) {
+                return isExpired();
+            }
+            return clockMillis() >= expiryTime + staleRetentionMs;
         }
 
         /**
@@ -491,7 +608,7 @@ public class DnsCache {
                 return null;
             }
 
-            long now = System.currentTimeMillis();
+            long now = clockMillis();
             if (cachedAdjusted != null
                     && (now - cachedAdjustedTime) < ADJUSTED_TTL_CACHE_MS) {
                 return cachedAdjusted;
@@ -514,6 +631,23 @@ public class DnsCache {
             cachedAdjusted = Collections.unmodifiableList(adjusted);
             cachedAdjustedTime = now;
             return cachedAdjusted;
+        }
+
+        List<DnsResourceRecord> getRecordsWithStaleTTL(int maxAnswerTtl) {
+            if (records == null) {
+                return null;
+            }
+            int ttl = Math.max(1, maxAnswerTtl);
+            List<DnsResourceRecord> stale = new ArrayList<>(records.size());
+            for (DnsResourceRecord record : records) {
+                stale.add(new DnsResourceRecord(
+                        record.getName(),
+                        record.getType(),
+                        record.getDNSClass(),
+                        ttl,
+                        record.getRData()));
+            }
+            return Collections.unmodifiableList(stale);
         }
     }
 

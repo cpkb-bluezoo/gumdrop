@@ -70,6 +70,10 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     private boolean useSystemResolvers;
     private boolean cacheEnabled = true;
     private boolean dnssecEnabled;
+    private boolean serveStaleEnabled = true;
+    private int staleRetentionSeconds = DnsCache.DEFAULT_STALE_RETENTION_SECONDS;
+    private int staleAnswerTtl = DnsCache.DEFAULT_STALE_ANSWER_TTL;
+    private ServeStalePolicy serveStalePolicy = ServeStalePolicy.ENABLED;
     private DnsCache cache;
     private DnsServerMetrics metrics;
 
@@ -111,6 +115,23 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
         this.cacheEnabled = cacheEnabled;
     }
 
+    public void setServeStaleEnabled(boolean serveStaleEnabled) {
+        this.serveStaleEnabled = serveStaleEnabled;
+    }
+
+    public void setStaleRetentionSeconds(int staleRetentionSeconds) {
+        this.staleRetentionSeconds = staleRetentionSeconds;
+    }
+
+    public void setStaleAnswerTtl(int staleAnswerTtl) {
+        this.staleAnswerTtl = staleAnswerTtl;
+    }
+
+    public void setServeStalePolicy(ServeStalePolicy serveStalePolicy) {
+        this.serveStalePolicy = serveStalePolicy != null
+                ? serveStalePolicy : ServeStalePolicy.DISABLED;
+    }
+
     public void setDnssecEnabled(boolean dnssecEnabled) {
         this.dnssecEnabled = dnssecEnabled;
     }
@@ -136,7 +157,9 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
     @Override
     public void start() {
         if (cacheEnabled) {
-            cache = new DnsCache();
+            cache = new DnsCache(DnsCache.DEFAULT_MAX_ENTRIES,
+                    DnsCache.DEFAULT_NEGATIVE_TTL,
+                    serveStaleEnabled ? staleRetentionSeconds : 0);
         }
         upstreamUdpFactory = new UdpTransportFactory();
         upstreamUdpFactory.start();
@@ -185,6 +208,9 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
             @Override
             public void onResponse(DnsMessage upstreamResponse) {
                 if (upstreamResponse == null) {
+                    if (tryServeStale(query, question, loop, callback)) {
+                        return;
+                    }
                     callback.onResponse(query.createErrorResponse(
                             DnsMessage.RCODE_SERVFAIL));
                     return;
@@ -202,8 +228,71 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
             @Override
             public void onError(String error) {
+                if (tryServeStale(query, question, loop, callback)) {
+                    return;
+                }
                 callback.onResponse(query.createErrorResponse(
                         DnsMessage.RCODE_SERVFAIL));
+            }
+        });
+    }
+
+    /**
+     * RFC 8767: on upstream failure, return a stale cache entry when policy
+     * allows and schedule a background refresh.
+     *
+     * @return {@code true} if {@code callback} was invoked with a stale answer
+     */
+    private boolean tryServeStale(final DnsMessage query,
+                                  final DnsQuestion question,
+                                  final SelectorLoop loop,
+                                  final DnsQueryCallback callback) {
+        if (!serveStaleEnabled || !cacheEnabled || cache == null
+                || serveStalePolicy == ServeStalePolicy.DISABLED) {
+            return false;
+        }
+        DnsCache.StaleHit staleHit =
+                cache.lookupStale(question, staleAnswerTtl);
+        if (staleHit == null && cache.lookupStaleNegative(question.getName())) {
+            staleHit = DnsCache.StaleHit.negativeHit();
+        }
+        if (staleHit == null
+                || !serveStalePolicy.shouldServeStale(question, staleHit)) {
+            return false;
+        }
+        if (metrics != null) {
+            metrics.cacheStaleServed();
+        }
+        if (staleHit.negative) {
+            callback.onResponse(query.createErrorResponse(
+                    DnsMessage.RCODE_NXDOMAIN));
+        } else {
+            callback.onResponse(query.createResponse(staleHit.records));
+        }
+        scheduleBackgroundRefresh(query, loop);
+        return true;
+    }
+
+    private void scheduleBackgroundRefresh(final DnsMessage query,
+                                           final SelectorLoop loop) {
+        proxyToUpstream(query, loop, new DnsQueryCallback() {
+            @Override
+            public void onResponse(DnsMessage upstreamResponse) {
+                if (upstreamResponse == null || !cacheEnabled || cache == null) {
+                    return;
+                }
+                DnsQuestion question = query.getQuestions().get(0);
+                if (upstreamResponse.getRcode() == DnsMessage.RCODE_NXDOMAIN) {
+                    cache.cacheNegative(question.getName(),
+                            upstreamResponse.getAuthorities());
+                } else if (!upstreamResponse.getAnswers().isEmpty()) {
+                    cache.cache(question, upstreamResponse.getAnswers());
+                }
+            }
+
+            @Override
+            public void onError(String error) {
+                // Best-effort refresh; ignore.
             }
         });
     }
@@ -722,6 +811,26 @@ public final class UpstreamRelayHandler implements DnsQueryHandler {
 
         public Builder cacheEnabled(boolean enabled) {
             handler.setCacheEnabled(enabled);
+            return this;
+        }
+
+        public Builder serveStaleEnabled(boolean enabled) {
+            handler.setServeStaleEnabled(enabled);
+            return this;
+        }
+
+        public Builder staleRetentionSeconds(int seconds) {
+            handler.setStaleRetentionSeconds(seconds);
+            return this;
+        }
+
+        public Builder staleAnswerTtl(int seconds) {
+            handler.setStaleAnswerTtl(seconds);
+            return this;
+        }
+
+        public Builder serveStalePolicy(ServeStalePolicy policy) {
+            handler.setServeStalePolicy(policy);
             return this;
         }
 
