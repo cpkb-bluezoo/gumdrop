@@ -1,10 +1,27 @@
 /*
  * Hpke.java
  * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.bluezoo.gumdrop.crypto;
 
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.KeyPair;
@@ -29,6 +46,8 @@ import javax.crypto.spec.SecretKeySpec;
  * <p>TODO(#446): Decap {@code kem_context} must use role byte {@code 1} per
  * RFC 9180 section 7.1.1; this implementation still uses {@code 0} on both
  * sides until {@code LabeledExpand} interop with the RFC test vectors is fixed.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public final class Hpke {
 
@@ -36,7 +55,7 @@ public final class Hpke {
     public static final int KDF_HKDF_SHA256 = 0x0001;
     public static final int AEAD_AES_128_GCM = 0x0001;
 
-    private static final byte[] HPKE_V1 = "HPKE-v1".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+    private static final byte[] HPKE_V1 = "HPKE-v1".getBytes(StandardCharsets.US_ASCII);
     private static final byte[] MODE_BASE = new byte[] { 0 };
     private static final byte[] EMPTY_PSK_ID = new byte[0];
     private static final byte[] X25519_HEADER = hex("302a300506032b656e032100");
@@ -63,10 +82,10 @@ public final class Hpke {
      */
     public static RawKeyPair generateX25519KeyPair(SecureRandom random) throws GeneralSecurityException {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("X25519");
+        kpg.initialize(NamedParameterSpec.X25519, random);
         KeyPair kp = kpg.generateKeyPair();
         byte[] pub = extractRawPublic(kp.getPublic());
-        java.security.interfaces.XECPrivateKey xec = (java.security.interfaces.XECPrivateKey) kp.getPrivate();
-        byte[] priv = xec.getScalar().orElseThrow(() -> new GeneralSecurityException("Missing X25519 scalar"));
+        byte[] priv = extractRawPrivate(kp.getPrivate());
         return new RawKeyPair(pub, priv);
     }
 
@@ -151,13 +170,13 @@ public final class Hpke {
     }
 
     byte[] labeledExtract(byte[] salt, String label, byte[] ikm) {
-        byte[] labelBytes = label.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
         byte[] labeledIkm = concat(HPKE_V1, u8(labelBytes.length), labelBytes, u8(ikm.length), ikm);
         return hkdf.extract(salt.length == 0 ? hkdf.zeroSalt() : salt, labeledIkm);
     }
 
     byte[] labeledExpand(byte[] prk, String label, byte[] info, int length) {
-        byte[] labelBytes = label.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+        byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
         byte[] labeledInfo = concat(HPKE_V1, u8(labelBytes.length), labelBytes, u8(info.length), info,
                 u16(length));
         return hkdf.expand(prk, labeledInfo, length);
@@ -176,12 +195,27 @@ public final class Hpke {
 
     private static PublicKey rawX25519Public(byte[] raw) throws GeneralSecurityException {
         byte[] wrapped = concat(X25519_HEADER, raw);
-        return java.security.KeyFactory.getInstance("X25519")
-                .generatePublic(new X509EncodedKeySpec(wrapped));
+        return KeyFactory.getInstance("X25519").generatePublic(new X509EncodedKeySpec(wrapped));
     }
 
     private static PrivateKey rawX25519Private(byte[] raw) throws GeneralSecurityException {
         return KeyFactory.getInstance("X25519").generatePrivate(new XECPrivateKeySpec(NamedParameterSpec.X25519, raw));
+    }
+
+    static byte[] scheduleKeyForTest(SenderContext context) {
+        return context.schedule.key;
+    }
+
+    static byte[] scheduleBaseNonceForTest(SenderContext context) {
+        return context.schedule.baseNonce;
+    }
+
+    static byte[] scheduleKeyForTest(RecipientContext context) {
+        return context.schedule.key;
+    }
+
+    static byte[] scheduleBaseNonceForTest(RecipientContext context) {
+        return context.schedule.baseNonce;
     }
 
     static byte[] extractRawPublicForTest(PublicKey publicKey) {
@@ -201,8 +235,11 @@ public final class Hpke {
         return Arrays.copyOfRange(encoded, encoded.length - 32, encoded.length);
     }
 
-    private static byte[] extractRawPrivate(PrivateKey privateKey) {
+    private static byte[] extractRawPrivate(PrivateKey privateKey) throws GeneralSecurityException {
         byte[] encoded = privateKey.getEncoded();
+        if (encoded == null || encoded.length < 32) {
+            throw new GeneralSecurityException("Cannot extract X25519 private key");
+        }
         return Arrays.copyOfRange(encoded, encoded.length - 32, encoded.length);
     }
 
