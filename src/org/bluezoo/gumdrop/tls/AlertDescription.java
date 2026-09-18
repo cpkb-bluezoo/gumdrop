@@ -70,7 +70,9 @@ public enum AlertDescription {
     /** The offered PSK identity isn't recognized. */
     UNKNOWN_PSK_IDENTITY(115),
     CERTIFICATE_REQUIRED(116),
-    NO_APPLICATION_PROTOCOL(120);
+    NO_APPLICATION_PROTOCOL(120),
+    /** RFC 9849: server requires Encrypted Client Hello. */
+    ECH_REQUIRED(121);
 
     private final int code;
 

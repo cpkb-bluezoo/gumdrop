@@ -893,6 +893,72 @@ public class HandshakeEngineLoopbackTest {
         assertArrayEquals(client.getClientApplicationTrafficSecret(), server.getClientApplicationTrafficSecret());
     }
 
+    @Test
+    public void echRejectionWithoutServerKeysCompletesOnOuterHello() throws Exception {
+        byte[] pkRm = hex("3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d");
+        EchConfig ech = EchConfig.createV13(1, pkRm, "public." + SERVER_NAME, 64);
+
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setEchEnabled(true);
+        cc.setEchConfig(ech);
+        cc.setVerifyHostname(false);
+
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNull("client error", clientSink.error);
+        assertNull("server error", serverSink.error);
+        assertTrue(client.isComplete());
+        assertTrue(server.isComplete());
+        assertArrayEquals(client.getClientApplicationTrafficSecret(), server.getClientApplicationTrafficSecret());
+    }
+
+    @Test
+    public void echRequiredOnClientAbortsWhenServerRejectsEch() throws Exception {
+        byte[] pkRm = hex("3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d");
+        EchConfig ech = EchConfig.createV13(1, pkRm, "public." + SERVER_NAME, 64);
+
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setEchEnabled(true);
+        cc.setEchConfig(ech);
+        cc.setEchRequired(true);
+
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNotNull(clientSink.error);
+        assertEquals(AlertDescription.ECH_REQUIRED, clientSink.error.getAlert());
+    }
+
+    @Test
+    public void echServerRequiredRejectsClientWithoutEch() throws Exception {
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setEchServerRequired(true);
+
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNotNull(serverSink.error);
+        assertEquals(AlertDescription.ECH_REQUIRED, serverSink.error.getAlert());
+    }
+
     private static byte[] hex(String s) {
         byte[] out = new byte[s.length() / 2];
         for (int i = 0; i < out.length; i++) {

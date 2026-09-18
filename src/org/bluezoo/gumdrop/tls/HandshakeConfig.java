@@ -69,9 +69,18 @@ public final class HandshakeConfig {
     // RFC 9849 Encrypted Client Hello (client: preconfigured ECHConfig).
     private boolean echEnabled;
     private EchConfig echConfig;
+    /** When true, the client aborts if the server rejects ECH (RFC 9849 section 6.1.7). */
+    private boolean echRequired;
     /** Server role: ECH config and private key for decrypting ClientHelloOuter. */
     private EchConfig echServerConfig;
     private byte[] echServerPrivateKey;
+    /** Server role: require clients to offer ECH (RFC 9849 section 7.3). */
+    private boolean echServerRequired;
+    /**
+     * Server role: {@code ECHConfigList} bytes for {@code retry_configs} on
+     * rejection; when null, {@link #echServerConfig} is encoded if present.
+     */
+    private byte[] echRetryConfigList;
 
     // RFC 8879 certificate compression.
     private boolean certificateCompressionEnabled = true;
@@ -586,6 +595,24 @@ public final class HandshakeConfig {
     }
 
     /**
+     * Returns whether the client requires ECH acceptance (RFC 9849 section 6.1.7).
+     *
+     * @return true to abort when the server rejects ECH
+     */
+    public boolean isEchRequired() {
+        return echRequired;
+    }
+
+    /**
+     * Sets whether the client aborts when the server rejects ECH.
+     *
+     * @param echRequired true to require acceptance
+     */
+    public void setEchRequired(boolean echRequired) {
+        this.echRequired = echRequired;
+    }
+
+    /**
      * Returns the server ECH configuration for decrypting client offers.
      *
      * @return the server ECH config, or null
@@ -613,6 +640,44 @@ public final class HandshakeConfig {
     public void setEchServerKeys(EchConfig echServerConfig, byte[] echServerPrivateKey) {
         this.echServerConfig = echServerConfig;
         this.echServerPrivateKey = echServerPrivateKey;
+    }
+
+    /**
+     * Returns whether the server requires clients to offer ECH (RFC 9849 section 7.3).
+     *
+     * @return true when a ClientHello without outer ECH is rejected
+     */
+    public boolean isEchServerRequired() {
+        return echServerRequired;
+    }
+
+    /**
+     * Sets whether the server requires ECH on every ClientHello.
+     *
+     * @param echServerRequired true to send {@link AlertDescription#ECH_REQUIRED}
+     *        when outer ECH is absent
+     */
+    public void setEchServerRequired(boolean echServerRequired) {
+        this.echServerRequired = echServerRequired;
+    }
+
+    /**
+     * Returns the {@code ECHConfigList} sent in {@code retry_configs} when
+     * the server rejects ECH, or null to derive from {@link #getEchServerConfig()}.
+     *
+     * @return encoded list bytes, or null
+     */
+    public byte[] getEchRetryConfigList() {
+        return echRetryConfigList;
+    }
+
+    /**
+     * Sets the {@code retry_configs} payload for ECH rejection.
+     *
+     * @param echRetryConfigList encoded {@code ECHConfigList}, or null for default
+     */
+    public void setEchRetryConfigList(byte[] echRetryConfigList) {
+        this.echRetryConfigList = echRetryConfigList;
     }
 
     /**

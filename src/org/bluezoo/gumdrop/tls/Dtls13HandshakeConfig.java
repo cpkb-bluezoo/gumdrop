@@ -185,7 +185,10 @@ public final class Dtls13HandshakeConfig {
         copy.setMaxDecompressedCertificateSize(base.getMaxDecompressedCertificateSize());
         copy.setEchEnabled(base.isEchEnabled());
         copy.setEchConfig(base.getEchConfig());
+        copy.setEchRequired(base.isEchRequired());
         copy.setEchServerKeys(base.getEchServerConfig(), base.getEchServerPrivateKey());
+        copy.setEchServerRequired(base.isEchServerRequired());
+        copy.setEchRetryConfigList(base.getEchRetryConfigList());
         copy.setAntiReplay(base.getAntiReplay());
         copy.setTransportParameterConsistencyChecker(base.getTransportParameterConsistencyChecker());
         return copy;

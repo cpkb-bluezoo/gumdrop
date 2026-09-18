@@ -715,6 +715,18 @@ final class HandshakeMessages {
     static byte[] buildEncryptedExtensions(String selectedAlpn, byte[] quicTransportParameters,
             boolean earlyDataAccepted, boolean advertiseRecordSizeLimit, int recordSizeLimit,
             CertificateCompressionAlgorithm certificateCompression) {
+        try {
+            return buildEncryptedExtensions(selectedAlpn, quicTransportParameters, earlyDataAccepted,
+                    advertiseRecordSizeLimit, recordSizeLimit, certificateCompression, null);
+        } catch (HandshakeFormatException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    static byte[] buildEncryptedExtensions(String selectedAlpn, byte[] quicTransportParameters,
+            boolean earlyDataAccepted, boolean advertiseRecordSizeLimit, int recordSizeLimit,
+            CertificateCompressionAlgorithm certificateCompression, byte[] echRetryConfigList)
+            throws HandshakeFormatException {
         WireWriter ext = new WireWriter();
         if (selectedAlpn != null) {
             List<String> single = new ArrayList<String>();
@@ -733,6 +745,9 @@ final class HandshakeMessages {
         if (certificateCompression != null) {
             writeExtension(ext, EXT_COMPRESS_CERTIFICATE,
                     new byte[] { (byte) certificateCompression.getId() });
+        }
+        if (echRetryConfigList != null) {
+            writeEncryptedClientHelloRetryExtension(ext, echRetryConfigList);
         }
         WireWriter w = new WireWriter();
         w.opaque16(ext.toByteArray());

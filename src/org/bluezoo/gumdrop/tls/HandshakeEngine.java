@@ -405,6 +405,10 @@ public final class HandshakeEngine {
                 echRejected = true;
             }
         }
+        if (echOffered && echRejected && config.isEchRequired()) {
+            fail(sink, AlertDescription.ECH_REQUIRED, "Server rejected Encrypted Client Hello");
+            return;
+        }
         if (!sh.selectedTls13 || sh.cipherSuite == null || !config.getCipherSuites().contains(sh.cipherSuite)) {
             fail(sink, AlertDescription.HANDSHAKE_FAILURE, "Server selected an unacceptable protocol version or cipher suite");
             return;
@@ -460,6 +464,10 @@ public final class HandshakeEngine {
                 echRejected = true;
             }
         }
+        if (echOffered && echRejected && config.isEchRequired()) {
+            fail(sink, AlertDescription.ECH_REQUIRED, "Server rejected Encrypted Client Hello");
+            return;
+        }
         if (hrr.cipherSuite == null || !config.getCipherSuites().contains(hrr.cipherSuite)) {
             fail(sink, AlertDescription.HANDSHAKE_FAILURE, "HelloRetryRequest selected an unacceptable cipher suite");
             return;
@@ -495,6 +503,9 @@ public final class HandshakeEngine {
             sink.peerTransportParameters(ee.quicTransportParameters);
         }
         sink.earlyDataAccepted(ee.earlyDataAccepted);
+        if (echRejected && ee.echRetryConfigs != null && ee.echRetryConfigs.length > 0) {
+            config.setEchConfig(ee.echRetryConfigs[0]);
+        }
         state = resumed ? State.WAIT_SERVER_FINISHED : State.WAIT_CERTIFICATE;
     }
 
@@ -550,7 +561,14 @@ public final class HandshakeEngine {
             fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed server certificate: " + e.getMessage());
             return;
         }
-        String expectedHostname = config.isVerifyHostname() ? config.getServerName() : null;
+        String expectedHostname = null;
+        if (config.isVerifyHostname()) {
+            if (echRejected && config.getEchConfig() != null) {
+                expectedHostname = config.getEchConfig().getPublicName();
+            } else {
+                expectedHostname = config.getServerName();
+            }
+        }
         CertificateVerifier.Result result = CertificateVerifier.verifyChain(peerCertificateChain,
                 config.getTrustManager(), expectedHostname);
         if (!result.isOk()) {
@@ -703,15 +721,27 @@ public final class HandshakeEngine {
             throws HandshakeFormatException, GeneralSecurityException {
         byte[] clientHelloForTranscript = message;
         HandshakeMessages.ClientHello ch = HandshakeMessages.parseClientHello(message);
+        boolean echOuterOffered = ch.encryptedClientHelloOuter != null;
+        if (config.isEchServerRequired() && !echOuterOffered) {
+            fail(sink, AlertDescription.ECH_REQUIRED, "Client did not offer Encrypted Client Hello");
+            return;
+        }
         boolean echInnerAccepted = false;
-        if (ch.encryptedClientHelloOuter != null && config.getEchServerConfig() != null
+        boolean echRejectWithRetryConfigs = false;
+        if (echOuterOffered && config.getEchServerConfig() != null
                 && config.getEchServerPrivateKey() != null) {
-            EchServer.OpenResult opened = EchServer.openInnerClientHello(message, config.getEchServerConfig(),
-                    config.getEchServerPrivateKey(), echHpkeRecipient);
-            clientHelloForTranscript = opened.getInnerClientHelloFramed();
-            echHpkeRecipient = opened.getHpkeRecipient();
-            ch = HandshakeMessages.parseClientHello(clientHelloForTranscript);
-            echInnerAccepted = true;
+            try {
+                EchServer.OpenResult opened = EchServer.openInnerClientHello(message, config.getEchServerConfig(),
+                        config.getEchServerPrivateKey(), echHpkeRecipient);
+                clientHelloForTranscript = opened.getInnerClientHelloFramed();
+                echHpkeRecipient = opened.getHpkeRecipient();
+                ch = HandshakeMessages.parseClientHello(clientHelloForTranscript);
+                echInnerAccepted = true;
+            } catch (GeneralSecurityException e) {
+                echRejectWithRetryConfigs = true;
+            }
+        } else if (echOuterOffered) {
+            echRejectWithRetryConfigs = true;
         }
         if (ch.recordSizeLimitPresent) {
             peerRecordSizeLimit = ch.recordSizeLimit;
@@ -813,9 +843,11 @@ public final class HandshakeEngine {
 
         earlyDataAccepted = tryAcceptEarlyData(ch, message, resumedPayload, sink);
 
+        byte[] echRetryList = echRejectWithRetryConfigs ? resolveEchRetryConfigList() : null;
         byte[] encryptedExtensions = HandshakeMessages.buildEncryptedExtensions(
                 negotiatedAlpn, config.getLocalTransportParameters(), earlyDataAccepted,
-                config.isRecordSizeLimitEnabled(), localRecordSizeLimit, negotiatedCertCompression);
+                config.isRecordSizeLimitEnabled(), localRecordSizeLimit, negotiatedCertCompression,
+                echRetryList);
         transcript.update(encryptedExtensions);
         sink.handshakeDataReady(encryptedExtensions);
         if (ch.quicTransportParameters != null) {
@@ -878,6 +910,17 @@ public final class HandshakeEngine {
      * the followup ClientHello2 arrives (the state machine stays in
      * {@code INITIAL}).
      */
+    private byte[] resolveEchRetryConfigList() {
+        if (config.getEchRetryConfigList() != null) {
+            return config.getEchRetryConfigList();
+        }
+        EchConfig published = config.getEchServerConfig();
+        if (published != null) {
+            return EchConfig.encodeList(new EchConfig[] { published });
+        }
+        return null;
+    }
+
     private void sendHelloRetryRequest(NamedGroup group, byte[] legacySessionId, CipherSuite cipherSuite,
             byte[] clientHello1ForTranscript, boolean echInnerAccepted, TlsEventSink sink, byte[] cookie)
             throws HandshakeFormatException {
