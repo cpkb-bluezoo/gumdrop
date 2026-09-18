@@ -151,6 +151,8 @@ public final class TlsRecordEngine {
 
     private boolean failed;
 
+    private final HandshakeMessageReassembler handshakeReassembler = new HandshakeMessageReassembler();
+
     /**
      * Creates a TCP record-layer engine, wrapping a {@link HandshakeEngine}.
      * {@code config}'s mode is forced to {@link HandshakeMode#TCP_RECORD_LAYER}.
@@ -461,7 +463,17 @@ public final class TlsRecordEngine {
                 return false;
             }
             case CONTENT_HANDSHAKE:
-                handshakeAsync.scheduleMessage(payload);
+                try {
+                    handshakeReassembler.feed(payload, new HandshakeMessageReassembler.MessageConsumer() {
+                        @Override
+                        public void accept(byte[] completeMessage) {
+                            handshakeAsync.scheduleMessage(completeMessage);
+                        }
+                    });
+                } catch (HandshakeFormatException e) {
+                    fail(sink, AlertDescription.DECODE_ERROR, "malformed handshake record");
+                    return false;
+                }
                 return true;
             case CONTENT_APPLICATION_DATA:
                 if (!engine.isComplete()) {
@@ -508,6 +520,9 @@ public final class TlsRecordEngine {
         }
 
         if (epoch == Epoch.PLAINTEXT) {
+            if (len > engine.getInboundPlaintextLimit()) {
+                throw new HandshakeFormatException("plaintext exceeds negotiated record_size_limit");
+            }
             byte[] body = Arrays.copyOfRange(buffered, 5, 5 + len);
             inbound.discard(5 + len);
             return new Record(hdrType, body);
@@ -528,6 +543,9 @@ public final class TlsRecordEngine {
         if (end == 0) {
             throw new HandshakeFormatException("empty inner plaintext");
         }
+        if (end > engine.getInboundPlaintextLimit()) {
+            throw new HandshakeFormatException("plaintext exceeds negotiated record_size_limit");
+        }
         int innerType = plain[end - 1] & 0xff;
         byte[] payload = Arrays.copyOfRange(plain, 0, end - 1);
         return new Record(innerType, payload);
@@ -541,8 +559,16 @@ public final class TlsRecordEngine {
         outbound.reset();
         int end = offset + length;
         int pos = offset;
+        int outboundLimit = engine.getOutboundPlaintextLimit();
         do {
-            int chunkLen = Math.min(MAX_FRAGMENT, end - pos);
+            int chunkLen = Math.min(outboundLimit, end - pos);
+            if (epoch != Epoch.PLAINTEXT) {
+                // RFC 8446 section 5.2: inner plaintext includes the trailing content type.
+                chunkLen = Math.min(chunkLen, outboundLimit - 1);
+            }
+            if (chunkLen <= 0) {
+                throw new IllegalStateException("record_size_limit too small for this cipher");
+            }
             if (epoch == Epoch.PLAINTEXT) {
                 writePlaintextRecord(contentType, data, pos, chunkLen, outbound);
             } else {

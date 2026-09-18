@@ -177,6 +177,10 @@ driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
 <li>Named group selection including hybrid post-quantum groups (RFC&nbsp;10024)
     when running on Java&nbsp;25+ with ML-KEM/ML-DSA available in the JCA
     provider</li>
+<li><code>record_size_limit</code> (RFC&nbsp;8449) &mdash;
+    <code>HandshakeConfig.setRecordSizeLimit()</code> /
+    <code>setRecordSizeLimitEnabled()</code>; enforced on TCP and DTLS record
+    layers (QUIC negotiates the extension but uses QUIC frame sizing on the wire)</li>
 </ul>
 
 <p>
@@ -221,6 +225,8 @@ deliberately narrow profile.
     RFC&nbsp;5246 session-ID caching)</li>
 <li><b>ALPN</b> (RFC&nbsp;7301), <b>SNI</b> credential dispatch, optional
     <b>mTLS</b></li>
+<li><b>Record size limit</b> (RFC&nbsp;8449) on TCP TLS&nbsp;1.2 and DTLS&nbsp;1.2
+    via <code>Tls12HandshakeConfig</code></li>
 <li><b>Server signatures:</b> ECDSA and RSA PKCS#1 v1.5 for
     <code>CertificateVerify</code> (no Ed25519 codepoint on TLS&nbsp;1.2 wire;
     no RSA-PSS for the engine&rsquo;s own signatures)</li>

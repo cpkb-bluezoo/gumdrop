@@ -300,6 +300,7 @@ practices.
 | KeyUpdate (TCP record layer) | 4.6.3 | Compliant | `TlsRecordEngine`; not over QUIC (RFC 9001 §4.6) |
 | Downgrade protection (SCSV / version checks) | 4.1.3 | Compliant | Legacy version fields handled in engine |
 | Named groups (X25519, P-256, P-384, hybrid PQ) | 4.2.7 | Compliant | `NamedGroup`; hybrid requires Java 25+ JCA |
+| Record size limit | RFC 8449 | Compliant | `record_size_limit` extension; enforced in TCP/DTLS record layers; QUIC negotiates but uses QUIC frame sizing |
 
 ### TLS 1.2 — RFC 5246 (profile)
 

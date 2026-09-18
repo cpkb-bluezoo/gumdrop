@@ -120,6 +120,9 @@ public final class HandshakeEngine {
     private NamedGroup serverRetryRequestedGroup;
     private boolean earlyDataAccepted;
 
+    private final int localRecordSizeLimit;
+    private int peerRecordSizeLimit = RecordSizeLimit.DEFAULT;
+
     // Set by whichever side sends/receives a HelloRetryRequest, to check
     // the eventual real ServerHello (client) or followup ClientHello
     // (server) did not change cipher suite across the retry -- an engine
@@ -133,6 +136,8 @@ public final class HandshakeEngine {
      */
     public HandshakeEngine(HandshakeConfig config) {
         this.config = config;
+        this.localRecordSizeLimit = RecordSizeLimit.localInboundLimit(
+                config.getRecordSizeLimit(), config.isRecordSizeLimitEnabled());
     }
 
     /**
@@ -200,6 +205,8 @@ public final class HandshakeEngine {
         params.serverName = config.getServerName();
         params.quicTransportParameters = config.getLocalTransportParameters();
         params.cookie = isRetry ? clientRetryCookie : null;
+        params.advertiseRecordSizeLimit = config.isRecordSizeLimitEnabled();
+        params.recordSizeLimit = localRecordSizeLimit;
 
         SessionTicket ticket = config.getSessionTicket();
         byte[] clientHello;
@@ -406,6 +413,9 @@ public final class HandshakeEngine {
     private void onEncryptedExtensions(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
         HandshakeMessages.EncryptedExtensions ee = HandshakeMessages.parseEncryptedExtensions(message);
         transcript.update(message);
+        if (ee.recordSizeLimitPresent) {
+            peerRecordSizeLimit = ee.recordSizeLimit;
+        }
         negotiatedAlpn = ee.selectedAlpn;
         if (ee.quicTransportParameters != null) {
             sink.peerTransportParameters(ee.quicTransportParameters);
@@ -590,6 +600,9 @@ public final class HandshakeEngine {
     private void onClientHello(byte[] message, TlsEventSink sink)
             throws HandshakeFormatException, GeneralSecurityException {
         HandshakeMessages.ClientHello ch = HandshakeMessages.parseClientHello(message);
+        if (ch.recordSizeLimitPresent) {
+            peerRecordSizeLimit = ch.recordSizeLimit;
+        }
         if (!ch.supportsTls13) {
             fail(sink, AlertDescription.PROTOCOL_VERSION, "Client did not offer TLS 1.3");
             return;
@@ -677,7 +690,8 @@ public final class HandshakeEngine {
         earlyDataAccepted = tryAcceptEarlyData(ch, message, resumedPayload, sink);
 
         byte[] encryptedExtensions = HandshakeMessages.buildEncryptedExtensions(
-                negotiatedAlpn, config.getLocalTransportParameters(), earlyDataAccepted);
+                negotiatedAlpn, config.getLocalTransportParameters(), earlyDataAccepted,
+                config.isRecordSizeLimitEnabled(), localRecordSizeLimit);
         transcript.update(encryptedExtensions);
         sink.handshakeDataReady(encryptedExtensions);
         if (ch.quicTransportParameters != null) {
@@ -1211,6 +1225,26 @@ public final class HandshakeEngine {
      */
     public List<X509Certificate> getPeerCertificateChain() {
         return peerCertificateChain;
+    }
+
+    /**
+     * Returns the maximum plaintext fragment size to use when sending
+     * records to the peer (RFC 8449), once known from the handshake.
+     *
+     * @return peer limit in bytes, at most {@link RecordSizeLimit#ABSOLUTE_MAX}
+     */
+    public int getOutboundPlaintextLimit() {
+        return Math.min(RecordSizeLimit.ABSOLUTE_MAX, peerRecordSizeLimit);
+    }
+
+    /**
+     * Returns the maximum plaintext record size this endpoint advertised
+     * and enforces on inbound records.
+     *
+     * @return local inbound limit in bytes
+     */
+    public int getInboundPlaintextLimit() {
+        return localRecordSizeLimit;
     }
 
 }
