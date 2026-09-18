@@ -181,6 +181,10 @@ driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
     <code>HandshakeConfig.setRecordSizeLimit()</code> /
     <code>setRecordSizeLimitEnabled()</code>; enforced on TCP and DTLS record
     layers (QUIC negotiates the extension but uses QUIC frame sizing on the wire)</li>
+<li>Certificate compression (RFC&nbsp;8879) &mdash;
+    <code>compress_certificate</code> with Brotli (<a href="https://github.com/cpkb-bluezoo/micula">micula</a>)
+    and zlib; enabled by default via
+    <code>HandshakeConfig.setCertificateCompressionEnabled()</code></li>
 </ul>
 
 <p>

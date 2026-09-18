@@ -22,9 +22,11 @@
 package org.bluezoo.gumdrop.http.client;
 
 import java.nio.ByteBuffer;
+import java.text.MessageFormat;
 import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.PriorityParams;
 
 /**
@@ -64,6 +66,10 @@ class HttpStream implements HttpRequest {
     private boolean headersSent;
     private boolean bodySent;
     private boolean cancelled;
+
+    private ContentEncoding.Encoder requestContentEncoder;
+
+    private ContentEncoding.Decoder inboundResponseDecoder;
 
     /**
      * Creates a new HTTP stream.
@@ -142,6 +148,88 @@ class HttpStream implements HttpRequest {
         return exclusive;
     }
 
+    ContentEncoding.Coding getRequestContentCoding() {
+        if (!connection.isEncodeRequestBodyContentCoding()) {
+            return null;
+        }
+        return ContentEncoding.parseContentEncoding(
+                headers.getCombinedValue("Content-Encoding"));
+    }
+
+    ContentEncoding.Encoder getOrCreateRequestContentEncoder()
+            throws ContentEncoding.ContentEncodingException {
+        ContentEncoding.Coding coding = getRequestContentCoding();
+        if (coding == null) {
+            String raw = headers.getCombinedValue("Content-Encoding");
+            if (connection.isEncodeRequestBodyContentCoding()
+                    && raw != null && !raw.trim().isEmpty()) {
+                throw new ContentEncoding.ContentEncodingException(
+                        MessageFormat.format(
+                                L10N.getString("err.unsupported_request_content_encoding"),
+                                raw.trim()));
+            }
+            return null;
+        }
+        if (requestContentEncoder == null) {
+            requestContentEncoder = ContentEncoding.createEncoder(coding);
+        }
+        return requestContentEncoder;
+    }
+
+    void closeRequestContentEncoder() {
+        if (requestContentEncoder != null) {
+            requestContentEncoder.close();
+            requestContentEncoder = null;
+        }
+    }
+
+    ContentEncoding.Decoder getInboundResponseDecoder() {
+        return inboundResponseDecoder;
+    }
+
+    void setInboundResponseDecoder(ContentEncoding.Coding coding) {
+        if (coding == null) {
+            if (inboundResponseDecoder != null) {
+                inboundResponseDecoder.close();
+                inboundResponseDecoder = null;
+            }
+            return;
+        }
+        if (inboundResponseDecoder != null) {
+            inboundResponseDecoder.close();
+        }
+        inboundResponseDecoder = ContentEncoding.createDecoder(coding,
+                ContentEncoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+    }
+
+    void closeInboundResponseDecoder() {
+        if (inboundResponseDecoder != null) {
+            inboundResponseDecoder.close();
+            inboundResponseDecoder = null;
+        }
+    }
+
+    void drainInboundResponseDecoded(HttpResponseHandler responseHandler)
+            throws ContentEncoding.ContentEncodingException {
+        if (inboundResponseDecoder == null || responseHandler == null) {
+            return;
+        }
+        ByteBuffer decoded;
+        while ((decoded = inboundResponseDecoder.readDecoded()) != null) {
+            responseHandler.responseBodyContent(decoded);
+        }
+    }
+
+    void finishInboundResponseDecoded(HttpResponseHandler responseHandler)
+            throws ContentEncoding.ContentEncodingException {
+        if (inboundResponseDecoder == null) {
+            return;
+        }
+        inboundResponseDecoder.write(ByteBuffer.allocate(0), true);
+        drainInboundResponseDecoded(responseHandler);
+        closeInboundResponseDecoder();
+    }
+
     @Override
     public void header(String name, String value) {
         if (headersSent) {
@@ -204,6 +292,9 @@ class HttpStream implements HttpRequest {
         }
         if (cancelled) {
             return 0;
+        }
+        if (getRequestContentCoding() != null) {
+            return connection.sendRequestBodyEncoded(this, data, false);
         }
         return connection.sendRequestBody(this, data);
     }

@@ -89,6 +89,16 @@ import java.util.logging.Logger;
  */
 class FileHandler extends DefaultHttpRequestHandler {
 
+    @Override
+    public boolean decodeRequestContentCoding() {
+        return true;
+    }
+
+    @Override
+    public boolean encodeResponseContentCoding() {
+        return true;
+    }
+
     private static final Logger LOGGER = Logger.getLogger(FileHandler.class.getName());
     private static final ResourceBundle L10N =
             ResourceBundle.getBundle("org.bluezoo.gumdrop.webdav.L10N");

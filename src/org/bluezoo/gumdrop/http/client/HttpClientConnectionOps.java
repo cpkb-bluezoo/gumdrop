@@ -51,6 +51,17 @@ interface HttpClientConnectionOps {
     int sendRequestBody(HttpStream request, ByteBuffer data);
 
     /**
+     * Compresses and sends request body data when {@code Content-Encoding}
+     * is set on the request.
+     *
+     * @param request the request
+     * @param data plaintext body data
+     * @param end true when finishing the compressed stream
+     * @return the number of plaintext bytes consumed
+     */
+    int sendRequestBodyEncoded(HttpStream request, ByteBuffer data, boolean end);
+
+    /**
      * Ends the request body.
      *
      * @param request the request
@@ -63,4 +74,10 @@ interface HttpClientConnectionOps {
      * @param request the request to cancel
      */
     void cancelRequest(HttpStream request);
+
+    /**
+     * When true, plaintext supplied via {@link HttpRequest#requestBodyContent}
+     * is compressed if {@code Content-Encoding} is set to a supported coding.
+     */
+    boolean isEncodeRequestBodyContentCoding();
 }

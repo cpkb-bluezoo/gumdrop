@@ -174,6 +174,17 @@ public final class Dtls13HandshakeConfig {
         copy.setTicketKeys(base.getTicketKeys());
         copy.setSessionTicket(base.getSessionTicket());
         copy.setCookieValidator(base.getCookieValidator());
+        copy.setLocalTransportParameters(base.getLocalTransportParameters());
+        copy.setEnableEarlyData(base.isEnableEarlyData());
+        copy.setMaxEarlyDataSize(base.getMaxEarlyDataSize());
+        copy.setEarlyDataFreshnessMs(base.getEarlyDataFreshnessMs());
+        copy.setRecordSizeLimitEnabled(base.isRecordSizeLimitEnabled());
+        copy.setRecordSizeLimit(base.getRecordSizeLimit());
+        copy.setCertificateCompressionEnabled(base.isCertificateCompressionEnabled());
+        copy.setCertificateCompressionAlgorithms(base.getCertificateCompressionAlgorithms());
+        copy.setMaxDecompressedCertificateSize(base.getMaxDecompressedCertificateSize());
+        copy.setAntiReplay(base.getAntiReplay());
+        copy.setTransportParameterConsistencyChecker(base.getTransportParameterConsistencyChecker());
         return copy;
     }
 }

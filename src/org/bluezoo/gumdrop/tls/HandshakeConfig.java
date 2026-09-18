@@ -66,6 +66,12 @@ public final class HandshakeConfig {
     private boolean recordSizeLimitEnabled = true;
     private int recordSizeLimit = RecordSizeLimit.DEFAULT;
 
+    // RFC 8879 certificate compression.
+    private boolean certificateCompressionEnabled = true;
+    private List<CertificateCompressionAlgorithm> certificateCompressionAlgorithms =
+            CertificateCompressor.defaultEnabledAlgorithms();
+    private int maxDecompressedCertificateSize = CertificateCompressor.DEFAULT_MAX_DECOMPRESSED_SIZE;
+
     private AntiReplay antiReplay;
     private TransportParameterConsistencyChecker transportParameterConsistencyChecker = PERMISSIVE_CHECKER;
     private int earlyDataFreshnessMs = 10000;
@@ -485,6 +491,52 @@ public final class HandshakeConfig {
      */
     public void setRecordSizeLimit(int recordSizeLimit) {
         this.recordSizeLimit = recordSizeLimit;
+    }
+
+    /**
+     * Returns whether RFC 8879 certificate compression is enabled.
+     * Defaults to true.
+     *
+     * @return true to advertise and use certificate compression when negotiated
+     */
+    public boolean isCertificateCompressionEnabled() {
+        return certificateCompressionEnabled;
+    }
+
+    public void setCertificateCompressionEnabled(boolean certificateCompressionEnabled) {
+        this.certificateCompressionEnabled = certificateCompressionEnabled;
+    }
+
+    /**
+     * Returns the certificate compression algorithms this endpoint supports,
+     * in preference order (Brotli before zlib by default).
+     *
+     * @return enabled algorithms
+     */
+    public List<CertificateCompressionAlgorithm> getCertificateCompressionAlgorithms() {
+        return certificateCompressionAlgorithms;
+    }
+
+    public void setCertificateCompressionAlgorithms(
+            List<CertificateCompressionAlgorithm> certificateCompressionAlgorithms) {
+        if (certificateCompressionAlgorithms == null) {
+            throw new NullPointerException("certificateCompressionAlgorithms");
+        }
+        this.certificateCompressionAlgorithms = certificateCompressionAlgorithms;
+    }
+
+    /**
+     * Returns the maximum decompressed Certificate message size accepted
+     * from a peer. Defaults to 262144.
+     *
+     * @return limit in bytes
+     */
+    public int getMaxDecompressedCertificateSize() {
+        return maxDecompressedCertificateSize;
+    }
+
+    public void setMaxDecompressedCertificateSize(int maxDecompressedCertificateSize) {
+        this.maxDecompressedCertificateSize = maxDecompressedCertificateSize;
     }
 
     /**

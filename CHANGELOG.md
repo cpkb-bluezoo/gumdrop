@@ -13,6 +13,12 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **RFC 8879 TLS certificate compression** (Brotli via [micula](https://github.com/cpkb-bluezoo/micula)
+  `org.bluezoo:micula:1.0.0`, zlib via JDK `Deflater`/`Inflater`) in the TLS 1.3
+  `HandshakeEngine`; external dependency wired like gonzalez-core, jsonparser,
+  and jprotobuf.
+- **HTTP response content codings** (`Content-Encoding`: `br`, `gzip`, `deflate`)
+  on the HTTP server when the client sends `Accept-Encoding`; Brotli preferred.
 - **In-tree TLS 1.3 engine** (`org.bluezoo.gumdrop.tls`): pure-Java handshake,
   record layer, and key schedule for TCP/TLS, DTLS, and QUIC, replacing JVM
   JSSE (`SSLEngine`) and [Agent15](https://github.com/ptrd/agent15). Includes

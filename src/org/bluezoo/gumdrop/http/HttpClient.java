@@ -150,6 +150,9 @@ public class HttpClient implements AltSvcListener {
     private boolean earlyDataEnabled;
     private boolean blockPrivateAddresses;
     private long idleTimeoutMs;
+    private boolean sendAcceptEncodingHeader = true;
+    private boolean decodeResponseContentCoding = true;
+    private boolean encodeRequestBodyContentCoding = true;
     private ClientEndpointPool connectionPool;
 
     /** Trace context for automatic traceparent propagation on outbound requests. */
@@ -563,6 +566,71 @@ public class HttpClient implements AltSvcListener {
     }
 
     /**
+     * Enables or disables sending {@code Accept-Encoding: br, gzip, deflate}
+     * on outbound requests when the application has not set its own
+     * {@code Accept-Encoding} header.
+     *
+     * @param send true to advertise supported response codings (default)
+     */
+    public void setSendAcceptEncodingHeader(boolean send) {
+        this.sendAcceptEncodingHeader = send;
+        if (endpointHandler != null) {
+            endpointHandler.setSendAcceptEncodingHeader(send);
+        }
+        if (h3Handler != null) {
+            h3Handler.setSendAcceptEncodingHeader(send);
+        }
+    }
+
+    /**
+     * Enables or disables transparent decoding of {@code Content-Encoding}
+     * on response bodies. When enabled, decoded bytes are delivered to
+     * {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler} and the
+     * {@code Content-Encoding} header is omitted.
+     *
+     * @param decode true to decode response bodies (default)
+     */
+    public void setDecodeResponseContentCoding(boolean decode) {
+        this.decodeResponseContentCoding = decode;
+        if (endpointHandler != null) {
+            endpointHandler.setDecodeResponseContentCoding(decode);
+        }
+        if (h3Handler != null) {
+            h3Handler.setDecodeResponseContentCoding(decode);
+        }
+    }
+
+    /**
+     * Enables or disables transparent compression of request bodies when
+     * {@code Content-Encoding} is set to {@code br}, {@code gzip}, or
+     * {@code deflate}. When disabled, body bytes are sent as supplied
+     * (for example already-compressed data).
+     *
+     * @param encode true to compress plaintext per {@code Content-Encoding}
+     */
+    public void setEncodeRequestBodyContentCoding(boolean encode) {
+        this.encodeRequestBodyContentCoding = encode;
+        if (endpointHandler != null) {
+            endpointHandler.setEncodeRequestBodyContentCoding(encode);
+        }
+        if (h3Handler != null) {
+            h3Handler.setEncodeRequestBodyContentCoding(encode);
+        }
+    }
+
+    private void applyContentCodingSettings(HttpClientProtocolHandler handler) {
+        handler.setSendAcceptEncodingHeader(sendAcceptEncodingHeader);
+        handler.setDecodeResponseContentCoding(decodeResponseContentCoding);
+        handler.setEncodeRequestBodyContentCoding(encodeRequestBodyContentCoding);
+    }
+
+    private void applyContentCodingSettings(Http3ClientHandler handler) {
+        handler.setSendAcceptEncodingHeader(sendAcceptEncodingHeader);
+        handler.setDecodeResponseContentCoding(decodeResponseContentCoding);
+        handler.setEncodeRequestBodyContentCoding(encodeRequestBodyContentCoding);
+    }
+
+    /**
      * Sets an optional connection pool for endpoint reuse.
      *
      * <p>When set, the client checks the pool for an idle endpoint
@@ -748,6 +816,24 @@ public class HttpClient implements AltSvcListener {
     /** @return this client */
     public HttpClient idleTimeoutMs(long ms) {
         setIdleTimeoutMs(ms);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient sendAcceptEncodingHeader(boolean send) {
+        setSendAcceptEncodingHeader(send);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient decodeResponseContentCoding(boolean decode) {
+        setDecodeResponseContentCoding(decode);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient encodeRequestBodyContentCoding(boolean encode) {
+        setEncodeRequestBodyContentCoding(encode);
         return this;
     }
 
@@ -972,6 +1058,7 @@ public class HttpClient implements AltSvcListener {
         if (idleTimeoutMs > 0) {
             endpointHandler.setIdleTimeoutMs(idleTimeoutMs);
         }
+        applyContentCodingSettings(endpointHandler);
 
         try {
             if (socketPath != null) {
@@ -1119,6 +1206,7 @@ public class HttpClient implements AltSvcListener {
                             // that reports the handshake itself as done.
                             if (h3Handler == null) {
                                 h3Handler = new Http3ClientHandler(connection);
+                                applyContentCodingSettings(h3Handler);
                                 handler.onConnected(null);
                             } else {
                                 h3Handler.runDeferredRequests();
@@ -1139,6 +1227,7 @@ public class HttpClient implements AltSvcListener {
                             // is safe even if the application immediately
                             // issues a POST.
                             h3Handler = new Http3ClientHandler(connection);
+                            applyContentCodingSettings(h3Handler);
                             handler.onConnected(null);
                         }
                     },

@@ -1,6 +1,7 @@
 module org.bluezoo.gumdrop.http {
     requires org.bluezoo.gumdrop.core;
     requires org.bluezoo.gumdrop.mime;
+    requires org.bluezoo.micula;
 
     exports org.bluezoo.gumdrop.http;
     exports org.bluezoo.gumdrop.http.client;

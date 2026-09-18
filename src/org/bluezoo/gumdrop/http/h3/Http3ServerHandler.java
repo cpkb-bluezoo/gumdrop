@@ -101,6 +101,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
     private final HttpServerMetrics metrics;
     private final TelemetryConfig telemetryConfig;
     private final boolean addSecurityHeaders;
+    private final boolean compressResponses;
 
     // RFC 9204 section 3.2.1: matches HPACK's own well-known
     // SETTINGS_HEADER_TABLE_SIZE default (RFC 7541 section 6.5.2) --
@@ -161,19 +162,22 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
      * @param metrics server metrics (may be null)
      * @param telemetryConfig telemetry configuration (may be null)
      * @param addSecurityHeaders whether to add default security headers
+     * @param compressResponses whether response compression is allowed when handlers opt in
      */
     public Http3ServerHandler(QuicConnection quicConnection,
                               HttpStreamHandler streamHandler,
                               HttpAuthenticationProvider authProvider,
                               HttpServerMetrics metrics,
                               TelemetryConfig telemetryConfig,
-                              boolean addSecurityHeaders) {
+                              boolean addSecurityHeaders,
+                              boolean compressResponses) {
         this.quicConnection = quicConnection;
         this.streamHandler = streamHandler;
         this.authenticationProvider = authProvider;
         this.metrics = metrics;
         this.telemetryConfig = telemetryConfig;
         this.addSecurityHeaders = addSecurityHeaders;
+        this.compressResponses = compressResponses;
 
         if (metrics != null) {
             metrics.connectionOpened();
@@ -664,6 +668,10 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
 
     boolean getAddSecurityHeaders() {
         return addSecurityHeaders;
+    }
+
+    boolean getCompressResponses() {
+        return compressResponses;
     }
 
     /**

@@ -44,6 +44,7 @@ import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
 import org.bluezoo.gumdrop.http.client.HttpMethodSafety;
@@ -135,6 +136,14 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
 
     // RFC 9297 section 2.1.1: peer advertised SETTINGS_H3_DATAGRAM=1.
     private boolean peerH3Datagram;
+
+    private boolean sendAcceptEncodingHeader = true;
+
+    /** When true, decode {@code Content-Encoding} on response bodies. */
+    private boolean decodeResponseContentCoding = true;
+
+    /** When true, compress request bodies per {@code Content-Encoding}. */
+    private boolean encodeRequestBodyContentCoding = true;
 
     /**
      * Creates a new HTTP/3 client handler on top of an existing
@@ -550,6 +559,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         if (headers == null || endpoint == null) {
             return;
         }
+        applyDefaultAcceptEncoding(headers);
         if (exceedsPeerFieldSectionLimit(headers)) {
             // RFC 9114 section 4.2.2: SHOULD NOT send a field section
             // over the peer's advertised ceiling.
@@ -573,11 +583,20 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         endpoint.send(out);
         List<byte[]> body = clientStream.takePendingBody();
         boolean bodyFin = clientStream.takePendingBodyFin();
+        boolean contentCoding = clientStream.getRequestOutboundContentCoding() != null;
         for (int i = 0; i < body.size(); i++) {
-            sendRequestBodyOnLoop(streamId, body.get(i), false);
+            if (contentCoding) {
+                sendRequestBodyEncodedOnLoop(clientStream, body.get(i), false);
+            } else {
+                sendRequestBodyOnLoop(streamId, body.get(i), false);
+            }
         }
         if (fin || bodyFin) {
-            endpoint.close();
+            if (contentCoding) {
+                sendRequestBodyEncodedOnLoop(clientStream, new byte[0], true);
+            } else {
+                endpoint.close();
+            }
         }
     }
 
@@ -624,7 +643,39 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
             clientStream.queueRequestBody(snapshot, fin);
             return;
         }
+        if (clientStream.getRequestOutboundContentCoding() != null) {
+            sendRequestBodyEncodedOnLoop(clientStream, snapshot, fin);
+            return;
+        }
         sendRequestBodyOnLoop(clientStream.getStreamId(), snapshot, fin);
+    }
+
+    private void sendRequestBodyEncodedOnLoop(H3ClientStream clientStream, byte[] plain, boolean fin) {
+        try {
+            ContentEncoding.Encoder encoder = clientStream.getOrCreateRequestContentEncoder();
+            if (encoder == null) {
+                return;
+            }
+            encoder.write(ByteBuffer.wrap(plain), fin);
+            ByteBuffer encoded;
+            while ((encoded = encoder.readEncoded()) != null) {
+                byte[] bytes = new byte[encoded.remaining()];
+                encoded.get(bytes);
+                sendRequestBodyOnLoop(clientStream.getStreamId(), bytes, false);
+            }
+            if (fin) {
+                clientStream.closeRequestContentEncoder();
+                Endpoint endpoint = clientStream.getEndpoint();
+                if (endpoint != null) {
+                    endpoint.close();
+                }
+            }
+        } catch (ContentEncoding.ContentEncodingException e) {
+            HttpResponseHandler handler = clientStream.getResponseHandler();
+            if (handler != null) {
+                handler.failed(new IOException(e.getMessage(), e));
+            }
+        }
     }
 
     /**
@@ -1020,5 +1071,107 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
      */
     void closeWithApplicationError(long errorCode, String reason) {
         quicConnection.closeWithApplicationError(errorCode, reason);
+    }
+
+    public void setSendAcceptEncodingHeader(boolean sendAcceptEncodingHeader) {
+        this.sendAcceptEncodingHeader = sendAcceptEncodingHeader;
+    }
+
+    public void setDecodeResponseContentCoding(boolean decodeResponseContentCoding) {
+        this.decodeResponseContentCoding = decodeResponseContentCoding;
+    }
+
+    public void setEncodeRequestBodyContentCoding(boolean encodeRequestBodyContentCoding) {
+        this.encodeRequestBodyContentCoding = encodeRequestBodyContentCoding;
+    }
+
+    boolean isEncodeRequestBodyContentCoding() {
+        return encodeRequestBodyContentCoding;
+    }
+
+    void applyDefaultAcceptEncoding(Headers headers) {
+        if (!sendAcceptEncodingHeader) {
+            return;
+        }
+        if (headers != null && !headers.containsName("Accept-Encoding")) {
+            headers.add("Accept-Encoding", "br, gzip, deflate");
+        }
+    }
+
+    void prepareInboundResponseDecoding(H3ClientStream stream, Headers headers) {
+        if (!decodeResponseContentCoding || stream == null || headers == null) {
+            return;
+        }
+        ContentEncoding.Coding coding = ContentEncoding.parseContentEncoding(
+                headers.getValue("content-encoding"));
+        if (coding != null) {
+            stream.setInboundResponseDecoder(coding);
+        }
+    }
+
+    boolean omitContentEncodingHeader(String name) {
+        return decodeResponseContentCoding
+                && name != null
+                && "content-encoding".equalsIgnoreCase(name);
+    }
+
+    void feedResponseBody(H3ClientStream stream, ByteBuffer data) {
+        if (stream == null) {
+            return;
+        }
+        HttpResponseHandler responseHandler = stream.getResponseHandler();
+        if (responseHandler == null) {
+            if (data != null) {
+                data.position(data.limit());
+            }
+            return;
+        }
+        if (!decodeResponseContentCoding || stream.getInboundResponseDecoder() == null) {
+            if (data != null && data.hasRemaining()) {
+                responseHandler.responseBodyContent(data);
+            }
+            return;
+        }
+        try {
+            stream.getInboundResponseDecoder().write(data, false);
+            drainInboundResponseDecoded(stream, responseHandler);
+        } catch (ContentEncoding.ContentEncodingException e) {
+            responseHandler.failed(new IOException(e.getMessage(), e));
+        }
+    }
+
+    private void drainInboundResponseDecoded(H3ClientStream stream, HttpResponseHandler responseHandler)
+            throws ContentEncoding.ContentEncodingException {
+        ContentEncoding.Decoder decoder = stream.getInboundResponseDecoder();
+        if (decoder == null) {
+            return;
+        }
+        ByteBuffer decoded;
+        while ((decoded = decoder.readDecoded()) != null) {
+            responseHandler.responseBodyContent(decoded);
+        }
+    }
+
+    void finishResponseBody(H3ClientStream stream) {
+        if (stream == null) {
+            return;
+        }
+        HttpResponseHandler responseHandler = stream.getResponseHandler();
+        if (responseHandler == null) {
+            return;
+        }
+        if (!decodeResponseContentCoding || stream.getInboundResponseDecoder() == null) {
+            responseHandler.endResponseBody();
+            return;
+        }
+        try {
+            stream.getInboundResponseDecoder().write(ByteBuffer.allocate(0), true);
+            drainInboundResponseDecoded(stream, responseHandler);
+            stream.closeInboundResponseDecoder();
+        } catch (ContentEncoding.ContentEncodingException e) {
+            responseHandler.failed(new IOException(e.getMessage(), e));
+            return;
+        }
+        responseHandler.endResponseBody();
     }
 }

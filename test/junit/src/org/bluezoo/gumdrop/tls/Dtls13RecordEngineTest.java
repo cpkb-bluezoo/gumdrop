@@ -44,6 +44,9 @@ public class Dtls13RecordEngineTest {
     private static Path certsDirectory;
     private static List<X509Certificate> ecChain;
     private static PrivateKey ecKey;
+    /** Large single cert standing in for future PQ leaf sizes on the wire. */
+    private static List<X509Certificate> largeRsaChain;
+    private static PrivateKey largeRsaKey;
 
     @BeforeClass
     public static void generateCertificates() throws Exception {
@@ -51,6 +54,10 @@ public class Dtls13RecordEngineTest {
         KeyStore ecStore = generateKeyStore("ec", "EC", "secp256r1", "SHA256withECDSA");
         ecChain = Collections.singletonList((X509Certificate) ecStore.getCertificate("ec"));
         ecKey = (PrivateKey) ecStore.getKey("ec", "changeit".toCharArray());
+
+        KeyStore rsaStore = generateRsaKeyStore("rsa4096", 4096);
+        largeRsaChain = Collections.singletonList((X509Certificate) rsaStore.getCertificate("rsa4096"));
+        largeRsaKey = (PrivateKey) rsaStore.getKey("rsa4096", "changeit".toCharArray());
     }
 
     private static KeyStore generateKeyStore(String alias, String keyAlg, String groupName, String sigAlg)
@@ -58,6 +65,15 @@ public class Dtls13RecordEngineTest {
         Path keystorePath = certsDirectory.resolve(alias + ".p12");
         runKeytool("-genkeypair", "-alias", alias, "-keyalg", keyAlg, "-groupname", groupName,
                 "-sigalg", sigAlg, "-validity", "1", "-dname", "CN=" + SERVER_NAME,
+                "-ext", "san=dns:" + SERVER_NAME, "-keystore", keystorePath.toString(),
+                "-storetype", "PKCS12", "-storepass", "changeit", "-keypass", "changeit");
+        return loadKeyStore(keystorePath);
+    }
+
+    private static KeyStore generateRsaKeyStore(String alias, int keySize) throws Exception {
+        Path keystorePath = certsDirectory.resolve(alias + ".p12");
+        runKeytool("-genkeypair", "-alias", alias, "-keyalg", "RSA", "-keysize", Integer.toString(keySize),
+                "-sigalg", "SHA256withRSA", "-validity", "1", "-dname", "CN=" + SERVER_NAME,
                 "-ext", "san=dns:" + SERVER_NAME, "-keystore", keystorePath.toString(),
                 "-storetype", "PKCS12", "-storepass", "changeit", "-keypass", "changeit");
         return loadKeyStore(keystorePath);
@@ -108,16 +124,39 @@ public class Dtls13RecordEngineTest {
         }
     }
 
+    private enum DatagramDelivery {
+        IN_ORDER {
+            @Override
+            void deliver(List<byte[]> datagrams, Dtls13RecordEngine to, RecordingSink sink) {
+                for (int i = 0; i < datagrams.size(); i++) {
+                    to.feedDatagram(datagrams.get(i), sink);
+                }
+            }
+        },
+        REVERSE_WITHIN_BATCH {
+            @Override
+            void deliver(List<byte[]> datagrams, Dtls13RecordEngine to, RecordingSink sink) {
+                for (int i = datagrams.size() - 1; i >= 0; i--) {
+                    to.feedDatagram(datagrams.get(i), sink);
+                }
+            }
+        };
+
+        abstract void deliver(List<byte[]> datagrams, Dtls13RecordEngine to, RecordingSink sink);
+    }
+
     private static final class RecordingSink implements TlsRecordSink {
         final List<byte[]> outbound = new ArrayList<byte[]>();
         final List<byte[]> appData = new ArrayList<byte[]>();
         final List<String> events = new ArrayList<String>();
+        int totalDatagramsSent;
         boolean handshakeComplete;
         TlsProtocolError error;
 
         @Override
         public void ciphertextReady(byte[] data) {
             outbound.add(data);
+            totalDatagramsSent++;
         }
 
         @Override
@@ -188,9 +227,15 @@ public class Dtls13RecordEngineTest {
 
     private Loopback runLoopback(HandshakeConfig clientCfg, HandshakeConfig serverCfg, int maxFragment)
             throws Exception {
+        return runLoopback(clientCfg, serverCfg, maxFragment,
+                DatagramDelivery.IN_ORDER, DatagramDelivery.IN_ORDER);
+    }
+
+    private Loopback runLoopback(HandshakeConfig clientCfg, HandshakeConfig serverCfg, int maxFragment,
+            DatagramDelivery toServer, DatagramDelivery toClient) throws Exception {
         Loopback lb = newLoopback(clientCfg, serverCfg, maxFragment);
         lb.client.start(lb.clientSink);
-        relayUntilIdle(lb.clientSink, lb.client, lb.serverSink, lb.server);
+        relayUntilIdle(lb.clientSink, lb.client, lb.serverSink, lb.server, toServer, toClient);
         assertTrue("client: " + lb.clientSink.events, lb.client.isComplete());
         assertTrue("server: " + lb.serverSink.events, lb.server.isComplete());
         return lb;
@@ -198,7 +243,53 @@ public class Dtls13RecordEngineTest {
 
     private static void relayUntilIdle(RecordingSink clientSink, Dtls13RecordEngine client,
             RecordingSink serverSink, Dtls13RecordEngine server) {
-        relayUntilIdle(clientSink, client, serverSink, server, null, null);
+        relayUntilIdle(clientSink, client, serverSink, server,
+                DatagramDelivery.IN_ORDER, DatagramDelivery.IN_ORDER);
+    }
+
+    private static void relayUntilIdle(RecordingSink clientSink, Dtls13RecordEngine client,
+            RecordingSink serverSink, Dtls13RecordEngine server, DatagramDelivery toServer,
+            DatagramDelivery toClient) {
+        for (int round = 0; round < 48; round++) {
+            boolean moved = false;
+            if (!clientSink.outbound.isEmpty()) {
+                relayDatagrams(clientSink, server, serverSink, toServer);
+                moved = true;
+            }
+            if (!serverSink.outbound.isEmpty()) {
+                relayDatagrams(serverSink, client, clientSink, toClient);
+                moved = true;
+            }
+            if (client.isComplete() && server.isComplete()) {
+                return;
+            }
+            if (!moved) {
+                return;
+            }
+        }
+    }
+
+    private static void relayDatagrams(RecordingSink from, Dtls13RecordEngine toEngine, RecordingSink toSink,
+            DatagramDelivery delivery) {
+        List<byte[]> pending = new ArrayList<byte[]>(from.outbound);
+        from.outbound.clear();
+        if (pending.isEmpty()) {
+            return;
+        }
+        if (delivery != DatagramDelivery.IN_ORDER && !isEpochZeroHandshakeBatch(pending)) {
+            delivery = DatagramDelivery.IN_ORDER;
+        }
+        delivery.deliver(pending, toEngine, toSink);
+    }
+
+    private static boolean isEpochZeroHandshakeBatch(List<byte[]> datagrams) {
+        for (int i = 0; i < datagrams.size(); i++) {
+            byte[] dg = datagrams.get(i);
+            if (dg.length < 13 || (dg[0] & 0xff) != 22 || dg[3] != 0 || dg[4] != 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void relayUntilIdle(RecordingSink clientSink, Dtls13RecordEngine client,
@@ -214,12 +305,12 @@ public class Dtls13RecordEngineTest {
             if (!clientSink.outbound.isEmpty()) {
                 captureAckDatagrams(clientSink.outbound, ackCapture);
                 captureAckDatagrams(clientSink.outbound, clientAckCapture);
-                relayDatagrams(clientSink, server, serverSink);
+                relayDatagrams(clientSink, server, serverSink, DatagramDelivery.IN_ORDER);
                 moved = true;
             }
             if (!serverSink.outbound.isEmpty()) {
                 captureAckDatagrams(serverSink.outbound, ackCapture);
-                relayDatagrams(serverSink, client, clientSink);
+                relayDatagrams(serverSink, client, clientSink, DatagramDelivery.IN_ORDER);
                 moved = true;
             }
             if (client.isComplete() && server.isComplete()) {
@@ -251,12 +342,62 @@ public class Dtls13RecordEngineTest {
         }
     }
 
-    private static void relayDatagrams(RecordingSink from, Dtls13RecordEngine toEngine, RecordingSink toSink) {
-        List<byte[]> pending = new ArrayList<byte[]>(from.outbound);
-        from.outbound.clear();
-        for (int i = 0; i < pending.size(); i++) {
-            toEngine.feedDatagram(pending.get(i), toSink);
+    private HandshakeConfig compressedLargeCertClientConfig() throws Exception {
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.CLIENT);
+        config.setServerName(SERVER_NAME);
+        config.setTrustManager(CertificateVerifier.trustManagerFromCertificates(largeRsaChain));
+        config.setCertificateCompressionEnabled(true);
+        return new Dtls13HandshakeConfig(config).copyBaseForEngine();
+    }
+
+    private HandshakeConfig compressedLargeCertServerConfig() {
+        HandshakeConfig config = new HandshakeConfig(HandshakeRole.SERVER);
+        config.setServerCredentials(new ServerCredentials(largeRsaChain, largeRsaKey));
+        config.setCertificateCompressionEnabled(true);
+        return new Dtls13HandshakeConfig(config).copyBaseForEngine();
+    }
+
+    private static int compressedCertificateHandshakeBodyBytes(List<X509Certificate> chain)
+            throws Exception {
+        List<byte[]> der = new ArrayList<byte[]>(chain.size());
+        for (int i = 0; i < chain.size(); i++) {
+            der.add(chain.get(i).getEncoded());
         }
+        byte[] certificate = HandshakeMessages.buildCertificate(new byte[0], der);
+        byte[] compressed = CertificateCompressor.compress(
+                CertificateCompressionAlgorithm.BROTLI, certificate);
+        byte[] wire = HandshakeMessages.buildCompressedCertificate(
+                CertificateCompressionAlgorithm.BROTLI, compressed);
+        return wire.length - 4;
+    }
+
+    @Test
+    public void fragmentedCompressedCertificateHandshakeCompletes() throws Exception {
+        final int maxFragment = 64;
+        int bodyBytes = compressedCertificateHandshakeBodyBytes(largeRsaChain);
+        assertTrue("test cert should require multiple DTLS fragments at maxFragment="
+                + maxFragment, bodyBytes > maxFragment * 2);
+
+        HandshakeConfig cc = compressedLargeCertClientConfig();
+        HandshakeConfig sc = compressedLargeCertServerConfig();
+        Loopback lb = newLoopback(cc, sc, maxFragment);
+        lb.client.start(lb.clientSink);
+        relayUntilIdle(lb.clientSink, lb.client, lb.serverSink, lb.server);
+
+        assertNull(lb.clientSink.error);
+        assertNull(lb.serverSink.error);
+        assertTrue(lb.clientSink.handshakeComplete);
+        assertTrue(lb.serverSink.handshakeComplete);
+        assertEquals(largeRsaChain.get(0), lb.client.getPeerCertificateChain().get(0));
+        assertTrue("server should emit multiple datagrams for a fragmented cert flight",
+                lb.serverSink.totalDatagramsSent >= 3);
+    }
+
+    @Test
+    public void fragmentedCompressedCertificateSurvivesReversedServerFragments() throws Exception {
+        Loopback lb = runLoopback(compressedLargeCertClientConfig(), compressedLargeCertServerConfig(), 64,
+                DatagramDelivery.IN_ORDER, DatagramDelivery.REVERSE_WITHIN_BATCH);
+        assertEquals(largeRsaChain.get(0), lb.client.getPeerCertificateChain().get(0));
     }
 
     @Test

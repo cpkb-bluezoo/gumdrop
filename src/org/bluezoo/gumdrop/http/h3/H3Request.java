@@ -24,6 +24,7 @@ package org.bluezoo.gumdrop.http.h3;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.ResourceBundle;
 import java.util.concurrent.CancellationException;
 
 import org.bluezoo.gumdrop.http.Header;
@@ -61,6 +62,9 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  */
 public class H3Request implements HttpRequest {
 
+    private static final ResourceBundle L10N =
+            ResourceBundle.getBundle("org.bluezoo.gumdrop.http.client.L10N");
+
     private final Http3ClientHandler h3Handler;
     private final String method;
     private final String path;
@@ -93,6 +97,8 @@ public class H3Request implements HttpRequest {
     // so this one does need cross-thread visibility.
     private volatile boolean cancelled;
 
+    private volatile boolean requestStarted;
+
     public H3Request(Http3ClientHandler h3Handler, String method,
                      String path, String authority, String scheme,
                      Trace traceContext) {
@@ -106,6 +112,9 @@ public class H3Request implements HttpRequest {
 
     @Override
     public void header(String name, String value) {
+        if (requestStarted) {
+            throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
+        }
         headers.add(new Header(name, value));
     }
 
@@ -138,6 +147,7 @@ public class H3Request implements HttpRequest {
         }
 
         responseHandler = handler;
+        requestStarted = true;
         final Headers h3Headers = buildHeaders();
         h3Handler.execute(new Runnable() {
             @Override
@@ -168,6 +178,7 @@ public class H3Request implements HttpRequest {
         }
 
         responseHandler = handler;
+        requestStarted = true;
         final Headers h3Headers = buildHeaders();
         h3Handler.execute(new Runnable() {
             @Override
@@ -288,6 +299,7 @@ public class H3Request implements HttpRequest {
         for (int i = 0; i < headers.size(); i++) {
             result.add(headers.get(i));
         }
+        h3Handler.applyDefaultAcceptEncoding(result);
         return result;
     }
 

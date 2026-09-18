@@ -47,6 +47,7 @@ import java.nio.ByteBuffer;
  * <pre>
  * HttpRequest request = session.post("/api/users");
  * request.header("Content-Type", "application/json");
+ * request.header("Content-Encoding", "gzip");  // optional; client compresses plaintext
  * request.startRequestBody(handler);
  * request.requestBodyContent(ByteBuffer.wrap(jsonData));
  * request.endRequestBody();

@@ -194,6 +194,25 @@ public interface HttpRequestHandler {
      *
      * @return true if {@link #datagramReceived} should be called
      */
+    /**
+     * When {@code true}, the server decodes {@code Content-Encoding} on the
+     * request body before {@link #requestBodyContent} (handlers see plain bytes).
+     * Default {@code false} so servlet and similar stacks receive the on-the-wire
+     * representation.
+     */
+    default boolean decodeRequestContentCoding() {
+        return false;
+    }
+
+    /**
+     * When {@code true}, the server may compress the response body with
+     * {@code Content-Encoding} when the client sends {@code Accept-Encoding}
+     * and the listener allows compression. Default {@code false}.
+     */
+    default boolean encodeResponseContentCoding() {
+        return false;
+    }
+
     default boolean wantsDatagrams() {
         return false;
     }
