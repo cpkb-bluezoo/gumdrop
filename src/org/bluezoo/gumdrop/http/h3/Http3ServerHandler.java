@@ -102,6 +102,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
     private final TelemetryConfig telemetryConfig;
     private final boolean addSecurityHeaders;
     private final boolean compressResponses;
+    private final String strictTransportSecurityValue;
 
     // RFC 9204 section 3.2.1: matches HPACK's own well-known
     // SETTINGS_HEADER_TABLE_SIZE default (RFC 7541 section 6.5.2) --
@@ -171,6 +172,21 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
                               TelemetryConfig telemetryConfig,
                               boolean addSecurityHeaders,
                               boolean compressResponses) {
+        this(quicConnection, streamHandler, authProvider, metrics, telemetryConfig,
+                addSecurityHeaders, compressResponses, null);
+    }
+
+    /**
+     * @param strictTransportSecurityValue RFC 6797 header value, or {@code null}
+     */
+    public Http3ServerHandler(QuicConnection quicConnection,
+                              HttpStreamHandler streamHandler,
+                              HttpAuthenticationProvider authProvider,
+                              HttpServerMetrics metrics,
+                              TelemetryConfig telemetryConfig,
+                              boolean addSecurityHeaders,
+                              boolean compressResponses,
+                              String strictTransportSecurityValue) {
         this.quicConnection = quicConnection;
         this.streamHandler = streamHandler;
         this.authenticationProvider = authProvider;
@@ -178,6 +194,7 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
         this.telemetryConfig = telemetryConfig;
         this.addSecurityHeaders = addSecurityHeaders;
         this.compressResponses = compressResponses;
+        this.strictTransportSecurityValue = strictTransportSecurityValue;
 
         if (metrics != null) {
             metrics.connectionOpened();
@@ -668,6 +685,10 @@ public final class Http3ServerHandler implements StreamAcceptHandler, H3ControlS
 
     boolean getAddSecurityHeaders() {
         return addSecurityHeaders;
+    }
+
+    String getStrictTransportSecurityHeaderValue() {
+        return strictTransportSecurityValue;
     }
 
     boolean getCompressResponses() {

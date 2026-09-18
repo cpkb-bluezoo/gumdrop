@@ -1153,6 +1153,13 @@ class Stream implements HttpResponseState {
                     headers.add(new Header("X-Content-Type-Options", HttpProtocolHandler.X_CONTENT_TYPE_OPTIONS_VALUE));
                 }
             }
+            if (listener != null) {
+                String hsts = listener.getStrictTransportSecurityHeaderValue();
+                if (hsts != null
+                        && !headers.containsName("Strict-Transport-Security")) {
+                    headers.add(new Header("Strict-Transport-Security", hsts));
+                }
+            }
         }
 
         // Add traceparent header to response if telemetry is enabled

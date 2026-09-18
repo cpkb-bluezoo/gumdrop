@@ -775,6 +775,19 @@ Example:
 &lt;/service&gt;
 </pre>
 </li>
+<li><code>hsts-enabled</code>, <code>hsts-max-age</code>,
+<code>hsts-include-subdomains</code>, <code>hsts-preload</code> &ndash;
+RFC 6797 HTTP Strict Transport Security. When enabled, the server adds
+<code>Strict-Transport-Security</code> on responses sent over TLS (HTTPS
+and HTTP/3). It is never sent on plaintext HTTP (RFC 6797 section 7.2).
+The same properties can be set on an individual secure
+<code>Http2Listener</code> or <code>Http3Listener</code>. HSTS takes effect
+after the user agent has successfully loaded the site over HTTPS at least
+once; pair it with an initial redirect to HTTPS (for example servlet
+<code>&lt;transport-guarantee&gt;CONFIDENTIAL&lt;/transport-guarantee&gt;
+with a configured secure host) so first-time visitors reach TLS before
+HSTS is stored.
+</li>
 </ul>
 
 <h4>Http2Listener Properties</h4>

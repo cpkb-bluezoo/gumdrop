@@ -1273,6 +1273,13 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                 pendingResponseHeaders.add(new Header("X-Content-Type-Options", "nosniff"));
             }
         }
+        String hsts = connection.getStrictTransportSecurityHeaderValue();
+        if (hsts != null
+                && !containsHeader(pendingResponseHeaders,
+                "Strict-Transport-Security")) {
+            pendingResponseHeaders.add(
+                    new Header("Strict-Transport-Security", hsts));
+        }
 
         // Capture response status code from :status pseudo-header
         for (int i = 0; i < pendingResponseHeaders.size(); i++) {
