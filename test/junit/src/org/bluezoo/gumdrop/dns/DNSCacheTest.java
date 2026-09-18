@@ -40,6 +40,11 @@ import static org.junit.Assert.*;
  */
 public class DNSCacheTest {
 
+    @org.junit.After
+    public void resetTestClock() {
+        DnsCache.testingResetClock();
+    }
+
     private static DnsQuestion question(String name) {
         return new DnsQuestion(name, DnsType.A, DnsClass.IN);
     }
@@ -47,6 +52,17 @@ public class DNSCacheTest {
     private static List<DnsResourceRecord> aRecord(String name, int ttl) throws Exception {
         return Arrays.asList(DnsResourceRecord.a(name, ttl,
                 InetAddress.getByName("192.0.2.1")));
+    }
+
+    @Test
+    public void testStaleRetentionZeroEvictsOnExpiry() throws Exception {
+        DnsCache cache = new DnsCache(100, 300, 0);
+        DnsQuestion q = question("immediate.example.com");
+        cache.cache(q, aRecord("immediate.example.com", 300));
+        DnsCache.testingAdvanceClock(301_000L);
+        assertNull(cache.lookup(q));
+        assertNull(cache.lookupStale(q, DnsCache.DEFAULT_STALE_ANSWER_TTL));
+        assertEquals(0, cache.size());
     }
 
     @Test

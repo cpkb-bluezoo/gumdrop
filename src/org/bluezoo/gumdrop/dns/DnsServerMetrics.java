@@ -41,6 +41,7 @@ import org.bluezoo.gumdrop.telemetry.metrics.Meter;
  *   <li>{@code dns.server.query.duration} - Query processing duration</li>
  *   <li>{@code dns.server.cache.hits} - Cache hits</li>
  *   <li>{@code dns.server.cache.misses} - Cache misses</li>
+ *   <li>{@code dns.server.cache.stale_served} - RFC 8767 stale answers served</li>
  *   <li>{@code dns.server.upstream.queries} - Queries forwarded upstream</li>
  *   <li>{@code dns.server.upstream.duration} - Upstream query duration</li>
  * </ul>
@@ -57,6 +58,7 @@ public class DnsServerMetrics {
 
     private final LongCounter cacheHits;
     private final LongCounter cacheMisses;
+    private final LongCounter cacheStaleServed;
 
     private final LongCounter upstreamQueries;
     private final DoubleHistogram upstreamDuration;
@@ -94,6 +96,11 @@ public class DnsServerMetrics {
         this.cacheMisses = meter.counterBuilder("dns.server.cache.misses")
                 .setDescription("DNS cache misses")
                 .setUnit("misses")
+                .build();
+
+        this.cacheStaleServed = meter.counterBuilder("dns.server.cache.stale_served")
+                .setDescription("DNS answers served stale after upstream failure")
+                .setUnit("responses")
                 .build();
 
         this.upstreamQueries = meter.counterBuilder("dns.server.upstream.queries")
@@ -153,6 +160,13 @@ public class DnsServerMetrics {
      */
     public void cacheMiss() {
         cacheMisses.add(1);
+    }
+
+    /**
+     * Records an RFC 8767 serve-stale response.
+     */
+    public void cacheStaleServed() {
+        cacheStaleServed.add(1);
     }
 
     /**
