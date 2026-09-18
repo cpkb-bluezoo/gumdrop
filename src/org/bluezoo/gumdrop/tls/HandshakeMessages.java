@@ -54,6 +54,7 @@ final class HandshakeMessages {
     static final int HANDSHAKE_TYPE_SERVER_HELLO = 2;
     static final int HANDSHAKE_TYPE_NEW_SESSION_TICKET = 4;
     static final int HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS = 8;
+    static final int HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE = 25;
     static final int HANDSHAKE_TYPE_CERTIFICATE = 11;
     static final int HANDSHAKE_TYPE_CERTIFICATE_REQUEST = 13;
     static final int HANDSHAKE_TYPE_CERTIFICATE_VERIFY = 15;
@@ -72,6 +73,7 @@ final class HandshakeMessages {
     private static final int EXT_SIGNATURE_ALGORITHMS = 0x000d;
     private static final int EXT_ALPN = 0x0010;
     private static final int EXT_RECORD_SIZE_LIMIT = 0x001c;
+    private static final int EXT_COMPRESS_CERTIFICATE = 0x001b;
     private static final int EXT_SUPPORTED_VERSIONS = 0x002b;
     private static final int EXT_PRE_SHARED_KEY = 0x0029;
     private static final int EXT_EARLY_DATA = 0x002a;
@@ -133,6 +135,8 @@ final class HandshakeMessages {
         /** When true, emit {@code record_size_limit} with {@link #recordSizeLimit}. */
         boolean advertiseRecordSizeLimit;
         int recordSizeLimit;
+        /** When non-null, emit {@code compress_certificate} with these algorithm ids. */
+        byte[] certificateCompressionAlgorithms;
     }
 
     /**
@@ -205,6 +209,10 @@ final class HandshakeMessages {
         if (params.advertiseRecordSizeLimit) {
             writeRecordSizeLimitExtension(ext, params.recordSizeLimit);
         }
+        if (params.certificateCompressionAlgorithms != null
+                && params.certificateCompressionAlgorithms.length > 0) {
+            writeExtension(ext, EXT_COMPRESS_CERTIFICATE, params.certificateCompressionAlgorithms);
+        }
         if (params.quicTransportParameters != null) {
             writeExtension(ext, EXT_QUIC_TRANSPORT_PARAMETERS, params.quicTransportParameters);
         }
@@ -267,6 +275,8 @@ final class HandshakeMessages {
         /** True when ClientHello carried {@code record_size_limit}. */
         boolean recordSizeLimitPresent;
         int recordSizeLimit;
+        /** Raw algorithm ids from {@code compress_certificate}, or null if absent. */
+        byte[] certificateCompressionAlgorithms;
     }
 
     static ClientHello parseClientHello(byte[] fullMessage) throws HandshakeFormatException {
@@ -373,6 +383,9 @@ final class HandshakeMessages {
             case EXT_RECORD_SIZE_LIMIT:
                 ch.recordSizeLimitPresent = true;
                 ch.recordSizeLimit = RecordSizeLimit.decodeExtensionValue(extBody);
+                break;
+            case EXT_COMPRESS_CERTIFICATE:
+                ch.certificateCompressionAlgorithms = extBody;
                 break;
             case EXT_PRE_SHARED_KEY: {
                 // offered_psks: PskIdentity identities<7..2^16-1>; PskBinderEntry binders<33..2^16-1>;
@@ -560,7 +573,8 @@ final class HandshakeMessages {
     // ---- EncryptedExtensions (RFC 8446 section 4.3.1) ----
 
     static byte[] buildEncryptedExtensions(String selectedAlpn, byte[] quicTransportParameters,
-            boolean earlyDataAccepted, boolean advertiseRecordSizeLimit, int recordSizeLimit) {
+            boolean earlyDataAccepted, boolean advertiseRecordSizeLimit, int recordSizeLimit,
+            CertificateCompressionAlgorithm certificateCompression) {
         WireWriter ext = new WireWriter();
         if (selectedAlpn != null) {
             List<String> single = new ArrayList<String>();
@@ -576,6 +590,10 @@ final class HandshakeMessages {
         if (advertiseRecordSizeLimit) {
             writeRecordSizeLimitExtension(ext, recordSizeLimit);
         }
+        if (certificateCompression != null) {
+            writeExtension(ext, EXT_COMPRESS_CERTIFICATE,
+                    new byte[] { (byte) certificateCompression.getId() });
+        }
         WireWriter w = new WireWriter();
         w.opaque16(ext.toByteArray());
         return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS, w.toByteArray());
@@ -587,6 +605,7 @@ final class HandshakeMessages {
         boolean earlyDataAccepted;
         boolean recordSizeLimitPresent;
         int recordSizeLimit;
+        CertificateCompressionAlgorithm certificateCompression;
     }
 
     static EncryptedExtensions parseEncryptedExtensions(byte[] fullMessage) throws HandshakeFormatException {
@@ -611,9 +630,40 @@ final class HandshakeMessages {
             } else if (extType == EXT_RECORD_SIZE_LIMIT) {
                 ee.recordSizeLimitPresent = true;
                 ee.recordSizeLimit = RecordSizeLimit.decodeExtensionValue(extBody);
+            } else if (extType == EXT_COMPRESS_CERTIFICATE) {
+                if (extBody.length == 1) {
+                    ee.certificateCompression = CertificateCompressionAlgorithm.fromId(extBody[0] & 0xff);
+                }
             }
         }
         return ee;
+    }
+
+    // ---- CompressedCertificate (RFC 8879) ----
+
+    static byte[] buildCompressedCertificate(CertificateCompressionAlgorithm algorithm, byte[] compressed) {
+        WireWriter body = new WireWriter();
+        body.u8(algorithm.getId());
+        body.opaque24(compressed);
+        return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE, body.toByteArray());
+    }
+
+    static final class CompressedCertificate {
+        CertificateCompressionAlgorithm algorithm;
+        byte[] compressed;
+    }
+
+    static CompressedCertificate parseCompressedCertificate(byte[] fullMessage) throws HandshakeFormatException {
+        WireReader r = new WireReader(fullMessage);
+        requireType(r, HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE);
+        WireReader body = r.slice(r.u24());
+        CompressedCertificate cc = new CompressedCertificate();
+        cc.algorithm = CertificateCompressionAlgorithm.fromId(body.u8());
+        if (cc.algorithm == null) {
+            throw new HandshakeFormatException("unknown certificate compression algorithm");
+        }
+        cc.compressed = body.opaque24();
+        return cc;
     }
 
     // ---- NewSessionTicket (RFC 8446 section 4.6.1) ----

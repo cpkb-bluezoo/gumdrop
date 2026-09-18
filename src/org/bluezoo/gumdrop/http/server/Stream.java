@@ -25,6 +25,7 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.http.HttpContentCoding;
 import org.bluezoo.gumdrop.http.HttpDateCache;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -159,6 +160,9 @@ class Stream implements HttpResponseState {
 
     /** True when HTTP/1.1 response uses Transfer-Encoding: chunked (auto-added) */
     private boolean responseChunked = false;
+
+    /** Non-null when the response body is compressed via {@code Content-Encoding}. */
+    private HttpContentCoding.Encoder responseContentEncoder;
 
     // ─────────────────────────────────────────────────────────────────────────
     // HttpResponseState implementation
@@ -1075,6 +1079,7 @@ class Stream implements HttpResponseState {
         boolean hasXContentTypeOptions = headers.containsName("x-content-type-options");
         boolean hasContentLength = headers.containsName("content-length");
         boolean hasTransferEncoding = headers.containsName("transfer-encoding");
+        boolean hasContentEncoding = headers.containsName("content-encoding");
 
         // RFC 9110 section 10.2.4: Server header field
         //
@@ -1108,6 +1113,20 @@ class Stream implements HttpResponseState {
         // Add traceparent header to response if telemetry is enabled
         if (span != null) {
             headers.add("traceparent", span.getSpanContext().toTraceparent());
+        }
+
+        if (shouldCompressResponse(statusCode, endStream, hasContentLength,
+                hasTransferEncoding, hasContentEncoding)) {
+            String acceptEncoding = this.headers != null
+                    ? this.headers.getCombinedValue("Accept-Encoding") : null;
+            HttpContentCoding.Coding coding =
+                    HttpContentCoding.selectFromAcceptEncoding(acceptEncoding);
+            if (coding != null) {
+                responseContentEncoder = HttpContentCoding.createEncoder(coding);
+                headers.add("Content-Encoding", coding.token());
+                headers.removeAll("Content-Length");
+                hasContentLength = false;
+            }
         }
 
         // RFC 9112 section 6.3: for HTTP/1.1 responses with a body, use
@@ -1209,8 +1228,28 @@ class Stream implements HttpResponseState {
             }
             return;
         }
+        if (responseContentEncoder != null) {
+            try {
+                responseContentEncoder.write(buf, endStream);
+            } catch (HttpContentCoding.HttpContentCodingException e) {
+                throw new ProtocolException(e.getMessage());
+            }
+            ByteBuffer encoded;
+            while ((encoded = responseContentEncoder.readEncoded()) != null) {
+                sendResponseBodyWire(encoded, false);
+            }
+            if (endStream) {
+                responseContentEncoder.close();
+                responseContentEncoder = null;
+                sendResponseBodyWire(EMPTY_BUFFER.duplicate(), true);
+            }
+            return;
+        }
+        sendResponseBodyWire(buf, endStream);
+    }
+
+    private void sendResponseBodyWire(ByteBuffer buf, boolean endStream) throws ProtocolException {
         if (responseChunked) {
-            // RFC 9112 section 7.1: chunk-size CRLF chunk-data CRLF
             ByteBuffer toSend = formatChunkedBody(buf, endStream);
             try {
                 connection.sendResponseBody(streamId, toSend, endStream);
@@ -1220,6 +1259,31 @@ class Stream implements HttpResponseState {
         } else {
             connection.sendResponseBody(streamId, buf, endStream);
         }
+    }
+
+    private boolean shouldCompressResponse(int statusCode, boolean endStream,
+            boolean hasContentLength, boolean hasTransferEncoding,
+            boolean hasContentEncoding) {
+        if (responseContentEncoder != null || endStream) {
+            return false;
+        }
+        if (hasContentEncoding || hasTransferEncoding || hasContentLength) {
+            return false;
+        }
+        if ("HEAD".equals(method) || statusCode == 204 || statusCode == 304) {
+            return false;
+        }
+        if (statusCode < 200 || statusCode >= 300) {
+            return false;
+        }
+        if (hasWebSocketUpgrade()) {
+            return false;
+        }
+        if (!(connection instanceof HttpProtocolHandler)) {
+            return false;
+        }
+        Http2Listener listener = ((HttpProtocolHandler) connection).getListener();
+        return listener != null && listener.getCompressResponses();
     }
 
     /**

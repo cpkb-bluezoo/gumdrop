@@ -28,6 +28,7 @@
   <property name='gonzalez.jar' value='gonzalez-core-${gonzalez.version}.jar'/>
   <property name='jsonparser.jar' value='jsonparser-${jsonparser.version}.jar'/>
   <property name='jprotobuf.jar' value='jprotobuf-${jprotobuf.version}.jar'/>
+  <property name='micula.jar' value='micula-${micula.version}.jar'/>
   <property name='servlet.jar' value='jakarta.servlet-api-${jakarta.servlet.api.version}.jar'/>
   <property name='jakarta.annotation.jar' value='jakarta.annotation-api-${jakarta.annotation.api.version}.jar'/>
   <property name='jakarta.persistence.jar' value='jakarta.persistence-api-${jakarta.persistence.api.version}.jar'/>
@@ -179,6 +180,8 @@
          dest='${lib}/${jsonparser.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/org/bluezoo/jprotobuf/${jprotobuf.version}/jprotobuf-${jprotobuf.version}.jar'
          dest='${lib}/${jprotobuf.jar}' skipexisting='true'/>
+    <get src='https://repo1.maven.org/maven2/org/bluezoo/micula/${micula.version}/micula-${micula.version}.jar'
+         dest='${lib}/${micula.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/jakarta/servlet/jakarta.servlet-api/${jakarta.servlet.api.version}/jakarta.servlet-api-${jakarta.servlet.api.version}.jar'
          dest='${lib}/${servlet.jar}' skipexisting='true'/>
     <get src='https://repo1.maven.org/maven2/jakarta/annotation/jakarta.annotation-api/${jakarta.annotation.api.version}/jakarta.annotation-api-${jakarta.annotation.api.version}.jar'
@@ -447,6 +450,7 @@
         <include name='${gonzalez.jar}'/>
         <include name='${jsonparser.jar}'/>
         <include name='${jprotobuf.jar}'/>
+        <include name='${micula.jar}'/>
         <include name='${servlet.jar}'/>
         <include name='${javamail.jar}'/>
         <include name='${jakarta.annotation.jar}'/>
@@ -465,7 +469,7 @@
       <manifest>
         <attribute name='Main-Class' value='org.bluezoo.gumdrop.Bootstrap'/>
         <attribute name='Container-Jar' value='gumdrop.jar'/>
-        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${jakarta.annotation.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar} ${jprotobuf.jar}'/>
+        <attribute name='Container-Dependencies' value='${servlet.jar} ${javamail.jar} ${jakarta.annotation.jar} ${annotation.jar} ${ejb.jar} ${persistence.jar} ${jaxws.jar} ${gonzalez.jar} ${jsonparser.jar} ${jprotobuf.jar} ${micula.jar}'/>
       </manifest>
     </jar>
   </target>
@@ -524,6 +528,7 @@
         <include name='${gonzalez.jar}'/>
         <include name='${jsonparser.jar}'/>
         <include name='${jprotobuf.jar}'/>
+        <include name='${micula.jar}'/>
         <include name='${servlet.jar}'/>
         <include name='${javamail.jar}'/>
         <include name='${jakarta.annotation.jar}'/>
@@ -680,6 +685,7 @@
         <pathelement location='${lib}/${gonzalez.jar}'/>
         <pathelement location='${lib}/${jsonparser.jar}'/>
         <pathelement location='${lib}/${jprotobuf.jar}'/>
+        <pathelement location='${lib}/${micula.jar}'/>
         <pathelement location='${lib}/${servlet.jar}'/>
         <pathelement location='${lib}/${javamail.jar}'/>
         <pathelement location='${lib}/${annotation.jar}'/>
@@ -824,6 +830,7 @@
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
     <pathelement location='${lib}/${jprotobuf.jar}'/>
+    <pathelement location='${lib}/${micula.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>
 
@@ -866,6 +873,7 @@
     <pathelement location='${lib}/${gonzalez.jar}'/>
     <pathelement location='${lib}/${jsonparser.jar}'/>
     <pathelement location='${lib}/${jprotobuf.jar}'/>
+    <pathelement location='${lib}/${micula.jar}'/>
     <pathelement location='${lib}/${javamail.jar}'/>
     <pathelement location='${lib}/${servlet.jar}'/>
   </path>

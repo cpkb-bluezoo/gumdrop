@@ -24,7 +24,7 @@ Jars under `lib/` are **not** in git. The first build downloads them via `ant re
 
 See [lib/README](lib/README) for the full list. In short:
 
-- **Bluezoo:** gonzalez-core, jsonparser, jprotobuf
+- **Bluezoo:** gonzalez-core, jsonparser, jprotobuf, micula (Brotli)
 - **Jakarta (Servlet 6.x stack):** jakarta.servlet-api, jakarta.annotation-api, jakarta.persistence-api (compile)
 - **Legacy javax / Java EE APIs** (container classpath): javax.mail, javax.annotation-api, javax.ejb-api, javax.persistence-api, jaxws-api
 

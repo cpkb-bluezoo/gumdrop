@@ -866,4 +866,35 @@ public class HandshakeEngineLoopbackTest {
                 rsaChain.get(0), client2.getPeerCertificateChain().get(0));
     }
 
+    @Test
+    public void handshakeUsesCompressedCertificateWhenEnabled() throws Exception {
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setCertificateCompressionEnabled(true);
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setCertificateCompressionEnabled(true);
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNull("client error", clientSink.error);
+        assertNull("server error", serverSink.error);
+        assertTrue("client complete", client.isComplete());
+        assertTrue("server complete", server.isComplete());
+        assertTrue("server should emit CompressedCertificate (type 25)",
+                containsHandshakeType(serverSink.outbound, 25));
+    }
+
+    private static boolean containsHandshakeType(List<byte[]> messages, int type) {
+        for (int i = 0; i < messages.size(); i++) {
+            byte[] msg = messages.get(i);
+            if (msg != null && msg.length > 0 && (msg[0] & 0xff) == type) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 }

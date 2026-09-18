@@ -146,6 +146,13 @@ public class Http2Listener extends TcpListener {
      */
     private boolean addSecurityHeaders = true;
 
+    /**
+     * Whether to compress response bodies when the client advertises
+     * {@code Accept-Encoding} (Brotli preferred, then gzip, then deflate).
+     * Uses {@code Content-Encoding} on the response. Default: true.
+     */
+    private boolean compressResponses = true;
+
     public String getDescription() {
         return secure ? "https" : "http";
     }
@@ -356,6 +363,21 @@ public class Http2Listener extends TcpListener {
      */
     public boolean getAddSecurityHeaders() {
         return addSecurityHeaders;
+    }
+
+    /**
+     * Sets whether response bodies may be compressed via {@code Content-Encoding}.
+     * XML property: {@code compress-responses}
+     */
+    public void setCompressResponses(boolean compressResponses) {
+        this.compressResponses = compressResponses;
+    }
+
+    /**
+     * Returns whether response body compression is enabled for this endpoint.
+     */
+    public boolean getCompressResponses() {
+        return compressResponses;
     }
 
     /**

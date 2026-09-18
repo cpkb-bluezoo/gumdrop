@@ -62,7 +62,7 @@ abstract class HpackConstants {
         new Header(":status", "404"),
         new Header(":status", "500"),
         new Header("accept-charset", null),
-        new Header("accept-encoding", "gzip, deflate"),
+        new Header("accept-encoding", "gzip, deflate, br"),
         new Header("accept-language", null),
         new Header("accept-ranges", null),
         new Header("accept", null),

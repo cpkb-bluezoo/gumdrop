@@ -14,6 +14,7 @@ Version pins: `boms/versions.properties` (keep in sync with root `pom.xml` and
 | gonzalez-core-* | Maven Central (`org.bluezoo:gonzalez-core`) |
 | jsonparser-* | Maven Central (`org.bluezoo:jsonparser`) |
 | jprotobuf-* | Maven Central (`org.bluezoo:jprotobuf`) |
+| micula-* | Maven Central (`org.bluezoo:micula`) |
 | jakarta.servlet-api-* | Maven Central (Jakarta Servlet 6.x API) |
 | jakarta.annotation-api-* | Maven Central (Jakarta Annotations) |
 | jakarta.persistence-api-* | Maven Central (Jakarta Persistence; compile classpath) |

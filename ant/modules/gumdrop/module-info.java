@@ -15,6 +15,7 @@ module org.bluezoo.gumdrop {
     requires org.bluezoo.gonzalez;
     requires org.bluezoo.json;
     requires org.bluezoo.protobuf;
+    requires org.bluezoo.micula;
 
     exports org.bluezoo.gumdrop;
     exports org.bluezoo.gumdrop.util;

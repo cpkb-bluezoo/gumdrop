@@ -123,6 +123,8 @@ public final class HandshakeEngine {
     private final int localRecordSizeLimit;
     private int peerRecordSizeLimit = RecordSizeLimit.DEFAULT;
 
+    private CertificateCompressionAlgorithm negotiatedCertCompression;
+
     // Set by whichever side sends/receives a HelloRetryRequest, to check
     // the eventual real ServerHello (client) or followup ClientHello
     // (server) did not change cipher suite across the retry -- an engine
@@ -207,6 +209,7 @@ public final class HandshakeEngine {
         params.cookie = isRetry ? clientRetryCookie : null;
         params.advertiseRecordSizeLimit = config.isRecordSizeLimitEnabled();
         params.recordSizeLimit = localRecordSizeLimit;
+        params.certificateCompressionAlgorithms = certificateCompressionOffer();
 
         SessionTicket ticket = config.getSessionTicket();
         byte[] clientHello;
@@ -310,8 +313,11 @@ public final class HandshakeEngine {
                     onCertificateRequest(message, sink);
                 } else if (type == HandshakeMessages.HANDSHAKE_TYPE_CERTIFICATE) {
                     onCertificate(message, sink);
+                } else if (type == HandshakeMessages.HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE) {
+                    onCompressedCertificate(message, sink);
                 } else {
-                    fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "Expected CertificateRequest or Certificate");
+                    fail(sink, AlertDescription.UNEXPECTED_MESSAGE,
+                            "Expected CertificateRequest, Certificate, or CompressedCertificate");
                 }
                 break;
             case WAIT_CERTIFICATE_VERIFY:
@@ -416,6 +422,7 @@ public final class HandshakeEngine {
         if (ee.recordSizeLimitPresent) {
             peerRecordSizeLimit = ee.recordSizeLimit;
         }
+        negotiatedCertCompression = ee.certificateCompression;
         negotiatedAlpn = ee.selectedAlpn;
         if (ee.quicTransportParameters != null) {
             sink.peerTransportParameters(ee.quicTransportParameters);
@@ -438,8 +445,34 @@ public final class HandshakeEngine {
     }
 
     private void onCertificate(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
-        List<byte[]> der = HandshakeMessages.parseCertificate(message);
         transcript.update(message);
+        verifyServerCertificate(message, sink);
+    }
+
+    private void onCompressedCertificate(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
+        transcript.update(message);
+        HandshakeMessages.CompressedCertificate cc = HandshakeMessages.parseCompressedCertificate(message);
+        CertificateCompressionAlgorithm alg = cc.algorithm;
+        if (negotiatedCertCompression != null && alg != negotiatedCertCompression) {
+            fail(sink, AlertDescription.ILLEGAL_PARAMETER, "certificate compression algorithm mismatch");
+            return;
+        }
+        if (alg == null) {
+            fail(sink, AlertDescription.DECODE_ERROR, "CompressedCertificate without a known algorithm");
+            return;
+        }
+        byte[] certificate = CertificateCompressor.decompress(alg, cc.compressed,
+                config.getMaxDecompressedCertificateSize());
+        if (certificate.length < 1
+                || (certificate[0] & 0xff) != HandshakeMessages.HANDSHAKE_TYPE_CERTIFICATE) {
+            fail(sink, AlertDescription.BAD_CERTIFICATE, "decompressed certificate message is invalid");
+            return;
+        }
+        verifyServerCertificate(certificate, sink);
+    }
+
+    private void verifyServerCertificate(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
+        List<byte[]> der = HandshakeMessages.parseCertificate(message);
         if (der.isEmpty()) {
             fail(sink, AlertDescription.BAD_CERTIFICATE, "Server presented an empty certificate chain");
             return;
@@ -504,7 +537,8 @@ public final class HandshakeEngine {
      * @return false if a failure was reported (caller must return without
      *         proceeding to the client's own Finished)
      */
-    private boolean sendClientCertificateResponse(TlsEventSink sink) throws GeneralSecurityException {
+    private boolean sendClientCertificateResponse(TlsEventSink sink)
+            throws GeneralSecurityException, HandshakeFormatException {
         ServerCredentials creds = config.getClientCredentials();
         List<byte[]> der;
         if (creds != null) {
@@ -521,9 +555,7 @@ public final class HandshakeEngine {
         } else {
             der = Collections.emptyList();
         }
-        byte[] clientCertificate = HandshakeMessages.buildCertificate(clientCertRequestContext, der);
-        transcript.update(clientCertificate);
-        sink.handshakeDataReady(clientCertificate);
+        emitCertificateMessage(clientCertRequestContext, der, sink);
 
         if (!der.isEmpty()) {
             SignatureScheme scheme = selectSignatureScheme(creds.getPrivateKey());
@@ -569,11 +601,14 @@ public final class HandshakeEngine {
                 onClientHello(message, sink);
                 break;
             case WAIT_CLIENT_CERTIFICATE:
-                if (type != HandshakeMessages.HANDSHAKE_TYPE_CERTIFICATE) {
-                    fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "Expected Certificate");
+                if (type == HandshakeMessages.HANDSHAKE_TYPE_CERTIFICATE) {
+                    onClientCertificate(message, sink);
+                } else if (type == HandshakeMessages.HANDSHAKE_TYPE_COMPRESSED_CERTIFICATE) {
+                    onCompressedClientCertificate(message, sink);
+                } else {
+                    fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "Expected Certificate or CompressedCertificate");
                     return;
                 }
-                onClientCertificate(message, sink);
                 break;
             case WAIT_CLIENT_CERTIFICATE_VERIFY:
                 if (type != HandshakeMessages.HANDSHAKE_TYPE_CERTIFICATE_VERIFY) {
@@ -602,6 +637,12 @@ public final class HandshakeEngine {
         HandshakeMessages.ClientHello ch = HandshakeMessages.parseClientHello(message);
         if (ch.recordSizeLimitPresent) {
             peerRecordSizeLimit = ch.recordSizeLimit;
+        }
+        if (config.isCertificateCompressionEnabled()) {
+            negotiatedCertCompression = CertificateCompressor.selectAlgorithm(
+                    config.getCertificateCompressionAlgorithms(), ch.certificateCompressionAlgorithms);
+        } else {
+            negotiatedCertCompression = null;
         }
         if (!ch.supportsTls13) {
             fail(sink, AlertDescription.PROTOCOL_VERSION, "Client did not offer TLS 1.3");
@@ -691,7 +732,7 @@ public final class HandshakeEngine {
 
         byte[] encryptedExtensions = HandshakeMessages.buildEncryptedExtensions(
                 negotiatedAlpn, config.getLocalTransportParameters(), earlyDataAccepted,
-                config.isRecordSizeLimitEnabled(), localRecordSizeLimit);
+                config.isRecordSizeLimitEnabled(), localRecordSizeLimit, negotiatedCertCompression);
         transcript.update(encryptedExtensions);
         sink.handshakeDataReady(encryptedExtensions);
         if (ch.quicTransportParameters != null) {
@@ -719,9 +760,7 @@ public final class HandshakeEngine {
                     return;
                 }
             }
-            byte[] certificate = HandshakeMessages.buildCertificate(new byte[0], der);
-            transcript.update(certificate);
-            sink.handshakeDataReady(certificate);
+            emitCertificateMessage(new byte[0], der, sink);
 
             SignatureScheme scheme = selectSignatureScheme(resolvedCredentials.getPrivateKey());
             if (scheme == null) {
@@ -879,13 +918,40 @@ public final class HandshakeEngine {
      * non-empty chain, independent of whether this server trusts it.
      */
     private void onClientCertificate(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
+        transcript.update(message);
+        processClientCertificateMessage(message, sink);
+    }
+
+    private void onCompressedClientCertificate(byte[] message, TlsEventSink sink) throws HandshakeFormatException {
+        transcript.update(message);
+        HandshakeMessages.CompressedCertificate cc = HandshakeMessages.parseCompressedCertificate(message);
+        CertificateCompressionAlgorithm alg = cc.algorithm;
+        if (negotiatedCertCompression != null && alg != negotiatedCertCompression) {
+            fail(sink, AlertDescription.ILLEGAL_PARAMETER, "certificate compression algorithm mismatch");
+            return;
+        }
+        if (alg == null) {
+            fail(sink, AlertDescription.DECODE_ERROR, "CompressedCertificate without a known algorithm");
+            return;
+        }
+        byte[] certificate = CertificateCompressor.decompress(alg, cc.compressed,
+                config.getMaxDecompressedCertificateSize());
+        if (certificate.length < 1
+                || (certificate[0] & 0xff) != HandshakeMessages.HANDSHAKE_TYPE_CERTIFICATE) {
+            fail(sink, AlertDescription.BAD_CERTIFICATE, "decompressed client certificate message is invalid");
+            return;
+        }
+        processClientCertificateMessage(certificate, sink);
+    }
+
+    private void processClientCertificateMessage(byte[] message, TlsEventSink sink)
+            throws HandshakeFormatException {
         byte[] context = HandshakeMessages.parseCertificateContext(message);
         if (context.length != 0) {
             fail(sink, AlertDescription.ILLEGAL_PARAMETER, "Client Certificate context does not match CertificateRequest");
             return;
         }
         List<byte[]> der = HandshakeMessages.parseCertificate(message);
-        transcript.update(message);
 
         if (der.isEmpty()) {
             if (config.getClientAuthPolicy() == ClientAuthPolicy.REQUIRE) {
@@ -1245,6 +1311,35 @@ public final class HandshakeEngine {
      */
     public int getInboundPlaintextLimit() {
         return localRecordSizeLimit;
+    }
+
+    private byte[] certificateCompressionOffer() {
+        if (!config.isCertificateCompressionEnabled()) {
+            return null;
+        }
+        List<CertificateCompressionAlgorithm> algorithms = config.getCertificateCompressionAlgorithms();
+        if (algorithms.isEmpty()) {
+            return null;
+        }
+        byte[] ids = new byte[algorithms.size()];
+        for (int i = 0; i < algorithms.size(); i++) {
+            ids[i] = (byte) algorithms.get(i).getId();
+        }
+        return ids;
+    }
+
+    private void emitCertificateMessage(byte[] context, List<byte[]> der, TlsEventSink sink)
+            throws HandshakeFormatException {
+        byte[] certificate = HandshakeMessages.buildCertificate(context, der);
+        if (negotiatedCertCompression != null && config.isCertificateCompressionEnabled()) {
+            byte[] compressed = CertificateCompressor.compress(negotiatedCertCompression, certificate);
+            byte[] wire = HandshakeMessages.buildCompressedCertificate(negotiatedCertCompression, compressed);
+            transcript.update(wire);
+            sink.handshakeDataReady(wire);
+        } else {
+            transcript.update(certificate);
+            sink.handshakeDataReady(certificate);
+        }
     }
 
 }
