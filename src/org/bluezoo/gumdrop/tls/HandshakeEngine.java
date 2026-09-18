@@ -931,11 +931,12 @@ public final class HandshakeEngine {
      */
     private byte[] resolveEchRetryConfigList() {
         if (config.getEchRetryConfigList() != null) {
-            return config.getEchRetryConfigList();
+            return EchConfigListGrease.withServerGrease(config.getEchRetryConfigList());
         }
         EchConfig published = config.getEchServerConfig();
         if (published != null) {
-            return EchConfig.encodeList(new EchConfig[] { published });
+            return EchConfigListGrease.withServerGrease(
+                    EchConfig.encodeList(new EchConfig[] { published }));
         }
         return null;
     }

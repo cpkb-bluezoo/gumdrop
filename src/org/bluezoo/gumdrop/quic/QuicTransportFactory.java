@@ -136,6 +136,7 @@ public class QuicTransportFactory extends TransportFactory {
     private boolean requireRetry;
 
     private EchConfig clientEchConfig;
+    private boolean clientEchGreaseEnabled;
 
     public QuicTransportFactory() {
         this.secure = true;
@@ -620,6 +621,10 @@ public class QuicTransportFactory extends TransportFactory {
         this.clientEchConfig = clientEchConfig;
     }
 
+    public void setClientEchGreaseEnabled(boolean clientEchGreaseEnabled) {
+        this.clientEchGreaseEnabled = clientEchGreaseEnabled;
+    }
+
     /**
      * Applies configured ECH server keys to a {@link QuicTlsServerEngine}.
      */
@@ -635,6 +640,9 @@ public class QuicTransportFactory extends TransportFactory {
         if (clientEchConfig != null) {
             tlsEngine.setEchEnabled(true);
             tlsEngine.setEchConfig(clientEchConfig);
+        }
+        if (clientEchGreaseEnabled) {
+            tlsEngine.setEchGreaseEnabled(true);
         }
     }
 

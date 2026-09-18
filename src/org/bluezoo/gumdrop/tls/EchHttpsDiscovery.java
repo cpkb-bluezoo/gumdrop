@@ -21,6 +21,9 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
+
 /**
  * Selects a client-usable {@link EchConfig} from DNS HTTPS {@code ech} SvcParam
  * values (RFC 9460 section 7.2.2 / RFC 9849).
@@ -46,12 +49,38 @@ public final class EchHttpsDiscovery {
         try {
             EchConfig[] configs = EchConfig.parseList(echConfigListBytes);
             for (int i = 0; i < configs.length; i++) {
-                if (configs[i].supportsGumdropHpkeProfile()) {
+                if (isClientSelectable(configs[i])) {
                     return configs[i];
                 }
             }
         } catch (HandshakeFormatException e) {
             return null;
+        }
+        return null;
+    }
+
+    private static boolean isClientSelectable(EchConfig config) {
+        if (!config.supportsGumdropHpkeProfile()) {
+            return false;
+        }
+        return !"grease.invalid".equals(config.getPublicName());
+    }
+
+    /**
+     * Returns the first {@code ech} SvcParam from HTTPS answers (any ALPN), or null.
+     */
+    public static byte[] firstEchConfigListFromHttpsAnswers(Iterable<DnsResourceRecord> answers) {
+        if (answers == null) {
+            return null;
+        }
+        for (DnsResourceRecord rr : answers) {
+            if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
+                continue;
+            }
+            byte[] ech = rr.getSVCBEchConfigList();
+            if (ech != null) {
+                return ech;
+            }
         }
         return null;
     }

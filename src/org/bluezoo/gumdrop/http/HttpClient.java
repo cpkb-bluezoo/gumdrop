@@ -76,7 +76,6 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
-import org.bluezoo.gumdrop.tls.EchConfig;
 import org.bluezoo.gumdrop.tls.EchHttpsDiscovery;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
@@ -949,6 +948,10 @@ public class HttpClient implements AltSvcListener {
         resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
+                byte[] echFromDns = EchHttpsDiscovery.firstEchConfigListFromHttpsAnswers(response.getAnswers());
+                if (echFromDns != null) {
+                    dnsDiscoveredEchConfigList = echFromDns;
+                }
                 for (DnsResourceRecord rr : response.getAnswers()) {
                     if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
@@ -956,10 +959,6 @@ public class HttpClient implements AltSvcListener {
                     if (rr.getSVCBAlpnProtocols().contains("h3")) {
                         int svcbPort = rr.getSVCBPort();
                         int targetPort = svcbPort > 0 ? svcbPort : port;
-                        byte[] echList = rr.getSVCBEchConfigList();
-                        if (echList != null) {
-                            dnsDiscoveredEchConfigList = echList;
-                        }
                         h3Enabled = true;
                         resolveAndConnectH3(host, targetPort, handler);
                         return;
@@ -1004,6 +1003,13 @@ public class HttpClient implements AltSvcListener {
     }
 
     /**
+     * Supplies DNS-discovered {@code ech} for a delegated client (e.g. WebSocket over HTTP/3).
+     */
+    public void setDnsDiscoveredEchConfigList(byte[] dnsDiscoveredEchConfigList) {
+        this.dnsDiscoveredEchConfigList = dnsDiscoveredEchConfigList;
+    }
+
+    /**
      * Returns true if {@code hostname} isn't worth issuing a DNS HTTPS-record
      * query for: a literal IPv4/IPv6 address, or loopback.
      */
@@ -1023,7 +1029,8 @@ public class HttpClient implements AltSvcListener {
      */
     private void connectTcp(final HttpClientHandler handler) {
         transportFactory = new TcpTransportFactory();
-        ClientConnect.prepareTls(secure, tls, transportFactory);
+        TlsConfig effectiveTls = ClientConnect.prepareTls(secure, tls, transportFactory);
+        ClientConnect.applyTcpClientEch(transportFactory, dnsDiscoveredEchConfigList, effectiveTls);
         // RFC 9113 section 3.2 / RFC 7301: advertise HTTP/2 via ALPN on TLS so
         // the server can negotiate "h2". Without this the ClientHello carries
         // no ALPN protocols and the connection always falls back to HTTP/1.1,
@@ -1189,10 +1196,7 @@ public class HttpClient implements AltSvcListener {
         TlsConfig effective = ClientDefaults.effectiveTls(tls);
         ClientConnect.applyToQuicFactory(effective, quicTransportFactory);
         quicTransportFactory.setEarlyDataEnabled(earlyDataEnabled);
-        EchConfig echFromDns = EchHttpsDiscovery.selectClientConfig(dnsDiscoveredEchConfigList);
-        if (echFromDns != null) {
-            quicTransportFactory.setClientEchConfig(echFromDns);
-        }
+        ClientConnect.applyQuicClientEch(quicTransportFactory, dnsDiscoveredEchConfigList, effective);
 
         try {
             quicTransportFactory.start();

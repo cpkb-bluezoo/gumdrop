@@ -69,6 +69,8 @@ public final class TlsConfig {
     private Path echConfigListFile;
     private Path echPrivateKeyFile;
     private boolean echServerRequired;
+    private Path clientEchConfigListFile;
+    private boolean clientEchGreaseEnabled;
 
     /**
      * Creates an empty config for fluent configuration.
@@ -222,6 +224,22 @@ public final class TlsConfig {
         return this;
     }
 
+    /**
+     * Client-only: binary {@code ECHConfigList} file when DNS HTTPS does not supply {@code ech}.
+     */
+    public TlsConfig clientEchConfigListFile(Path clientEchConfigListFile) {
+        this.clientEchConfigListFile = clientEchConfigListFile;
+        return this;
+    }
+
+    /**
+     * Client-only: send GREASE ECH when no real config is used (RFC 9849 section 6.2).
+     */
+    public TlsConfig clientEchGreaseEnabled(boolean clientEchGreaseEnabled) {
+        this.clientEchGreaseEnabled = clientEchGreaseEnabled;
+        return this;
+    }
+
     public Path getEchConfigListFile() {
         return echConfigListFile;
     }
@@ -232,6 +250,14 @@ public final class TlsConfig {
 
     public boolean isEchServerRequired() {
         return echServerRequired;
+    }
+
+    public Path getClientEchConfigListFile() {
+        return clientEchConfigListFile;
+    }
+
+    public boolean isClientEchGreaseEnabled() {
+        return clientEchGreaseEnabled;
     }
 
     public boolean isVerifyPeer() {
@@ -305,11 +331,19 @@ public final class TlsConfig {
         out.echServerRequired = local.hasEchListenerSettings()
                 ? local.echServerRequired
                 : fallback.echServerRequired;
+        out.clientEchConfigListFile = coalesce(local.clientEchConfigListFile, fallback.clientEchConfigListFile);
+        out.clientEchGreaseEnabled = local.hasClientEchSettings()
+                ? local.clientEchGreaseEnabled
+                : fallback.clientEchGreaseEnabled;
         return out;
     }
 
     private boolean hasEchListenerSettings() {
         return echConfigListFile != null || echPrivateKeyFile != null || echServerRequired;
+    }
+
+    private boolean hasClientEchSettings() {
+        return clientEchConfigListFile != null || clientEchGreaseEnabled;
     }
 
     /**
@@ -332,6 +366,8 @@ public final class TlsConfig {
         this.echConfigListFile = source.echConfigListFile;
         this.echPrivateKeyFile = source.echPrivateKeyFile;
         this.echServerRequired = source.echServerRequired;
+        this.clientEchConfigListFile = source.clientEchConfigListFile;
+        this.clientEchGreaseEnabled = source.clientEchGreaseEnabled;
         return this;
     }
 
