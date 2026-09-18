@@ -210,7 +210,14 @@ public final class Dtls12RecordEngine {
                     "application data sent before handshake completed"));
             return;
         }
-        writeOneRecord(CONTENT_APPLICATION_DATA, plaintext, offset, length, sink);
+        int end = offset + length;
+        int pos = offset;
+        int outboundLimit = outboundPayloadLimit();
+        while (pos < end) {
+            int chunk = Math.min(outboundLimit, end - pos);
+            writeOneRecord(CONTENT_APPLICATION_DATA, plaintext, pos, chunk, sink);
+            pos += chunk;
+        }
         if (write.overConfidentialityLimit()) {
             fail(sink, AlertDescription.INTERNAL_ERROR, "AES-GCM write key exceeded its confidentiality limit");
         }
@@ -312,6 +319,10 @@ public final class Dtls12RecordEngine {
                 return false;
             }
             return true;
+        }
+        if (plaintext.length > engine.getInboundPlaintextLimit()) {
+            fail(sink, AlertDescription.RECORD_OVERFLOW, "plaintext exceeds negotiated record_size_limit");
+            return false;
         }
 
         if (read != null && read.overConfidentialityLimit()) {
@@ -477,8 +488,9 @@ public final class Dtls12RecordEngine {
                 | (handshakeMessage[3] & 0xff);
         byte[] body = Arrays.copyOfRange(handshakeMessage, 4, 4 + bodyLen);
         int offset = 0;
+        int outboundLimit = outboundPayloadLimit();
         do {
-            int chunkLen = Math.min(maxFragmentSize, body.length - offset);
+            int chunkLen = Math.min(outboundLimit, body.length - offset);
             byte[] fragmentBody = buildFragment(msgType, body.length, messageSeq, offset, chunkLen, body, offset);
             writeOneRecord(CONTENT_HANDSHAKE, fragmentBody, sink);
             offset += chunkLen;
@@ -531,6 +543,10 @@ public final class Dtls12RecordEngine {
         } catch (HandshakeFormatException e) {
             return null;
         }
+    }
+
+    private int outboundPayloadLimit() {
+        return Math.min(maxFragmentSize, engine.getOutboundPlaintextLimit());
     }
 
     private void writeOneRecord(int contentType, byte[] payload, TlsRecordSink sink) {

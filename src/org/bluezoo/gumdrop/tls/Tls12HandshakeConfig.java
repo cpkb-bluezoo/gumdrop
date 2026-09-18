@@ -78,6 +78,10 @@ public final class Tls12HandshakeConfig {
      */
     private boolean dtlsTransport;
 
+    // RFC 8449 record_size_limit (TLS 1.2 and DTLS 1.2).
+    private boolean recordSizeLimitEnabled = true;
+    private int recordSizeLimit = RecordSizeLimit.DEFAULT;
+
     /**
      * Creates a configuration for one side of a handshake.
      *
@@ -397,6 +401,34 @@ public final class Tls12HandshakeConfig {
      */
     public void setDtlsTransport(boolean dtlsTransport) {
         this.dtlsTransport = dtlsTransport;
+    }
+
+    /**
+     * Returns whether this endpoint sends {@code record_size_limit}.
+     * Defaults to true.
+     *
+     * @return true to advertise a limit in the handshake
+     */
+    public boolean isRecordSizeLimitEnabled() {
+        return recordSizeLimitEnabled;
+    }
+
+    public void setRecordSizeLimitEnabled(boolean recordSizeLimitEnabled) {
+        this.recordSizeLimitEnabled = recordSizeLimitEnabled;
+    }
+
+    /**
+     * Returns the maximum TLS plaintext record size this endpoint is willing
+     * to receive. Defaults to 16384.
+     *
+     * @return the local record size limit in bytes
+     */
+    public int getRecordSizeLimit() {
+        return recordSizeLimit;
+    }
+
+    public void setRecordSizeLimit(int recordSizeLimit) {
+        this.recordSizeLimit = recordSizeLimit;
     }
 
     private static List<Tls12CipherSuite> defaultCipherSuites() {

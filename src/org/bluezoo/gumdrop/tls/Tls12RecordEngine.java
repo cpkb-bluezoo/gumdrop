@@ -139,6 +139,8 @@ public final class Tls12RecordEngine {
 
     private boolean failed;
 
+    private final HandshakeMessageReassembler handshakeReassembler = new HandshakeMessageReassembler();
+
     /**
      * Creates a TCP record-layer engine, wrapping a {@link Tls12HandshakeEngine}.
      *
@@ -395,7 +397,17 @@ public final class Tls12RecordEngine {
                 return false;
             }
             case CONTENT_HANDSHAKE:
-                handshakeAsync.scheduleMessage(payload);
+                try {
+                    handshakeReassembler.feed(payload, new HandshakeMessageReassembler.MessageConsumer() {
+                        @Override
+                        public void accept(byte[] completeMessage) {
+                            handshakeAsync.scheduleMessage(completeMessage);
+                        }
+                    });
+                } catch (HandshakeFormatException e) {
+                    fail(sink, AlertDescription.DECODE_ERROR, "malformed handshake record");
+                    return false;
+                }
                 return true;
             case CONTENT_APPLICATION_DATA:
                 if (!engine.isComplete()) {
@@ -435,6 +447,9 @@ public final class Tls12RecordEngine {
             return new Record(CONTENT_CHANGE_CIPHER_SPEC, new byte[0]);
         }
         if (read == null) {
+            if (len > engine.getInboundPlaintextLimit()) {
+                throw new HandshakeFormatException("plaintext exceeds negotiated record_size_limit");
+            }
             byte[] body = Arrays.copyOfRange(buffered, bodyOffset, bodyOffset + len);
             inbound.discard(5 + len);
             return new Record(hdrType, body);
@@ -455,6 +470,9 @@ public final class Tls12RecordEngine {
         read.advance();
         if (plain == null) {
             throw new HandshakeFormatException("AEAD tag verification failed");
+        }
+        if (plain.length > engine.getInboundPlaintextLimit()) {
+            throw new HandshakeFormatException("plaintext exceeds negotiated record_size_limit");
         }
         return new Record(hdrType, plain);
     }
@@ -480,8 +498,9 @@ public final class Tls12RecordEngine {
         outbound.reset();
         int end = offset + length;
         int pos = offset;
+        int outboundLimit = engine.getOutboundPlaintextLimit();
         do {
-            int chunkLen = Math.min(MAX_FRAGMENT, end - pos);
+            int chunkLen = Math.min(outboundLimit, end - pos);
             if (write == null) {
                 writePlaintextRecord(contentType, data, pos, chunkLen, outbound);
             } else {

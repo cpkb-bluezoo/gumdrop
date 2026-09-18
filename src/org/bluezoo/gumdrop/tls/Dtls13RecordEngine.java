@@ -171,7 +171,14 @@ public final class Dtls13RecordEngine {
                     "application data sent before handshake completed"));
             return;
         }
-        writeUnifiedRecord(CONTENT_APPLICATION_DATA, plaintext, offset, length, sink);
+        int end = offset + length;
+        int pos = offset;
+        int outboundLimit = outboundPayloadLimit();
+        while (pos < end) {
+            int chunk = Math.min(outboundLimit, end - pos);
+            writeUnifiedRecord(CONTENT_APPLICATION_DATA, plaintext, pos, chunk, sink);
+            pos += chunk;
+        }
         if (write.overConfidentialityLimit()) {
             fail(sink, AlertDescription.INTERNAL_ERROR, "AES-GCM write key exceeded its confidentiality limit");
         }
@@ -241,6 +248,10 @@ public final class Dtls13RecordEngine {
     private boolean processCleartextRecord(int contentType, int epoch, long seq, byte[] body, TlsRecordSink sink) {
         if (epoch != EPOCH_PLAINTEXT) {
             fail(sink, AlertDescription.UNEXPECTED_MESSAGE, "unexpected cleartext epoch " + epoch);
+            return false;
+        }
+        if (body.length > engine.getInboundPlaintextLimit()) {
+            fail(sink, AlertDescription.RECORD_OVERFLOW, "plaintext exceeds negotiated record_size_limit");
             return false;
         }
         switch (contentType) {
@@ -331,6 +342,10 @@ public final class Dtls13RecordEngine {
             fail(sink, AlertDescription.DECODE_ERROR, "empty inner plaintext");
             return false;
         }
+        if (end > engine.getInboundPlaintextLimit()) {
+            fail(sink, AlertDescription.RECORD_OVERFLOW, "plaintext exceeds negotiated record_size_limit");
+            return false;
+        }
         int innerType = plain[end - 1] & 0xff;
         byte[] payload = Arrays.copyOfRange(plain, 0, end - 1);
         if (innerType == CONTENT_ACK) {
@@ -401,8 +416,9 @@ public final class Dtls13RecordEngine {
                 | (handshakeMessage[3] & 0xff);
         byte[] body = Arrays.copyOfRange(handshakeMessage, 4, 4 + bodyLen);
         int offset = 0;
+        int outboundLimit = outboundPayloadLimit();
         do {
-            int chunkLen = Math.min(maxFragmentSize, body.length - offset);
+            int chunkLen = Math.min(outboundLimit, body.length - offset);
             byte[] fragmentBody = buildFragment(msgType, body.length, messageSeq, offset, chunkLen, body, offset);
             if (write == null) {
                 writeCleartextRecord(CONTENT_HANDSHAKE, fragmentBody, sink);
@@ -438,6 +454,12 @@ public final class Dtls13RecordEngine {
         out.write(payload, 0, payload.length);
         plaintextWriteSeq++;
         sink.ciphertextReady(out.toByteArray());
+    }
+
+    private int outboundPayloadLimit() {
+        int limit = Math.min(maxFragmentSize, engine.getOutboundPlaintextLimit());
+        // Unified records append the inner content type to the plaintext (RFC 9147 section 5.1).
+        return Math.max(1, limit - 1);
     }
 
     private void writeUnifiedRecord(int innerContentType, byte[] payload, TlsRecordSink sink) {

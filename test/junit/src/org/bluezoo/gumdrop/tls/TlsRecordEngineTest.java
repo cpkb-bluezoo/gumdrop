@@ -49,6 +49,7 @@ import static org.junit.Assert.fail;
 
 import org.bluezoo.gumdrop.TlsHandshakeAsyncOffload;
 import org.bluezoo.gumdrop.crypto.CertificateVerifier;
+import org.bluezoo.gumdrop.crypto.NamedGroup;
 
 /**
  * Drives two {@link TlsRecordEngine}s -- a client and a server, talking
@@ -237,6 +238,42 @@ public class TlsRecordEngineTest {
         assertTrue(lb.serverSink.handshakeComplete);
         assertEquals("test", lb.client.getNegotiatedApplicationProtocol());
         assertEquals("test", lb.server.getNegotiatedApplicationProtocol());
+    }
+
+    @Test
+    public void recordSizeLimitNegotiationFragmentsLargeApplicationData() throws Exception {
+        HandshakeConfig clientCfg = clientConfig();
+        clientCfg.setRecordSizeLimit(512);
+        clientCfg.setNamedGroups(Collections.singletonList(NamedGroup.X25519));
+        HandshakeConfig serverCfg = serverConfig();
+        serverCfg.setRecordSizeLimit(512);
+        serverCfg.setNamedGroups(Collections.singletonList(NamedGroup.X25519));
+        Loopback lb = runLoopback(clientCfg, serverCfg);
+
+        byte[] payload = new byte[1200];
+        for (int i = 0; i < payload.length; i++) {
+            payload[i] = (byte) (i & 0xff);
+        }
+        lb.client.sendApplicationData(payload, lb.clientSink);
+        assertEquals(1, lb.clientSink.outbound.size());
+        byte[] wire = lb.clientSink.outbound.get(0);
+        int recordCount = 0;
+        int offset = 0;
+        while (offset < wire.length) {
+            assertTrue(wire.length - offset >= 5);
+            int len = ((wire[offset + 3] & 0xff) << 8) | (wire[offset + 4] & 0xff);
+            offset += 5 + len;
+            recordCount++;
+        }
+        assertTrue("large payload must span multiple records under a 512-byte limit", recordCount > 1);
+        relay(lb.clientSink, lb.server, lb.serverSink);
+
+        ByteArrayOutputStream received = new ByteArrayOutputStream();
+        for (int i = 0; i < lb.serverSink.appData.size(); i++) {
+            byte[] chunk = lb.serverSink.appData.get(i);
+            received.write(chunk, 0, chunk.length);
+        }
+        assertArrayEquals(payload, received.toByteArray());
     }
 
     @Test

@@ -65,6 +65,7 @@ final class Tls12HandshakeMessages {
     private static final int EXT_EC_POINT_FORMATS = 0x000b;
     private static final int EXT_SIGNATURE_ALGORITHMS = 0x000d;
     private static final int EXT_ALPN = 0x0010;
+    private static final int EXT_RECORD_SIZE_LIMIT = 0x001c;
     private static final int EXT_EXTENDED_MASTER_SECRET = 0x0017;
     private static final int EXT_SESSION_TICKET = 0x0023;
     private static final int EXT_SUPPORTED_VERSIONS = 0x002b;
@@ -114,6 +115,8 @@ final class Tls12HandshakeMessages {
         byte[] dtlsCookie;
         /** When true, emit/read the DTLS cookie field (possibly empty). */
         boolean dtlsTransport;
+        boolean advertiseRecordSizeLimit;
+        int recordSizeLimit;
     }
 
     static byte[] buildClientHello(ClientHelloParams params) {
@@ -150,6 +153,9 @@ final class Tls12HandshakeMessages {
         }
         if (params.sessionTicket != null) {
             writeExtension(ext, EXT_SESSION_TICKET, params.sessionTicket);
+        }
+        if (params.advertiseRecordSizeLimit) {
+            writeRecordSizeLimitExtension(ext, params.recordSizeLimit);
         }
 
         w.opaque16(ext.toByteArray());
@@ -189,6 +195,8 @@ final class Tls12HandshakeMessages {
         List<Integer> supportedVersions;
         /** Present only in DTLS ClientHello (RFC 6347 section 4.2.1). */
         byte[] dtlsCookie;
+        boolean recordSizeLimitPresent;
+        int recordSizeLimit;
     }
 
     static ClientHello parseClientHello(byte[] fullMessage) throws HandshakeFormatException {
@@ -291,6 +299,10 @@ final class Tls12HandshakeMessages {
                 }
                 break;
             }
+            case EXT_RECORD_SIZE_LIMIT:
+                ch.recordSizeLimitPresent = true;
+                ch.recordSizeLimit = RecordSizeLimit.decodeExtensionValue(extBody);
+                break;
             default:
                 break;
         }
@@ -306,7 +318,8 @@ final class Tls12HandshakeMessages {
      * unadvertised one as a protocol violation.
      */
     static byte[] buildServerHello(byte[] random, byte[] sessionId, Tls12CipherSuite cipherSuite,
-            boolean sessionTicket, boolean extendedMasterSecret, String alpnProtocol) {
+            boolean sessionTicket, boolean extendedMasterSecret, String alpnProtocol,
+            boolean advertiseRecordSizeLimit, int recordSizeLimit) {
         WireWriter w = new WireWriter();
         w.u16(TLS_1_2_LEGACY_VERSION);
         w.bytes(random);
@@ -328,6 +341,9 @@ final class Tls12HandshakeMessages {
             single.add(alpnProtocol);
             HandshakeMessages.writeAlpnExtension(ext, single);
         }
+        if (advertiseRecordSizeLimit) {
+            writeRecordSizeLimitExtension(ext, recordSizeLimit);
+        }
         w.opaque16(ext.toByteArray());
         return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_SERVER_HELLO, w.toByteArray());
     }
@@ -342,6 +358,8 @@ final class Tls12HandshakeMessages {
         boolean extendedMasterSecret;
         byte[] renegotiationInfo;
         String alpnProtocol;
+        boolean recordSizeLimitPresent;
+        int recordSizeLimit;
     }
 
     static ServerHello parseServerHello(byte[] fullMessage) throws HandshakeFormatException {
@@ -382,6 +400,10 @@ final class Tls12HandshakeMessages {
                         }
                         break;
                     }
+                    case EXT_RECORD_SIZE_LIMIT:
+                        sh.recordSizeLimitPresent = true;
+                        sh.recordSizeLimit = RecordSizeLimit.decodeExtensionValue(extBody);
+                        break;
                     default:
                         break;
                 }
@@ -609,6 +631,10 @@ final class Tls12HandshakeMessages {
     private static void writeExtension(WireWriter out, int type, byte[] body) {
         out.u16(type);
         out.opaque16(body);
+    }
+
+    private static void writeRecordSizeLimitExtension(WireWriter ext, int limit) {
+        writeExtension(ext, EXT_RECORD_SIZE_LIMIT, RecordSizeLimit.encodeExtensionValue(limit));
     }
 
     private static void writeServerNameExtension(WireWriter ext, String serverName) {

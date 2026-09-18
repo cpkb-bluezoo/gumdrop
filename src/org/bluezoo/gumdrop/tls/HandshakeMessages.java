@@ -71,6 +71,7 @@ final class HandshakeMessages {
     private static final int EXT_SUPPORTED_GROUPS = 0x000a;
     private static final int EXT_SIGNATURE_ALGORITHMS = 0x000d;
     private static final int EXT_ALPN = 0x0010;
+    private static final int EXT_RECORD_SIZE_LIMIT = 0x001c;
     private static final int EXT_SUPPORTED_VERSIONS = 0x002b;
     private static final int EXT_PRE_SHARED_KEY = 0x0029;
     private static final int EXT_EARLY_DATA = 0x002a;
@@ -129,6 +130,9 @@ final class HandshakeMessages {
         int obfuscatedTicketAge;
         /** True to request 0-RTT -- only meaningful alongside a non-null {@link #pskIdentity}. */
         boolean earlyDataRequested;
+        /** When true, emit {@code record_size_limit} with {@link #recordSizeLimit}. */
+        boolean advertiseRecordSizeLimit;
+        int recordSizeLimit;
     }
 
     /**
@@ -198,6 +202,9 @@ final class HandshakeMessages {
         }
         writeSupportedVersionsClientExtension(ext);
         writeKeyShareClientExtension(ext, params.groups, params.keyShares);
+        if (params.advertiseRecordSizeLimit) {
+            writeRecordSizeLimitExtension(ext, params.recordSizeLimit);
+        }
         if (params.quicTransportParameters != null) {
             writeExtension(ext, EXT_QUIC_TRANSPORT_PARAMETERS, params.quicTransportParameters);
         }
@@ -257,6 +264,9 @@ final class HandshakeMessages {
         boolean earlyDataRequested;
         /** Echoed from a prior HelloRetryRequest, or null. */
         byte[] cookie;
+        /** True when ClientHello carried {@code record_size_limit}. */
+        boolean recordSizeLimitPresent;
+        int recordSizeLimit;
     }
 
     static ClientHello parseClientHello(byte[] fullMessage) throws HandshakeFormatException {
@@ -359,6 +369,10 @@ final class HandshakeMessages {
                 break;
             case EXT_COOKIE:
                 ch.cookie = extBody;
+                break;
+            case EXT_RECORD_SIZE_LIMIT:
+                ch.recordSizeLimitPresent = true;
+                ch.recordSizeLimit = RecordSizeLimit.decodeExtensionValue(extBody);
                 break;
             case EXT_PRE_SHARED_KEY: {
                 // offered_psks: PskIdentity identities<7..2^16-1>; PskBinderEntry binders<33..2^16-1>;
@@ -546,7 +560,7 @@ final class HandshakeMessages {
     // ---- EncryptedExtensions (RFC 8446 section 4.3.1) ----
 
     static byte[] buildEncryptedExtensions(String selectedAlpn, byte[] quicTransportParameters,
-            boolean earlyDataAccepted) {
+            boolean earlyDataAccepted, boolean advertiseRecordSizeLimit, int recordSizeLimit) {
         WireWriter ext = new WireWriter();
         if (selectedAlpn != null) {
             List<String> single = new ArrayList<String>();
@@ -559,6 +573,9 @@ final class HandshakeMessages {
         if (earlyDataAccepted) {
             writeExtension(ext, EXT_EARLY_DATA, new byte[0]);
         }
+        if (advertiseRecordSizeLimit) {
+            writeRecordSizeLimitExtension(ext, recordSizeLimit);
+        }
         WireWriter w = new WireWriter();
         w.opaque16(ext.toByteArray());
         return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS, w.toByteArray());
@@ -568,6 +585,8 @@ final class HandshakeMessages {
         String selectedAlpn;
         byte[] quicTransportParameters;
         boolean earlyDataAccepted;
+        boolean recordSizeLimitPresent;
+        int recordSizeLimit;
     }
 
     static EncryptedExtensions parseEncryptedExtensions(byte[] fullMessage) throws HandshakeFormatException {
@@ -589,6 +608,9 @@ final class HandshakeMessages {
                 ee.quicTransportParameters = extBody;
             } else if (extType == EXT_EARLY_DATA) {
                 ee.earlyDataAccepted = true;
+            } else if (extType == EXT_RECORD_SIZE_LIMIT) {
+                ee.recordSizeLimitPresent = true;
+                ee.recordSizeLimit = RecordSizeLimit.decodeExtensionValue(extBody);
             }
         }
         return ee;
@@ -887,6 +909,10 @@ final class HandshakeMessages {
     private static void writeExtension(WireWriter out, int type, byte[] body) {
         out.u16(type);
         out.opaque16(body);
+    }
+
+    private static void writeRecordSizeLimitExtension(WireWriter ext, int limit) {
+        writeExtension(ext, EXT_RECORD_SIZE_LIMIT, RecordSizeLimit.encodeExtensionValue(limit));
     }
 
     private static void writeServerNameExtension(WireWriter ext, String serverName) {

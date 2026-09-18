@@ -61,6 +61,11 @@ public final class HandshakeConfig {
     private SessionTicket sessionTicket;
     private boolean enableEarlyData;
     private int maxEarlyDataSize = 16384;
+
+    // RFC 8449 record_size_limit.
+    private boolean recordSizeLimitEnabled = true;
+    private int recordSizeLimit = RecordSizeLimit.DEFAULT;
+
     private AntiReplay antiReplay;
     private TransportParameterConsistencyChecker transportParameterConsistencyChecker = PERMISSIVE_CHECKER;
     private int earlyDataFreshnessMs = 10000;
@@ -440,6 +445,46 @@ public final class HandshakeConfig {
      */
     public void setMaxEarlyDataSize(int maxEarlyDataSize) {
         this.maxEarlyDataSize = maxEarlyDataSize;
+    }
+
+    /**
+     * Returns whether this endpoint sends the RFC 8449
+     * {@code record_size_limit} extension. Defaults to true. When false,
+     * the default 2^14-byte limit applies and no extension is sent.
+     *
+     * @return true to advertise a limit in the handshake
+     */
+    public boolean isRecordSizeLimitEnabled() {
+        return recordSizeLimitEnabled;
+    }
+
+    /**
+     * Sets whether to send {@code record_size_limit}.
+     *
+     * @param recordSizeLimitEnabled true to advertise a limit
+     */
+    public void setRecordSizeLimitEnabled(boolean recordSizeLimitEnabled) {
+        this.recordSizeLimitEnabled = recordSizeLimitEnabled;
+    }
+
+    /**
+     * Returns the maximum TLS plaintext record size this endpoint is willing
+     * to receive, sent in {@code record_size_limit} when
+     * {@link #isRecordSizeLimitEnabled()} is true. Defaults to 16384.
+     *
+     * @return the local record size limit in bytes
+     */
+    public int getRecordSizeLimit() {
+        return recordSizeLimit;
+    }
+
+    /**
+     * Sets the local record size limit advertised to the peer.
+     *
+     * @param recordSizeLimit limit in bytes (clamped to RFC 8449 bounds)
+     */
+    public void setRecordSizeLimit(int recordSizeLimit) {
+        this.recordSizeLimit = recordSizeLimit;
     }
 
     /**

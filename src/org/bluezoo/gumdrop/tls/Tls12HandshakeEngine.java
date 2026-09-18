@@ -130,6 +130,9 @@ final class Tls12HandshakeEngine {
     private String peerServerName;
     private String negotiatedAlpn;
 
+    private final int localRecordSizeLimit;
+    private int peerRecordSizeLimit = RecordSizeLimit.DEFAULT;
+
     /** Client role: the session ID offered in our own ClientHello, so a matching echo in ServerHello signals resumption. */
     private byte[] sentSessionId = new byte[0];
     /** Client role: the cached ticket offered, pending confirmation via the session-ID echo above. */
@@ -147,6 +150,8 @@ final class Tls12HandshakeEngine {
 
     Tls12HandshakeEngine(Tls12HandshakeConfig config) {
         this.config = config;
+        this.localRecordSizeLimit = RecordSizeLimit.localInboundLimit(
+                config.getRecordSizeLimit(), config.isRecordSizeLimitEnabled());
     }
 
     /**
@@ -198,6 +203,8 @@ final class Tls12HandshakeEngine {
         params.sessionTicket = ticketOffer;
         params.dtlsTransport = config.isDtlsTransport();
         params.dtlsCookie = config.getDtlsCookie();
+        params.advertiseRecordSizeLimit = config.isRecordSizeLimitEnabled();
+        params.recordSizeLimit = localRecordSizeLimit;
 
         byte[] clientHello = Tls12HandshakeMessages.buildClientHello(params);
         // No transcript exists yet (the negotiated PRF hash isn't known
@@ -338,6 +345,9 @@ final class Tls12HandshakeEngine {
         serverRandom = sh.random;
         negotiatedAlpn = sh.alpnProtocol;
         expectNewSessionTicket = sh.sessionTicketOffered;
+        if (sh.recordSizeLimitPresent) {
+            peerRecordSizeLimit = sh.recordSizeLimit;
+        }
 
         transcript = Transcript.create(negotiatedSuite.getPrfHashAlgorithm());
         addToTranscript(savedClientHelloBytes);
@@ -593,6 +603,9 @@ final class Tls12HandshakeEngine {
             throws HandshakeFormatException, GeneralSecurityException {
         Tls12HandshakeMessages.ClientHello ch =
                 Tls12HandshakeMessages.parseClientHello(message, config.isDtlsTransport());
+        if (ch.recordSizeLimitPresent) {
+            peerRecordSizeLimit = ch.recordSizeLimit;
+        }
 
         ServerCredentials resolvedCredentials = (config.getServerCredentialsResolver() != null)
                 ? config.getServerCredentialsResolver().resolve(ch.serverName)
@@ -657,7 +670,8 @@ final class Tls12HandshakeEngine {
             // No new ticket is minted on a resumption (see this class's
             // doc comment), so no SessionTicket echo here.
             byte[] sh = Tls12HandshakeMessages.buildServerHello(
-                    serverRandom, ch.sessionId, negotiatedSuite, false, true, null);
+                    serverRandom, ch.sessionId, negotiatedSuite, false, true, null,
+                    config.isRecordSizeLimitEnabled(), localRecordSizeLimit);
             emit(sh, sink);
 
             DirectionalKeyMaterial[] km = computeKeyMaterial();
@@ -697,7 +711,8 @@ final class Tls12HandshakeEngine {
         secureRandom.nextBytes(random);
         serverRandom = random;
         byte[] sh = Tls12HandshakeMessages.buildServerHello(
-                serverRandom, new byte[0], suite, shouldIssueTicket, true, negotiatedAlpn);
+                serverRandom, new byte[0], suite, shouldIssueTicket, true, negotiatedAlpn,
+                config.isRecordSizeLimitEnabled(), localRecordSizeLimit);
         emit(sh, sink);
 
         List<byte[]> der = certificateDer(resolvedCredentials, sink);
@@ -1025,6 +1040,14 @@ final class Tls12HandshakeEngine {
 
     HandshakeRole getRole() {
         return config.getRole();
+    }
+
+    int getOutboundPlaintextLimit() {
+        return Math.min(RecordSizeLimit.ABSOLUTE_MAX, peerRecordSizeLimit);
+    }
+
+    int getInboundPlaintextLimit() {
+        return localRecordSizeLimit;
     }
 
     String getPeerServerName() {
