@@ -28,6 +28,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.util.ByteBufferPool;
+import org.bluezoo.gumdrop.http.HttpConditionalRequests;
 import org.bluezoo.gumdrop.http.HttpDateFormat;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.HttpStatus;
@@ -122,7 +123,6 @@ class FileHandler extends DefaultHttpRequestHandler {
     private Path path;
     /** Set during offloaded PROPPATCH/LOCK prep when known; used for hrefs. */
     private boolean pathIsDirectory;
-    private long ifModifiedSince = -1;
     private long requestContentLength = -1;
     private int depth = DavConstants.DEPTH_INFINITY;
     private String destination;
@@ -196,16 +196,6 @@ class FileHandler extends DefaultHttpRequestHandler {
             // Lexical resolve only — no Files.* on the SelectorLoop.
             // Disk containment / toRealPath run inside each method's offload.
             path = resolvePathLexical(requestPath);
-        }
-        
-        // Parse conditional headers
-        String ifModifiedSinceHeader = headers.getValue("if-modified-since");
-        if (ifModifiedSinceHeader != null) {
-            try {
-                ifModifiedSince = dateFormat.parse(ifModifiedSinceHeader).getTime();
-            } catch (ParseException e) {
-                // ignore
-            }
         }
         
         String contentLengthHeader = headers.getValue("content-length");
@@ -441,6 +431,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         HttpStatus error;       // if set: send this error status
         boolean notModified;    // 304 Not Modified
         long lastModified;      // for 200/304 Last-Modified header
+        String entityTag;         // for 200/304 ETag header
         byte[] listingHtml;     // directory-listing body, if a directory
         Path file;              // file to serve (200 with body)
         long size;              // file size
@@ -448,7 +439,7 @@ class FileHandler extends DefaultHttpRequestHandler {
         AsynchronousFileChannel channel; // opened off-loop for GET body
     }
 
-    /** RFC 9110 §9.3.1 (GET), §9.3.2 (HEAD), §13.1.3 (If-Modified-Since). */
+    /** RFC 9110 section 13 (conditional GET/HEAD), RFC 9111 validators. */
     private void handleGetOrHead(HttpResponseState state) {
         offload(state, new Callable<GetPlan>() {
             @Override
@@ -496,10 +487,19 @@ class FileHandler extends DefaultHttpRequestHandler {
         }
 
         plan.file = target;
-        plan.size = Files.size(target);
-        plan.lastModified = Files.getLastModifiedTime(target).toMillis();
+        BasicFileAttributes attrs =
+                Files.readAttributes(target, BasicFileAttributes.class);
+        plan.size = attrs.size();
+        plan.lastModified = attrs.lastModifiedTime().toMillis();
         plan.contentType = getContentType(target);
-        if (plan.lastModified <= ifModifiedSince) {
+        plan.entityTag = "\"" + generateETag(target, attrs) + "\"";
+        String ifNoneMatch = requestHeaders != null
+                ? requestHeaders.getValue("if-none-match") : null;
+        String ifModifiedSince = requestHeaders != null
+                ? requestHeaders.getValue("if-modified-since") : null;
+        if (HttpConditionalRequests.shouldReturnNotModified(
+                ifNoneMatch, ifModifiedSince, plan.lastModified,
+                plan.entityTag)) {
             plan.notModified = true;
             return plan;
         }
@@ -536,6 +536,9 @@ class FileHandler extends DefaultHttpRequestHandler {
             Headers response = new Headers();
             response.status(HttpStatus.NOT_MODIFIED);
             response.add("Last-Modified", dateFormat.format(plan.lastModified));
+            if (plan.entityTag != null) {
+                response.add("ETag", plan.entityTag);
+            }
             state.headers(response);
             state.complete();
             return;
@@ -544,6 +547,9 @@ class FileHandler extends DefaultHttpRequestHandler {
         Headers response = new Headers();
         response.status(HttpStatus.OK);
         response.add("Last-Modified", dateFormat.format(plan.lastModified));
+        if (plan.entityTag != null) {
+            response.add("ETag", plan.entityTag);
+        }
         response.add("Content-Type", plan.contentType);
         response.add("Content-Length", Long.toString(plan.size));
         state.headers(response);

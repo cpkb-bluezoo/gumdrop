@@ -33,6 +33,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.bluezoo.gumdrop.http.HttpConditionalRequests;
+
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
@@ -126,32 +128,12 @@ public class DefaultServlet extends HttpServlet {
         if (resource == null || isWebInf(path)) {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
         } else {
+            StaticResource resourceMeta = openStaticResource(resource);
+            if (sendNotModifiedIfNeeded(request, response, resourceMeta)) {
+                return;
+            }
             response.setStatus(HttpServletResponse.SC_NO_CONTENT);
-            // Copy resource headers into response
-            URLConnection connection = resource.openConnection();
-            connection.connect();
-            String contentType = connection.getContentType();
-            int contentLength = connection.getContentLength();
-            if (contentType != null) {
-                response.setContentType(contentType);
-            }
-            if (contentLength != -1) {
-                response.setContentLength(contentLength);
-            }
-            long lastModified = connection.getDate();
-            if (lastModified != -1L) {
-                response.setDateHeader("Last-Modified", lastModified);
-            }
-            Map<String,List<String>> headers = connection.getHeaderFields();
-            for (Map.Entry<String,List<String>> entry : headers.entrySet()) {
-                String name = entry.getKey();
-                List<String> values = entry.getValue();
-                if (name != null) {
-                    for (String value : values) {
-                        response.addHeader(name, value);
-                    }
-                }
-            }
+            applyStaticResourceHeaders(response, resourceMeta);
         }
     }
 
@@ -162,34 +144,13 @@ public class DefaultServlet extends HttpServlet {
         if (resource == null || isWebInf(path)) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND, path);
         } else {
+            StaticResource resourceMeta = openStaticResource(resource);
+            if (sendNotModifiedIfNeeded(request, response, resourceMeta)) {
+                return;
+            }
             response.setStatus(HttpServletResponse.SC_OK);
-            // Copy resource headers into response
-            URLConnection connection = resource.openConnection();
-            connection.connect();
-            String contentType = connection.getContentType();
-            if (contentType != null) {
-                response.setContentType(contentType);
-            }
-            int contentLength = connection.getContentLength();
-            if (contentLength != -1) {
-                response.setContentLength(contentLength);
-            }
-            long lastModified = connection.getDate();
-            if (lastModified != -1L) {
-                response.setDateHeader("Last-Modified", lastModified);
-            }
-            Map<String,List<String>> headers = connection.getHeaderFields();
-            for (Map.Entry<String,List<String>> entry : headers.entrySet()) {
-                String name = entry.getKey();
-                List<String> values = entry.getValue();
-                if (name != null) {
-                    for (String value : values) {
-                        response.addHeader(name, value);
-                    }
-                }
-            }
-            // Stream content
-            InputStream in = connection.getInputStream();
+            applyStaticResourceHeaders(response, resourceMeta);
+            InputStream in = resourceMeta.connection.getInputStream();
             OutputStream out = response.getOutputStream();
             byte[] buf = newCopyBuffer();
             for (int len = in.read(buf); len != -1; len = in.read(buf)) {
@@ -208,14 +169,16 @@ public class DefaultServlet extends HttpServlet {
     }
 
     /**
-     * Returns the last-modified time for the given resource.
-     *
+     * Returns the last-modified time for the given resource (RFC 9110
+     * section 13.2.2 conditional GET support).
+     */
+    @Override
     protected long getLastModified(HttpServletRequest request) {
         String path = getPath(request);
         ServletContext context = getServletContext();
         try {
             URL resource = getResource(request, path, context);
-            if (resource != null) {
+            if (resource != null && !isWebInf(path)) {
                 URLConnection connection = resource.openConnection();
                 connection.connect();
                 return connection.getLastModified();
@@ -224,7 +187,97 @@ public class DefaultServlet extends HttpServlet {
             // Fall through
         }
         return -1L;
-    }*/
+    }
+
+    /** Metadata for a context static resource and its validators. */
+    static final class StaticResource {
+        final URLConnection connection;
+        final long lastModified;
+        final int contentLength;
+        final String contentType;
+        final String entityTag;
+
+        StaticResource(URLConnection connection, long lastModified,
+                       int contentLength, String contentType, String entityTag) {
+            this.connection = connection;
+            this.lastModified = lastModified;
+            this.contentLength = contentLength;
+            this.contentType = contentType;
+            this.entityTag = entityTag;
+        }
+    }
+
+    static StaticResource openStaticResource(URL resource) throws IOException {
+        URLConnection connection = resource.openConnection();
+        connection.connect();
+        long lastModified = connection.getLastModified();
+        int contentLength = connection.getContentLength();
+        String contentType = connection.getContentType();
+        long lengthForTag = contentLength >= 0 ? contentLength : 0L;
+        String entityTag = lastModified >= 0
+                ? HttpConditionalRequests.strongEntityTag(lastModified,
+                lengthForTag)
+                : null;
+        return new StaticResource(connection, lastModified, contentLength,
+                contentType, entityTag);
+    }
+
+    static boolean sendNotModifiedIfNeeded(HttpServletRequest request,
+            HttpServletResponse response, StaticResource resource) {
+        if (resource.lastModified < 0 || resource.entityTag == null) {
+            return false;
+        }
+        if (!HttpConditionalRequests.shouldReturnNotModified(
+                request.getHeader("If-None-Match"),
+                request.getHeader("If-Modified-Since"),
+                resource.lastModified,
+                resource.entityTag)) {
+            return false;
+        }
+        response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
+        writeValidatorHeaders(response, resource);
+        return true;
+    }
+
+    static void writeValidatorHeaders(HttpServletResponse response,
+                                      StaticResource resource) {
+        response.setDateHeader("Last-Modified", resource.lastModified);
+        response.setHeader("ETag", resource.entityTag);
+    }
+
+    static void applyStaticResourceHeaders(HttpServletResponse response,
+                                           StaticResource resource)
+            throws IOException {
+        if (resource.contentType != null) {
+            response.setContentType(resource.contentType);
+        }
+        if (resource.contentLength != -1) {
+            response.setContentLength(resource.contentLength);
+        }
+        if (resource.lastModified >= 0) {
+            writeValidatorHeaders(response, resource);
+        }
+        Map<String, List<String>> headers =
+                resource.connection.getHeaderFields();
+        for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+            String name = entry.getKey();
+            if (name == null || isSkippedResourceHeader(name)) {
+                continue;
+            }
+            List<String> values = entry.getValue();
+            for (String value : values) {
+                response.addHeader(name, value);
+            }
+        }
+    }
+
+    private static boolean isSkippedResourceHeader(String name) {
+        return "Content-Type".equalsIgnoreCase(name)
+                || "Content-Length".equalsIgnoreCase(name)
+                || "Last-Modified".equalsIgnoreCase(name)
+                || "ETag".equalsIgnoreCase(name)
+                || "Date".equalsIgnoreCase(name);
+    }
 
     /**
      * Returns the resource URL for the given request.

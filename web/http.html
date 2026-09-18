@@ -790,6 +790,18 @@ HSTS is stored.
 </li>
 </ul>
 
+<h4>Origin caching (RFC 9111)</h4>
+
+<p>
+Static resources served by the default servlet (and the servlet
+<code>getLastModified</code> hook) emit <code>ETag</code> and
+<code>Last-Modified</code> validators and honour
+<code>If-None-Match</code> / <code>If-Modified-Since</code> with
+<code>304 Not Modified</code> when appropriate (RFC 9110 section 13,
+RFC 9111). Shared/intermediary cache behaviour is not implemented; this
+is origin-server correctness for conditional GET and HEAD.
+</p>
+
 <h4>Http2Listener Properties</h4>
 
 <p>

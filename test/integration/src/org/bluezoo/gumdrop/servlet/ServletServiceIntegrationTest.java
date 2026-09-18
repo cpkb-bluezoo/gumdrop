@@ -130,6 +130,30 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
     }
 
     @Test
+    public void testDefaultServletIfNoneMatchReturns304() throws Exception {
+        String first = "GET /index.html HTTP/1.1\r\n"
+                + "Host: localhost\r\n"
+                + "Connection: close\r\n"
+                + "\r\n";
+        HTTPClientHelper.HttpResponse initial =
+                HTTPClientHelper.sendRequest("::1", TEST_PORT, first);
+        assertEquals(200, initial.statusCode);
+        String etag = initial.getHeader("ETag");
+        assertNotNull("Static response should include ETag", etag);
+
+        String conditional = "GET /index.html HTTP/1.1\r\n"
+                + "Host: localhost\r\n"
+                + "If-None-Match: " + etag + "\r\n"
+                + "Connection: close\r\n"
+                + "\r\n";
+        HTTPClientHelper.HttpResponse cached =
+                HTTPClientHelper.sendRequest("::1", TEST_PORT, conditional);
+        assertEquals(304, cached.statusCode);
+        assertTrue("304 must not include a message body",
+                cached.body == null || cached.body.isEmpty());
+    }
+
+    @Test
     public void testDefaultServlet404() throws Exception {
         String request = "GET /nonexistent/path/to/resource.html HTTP/1.1\r\n" +
                         "Host: localhost\r\n" +
