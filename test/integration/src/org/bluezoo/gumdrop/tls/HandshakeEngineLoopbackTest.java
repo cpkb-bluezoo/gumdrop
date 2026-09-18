@@ -165,6 +165,8 @@ public class HandshakeEngineLoopbackTest {
     /** Records every event a {@link HandshakeEngine} pushes, for assertions. */
     private static final class RecordingSink implements TlsEventSink {
         final List<byte[]> outbound = new ArrayList<byte[]>();
+        /** All handshake bytes emitted (not cleared by {@link #drain()}). */
+        final List<byte[]> allOutbound = new ArrayList<byte[]>();
         boolean handshakeSecretsReady;
         boolean applicationSecretsReady;
         TlsProtocolError error;
@@ -183,6 +185,7 @@ public class HandshakeEngineLoopbackTest {
         @Override
         public void handshakeDataReady(byte[] data) {
             outbound.add(data);
+            allOutbound.add(data);
         }
 
         @Override
@@ -1037,7 +1040,7 @@ public class HandshakeEngineLoopbackTest {
         assertTrue("client complete", client.isComplete());
         assertTrue("server complete", server.isComplete());
         assertTrue("server should emit CompressedCertificate (type 25)",
-                containsHandshakeType(serverSink.outbound, 25));
+                containsHandshakeType(serverSink.allOutbound, 25));
     }
 
     private static boolean containsHandshakeType(List<byte[]> messages, int type) {

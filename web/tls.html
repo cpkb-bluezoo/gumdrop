@@ -185,6 +185,14 @@ driven by <code>TlsEventSink</code> callbacks &mdash; no blocking
     <code>compress_certificate</code> with Brotli (<a href="https://github.com/cpkb-bluezoo/micula">micula</a>)
     and zlib; enabled by default via
     <code>HandshakeConfig.setCertificateCompressionEnabled()</code></li>
+<li>Encrypted Client Hello (RFC&nbsp;9849) &mdash; HPKE (RFC&nbsp;9180) with
+    X25519 and AES-128-GCM; client GREASE, server <code>retry_configs</code>,
+    and HelloRetryRequest inner transcript handling. Server keys on secure
+    listeners: <code>ech-config-list-file</code>, <code>ech-private-key-file</code>,
+    optional <code>ech-required</code> in <code>server.xml</code>. Clients:
+    DNS HTTPS <code>ech</code> SvcParam (including TCP fallback) and
+    <code>TlsConfig.clientEchConfigListFile()</code> /
+    <code>clientEchGreaseEnabled()</code>.</li>
 </ul>
 
 <p>

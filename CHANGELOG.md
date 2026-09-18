@@ -13,6 +13,14 @@ user-visible themes since 2.2.x.
 
 ### Added
 
+- **RFC 9849 Encrypted Client Hello (ECH)** in the TLS 1.3 `HandshakeEngine`
+  (RFC 9180 HPKE, X25519 + AES-128-GCM): client offer, server decrypt, acceptance
+  confirmations, HelloRetryRequest, `retry_configs` / `ech_required`, client GREASE,
+  and GREASE entries on server `retry_configs` lists. Server deployment via
+  `ech-config-list-file`, `ech-private-key-file`, and `ech-required` on secure
+  listeners in `server.xml` (TCP and HTTP/3). Outbound clients pick DNS HTTPS
+  `ech` and optional `TlsConfig.clientEchConfigListFile` on HTTP/3 and TCP
+  (`HttpClient`, `WebSocketClient`, `ConnectUdpClient`, and generic TCP dials).
 - **RFC 8879 TLS certificate compression** (Brotli via [micula](https://github.com/cpkb-bluezoo/micula)
   `org.bluezoo:micula:1.0.0`, zlib via JDK `Deflater`/`Inflater`) in the TLS 1.3
   `HandshakeEngine`; external dependency wired like gonzalez-core, jsonparser,
