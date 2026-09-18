@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.Hpke;
+
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
@@ -117,11 +119,13 @@ public final class HandshakeEngine {
     private byte[] clientCertRequestContext;
     /** Framed ClientHelloInner when ECH was offered; used after server acceptance. */
     private byte[] echClientHelloInnerFramed;
+    private Hpke.SenderContext echHpkeSender;
     private boolean echOffered;
     private boolean echAccepted;
     private boolean echRejected;
 
     // Server-only state.
+    private Hpke.RecipientContext echHpkeRecipient;
     private NamedGroup serverRetryRequestedGroup;
     private boolean earlyDataAccepted;
 
@@ -219,10 +223,13 @@ public final class HandshakeEngine {
         SessionTicket ticket = config.getSessionTicket();
         byte[] clientHello;
         boolean wantEarly = false;
-        echClientHelloInnerFramed = null;
-        echOffered = false;
-        echAccepted = false;
-        echRejected = false;
+        if (!isRetry) {
+            echClientHelloInnerFramed = null;
+            echHpkeSender = null;
+            echOffered = false;
+            echAccepted = false;
+            echRejected = false;
+        }
         byte[] realPskBinder = null;
         try {
             if (ticket != null) {
@@ -237,14 +244,20 @@ public final class HandshakeEngine {
                 realPskBinder = pskSchedule.computePskBinder(ticket.getPsk(), truncatedHash);
             }
 
-            boolean offerEch = !isRetry && config.isEchEnabled() && config.getEchConfig() != null;
-            if (offerEch) {
+            if (!isRetry && config.isEchEnabled() && config.getEchConfig() != null) {
                 EchClientHelloBuilder.Offer echOffer = EchClientHelloBuilder.build(
                         params, config.getEchConfig(), realPskBinder, secureRandom);
                 clientHello = echOffer.getClientHelloOuterFramed();
                 echClientHelloInnerFramed = echOffer.getClientHelloInnerFramed();
+                echHpkeSender = echOffer.getHpkeSender();
                 clientHelloRandom = echOffer.getClientHelloOuterRandom();
                 echOffered = true;
+            } else if (isRetry && echAccepted && echHpkeSender != null && config.getEchConfig() != null) {
+                EchClientHelloBuilder.Offer echOffer = EchClientHelloBuilder.buildHelloRetryRequest(
+                        echHpkeSender, config.getEchConfig(), params, echClientHelloInnerFramed, realPskBinder);
+                clientHello = echOffer.getClientHelloOuterFramed();
+                echClientHelloInnerFramed = echOffer.getClientHelloInnerFramed();
+                clientHelloRandom = echOffer.getClientHelloOuterRandom();
             } else if (ticket != null) {
                 clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
             } else {
@@ -265,7 +278,11 @@ public final class HandshakeEngine {
             sink.quicEarlyKeysReady(ticket.getCipherSuite(), earlyTrafficSecret);
         }
 
-        savedClientHelloBytes = clientHello;
+        if (isRetry && echAccepted && echClientHelloInnerFramed != null) {
+            savedClientHelloBytes = echClientHelloInnerFramed;
+        } else {
+            savedClientHelloBytes = clientHello;
+        }
         state = State.WAIT_SERVER_HELLO;
         sink.handshakeDataReady(clientHello);
     }
@@ -689,8 +706,10 @@ public final class HandshakeEngine {
         boolean echInnerAccepted = false;
         if (ch.encryptedClientHelloOuter != null && config.getEchServerConfig() != null
                 && config.getEchServerPrivateKey() != null) {
-            clientHelloForTranscript = EchServer.openInnerClientHello(message, config.getEchServerConfig(),
-                    config.getEchServerPrivateKey());
+            EchServer.OpenResult opened = EchServer.openInnerClientHello(message, config.getEchServerConfig(),
+                    config.getEchServerPrivateKey(), echHpkeRecipient);
+            clientHelloForTranscript = opened.getInnerClientHelloFramed();
+            echHpkeRecipient = opened.getHpkeRecipient();
             ch = HandshakeMessages.parseClientHello(clientHelloForTranscript);
             echInnerAccepted = true;
         }
@@ -740,7 +759,8 @@ public final class HandshakeEngine {
         boolean needGroupRetry = !ch.keyShares.containsKey(group);
         if ((needCookie || needGroupRetry) && serverRetryRequestedGroup == null) {
             byte[] cookie = needCookie ? validator.computeCookie(ch.random) : null;
-            sendHelloRetryRequest(group, ch.legacySessionId, negotiatedSuite, message, sink, cookie);
+            sendHelloRetryRequest(group, ch.legacySessionId, negotiatedSuite, clientHelloForTranscript,
+                    echInnerAccepted, sink, cookie);
             return;
         }
         if (needCookie) {
@@ -859,14 +879,19 @@ public final class HandshakeEngine {
      * {@code INITIAL}).
      */
     private void sendHelloRetryRequest(NamedGroup group, byte[] legacySessionId, CipherSuite cipherSuite,
-            byte[] clientHello1, TlsEventSink sink, byte[] cookie) {
+            byte[] clientHello1ForTranscript, boolean echInnerAccepted, TlsEventSink sink, byte[] cookie)
+            throws HandshakeFormatException {
         Transcript t = Transcript.create(cipherSuite);
-        t.update(clientHello1);
+        t.update(clientHello1ForTranscript);
         byte[] ch1Hash = t.hash();
         transcript = t;
         transcript.retry(ch1Hash);
 
-        byte[] hrr = HandshakeMessages.buildHelloRetryRequest(legacySessionId, cipherSuite, group, cookie);
+        byte[] hrr = HandshakeMessages.buildHelloRetryRequest(legacySessionId, cipherSuite, group, cookie,
+                echInnerAccepted);
+        if (echInnerAccepted) {
+            hrr = EchAcceptConfirmation.embedHelloRetryRequestConfirmation(cipherSuite, clientHello1ForTranscript, hrr);
+        }
         transcript.update(hrr);
         sink.handshakeDataReady(hrr);
 

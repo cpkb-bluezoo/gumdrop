@@ -50,13 +50,15 @@ public final class EchClientHelloBuilder {
         private final byte[] clientHelloInnerFramed;
         private final byte[] clientHelloInnerContent;
         private final byte[] clientHelloOuterRandom;
+        private final Hpke.SenderContext hpkeSender;
 
         Offer(byte[] clientHelloOuterFramed, byte[] clientHelloInnerFramed, byte[] clientHelloInnerContent,
-                byte[] clientHelloOuterRandom) {
+                byte[] clientHelloOuterRandom, Hpke.SenderContext hpkeSender) {
             this.clientHelloOuterFramed = clientHelloOuterFramed;
             this.clientHelloInnerFramed = clientHelloInnerFramed;
             this.clientHelloInnerContent = clientHelloInnerContent;
             this.clientHelloOuterRandom = clientHelloOuterRandom;
+            this.hpkeSender = hpkeSender;
         }
 
         public byte[] getClientHelloOuterFramed() {
@@ -73,6 +75,10 @@ public final class EchClientHelloBuilder {
 
         public byte[] getClientHelloOuterRandom() {
             return clientHelloOuterRandom;
+        }
+
+        Hpke.SenderContext getHpkeSender() {
+            return hpkeSender;
         }
     }
 
@@ -149,7 +155,64 @@ public final class EchClientHelloBuilder {
         byte[] outerFramed = HandshakeMessages.frameClientHello(outerContent);
         byte[] innerFramed = HandshakeMessages.frameClientHello(innerContent);
 
-        return new Offer(outerFramed, innerFramed, innerContent, outerRandom);
+        return new Offer(outerFramed, innerFramed, innerContent, outerRandom, sender);
+    }
+
+    /**
+     * Builds the second ClientHelloOuter after HelloRetryRequest (RFC 9849 section 6.1.5).
+     */
+    public static Offer buildHelloRetryRequest(Hpke.SenderContext hpkeSender, EchConfig echConfig,
+            HandshakeMessages.ClientHelloParams template, byte[] firstInnerFramed, byte[] realPskBinder)
+            throws GeneralSecurityException, HandshakeFormatException {
+        HandshakeMessages.ClientHello firstInner = HandshakeMessages.parseClientHello(firstInnerFramed);
+
+        HandshakeMessages.ClientHelloParams inner = copyParams(template);
+        inner.random = firstInner.random;
+        inner.encryptedClientHelloInner = true;
+        inner.legacySessionId = firstInner.legacySessionId;
+
+        HandshakeMessages.ClientHelloParams outer = copyParams(template);
+        outer.random = template.random;
+        outer.serverName = echConfig.getPublicName();
+        outer.legacySessionId = firstInner.legacySessionId;
+        if (template.pskIdentity != null) {
+            HandshakeMessages.GreasePreSharedKey grease = new HandshakeMessages.GreasePreSharedKey();
+            grease.identity = template.pskIdentity;
+            grease.obfuscatedTicketAge = template.obfuscatedTicketAge;
+            grease.binder = new byte[realPskBinder != null ? realPskBinder.length : 32];
+            outer.greasePreSharedKey = grease;
+        }
+
+        byte[] innerContent = HandshakeMessages.buildClientHelloContent(inner, realPskBinder);
+        byte[] encodedInner = encodeClientHelloInner(innerContent, echConfig, template.serverName);
+
+        int payloadLength = encodedInner.length + HPKE_AEAD_TAG_LENGTH;
+        byte[] zeroPayload = new byte[payloadLength];
+        EncryptedClientHello.Outer placeholder = new EncryptedClientHello.Outer(
+                Hpke.KDF_HKDF_SHA256,
+                Hpke.AEAD_AES_128_GCM,
+                echConfig.getConfigId(),
+                new byte[0],
+                zeroPayload);
+        outer.encryptedClientHelloOuter = placeholder;
+
+        byte[] outerAad = HandshakeMessages.buildClientHelloContent(outer, null);
+        byte[] ciphertext = hpkeSender.seal(outerAad, encodedInner);
+
+        EncryptedClientHello.Outer finalOuter = new EncryptedClientHello.Outer(
+                Hpke.KDF_HKDF_SHA256,
+                Hpke.AEAD_AES_128_GCM,
+                echConfig.getConfigId(),
+                new byte[0],
+                ciphertext);
+        outer.encryptedClientHelloOuter = finalOuter;
+        byte[] outerContent = HandshakeMessages.buildClientHelloContent(outer, null);
+        return new Offer(
+                HandshakeMessages.frameClientHello(outerContent),
+                HandshakeMessages.frameClientHello(innerContent),
+                innerContent,
+                outer.random,
+                hpkeSender);
     }
 
     private static HandshakeMessages.ClientHelloParams copyParams(HandshakeMessages.ClientHelloParams src) {

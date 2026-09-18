@@ -33,6 +33,28 @@ import org.bluezoo.gumdrop.crypto.Hpke;
  */
 public final class EchServer {
 
+    /**
+     * Result of opening a ClientHelloOuter, including HPKE state for
+     * HelloRetryRequest follow-ups (RFC 9849 section 7.1.1).
+     */
+    public static final class OpenResult {
+        private final byte[] innerClientHelloFramed;
+        private final Hpke.RecipientContext hpkeRecipient;
+
+        OpenResult(byte[] innerClientHelloFramed, Hpke.RecipientContext hpkeRecipient) {
+            this.innerClientHelloFramed = innerClientHelloFramed;
+            this.hpkeRecipient = hpkeRecipient;
+        }
+
+        public byte[] getInnerClientHelloFramed() {
+            return innerClientHelloFramed;
+        }
+
+        public Hpke.RecipientContext getHpkeRecipient() {
+            return hpkeRecipient;
+        }
+    }
+
     private EchServer() {
     }
 
@@ -42,9 +64,11 @@ public final class EchServer {
      * @param framedClientHelloOuter complete outer ClientHello handshake message
      * @param config ECH configuration matching {@code config_id}
      * @param recipientPrivateKey 32-byte X25519 private key for {@code config}
+     * @param retryRecipient prior HPKE context after HelloRetryRequest, or null
      */
-    public static byte[] openInnerClientHello(byte[] framedClientHelloOuter, EchConfig config,
-            byte[] recipientPrivateKey) throws GeneralSecurityException, HandshakeFormatException {
+    public static OpenResult openInnerClientHello(byte[] framedClientHelloOuter, EchConfig config,
+            byte[] recipientPrivateKey, Hpke.RecipientContext retryRecipient)
+            throws GeneralSecurityException, HandshakeFormatException {
         HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(framedClientHelloOuter);
         if (outer.encryptedClientHelloOuter == null) {
             throw new HandshakeFormatException("ClientHello is not an ECH outer hello");
@@ -56,18 +80,22 @@ public final class EchServer {
         byte[] outerContent = HandshakeMessages.extractClientHelloContent(framedClientHelloOuter);
         byte[] aad = EncryptedClientHello.clientHelloOuterAadWithZeroEchPayload(
                 outerContent, ech.payload.length);
-        byte[] encodedInner = decryptPayload(config, recipientPrivateKey, ech, aad);
+        byte[] encodedInner;
+        Hpke.RecipientContext recipient;
+        if (ech.enc.length == 0) {
+            if (retryRecipient == null) {
+                throw new HandshakeFormatException("Missing HPKE context for ECH HelloRetryRequest follow-up");
+            }
+            encodedInner = retryRecipient.open(aad, ech.payload);
+            recipient = retryRecipient;
+        } else {
+            Hpke hpke = Hpke.x25519Aes128Gcm();
+            recipient = hpke.setupBaseR(ech.enc, recipientPrivateKey, config.getPublicKey(), config.hpkeSetupInfo());
+            encodedInner = recipient.open(aad, ech.payload);
+        }
         byte[] innerContent = reconstructClientHelloContent(encodedInner, outer.legacySessionId);
-        return HandshakeMessages.frameClientHello(innerContent);
-    }
-
-    private static byte[] decryptPayload(EchConfig config, byte[] recipientPrivateKey,
-            EncryptedClientHello.Outer ech, byte[] clientHelloOuterAad)
-            throws GeneralSecurityException, HandshakeFormatException {
-        Hpke hpke = Hpke.x25519Aes128Gcm();
-        Hpke.RecipientContext recipient = hpke.setupBaseR(
-                ech.enc, recipientPrivateKey, config.getPublicKey(), config.hpkeSetupInfo());
-        return recipient.open(clientHelloOuterAad, ech.payload);
+        byte[] innerFramed = HandshakeMessages.frameClientHello(innerContent);
+        return new OpenResult(innerFramed, recipient);
     }
 
     /**

@@ -49,7 +49,8 @@ public class EchAcceptConfirmationTest {
 
         byte[] innerFramed = offer.getClientHelloInnerFramed();
         byte[] outerFramed = offer.getClientHelloOuterFramed();
-        byte[] innerOpened = EchServer.openInnerClientHello(outerFramed, ech, SK_RM);
+        byte[] innerOpened = EchServer.openInnerClientHello(outerFramed, ech, SK_RM, null)
+                .getInnerClientHelloFramed();
         HandshakeMessages.ClientHello inner = HandshakeMessages.parseClientHello(innerOpened);
         HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(outerFramed);
 
@@ -63,6 +64,23 @@ public class EchAcceptConfirmationTest {
         assertTrue(EchAcceptConfirmation.verifyServerHello(suite, innerFramed, serverHello));
         assertTrue(outer.serverName.equals("public.example"));
         assertTrue(inner.serverName.equals("backend.example"));
+    }
+
+    @Test
+    public void helloRetryRequestEmbedMatchesClientVerify() throws Exception {
+        EchConfig ech = EchConfig.createV13(3, PK_RM, "public.example", 32);
+        HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
+        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, new SecureRandom());
+        byte[] innerFramed = offer.getClientHelloInnerFramed();
+
+        CipherSuite suite = CipherSuite.TLS_AES_128_GCM_SHA256;
+        byte[] hrrDraft = HandshakeMessages.buildHelloRetryRequest(new byte[0], suite,
+                NamedGroup.X25519, null, true);
+        byte[] hrr = EchAcceptConfirmation.embedHelloRetryRequestConfirmation(suite, innerFramed, hrrDraft);
+        HandshakeMessages.HelloRetryRequest parsed = HandshakeMessages.parseHelloRetryRequest(hrr);
+
+        assertTrue(EchAcceptConfirmation.verifyHelloRetryRequest(
+                suite, innerFramed, hrr, parsed.echHrrConfirmation));
     }
 
     private static HandshakeMessages.ClientHelloParams sampleParams(String serverName) {

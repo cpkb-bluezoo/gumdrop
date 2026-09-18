@@ -80,6 +80,34 @@ public class EchClientHelloBuilderTest {
         assertArrayEquals(encodedInner, recipient.open(aad, wire.payload));
     }
 
+    @Test
+    public void helloRetryRequestSecondOuterUsesEmptyEncAndSameHpkeContext() throws Exception {
+        EchConfig ech = EchConfig.createV13(10, PK_RM, "public.example", 32);
+        HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
+        SecureRandom random = new SecureRandom();
+
+        EchClientHelloBuilder.Offer first = EchClientHelloBuilder.build(params, ech, null, random);
+        EchServer.OpenResult openedFirst = EchServer.openInnerClientHello(
+                first.getClientHelloOuterFramed(), ech, SK_RM, null);
+
+        HandshakeMessages.ClientHelloParams retryParams = sampleParams("backend.example");
+        retryParams.random = first.getClientHelloOuterRandom();
+        retryParams.keyShares = params.keyShares;
+
+        EchClientHelloBuilder.Offer second = EchClientHelloBuilder.buildHelloRetryRequest(
+                first.getHpkeSender(), ech, retryParams, first.getClientHelloInnerFramed(), null);
+        HandshakeMessages.ClientHello outer2 = HandshakeMessages.parseClientHello(
+                second.getClientHelloOuterFramed());
+        assertEquals(0, outer2.encryptedClientHelloOuter.enc.length);
+
+        EchServer.OpenResult openedSecond = EchServer.openInnerClientHello(
+                second.getClientHelloOuterFramed(), ech, SK_RM, openedFirst.getHpkeRecipient());
+        HandshakeMessages.ClientHello inner2 = HandshakeMessages.parseClientHello(
+                openedSecond.getInnerClientHelloFramed());
+        assertEquals("backend.example", inner2.serverName);
+        assertTrue(inner2.encryptedClientHelloInner);
+    }
+
     private static HandshakeMessages.ClientHelloParams sampleParams(String serverName) {
         HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
         params.random = new byte[32];

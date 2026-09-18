@@ -103,6 +103,18 @@ public final class EchAcceptConfirmation {
         return Arrays.equals(expected, echConfirmationExtension);
     }
 
+    /**
+     * Writes {@code hrr_accept_confirmation} into the HelloRetryRequest
+     * {@code encrypted_client_hello} extension (RFC 9849 section 7.2.1).
+     */
+    public static byte[] embedHelloRetryRequestConfirmation(CipherSuite suite, byte[] clientHelloInnerFramed,
+            byte[] helloRetryRequestFramed) throws HandshakeFormatException {
+        byte[] innerRandom = extractClientHelloRandom(clientHelloInnerFramed);
+        byte[] hrrForHash = HandshakeMessages.helloRetryRequestWithZeroedEchConfirmation(helloRetryRequestFramed);
+        byte[] confirmation = computeHrrAcceptConfirmation(suite, innerRandom, clientHelloInnerFramed, hrrForHash);
+        return HandshakeMessages.replaceHelloRetryEchExtensionBody(helloRetryRequestFramed, confirmation);
+    }
+
     private static byte[] extractClientHelloRandom(byte[] framedClientHello) throws HandshakeFormatException {
         byte[] body = HandshakeMessages.extractClientHelloContent(framedClientHello);
         if (body.length < 34) {

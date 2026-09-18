@@ -562,7 +562,7 @@ final class HandshakeMessages {
         return out;
     }
 
-    private static byte[] replaceHelloRetryEchExtensionBody(byte[] framedMessage, byte[] echExtensionBody)
+    static byte[] replaceHelloRetryEchExtensionBody(byte[] framedMessage, byte[] echExtensionBody)
             throws HandshakeFormatException {
         byte[] body = extractServerHelloContent(framedMessage);
         WireReader r = new WireReader(body);
@@ -643,6 +643,11 @@ final class HandshakeMessages {
      */
     static byte[] buildHelloRetryRequest(byte[] legacySessionIdEcho, CipherSuite cipherSuite,
             NamedGroup selectedGroup, byte[] cookie) {
+        return buildHelloRetryRequest(legacySessionIdEcho, cipherSuite, selectedGroup, cookie, false);
+    }
+
+    static byte[] buildHelloRetryRequest(byte[] legacySessionIdEcho, CipherSuite cipherSuite,
+            NamedGroup selectedGroup, byte[] cookie, boolean echAcceptPlaceholder) {
         WireWriter w = new WireWriter();
         w.u16(TLS_1_2_LEGACY_VERSION);
         w.bytes(HELLO_RETRY_REQUEST_RANDOM);
@@ -661,6 +666,9 @@ final class HandshakeMessages {
 
         if (cookie != null) {
             writeExtension(ext, EXT_COOKIE, cookie);
+        }
+        if (echAcceptPlaceholder) {
+            writeExtension(ext, EXT_ENCRYPTED_CLIENT_HELLO, new byte[8]);
         }
         w.opaque16(ext.toByteArray());
         return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_SERVER_HELLO, w.toByteArray());
