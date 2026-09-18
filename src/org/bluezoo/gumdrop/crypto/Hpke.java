@@ -43,11 +43,8 @@ import javax.crypto.spec.SecretKeySpec;
  * HPKE base mode (RFC 9180) for {@code DHKEM(X25519, HKDF-SHA256)} with
  * {@code HKDF-SHA256} and {@code AES-128-GCM}, as used by TLS ECH (RFC 9849).
  *
- * <p>TODO(#446): Decap {@code kem_context} must use role byte {@code 1} per
- * RFC 9180 section 7.1.1; this implementation still uses {@code 0} on both
- * sides until {@code LabeledExpand} interop with the RFC test vectors is fixed.
- *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc9180">RFC 9180</a>
  */
 public final class Hpke {
 
@@ -56,7 +53,17 @@ public final class Hpke {
     public static final int AEAD_AES_128_GCM = 0x0001;
 
     private static final byte[] HPKE_V1 = "HPKE-v1".getBytes(StandardCharsets.US_ASCII);
+    /** RFC 9180 section 4.1: {@code concat("KEM", I2OSP(kem_id, 2))}. */
+    private static final byte[] KEM_SUITE_ID = concat(
+            "KEM".getBytes(StandardCharsets.US_ASCII), u16(KEM_X25519_HKDF_SHA256));
+    /** RFC 9180 section 5.1: full HPKE ciphersuite identifier. */
+    private static final byte[] HPKE_SUITE_ID = concat(
+            "HPKE".getBytes(StandardCharsets.US_ASCII),
+            u16(KEM_X25519_HKDF_SHA256),
+            u16(KDF_HKDF_SHA256),
+            u16(AEAD_AES_128_GCM));
     private static final byte[] MODE_BASE = new byte[] { 0 };
+    private static final byte[] EMPTY_PSK = new byte[0];
     private static final byte[] EMPTY_PSK_ID = new byte[0];
     private static final byte[] X25519_HEADER = hex("302a300506032b656e032100");
 
@@ -130,7 +137,7 @@ public final class Hpke {
         PublicKey peer = rawX25519Public(enc);
         byte[] pkRm = extractRawPublic(recipientPublicKey);
         byte[] dh = dh(recipientPrivateKey, peer);
-        byte[] kemContext = concat(enc, new byte[] { 0 }, pkRm);
+        byte[] kemContext = concat(enc, pkRm);
         byte[] sharedSecret = extractAndExpand(dh, kemContext);
         return new RecipientContext(keyScheduleBase(sharedSecret, info));
     }
@@ -143,47 +150,67 @@ public final class Hpke {
     byte[] decapSharedSecretForTest(PrivateKey skR, byte[] enc, byte[] pkRm) throws GeneralSecurityException {
         PublicKey pkE = rawX25519Public(enc);
         byte[] dh = dh(skR, pkE);
-        byte[] kemContext = concat(enc, new byte[] { 0 }, pkRm);
+        byte[] kemContext = concat(enc, pkRm);
         return extractAndExpand(dh, kemContext);
     }
 
     private byte[] encapSharedSecret(PrivateKey skE, PublicKey pkR, byte[] enc, byte[] pkRm)
             throws GeneralSecurityException {
         byte[] dh = dh(skE, pkR);
-        byte[] kemContext = concat(enc, new byte[] { 0 }, pkRm);
+        byte[] kemContext = concat(enc, pkRm);
         return extractAndExpand(dh, kemContext);
     }
 
     private byte[] extractAndExpand(byte[] dh, byte[] kemContext) {
-        byte[] eaePrk = labeledExtract(new byte[0], "eae_prk", dh);
-        return labeledExpand(eaePrk, "shared_secret", kemContext, SECRET_LENGTH);
+        byte[] eaePrk = kemLabeledExtract(new byte[0], "eae_prk", dh);
+        return kemLabeledExpand(eaePrk, "shared_secret", kemContext, SECRET_LENGTH);
     }
 
     private KeySchedule keyScheduleBase(byte[] sharedSecret, byte[] info) {
-        byte[] pskIdHash = labeledExtract(new byte[0], "psk_id_hash", EMPTY_PSK_ID);
-        byte[] keyScheduleContext = concat(MODE_BASE, pskIdHash, info);
-        byte[] secret = labeledExtract(new byte[0], "secret", sharedSecret);
-        byte[] key = labeledExpand(secret, "key", keyScheduleContext, KEY_LENGTH);
-        byte[] baseNonce = labeledExpand(secret, "base_nonce", keyScheduleContext, NONCE_LENGTH);
-        byte[] exporterSecret = labeledExpand(secret, "exp", keyScheduleContext, hkdf.getHashLength());
+        byte[] pskIdHash = hpkeLabeledExtract(new byte[0], "psk_id_hash", EMPTY_PSK_ID);
+        byte[] infoHash = hpkeLabeledExtract(new byte[0], "info_hash", info);
+        byte[] keyScheduleContext = concat(MODE_BASE, pskIdHash, infoHash);
+        byte[] secret = hpkeLabeledExtract(sharedSecret, "secret", EMPTY_PSK);
+        byte[] key = hpkeLabeledExpand(secret, "key", keyScheduleContext, KEY_LENGTH);
+        byte[] baseNonce = hpkeLabeledExpand(secret, "base_nonce", keyScheduleContext, NONCE_LENGTH);
+        byte[] exporterSecret = hpkeLabeledExpand(secret, "exp", keyScheduleContext, hkdf.getHashLength());
         return new KeySchedule(secret, key, baseNonce, exporterSecret);
     }
 
-    byte[] labeledExtract(byte[] salt, String label, byte[] ikm) {
+    SenderContext setupBaseSForTest(PrivateKey skE, PublicKey pkE, PublicKey pkR, byte[] info)
+            throws GeneralSecurityException {
+        byte[] enc = extractRawPublic(pkE);
+        byte[] pkRm = extractRawPublic(pkR);
+        byte[] sharedSecret = encapSharedSecret(skE, pkR, enc, pkRm);
+        return new SenderContext(enc, keyScheduleBase(sharedSecret, info));
+    }
+
+    byte[] kemLabeledExtract(byte[] salt, String label, byte[] ikm) {
+        return labeledExtract(salt, label, ikm, KEM_SUITE_ID);
+    }
+
+    byte[] kemLabeledExpand(byte[] prk, String label, byte[] info, int length) {
+        return labeledExpand(prk, label, info, length, KEM_SUITE_ID);
+    }
+
+    byte[] hpkeLabeledExtract(byte[] salt, String label, byte[] ikm) {
+        return labeledExtract(salt, label, ikm, HPKE_SUITE_ID);
+    }
+
+    byte[] hpkeLabeledExpand(byte[] prk, String label, byte[] info, int length) {
+        return labeledExpand(prk, label, info, length, HPKE_SUITE_ID);
+    }
+
+    private byte[] labeledExtract(byte[] salt, String label, byte[] ikm, byte[] suiteId) {
         byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
-        byte[] labeledIkm = concat(HPKE_V1, u8(labelBytes.length), labelBytes, u8(ikm.length), ikm);
+        byte[] labeledIkm = concat(HPKE_V1, suiteId, labelBytes, ikm);
         return hkdf.extract(salt.length == 0 ? hkdf.zeroSalt() : salt, labeledIkm);
     }
 
-    byte[] labeledExpand(byte[] prk, String label, byte[] info, int length) {
+    private byte[] labeledExpand(byte[] prk, String label, byte[] info, int length, byte[] suiteId) {
         byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
-        byte[] labeledInfo = concat(HPKE_V1, u8(labelBytes.length), labelBytes, u8(info.length), info,
-                u16(length));
+        byte[] labeledInfo = concat(u16(length), HPKE_V1, suiteId, labelBytes, info);
         return hkdf.expand(prk, labeledInfo, length);
-    }
-
-    private static byte[] u8(int value) {
-        return new byte[] { (byte) (value & 0xff) };
     }
 
     private static byte[] dh(PrivateKey privateKey, PublicKey publicKey) throws GeneralSecurityException {
@@ -224,6 +251,10 @@ public final class Hpke {
 
     static PublicKey rawX25519PublicForTest(byte[] raw) throws GeneralSecurityException {
         return rawX25519Public(raw);
+    }
+
+    static PrivateKey rawX25519PrivateForTest(byte[] raw) throws GeneralSecurityException {
+        return rawX25519Private(raw);
     }
 
     static byte[] dhForTest(PrivateKey privateKey, PublicKey publicKey) throws GeneralSecurityException {
