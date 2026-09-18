@@ -123,6 +123,9 @@ public final class HandshakeEngine {
     private boolean echOffered;
     private boolean echAccepted;
     private boolean echRejected;
+    /** GREASE ECH only (RFC 9849 section 6.2); not a real ECH offer. */
+    private boolean echGreaseOffered;
+    private byte[] echGreaseFirstClientHelloFramed;
 
     // Server-only state.
     private Hpke.RecipientContext echHpkeRecipient;
@@ -229,6 +232,8 @@ public final class HandshakeEngine {
             echOffered = false;
             echAccepted = false;
             echRejected = false;
+            echGreaseOffered = false;
+            echGreaseFirstClientHelloFramed = null;
         }
         byte[] realPskBinder = null;
         try {
@@ -258,6 +263,17 @@ public final class HandshakeEngine {
                 clientHello = echOffer.getClientHelloOuterFramed();
                 echClientHelloInnerFramed = echOffer.getClientHelloInnerFramed();
                 clientHelloRandom = echOffer.getClientHelloOuterRandom();
+            } else if (isRetry && echGreaseOffered && echGreaseFirstClientHelloFramed != null) {
+                HandshakeMessages.ClientHello greaseFirst = HandshakeMessages.parseClientHello(
+                        echGreaseFirstClientHelloFramed);
+                params.encryptedClientHelloOuter = greaseFirst.encryptedClientHelloOuter;
+                clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
+            } else if (!isRetry && config.isEchGreaseEnabled()
+                    && !(config.isEchEnabled() && config.getEchConfig() != null)) {
+                params.encryptedClientHelloOuter = EchClientHelloBuilder.buildGreaseOuter(params, secureRandom);
+                clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
+                echGreaseOffered = true;
+                echGreaseFirstClientHelloFramed = clientHello;
             } else if (ticket != null) {
                 clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
             } else {
@@ -503,7 +519,7 @@ public final class HandshakeEngine {
             sink.peerTransportParameters(ee.quicTransportParameters);
         }
         sink.earlyDataAccepted(ee.earlyDataAccepted);
-        if (echRejected && ee.echRetryConfigs != null && ee.echRetryConfigs.length > 0) {
+        if (echOffered && echRejected && ee.echRetryConfigs != null && ee.echRetryConfigs.length > 0) {
             config.setEchConfig(ee.echRetryConfigs[0]);
         }
         state = resumed ? State.WAIT_SERVER_FINISHED : State.WAIT_CERTIFICATE;

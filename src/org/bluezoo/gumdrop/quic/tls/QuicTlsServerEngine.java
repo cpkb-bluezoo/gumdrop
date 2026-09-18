@@ -34,6 +34,7 @@ import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.tls.AntiReplay;
 import org.bluezoo.gumdrop.tls.CipherSuite;
 import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
+import org.bluezoo.gumdrop.tls.EchConfig;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.HandshakeEngine;
 import org.bluezoo.gumdrop.tls.HandshakeRole;
@@ -258,6 +259,27 @@ public final class QuicTlsServerEngine implements QuicTlsEngine {
      */
     public void setAntiReplay(AntiReplay antiReplay) {
         config.setAntiReplay(antiReplay);
+    }
+
+    /**
+     * Configures server-side ECH decryption (RFC 9849 section 7).
+     */
+    public void setEchServerKeys(EchConfig echServerConfig, byte[] echServerPrivateKey) {
+        config.setEchServerKeys(echServerConfig, echServerPrivateKey);
+    }
+
+    /**
+     * Sets {@code retry_configs} bytes sent when ECH is rejected.
+     */
+    public void setEchRetryConfigList(byte[] echRetryConfigList) {
+        config.setEchRetryConfigList(echRetryConfigList);
+    }
+
+    /**
+     * Requires clients to offer outer ECH (RFC 9849 section 7.3).
+     */
+    public void setEchServerRequired(boolean echServerRequired) {
+        config.setEchServerRequired(echServerRequired);
     }
 
     /**

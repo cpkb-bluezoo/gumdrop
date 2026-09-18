@@ -108,6 +108,15 @@ public class EchClientHelloBuilderTest {
         assertTrue(inner2.encryptedClientHelloInner);
     }
 
+    @Test
+    public void greaseOuterHasValidEncAndNonEmptyPayload() throws Exception {
+        HandshakeMessages.ClientHelloParams params = sampleParams("client.example");
+        EncryptedClientHello.Outer grease = EchClientHelloBuilder.buildGreaseOuter(params, new SecureRandom());
+        assertEquals(32, grease.enc.length);
+        assertTrue(grease.payload.length > 16);
+        assertTrue(grease.configId >= 0 && grease.configId <= 255);
+    }
+
     private static HandshakeMessages.ClientHelloParams sampleParams(String serverName) {
         HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
         params.random = new byte[32];

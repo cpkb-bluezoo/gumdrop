@@ -325,13 +325,21 @@ public final class Hpke {
         return out;
     }
 
-    static final class RawKeyPair {
-        final byte[] publicKey;
-        final byte[] privateKey;
+    public static final class RawKeyPair {
+        private final byte[] publicKey;
+        private final byte[] privateKey;
 
         RawKeyPair(byte[] publicKey, byte[] privateKey) {
             this.publicKey = publicKey;
             this.privateKey = privateKey;
+        }
+
+        public byte[] getPublicKey() {
+            return publicKey;
+        }
+
+        public byte[] getPrivateKey() {
+            return privateKey;
         }
     }
 

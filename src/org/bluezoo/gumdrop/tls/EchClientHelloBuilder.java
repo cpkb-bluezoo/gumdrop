@@ -159,6 +159,33 @@ public final class EchClientHelloBuilder {
     }
 
     /**
+     * Builds a GREASE {@code encrypted_client_hello} outer extension (RFC 9849 section 6.2.1).
+     */
+    public static EncryptedClientHello.Outer buildGreaseOuter(HandshakeMessages.ClientHelloParams template,
+            SecureRandom random) throws GeneralSecurityException, HandshakeFormatException {
+        Hpke hpke = Hpke.x25519Aes128Gcm();
+        Hpke.RawKeyPair recipient = Hpke.generateX25519KeyPair(random);
+        byte[] greaseInfo = new byte[] { 't', 'l', 's', ' ', 'e', 'c', 'h', 0 };
+        Hpke.SenderContext sender = hpke.setupBaseS(recipient.getPublicKey(), greaseInfo, random);
+
+        HandshakeMessages.ClientHelloParams innerTemplate = copyParams(template);
+        innerTemplate.encryptedClientHelloInner = true;
+        byte[] innerContent = HandshakeMessages.buildClientHelloContent(innerTemplate, null);
+        EchConfig greaseConfig = EchConfig.createV13(0, recipient.getPublicKey(), "grease.invalid", 32);
+        int encodedInnerLength = encodeClientHelloInner(innerContent, greaseConfig, template.serverName).length;
+        int payloadLength = encodedInnerLength + HPKE_AEAD_TAG_LENGTH;
+        byte[] payload = randomBytes(random, payloadLength);
+
+        int configId = random.nextInt(256);
+        return new EncryptedClientHello.Outer(
+                Hpke.KDF_HKDF_SHA256,
+                Hpke.AEAD_AES_128_GCM,
+                configId,
+                sender.getEnc(),
+                payload);
+    }
+
+    /**
      * Builds the second ClientHelloOuter after HelloRetryRequest (RFC 9849 section 6.1.5).
      */
     public static Offer buildHelloRetryRequest(Hpke.SenderContext hpkeSender, EchConfig echConfig,

@@ -438,6 +438,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 factory.isEarlyDataEnabled(), factory.getApplicationProtocols(),
                 factory.getCipherSuites(), factory.isNeedClientAuth(),
                 factory.getTrustManager());
+        factory.applyEchServerSettings(tlsEngine);
         conn.setTlsEngine(tlsEngine);
 
         if (connectionAcceptedHandler != null) {

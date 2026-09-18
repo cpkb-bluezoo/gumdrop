@@ -284,6 +284,34 @@ public final class QuicTlsClientEngine implements QuicTlsEngine {
     }
 
     /**
+     * Enables real ECH offers when {@code echConfig} is non-null.
+     */
+    public void setEchEnabled(boolean echEnabled) {
+        config.setEchEnabled(echEnabled);
+    }
+
+    /**
+     * Sets the client ECH configuration (RFC 9849 section 6.1).
+     */
+    public void setEchConfig(org.bluezoo.gumdrop.tls.EchConfig echConfig) {
+        config.setEchConfig(echConfig);
+    }
+
+    /**
+     * Aborts the handshake if the server rejects ECH (RFC 9849 section 6.1.7).
+     */
+    public void setEchRequired(boolean echRequired) {
+        config.setEchRequired(echRequired);
+    }
+
+    /**
+     * Sends GREASE ECH when not offering real ECH (RFC 9849 section 6.2).
+     */
+    public void setEchGreaseEnabled(boolean echGreaseEnabled) {
+        config.setEchGreaseEnabled(echGreaseEnabled);
+    }
+
+    /**
      * Starts the TLS handshake, producing a ClientHello via
      * {@link QuicTlsEngineListener#cryptoDataReady} at
      * {@link EncryptionLevel#INITIAL}.

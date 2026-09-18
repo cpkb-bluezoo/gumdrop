@@ -27,6 +27,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.StandardProtocolFamily;
 import java.nio.channels.DatagramChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
@@ -51,6 +52,8 @@ import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
+import org.bluezoo.gumdrop.tls.EchConfig;
+import org.bluezoo.gumdrop.tls.EchKeyMaterial;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
@@ -131,6 +134,10 @@ public class QuicTransportFactory extends TransportFactory {
     private final byte[] connectionIdStaticKey = new byte[32];
     private final byte[] retryTokenKey = new byte[32];
     private boolean requireRetry;
+
+    private Path echConfigListFile;
+    private Path echPrivateKeyFile;
+    private boolean echServerRequired;
 
     public QuicTransportFactory() {
         this.secure = true;
@@ -606,6 +613,46 @@ public class QuicTransportFactory extends TransportFactory {
             description.append(" (ALPN: ").append(applicationProtocols).append(')');
         }
         return description.toString();
+    }
+
+    /**
+     * Sets the file containing a binary {@code ECHConfigList} for server decryption.
+     */
+    public void setEchConfigListFile(Path echConfigListFile) {
+        this.echConfigListFile = echConfigListFile;
+    }
+
+    /**
+     * Sets the file containing the 32-byte X25519 ECH private key (raw or hex).
+     */
+    public void setEchPrivateKeyFile(Path echPrivateKeyFile) {
+        this.echPrivateKeyFile = echPrivateKeyFile;
+    }
+
+    /**
+     * Requires clients to offer ECH on this listener (RFC 9849 section 7.3).
+     */
+    public void setEchServerRequired(boolean echServerRequired) {
+        this.echServerRequired = echServerRequired;
+    }
+
+    /**
+     * Applies configured ECH server keys to a {@link QuicTlsServerEngine}.
+     */
+    public void applyEchServerSettings(org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine tlsEngine) {
+        tlsEngine.setEchServerRequired(echServerRequired);
+        if (echConfigListFile == null || echPrivateKeyFile == null) {
+            return;
+        }
+        try {
+            byte[] listBytes = EchKeyMaterial.readConfigListFile(echConfigListFile);
+            byte[] privateKey = EchKeyMaterial.readPrivateKeyFile(echPrivateKeyFile);
+            EchConfig config = EchKeyMaterial.parseFirstConfig(echConfigListFile);
+            tlsEngine.setEchServerKeys(config, privateKey);
+            tlsEngine.setEchRetryConfigList(listBytes);
+        } catch (IOException e) {
+            LOGGER.log(Level.WARNING, "Could not load ECH server material", e);
+        }
     }
 
     // ── Server engine creation ──

@@ -943,6 +943,27 @@ public class HandshakeEngineLoopbackTest {
     }
 
     @Test
+    public void echGreaseCompletesWithoutServerKeys() throws Exception {
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setEchGreaseEnabled(true);
+        cc.setVerifyHostname(false);
+
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNull("client error", clientSink.error);
+        assertNull("server error", serverSink.error);
+        assertTrue(client.isComplete());
+        assertTrue(server.isComplete());
+    }
+
+    @Test
     public void echServerRequiredRejectsClientWithoutEch() throws Exception {
         HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
         HandshakeConfig sc = serverConfig(ecChain, ecKey);

@@ -71,6 +71,8 @@ public final class HandshakeConfig {
     private EchConfig echConfig;
     /** When true, the client aborts if the server rejects ECH (RFC 9849 section 6.1.7). */
     private boolean echRequired;
+    /** When true and no real ECH config is offered, send GREASE ECH (RFC 9849 section 6.2). */
+    private boolean echGreaseEnabled;
     /** Server role: ECH config and private key for decrypting ClientHelloOuter. */
     private EchConfig echServerConfig;
     private byte[] echServerPrivateKey;
@@ -610,6 +612,25 @@ public final class HandshakeConfig {
      */
     public void setEchRequired(boolean echRequired) {
         this.echRequired = echRequired;
+    }
+
+    /**
+     * Returns whether the client sends GREASE ECH when not offering real ECH.
+     *
+     * @return true to grease (RFC 9849 section 6.2)
+     */
+    public boolean isEchGreaseEnabled() {
+        return echGreaseEnabled;
+    }
+
+    /**
+     * Enables GREASE {@code encrypted_client_hello} when {@link #isEchEnabled()}
+     * is false or no {@link #getEchConfig()} is set.
+     *
+     * @param echGreaseEnabled true to send GREASE ECH
+     */
+    public void setEchGreaseEnabled(boolean echGreaseEnabled) {
+        this.echGreaseEnabled = echGreaseEnabled;
     }
 
     /**

@@ -341,6 +341,17 @@ public final class ServerXmlLoader {
                 String keystoreFile = require(attrs, "keystore-file", "secure listener");
                 String keystorePass = require(attrs, "keystore-pass", "secure listener");
                 TlsConfig tls = TlsConfig.keystore(resolve(keystoreFile).toPath(), keystorePass);
+                String echConfigList = attrs.getValue("ech-config-list-file");
+                String echPrivateKey = attrs.getValue("ech-private-key-file");
+                if (echConfigList != null) {
+                    tls.echConfigListFile(resolve(echConfigList).toPath());
+                }
+                if (echPrivateKey != null) {
+                    tls.echPrivateKeyFile(resolve(echPrivateKey).toPath());
+                }
+                if (Boolean.parseBoolean(attrs.getValue("ech-required"))) {
+                    tls.echServerRequired(true);
+                }
                 http2.secure(true).tls(tls);
                 composer.listener(http2);
 

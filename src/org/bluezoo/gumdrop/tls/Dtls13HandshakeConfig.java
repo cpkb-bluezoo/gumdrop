@@ -186,6 +186,7 @@ public final class Dtls13HandshakeConfig {
         copy.setEchEnabled(base.isEchEnabled());
         copy.setEchConfig(base.getEchConfig());
         copy.setEchRequired(base.isEchRequired());
+        copy.setEchGreaseEnabled(base.isEchGreaseEnabled());
         copy.setEchServerKeys(base.getEchServerConfig(), base.getEchServerPrivateKey());
         copy.setEchServerRequired(base.isEchServerRequired());
         copy.setEchRetryConfigList(base.getEchRetryConfigList());
