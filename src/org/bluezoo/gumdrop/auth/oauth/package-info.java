@@ -20,13 +20,18 @@
  */
 
 /**
- * OAuth 2.0 bearer token authentication.
+ * OAuth 2.0 bearer token authentication (resource server only).
  *
  * <p>{@link org.bluezoo.gumdrop.auth.oauth.OAuthRealm} implements
  * {@link org.bluezoo.gumdrop.auth.Realm}, validating access tokens
- * either via RFC 7662 token introspection against an authorization
- * server, or locally as a JWT, with configurable scope-to-role mapping
- * for {@code isUserInRole}.
+ * either via RFC 7662 token introspection against an external
+ * authorization server, or locally as a JWT, with configurable
+ * scope-to-role mapping for {@code isUserInRole}.
+ *
+ * <p>Gumdrop is not an OAuth authorization server: no authorization
+ * codes, token issuance, PKCE (RFC 7636), or DPoP (RFC 9449) are
+ * planned in this codebase. See the security guide section
+ * {@code oauth-non-goals} in {@code web/security.html}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.auth.Realm

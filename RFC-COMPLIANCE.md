@@ -2109,6 +2109,18 @@ implemented in Java, with TLS 1.3 integrated via the in-tree engine
 | Local JWT validation | RFC 7519 | **Compliant** | `OAuthRealm.validateJWT()` — HS256, RS256, ES256; exp/nbf/iss/aud claims |
 | Token expiration check | RFC 7662 §2.2 (exp field) | **Compliant** | `TokenValidationResult.isExpired()` checks exp timestamp |
 
+### Out of scope (documented non-goals)
+
+Gumdrop validates bearer access tokens as a **resource server** only. It is
+not an OAuth 2.0 authorization server and does not implement the grants or
+extensions below. This is intentional; see `web/security.html#oauth-non-goals`.
+
+| RFC | Title | Status | Notes |
+|-----|-------|--------|-------|
+| RFC 6749 §4.1 | Authorization code grant (issuer) | N/A | No in-tree authorize/token endpoints; use an external AS |
+| RFC 7636 | PKCE | Won't implement | No authorization-code issuance in gumdrop |
+| RFC 9449 | DPoP | Won't implement | No planned sender-constrained bearer expansion |
+
 ---
 
 ## SOCKS Proxy

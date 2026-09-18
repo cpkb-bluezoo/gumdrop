@@ -162,7 +162,7 @@ SmtpServer smtp = SmtpServer.compose()
     .server();
 </pre>
 
-<h4>Client Certificate Authentication (mTLS)</h4>
+<h4 id="mtls">Client Certificate Authentication (mTLS)</h4>
 
 <p>
 Servers can require or request client certificates for mutual TLS (mTLS):
@@ -468,6 +468,40 @@ tools to generate hashed values.
 </p>
 
 <h3 id="oauthrealm">OAuthRealm</h3>
+
+<h4 id="oauth-non-goals">Scope and non-goals</h4>
+
+<p>
+Gumdrop is <b>not</b> an OAuth 2.0 authorization server. It does not
+implement authorization endpoints, authorization codes, refresh-token
+issuance, PKCE (RFC 7636), or DPoP (RFC 9449). Those flows exist to
+paper over weaknesses of bearer tokens (any holder can replay a stolen
+token). Gumdrop does not aim to grow a large in-tree OAuth server or
+sender-constrained token stack on top of that model.
+</p>
+
+<p>
+What <b>is</b> supported is narrow and conformant for a <b>resource
+server</b> that already receives tokens from an external authorization
+server you operate separately:
+</p>
+
+<ul>
+<li><a href="https://www.rfc-editor.org/rfc/rfc6750">RFC 6750</a> Bearer
+    usage on protected HTTP resources (and related mail SASL OAUTHBEARER
+    where configured)</li>
+<li><a href="https://www.rfc-editor.org/rfc/rfc7662">RFC 7662</a> token
+    introspection, and optional local
+    <a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519</a> JWT
+    validation for access tokens issued elsewhere</li>
+</ul>
+
+<p>
+For deployments that care about proof of client identity rather than
+bearer replay, prefer mechanisms Gumdrop implements directly, such as
+<a href="#mtls">mTLS</a>, HTTP Digest, or SASL with channel binding,
+instead of expecting Gumdrop to become an OAuth authorization server.
+</p>
 
 <p>
 <code>OAuthRealm</code> validates OAuth 2.0 tokens via

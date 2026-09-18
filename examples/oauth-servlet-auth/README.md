@@ -3,6 +3,10 @@
 This example demonstrates how to configure a Gumdrop servlet container to authenticate 
 requests using OAuth 2.0 Bearer tokens via the built-in `OAuthRealm`.
 
+Gumdrop is a **resource server** here only: you run a separate authorization server.
+Gumdrop does not issue tokens and does not implement PKCE or DPoP. See
+[Scope and non-goals](../../web/security.html#oauth-non-goals) in the security guide.
+
 ## Overview
 
 The `OAuthRealm` validates OAuth 2.0 access tokens by performing token introspection 
