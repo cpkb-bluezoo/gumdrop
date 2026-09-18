@@ -42,7 +42,9 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.dns.server.DnsQueryHandler;
 import org.bluezoo.gumdrop.dns.server.DnsServer;
+import org.bluezoo.gumdrop.SelectorLoop;
 
 import static org.junit.Assert.*;
 
@@ -404,22 +406,32 @@ public class DNSServiceTest {
     }
 
     /**
-     * Subclasses can override {@link DnsServer#handleNonQueryOpcode} to
-     * handle NOTIFY, dynamic update, or other opcodes locally.
+     * Handlers can implement {@link DnsQueryHandler#handleNonQueryOpcode}
+     * for NOTIFY, dynamic update, or other opcodes.
      */
     @Test
-    public void testHandleNonQueryOpcodeOverride() throws Exception {
+    public void testHandleNonQueryOpcodeHandler() throws Exception {
         CapturingDNSListener listener = new CapturingDNSListener();
-        DnsServer service = new DnsServer() {
+        DnsServer service = new DnsServer();
+        service.setHandler(new DnsQueryHandler() {
             @Override
-            protected DnsMessage handleNonQueryOpcode(DnsMessage query) {
-                if (query.getOpcode() == DnsMessage.OPCODE_NOTIFY) {
-                    return query.createResponse(
-                            Collections.<DnsResourceRecord>emptyList());
-                }
-                return super.handleNonQueryOpcode(query);
+            public void handleQuery(DnsMessage query, SelectorLoop loop,
+                                    DnsQueryCallback callback) {
+                throw new AssertionError("unexpected QUERY");
             }
-        };
+
+            @Override
+            public boolean handleNonQueryOpcode(DnsMessage query,
+                                                SelectorLoop loop,
+                                                DnsQueryCallback callback) {
+                if (query.getOpcode() == DnsMessage.OPCODE_NOTIFY) {
+                    callback.onResponse(query.createResponse(
+                            Collections.<DnsResourceRecord>emptyList()));
+                    return true;
+                }
+                return false;
+            }
+        });
         listener.setServer(service);
 
         DnsMessage notify = buildOpcodeQuery(12, DnsMessage.OPCODE_NOTIFY,

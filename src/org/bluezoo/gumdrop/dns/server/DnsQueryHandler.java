@@ -21,9 +21,15 @@ import org.bluezoo.gumdrop.dns.DnsQueryCallback;
  * (SMTP, FTP, …) use session providers instead — see {@code web/configuration.html}.
  *
  * <p>The {@link DnsServer} protocol shell (listeners, validation, cookies,
- * MQTYPE merging) delegates to a handler after parsing each query. Stock
- * implementations include {@link EmptyDnsQueryHandler},
- * {@link UpstreamRelayHandler}, and {@link AuthoritativeZoneHandler}.
+ * MQTYPE merging) delegates to a handler after parsing each message. Standard
+ * {@code OPCODE_QUERY} traffic uses {@link #handleQuery(DnsMessage,
+ * SelectorLoop, DnsQueryCallback)}; other opcodes (RFC 1996 NOTIFY, RFC 2136
+ * dynamic update, and so on) use {@link #handleNonQueryOpcode(DnsMessage,
+ * SelectorLoop, DnsQueryCallback)}. Return {@code false} from the latter when
+ * the handler does not support that opcode so the next chained handler, or the
+ * server's default {@code NOTIMP}, can run. Stock implementations include
+ * {@link EmptyDnsQueryHandler}, {@link UpstreamRelayHandler}, and
+ * {@link AuthoritativeZoneHandler}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DnsQueryHandlers
@@ -40,6 +46,26 @@ public interface DnsQueryHandler {
      * @param callback invoked exactly once with the response
      */
     void handleQuery(DnsMessage query, SelectorLoop loop, DnsQueryCallback callback);
+
+    /**
+     * Handles a message that is not a standard {@code OPCODE_QUERY}, if
+     * this handler supports it.
+     *
+     * <p>When {@code true} is returned, the handler must invoke
+     * {@code callback} exactly once. When {@code false} is returned, the
+     * server tries the next handler in a {@link DnsQueryHandlers#chain
+     * chain}, or responds with {@code NOTIMP} if none claim the message.
+     *
+     * @param query the parsed DNS message
+     * @param loop the selector loop for any outbound work, or {@code null}
+     * @param callback receives the response when this handler claims the
+     *                 message
+     * @return {@code true} if this handler claimed the message
+     */
+    default boolean handleNonQueryOpcode(DnsMessage query, SelectorLoop loop,
+                                         DnsQueryCallback callback) {
+        return false;
+    }
 
     /**
      * Initialises handler resources. Called from {@link DnsServer#start(Gumdrop)}.

@@ -132,20 +132,9 @@ import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
  * }</pre>
  *
  * <p>Non-QUERY opcodes (RFC 1996 NOTIFY, RFC 2136 dynamic update, and
- * others) are not handled by the default forwarder. Override
- * {@link #handleNonQueryOpcode(DnsMessage)} to accept or reject them
- * locally; the default returns {@code NOTIMP}, matching RFC 1035
- * section 4.1.1 for an unimplemented opcode.
- * <pre>{@code
- * @Override
- * protected DnsMessage handleNonQueryOpcode(DnsMessage query) {
- *     if (query.getOpcode() == DnsMessage.OPCODE_NOTIFY) {
- *         // Acknowledge zone-change notification (RFC 1996).
- *         return query.createResponse(Collections.emptyList());
- *     }
- *     return super.handleNonQueryOpcode(query);
- * }
- * }</pre>
+ * others) are dispatched to {@link DnsQueryHandler#handleNonQueryOpcode}.
+ * Handlers return {@code false} when they do not support an opcode; the
+ * default when no handler claims the message is {@code NOTIMP}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Service
@@ -456,8 +445,21 @@ public class DnsServer implements Server {
             }
 
             if (!isStandardQuery(query)) {
-                sendResponse(origin, respondToNonQueryOpcode(query), source);
-                onComplete.run();
+                dispatchNonQueryOpcode(query, origin.getSelectorLoop(),
+                        new DnsQueryCallback() {
+                    @Override
+                    public void onResponse(DnsMessage response) {
+                        sendResponse(origin, response, source);
+                        onComplete.run();
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        sendResponse(origin, query.createErrorResponse(
+                                DnsMessage.RCODE_SERVFAIL), source);
+                        onComplete.run();
+                    }
+                });
                 return;
             }
 
@@ -819,31 +821,23 @@ public class DnsServer implements Server {
     }
 
     /**
-     * Handles a message that is not a standard QUERY opcode.
+     * Dispatches a non-{@code OPCODE_QUERY} message to the active
+     * {@link DnsQueryHandler}. DoT and DoQ listeners delegate here.
      *
-     * <p>DoT and DoQ listeners call {@link #respondToNonQueryOpcode}
-     * instead of this method directly.
-     *
-     * <p>Override to implement RFC 1996 NOTIFY, RFC 2136 dynamic
-     * update, or other opcodes for a locally authoritative deployment.
-     * The default returns {@code NOTIMP}.
-     *
-     * @param query the incoming DNS message
-     * @return the response to send
+     * @param query the parsed DNS message
+     * @param loop the selector loop the message arrived on
+     * @param callback invoked exactly once with the response
      */
-    protected DnsMessage handleNonQueryOpcode(DnsMessage query) {
-        return query.createErrorResponse(DnsMessage.RCODE_NOTIMP);
-    }
-
-    /**
-     * Dispatches a non-QUERY opcode to {@link #handleNonQueryOpcode}.
-     * Public so DoT/DoQ listeners in other packages can delegate here.
-     *
-     * @param query the incoming DNS message
-     * @return the response to send
-     */
-    public DnsMessage respondToNonQueryOpcode(DnsMessage query) {
-        return handleNonQueryOpcode(query);
+    public void dispatchNonQueryOpcode(final DnsMessage query,
+                                       final SelectorLoop loop,
+                                       final DnsQueryCallback callback) {
+        DnsQueryHandler handler = activeHandler != null
+                ? activeHandler : resolveActiveHandler();
+        if (handler.handleNonQueryOpcode(query, loop, callback)) {
+            return;
+        }
+        callback.onResponse(query.createErrorResponse(
+                DnsMessage.RCODE_NOTIMP));
     }
 
     /**
