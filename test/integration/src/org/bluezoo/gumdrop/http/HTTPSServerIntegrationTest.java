@@ -23,6 +23,7 @@ package org.bluezoo.gumdrop.http;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.http.server.HstsPolicy;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.junit.After;
@@ -54,6 +55,7 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
                         .addresses(InetAddress.getByName("::1"))
                         .secure(true)
                         .tls(tls))
+                .hsts(HstsPolicy.enabled(86400))
                 .server();
         return Collections.singletonList(server);
     }
@@ -71,6 +73,18 @@ public class HTTPSServerIntegrationTest extends AbstractServerIntegrationTest {
         System.out.println("[testHTTPSServerStarts] OK");
     }
     
+    @Test
+    public void testHttpsResponseIncludesHstsHeader() throws Exception {
+        String request = "GET / HTTP/1.1\r\n"
+                + "Host: localhost\r\n"
+                + "Connection: close\r\n"
+                + "\r\n";
+        HTTPClientHelper.HttpResponse response =
+                HTTPClientHelper.sendRequest("::1", 18443, request, true, 10000);
+        assertEquals("max-age=86400",
+                response.getHeader("Strict-Transport-Security"));
+    }
+
     @Test
     public void testHTTPSGETRequest() throws Exception {
         System.out.println("[testHTTPSGETRequest] sending request...");

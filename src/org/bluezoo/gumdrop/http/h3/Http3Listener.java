@@ -39,6 +39,7 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.http.server.HstsPolicy;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
@@ -86,6 +87,11 @@ public class Http3Listener extends TcpListener
     private HttpServerMetrics metrics;
     private SelectorLoop selectorLoop;
     private boolean addSecurityHeaders = true;
+
+    private boolean hstsEnabled;
+    private long hstsMaxAge = HstsPolicy.DEFAULT_MAX_AGE_SECONDS;
+    private boolean hstsIncludeSubDomains;
+    private boolean hstsPreload;
 
     /**
      * Whether to compress response bodies when the handler opts in and the
@@ -237,6 +243,61 @@ public class Http3Listener extends TcpListener
      */
     public boolean getAddSecurityHeaders() {
         return addSecurityHeaders;
+    }
+
+    public void setHstsPolicy(HstsPolicy hstsPolicy) {
+        if (hstsPolicy == null || !hstsPolicy.isEnabled()) {
+            hstsEnabled = false;
+            return;
+        }
+        hstsEnabled = true;
+        hstsMaxAge = hstsPolicy.getMaxAgeSeconds();
+        hstsIncludeSubDomains = hstsPolicy.isIncludeSubDomains();
+        hstsPreload = hstsPolicy.isPreload();
+    }
+
+    public HstsPolicy getHstsPolicy() {
+        return buildHstsPolicy();
+    }
+
+    /** XML property: {@code hsts-enabled} */
+    public void setHstsEnabled(boolean enabled) {
+        hstsEnabled = enabled;
+    }
+
+    public boolean isHstsEnabled() {
+        return hstsEnabled;
+    }
+
+    /** XML property: {@code hsts-max-age} */
+    public void setHstsMaxAge(long maxAgeSeconds) {
+        if (maxAgeSeconds < 0) {
+            throw new IllegalArgumentException("max-age must be non-negative");
+        }
+        hstsMaxAge = maxAgeSeconds;
+    }
+
+    /** XML property: {@code hsts-include-subdomains} */
+    public void setHstsIncludeSubDomains(boolean includeSubDomains) {
+        hstsIncludeSubDomains = includeSubDomains;
+    }
+
+    /** XML property: {@code hsts-preload} */
+    public void setHstsPreload(boolean preload) {
+        hstsPreload = preload;
+    }
+
+    public String getStrictTransportSecurityHeaderValue() {
+        return buildHstsPolicy().headerValue();
+    }
+
+    private HstsPolicy buildHstsPolicy() {
+        if (!hstsEnabled) {
+            return HstsPolicy.disabled();
+        }
+        return HstsPolicy.enabled(hstsMaxAge)
+                .includeSubDomains(hstsIncludeSubDomains)
+                .preload(hstsPreload);
     }
 
     /**
@@ -431,7 +492,8 @@ public class Http3Listener extends TcpListener
     public void connectionAccepted(QuicConnection connection) {
         new Http3ServerHandler(connection, streamHandler,
                 authenticationProvider, metrics,
-                getTelemetryConfig(), addSecurityHeaders, compressResponses);
+                getTelemetryConfig(), addSecurityHeaders, compressResponses,
+                getStrictTransportSecurityHeaderValue());
     }
 
     /**

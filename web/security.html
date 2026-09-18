@@ -44,8 +44,9 @@ configuration, and RFC conformance), see the dedicated
 <p>
 HTTP services add default security headers (<code>X-Frame-Options</code>,
 <code>X-Content-Type-Options</code>) to responses unless the application sets
-them. See <a href="http.html#configuration">HTTP Configuration</a> for the
-<code>add-security-headers</code> property.
+them. Optional RFC 6797 HSTS (<code>Strict-Transport-Security</code>) is
+available on TLS listeners. See <a href="http.html#configuration">HTTP
+Configuration</a> for <code>add-security-headers</code> and HSTS properties.
 </p>
 
 <h3>Contents</h3>

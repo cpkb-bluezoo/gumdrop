@@ -34,6 +34,7 @@ import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.gumdrop.http.h3.Http3Listener;
 import org.bluezoo.gumdrop.http.server.Http2Listener;
 import org.bluezoo.gumdrop.http.server.DefaultHttpAuthenticationProvider;
+import org.bluezoo.gumdrop.http.server.HstsPolicy;
 import org.bluezoo.gumdrop.http.server.HttpAuthenticationProvider;
 import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
@@ -116,6 +117,10 @@ public abstract class HttpServer implements Server {
     private final List<Listener> listeners = new ArrayList<Listener>();
     private Realm realm;
     private boolean addSecurityHeaders = true;
+    private boolean hstsEnabled;
+    private long hstsMaxAge = HstsPolicy.DEFAULT_MAX_AGE_SECONDS;
+    private boolean hstsIncludeSubDomains;
+    private boolean hstsPreload;
 
     // ── Realm ──
 
@@ -158,6 +163,58 @@ public abstract class HttpServer implements Server {
      */
     public boolean isAddSecurityHeaders() {
         return addSecurityHeaders;
+    }
+
+    /**
+     * Sets the RFC 6797 HSTS policy applied to secure TCP listeners and
+     * HTTP/3. XML property: {@code hsts-enabled} and related names on
+     * the service.
+     */
+    public void setHstsPolicy(HstsPolicy hstsPolicy) {
+        if (hstsPolicy == null || !hstsPolicy.isEnabled()) {
+            hstsEnabled = false;
+            return;
+        }
+        hstsEnabled = true;
+        hstsMaxAge = hstsPolicy.getMaxAgeSeconds();
+        hstsIncludeSubDomains = hstsPolicy.isIncludeSubDomains();
+        hstsPreload = hstsPolicy.isPreload();
+    }
+
+    public HstsPolicy getHstsPolicy() {
+        return buildHstsPolicy();
+    }
+
+    /** XML property: {@code hsts-enabled} */
+    public void setHstsEnabled(boolean enabled) {
+        hstsEnabled = enabled;
+    }
+
+    /** XML property: {@code hsts-max-age} */
+    public void setHstsMaxAge(long maxAgeSeconds) {
+        if (maxAgeSeconds < 0) {
+            throw new IllegalArgumentException("max-age must be non-negative");
+        }
+        hstsMaxAge = maxAgeSeconds;
+    }
+
+    /** XML property: {@code hsts-include-subdomains} */
+    public void setHstsIncludeSubDomains(boolean includeSubDomains) {
+        hstsIncludeSubDomains = includeSubDomains;
+    }
+
+    /** XML property: {@code hsts-preload} */
+    public void setHstsPreload(boolean preload) {
+        hstsPreload = preload;
+    }
+
+    private HstsPolicy buildHstsPolicy() {
+        if (!hstsEnabled) {
+            return HstsPolicy.disabled();
+        }
+        return HstsPolicy.enabled(hstsMaxAge)
+                .includeSubDomains(hstsIncludeSubDomains)
+                .preload(hstsPreload);
     }
 
     // ── Listener management ──
@@ -315,6 +372,9 @@ public abstract class HttpServer implements Server {
             tcp.setStreamHandler(streamHandler);
             tcp.setAuthenticationProvider(authProvider);
             tcp.setAddSecurityHeaders(addSecurityHeaders);
+            if (tcp.isSecure() && hstsEnabled) {
+                tcp.setHstsPolicy(buildHstsPolicy());
+            }
             if (altSvc != null) {
                 tcp.setAltSvc(altSvc);
             }
@@ -323,6 +383,9 @@ public abstract class HttpServer implements Server {
             quic.setStreamHandler(streamHandler);
             quic.setAuthenticationProvider(authProvider);
             quic.setAddSecurityHeaders(addSecurityHeaders);
+            if (hstsEnabled) {
+                quic.setHstsPolicy(buildHstsPolicy());
+            }
         }
     }
 
@@ -414,6 +477,7 @@ public abstract class HttpServer implements Server {
         private HttpStreamHandler streamHandler;
         private Realm realm;
         private boolean addSecurityHeaders = true;
+        private HstsPolicy hstsPolicy = HstsPolicy.disabled();
 
         private Composer() {
         }
@@ -497,6 +561,11 @@ public abstract class HttpServer implements Server {
             return this;
         }
 
+        public Composer hsts(HstsPolicy hstsPolicy) {
+            this.hstsPolicy = hstsPolicy != null ? hstsPolicy : HstsPolicy.disabled();
+            return this;
+        }
+
         /**
          * Creates the composed server. At least one listener must be configured.
          */
@@ -516,6 +585,7 @@ public abstract class HttpServer implements Server {
                 server.setRealm(realm);
             }
             server.setAddSecurityHeaders(addSecurityHeaders);
+            server.setHstsPolicy(hstsPolicy);
             return server;
         }
 

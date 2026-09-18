@@ -146,6 +146,11 @@ public class Http2Listener extends TcpListener {
      */
     private boolean addSecurityHeaders = true;
 
+    private boolean hstsEnabled;
+    private long hstsMaxAge = HstsPolicy.DEFAULT_MAX_AGE_SECONDS;
+    private boolean hstsIncludeSubDomains;
+    private boolean hstsPreload;
+
     /**
      * Whether to compress response bodies when the client advertises
      * {@code Accept-Encoding} (Brotli preferred, then gzip, then deflate).
@@ -363,6 +368,88 @@ public class Http2Listener extends TcpListener {
      */
     public boolean getAddSecurityHeaders() {
         return addSecurityHeaders;
+    }
+
+    /**
+     * Sets the RFC 6797 HSTS policy for this listener. Ignored on
+     * plaintext (non-TLS) listeners.
+     *
+     * @param hstsPolicy the policy, or {@code null} for disabled
+     */
+    public void setHstsPolicy(HstsPolicy hstsPolicy) {
+        if (hstsPolicy == null || !hstsPolicy.isEnabled()) {
+            hstsEnabled = false;
+            return;
+        }
+        hstsEnabled = true;
+        hstsMaxAge = hstsPolicy.getMaxAgeSeconds();
+        hstsIncludeSubDomains = hstsPolicy.isIncludeSubDomains();
+        hstsPreload = hstsPolicy.isPreload();
+    }
+
+    /**
+     * Returns the configured HSTS policy.
+     */
+    public HstsPolicy getHstsPolicy() {
+        return buildHstsPolicy();
+    }
+
+    /**
+     * Enables or disables HSTS. XML property: {@code hsts-enabled}
+     */
+    public void setHstsEnabled(boolean enabled) {
+        hstsEnabled = enabled;
+    }
+
+    /**
+     * @return whether HSTS is enabled on this listener
+     */
+    public boolean isHstsEnabled() {
+        return hstsEnabled;
+    }
+
+    /**
+     * Sets {@code max-age} for HSTS. XML property: {@code hsts-max-age}
+     */
+    public void setHstsMaxAge(long maxAgeSeconds) {
+        if (maxAgeSeconds < 0) {
+            throw new IllegalArgumentException("max-age must be non-negative");
+        }
+        hstsMaxAge = maxAgeSeconds;
+    }
+
+    /**
+     * XML property: {@code hsts-include-subdomains}
+     */
+    public void setHstsIncludeSubDomains(boolean includeSubDomains) {
+        hstsIncludeSubDomains = includeSubDomains;
+    }
+
+    /**
+     * XML property: {@code hsts-preload}
+     */
+    public void setHstsPreload(boolean preload) {
+        hstsPreload = preload;
+    }
+
+    private HstsPolicy buildHstsPolicy() {
+        if (!hstsEnabled) {
+            return HstsPolicy.disabled();
+        }
+        return HstsPolicy.enabled(hstsMaxAge)
+                .includeSubDomains(hstsIncludeSubDomains)
+                .preload(hstsPreload);
+    }
+
+    /**
+     * Returns the {@code Strict-Transport-Security} header value for
+     * responses on this listener, or {@code null} if HSTS must not be sent.
+     */
+    public String getStrictTransportSecurityHeaderValue() {
+        if (!isSecure()) {
+            return null;
+        }
+        return buildHstsPolicy().headerValue();
     }
 
     /**
