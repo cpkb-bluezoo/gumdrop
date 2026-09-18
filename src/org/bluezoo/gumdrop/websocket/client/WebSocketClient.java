@@ -41,6 +41,7 @@ import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.client.ClientConnect;
 import org.bluezoo.gumdrop.client.ClientDefaults;
 import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.HttpsRecordEch;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
@@ -129,6 +130,7 @@ public class WebSocketClient implements AltSvcListener {
     private boolean h2Enabled = true;
     private boolean h2WithPriorKnowledge;
     private boolean dnsHttpsRecordEnabled = true;
+    private byte[] dnsDiscoveredEchConfigList;
     private final List<WebSocketExtension> requestedExtensions = new ArrayList<>();
 
     // Internal transport components (created at connect time) -- TCP/H1.1/H2 path
@@ -581,6 +583,10 @@ public class WebSocketClient implements AltSvcListener {
         resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
+                byte[] echFromDns = HttpsRecordEch.firstEchConfigListFromAnswers(response.getAnswers());
+                if (echFromDns != null) {
+                    dnsDiscoveredEchConfigList = echFromDns;
+                }
                 for (DnsResourceRecord rr : response.getAnswers()) {
                     if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
@@ -646,7 +652,8 @@ public class WebSocketClient implements AltSvcListener {
                 WebSocketHandshake.createUpgradeRequest(key, subprotocol, extOffer);
 
         transportFactory = new TcpTransportFactory();
-        ClientConnect.prepareTls(secure, tls, transportFactory);
+        TlsConfig effectiveTls = ClientConnect.prepareTls(secure, tls, transportFactory);
+        ClientConnect.applyTcpClientEch(transportFactory, dnsDiscoveredEchConfigList, effectiveTls);
         // RFC 8441 rides the same TCP+TLS attempt as HTTP/1.1 -- offer h2
         // via ALPN (mirroring HttpClient.connectTcp's own offer) so the
         // already-negotiated version is known by the time onConnected
@@ -901,6 +908,7 @@ public class WebSocketClient implements AltSvcListener {
             httpClient.dnsResolver(dnsResolver);
         }
         httpClient.importTls(tls);
+        httpClient.setDnsDiscoveredEchConfigList(dnsDiscoveredEchConfigList);
 
         httpClient.connect(gumdrop, new HttpClientHandler() {
             @Override

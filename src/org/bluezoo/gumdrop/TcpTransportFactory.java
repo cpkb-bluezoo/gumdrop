@@ -25,6 +25,9 @@ import org.bluezoo.gumdrop.crypto.NamedGroup;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 import org.bluezoo.gumdrop.tls.CipherSuite;
 import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
+import org.bluezoo.gumdrop.tls.EchClientBootstrap;
+import org.bluezoo.gumdrop.tls.EchConfig;
+import org.bluezoo.gumdrop.tls.EchDeployment;
 import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.HandshakeRole;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
@@ -120,7 +123,24 @@ public class TcpTransportFactory extends TransportFactory {
     // existing caller's behaviour is unchanged.
     private TlsVersion tlsVersion = TlsVersion.TLS_1_3;
 
+    private EchConfig clientEchConfig;
+    private boolean clientEchGreaseEnabled;
+
     public TcpTransportFactory() {
+    }
+
+    /**
+     * Sets the ECH configuration for an outbound TLS client connection.
+     */
+    public void setClientEchConfig(EchConfig clientEchConfig) {
+        this.clientEchConfig = clientEchConfig;
+    }
+
+    /**
+     * Enables GREASE ECH on outbound TLS client connections.
+     */
+    public void setClientEchGreaseEnabled(boolean clientEchGreaseEnabled) {
+        this.clientEchGreaseEnabled = clientEchGreaseEnabled;
     }
 
     /**
@@ -725,6 +745,7 @@ public class TcpTransportFactory extends TransportFactory {
             config.setClientTrustManager(effectiveTrustManager);
         }
         applyCommonConfig(config);
+        EchDeployment.applyServer(config, echConfigListFile, echPrivateKeyFile, echServerRequired);
         return config;
     }
 
@@ -744,6 +765,7 @@ public class TcpTransportFactory extends TransportFactory {
             config.setClientCredentials(ownCredentials);
         }
         applyCommonConfig(config);
+        EchClientBootstrap.applyToHandshakeConfig(config, clientEchConfig, clientEchGreaseEnabled);
         return config;
     }
 

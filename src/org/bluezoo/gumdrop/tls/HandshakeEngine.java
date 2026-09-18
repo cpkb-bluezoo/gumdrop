@@ -21,6 +21,8 @@
 
 package org.bluezoo.gumdrop.tls;
 
+import org.bluezoo.gumdrop.crypto.Hpke;
+
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
@@ -115,8 +117,18 @@ public final class HandshakeEngine {
     private boolean clientRetried;
     private byte[] clientRetryCookie;
     private byte[] clientCertRequestContext;
+    /** Framed ClientHelloInner when ECH was offered; used after server acceptance. */
+    private byte[] echClientHelloInnerFramed;
+    private Hpke.SenderContext echHpkeSender;
+    private boolean echOffered;
+    private boolean echAccepted;
+    private boolean echRejected;
+    /** GREASE ECH only (RFC 9849 section 6.2); not a real ECH offer. */
+    private boolean echGreaseOffered;
+    private byte[] echGreaseFirstClientHelloFramed;
 
     // Server-only state.
+    private Hpke.RecipientContext echHpkeRecipient;
     private NamedGroup serverRetryRequestedGroup;
     private boolean earlyDataAccepted;
 
@@ -182,11 +194,14 @@ public final class HandshakeEngine {
             clientKeyExchanges = new LinkedHashMap<NamedGroup, KeyExchange>();
             try {
                 List<NamedGroup> groups = config.getNamedGroups();
+                List<NamedGroup> omitShares = config.getClientOmitInitialKeyShareGroups();
                 for (int i = 0; i < groups.size(); i++) {
                     NamedGroup group = groups.get(i);
                     KeyExchange kx = KeyExchange.generate(group);
                     clientKeyExchanges.put(group, kx);
-                    shares.put(group, kx.getShareBytes());
+                    if (!omitShares.contains(group)) {
+                        shares.put(group, kx.getShareBytes());
+                    }
                 }
             } catch (GeneralSecurityException e) {
                 fail(sink, AlertDescription.INTERNAL_ERROR, "Could not generate key shares: " + e.getMessage());
@@ -214,28 +229,79 @@ public final class HandshakeEngine {
         SessionTicket ticket = config.getSessionTicket();
         byte[] clientHello;
         boolean wantEarly = false;
-        if (ticket != null) {
-            params.pskIdentity = ticket.getIdentity();
-            params.obfuscatedTicketAge = ticket.obfuscatedTicketAge();
-            wantEarly = !isRetry && config.isEnableEarlyData() && ticket.getMaxEarlyDataSize() > 0;
-            params.earlyDataRequested = wantEarly;
+        if (!isRetry) {
+            echClientHelloInnerFramed = null;
+            echHpkeSender = null;
+            echOffered = false;
+            echAccepted = false;
+            echRejected = false;
+            echGreaseOffered = false;
+            echGreaseFirstClientHelloFramed = null;
+        }
+        byte[] realPskBinder = null;
+        try {
+            if (ticket != null) {
+                params.pskIdentity = ticket.getIdentity();
+                params.obfuscatedTicketAge = ticket.obfuscatedTicketAge();
+                wantEarly = !isRetry && config.isEnableEarlyData() && ticket.getMaxEarlyDataSize() > 0;
+                params.earlyDataRequested = wantEarly;
 
-            KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
-            byte[] truncated = HandshakeMessages.buildClientHelloTruncatedForBinder(params);
-            byte[] truncatedHash = truncatedClientHelloHash(ticket.getCipherSuite(), truncated);
-            byte[] binder = pskSchedule.computePskBinder(ticket.getPsk(), truncatedHash);
-            clientHello = HandshakeMessages.buildClientHelloWithBinder(params, binder);
-
-            if (wantEarly) {
-                byte[] clientHelloHash = truncatedClientHelloHash(ticket.getCipherSuite(), clientHello);
-                byte[] earlyTrafficSecret = pskSchedule.deriveEarlyTrafficSecret(ticket.getPsk(), clientHelloHash);
-                sink.quicEarlyKeysReady(ticket.getCipherSuite(), earlyTrafficSecret);
+                KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
+                byte[] truncated = HandshakeMessages.buildClientHelloTruncatedForBinder(params);
+                byte[] truncatedHash = truncatedClientHelloHash(ticket.getCipherSuite(), truncated);
+                realPskBinder = pskSchedule.computePskBinder(ticket.getPsk(), truncatedHash);
             }
-        } else {
-            clientHello = HandshakeMessages.buildClientHelloWithBinder(params, null);
+
+            if (!isRetry && config.isEchEnabled() && config.getEchConfig() != null) {
+                EchClientHelloBuilder.Offer echOffer = EchClientHelloBuilder.build(
+                        params, config.getEchConfig(), realPskBinder, secureRandom);
+                clientHello = echOffer.getClientHelloOuterFramed();
+                echClientHelloInnerFramed = echOffer.getClientHelloInnerFramed();
+                echHpkeSender = echOffer.getHpkeSender();
+                clientHelloRandom = echOffer.getClientHelloOuterRandom();
+                echOffered = true;
+            } else if (isRetry && echAccepted && echHpkeSender != null && config.getEchConfig() != null) {
+                EchClientHelloBuilder.Offer echOffer = EchClientHelloBuilder.buildHelloRetryRequest(
+                        echHpkeSender, config.getEchConfig(), params, echClientHelloInnerFramed, realPskBinder);
+                clientHello = echOffer.getClientHelloOuterFramed();
+                echClientHelloInnerFramed = echOffer.getClientHelloInnerFramed();
+                clientHelloRandom = echOffer.getClientHelloOuterRandom();
+            } else if (isRetry && echGreaseOffered && echGreaseFirstClientHelloFramed != null) {
+                HandshakeMessages.ClientHello greaseFirst = HandshakeMessages.parseClientHello(
+                        echGreaseFirstClientHelloFramed);
+                params.encryptedClientHelloOuter = greaseFirst.encryptedClientHelloOuter;
+                clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
+            } else if (!isRetry && config.isEchGreaseEnabled()
+                    && !(config.isEchEnabled() && config.getEchConfig() != null)) {
+                params.encryptedClientHelloOuter = EchClientHelloBuilder.buildGreaseOuter(params, secureRandom);
+                clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
+                echGreaseOffered = true;
+                echGreaseFirstClientHelloFramed = clientHello;
+            } else if (ticket != null) {
+                clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
+            } else {
+                clientHello = HandshakeMessages.buildClientHelloWithBinder(params, null);
+            }
+        } catch (GeneralSecurityException e) {
+            fail(sink, AlertDescription.INTERNAL_ERROR, "Could not build ClientHello: " + e.getMessage());
+            return;
+        } catch (HandshakeFormatException e) {
+            fail(sink, AlertDescription.INTERNAL_ERROR, "Could not build ClientHello: " + e.getMessage());
+            return;
         }
 
-        savedClientHelloBytes = clientHello;
+        if (ticket != null && wantEarly) {
+            KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
+            byte[] clientHelloHash = truncatedClientHelloHash(ticket.getCipherSuite(), clientHello);
+            byte[] earlyTrafficSecret = pskSchedule.deriveEarlyTrafficSecret(ticket.getPsk(), clientHelloHash);
+            sink.quicEarlyKeysReady(ticket.getCipherSuite(), earlyTrafficSecret);
+        }
+
+        if (isRetry && echAccepted && echClientHelloInnerFramed != null) {
+            savedClientHelloBytes = echClientHelloInnerFramed;
+        } else {
+            savedClientHelloBytes = clientHello;
+        }
         state = State.WAIT_SERVER_HELLO;
         sink.handshakeDataReady(clientHello);
     }
@@ -349,6 +415,19 @@ public final class HandshakeEngine {
             return;
         }
         HandshakeMessages.ServerHello sh = HandshakeMessages.parseServerHello(message);
+        if (echOffered && echClientHelloInnerFramed != null) {
+            if (sh.cipherSuite != null
+                    && EchAcceptConfirmation.verifyServerHello(sh.cipherSuite, echClientHelloInnerFramed, message)) {
+                echAccepted = true;
+                savedClientHelloBytes = echClientHelloInnerFramed;
+            } else {
+                echRejected = true;
+            }
+        }
+        if (echOffered && echRejected && config.isEchRequired()) {
+            fail(sink, AlertDescription.ECH_REQUIRED, "Server rejected Encrypted Client Hello");
+            return;
+        }
         if (!sh.selectedTls13 || sh.cipherSuite == null || !config.getCipherSuites().contains(sh.cipherSuite)) {
             fail(sink, AlertDescription.HANDSHAKE_FAILURE, "Server selected an unacceptable protocol version or cipher suite");
             return;
@@ -393,6 +472,21 @@ public final class HandshakeEngine {
             return;
         }
         HandshakeMessages.HelloRetryRequest hrr = HandshakeMessages.parseHelloRetryRequest(message);
+        if (echOffered && echClientHelloInnerFramed != null) {
+            if (hrr.echHrrConfirmation == null || hrr.echHrrConfirmation.length != 8) {
+                echRejected = true;
+            } else if (hrr.cipherSuite != null && EchAcceptConfirmation.verifyHelloRetryRequest(
+                    hrr.cipherSuite, echClientHelloInnerFramed, message, hrr.echHrrConfirmation)) {
+                echAccepted = true;
+                savedClientHelloBytes = echClientHelloInnerFramed;
+            } else {
+                echRejected = true;
+            }
+        }
+        if (echOffered && echRejected && config.isEchRequired()) {
+            fail(sink, AlertDescription.ECH_REQUIRED, "Server rejected Encrypted Client Hello");
+            return;
+        }
         if (hrr.cipherSuite == null || !config.getCipherSuites().contains(hrr.cipherSuite)) {
             fail(sink, AlertDescription.HANDSHAKE_FAILURE, "HelloRetryRequest selected an unacceptable cipher suite");
             return;
@@ -428,6 +522,9 @@ public final class HandshakeEngine {
             sink.peerTransportParameters(ee.quicTransportParameters);
         }
         sink.earlyDataAccepted(ee.earlyDataAccepted);
+        if (echOffered && echRejected && ee.echRetryConfigs != null && ee.echRetryConfigs.length > 0) {
+            config.setEchConfig(ee.echRetryConfigs[0]);
+        }
         state = resumed ? State.WAIT_SERVER_FINISHED : State.WAIT_CERTIFICATE;
     }
 
@@ -483,7 +580,14 @@ public final class HandshakeEngine {
             fail(sink, AlertDescription.BAD_CERTIFICATE, "Malformed server certificate: " + e.getMessage());
             return;
         }
-        String expectedHostname = config.isVerifyHostname() ? config.getServerName() : null;
+        String expectedHostname = null;
+        if (config.isVerifyHostname()) {
+            if (echRejected && config.getEchConfig() != null) {
+                expectedHostname = config.getEchConfig().getPublicName();
+            } else {
+                expectedHostname = config.getServerName();
+            }
+        }
         CertificateVerifier.Result result = CertificateVerifier.verifyChain(peerCertificateChain,
                 config.getTrustManager(), expectedHostname);
         if (!result.isOk()) {
@@ -634,7 +738,30 @@ public final class HandshakeEngine {
 
     private void onClientHello(byte[] message, TlsEventSink sink)
             throws HandshakeFormatException, GeneralSecurityException {
+        byte[] clientHelloForTranscript = message;
         HandshakeMessages.ClientHello ch = HandshakeMessages.parseClientHello(message);
+        boolean echOuterOffered = ch.encryptedClientHelloOuter != null;
+        if (config.isEchServerRequired() && !echOuterOffered) {
+            fail(sink, AlertDescription.ECH_REQUIRED, "Client did not offer Encrypted Client Hello");
+            return;
+        }
+        boolean echInnerAccepted = false;
+        boolean echRejectWithRetryConfigs = false;
+        if (echOuterOffered && config.getEchServerConfig() != null
+                && config.getEchServerPrivateKey() != null) {
+            try {
+                EchServer.OpenResult opened = EchServer.openInnerClientHello(message, config.getEchServerConfig(),
+                        config.getEchServerPrivateKey(), echHpkeRecipient);
+                clientHelloForTranscript = opened.getInnerClientHelloFramed();
+                echHpkeRecipient = opened.getHpkeRecipient();
+                ch = HandshakeMessages.parseClientHello(clientHelloForTranscript);
+                echInnerAccepted = true;
+            } catch (GeneralSecurityException e) {
+                echRejectWithRetryConfigs = true;
+            }
+        } else if (echOuterOffered) {
+            echRejectWithRetryConfigs = true;
+        }
         if (ch.recordSizeLimitPresent) {
             peerRecordSizeLimit = ch.recordSizeLimit;
         }
@@ -681,7 +808,8 @@ public final class HandshakeEngine {
         boolean needGroupRetry = !ch.keyShares.containsKey(group);
         if ((needCookie || needGroupRetry) && serverRetryRequestedGroup == null) {
             byte[] cookie = needCookie ? validator.computeCookie(ch.random) : null;
-            sendHelloRetryRequest(group, ch.legacySessionId, negotiatedSuite, message, sink, cookie);
+            sendHelloRetryRequest(group, ch.legacySessionId, negotiatedSuite, clientHelloForTranscript,
+                    echInnerAccepted, sink, cookie);
             return;
         }
         if (needCookie) {
@@ -706,7 +834,7 @@ public final class HandshakeEngine {
         if (transcript == null) {
             transcript = Transcript.create(negotiatedSuite);
         }
-        transcript.update(message);
+        transcript.update(clientHelloForTranscript);
 
         KeyExchange.ServerResult kxResult = KeyExchange.agreeAsServer(group, ch.keyShares.get(group));
 
@@ -714,6 +842,10 @@ public final class HandshakeEngine {
         secureRandom.nextBytes(serverRandom);
         byte[] serverHello = HandshakeMessages.buildServerHello(serverRandom, ch.legacySessionId,
                 negotiatedSuite, group, kxResult.getShareBytes(), resumed);
+        if (echInnerAccepted) {
+            serverHello = EchAcceptConfirmation.embedAcceptConfirmationInServerHello(
+                    negotiatedSuite, clientHelloForTranscript, serverHello);
+        }
         transcript.update(serverHello);
         sink.handshakeDataReady(serverHello);
 
@@ -730,9 +862,11 @@ public final class HandshakeEngine {
 
         earlyDataAccepted = tryAcceptEarlyData(ch, message, resumedPayload, sink);
 
+        byte[] echRetryList = echRejectWithRetryConfigs ? resolveEchRetryConfigList() : null;
         byte[] encryptedExtensions = HandshakeMessages.buildEncryptedExtensions(
                 negotiatedAlpn, config.getLocalTransportParameters(), earlyDataAccepted,
-                config.isRecordSizeLimitEnabled(), localRecordSizeLimit, negotiatedCertCompression);
+                config.isRecordSizeLimitEnabled(), localRecordSizeLimit, negotiatedCertCompression,
+                echRetryList);
         transcript.update(encryptedExtensions);
         sink.handshakeDataReady(encryptedExtensions);
         if (ch.quicTransportParameters != null) {
@@ -795,15 +929,32 @@ public final class HandshakeEngine {
      * the followup ClientHello2 arrives (the state machine stays in
      * {@code INITIAL}).
      */
+    private byte[] resolveEchRetryConfigList() {
+        if (config.getEchRetryConfigList() != null) {
+            return EchConfigListGrease.withServerGrease(config.getEchRetryConfigList());
+        }
+        EchConfig published = config.getEchServerConfig();
+        if (published != null) {
+            return EchConfigListGrease.withServerGrease(
+                    EchConfig.encodeList(new EchConfig[] { published }));
+        }
+        return null;
+    }
+
     private void sendHelloRetryRequest(NamedGroup group, byte[] legacySessionId, CipherSuite cipherSuite,
-            byte[] clientHello1, TlsEventSink sink, byte[] cookie) {
+            byte[] clientHello1ForTranscript, boolean echInnerAccepted, TlsEventSink sink, byte[] cookie)
+            throws HandshakeFormatException {
         Transcript t = Transcript.create(cipherSuite);
-        t.update(clientHello1);
+        t.update(clientHello1ForTranscript);
         byte[] ch1Hash = t.hash();
         transcript = t;
         transcript.retry(ch1Hash);
 
-        byte[] hrr = HandshakeMessages.buildHelloRetryRequest(legacySessionId, cipherSuite, group, cookie);
+        byte[] hrr = HandshakeMessages.buildHelloRetryRequest(legacySessionId, cipherSuite, group, cookie,
+                echInnerAccepted);
+        if (echInnerAccepted) {
+            hrr = EchAcceptConfirmation.embedHelloRetryRequestConfirmation(cipherSuite, clientHello1ForTranscript, hrr);
+        }
         transcript.update(hrr);
         sink.handshakeDataReady(hrr);
 

@@ -171,6 +171,7 @@ public final class Dtls13HandshakeConfig {
         copy.setApplicationProtocols(base.getApplicationProtocols());
         copy.setCipherSuites(base.getCipherSuites());
         copy.setNamedGroups(base.getNamedGroups());
+        copy.setClientOmitInitialKeyShareGroups(base.getClientOmitInitialKeyShareGroups());
         copy.setTicketKeys(base.getTicketKeys());
         copy.setSessionTicket(base.getSessionTicket());
         copy.setCookieValidator(base.getCookieValidator());
@@ -183,6 +184,13 @@ public final class Dtls13HandshakeConfig {
         copy.setCertificateCompressionEnabled(base.isCertificateCompressionEnabled());
         copy.setCertificateCompressionAlgorithms(base.getCertificateCompressionAlgorithms());
         copy.setMaxDecompressedCertificateSize(base.getMaxDecompressedCertificateSize());
+        copy.setEchEnabled(base.isEchEnabled());
+        copy.setEchConfig(base.getEchConfig());
+        copy.setEchRequired(base.isEchRequired());
+        copy.setEchGreaseEnabled(base.isEchGreaseEnabled());
+        copy.setEchServerKeys(base.getEchServerConfig(), base.getEchServerPrivateKey());
+        copy.setEchServerRequired(base.isEchServerRequired());
+        copy.setEchRetryConfigList(base.getEchRetryConfigList());
         copy.setAntiReplay(base.getAntiReplay());
         copy.setTransportParameterConsistencyChecker(base.getTransportParameterConsistencyChecker());
         return copy;

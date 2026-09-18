@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.tls;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import javax.net.ssl.X509TrustManager;
@@ -49,6 +50,12 @@ public final class HandshakeConfig {
     private List<String> applicationProtocols = new ArrayList<String>();
     private byte[] localTransportParameters;
     private List<NamedGroup> namedGroups = defaultNamedGroups();
+    /**
+     * Client-only: named groups for which the initial ClientHello omits a
+     * {@code key_share} entry (RFC 8446 section 4.2.8); shares are still
+     * generated so HelloRetryRequest can supply them later.
+     */
+    private List<NamedGroup> clientOmitInitialKeyShareGroups = Collections.emptyList();
     private List<CipherSuite> cipherSuites = defaultCipherSuites();
 
     // Client-certificate authentication (mTLS).
@@ -65,6 +72,24 @@ public final class HandshakeConfig {
     // RFC 8449 record_size_limit.
     private boolean recordSizeLimitEnabled = true;
     private int recordSizeLimit = RecordSizeLimit.DEFAULT;
+
+    // RFC 9849 Encrypted Client Hello (client: preconfigured ECHConfig).
+    private boolean echEnabled;
+    private EchConfig echConfig;
+    /** When true, the client aborts if the server rejects ECH (RFC 9849 section 6.1.7). */
+    private boolean echRequired;
+    /** When true and no real ECH config is offered, send GREASE ECH (RFC 9849 section 6.2). */
+    private boolean echGreaseEnabled;
+    /** Server role: ECH config and private key for decrypting ClientHelloOuter. */
+    private EchConfig echServerConfig;
+    private byte[] echServerPrivateKey;
+    /** Server role: require clients to offer ECH (RFC 9849 section 7.3). */
+    private boolean echServerRequired;
+    /**
+     * Server role: {@code ECHConfigList} bytes for {@code retry_configs} on
+     * rejection; when null, {@link #echServerConfig} is encoded if present.
+     */
+    private byte[] echRetryConfigList;
 
     // RFC 8879 certificate compression.
     private boolean certificateCompressionEnabled = true;
@@ -353,6 +378,28 @@ public final class HandshakeConfig {
     }
 
     /**
+     * Returns groups omitted from the initial ClientHello {@code key_share}
+     * extension (client role only).
+     */
+    public List<NamedGroup> getClientOmitInitialKeyShareGroups() {
+        return clientOmitInitialKeyShareGroups;
+    }
+
+    /**
+     * Omits {@code key_share} entries for the given groups on the first
+     * ClientHello only; HelloRetryRequest follow-ups still send the share.
+     *
+     * @param groups groups to omit initially, or null/empty for none
+     */
+    public void setClientOmitInitialKeyShareGroups(List<NamedGroup> groups) {
+        if (groups == null || groups.isEmpty()) {
+            this.clientOmitInitialKeyShareGroups = Collections.emptyList();
+        } else {
+            this.clientOmitInitialKeyShareGroups = new ArrayList<NamedGroup>(groups);
+        }
+    }
+
+    /**
      * Returns the cipher suites to offer/accept, in preference order.
      *
      * @return the cipher suites
@@ -537,6 +584,150 @@ public final class HandshakeConfig {
 
     public void setMaxDecompressedCertificateSize(int maxDecompressedCertificateSize) {
         this.maxDecompressedCertificateSize = maxDecompressedCertificateSize;
+    }
+
+    /**
+     * Returns whether the client offers Encrypted Client Hello when
+     * {@link #getEchConfig()} is set. Defaults to false.
+     *
+     * @return true to offer ECH on the initial ClientHello
+     */
+    public boolean isEchEnabled() {
+        return echEnabled;
+    }
+
+    /**
+     * Enables or disables ECH on the client initial ClientHello.
+     *
+     * @param echEnabled true to offer ECH when a config is configured
+     */
+    public void setEchEnabled(boolean echEnabled) {
+        this.echEnabled = echEnabled;
+    }
+
+    /**
+     * Returns the preconfigured ECH configuration for client offers,
+     * or null if ECH is not configured.
+     *
+     * @return the ECH config, or null
+     */
+    public EchConfig getEchConfig() {
+        return echConfig;
+    }
+
+    /**
+     * Sets the ECH configuration the client uses to build
+     * {@code ClientHelloOuter} / {@code ClientHelloInner}.
+     *
+     * @param echConfig the config, or null to disable
+     */
+    public void setEchConfig(EchConfig echConfig) {
+        this.echConfig = echConfig;
+    }
+
+    /**
+     * Returns whether the client requires ECH acceptance (RFC 9849 section 6.1.7).
+     *
+     * @return true to abort when the server rejects ECH
+     */
+    public boolean isEchRequired() {
+        return echRequired;
+    }
+
+    /**
+     * Sets whether the client aborts when the server rejects ECH.
+     *
+     * @param echRequired true to require acceptance
+     */
+    public void setEchRequired(boolean echRequired) {
+        this.echRequired = echRequired;
+    }
+
+    /**
+     * Returns whether the client sends GREASE ECH when not offering real ECH.
+     *
+     * @return true to grease (RFC 9849 section 6.2)
+     */
+    public boolean isEchGreaseEnabled() {
+        return echGreaseEnabled;
+    }
+
+    /**
+     * Enables GREASE {@code encrypted_client_hello} when {@link #isEchEnabled()}
+     * is false or no {@link #getEchConfig()} is set.
+     *
+     * @param echGreaseEnabled true to send GREASE ECH
+     */
+    public void setEchGreaseEnabled(boolean echGreaseEnabled) {
+        this.echGreaseEnabled = echGreaseEnabled;
+    }
+
+    /**
+     * Returns the server ECH configuration for decrypting client offers.
+     *
+     * @return the server ECH config, or null
+     */
+    public EchConfig getEchServerConfig() {
+        return echServerConfig;
+    }
+
+    /**
+     * Returns the X25519 private key (32 bytes) for {@link #getEchServerConfig()}.
+     *
+     * @return raw private key, or null
+     */
+    public byte[] getEchServerPrivateKey() {
+        return echServerPrivateKey;
+    }
+
+    /**
+     * Configures server-side ECH decryption for incoming ClientHelloOuter
+     * messages.
+     *
+     * @param echServerConfig published config (includes {@code config_id})
+     * @param echServerPrivateKey 32-byte X25519 private key matching the config
+     */
+    public void setEchServerKeys(EchConfig echServerConfig, byte[] echServerPrivateKey) {
+        this.echServerConfig = echServerConfig;
+        this.echServerPrivateKey = echServerPrivateKey;
+    }
+
+    /**
+     * Returns whether the server requires clients to offer ECH (RFC 9849 section 7.3).
+     *
+     * @return true when a ClientHello without outer ECH is rejected
+     */
+    public boolean isEchServerRequired() {
+        return echServerRequired;
+    }
+
+    /**
+     * Sets whether the server requires ECH on every ClientHello.
+     *
+     * @param echServerRequired true to send {@link AlertDescription#ECH_REQUIRED}
+     *        when outer ECH is absent
+     */
+    public void setEchServerRequired(boolean echServerRequired) {
+        this.echServerRequired = echServerRequired;
+    }
+
+    /**
+     * Returns the {@code ECHConfigList} sent in {@code retry_configs} when
+     * the server rejects ECH, or null to derive from {@link #getEchServerConfig()}.
+     *
+     * @return encoded list bytes, or null
+     */
+    public byte[] getEchRetryConfigList() {
+        return echRetryConfigList;
+    }
+
+    /**
+     * Sets the {@code retry_configs} payload for ECH rejection.
+     *
+     * @param echRetryConfigList encoded {@code ECHConfigList}, or null for default
+     */
+    public void setEchRetryConfigList(byte[] echRetryConfigList) {
+        this.echRetryConfigList = echRetryConfigList;
     }
 
     /**

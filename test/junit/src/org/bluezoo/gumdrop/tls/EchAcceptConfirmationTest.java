@@ -1,0 +1,106 @@
+/*
+ * EchAcceptConfirmationTest.java
+ * Copyright (C) 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.tls;
+
+import java.security.SecureRandom;
+import java.util.Collections;
+
+import org.bluezoo.gumdrop.crypto.NamedGroup;
+
+import org.junit.Test;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * Unit tests for {@link EchAcceptConfirmation}.
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ */
+public class EchAcceptConfirmationTest {
+
+    private static final byte[] PK_RM = hex(
+            "3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d");
+    private static final byte[] SK_RM = hex(
+            "4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8");
+
+    @Test
+    public void serverEmbedMatchesClientVerify() throws Exception {
+        EchConfig ech = EchConfig.createV13(2, PK_RM, "public.example", 32);
+        HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
+        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, new SecureRandom());
+
+        byte[] innerFramed = offer.getClientHelloInnerFramed();
+        byte[] outerFramed = offer.getClientHelloOuterFramed();
+        byte[] innerOpened = EchServer.openInnerClientHello(outerFramed, ech, SK_RM, null)
+                .getInnerClientHelloFramed();
+        HandshakeMessages.ClientHello inner = HandshakeMessages.parseClientHello(innerOpened);
+        HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(outerFramed);
+
+        CipherSuite suite = CipherSuite.TLS_AES_128_GCM_SHA256;
+        byte[] serverRandom = new byte[32];
+        new SecureRandom().nextBytes(serverRandom);
+        byte[] draft = HandshakeMessages.buildServerHello(serverRandom, inner.legacySessionId, suite,
+                NamedGroup.X25519, inner.keyShares.get(NamedGroup.X25519), false);
+        byte[] serverHello = EchAcceptConfirmation.embedAcceptConfirmationInServerHello(suite, innerFramed, draft);
+
+        assertTrue(EchAcceptConfirmation.verifyServerHello(suite, innerFramed, serverHello));
+        assertTrue(outer.serverName.equals("public.example"));
+        assertTrue(inner.serverName.equals("backend.example"));
+    }
+
+    @Test
+    public void helloRetryRequestEmbedMatchesClientVerify() throws Exception {
+        EchConfig ech = EchConfig.createV13(3, PK_RM, "public.example", 32);
+        HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
+        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, new SecureRandom());
+        byte[] innerFramed = offer.getClientHelloInnerFramed();
+
+        CipherSuite suite = CipherSuite.TLS_AES_128_GCM_SHA256;
+        byte[] hrrDraft = HandshakeMessages.buildHelloRetryRequest(new byte[0], suite,
+                NamedGroup.X25519, null, true);
+        byte[] hrr = EchAcceptConfirmation.embedHelloRetryRequestConfirmation(suite, innerFramed, hrrDraft);
+        HandshakeMessages.HelloRetryRequest parsed = HandshakeMessages.parseHelloRetryRequest(hrr);
+
+        assertTrue(EchAcceptConfirmation.verifyHelloRetryRequest(
+                suite, innerFramed, hrr, parsed.echHrrConfirmation));
+    }
+
+    private static HandshakeMessages.ClientHelloParams sampleParams(String serverName) {
+        HandshakeMessages.ClientHelloParams params = new HandshakeMessages.ClientHelloParams();
+        params.random = new byte[32];
+        params.cipherSuites = Collections.singletonList(CipherSuite.TLS_AES_128_GCM_SHA256);
+        params.groups = Collections.singletonList(NamedGroup.X25519);
+        params.keyShares = Collections.singletonMap(NamedGroup.X25519, new byte[32]);
+        params.signatureAlgorithms = Collections.singletonList(
+                org.bluezoo.gumdrop.crypto.SignatureScheme.ECDSA_SECP256R1_SHA256);
+        params.applicationProtocols = Collections.singletonList("h3");
+        params.serverName = serverName;
+        return params;
+    }
+
+    private static byte[] hex(String s) {
+        byte[] out = new byte[s.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = (byte) Integer.parseInt(s.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+    }
+}

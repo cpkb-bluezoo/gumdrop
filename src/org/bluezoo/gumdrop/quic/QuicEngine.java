@@ -438,6 +438,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 factory.isEarlyDataEnabled(), factory.getApplicationProtocols(),
                 factory.getCipherSuites(), factory.isNeedClientAuth(),
                 factory.getTrustManager());
+        factory.applyEchServerSettings(tlsEngine);
         conn.setTlsEngine(tlsEngine);
 
         if (connectionAcceptedHandler != null) {
@@ -649,6 +650,7 @@ public final class QuicEngine implements ChannelHandler, MultiplexedEndpoint {
                 clientInitialDcid, localParams, connectionIdStaticKey);
         QuicTlsClientEngine tlsEngine = new QuicTlsClientEngine(localParams, conn,
                 factory.getApplicationProtocols(), factory.getNamedGroups(), factory.getCipherSuites());
+        factory.applyEchClientSettings(tlsEngine);
         X509TrustManager trustManager = factory.getTrustManager();
         tlsEngine.setTrustManager(trustManager);
         if (!factory.isVerifyHostnameEnabled()) {

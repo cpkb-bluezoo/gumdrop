@@ -113,7 +113,9 @@ custom `main`:
 ```
 
 A `secure="true"` listener gets HTTP/2+TLS and **HTTP/3 (QUIC) on the same
-port** automatically (pure Java; no native QUIC library).
+port** automatically (pure Java; no native QUIC library). Optional RFC 9849 ECH
+uses `ech-config-list-file`, `ech-private-key-file`, and `ech-required` on that
+listener (see [web/tls.html](../web/tls.html)).
 
 Servlet-only options: `GUMDROP_HOT_DEPLOY`, session clustering, webapp paths —
 see [Hot deploy](#hot-deploy) and [Horizontal-scale constraints](#horizontal-scale-constraints).

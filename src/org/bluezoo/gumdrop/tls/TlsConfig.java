@@ -66,6 +66,11 @@ public final class TlsConfig {
     private ServerCredentials serverCredentials;
     private boolean verifyPeer = true;
     private X509TrustManager trustManager;
+    private Path echConfigListFile;
+    private Path echPrivateKeyFile;
+    private boolean echServerRequired;
+    private Path clientEchConfigListFile;
+    private boolean clientEchGreaseEnabled;
 
     /**
      * Creates an empty config for fluent configuration.
@@ -195,6 +200,66 @@ public final class TlsConfig {
         return this;
     }
 
+    /**
+     * Server-only: binary {@code ECHConfigList} file for QUIC / HTTP/3 ECH decryption.
+     */
+    public TlsConfig echConfigListFile(Path echConfigListFile) {
+        this.echConfigListFile = echConfigListFile;
+        return this;
+    }
+
+    /**
+     * Server-only: 32-byte X25519 ECH private key file (raw or hex).
+     */
+    public TlsConfig echPrivateKeyFile(Path echPrivateKeyFile) {
+        this.echPrivateKeyFile = echPrivateKeyFile;
+        return this;
+    }
+
+    /**
+     * Server-only: require clients to offer ECH (RFC 9849 section 7.3).
+     */
+    public TlsConfig echServerRequired(boolean echServerRequired) {
+        this.echServerRequired = echServerRequired;
+        return this;
+    }
+
+    /**
+     * Client-only: binary {@code ECHConfigList} file when DNS HTTPS does not supply {@code ech}.
+     */
+    public TlsConfig clientEchConfigListFile(Path clientEchConfigListFile) {
+        this.clientEchConfigListFile = clientEchConfigListFile;
+        return this;
+    }
+
+    /**
+     * Client-only: send GREASE ECH when no real config is used (RFC 9849 section 6.2).
+     */
+    public TlsConfig clientEchGreaseEnabled(boolean clientEchGreaseEnabled) {
+        this.clientEchGreaseEnabled = clientEchGreaseEnabled;
+        return this;
+    }
+
+    public Path getEchConfigListFile() {
+        return echConfigListFile;
+    }
+
+    public Path getEchPrivateKeyFile() {
+        return echPrivateKeyFile;
+    }
+
+    public boolean isEchServerRequired() {
+        return echServerRequired;
+    }
+
+    public Path getClientEchConfigListFile() {
+        return clientEchConfigListFile;
+    }
+
+    public boolean isClientEchGreaseEnabled() {
+        return clientEchGreaseEnabled;
+    }
+
     public boolean isVerifyPeer() {
         return verifyPeer;
     }
@@ -261,7 +326,24 @@ public final class TlsConfig {
         out.keystoreFormat = coalesce(local.keystoreFormat, fallback.keystoreFormat);
         out.certFile = coalesce(local.certFile, fallback.certFile);
         out.keyFile = coalesce(local.keyFile, fallback.keyFile);
+        out.echConfigListFile = coalesce(local.echConfigListFile, fallback.echConfigListFile);
+        out.echPrivateKeyFile = coalesce(local.echPrivateKeyFile, fallback.echPrivateKeyFile);
+        out.echServerRequired = local.hasEchListenerSettings()
+                ? local.echServerRequired
+                : fallback.echServerRequired;
+        out.clientEchConfigListFile = coalesce(local.clientEchConfigListFile, fallback.clientEchConfigListFile);
+        out.clientEchGreaseEnabled = local.hasClientEchSettings()
+                ? local.clientEchGreaseEnabled
+                : fallback.clientEchGreaseEnabled;
         return out;
+    }
+
+    private boolean hasEchListenerSettings() {
+        return echConfigListFile != null || echPrivateKeyFile != null || echServerRequired;
+    }
+
+    private boolean hasClientEchSettings() {
+        return clientEchConfigListFile != null || clientEchGreaseEnabled;
     }
 
     /**
@@ -281,6 +363,11 @@ public final class TlsConfig {
         this.keystoreFormat = source.keystoreFormat;
         this.certFile = source.certFile;
         this.keyFile = source.keyFile;
+        this.echConfigListFile = source.echConfigListFile;
+        this.echPrivateKeyFile = source.echPrivateKeyFile;
+        this.echServerRequired = source.echServerRequired;
+        this.clientEchConfigListFile = source.clientEchConfigListFile;
+        this.clientEchGreaseEnabled = source.clientEchGreaseEnabled;
         return this;
     }
 

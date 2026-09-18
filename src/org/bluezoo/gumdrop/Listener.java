@@ -104,6 +104,9 @@ public abstract class Listener {
     protected String keystoreFormat = "PKCS12";
     protected Path certFile;
     protected Path keyFile;
+    protected Path echConfigListFile;
+    protected Path echPrivateKeyFile;
+    protected boolean echServerRequired;
     private String cipherSuites;
     private String namedGroups;
     protected TelemetryConfig telemetryConfig;
@@ -247,6 +250,27 @@ public abstract class Listener {
 
     public void setKeystoreFormat(String format) {
         keystoreFormat = format;
+    }
+
+    /**
+     * Sets the {@code ECHConfigList} file for server-side ECH (HTTP/3 / QUIC).
+     */
+    public void setEchConfigListFile(Path echConfigListFile) {
+        this.echConfigListFile = echConfigListFile;
+    }
+
+    /**
+     * Sets the X25519 ECH private key file (32 raw bytes or hex).
+     */
+    public void setEchPrivateKeyFile(Path echPrivateKeyFile) {
+        this.echPrivateKeyFile = echPrivateKeyFile;
+    }
+
+    /**
+     * Requires clients to offer ECH on this listener.
+     */
+    public void setEchServerRequired(boolean echServerRequired) {
+        this.echServerRequired = echServerRequired;
     }
 
     /**
@@ -860,6 +884,13 @@ public abstract class Listener {
                 quicFactory.setSniDefaultAlias(sniDefaultAlias);
             }
         }
+        if (echConfigListFile != null) {
+            factory.setEchConfigListFile(echConfigListFile);
+        }
+        if (echPrivateKeyFile != null) {
+            factory.setEchPrivateKeyFile(echPrivateKeyFile);
+        }
+        factory.setEchServerRequired(echServerRequired);
     }
 
     /**

@@ -13,6 +13,8 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.tls.EchClientBootstrap;
+import org.bluezoo.gumdrop.tls.EchConfig;
 import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
@@ -75,6 +77,38 @@ public final class ClientConnect {
         }
         if (tls.getKeyFile() != null) {
             factory.setKeyFile(tls.getKeyFile());
+        }
+        applyTcpClientEch(factory, null, tls);
+    }
+
+    /**
+     * Applies DNS-discovered and file-based client ECH onto a TCP factory.
+     */
+    public static void applyTcpClientEch(TcpTransportFactory factory, byte[] dnsDiscoveredEchConfigList,
+            TlsConfig tls) {
+        if (factory == null || tls == null) {
+            return;
+        }
+        EchConfig ech = EchClientBootstrap.selectConfig(dnsDiscoveredEchConfigList, tls.getClientEchConfigListFile());
+        if (ech != null) {
+            factory.setClientEchConfig(ech);
+        }
+        if (tls.isClientEchGreaseEnabled()) {
+            factory.setClientEchGreaseEnabled(true);
+        }
+    }
+
+    public static void applyQuicClientEch(QuicTransportFactory factory, byte[] dnsDiscoveredEchConfigList,
+            TlsConfig tls) {
+        if (factory == null || tls == null) {
+            return;
+        }
+        EchConfig ech = EchClientBootstrap.selectConfig(dnsDiscoveredEchConfigList, tls.getClientEchConfigListFile());
+        if (ech != null) {
+            factory.setClientEchConfig(ech);
+        }
+        if (tls.isClientEchGreaseEnabled()) {
+            factory.setClientEchGreaseEnabled(true);
         }
     }
 

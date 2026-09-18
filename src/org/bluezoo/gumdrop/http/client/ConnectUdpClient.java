@@ -35,6 +35,7 @@ import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.HttpsRecordEch;
 import org.bluezoo.gumdrop.dns.DnsQueryCallback;
 import org.bluezoo.gumdrop.dns.DnsResourceRecord;
 import org.bluezoo.gumdrop.dns.DnsType;
@@ -44,7 +45,9 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.HttpClient;
 import org.bluezoo.gumdrop.http.HttpVersion;
+import org.bluezoo.gumdrop.client.ClientConnect;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
 /**
@@ -110,6 +113,7 @@ public class ConnectUdpClient implements AltSvcListener {
     private boolean h2Enabled = true;
     private boolean h2WithPriorKnowledge;
     private boolean dnsHttpsRecordEnabled = true;
+    private byte[] dnsDiscoveredEchConfigList;
 
     // Internal transport components (created at connect time) -- TCP/H1.1/H2 path
     private TcpTransportFactory transportFactory;
@@ -447,6 +451,10 @@ public class ConnectUdpClient implements AltSvcListener {
         resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
             public void onResponse(DnsMessage response) {
+                byte[] echFromDns = HttpsRecordEch.firstEchConfigListFromAnswers(response.getAnswers());
+                if (echFromDns != null) {
+                    dnsDiscoveredEchConfigList = echFromDns;
+                }
                 for (DnsResourceRecord rr : response.getAnswers()) {
                     if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
@@ -527,6 +535,7 @@ public class ConnectUdpClient implements AltSvcListener {
         if (secure && h2Enabled && !h2WithPriorKnowledge) {
             transportFactory.setApplicationProtocols("h2", "http/1.1");
         }
+        ClientConnect.applyTcpClientEch(transportFactory, dnsDiscoveredEchConfigList, new TlsConfig());
         transportFactory.start();
 
         HttpClientHandler internalHandler = new HttpClientHandler() {
@@ -730,6 +739,7 @@ public class ConnectUdpClient implements AltSvcListener {
                     ? new HttpClient(selectorLoop, hostAddress, port) : new HttpClient(hostAddress, port);
         }
         httpClient.setH3Enabled(true);
+        httpClient.setDnsDiscoveredEchConfigList(dnsDiscoveredEchConfigList);
         // Note: HttpClient's QUIC/H3 path (unlike its TCP/H1.1 path)
         // doesn't consult a custom X509TrustManager at all today, only
         // verifyPeer -- trustManager/keystoreFile are therefore not wired

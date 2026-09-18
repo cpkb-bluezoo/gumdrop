@@ -51,6 +51,9 @@ import org.bluezoo.gumdrop.quic.cid.StatelessResetToken;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.quic.tls.PemCredentials;
 import org.bluezoo.gumdrop.tls.ClientAuthPolicy;
+import org.bluezoo.gumdrop.tls.EchConfig;
+import org.bluezoo.gumdrop.tls.EchDeployment;
+import org.bluezoo.gumdrop.tls.HandshakeConfig;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.tls.ServerCredentialsResolver;
 import org.bluezoo.gumdrop.util.PinnedCertTrustManager;
@@ -131,6 +134,9 @@ public class QuicTransportFactory extends TransportFactory {
     private final byte[] connectionIdStaticKey = new byte[32];
     private final byte[] retryTokenKey = new byte[32];
     private boolean requireRetry;
+
+    private EchConfig clientEchConfig;
+    private boolean clientEchGreaseEnabled;
 
     public QuicTransportFactory() {
         this.secure = true;
@@ -606,6 +612,38 @@ public class QuicTransportFactory extends TransportFactory {
             description.append(" (ALPN: ").append(applicationProtocols).append(')');
         }
         return description.toString();
+    }
+
+    /**
+     * Sets the ECH configuration discovered for an outbound connection (e.g. DNS HTTPS).
+     */
+    public void setClientEchConfig(EchConfig clientEchConfig) {
+        this.clientEchConfig = clientEchConfig;
+    }
+
+    public void setClientEchGreaseEnabled(boolean clientEchGreaseEnabled) {
+        this.clientEchGreaseEnabled = clientEchGreaseEnabled;
+    }
+
+    /**
+     * Applies configured ECH server keys to a {@link QuicTlsServerEngine}.
+     */
+    public void applyEchServerSettings(org.bluezoo.gumdrop.quic.tls.QuicTlsServerEngine tlsEngine) {
+        HandshakeConfig cfg = tlsEngine.getHandshakeConfig();
+        EchDeployment.applyServer(cfg, echConfigListFile, echPrivateKeyFile, echServerRequired);
+    }
+
+    /**
+     * Applies client ECH settings to a {@link QuicTlsClientEngine}.
+     */
+    public void applyEchClientSettings(org.bluezoo.gumdrop.quic.tls.QuicTlsClientEngine tlsEngine) {
+        if (clientEchConfig != null) {
+            tlsEngine.setEchEnabled(true);
+            tlsEngine.setEchConfig(clientEchConfig);
+        }
+        if (clientEchGreaseEnabled) {
+            tlsEngine.setEchGreaseEnabled(true);
+        }
     }
 
     // ── Server engine creation ──

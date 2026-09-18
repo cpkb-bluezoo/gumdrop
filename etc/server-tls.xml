@@ -18,4 +18,11 @@
   <listener port="8080"/>
   <listener port="8443" secure="true" keystore-file="keystore.p12"
             keystore-pass="changeit" bind-wildcard="true"/>
+  <!-- Optional RFC 9849 ECH (generate ECHConfigList + X25519 key separately):
+  <listener port="8443" secure="true" keystore-file="keystore.p12"
+            keystore-pass="changeit" bind-wildcard="true"
+            ech-config-list-file="ech-config-list.bin"
+            ech-private-key-file="ech-private.key"
+            ech-required="false"/>
+  -->
 </server>

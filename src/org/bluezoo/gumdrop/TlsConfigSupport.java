@@ -44,6 +44,13 @@ public final class TlsConfigSupport {
         } else if (!tls.isVerifyPeer()) {
             listener.setTrustManager(new EmptyX509TrustManager());
         }
+        if (tls.getEchConfigListFile() != null) {
+            listener.setEchConfigListFile(tls.getEchConfigListFile());
+        }
+        if (tls.getEchPrivateKeyFile() != null) {
+            listener.setEchPrivateKeyFile(tls.getEchPrivateKeyFile());
+        }
+        listener.setEchServerRequired(tls.isEchServerRequired());
     }
 
 }
