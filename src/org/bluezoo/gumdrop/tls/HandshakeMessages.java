@@ -140,6 +140,21 @@ final class HandshakeMessages {
         int recordSizeLimit;
         /** When non-null, emit {@code compress_certificate} with these algorithm ids. */
         byte[] certificateCompressionAlgorithms;
+        /** When true, emit inner {@code encrypted_client_hello} (RFC 9849). */
+        boolean encryptedClientHelloInner;
+        /** When non-null, emit outer {@code encrypted_client_hello}. */
+        EncryptedClientHello.Outer encryptedClientHelloOuter;
+        /** {@code legacy_session_id}; null means empty. */
+        byte[] legacySessionId;
+        /** GREASE {@code pre_shared_key} on ClientHelloOuter when inner offers a real PSK. */
+        GreasePreSharedKey greasePreSharedKey;
+    }
+
+    /** Random PSK material for ECH ClientHelloOuter (RFC 9849 section 6.1.2). */
+    static final class GreasePreSharedKey {
+        byte[] identity;
+        int obfuscatedTicketAge;
+        byte[] binder;
     }
 
     /**
@@ -162,8 +177,8 @@ final class HandshakeMessages {
      * @param params the ClientHello to build, with {@code pskIdentity} set
      * @return the truncated framed message
      */
-    static byte[] buildClientHelloTruncatedForBinder(ClientHelloParams params) {
-        byte[] full = buildClientHelloBody(params, new byte[32]);
+    static byte[] buildClientHelloTruncatedForBinder(ClientHelloParams params) throws HandshakeFormatException {
+        byte[] full = frameClientHello(buildClientHelloContent(params, new byte[32]));
         return Arrays.copyOfRange(full, 0, full.length - 33);
     }
 
@@ -180,15 +195,18 @@ final class HandshakeMessages {
      * @param binder the real PSK binder, or null if no PSK is offered
      * @return the complete framed message
      */
-    static byte[] buildClientHelloWithBinder(ClientHelloParams params, byte[] binder) {
-        return buildClientHelloBody(params, params.pskIdentity != null ? binder : null);
+    static byte[] buildClientHelloWithBinder(ClientHelloParams params, byte[] binder)
+            throws HandshakeFormatException {
+        return frameClientHello(buildClientHelloContent(params, params.pskIdentity != null ? binder : null));
     }
 
-    private static byte[] buildClientHelloBody(ClientHelloParams params, byte[] binder) {
+    static byte[] buildClientHelloContent(ClientHelloParams params, byte[] binder)
+            throws HandshakeFormatException {
         WireWriter w = new WireWriter();
         w.u16(TLS_1_2_LEGACY_VERSION);
         w.bytes(params.random);
-        w.opaque8(new byte[0]);
+        byte[] legacySessionId = params.legacySessionId != null ? params.legacySessionId : new byte[0];
+        w.opaque8(legacySessionId);
 
         WireWriter cs = new WireWriter();
         for (int i = 0; i < params.cipherSuites.size(); i++) {
@@ -230,7 +248,31 @@ final class HandshakeMessages {
         if (params.cookie != null) {
             writeExtension(ext, EXT_COOKIE, params.cookie);
         }
-        if (params.pskIdentity != null) {
+        if (params.encryptedClientHelloInner) {
+            writeEncryptedClientHelloInnerExtension(ext);
+        }
+        if (params.encryptedClientHelloOuter != null) {
+            writeEncryptedClientHelloOuterExtension(ext, params.encryptedClientHelloOuter);
+        }
+        if (params.greasePreSharedKey != null) {
+            WireWriter modes = new WireWriter();
+            modes.opaque8(new byte[] { PSK_DHE_KE });
+            writeExtension(ext, EXT_PSK_KEY_EXCHANGE_MODES, modes.toByteArray());
+            GreasePreSharedKey grease = params.greasePreSharedKey;
+            WireWriter identity = new WireWriter();
+            identity.opaque16(grease.identity);
+            identity.u32(grease.obfuscatedTicketAge);
+            WireWriter idList = new WireWriter();
+            idList.opaque16(identity.toByteArray());
+            WireWriter binderEntry = new WireWriter();
+            binderEntry.opaque8(grease.binder);
+            WireWriter binders = new WireWriter();
+            binders.opaque16(binderEntry.toByteArray());
+            WireWriter pskExt = new WireWriter();
+            pskExt.bytes(idList.toByteArray());
+            pskExt.bytes(binders.toByteArray());
+            writeExtension(ext, EXT_PRE_SHARED_KEY, pskExt.toByteArray());
+        } else if (params.pskIdentity != null) {
             // pre_shared_key MUST be the last extension (RFC 8446 section 4.2.11).
             WireWriter identity = new WireWriter();
             identity.opaque16(params.pskIdentity);
@@ -250,7 +292,17 @@ final class HandshakeMessages {
         }
         w.opaque16(ext.toByteArray());
 
-        return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_CLIENT_HELLO, w.toByteArray());
+        return w.toByteArray();
+    }
+
+    static byte[] frameClientHello(byte[] content) {
+        return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_CLIENT_HELLO, content);
+    }
+
+    static byte[] extractClientHelloContent(byte[] framedClientHello) throws HandshakeFormatException {
+        WireReader r = new WireReader(framedClientHello);
+        requireType(r, HANDSHAKE_TYPE_CLIENT_HELLO);
+        return r.bytes(r.u24());
     }
 
     /** The fields of a parsed ClientHello this engine actually needs. */

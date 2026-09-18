@@ -66,6 +66,10 @@ public final class HandshakeConfig {
     private boolean recordSizeLimitEnabled = true;
     private int recordSizeLimit = RecordSizeLimit.DEFAULT;
 
+    // RFC 9849 Encrypted Client Hello (client: preconfigured ECHConfig).
+    private boolean echEnabled;
+    private EchConfig echConfig;
+
     // RFC 8879 certificate compression.
     private boolean certificateCompressionEnabled = true;
     private List<CertificateCompressionAlgorithm> certificateCompressionAlgorithms =
@@ -537,6 +541,45 @@ public final class HandshakeConfig {
 
     public void setMaxDecompressedCertificateSize(int maxDecompressedCertificateSize) {
         this.maxDecompressedCertificateSize = maxDecompressedCertificateSize;
+    }
+
+    /**
+     * Returns whether the client offers Encrypted Client Hello when
+     * {@link #getEchConfig()} is set. Defaults to false.
+     *
+     * @return true to offer ECH on the initial ClientHello
+     */
+    public boolean isEchEnabled() {
+        return echEnabled;
+    }
+
+    /**
+     * Enables or disables ECH on the client initial ClientHello.
+     *
+     * @param echEnabled true to offer ECH when a config is configured
+     */
+    public void setEchEnabled(boolean echEnabled) {
+        this.echEnabled = echEnabled;
+    }
+
+    /**
+     * Returns the preconfigured ECH configuration for client offers,
+     * or null if ECH is not configured.
+     *
+     * @return the ECH config, or null
+     */
+    public EchConfig getEchConfig() {
+        return echConfig;
+    }
+
+    /**
+     * Sets the ECH configuration the client uses to build
+     * {@code ClientHelloOuter} / {@code ClientHelloInner}.
+     *
+     * @param echConfig the config, or null to disable
+     */
+    public void setEchConfig(EchConfig echConfig) {
+        this.echConfig = echConfig;
     }
 
     /**

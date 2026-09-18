@@ -115,6 +115,9 @@ public final class HandshakeEngine {
     private boolean clientRetried;
     private byte[] clientRetryCookie;
     private byte[] clientCertRequestContext;
+    /** Framed ClientHelloInner when ECH was offered; used after server acceptance. */
+    private byte[] echClientHelloInnerFramed;
+    private boolean echOffered;
 
     // Server-only state.
     private NamedGroup serverRetryRequestedGroup;
@@ -214,25 +217,48 @@ public final class HandshakeEngine {
         SessionTicket ticket = config.getSessionTicket();
         byte[] clientHello;
         boolean wantEarly = false;
-        if (ticket != null) {
-            params.pskIdentity = ticket.getIdentity();
-            params.obfuscatedTicketAge = ticket.obfuscatedTicketAge();
-            wantEarly = !isRetry && config.isEnableEarlyData() && ticket.getMaxEarlyDataSize() > 0;
-            params.earlyDataRequested = wantEarly;
+        echClientHelloInnerFramed = null;
+        echOffered = false;
+        byte[] realPskBinder = null;
+        try {
+            if (ticket != null) {
+                params.pskIdentity = ticket.getIdentity();
+                params.obfuscatedTicketAge = ticket.obfuscatedTicketAge();
+                wantEarly = !isRetry && config.isEnableEarlyData() && ticket.getMaxEarlyDataSize() > 0;
+                params.earlyDataRequested = wantEarly;
 
-            KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
-            byte[] truncated = HandshakeMessages.buildClientHelloTruncatedForBinder(params);
-            byte[] truncatedHash = truncatedClientHelloHash(ticket.getCipherSuite(), truncated);
-            byte[] binder = pskSchedule.computePskBinder(ticket.getPsk(), truncatedHash);
-            clientHello = HandshakeMessages.buildClientHelloWithBinder(params, binder);
-
-            if (wantEarly) {
-                byte[] clientHelloHash = truncatedClientHelloHash(ticket.getCipherSuite(), clientHello);
-                byte[] earlyTrafficSecret = pskSchedule.deriveEarlyTrafficSecret(ticket.getPsk(), clientHelloHash);
-                sink.quicEarlyKeysReady(ticket.getCipherSuite(), earlyTrafficSecret);
+                KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
+                byte[] truncated = HandshakeMessages.buildClientHelloTruncatedForBinder(params);
+                byte[] truncatedHash = truncatedClientHelloHash(ticket.getCipherSuite(), truncated);
+                realPskBinder = pskSchedule.computePskBinder(ticket.getPsk(), truncatedHash);
             }
-        } else {
-            clientHello = HandshakeMessages.buildClientHelloWithBinder(params, null);
+
+            boolean offerEch = !isRetry && config.isEchEnabled() && config.getEchConfig() != null;
+            if (offerEch) {
+                EchClientHelloBuilder.Offer echOffer = EchClientHelloBuilder.build(
+                        params, config.getEchConfig(), realPskBinder, secureRandom);
+                clientHello = echOffer.getClientHelloOuterFramed();
+                echClientHelloInnerFramed = echOffer.getClientHelloInnerFramed();
+                clientHelloRandom = echOffer.getClientHelloOuterRandom();
+                echOffered = true;
+            } else if (ticket != null) {
+                clientHello = HandshakeMessages.buildClientHelloWithBinder(params, realPskBinder);
+            } else {
+                clientHello = HandshakeMessages.buildClientHelloWithBinder(params, null);
+            }
+        } catch (GeneralSecurityException e) {
+            fail(sink, AlertDescription.INTERNAL_ERROR, "Could not build ClientHello: " + e.getMessage());
+            return;
+        } catch (HandshakeFormatException e) {
+            fail(sink, AlertDescription.INTERNAL_ERROR, "Could not build ClientHello: " + e.getMessage());
+            return;
+        }
+
+        if (ticket != null && wantEarly) {
+            KeySchedule pskSchedule = new KeySchedule(ticket.getCipherSuite());
+            byte[] clientHelloHash = truncatedClientHelloHash(ticket.getCipherSuite(), clientHello);
+            byte[] earlyTrafficSecret = pskSchedule.deriveEarlyTrafficSecret(ticket.getPsk(), clientHelloHash);
+            sink.quicEarlyKeysReady(ticket.getCipherSuite(), earlyTrafficSecret);
         }
 
         savedClientHelloBytes = clientHello;
