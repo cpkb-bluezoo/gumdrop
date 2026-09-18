@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * TTL values in returned records are adjusted to reflect elapsed time
  * since caching (RFC 1035 section 3.2.1).
  * RFC 2308: negative caching of NXDOMAIN responses.
+ * RFC 8020: optional NXDOMAIN cut (subdomains of a proven-negative name).
  * RFC 8767: optional retention of expired entries for serve-stale.
  *
  * <p>RFC 2308 section 5: negative cache TTL is the minimum of the SOA
@@ -188,6 +189,22 @@ public class DnsCache {
      * RFC 8767 stale negative cache hit.
      */
     public boolean lookupStaleNegative(String name) {
+        return lookupStaleNegative(name, true);
+    }
+
+    /**
+     * RFC 8767 stale negative cache hit, optionally with RFC 8020 NXDOMAIN cut.
+     */
+    public boolean lookupStaleNegative(String name, boolean nxDomainCut) {
+        for (String candidate : negativeLookupNames(name, nxDomainCut)) {
+            if (isExactNameStaleNegative(candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isExactNameStaleNegative(String name) {
         CacheKey key = new CacheKey(name, DnsType.ANY, DnsClass.IN, true);
         CacheEntry entry = cache.get(key);
         if (entry == null || entry.records != null) {
@@ -243,12 +260,34 @@ public class DnsCache {
     }
 
     /**
-     * Checks if a name is negatively cached (NXDOMAIN).
+     * Checks if a name is negatively cached (NXDOMAIN), applying RFC 8020
+     * NXDOMAIN cut by default (any ancestor name with a live negative entry).
      *
      * @param name the domain name
      * @return true if the name is cached as non-existent
      */
     public boolean isNegativelyCached(String name) {
+        return isNegativelyCached(name, true);
+    }
+
+    /**
+     * Checks if a name is negatively cached (NXDOMAIN).
+     *
+     * @param name the domain name
+     * @param nxDomainCut when {@code true}, also match subdomains of any
+     *                    live negatively cached ancestor name (RFC 8020)
+     * @return true if the name is cached as non-existent
+     */
+    public boolean isNegativelyCached(String name, boolean nxDomainCut) {
+        for (String candidate : negativeLookupNames(name, nxDomainCut)) {
+            if (isExactNameNegativelyCached(candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isExactNameNegativelyCached(String name) {
         CacheKey key = new CacheKey(name, DnsType.ANY, DnsClass.IN, true);
         CacheEntry entry = cache.get(key);
 
@@ -264,6 +303,24 @@ public class DnsCache {
         }
 
         return true;
+    }
+
+    private static Iterable<String> negativeLookupNames(String name,
+                                                        boolean nxDomainCut) {
+        final List<String> names = new ArrayList<>();
+        String current = name;
+        while (current != null && !current.isEmpty()) {
+            names.add(current);
+            if (!nxDomainCut) {
+                break;
+            }
+            int dot = current.indexOf('.');
+            if (dot < 0) {
+                break;
+            }
+            current = current.substring(dot + 1);
+        }
+        return names;
     }
 
     /**

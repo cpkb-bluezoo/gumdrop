@@ -23,12 +23,21 @@ import java.util.List;
 public final class AuthoritativeZoneHandler implements DnsQueryHandler {
 
     private final ZoneFile zone;
+    private MinimalAnyPolicy minimalAnyPolicy = MinimalAnyPolicy.ENABLED;
 
     public AuthoritativeZoneHandler(ZoneFile zone) {
         if (zone == null) {
             throw new NullPointerException("zone");
         }
         this.zone = zone;
+    }
+
+    /**
+     * RFC 8482 policy for QTYPE=ANY (default: minimal HINFO answer).
+     */
+    public void setMinimalAnyPolicy(MinimalAnyPolicy minimalAnyPolicy) {
+        this.minimalAnyPolicy = minimalAnyPolicy != null
+                ? minimalAnyPolicy : MinimalAnyPolicy.DISABLED;
     }
 
     /**
@@ -51,6 +60,15 @@ public final class AuthoritativeZoneHandler implements DnsQueryHandler {
 
         if (!zone.isWithinZone(qname)) {
             callback.onResponse(query.createErrorResponse(DnsMessage.RCODE_REFUSED));
+            return;
+        }
+
+        if (qtype == DnsType.ANY
+                && minimalAnyPolicy.shouldReturnMinimalAny(question)) {
+            callback.onResponse(createAuthoritativeResponse(query,
+                    MinimalAnyResponse.records(qname),
+                    zone.getNsRecords(),
+                    Collections.<DnsResourceRecord>emptyList()));
             return;
         }
 

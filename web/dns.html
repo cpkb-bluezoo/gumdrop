@@ -566,6 +566,8 @@ explicitly for the forwarding/caching behaviour:
 <li><code>staleRetentionSeconds(int)</code> - how long expired entries are kept for serve-stale (default: 86400; <code>0</code> evicts on expiry)</li>
 <li><code>staleAnswerTtl(int)</code> - TTL on stale answers (default: 30, per RFC 8767 section 4)</li>
 <li><code>serveStalePolicy(ServeStalePolicy)</code> - override or disable per-query stale policy (default: serve when stale data exists)</li>
+<li><code>nxDomainCutPolicy(NxDomainCutPolicy)</code> - RFC 8020: NXDOMAIN for subdomains of a proven-negative name (default: enabled)</li>
+<li><code>minimalAnyPolicy(MinimalAnyPolicy)</code> - RFC 8482: answer ANY with a minimal HINFO record (default: enabled)</li>
 <li><code>dnssecEnabled(boolean)</code> - enable DNSSEC validation</li>
 </ul>
 

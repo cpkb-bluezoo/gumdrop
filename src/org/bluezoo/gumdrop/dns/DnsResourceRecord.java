@@ -505,6 +505,39 @@ public final class DnsResourceRecord {
     }
 
     /**
+     * Creates an HINFO record.
+     * RFC 1035 section 3.3.2: HINFO RDATA is CPU and OS character-strings.
+     *
+     * @param name the domain name
+     * @param ttl time to live in seconds
+     * @param cpu the CPU type character-string
+     * @param os the OS character-string
+     * @return the resource record
+     */
+    public static DnsResourceRecord hinfo(String name, int ttl, String cpu,
+                                          String os) {
+        byte[] rdata = encodeHinfoCharacterStrings(cpu, os);
+        return new DnsResourceRecord(name, DnsType.HINFO, DnsClass.IN, ttl,
+                rdata);
+    }
+
+    private static byte[] encodeHinfoCharacterStrings(String cpu, String os) {
+        byte[] cpuBytes = cpu.getBytes(StandardCharsets.UTF_8);
+        byte[] osBytes = os.getBytes(StandardCharsets.UTF_8);
+        if (cpuBytes.length > 255 || osBytes.length > 255) {
+            throw new IllegalArgumentException(
+                    L10N.getString("err.hinfo_string_too_long"));
+        }
+        byte[] rdata = new byte[2 + cpuBytes.length + osBytes.length];
+        rdata[0] = (byte) cpuBytes.length;
+        System.arraycopy(cpuBytes, 0, rdata, 1, cpuBytes.length);
+        int osOffset = 1 + cpuBytes.length;
+        rdata[osOffset] = (byte) osBytes.length;
+        System.arraycopy(osBytes, 0, rdata, osOffset + 1, osBytes.length);
+        return rdata;
+    }
+
+    /**
      * Creates a TXT record.
      * RFC 1035 section 3.3.14: TXT RDATA is one or more character-strings.
      * Each character-string is a length octet (max 255) followed by that
