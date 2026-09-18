@@ -867,6 +867,41 @@ public class HandshakeEngineLoopbackTest {
     }
 
     @Test
+    public void echClientHelloHandshakeCompletes() throws Exception {
+        byte[] pkRm = hex("3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d");
+        byte[] skRm = hex("4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8");
+        EchConfig ech = EchConfig.createV13(1, pkRm, "public." + SERVER_NAME, 64);
+
+        HandshakeConfig cc = clientConfig(ecChain, SERVER_NAME);
+        cc.setEchEnabled(true);
+        cc.setEchConfig(ech);
+
+        HandshakeConfig sc = serverConfig(ecChain, ecKey);
+        sc.setEchServerKeys(ech, skRm);
+
+        HandshakeEngine client = new HandshakeEngine(cc);
+        HandshakeEngine server = new HandshakeEngine(sc);
+        RecordingSink clientSink = new RecordingSink();
+        RecordingSink serverSink = new RecordingSink();
+
+        runHandshake(client, clientSink, server, serverSink);
+
+        assertNull("client error", clientSink.error);
+        assertNull("server error", serverSink.error);
+        assertTrue("client complete", client.isComplete());
+        assertTrue("server complete", server.isComplete());
+        assertArrayEquals(client.getClientApplicationTrafficSecret(), server.getClientApplicationTrafficSecret());
+    }
+
+    private static byte[] hex(String s) {
+        byte[] out = new byte[s.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = (byte) Integer.parseInt(s.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+    }
+
+    @Test
     public void handshakeUsesCompressedCertificateWhenEnabled() throws Exception {
         HandshakeConfig sc = serverConfig(ecChain, ecKey);
         sc.setCertificateCompressionEnabled(true);

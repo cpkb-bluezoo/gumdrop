@@ -526,6 +526,66 @@ final class HandshakeMessages {
      * @param fullMessage the complete framed message
      * @return true if this is a HelloRetryRequest
      */
+    static byte[] extractServerHelloContent(byte[] framedServerHello) throws HandshakeFormatException {
+        WireReader r = new WireReader(framedServerHello);
+        requireType(r, HANDSHAKE_TYPE_SERVER_HELLO);
+        return r.bytes(r.u24());
+    }
+
+    static byte[] frameServerHelloContent(byte[] content) {
+        return WireWriter.frameHandshakeMessage(HANDSHAKE_TYPE_SERVER_HELLO, content);
+    }
+
+    static byte[] serverHelloWithZeroedAcceptConfirmation(byte[] framedServerHello)
+            throws HandshakeFormatException {
+        byte[] body = extractServerHelloContent(framedServerHello);
+        return frameServerHelloContent(replaceServerHelloRandomSuffix(body, new byte[8]));
+    }
+
+    static byte[] serverHelloWithAcceptConfirmation(byte[] framedServerHello, byte[] acceptConfirmation)
+            throws HandshakeFormatException {
+        if (acceptConfirmation.length != 8) {
+            throw new HandshakeFormatException("accept_confirmation must be 8 bytes");
+        }
+        byte[] body = extractServerHelloContent(framedServerHello);
+        return frameServerHelloContent(replaceServerHelloRandomSuffix(body, acceptConfirmation));
+    }
+
+    static byte[] helloRetryRequestWithZeroedEchConfirmation(byte[] framedHelloRetryRequest)
+            throws HandshakeFormatException {
+        return replaceHelloRetryEchExtensionBody(framedHelloRetryRequest, new byte[8]);
+    }
+
+    private static byte[] replaceServerHelloRandomSuffix(byte[] serverHelloBody, byte[] randomSuffix8) {
+        byte[] out = serverHelloBody.clone();
+        System.arraycopy(randomSuffix8, 0, out, 26, 8);
+        return out;
+    }
+
+    private static byte[] replaceHelloRetryEchExtensionBody(byte[] framedMessage, byte[] echExtensionBody)
+            throws HandshakeFormatException {
+        byte[] body = extractServerHelloContent(framedMessage);
+        WireReader r = new WireReader(body);
+        WireWriter w = new WireWriter();
+        w.u16(r.u16());
+        w.bytes(r.bytes(32));
+        w.opaque8(r.opaque8());
+        w.u16(r.u16());
+        w.u8(r.u8());
+        WireReader er = new WireReader(r.opaque16());
+        WireWriter extOut = new WireWriter();
+        while (er.hasRemaining()) {
+            int extType = er.u16();
+            byte[] extBody = er.opaque16();
+            if (extType == EXT_ENCRYPTED_CLIENT_HELLO) {
+                extBody = echExtensionBody;
+            }
+            writeExtension(extOut, extType, extBody);
+        }
+        w.opaque16(extOut.toByteArray());
+        return frameServerHelloContent(w.toByteArray());
+    }
+
     static boolean isHelloRetryRequest(byte[] fullMessage) throws HandshakeFormatException {
         WireReader r = new WireReader(fullMessage);
         requireType(r, HANDSHAKE_TYPE_SERVER_HELLO);

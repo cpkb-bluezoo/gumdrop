@@ -1,5 +1,5 @@
 /*
- * EchClientHelloBuilderTest.java
+ * EchAcceptConfirmationTest.java
  * Copyright (C) 2026 Chris Burdess
  *
  * This file is part of gumdrop, a multipurpose Java server.
@@ -21,27 +21,20 @@
 
 package org.bluezoo.gumdrop.tls;
 
-import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Collections;
 
-import org.bluezoo.gumdrop.crypto.Hpke;
 import org.bluezoo.gumdrop.crypto.NamedGroup;
 
 import org.junit.Test;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Unit tests for {@link EchClientHelloBuilder}.
+ * Unit tests for {@link EchAcceptConfirmation}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class EchClientHelloBuilderTest {
+public class EchAcceptConfirmationTest {
 
     private static final byte[] PK_RM = hex(
             "3948cfe0ad1ddb695d780e59077195da6c56506b027329794ab02bca80815c4d");
@@ -49,35 +42,27 @@ public class EchClientHelloBuilderTest {
             "4612c550263fc8ad58375df3f557aac531d26850903e55a9f23f21d8534e8ac8");
 
     @Test
-    public void buildsDecryptableOuterAndInnerMarkers() throws Exception {
-        EchConfig ech = EchConfig.createV13(9, PK_RM, "public.example", 32);
+    public void serverEmbedMatchesClientVerify() throws Exception {
+        EchConfig ech = EchConfig.createV13(2, PK_RM, "public.example", 32);
         HandshakeMessages.ClientHelloParams params = sampleParams("backend.example");
-        SecureRandom random = new SecureRandom();
+        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, new SecureRandom());
 
-        EchClientHelloBuilder.Offer offer = EchClientHelloBuilder.build(params, ech, null, random);
+        byte[] innerFramed = offer.getClientHelloInnerFramed();
+        byte[] outerFramed = offer.getClientHelloOuterFramed();
+        byte[] innerOpened = EchServer.openInnerClientHello(outerFramed, ech, SK_RM);
+        HandshakeMessages.ClientHello inner = HandshakeMessages.parseClientHello(innerOpened);
+        HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(outerFramed);
 
-        HandshakeMessages.ClientHello outer = HandshakeMessages.parseClientHello(
-                offer.getClientHelloOuterFramed());
-        assertEquals("public.example", outer.serverName);
-        assertNotNull(outer.encryptedClientHelloOuter);
-        assertFalse(outer.encryptedClientHelloInner);
+        CipherSuite suite = CipherSuite.TLS_AES_128_GCM_SHA256;
+        byte[] serverRandom = new byte[32];
+        new SecureRandom().nextBytes(serverRandom);
+        byte[] draft = HandshakeMessages.buildServerHello(serverRandom, inner.legacySessionId, suite,
+                NamedGroup.X25519, inner.keyShares.get(NamedGroup.X25519), false);
+        byte[] serverHello = EchAcceptConfirmation.embedAcceptConfirmationInServerHello(suite, innerFramed, draft);
 
-        HandshakeMessages.ClientHello inner = HandshakeMessages.parseClientHello(
-                offer.getClientHelloInnerFramed());
-        assertEquals("backend.example", inner.serverName);
-        assertTrue(inner.encryptedClientHelloInner);
-        assertNull(inner.encryptedClientHelloOuter);
-
-        byte[] encodedInner = EchClientHelloBuilder.encodeClientHelloInner(
-                offer.getClientHelloInnerContent(), ech, "backend.example");
-        byte[] outerContent = HandshakeMessages.extractClientHelloContent(offer.getClientHelloOuterFramed());
-        EncryptedClientHello.Outer wire = outer.encryptedClientHelloOuter;
-        byte[] aad = EncryptedClientHello.clientHelloOuterAadWithZeroEchPayload(
-                outerContent, wire.payload.length);
-        Hpke hpke = Hpke.x25519Aes128Gcm();
-        Hpke.RecipientContext recipient = hpke.setupBaseR(
-                wire.enc, SK_RM, PK_RM, ech.hpkeSetupInfo());
-        assertArrayEquals(encodedInner, recipient.open(aad, wire.payload));
+        assertTrue(EchAcceptConfirmation.verifyServerHello(suite, innerFramed, serverHello));
+        assertTrue(outer.serverName.equals("public.example"));
+        assertTrue(inner.serverName.equals("backend.example"));
     }
 
     private static HandshakeMessages.ClientHelloParams sampleParams(String serverName) {

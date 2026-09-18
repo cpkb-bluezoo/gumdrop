@@ -69,6 +69,9 @@ public final class HandshakeConfig {
     // RFC 9849 Encrypted Client Hello (client: preconfigured ECHConfig).
     private boolean echEnabled;
     private EchConfig echConfig;
+    /** Server role: ECH config and private key for decrypting ClientHelloOuter. */
+    private EchConfig echServerConfig;
+    private byte[] echServerPrivateKey;
 
     // RFC 8879 certificate compression.
     private boolean certificateCompressionEnabled = true;
@@ -580,6 +583,36 @@ public final class HandshakeConfig {
      */
     public void setEchConfig(EchConfig echConfig) {
         this.echConfig = echConfig;
+    }
+
+    /**
+     * Returns the server ECH configuration for decrypting client offers.
+     *
+     * @return the server ECH config, or null
+     */
+    public EchConfig getEchServerConfig() {
+        return echServerConfig;
+    }
+
+    /**
+     * Returns the X25519 private key (32 bytes) for {@link #getEchServerConfig()}.
+     *
+     * @return raw private key, or null
+     */
+    public byte[] getEchServerPrivateKey() {
+        return echServerPrivateKey;
+    }
+
+    /**
+     * Configures server-side ECH decryption for incoming ClientHelloOuter
+     * messages.
+     *
+     * @param echServerConfig published config (includes {@code config_id})
+     * @param echServerPrivateKey 32-byte X25519 private key matching the config
+     */
+    public void setEchServerKeys(EchConfig echServerConfig, byte[] echServerPrivateKey) {
+        this.echServerConfig = echServerConfig;
+        this.echServerPrivateKey = echServerPrivateKey;
     }
 
     /**

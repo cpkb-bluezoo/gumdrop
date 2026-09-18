@@ -178,7 +178,7 @@ public final class EchClientHelloBuilder {
      */
     static byte[] encodeClientHelloInner(byte[] clientHelloContent, EchConfig echConfig, String backendServerName)
             throws HandshakeFormatException {
-        byte[] withEmptySession = clientHelloWithEmptyLegacySessionId(clientHelloContent);
+        byte[] withEmptySession = clientHelloWithLegacySessionId(clientHelloContent, new byte[0]);
         int namePadding = computeNamePadding(echConfig.getMaximumNameLength(), backendServerName);
         int baseLength = withEmptySession.length + namePadding;
         int blockPadding = 31 - ((baseLength - 1) % 32);
@@ -195,17 +195,18 @@ public final class EchClientHelloBuilder {
         return maximumNameLength + 9;
     }
 
-    private static byte[] clientHelloWithEmptyLegacySessionId(byte[] clientHelloContent)
+    static byte[] clientHelloWithLegacySessionId(byte[] clientHelloContent, byte[] legacySessionId)
             throws HandshakeFormatException {
         if (clientHelloContent.length < 34) {
             throw new HandshakeFormatException("ClientHello too short");
         }
+        byte[] sessionId = legacySessionId != null ? legacySessionId : new byte[0];
         WireReader r = new WireReader(clientHelloContent);
         WireWriter w = new WireWriter();
         w.u16(r.u16());
         w.bytes(r.bytes(32));
         r.opaque8();
-        w.opaque8(new byte[0]);
+        w.opaque8(sessionId);
         w.bytes(r.bytes(r.remaining()));
         return w.toByteArray();
     }

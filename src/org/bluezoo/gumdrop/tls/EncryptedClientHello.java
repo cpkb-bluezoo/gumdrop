@@ -150,6 +150,61 @@ public final class EncryptedClientHello {
     }
 
     /**
+     * Replaces the outer {@code encrypted_client_hello.payload} in a
+     * serialized ClientHello body with {@code payloadLength} zero bytes
+     * (RFC 9849 section 5.2 {@code ClientHelloOuterAAD}).
+     */
+    public static byte[] clientHelloOuterAadWithZeroEchPayload(byte[] clientHelloContent, int payloadLength)
+            throws HandshakeFormatException {
+        return replaceOuterEchPayload(clientHelloContent, new byte[payloadLength]);
+    }
+
+    private static byte[] replaceOuterEchPayload(byte[] clientHelloContent, byte[] newPayload)
+            throws HandshakeFormatException {
+        WireReader body = new WireReader(clientHelloContent);
+        WireWriter w = new WireWriter();
+        w.u16(body.u16());
+        w.bytes(body.bytes(32));
+        w.opaque8(body.opaque8());
+        w.opaque16(body.opaque16());
+        w.opaque8(body.opaque8());
+        WireReader er = new WireReader(body.opaque16());
+        WireWriter extOut = new WireWriter();
+        while (er.hasRemaining()) {
+            int extType = er.u16();
+            byte[] extBody = er.opaque16();
+            if (extType == EXTENSION_TYPE && extBody.length > 0 && extBody[0] == CLIENT_HELLO_TYPE_OUTER) {
+                WireReader or = new WireReader(extBody);
+                or.u8();
+                int kdfId = or.u16();
+                int aeadId = or.u16();
+                int configId = or.u8();
+                byte[] enc = or.opaque16();
+                WireWriter outer = new WireWriter();
+                outer.u8(CLIENT_HELLO_TYPE_OUTER);
+                outer.u16(kdfId);
+                outer.u16(aeadId);
+                outer.u8(configId);
+                outer.opaque16(enc);
+                outer.opaque16(newPayload);
+                extBody = outer.toByteArray();
+            }
+            writeExtensionForAad(extOut, extType, extBody);
+        }
+        w.opaque16(extOut.toByteArray());
+        if (body.hasRemaining()) {
+            throw new HandshakeFormatException("Trailing bytes in ClientHello");
+        }
+        return w.toByteArray();
+    }
+
+    private static void writeExtensionForAad(WireWriter ext, int type, byte[] body) {
+        ext.u16(type);
+        ext.u16(body.length);
+        ext.bytes(body);
+    }
+
+    /**
      * Parses {@code ECHHelloRetryRequest} on HelloRetryRequest.
      */
     public static byte[] parseHelloRetryRequest(byte[] extBody) throws HandshakeFormatException {

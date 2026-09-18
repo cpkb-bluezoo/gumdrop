@@ -118,6 +118,8 @@ public final class HandshakeEngine {
     /** Framed ClientHelloInner when ECH was offered; used after server acceptance. */
     private byte[] echClientHelloInnerFramed;
     private boolean echOffered;
+    private boolean echAccepted;
+    private boolean echRejected;
 
     // Server-only state.
     private NamedGroup serverRetryRequestedGroup;
@@ -219,6 +221,8 @@ public final class HandshakeEngine {
         boolean wantEarly = false;
         echClientHelloInnerFramed = null;
         echOffered = false;
+        echAccepted = false;
+        echRejected = false;
         byte[] realPskBinder = null;
         try {
             if (ticket != null) {
@@ -375,6 +379,15 @@ public final class HandshakeEngine {
             return;
         }
         HandshakeMessages.ServerHello sh = HandshakeMessages.parseServerHello(message);
+        if (echOffered && echClientHelloInnerFramed != null) {
+            if (sh.cipherSuite != null
+                    && EchAcceptConfirmation.verifyServerHello(sh.cipherSuite, echClientHelloInnerFramed, message)) {
+                echAccepted = true;
+                savedClientHelloBytes = echClientHelloInnerFramed;
+            } else {
+                echRejected = true;
+            }
+        }
         if (!sh.selectedTls13 || sh.cipherSuite == null || !config.getCipherSuites().contains(sh.cipherSuite)) {
             fail(sink, AlertDescription.HANDSHAKE_FAILURE, "Server selected an unacceptable protocol version or cipher suite");
             return;
@@ -419,6 +432,17 @@ public final class HandshakeEngine {
             return;
         }
         HandshakeMessages.HelloRetryRequest hrr = HandshakeMessages.parseHelloRetryRequest(message);
+        if (echOffered && echClientHelloInnerFramed != null) {
+            if (hrr.echHrrConfirmation == null || hrr.echHrrConfirmation.length != 8) {
+                echRejected = true;
+            } else if (hrr.cipherSuite != null && EchAcceptConfirmation.verifyHelloRetryRequest(
+                    hrr.cipherSuite, echClientHelloInnerFramed, message, hrr.echHrrConfirmation)) {
+                echAccepted = true;
+                savedClientHelloBytes = echClientHelloInnerFramed;
+            } else {
+                echRejected = true;
+            }
+        }
         if (hrr.cipherSuite == null || !config.getCipherSuites().contains(hrr.cipherSuite)) {
             fail(sink, AlertDescription.HANDSHAKE_FAILURE, "HelloRetryRequest selected an unacceptable cipher suite");
             return;
@@ -660,7 +684,16 @@ public final class HandshakeEngine {
 
     private void onClientHello(byte[] message, TlsEventSink sink)
             throws HandshakeFormatException, GeneralSecurityException {
+        byte[] clientHelloForTranscript = message;
         HandshakeMessages.ClientHello ch = HandshakeMessages.parseClientHello(message);
+        boolean echInnerAccepted = false;
+        if (ch.encryptedClientHelloOuter != null && config.getEchServerConfig() != null
+                && config.getEchServerPrivateKey() != null) {
+            clientHelloForTranscript = EchServer.openInnerClientHello(message, config.getEchServerConfig(),
+                    config.getEchServerPrivateKey());
+            ch = HandshakeMessages.parseClientHello(clientHelloForTranscript);
+            echInnerAccepted = true;
+        }
         if (ch.recordSizeLimitPresent) {
             peerRecordSizeLimit = ch.recordSizeLimit;
         }
@@ -732,7 +765,7 @@ public final class HandshakeEngine {
         if (transcript == null) {
             transcript = Transcript.create(negotiatedSuite);
         }
-        transcript.update(message);
+        transcript.update(clientHelloForTranscript);
 
         KeyExchange.ServerResult kxResult = KeyExchange.agreeAsServer(group, ch.keyShares.get(group));
 
@@ -740,6 +773,10 @@ public final class HandshakeEngine {
         secureRandom.nextBytes(serverRandom);
         byte[] serverHello = HandshakeMessages.buildServerHello(serverRandom, ch.legacySessionId,
                 negotiatedSuite, group, kxResult.getShareBytes(), resumed);
+        if (echInnerAccepted) {
+            serverHello = EchAcceptConfirmation.embedAcceptConfirmationInServerHello(
+                    negotiatedSuite, clientHelloForTranscript, serverHello);
+        }
         transcript.update(serverHello);
         sink.handshakeDataReady(serverHello);
 
