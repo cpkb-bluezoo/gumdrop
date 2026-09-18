@@ -185,6 +185,29 @@ public class FileHandlerTest {
         assertEquals(HttpStatus.NOT_MODIFIED.code, st.status());
     }
 
+    @Test
+    public void testGetNotModifiedIfNoneMatch() throws Exception {
+        RecordingState initial =
+                dispatch(newHandler(true), "GET", "/hello.txt", null);
+        assertEquals(HttpStatus.OK.code, initial.status());
+        String etag = initial.header("ETag");
+        assertNotNull(etag);
+
+        RecordingState cached = dispatch(newHandler(true), "GET", "/hello.txt",
+                headers("If-None-Match", etag));
+        assertEquals(HttpStatus.NOT_MODIFIED.code, cached.status());
+        assertEquals(etag, cached.header("ETag"));
+        assertEquals(0, cached.body().length);
+    }
+
+    @Test
+    public void testGetNotModifiedIfNoneMatchWrongTag() throws Exception {
+        RecordingState st = dispatch(newHandler(true), "GET", "/hello.txt",
+                headers("If-None-Match", "\"stale\""));
+        assertEquals(HttpStatus.OK.code, st.status());
+        assertEquals(HELLO, new String(st.body(), StandardCharsets.UTF_8));
+    }
+
     // ── DELETE ──
 
     @Test
