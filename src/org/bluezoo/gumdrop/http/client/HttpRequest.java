@@ -47,6 +47,7 @@ import java.nio.ByteBuffer;
  * <pre>
  * HttpRequest request = session.post("/api/users");
  * request.header("Content-Type", "application/json");
+ * request.header("Content-Encoding", "gzip");  // optional; client compresses plaintext
  * request.startRequestBody(handler);
  * request.requestBodyContent(ByteBuffer.wrap(jsonData));
  * request.endRequestBody();
@@ -95,16 +96,6 @@ public interface HttpRequest {
      * @param value the header value
      */
     void header(String name, String value);
-
-    /**
-     * Requests {@code Content-Encoding} on the request body ({@code br},
-     * {@code gzip}, or {@code deflate}). Plaintext supplied via
-     * {@link #requestBodyContent} is compressed when {@link #endRequestBody()}
-     * is called.
-     *
-     * @param coding coding token, or {@code null} to send uncompressed
-     */
-    void requestContentCoding(String coding);
 
     // ─────────────────────────────────────────────────────────────────────────
     // HTTP/2 Priority (Optional)

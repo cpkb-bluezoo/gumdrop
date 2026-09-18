@@ -25,7 +25,7 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpContentCoding;
+import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpDateCache;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -163,12 +163,12 @@ class Stream implements HttpResponseState {
     private boolean responseChunked = false;
 
     /** Non-null when the response body is compressed via {@code Content-Encoding}. */
-    private HttpContentCoding.Encoder responseContentEncoder;
+    private ContentEncoding.Encoder responseContentEncoder;
 
     private boolean decodeRequestContentCoding;
     private boolean encodeResponseContentCoding;
-    private HttpContentCoding.Coding requestInboundCoding;
-    private HttpContentCoding.Decoder requestContentDecoder;
+    private ContentEncoding.Coding requestInboundCoding;
+    private ContentEncoding.Decoder requestContentDecoder;
     private long requestDecodedBytesReceived;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -927,7 +927,7 @@ class Stream implements HttpResponseState {
                     buf.position(buf.limit());
                     return;
                 }
-            } catch (HttpContentCoding.HttpContentCodingException e) {
+            } catch (ContentEncoding.ContentEncodingException e) {
                 buf.position(buf.limit());
                 try {
                     sendError(400);
@@ -1164,10 +1164,10 @@ class Stream implements HttpResponseState {
                 hasTransferEncoding, hasContentEncoding)) {
             String acceptEncoding = this.headers != null
                     ? this.headers.getCombinedValue("Accept-Encoding") : null;
-            HttpContentCoding.Coding coding =
-                    HttpContentCoding.selectFromAcceptEncoding(acceptEncoding);
+            ContentEncoding.Coding coding =
+                    ContentEncoding.selectFromAcceptEncoding(acceptEncoding);
             if (coding != null) {
-                responseContentEncoder = HttpContentCoding.createEncoder(coding);
+                responseContentEncoder = ContentEncoding.createEncoder(coding);
                 headers.add("Content-Encoding", coding.token());
                 headers.removeAll("Content-Length");
                 hasContentLength = false;
@@ -1276,7 +1276,7 @@ class Stream implements HttpResponseState {
         if (responseContentEncoder != null) {
             try {
                 responseContentEncoder.write(buf, endStream);
-            } catch (HttpContentCoding.HttpContentCodingException e) {
+            } catch (ContentEncoding.ContentEncodingException e) {
                 throw new ProtocolException(e.getMessage());
             }
             ByteBuffer encoded;
@@ -1348,7 +1348,7 @@ class Stream implements HttpResponseState {
         if (encoding == null || encoding.isEmpty()) {
             return true;
         }
-        HttpContentCoding.Coding coding = HttpContentCoding.parseContentEncoding(encoding);
+        ContentEncoding.Coding coding = ContentEncoding.parseContentEncoding(encoding);
         if (coding == null) {
             try {
                 sendError(415);
@@ -1363,14 +1363,14 @@ class Stream implements HttpResponseState {
         return true;
     }
 
-    private void ensureRequestContentDecoder() throws HttpContentCoding.HttpContentCodingException {
+    private void ensureRequestContentDecoder() throws ContentEncoding.ContentEncodingException {
         if (requestContentDecoder != null || requestInboundCoding == null) {
             return;
         }
         long maxBody = connection.getMaxRequestBodySize();
         int maxDecoded = maxBody > 0 && maxBody <= Integer.MAX_VALUE
-                ? (int) maxBody : HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE;
-        requestContentDecoder = HttpContentCoding.createDecoder(requestInboundCoding, maxDecoded);
+                ? (int) maxBody : ContentEncoding.DEFAULT_MAX_DECOMPRESSED_SIZE;
+        requestContentDecoder = ContentEncoding.createDecoder(requestInboundCoding, maxDecoded);
         requestInboundCoding = null;
     }
 
@@ -1415,7 +1415,7 @@ class Stream implements HttpResponseState {
                     handler.endRequestBody(this);
                 }
             }
-        } catch (HttpContentCoding.HttpContentCodingException e) {
+        } catch (ContentEncoding.ContentEncodingException e) {
             try {
                 sendError(400);
             } catch (ProtocolException pe) {

@@ -1,5 +1,5 @@
 /*
- * HttpContentCodingTest.java
+ * ContentEncodingTest.java
  * Copyright (C) 2026 Chris Burdess
  */
 
@@ -14,7 +14,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-public class HttpContentCodingTest {
+public class ContentEncodingTest {
 
     private static final byte[] PAYLOAD = repeat("Hello HTTP content coding! ", 40);
 
@@ -29,49 +29,49 @@ public class HttpContentCodingTest {
 
     @Test
     public void selectFromAcceptEncodingPrefersBrotli() {
-        assertEquals(HttpContentCoding.Coding.BR,
-                HttpContentCoding.selectFromAcceptEncoding("gzip, deflate, br"));
+        assertEquals(ContentEncoding.Coding.BR,
+                ContentEncoding.selectFromAcceptEncoding("gzip, deflate, br"));
     }
 
     @Test
     public void selectFromAcceptEncodingSkipsIdentity() {
-        assertNull(HttpContentCoding.selectFromAcceptEncoding("identity"));
+        assertNull(ContentEncoding.selectFromAcceptEncoding("identity"));
     }
 
     @Test
     public void gzipRoundTripViaEncoderAndDecompress() throws Exception {
-        byte[] encoded = encodeFully(HttpContentCoding.Coding.GZIP, PAYLOAD);
+        byte[] encoded = encodeFully(ContentEncoding.Coding.GZIP, PAYLOAD);
         assertTrue(encoded.length < PAYLOAD.length);
-        byte[] decoded = HttpContentCoding.decompress(
-                HttpContentCoding.Coding.GZIP, encoded,
-                HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+        byte[] decoded = ContentEncoding.decompress(
+                ContentEncoding.Coding.GZIP, encoded,
+                ContentEncoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
         assertArrayEquals(PAYLOAD, decoded);
     }
 
     @Test
     public void deflateRoundTrip() throws Exception {
-        byte[] encoded = encodeFully(HttpContentCoding.Coding.DEFLATE, PAYLOAD);
-        byte[] decoded = HttpContentCoding.decompress(
-                HttpContentCoding.Coding.DEFLATE, encoded,
-                HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+        byte[] encoded = encodeFully(ContentEncoding.Coding.DEFLATE, PAYLOAD);
+        byte[] decoded = ContentEncoding.decompress(
+                ContentEncoding.Coding.DEFLATE, encoded,
+                ContentEncoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
         assertArrayEquals(PAYLOAD, decoded);
     }
 
     @Test
     public void brotliRoundTrip() throws Exception {
-        byte[] encoded = encodeFully(HttpContentCoding.Coding.BR, PAYLOAD);
+        byte[] encoded = encodeFully(ContentEncoding.Coding.BR, PAYLOAD);
         assertTrue(encoded.length < PAYLOAD.length);
-        byte[] decoded = HttpContentCoding.decompress(
-                HttpContentCoding.Coding.BR, encoded,
-                HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+        byte[] decoded = ContentEncoding.decompress(
+                ContentEncoding.Coding.BR, encoded,
+                ContentEncoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
         assertArrayEquals(PAYLOAD, decoded);
     }
 
     @Test
     public void gzipIncrementalDecodeMatchesOneShot() throws Exception {
-        byte[] encoded = encodeFully(HttpContentCoding.Coding.GZIP, PAYLOAD);
-        HttpContentCoding.Decoder decoder = HttpContentCoding.createDecoder(
-                HttpContentCoding.Coding.GZIP, HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+        byte[] encoded = encodeFully(ContentEncoding.Coding.GZIP, PAYLOAD);
+        ContentEncoding.Decoder decoder = ContentEncoding.createDecoder(
+                ContentEncoding.Coding.GZIP, ContentEncoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         try {
             int chunk = 37;
@@ -90,9 +90,9 @@ public class HttpContentCodingTest {
         assertArrayEquals(PAYLOAD, out.toByteArray());
     }
 
-    private static byte[] encodeFully(HttpContentCoding.Coding coding, byte[] payload)
-            throws HttpContentCoding.HttpContentCodingException {
-        HttpContentCoding.Encoder encoder = HttpContentCoding.createEncoder(coding);
+    private static byte[] encodeFully(ContentEncoding.Coding coding, byte[] payload)
+            throws ContentEncoding.ContentEncodingException {
+        ContentEncoding.Encoder encoder = ContentEncoding.createEncoder(coding);
         try {
             encoder.write(ByteBuffer.wrap(payload), true);
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();

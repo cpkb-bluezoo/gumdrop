@@ -22,7 +22,6 @@
 package org.bluezoo.gumdrop.http.h3;
 
 import java.nio.ByteBuffer;
-import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
@@ -30,7 +29,6 @@ import java.util.concurrent.CancellationException;
 
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpContentCoding;
 import org.bluezoo.gumdrop.http.PriorityParams;
 import org.bluezoo.gumdrop.http.client.HttpRequest;
 import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
@@ -101,8 +99,6 @@ public class H3Request implements HttpRequest {
 
     private volatile boolean requestStarted;
 
-    private HttpContentCoding.Coding requestContentCoding;
-
     public H3Request(Http3ClientHandler h3Handler, String method,
                      String path, String authority, String scheme,
                      Trace traceContext) {
@@ -120,23 +116,6 @@ public class H3Request implements HttpRequest {
             throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
         }
         headers.add(new Header(name, value));
-    }
-
-    @Override
-    public void requestContentCoding(String coding) {
-        if (requestStarted) {
-            throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
-        }
-        if (coding == null || coding.isEmpty()) {
-            requestContentCoding = null;
-            return;
-        }
-        requestContentCoding = HttpContentCoding.parseContentEncoding(coding.trim());
-        if (requestContentCoding == null) {
-            throw new IllegalArgumentException(MessageFormat.format(
-                    L10N.getString("err.unsupported_request_content_encoding"), coding));
-        }
-        headers.add(new Header("Content-Encoding", requestContentCoding.token()));
     }
 
     /**

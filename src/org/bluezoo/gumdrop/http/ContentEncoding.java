@@ -1,5 +1,5 @@
 /*
- * HttpContentCoding.java
+ * ContentEncoding.java
  * Copyright (C) 2026 Chris Burdess
  */
 
@@ -23,11 +23,11 @@ import org.bluezoo.micula.BrotliDefaultHandler;
 import org.bluezoo.micula.BrotliException;
 import org.bluezoo.micula.BrotliSink;
 /**
- * HTTP message body content codings (RFC 9110 section 8.4): {@code br},
- * {@code gzip}, and {@code deflate} using micula and {@link Deflater}/
- * {@link Inflater} (not {@code InputStream}/{@code OutputStream} wrappers).
+ * {@code Content-Encoding} (RFC 9110 section 8.4): {@code br}, {@code gzip},
+ * and {@code deflate} using micula and {@link Deflater}/{@link Inflater}
+ * (not {@code InputStream}/{@code OutputStream} wrappers).
  */
-public final class HttpContentCoding {
+public final class ContentEncoding {
 
     /** Default maximum decompressed body size (64 MiB). */
     public static final int DEFAULT_MAX_DECOMPRESSED_SIZE = 64 * 1024 * 1024;
@@ -79,7 +79,7 @@ public final class HttpContentCoding {
             Coding.BR, Coding.GZIP, Coding.DEFLATE
     };
 
-    private HttpContentCoding() {
+    private ContentEncoding() {
     }
 
     /**
@@ -177,13 +177,13 @@ public final class HttpContentCoding {
      * @param encoded compressed bytes
      * @param maxDecompressedSize output limit
      * @return decompressed bytes
-     * @throws HttpContentCodingException if decoding fails
+     * @throws ContentEncodingException if decoding fails
      */
     /**
      * Compresses a complete body with the given coding.
      */
     public static byte[] compressFully(Coding coding, byte[] input)
-            throws HttpContentCodingException {
+            throws ContentEncodingException {
         if (coding == null) {
             throw new NullPointerException("coding");
         }
@@ -223,7 +223,7 @@ public final class HttpContentCoding {
     }
 
     public static byte[] decompress(Coding coding, byte[] encoded, int maxDecompressedSize)
-            throws HttpContentCodingException {
+            throws ContentEncodingException {
         if (coding == null) {
             throw new NullPointerException("coding");
         }
@@ -239,7 +239,7 @@ public final class HttpContentCoding {
         }
     }
 
-    private static byte[] drainEncoded(Encoder encoder) throws HttpContentCodingException {
+    private static byte[] drainEncoded(Encoder encoder) throws ContentEncodingException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ByteBuffer chunk;
         while ((chunk = encoder.readEncoded()) != null) {
@@ -248,7 +248,7 @@ public final class HttpContentCoding {
         return out.toByteArray();
     }
 
-    private static byte[] drainDecoded(Decoder decoder) throws HttpContentCodingException {
+    private static byte[] drainDecoded(Decoder decoder) throws ContentEncodingException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ByteBuffer chunk;
         while ((chunk = decoder.readDecoded()) != null) {
@@ -270,7 +270,7 @@ public final class HttpContentCoding {
          * @param data compressed bytes (may be empty)
          * @param end true when no further compressed bytes will be supplied
          */
-        void write(ByteBuffer data, boolean end) throws HttpContentCodingException;
+        void write(ByteBuffer data, boolean end) throws ContentEncodingException;
 
         /**
          * Returns decoded output accumulated since the last call, or null if none.
@@ -288,7 +288,7 @@ public final class HttpContentCoding {
          * @param data plaintext (may be empty)
          * @param end true when no further plaintext will be supplied
          */
-        void write(ByteBuffer data, boolean end) throws HttpContentCodingException;
+        void write(ByteBuffer data, boolean end) throws ContentEncodingException;
 
         /**
          * Returns encoded output accumulated since the last call, or null if none.
@@ -305,7 +305,7 @@ public final class HttpContentCoding {
         private final Deque<ByteBuffer> pending = new ArrayDeque<ByteBuffer>();
 
         @Override
-        public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
+        public void write(ByteBuffer data, boolean end) throws ContentEncodingException {
             if (data != null && data.hasRemaining()) {
                 byte[] in = new byte[data.remaining()];
                 data.get(in);
@@ -352,7 +352,7 @@ public final class HttpContentCoding {
         private long uncompressedSize;
 
         @Override
-        public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
+        public void write(ByteBuffer data, boolean end) throws ContentEncodingException {
             if (!headerWritten) {
                 headerWritten = true;
                 pending.addLast(ByteBuffer.wrap(GZIP_HEADER.clone()));
@@ -431,7 +431,7 @@ public final class HttpContentCoding {
         private boolean closed;
 
         @Override
-        public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
+        public void write(ByteBuffer data, boolean end) throws ContentEncodingException {
             if (closed) {
                 return;
             }
@@ -450,7 +450,7 @@ public final class HttpContentCoding {
                     encoder = null;
                 }
             } catch (BrotliException e) {
-                throw new HttpContentCodingException("brotli compression failed", e);
+                throw new ContentEncodingException("brotli compression failed", e);
             }
         }
 
@@ -486,7 +486,7 @@ public final class HttpContentCoding {
         }
 
         @Override
-        public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
+        public void write(ByteBuffer data, boolean end) throws ContentEncodingException {
             if (ended) {
                 return;
             }
@@ -496,7 +496,7 @@ public final class HttpContentCoding {
             if (end) {
                 ended = true;
                 if (!inflater.finished()) {
-                    throw new HttpContentCodingException("truncated compressed body");
+                    throw new ContentEncodingException("truncated compressed body");
                 }
             }
         }
@@ -511,14 +511,14 @@ public final class HttpContentCoding {
             inflater.end();
         }
 
-        private void feedInflater(ByteBuffer data) throws HttpContentCodingException {
+        private void feedInflater(ByteBuffer data) throws ContentEncodingException {
             byte[] in = new byte[data.remaining()];
             data.get(in);
             inflater.setInput(in);
             inflateAvailable();
         }
 
-        private void inflateAvailable() throws HttpContentCodingException {
+        private void inflateAvailable() throws ContentEncodingException {
             try {
                 while (!inflater.needsInput()) {
                     int n = inflater.inflate(buf);
@@ -528,14 +528,14 @@ public final class HttpContentCoding {
                     enqueueDecoded(n);
                 }
             } catch (DataFormatException e) {
-                throw new HttpContentCodingException("inflation failed", e);
+                throw new ContentEncodingException("inflation failed", e);
             }
         }
 
-        private void enqueueDecoded(int n) throws HttpContentCodingException {
+        private void enqueueDecoded(int n) throws ContentEncodingException {
             decompressedSize += n;
             if (decompressedSize > maxDecompressedSize) {
-                throw new HttpContentCodingException("decompressed body exceeds limit");
+                throw new ContentEncodingException("decompressed body exceeds limit");
             }
             pending.addLast(ByteBuffer.wrap(buf, 0, n));
         }
@@ -557,7 +557,7 @@ public final class HttpContentCoding {
         }
 
         @Override
-        public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
+        public void write(ByteBuffer data, boolean end) throws ContentEncodingException {
             if (ended) {
                 return;
             }
@@ -565,7 +565,7 @@ public final class HttpContentCoding {
                 skipHeader(data);
                 if (headerRemaining > 0) {
                     if (end) {
-                        throw new HttpContentCodingException("truncated gzip body");
+                        throw new ContentEncodingException("truncated gzip body");
                     }
                     return;
                 }
@@ -580,10 +580,10 @@ public final class HttpContentCoding {
             if (end) {
                 ended = true;
                 if (inflater == null || !inflater.finished()) {
-                    throw new HttpContentCodingException("truncated gzip body");
+                    throw new ContentEncodingException("truncated gzip body");
                 }
                 if (inflater.getRemaining() != TRAILER_LEN) {
-                    throw new HttpContentCodingException("truncated gzip body");
+                    throw new ContentEncodingException("truncated gzip body");
                 }
             }
         }
@@ -607,7 +607,7 @@ public final class HttpContentCoding {
             }
         }
 
-        private void inflateAvailable() throws HttpContentCodingException {
+        private void inflateAvailable() throws ContentEncodingException {
             try {
                 while (!inflater.needsInput()) {
                     int n = inflater.inflate(buf);
@@ -616,12 +616,12 @@ public final class HttpContentCoding {
                     }
                     decompressedSize += n;
                     if (decompressedSize > maxDecompressedSize) {
-                        throw new HttpContentCodingException("decompressed body exceeds limit");
+                        throw new ContentEncodingException("decompressed body exceeds limit");
                     }
                     pending.addLast(ByteBuffer.wrap(buf, 0, n));
                 }
             } catch (DataFormatException e) {
-                throw new HttpContentCodingException("inflation failed", e);
+                throw new ContentEncodingException("inflation failed", e);
             }
         }
     }
@@ -638,7 +638,7 @@ public final class HttpContentCoding {
         }
 
         @Override
-        public void write(ByteBuffer data, boolean end) throws HttpContentCodingException {
+        public void write(ByteBuffer data, boolean end) throws ContentEncodingException {
             if (closed) {
                 return;
             }
@@ -670,7 +670,7 @@ public final class HttpContentCoding {
                     decoder = null;
                 }
             } catch (BrotliException e) {
-                throw new HttpContentCodingException("brotli decompression failed", e);
+                throw new ContentEncodingException("brotli decompression failed", e);
             }
         }
 
@@ -694,16 +694,16 @@ public final class HttpContentCoding {
     }
 
     /**
-     * Thrown when content coding fails.
+     * Thrown when content encoding fails.
      */
-    public static class HttpContentCodingException extends Exception {
+    public static class ContentEncodingException extends Exception {
         private static final long serialVersionUID = 1L;
 
-        public HttpContentCodingException(String message) {
+        public ContentEncodingException(String message) {
             super(message);
         }
 
-        public HttpContentCodingException(String message, Throwable cause) {
+        public ContentEncodingException(String message, Throwable cause) {
             super(message, cause);
         }
     }

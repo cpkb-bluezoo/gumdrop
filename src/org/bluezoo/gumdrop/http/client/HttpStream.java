@@ -26,7 +26,7 @@ import java.text.MessageFormat;
 import java.util.ResourceBundle;
 
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpContentCoding;
+import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.PriorityParams;
 
 /**
@@ -67,10 +67,9 @@ class HttpStream implements HttpRequest {
     private boolean bodySent;
     private boolean cancelled;
 
-    private HttpContentCoding.Coding requestContentCoding;
-    private HttpContentCoding.Encoder requestContentEncoder;
+    private ContentEncoding.Encoder requestContentEncoder;
 
-    private HttpContentCoding.Decoder inboundResponseDecoder;
+    private ContentEncoding.Decoder inboundResponseDecoder;
 
     /**
      * Creates a new HTTP stream.
@@ -149,13 +148,30 @@ class HttpStream implements HttpRequest {
         return exclusive;
     }
 
-    HttpContentCoding.Coding getRequestContentCoding() {
-        return requestContentCoding;
+    ContentEncoding.Coding getRequestContentCoding() {
+        if (!connection.isEncodeRequestBodyContentCoding()) {
+            return null;
+        }
+        return ContentEncoding.parseContentEncoding(
+                headers.getCombinedValue("Content-Encoding"));
     }
 
-    HttpContentCoding.Encoder getOrCreateRequestContentEncoder() {
-        if (requestContentEncoder == null && requestContentCoding != null) {
-            requestContentEncoder = HttpContentCoding.createEncoder(requestContentCoding);
+    ContentEncoding.Encoder getOrCreateRequestContentEncoder()
+            throws ContentEncoding.ContentEncodingException {
+        ContentEncoding.Coding coding = getRequestContentCoding();
+        if (coding == null) {
+            String raw = headers.getCombinedValue("Content-Encoding");
+            if (connection.isEncodeRequestBodyContentCoding()
+                    && raw != null && !raw.trim().isEmpty()) {
+                throw new ContentEncoding.ContentEncodingException(
+                        MessageFormat.format(
+                                L10N.getString("err.unsupported_request_content_encoding"),
+                                raw.trim()));
+            }
+            return null;
+        }
+        if (requestContentEncoder == null) {
+            requestContentEncoder = ContentEncoding.createEncoder(coding);
         }
         return requestContentEncoder;
     }
@@ -167,11 +183,11 @@ class HttpStream implements HttpRequest {
         }
     }
 
-    HttpContentCoding.Decoder getInboundResponseDecoder() {
+    ContentEncoding.Decoder getInboundResponseDecoder() {
         return inboundResponseDecoder;
     }
 
-    void setInboundResponseDecoder(HttpContentCoding.Coding coding) {
+    void setInboundResponseDecoder(ContentEncoding.Coding coding) {
         if (coding == null) {
             if (inboundResponseDecoder != null) {
                 inboundResponseDecoder.close();
@@ -182,8 +198,8 @@ class HttpStream implements HttpRequest {
         if (inboundResponseDecoder != null) {
             inboundResponseDecoder.close();
         }
-        inboundResponseDecoder = HttpContentCoding.createDecoder(coding,
-                HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+        inboundResponseDecoder = ContentEncoding.createDecoder(coding,
+                ContentEncoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
     }
 
     void closeInboundResponseDecoder() {
@@ -194,7 +210,7 @@ class HttpStream implements HttpRequest {
     }
 
     void drainInboundResponseDecoded(HttpResponseHandler responseHandler)
-            throws HttpContentCoding.HttpContentCodingException {
+            throws ContentEncoding.ContentEncodingException {
         if (inboundResponseDecoder == null || responseHandler == null) {
             return;
         }
@@ -205,30 +221,13 @@ class HttpStream implements HttpRequest {
     }
 
     void finishInboundResponseDecoded(HttpResponseHandler responseHandler)
-            throws HttpContentCoding.HttpContentCodingException {
+            throws ContentEncoding.ContentEncodingException {
         if (inboundResponseDecoder == null) {
             return;
         }
         inboundResponseDecoder.write(ByteBuffer.allocate(0), true);
         drainInboundResponseDecoded(responseHandler);
         closeInboundResponseDecoder();
-    }
-
-    @Override
-    public void requestContentCoding(String coding) {
-        if (headersSent) {
-            throw new IllegalStateException(L10N.getString("err.headers_already_sent"));
-        }
-        if (coding == null || coding.isEmpty()) {
-            requestContentCoding = null;
-            return;
-        }
-        requestContentCoding = HttpContentCoding.parseContentEncoding(coding.trim());
-        if (requestContentCoding == null) {
-            throw new IllegalArgumentException(MessageFormat.format(
-                    L10N.getString("err.unsupported_request_content_encoding"), coding));
-        }
-        headers.set("Content-Encoding", requestContentCoding.token());
     }
 
     @Override
@@ -294,7 +293,7 @@ class HttpStream implements HttpRequest {
         if (cancelled) {
             return 0;
         }
-        if (requestContentCoding != null) {
+        if (getRequestContentCoding() != null) {
             return connection.sendRequestBodyEncoded(this, data, false);
         }
         return connection.sendRequestBody(this, data);

@@ -152,6 +152,7 @@ public class HttpClient implements AltSvcListener {
     private long idleTimeoutMs;
     private boolean sendAcceptEncodingHeader = true;
     private boolean decodeResponseContentCoding = true;
+    private boolean encodeRequestBodyContentCoding = true;
     private ClientEndpointPool connectionPool;
 
     /** Trace context for automatic traceparent propagation on outbound requests. */
@@ -599,14 +600,34 @@ public class HttpClient implements AltSvcListener {
         }
     }
 
+    /**
+     * Enables or disables transparent compression of request bodies when
+     * {@code Content-Encoding} is set to {@code br}, {@code gzip}, or
+     * {@code deflate}. When disabled, body bytes are sent as supplied
+     * (for example already-compressed data).
+     *
+     * @param encode true to compress plaintext per {@code Content-Encoding}
+     */
+    public void setEncodeRequestBodyContentCoding(boolean encode) {
+        this.encodeRequestBodyContentCoding = encode;
+        if (endpointHandler != null) {
+            endpointHandler.setEncodeRequestBodyContentCoding(encode);
+        }
+        if (h3Handler != null) {
+            h3Handler.setEncodeRequestBodyContentCoding(encode);
+        }
+    }
+
     private void applyContentCodingSettings(HttpClientProtocolHandler handler) {
         handler.setSendAcceptEncodingHeader(sendAcceptEncodingHeader);
         handler.setDecodeResponseContentCoding(decodeResponseContentCoding);
+        handler.setEncodeRequestBodyContentCoding(encodeRequestBodyContentCoding);
     }
 
     private void applyContentCodingSettings(Http3ClientHandler handler) {
         handler.setSendAcceptEncodingHeader(sendAcceptEncodingHeader);
         handler.setDecodeResponseContentCoding(decodeResponseContentCoding);
+        handler.setEncodeRequestBodyContentCoding(encodeRequestBodyContentCoding);
     }
 
     /**
@@ -807,6 +828,12 @@ public class HttpClient implements AltSvcListener {
     /** @return this client */
     public HttpClient decodeResponseContentCoding(boolean decode) {
         setDecodeResponseContentCoding(decode);
+        return this;
+    }
+
+    /** @return this client */
+    public HttpClient encodeRequestBodyContentCoding(boolean encode) {
+        setEncodeRequestBodyContentCoding(encode);
         return this;
     }
 

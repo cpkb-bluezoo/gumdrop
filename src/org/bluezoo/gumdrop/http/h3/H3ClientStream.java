@@ -38,7 +38,7 @@ import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.CapsuleParser;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpContentCoding;
+import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
@@ -162,10 +162,10 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
     private final List<byte[]> pendingBody = new ArrayList<byte[]>();
     private boolean pendingBodyFin;
 
-    private HttpContentCoding.Decoder inboundResponseDecoder;
+    private ContentEncoding.Decoder inboundResponseDecoder;
 
-    private HttpContentCoding.Coding requestOutboundContentCoding;
-    private HttpContentCoding.Encoder requestContentEncoder;
+    private ContentEncoding.Coding requestOutboundContentCoding;
+    private ContentEncoding.Encoder requestContentEncoder;
 
     H3ClientStream(Http3ClientHandler connection, Decoder qpackDecoder, HttpResponseHandler responseHandler) {
         this.connection = connection;
@@ -198,18 +198,18 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         return responseHandler;
     }
 
-    HttpContentCoding.Decoder getInboundResponseDecoder() {
+    ContentEncoding.Decoder getInboundResponseDecoder() {
         return inboundResponseDecoder;
     }
 
-    void setInboundResponseDecoder(HttpContentCoding.Coding coding) {
+    void setInboundResponseDecoder(ContentEncoding.Coding coding) {
         if (inboundResponseDecoder != null) {
             inboundResponseDecoder.close();
             inboundResponseDecoder = null;
         }
         if (coding != null) {
-            inboundResponseDecoder = HttpContentCoding.createDecoder(coding,
-                    HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+            inboundResponseDecoder = ContentEncoding.createDecoder(coding,
+                    ContentEncoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
         }
     }
 
@@ -220,13 +220,13 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         }
     }
 
-    HttpContentCoding.Coding getRequestOutboundContentCoding() {
+    ContentEncoding.Coding getRequestOutboundContentCoding() {
         return requestOutboundContentCoding;
     }
 
-    HttpContentCoding.Encoder getOrCreateRequestContentEncoder() {
+    ContentEncoding.Encoder getOrCreateRequestContentEncoder() {
         if (requestContentEncoder == null && requestOutboundContentCoding != null) {
-            requestContentEncoder = HttpContentCoding.createEncoder(requestOutboundContentCoding);
+            requestContentEncoder = ContentEncoding.createEncoder(requestOutboundContentCoding);
         }
         return requestContentEncoder;
     }
@@ -242,8 +242,12 @@ class H3ClientStream implements ProtocolHandler, H3FrameHandler {
         this.pendingRequestHeaders = headers;
         this.pendingRequestFin = fin;
         this.requestMethod = headers.getValue(":method");
-        requestOutboundContentCoding = HttpContentCoding.parseContentEncoding(
-                headers.getCombinedValue("Content-Encoding"));
+        if (connection != null && connection.isEncodeRequestBodyContentCoding()) {
+            requestOutboundContentCoding = ContentEncoding.parseContentEncoding(
+                    headers.getCombinedValue("Content-Encoding"));
+        } else {
+            requestOutboundContentCoding = null;
+        }
         // RFC 9114 section 4.4 / RFC 8441 section 4: Extended CONNECT is
         // exactly CONNECT with a :protocol pseudo-header.
         this.extendedConnect = "CONNECT".equals(requestMethod) && headers.getValue(":protocol") != null;

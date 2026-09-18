@@ -54,7 +54,7 @@ import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
 import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
 import org.bluezoo.gumdrop.http.server.HttpResponseState;
 import org.bluezoo.gumdrop.http.server.HttpServerMetrics;
-import org.bluezoo.gumdrop.http.HttpContentCoding;
+import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.HttpUtils;
 import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Header;
@@ -175,11 +175,11 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
     private int responseStatusCode;
     private long responseBodyBytes;
 
-    private HttpContentCoding.Encoder responseContentEncoder;
+    private ContentEncoding.Encoder responseContentEncoder;
     private boolean decodeRequestContentCoding;
     private boolean encodeResponseContentCoding;
-    private HttpContentCoding.Coding requestInboundCoding;
-    private HttpContentCoding.Decoder requestContentDecoder;
+    private ContentEncoding.Coding requestInboundCoding;
+    private ContentEncoding.Decoder requestContentDecoder;
     private long requestDecodedBytesReceived;
 
     H3Stream(Http3ServerHandler connection, Encoder qpackEncoder, Decoder qpackDecoder) {
@@ -454,7 +454,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                 if (!drainDecodedRequestBody(false)) {
                     return;
                 }
-            } catch (HttpContentCoding.HttpContentCodingException e) {
+            } catch (ContentEncoding.ContentEncodingException e) {
                 sendErrorResponse(400);
                 return;
             }
@@ -1290,10 +1290,10 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         if (shouldCompressResponse(fin)) {
             String acceptEncoding = requestHeaders != null
                     ? requestHeaders.getCombinedValue("Accept-Encoding") : null;
-            HttpContentCoding.Coding coding =
-                    HttpContentCoding.selectFromAcceptEncoding(acceptEncoding);
+            ContentEncoding.Coding coding =
+                    ContentEncoding.selectFromAcceptEncoding(acceptEncoding);
             if (coding != null) {
-                responseContentEncoder = HttpContentCoding.createEncoder(coding);
+                responseContentEncoder = ContentEncoding.createEncoder(coding);
                 pendingResponseHeaders.add(new Header("content-encoding", coding.token()));
                 removeHeaders(pendingResponseHeaders, "content-length");
             }
@@ -1343,7 +1343,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         if (responseContentEncoder != null) {
             try {
                 responseContentEncoder.write(data, false);
-            } catch (HttpContentCoding.HttpContentCodingException e) {
+            } catch (ContentEncoding.ContentEncodingException e) {
                 abortMessageError("response Content-Encoding failed");
                 return;
             }
@@ -1385,7 +1385,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
             while ((encoded = responseContentEncoder.readEncoded()) != null) {
                 sendBodyWire(encoded);
             }
-        } catch (HttpContentCoding.HttpContentCodingException e) {
+        } catch (ContentEncoding.ContentEncodingException e) {
             abortMessageError("response Content-Encoding failed");
         } finally {
             responseContentEncoder.close();
@@ -1427,7 +1427,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         if (encoding == null || encoding.isEmpty()) {
             return true;
         }
-        HttpContentCoding.Coding coding = HttpContentCoding.parseContentEncoding(encoding);
+        ContentEncoding.Coding coding = ContentEncoding.parseContentEncoding(encoding);
         if (coding == null) {
             sendErrorResponse(415);
             return false;
@@ -1437,12 +1437,12 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
         return true;
     }
 
-    private void ensureRequestContentDecoder() throws HttpContentCoding.HttpContentCodingException {
+    private void ensureRequestContentDecoder() throws ContentEncoding.ContentEncodingException {
         if (requestContentDecoder != null || requestInboundCoding == null) {
             return;
         }
-        requestContentDecoder = HttpContentCoding.createDecoder(requestInboundCoding,
-                HttpContentCoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
+        requestContentDecoder = ContentEncoding.createDecoder(requestInboundCoding,
+                ContentEncoding.DEFAULT_MAX_DECOMPRESSED_SIZE);
         requestInboundCoding = null;
     }
 
@@ -1474,7 +1474,7 @@ class H3Stream implements ProtocolHandler, H3FrameHandler, HttpResponseState {
                     handler.endRequestBody(this);
                 }
             }
-        } catch (HttpContentCoding.HttpContentCodingException e) {
+        } catch (ContentEncoding.ContentEncodingException e) {
             sendErrorResponse(400);
             return false;
         }

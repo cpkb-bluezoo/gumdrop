@@ -44,7 +44,7 @@ import org.bluezoo.gumdrop.http.ConnectIpTarget;
 import org.bluezoo.gumdrop.http.ConnectUdpTarget;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HttpContentCoding;
+import org.bluezoo.gumdrop.http.ContentEncoding;
 import org.bluezoo.gumdrop.http.client.ConnectIpEventHandler;
 import org.bluezoo.gumdrop.http.client.ConnectUdpEventHandler;
 import org.bluezoo.gumdrop.http.client.HttpMethodSafety;
@@ -141,6 +141,9 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
 
     /** When true, decode {@code Content-Encoding} on response bodies. */
     private boolean decodeResponseContentCoding = true;
+
+    /** When true, compress request bodies per {@code Content-Encoding}. */
+    private boolean encodeRequestBodyContentCoding = true;
 
     /**
      * Creates a new HTTP/3 client handler on top of an existing
@@ -649,7 +652,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
 
     private void sendRequestBodyEncodedOnLoop(H3ClientStream clientStream, byte[] plain, boolean fin) {
         try {
-            HttpContentCoding.Encoder encoder = clientStream.getOrCreateRequestContentEncoder();
+            ContentEncoding.Encoder encoder = clientStream.getOrCreateRequestContentEncoder();
             if (encoder == null) {
                 return;
             }
@@ -667,7 +670,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
                     endpoint.close();
                 }
             }
-        } catch (HttpContentCoding.HttpContentCodingException e) {
+        } catch (ContentEncoding.ContentEncodingException e) {
             HttpResponseHandler handler = clientStream.getResponseHandler();
             if (handler != null) {
                 handler.failed(new IOException(e.getMessage(), e));
@@ -1078,6 +1081,14 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         this.decodeResponseContentCoding = decodeResponseContentCoding;
     }
 
+    public void setEncodeRequestBodyContentCoding(boolean encodeRequestBodyContentCoding) {
+        this.encodeRequestBodyContentCoding = encodeRequestBodyContentCoding;
+    }
+
+    boolean isEncodeRequestBodyContentCoding() {
+        return encodeRequestBodyContentCoding;
+    }
+
     void applyDefaultAcceptEncoding(Headers headers) {
         if (!sendAcceptEncodingHeader) {
             return;
@@ -1091,7 +1102,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         if (!decodeResponseContentCoding || stream == null || headers == null) {
             return;
         }
-        HttpContentCoding.Coding coding = HttpContentCoding.parseContentEncoding(
+        ContentEncoding.Coding coding = ContentEncoding.parseContentEncoding(
                 headers.getValue("content-encoding"));
         if (coding != null) {
             stream.setInboundResponseDecoder(coding);
@@ -1124,14 +1135,14 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
         try {
             stream.getInboundResponseDecoder().write(data, false);
             drainInboundResponseDecoded(stream, responseHandler);
-        } catch (HttpContentCoding.HttpContentCodingException e) {
+        } catch (ContentEncoding.ContentEncodingException e) {
             responseHandler.failed(new IOException(e.getMessage(), e));
         }
     }
 
     private void drainInboundResponseDecoded(H3ClientStream stream, HttpResponseHandler responseHandler)
-            throws HttpContentCoding.HttpContentCodingException {
-        HttpContentCoding.Decoder decoder = stream.getInboundResponseDecoder();
+            throws ContentEncoding.ContentEncodingException {
+        ContentEncoding.Decoder decoder = stream.getInboundResponseDecoder();
         if (decoder == null) {
             return;
         }
@@ -1157,7 +1168,7 @@ public final class Http3ClientHandler implements H3ControlStream.Listener {
             stream.getInboundResponseDecoder().write(ByteBuffer.allocate(0), true);
             drainInboundResponseDecoded(stream, responseHandler);
             stream.closeInboundResponseDecoder();
-        } catch (HttpContentCoding.HttpContentCodingException e) {
+        } catch (ContentEncoding.ContentEncodingException e) {
             responseHandler.failed(new IOException(e.getMessage(), e));
             return;
         }

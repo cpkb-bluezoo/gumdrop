@@ -74,4 +74,10 @@ interface HttpClientConnectionOps {
      * @param request the request to cancel
      */
     void cancelRequest(HttpStream request);
+
+    /**
+     * When true, plaintext supplied via {@link HttpRequest#requestBodyContent}
+     * is compressed if {@code Content-Encoding} is set to a supported coding.
+     */
+    boolean isEncodeRequestBodyContentCoding();
 }
