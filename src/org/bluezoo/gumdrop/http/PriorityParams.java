@@ -186,7 +186,7 @@ public final class PriorityParams {
     }
 
     /**
-     * Maps an HTTPRequest {@code priority(weight)} value (0–255, higher
+     * Maps an HttpRequest {@code priority(weight)} value (0–255, higher
      * weight = more important) onto urgency 0–7.
      *
      * @param weight the 0–255 weight

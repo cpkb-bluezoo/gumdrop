@@ -35,9 +35,12 @@
 
 <p>
 Gumdrop provides a comprehensive HTTP implementation supporting HTTP/3,
-HTTP/2, and HTTP/1.x. The HTTP layer serves as the foundation for
-higher-level services including the <a href="servlet.html">servlet
-container</a> and <a href="webdav.html">file server</a>.
+HTTP/2, and HTTP/1.x. Applications compose an <code>HttpServer</code> with
+listeners and an <code>HttpRequestHandler</code> — see
+<a href="configuration.html">Application composition</a>.
+Higher-level stacks attach as handlers: <a href="servlet.html">servlet
+container</a> (<code>ServletRequestHandler</code>),
+<a href="webdav.html">WebDAV</a> (<code>WebDAVRequestHandler</code>).
 </p>
 
 <h3>Contents</h3>
@@ -73,7 +76,7 @@ QUIC, Gumdrop now supports the full spectrum of modern HTTP.
 HTTP/3 (RFC 9114) runs over QUIC instead of TCP. QUIC provides built-in
 TLS 1.3 encryption, multiplexed streams without head-of-line blocking,
 and faster connection establishment (often 0-RTT). HTTP/3 is configured
-via a separate <code>HTTP3Listener</code> that listens on a UDP port.
+via a separate <code>Http3Listener</code> that listens on a UDP port.
 See <a href="#http3">HTTP/3 and QUIC</a> below for details.
 </p>
 
@@ -136,41 +139,38 @@ Gumdrop&rsquo;s HTTP/3 support is built on the pure-Java QUIC stack in
 (<code>org.bluezoo.gumdrop.tls</code>). The QUIC layer handles connection
 management, stream multiplexing, and congestion control, while HTTP/3 framing
 (HEADERS, DATA, QPACK) is processed by Gumdrop&rsquo;s
-<code>HTTP3ServerHandler</code> and <code>H3Stream</code> classes.
+<code>Http3ServerHandler</code> and <code>H3Stream</code> classes.
 </p>
 
 <p>
 From the application&rsquo;s perspective, HTTP/3 is transparent. The same
-<code>HTTPRequestHandlerFactory</code> and <code>HTTPRequestHandler</code>
-interfaces are used regardless of whether the request arrived over HTTP/3,
-HTTP/2, or HTTP/1.1. The only visible difference is the HTTP version
-reported by <code>HTTPResponseState.getVersion()</code>.
+<code>HttpRequestHandler</code> interface is used regardless of whether the
+request arrived over HTTP/3, HTTP/2, or HTTP/1.1. The only visible difference
+is the HTTP version reported by
+<code>HttpResponseState.getVersion()</code>.
 </p>
+
+<p><em>Gumdrop 3 uses a single handler (or decorator chain) on
+<code>HttpServer</code>, not a handler factory — see
+<a href="configuration.html">Application composition</a>.</em></p>
 
 <h4>Configuration</h4>
 
 <p>
-HTTP/3 is configured by adding an <code>HTTP3Listener</code> to an
+HTTP/3 is configured by adding an <code>Http3Listener</code> to an
 HTTP service. Because QUIC uses UDP, the HTTP/3 listener is independent
-of the TCP-based <code>HTTPListener</code> and can coexist with it:
+of the TCP-based <code>HttpListener</code> and can coexist with it:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
-  &lt;!-- HTTP/1.1 and HTTP/2 over TCP --&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="secure"&gt;true&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
-  &lt;/listener&gt;
-  &lt;!-- HTTP/3 over QUIC (same server identity as TCP) --&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
-    &lt;property name="port"&gt;443&lt;/property&gt;
-    &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-    &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
-  &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "changeit");
+
+HttpServer server = HttpServer.compose()
+    // Wires both HTTP/1.1 + HTTP/2 over TCP and HTTP/3 over QUIC on
+    // the same port, sharing the same TLS material.
+    .secureEndpoint(443, tls)
+    .streamHandler(new ServletRequestHandler(container))
+    .server();
 </pre>
 
 <p>
@@ -203,7 +203,7 @@ openssl pkcs12 -in keystore.p12 -nocerts -nodes -out key.pem
 <h4>Alt-Svc Discovery</h4>
 
 <p>
-When an <code>HTTPService</code> has both TCP and QUIC listeners, it
+When an <code>HttpServer</code> has both TCP and QUIC listeners, it
 automatically computes an <code>Alt-Svc</code> response header and injects it
 into HTTP/1.1 and HTTP/2 responses served by the TCP listener. This tells
 clients that HTTP/3 is available:
@@ -259,7 +259,7 @@ a server GOAWAY is received, streams with IDs above the last-stream-ID
 are failed with a retryable error so the caller can reconnect.</li>
 </ul>
 
-<h4>HTTP3Listener Properties</h4>
+<h4>Http3Listener Properties</h4>
 
 <ul>
 <li><code>port</code> &ndash; UDP listening port (default: 443)</li>
@@ -329,8 +329,8 @@ HEADERS, and PUSH_PROMISE frames (RFC 7540 Section 6.1).
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.http.HTTPService"&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+&lt;service class="org.bluezoo.gumdrop.http.HttpServer"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
     &lt;property name="frame-padding"&gt;64&lt;/property&gt;
@@ -367,18 +367,22 @@ allowing handlers to focus on application logic while the framework handles
 framing, header compression, flow control, and connection management.
 </p>
 
-<h4>Core Interfaces</h4>
+<h4>Core interfaces</h4>
 
 <p>
-The server handler API consists of three main interfaces:
+The server handler API centres on three interfaces:
 </p>
 
 <ul>
-<li><b>HTTPRequestHandlerFactory</b> - creates handlers for incoming requests,
-enabling routing based on path, method, or other headers</li>
-<li><b>HTTPRequestHandler</b> - receives request events (headers, body chunks,
-completion) for a single stream</li>
-<li><b>HTTPResponseState</b> - provided to handlers for sending responses</li>
+<li><b>HttpRequestHandler</b> — receives request events (headers, body chunks,
+completion) for a single stream; implement this or compose
+<code>ServletRequestHandler</code> / <code>WebDAVRequestHandler</code></li>
+<li><b>HttpResponseState</b> — provided to handlers for sending responses
+(<code>org.bluezoo.gumdrop.http.server</code>)</li>
+<li><b>HttpStreamHandler</b> — one method, <code>openStream(HttpResponseState)</code>,
+called once per stream before headers arrive, to bind the
+<code>HttpRequestHandler</code> that will handle it; routing by path/method
+belongs in that handler's own <code>headers()</code> callback, not here</li>
 </ul>
 
 <h4>Event Sequence</h4>
@@ -408,7 +412,7 @@ requestComplete()
 <h4>Sending Responses</h4>
 
 <p>
-The <code>HTTPResponseState</code> interface provides methods for building
+The <code>HttpResponseState</code> interface provides methods for building
 responses:
 </p>
 
@@ -424,13 +428,13 @@ complete()             // finish the response
 <h4>Example: Hello World Handler</h4>
 
 <pre>
-public class HelloHandler extends DefaultHTTPRequestHandler {
+public class HelloHandler extends DefaultHttpRequestHandler {
     
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         if ("GET".equals(headers.getMethod())) {
             Headers response = new Headers();
-            response.status(HTTPStatus.OK);
+            response.status(HttpStatus.OK);
             response.add("content-type", "text/plain");
             state.headers(response);
             state.startResponseBody();
@@ -443,27 +447,30 @@ public class HelloHandler extends DefaultHTTPRequestHandler {
 }
 </pre>
 
-<h4>Request Routing with Factory</h4>
+<h4>Request Routing</h4>
 
 <p>
-The factory receives initial headers before the handler is created, enabling
-routing decisions based on path, method, or other criteria:
+A single <code>HttpRequestHandler</code>'s own <code>headers()</code> callback
+sees the request headers first, so routing decisions based on path, method,
+or other criteria happen there — delegating to another handler is just a
+method call:
 </p>
 
 <pre>
-public class MyFactory implements HTTPRequestHandlerFactory {
-    
-    public HTTPRequestHandler createHandler(HTTPResponseState state,
-                                            Headers headers) {
+public class RoutingHandler extends DefaultHttpRequestHandler {
+
+    public void headers(HttpResponseState state, Headers headers) {
         String path = headers.getPath();
-        
+        HttpRequestHandler delegate;
+
         if (path.startsWith("/api/")) {
-            return new ApiHandler();
+            delegate = new ApiHandler();
         } else if (path.startsWith("/static/")) {
-            return new StaticFileHandler(documentRoot);
+            delegate = new StaticFileHandler(documentRoot);
         } else {
-            return new DefaultHandler();
+            delegate = new DefaultHandler();
         }
+        delegate.headers(state, headers);
     }
 }
 </pre>
@@ -471,17 +478,20 @@ public class MyFactory implements HTTPRequestHandlerFactory {
 <h4>Programmatic Setup</h4>
 
 <p>
-Set the handler factory on the service:
+Compose the handler onto the server:
 </p>
 
 <pre>
-HTTPService service = new HTTPService();
-service.setHandlerFactory(new MyFactory());
-
-HTTPListener listener = new HTTPListener();
-listener.setPort(8080);
-service.addListener(listener);
-service.start();
+HttpServer server = HttpServer.compose()
+        .listener(new Http2Listener().port(8080))
+        .streamHandler(new HttpStreamHandler() {
+            @Override
+            public HttpRequestHandler openStream(HttpResponseState state) {
+                return new RoutingHandler();
+            }
+        })
+        .server();
+server.start();
 </pre>
 
 <h4>Authentication</h4>
@@ -489,7 +499,7 @@ service.start();
 <p>
 If a <code>Realm</code> is configured on the service, authentication is
 performed automatically before the factory is called. The authenticated
-principal is available via <code>HTTPResponseState.getPrincipal()</code>.
+principal is available via <code>HttpResponseState.getPrincipal()</code>.
 </p>
 
 <p>
@@ -497,12 +507,12 @@ Alternatively, the factory can perform authentication manually:
 </p>
 
 <pre>
-public HTTPRequestHandler createHandler(HTTPResponseState state,
+public HttpRequestHandler createHandler(HttpResponseState state,
                                         Headers headers) {
     String auth = headers.getValue("authorization");
     if (!isValidAuth(auth)) {
         Headers response = new Headers();
-        response.status(HTTPStatus.UNAUTHORIZED);
+        response.status(HttpStatus.UNAUTHORIZED);
         response.add("www-authenticate", "Bearer");
         state.headers(response);
         state.complete();
@@ -521,7 +531,7 @@ send resources to the client:
 
 <pre>
 @Override
-public void headers(HTTPResponseState state, Headers headers) {
+public void headers(HttpResponseState state, Headers headers) {
     // Push a stylesheet that we know the client will need
     Headers pushHeaders = new Headers();
     pushHeaders.add(":method", "GET");
@@ -546,7 +556,7 @@ the client has disabled push via settings.
 <h4>Endpoint Information</h4>
 
 <p>
-The <code>HTTPResponseState</code> provides access to endpoint details:
+The <code>HttpResponseState</code> provides access to endpoint details:
 </p>
 
 <ul>
@@ -564,12 +574,12 @@ For server-sent events or other streaming scenarios:
 </p>
 
 <pre>
-public class StreamHandler extends DefaultHTTPRequestHandler {
+public class StreamHandler extends DefaultHttpRequestHandler {
     
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         Headers response = new Headers();
-        response.status(HTTPStatus.OK);
+        response.status(HttpStatus.OK);
         response.add("content-type", "text/event-stream");
         state.headers(response);
         state.startResponseBody();
@@ -588,7 +598,7 @@ public class StreamHandler extends DefaultHTTPRequestHandler {
 <p>
 When a handler produces response data faster than the network can deliver it,
 or receives request body data faster than it can process it, backpressure
-prevents unbounded buffering. <code>HTTPResponseState</code> provides three
+prevents unbounded buffering. <code>HttpResponseState</code> provides three
 methods that work uniformly across HTTP/1.1, HTTP/2, and HTTP/3:
 </p>
 
@@ -610,7 +620,7 @@ pause. Any data that arrived while paused is delivered promptly.</li>
 state.startResponseBody();
 sendNextChunk(state, channel);
 
-void sendNextChunk(HTTPResponseState state, ReadableByteChannel src) {
+void sendNextChunk(HttpResponseState state, ReadableByteChannel src) {
     ByteBuffer buf = ByteBuffer.allocate(8192);
     int n = src.read(buf);
     if (n > 0) {
@@ -626,7 +636,7 @@ void sendNextChunk(HTTPResponseState state, ReadableByteChannel src) {
 
 <pre>
 // Throttling request body consumption with read-side backpressure
-public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
     if (!processor.ready()) {
         state.pauseRequestBody();
         processor.onReady(() -&gt; state.resumeRequestBody());
@@ -650,10 +660,10 @@ Use <code>cancel()</code> to abort a stream on error:
 
 <pre>
 @Override
-public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
     if (data.remaining() > MAX_BODY_SIZE) {
         Headers response = new Headers();
-        response.status(HTTPStatus.REQUEST_ENTITY_TOO_LARGE);
+        response.status(HttpStatus.REQUEST_ENTITY_TOO_LARGE);
         state.headers(response);
         state.complete();
         state.cancel();  // abort the stream
@@ -739,13 +749,17 @@ but disabled by default for security; set <code>trace-method-enabled</code> to
 <code>true</code> to enable it (RFC 9110 section 9.3.8).
 </p>
 
-<h3 id="configuration">Configuration</h3>
+<h3 id="configuration">Legacy XML configuration</h3>
 
-<h4>HTTPService Properties</h4>
+<p><em>Gumdrop 3 uses <a href="configuration.html">Java composition</a>. The
+following describes Gumdrop 2.x <code>HttpServer</code> / service properties
+for migration reference.</em></p>
+
+<h4>HttpServer properties</h4>
 
 <p>
-HTTP services (ServletService, WebDAVService, etc.) support the following
-service-level properties:
+Legacy Gumdrop 2.x HTTP services supported the following service-level
+properties:
 </p>
 
 <ul>
@@ -755,7 +769,7 @@ service-level properties:
 application has already set them. Set to <code>false</code> to disable.
 Example:
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
+&lt;service id="web" class="..."&gt;
   &lt;property name="add-security-headers" value="false"/&gt;
   ...
 &lt;/service&gt;
@@ -763,10 +777,10 @@ Example:
 </li>
 </ul>
 
-<h4>HTTPListener Properties</h4>
+<h4>Http2Listener Properties</h4>
 
 <p>
-<code>HTTPListener</code> is the TCP listener for HTTP/1.1 and HTTP/2. It
+<code>HttpListener</code> is the TCP listener for HTTP/1.1 and HTTP/2. It
 inherits standard listener properties and adds HTTP-specific options:
 </p>
 
@@ -794,11 +808,11 @@ RFC 9113 section 6.7)</li>
 <li><code>authentication-provider</code> &ndash; HTTP authentication configuration</li>
 </ul>
 
-<h4>HTTP3Listener Properties</h4>
+<h4>Http3Listener Properties</h4>
 
 <p>
-<code>HTTP3Listener</code> is the QUIC listener for HTTP/3. It accepts the
-same server-identity properties as <code>HTTPListener</code> (keystore or PEM).
+<code>Http3Listener</code> is the QUIC listener for HTTP/3. It accepts the
+same server-identity properties as <code>HttpListener</code> (keystore or PEM).
 </p>
 
 <ul>
@@ -825,14 +839,14 @@ so that clients can discover and migrate to HTTP/3:
 </p>
 
 <pre>
-&lt;service id="web" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
+&lt;service id="web" class="..."&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.HttpListener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="secure"&gt;true&lt;/property&gt;
     &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
     &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
   &lt;/listener&gt;
-  &lt;listener class="org.bluezoo.gumdrop.http.h3.HTTP3Listener"&gt;
+  &lt;listener class="org.bluezoo.gumdrop.http.h3.Http3Listener"&gt;
     &lt;property name="port"&gt;443&lt;/property&gt;
     &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
     &lt;property name="keystore-pass"&gt;changeit&lt;/property&gt;
@@ -853,7 +867,7 @@ Gumdrop supports HTTP authentication methods:
 </ul>
 
 <p>
-Authentication is configured via an <code>HTTPAuthenticationProvider</code>
+Authentication is configured via an <code>HttpAuthenticationProvider</code>
 which can be shared across multiple services or customised per service. It is
 integrated into the centralised <code>org.bluezoo.gumdrop.auth.Realm</code>-based
 facility for managing authentication and authorisation across all services
@@ -970,15 +984,15 @@ advertises QUIC availability.
 <h4>Usage (HTTP/2 and HTTP/1.1)</h4>
 
 <pre>
-HTTPClient client = new HTTPClient("example.com", 443);
+HttpClient client = new HttpClient("example.com", 443);
 client.setSecure(true);
 
-client.connect(new HTTPClientHandler() {
+client.connect(new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
-        HTTPRequest request = client.get("/api/data");
+        HttpRequest request = client.get("/api/data");
         request.header("Accept", "application/json");
-        request.send(new DefaultHTTPResponseHandler() {
-            public void ok(HTTPResponse response) {
+        request.send(new DefaultHttpResponseHandler() {
+            public void ok(HttpResponse response) {
                 System.out.println("Status: " + response.getStatus());
             }
             public void responseBodyContent(ByteBuffer data) {
@@ -1007,12 +1021,12 @@ QUIC with ALPN &ldquo;h3&rdquo; instead of TCP:
 </p>
 
 <pre>
-HTTPClient client = new HTTPClient("example.com", 443);
+HttpClient client = new HttpClient("example.com", 443);
 client.setH3Enabled(true);
 
-client.connect(new HTTPClientHandler() {
+client.connect(new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
-        HTTPRequest request = client.get("/api/data");
+        HttpRequest request = client.get("/api/data");
         request.header("Accept", "application/json");
         request.send(responseHandler);
     }

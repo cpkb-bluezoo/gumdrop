@@ -33,7 +33,7 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link MIMEParser}.
+ * Unit tests for {@link MimeParser}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -42,7 +42,7 @@ public class MIMEParserTest {
     /**
      * Test handler that records events for verification.
      */
-    static class TestHandler implements MIMEHandler {
+    static class TestHandler implements MimeHandler {
         
         List<String> events = new ArrayList<>();
         ContentType contentType;
@@ -50,64 +50,64 @@ public class MIMEParserTest {
         String contentTransferEncoding;
         ContentID contentID;
         String contentDescription;
-        MIMEVersion mimeVersion;
+        MimeVersion mimeVersion;
         StringBuilder body = new StringBuilder();
         int entityCount = 0;
         
         @Override
-        public void setLocator(MIMELocator locator) {
+        public void setLocator(MimeLocator locator) {
             events.add("setLocator");
         }
         
         @Override
-        public void startEntity(String boundary) throws MIMEParseException {
+        public void startEntity(String boundary) throws MimeParseException {
             events.add("startEntity:" + (boundary != null ? boundary : "null"));
             entityCount++;
         }
         
         @Override
-        public void contentType(ContentType ct) throws MIMEParseException {
+        public void contentType(ContentType ct) throws MimeParseException {
             events.add("contentType:" + ct);
             this.contentType = ct;
         }
         
         @Override
-        public void contentDisposition(ContentDisposition cd) throws MIMEParseException {
+        public void contentDisposition(ContentDisposition cd) throws MimeParseException {
             events.add("contentDisposition:" + cd);
             this.contentDisposition = cd;
         }
         
         @Override
-        public void contentTransferEncoding(String encoding) throws MIMEParseException {
+        public void contentTransferEncoding(String encoding) throws MimeParseException {
             events.add("contentTransferEncoding:" + encoding);
             this.contentTransferEncoding = encoding;
         }
         
         @Override
-        public void contentID(ContentID cid) throws MIMEParseException {
+        public void contentID(ContentID cid) throws MimeParseException {
             events.add("contentID:" + cid);
             this.contentID = cid;
         }
         
         @Override
-        public void contentDescription(String description) throws MIMEParseException {
+        public void contentDescription(String description) throws MimeParseException {
             events.add("contentDescription:" + description);
             this.contentDescription = description;
         }
         
         @Override
-        public void mimeVersion(MIMEVersion version) throws MIMEParseException {
+        public void mimeVersion(MimeVersion version) throws MimeParseException {
             events.add("mimeVersion:" + version);
             this.mimeVersion = version;
         }
         
         @Override
-        public void endHeaders() throws MIMEParseException {
+        public void endHeaders() throws MimeParseException {
             events.add("endHeaders");
         }
         
         @Override
-        public void bodyContent(ByteBuffer content) throws MIMEParseException {
+        public void bodyContent(ByteBuffer content) throws MimeParseException {
             byte[] bytes = new byte[content.remaining()];
             content.get(bytes);
             body.append(new String(bytes, StandardCharsets.UTF_8));
@@ -115,30 +115,30 @@ public class MIMEParserTest {
         }
         
         @Override
-        public void unexpectedContent(ByteBuffer content) throws MIMEParseException {
+        public void unexpectedContent(ByteBuffer content) throws MimeParseException {
             events.add("unexpectedContent");
         }
         
         @Override
-        public void endEntity(String boundary) throws MIMEParseException {
+        public void endEntity(String boundary) throws MimeParseException {
             events.add("endEntity:" + (boundary != null ? boundary : "null"));
         }
     }
     
-    private void parse(MIMEParser parser, String content) throws MIMEParseException {
+    private void parse(MimeParser parser, String content) throws MimeParseException {
         ByteBuffer buffer = ByteBuffer.wrap(content.getBytes(StandardCharsets.UTF_8));
         parser.receive(buffer);
         parser.close();
     }
     
     @Test
-    public void testSimpleEntity() throws MIMEParseException {
+    public void testSimpleEntity() throws MimeParseException {
         String content = "Content-Type: text/plain\r\n" +
             "\r\n" +
             "Hello, World!\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         parse(parser, content);
@@ -152,13 +152,13 @@ public class MIMEParserTest {
     }
     
     @Test
-    public void testContentTypeWithCharset() throws MIMEParseException {
+    public void testContentTypeWithCharset() throws MimeParseException {
         String content = "Content-Type: text/html; charset=utf-8\r\n" +
             "\r\n" +
             "<html>Test</html>";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         parse(parser, content);
@@ -169,13 +169,13 @@ public class MIMEParserTest {
     }
     
     @Test
-    public void testContentDisposition() throws MIMEParseException {
+    public void testContentDisposition() throws MimeParseException {
         String content = "Content-Disposition: attachment; filename=\"report.pdf\"\r\n" +
             "\r\n" +
             "PDF content";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         parse(parser, content);
@@ -186,13 +186,13 @@ public class MIMEParserTest {
     }
     
     @Test
-    public void testContentTransferEncoding() throws MIMEParseException {
+    public void testContentTransferEncoding() throws MimeParseException {
         String content = "Content-Transfer-Encoding: base64\r\n" +
             "\r\n" +
             "SGVsbG8=";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         parse(parser, content);
@@ -201,14 +201,14 @@ public class MIMEParserTest {
     }
 
     /** Subclass to test protected token/slice decode helpers. */
-    static class MIMEParserForDecodeTest extends MIMEParser {
+    static class MIMEParserForDecodeTest extends MimeParser {
         String decodeToken(ByteBuffer value, CharsetDecoder decoder) {
             return decodeTokenHeaderValue(value, decoder);
         }
         static String callDecodeSlice(ByteBuffer buf, int start, int end, CharsetDecoder decoder) {
             int savedLimit = buf.limit();
             buf.position(start).limit(end);
-            String s = MIMEParser.decodeSlice(buf, decoder);
+            String s = MimeParser.decodeSlice(buf, decoder);
             buf.limit(savedLimit);
             return s;
         }
@@ -253,23 +253,23 @@ public class MIMEParserTest {
     }
     
     @Test
-    public void testMIMEVersion() throws MIMEParseException {
+    public void testMIMEVersion() throws MimeParseException {
         String content = "MIME-Version: 1.0\r\n" +
             "\r\n" +
             "Body";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         parse(parser, content);
         
         assertNotNull(handler.mimeVersion);
-        assertEquals(MIMEVersion.VERSION_1_0, handler.mimeVersion);
+        assertEquals(MimeVersion.VERSION_1_0, handler.mimeVersion);
     }
     
     @Test
-    public void testMultipartBasic() throws MIMEParseException {
+    public void testMultipartBasic() throws MimeParseException {
         String content = "Content-Type: multipart/mixed; boundary=boundary123\r\n" +
             "\r\n" +
             "--boundary123\r\n" +
@@ -281,7 +281,7 @@ public class MIMEParserTest {
             "--boundary123--\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         parse(parser, content);
@@ -291,12 +291,12 @@ public class MIMEParserTest {
     }
     
     @Test
-    public void testEmptyBody() throws MIMEParseException {
+    public void testEmptyBody() throws MimeParseException {
         String content = "Content-Type: text/plain\r\n" +
             "\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         parse(parser, content);
@@ -306,14 +306,14 @@ public class MIMEParserTest {
     }
     
     @Test
-    public void testNoContentType() throws MIMEParseException {
+    public void testNoContentType() throws MimeParseException {
         // Without Content-Type, default is text/plain
         String content = "Subject: Test\r\n" +
             "\r\n" +
             "Plain text body\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         parse(parser, content);
@@ -324,14 +324,14 @@ public class MIMEParserTest {
     }
     
     @Test
-    public void testFoldedHeader() throws MIMEParseException {
+    public void testFoldedHeader() throws MimeParseException {
         String content = "Content-Type: text/plain;\r\n" +
             "  charset=utf-8\r\n" +
             "\r\n" +
             "Body";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         parse(parser, content);
@@ -341,7 +341,7 @@ public class MIMEParserTest {
     }
 
     @Test(expected = HeaderLineTooLongException.class)
-    public void testHeaderLineTooLong() throws MIMEParseException {
+    public void testHeaderLineTooLong() throws MimeParseException {
         // RFC 5322 §2.1.1: lines MUST be no more than 998 characters excluding CRLF
         StringBuilder sb = new StringBuilder();
         sb.append("X: ");
@@ -352,15 +352,15 @@ public class MIMEParserTest {
         String content = sb.toString();
 
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         parse(parser, content);
     }
 
     @Test(expected = HeaderValueTooLongException.class)
-    public void testHeaderValueTooLong() throws MIMEParseException {
+    public void testHeaderValueTooLong() throws MimeParseException {
         // Folded header value exceeds maxHeaderValueSize (50 bytes)
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setMaxHeaderValueSize(50);
         parser.setHandler(new TestHandler());
         // First line: "X: " + 49 chars = 49-byte value; continuation adds 6 more -> 55 > 50
@@ -374,9 +374,9 @@ public class MIMEParserTest {
     }
     
     @Test
-    public void testReset() throws MIMEParseException {
+    public void testReset() throws MimeParseException {
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         String content1 = "Content-Type: text/plain\r\n\r\nFirst";
@@ -398,9 +398,9 @@ public class MIMEParserTest {
     }
     
     @Test
-    public void testIncrementalParsing() throws MIMEParseException {
+    public void testIncrementalParsing() throws MimeParseException {
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Feed data in small chunks with proper buffer management
@@ -430,7 +430,7 @@ public class MIMEParserTest {
      * <p>Follows the standard non-blocking I/O pattern:
      * read → flip → receive → compact → repeat
      */
-    private void parseWithCompact(MIMEParser parser, byte[][] chunks) throws MIMEParseException {
+    private void parseWithCompact(MimeParser parser, byte[][] chunks) throws MimeParseException {
         ByteBuffer buffer = ByteBuffer.allocate(256);
         for (byte[] chunk : chunks) {
             // Simulate reading chunk into buffer
@@ -465,12 +465,12 @@ public class MIMEParserTest {
     // ── Header Line CRLF Split Tests ──
 
     @Test
-    public void testSplitCRLF() throws MIMEParseException {
+    public void testSplitCRLF() throws MimeParseException {
         // Split between CR and LF - content must end with newline
         String content = "Content-Type: text/plain\r\n\r\nBody\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split right between \r and \n of first header line
@@ -482,12 +482,12 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitEmptyLineCRLF() throws MIMEParseException {
+    public void testSplitEmptyLineCRLF() throws MimeParseException {
         // Split the empty line CRLF that ends headers
         String content = "Content-Type: text/plain\r\n\r\nBody text\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split between the two \r\n of the empty line
@@ -498,12 +498,12 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitHeaderName() throws MIMEParseException {
+    public void testSplitHeaderName() throws MimeParseException {
         // Split in the middle of a header name
         String content = "Content-Type: text/plain\r\n\r\nBody\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split "Content-Type" as "Cont" + "ent-Type"
@@ -514,12 +514,12 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitHeaderValue() throws MIMEParseException {
+    public void testSplitHeaderValue() throws MimeParseException {
         // Split in the middle of a header value
         String content = "Content-Type: text/plain\r\n\r\nBody\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split "text/plain" as "text/" + "plain"
@@ -530,12 +530,12 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitFoldedHeader() throws MIMEParseException {
+    public void testSplitFoldedHeader() throws MimeParseException {
         // Split a folded header at the fold point
         String content = "Content-Type: text/plain;\r\n charset=utf-8\r\n\r\nBody\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split at the fold (after first line CRLF)
@@ -546,12 +546,12 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitFoldedHeaderMidContinuation() throws MIMEParseException {
+    public void testSplitFoldedHeaderMidContinuation() throws MimeParseException {
         // Split in the middle of the continuation line
         String content = "Content-Type: text/plain;\r\n charset=utf-8\r\n\r\nBody\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split the continuation line "charset=utf-8"
@@ -564,13 +564,13 @@ public class MIMEParserTest {
     // ── Multipart Boundary Split Tests ──
 
     @Test
-    public void testSplitBoundaryDashes() throws MIMEParseException {
+    public void testSplitBoundaryDashes() throws MimeParseException {
         // Split the "--" prefix of a boundary
         String content = "Content-Type: multipart/mixed; boundary=abc\r\n\r\n" +
             "--abc\r\n\r\nPart1\r\n--abc--\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split right between the two dashes of "--abc"
@@ -581,13 +581,13 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitBoundaryText() throws MIMEParseException {
+    public void testSplitBoundaryText() throws MimeParseException {
         // Split in the middle of the boundary text
         String content = "Content-Type: multipart/mixed; boundary=boundary123\r\n\r\n" +
             "--boundary123\r\n\r\nPart1\r\n--boundary123--\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split "boundary123" as "bound" + "ary123"
@@ -598,13 +598,13 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitEndBoundaryMarker() throws MIMEParseException {
+    public void testSplitEndBoundaryMarker() throws MimeParseException {
         // Split the "--" suffix of an end boundary
         String content = "Content-Type: multipart/mixed; boundary=abc\r\n\r\n" +
             "--abc\r\n\r\nPart\r\n--abc--\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split "--abc--" between the second pair of dashes
@@ -623,13 +623,13 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitBoundaryCRLF() throws MIMEParseException {
+    public void testSplitBoundaryCRLF() throws MimeParseException {
         // Split the CRLF after a boundary line
         String content = "Content-Type: multipart/mixed; boundary=abc\r\n\r\n" +
             "--abc\r\n\r\nPart1\r\n--abc--\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split after "--abc" but before \r\n
@@ -642,12 +642,12 @@ public class MIMEParserTest {
     // ── BASE64 Encoded Content Split Tests ──
 
     @Test
-    public void testSplitBase64Character() throws MIMEParseException {
+    public void testSplitBase64Character() throws MimeParseException {
         // "Hello" in Base64 is "SGVsbG8="
         String content = "Content-Transfer-Encoding: base64\r\n\r\nSGVsbG8=\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split in middle of base64 content
@@ -657,12 +657,12 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitBase64Padding() throws MIMEParseException {
+    public void testSplitBase64Padding() throws MimeParseException {
         // "Hi" in Base64 is "SGk=" (with padding)
         String content = "Content-Transfer-Encoding: base64\r\n\r\nSGk=\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split right before the padding
@@ -673,14 +673,14 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitBase64MultiLine() throws MIMEParseException {
+    public void testSplitBase64MultiLine() throws MimeParseException {
         // Longer content that spans multiple base64 lines
         // "Hello, World!" = "SGVsbG8sIFdvcmxkIQ=="
         String content = "Content-Transfer-Encoding: base64\r\n\r\n" +
             "SGVsbG8sIFdv\r\ncmxkIQ==\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split at the line break in base64
@@ -693,12 +693,12 @@ public class MIMEParserTest {
     // ── Quoted-Printable Encoded Content Split Tests ──
 
     @Test
-    public void testSplitQuotedPrintableEncoded() throws MIMEParseException {
+    public void testSplitQuotedPrintableEncoded() throws MimeParseException {
         // "=" is encoded as "=3D"
         String content = "Content-Transfer-Encoding: quoted-printable\r\n\r\na=3Db\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split "=3D" as "=" + "3D"
@@ -709,12 +709,12 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitQuotedPrintableHexDigits() throws MIMEParseException {
+    public void testSplitQuotedPrintableHexDigits() throws MimeParseException {
         // Split in the middle of hex digits
         String content = "Content-Transfer-Encoding: quoted-printable\r\n\r\na=3Db\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split "=3D" as "=3" + "D"
@@ -725,12 +725,12 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitQuotedPrintableSoftLineBreak() throws MIMEParseException {
+    public void testSplitQuotedPrintableSoftLineBreak() throws MimeParseException {
         // Soft line break "=\r\n" should be removed
         String content = "Content-Transfer-Encoding: quoted-printable\r\n\r\nHello=\r\nWorld\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split after the "=" soft break marker
@@ -744,12 +744,12 @@ public class MIMEParserTest {
     // ── Multiple Split Points Tests ──
 
     @Test
-    public void testMultipleSplitPoints() throws MIMEParseException {
+    public void testMultipleSplitPoints() throws MimeParseException {
         // Split at multiple points - content must end with newline
         String content = "Content-Type: text/plain\r\n\r\nHello, World!\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split at multiple points: header, CRLF, body
@@ -760,12 +760,12 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testByteByByteParsing() throws MIMEParseException {
+    public void testByteByByteParsing() throws MimeParseException {
         // Feed content byte by byte - extreme case
         String content = "Content-Type: text/plain\r\n\r\nHi\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Create byte-by-byte chunks
@@ -782,13 +782,13 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testMultipartByteByByte() throws MIMEParseException {
+    public void testMultipartByteByByte() throws MimeParseException {
         // Multipart message byte by byte - tests boundary detection with splits
         String content = "Content-Type: multipart/mixed; boundary=X\r\n\r\n" +
             "--X\r\n\r\nA\r\n--X--\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Create byte-by-byte chunks
@@ -806,14 +806,14 @@ public class MIMEParserTest {
     // ── Edge Cases ──
 
     @Test
-    public void testSplitAtEveryPosition() throws MIMEParseException {
+    public void testSplitAtEveryPosition() throws MimeParseException {
         // Test splitting at every possible position in a simple message
         String content = "Content-Type: text/plain\r\n\r\nBody\r\n";
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
         
         for (int splitPos = 1; splitPos < bytes.length; splitPos++) {
             TestHandler handler = new TestHandler();
-            MIMEParser parser = new MIMEParser();
+            MimeParser parser = new MimeParser();
             parser.setHandler(handler);
             
             parseWithCompact(parser, splitAt(content, splitPos));
@@ -824,7 +824,7 @@ public class MIMEParserTest {
     }
 
     @Test
-    public void testSplitLongBoundary() throws MIMEParseException {
+    public void testSplitLongBoundary() throws MimeParseException {
         // Test with a longer boundary to ensure all split positions work
         String boundary = "----=_Part_0_1234567890.1234567890";
         String content = "Content-Type: multipart/mixed; boundary=\"" + boundary + "\"\r\n\r\n" +
@@ -832,7 +832,7 @@ public class MIMEParserTest {
             "--" + boundary + "--\r\n";
         
         TestHandler handler = new TestHandler();
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         
         // Split in the middle of the long boundary
@@ -849,7 +849,7 @@ public class MIMEParserTest {
      */
     @Test
     public void eightBitBodyPassesSliceViewsWithoutPerChunkAllocation()
-            throws MIMEParseException {
+            throws MimeParseException {
         StringBuilder expectedBody = new StringBuilder();
         StringBuilder message = new StringBuilder();
         message.append("Content-Type: text/plain\r\n");
@@ -866,7 +866,7 @@ public class MIMEParserTest {
 
         byte[] inputBytes = message.toString().getBytes(StandardCharsets.UTF_8);
         ZeroCopyHandler handler = new ZeroCopyHandler(inputBytes);
-        MIMEParser parser = new MIMEParser();
+        MimeParser parser = new MimeParser();
         parser.setHandler(handler);
         parser.setMaxBufferSize(1024);
 
@@ -897,7 +897,7 @@ public class MIMEParserTest {
         }
 
         @Override
-        public void bodyContent(ByteBuffer content) throws MIMEParseException {
+        public void bodyContent(ByteBuffer content) throws MimeParseException {
             bodyChunkCount++;
             if (content.hasArray() && content.array() != inputBytes) {
                 sawAllocatedCopy = true;

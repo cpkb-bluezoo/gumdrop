@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.grpc.server;
 import java.io.IOException;
 
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.protobuf.ProtobufWriter;
 
 /**
  * Event-driven encoder for a single gRPC response message.

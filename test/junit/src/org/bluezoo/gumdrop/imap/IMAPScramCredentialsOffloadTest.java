@@ -22,11 +22,12 @@
 package org.bluezoo.gumdrop.imap;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StorageExecutor;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
@@ -90,12 +91,7 @@ public class IMAPScramCredentialsOffloadTest {
     public void setUp() throws Exception {
         tempRoot = Files.createTempDirectory("gumdrop-imap-scram-offload");
         StorageExecutor.workThreadObserver = null;
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("StorageExecutor must exist after Gumdrop.start()",
                 gumdrop.getStorageExecutor());
     }
@@ -117,12 +113,13 @@ public class IMAPScramCredentialsOffloadTest {
         Files.createDirectories(userDir.resolve("new"));
         Files.createDirectories(userDir.resolve("tmp"));
 
-        IMAPListener listener = new IMAPListener();
+        ImapListener listener = new ImapListener();
         listener.setRealm(new Pbkdf2ScramRealm(USERNAME, PASSWORD));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
 
-        IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
+        ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
         handler.connected(endpoint);
 
         final List<String> observedThreads = Collections.synchronizedList(new ArrayList<String>());
@@ -211,7 +208,7 @@ public class IMAPScramCredentialsOffloadTest {
 
         byte[] storedKey = java.security.MessageDigest.getInstance("SHA-256").digest(clientKey);
 
-        byte[] clientSignature = SASLUtils.hmacSHA256(storedKey,
+        byte[] clientSignature = SaslUtils.hmacSHA256(storedKey,
                 authMessage.getBytes(StandardCharsets.UTF_8));
         byte[] proof = new byte[clientSignature.length];
         for (int i = 0; i < proof.length; i++) {
@@ -252,8 +249,8 @@ public class IMAPScramCredentialsOffloadTest {
     private static final class Pbkdf2ScramRealm implements Realm {
         private final String user;
         private final String password;
-        private static final Set<SASLMechanism> SUPPORTED =
-                Collections.unmodifiableSet(EnumSet.of(SASLMechanism.SCRAM_SHA_256));
+        private static final Set<SaslMechanism> SUPPORTED =
+                Collections.unmodifiableSet(EnumSet.of(SaslMechanism.SCRAM_SHA_256));
 
         Pbkdf2ScramRealm(String user, String password) {
             this.user = user;
@@ -266,7 +263,7 @@ public class IMAPScramCredentialsOffloadTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
 

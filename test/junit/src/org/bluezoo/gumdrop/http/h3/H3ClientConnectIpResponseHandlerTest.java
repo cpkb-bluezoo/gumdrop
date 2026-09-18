@@ -225,7 +225,7 @@ public class H3ClientConnectIpResponseHandlerTest {
     private H3ClientStream createConnectIpStream(ConnectIpEventHandler handler) throws Exception {
         H3ClientConnectIpResponseHandler responseHandler = new H3ClientConnectIpResponseHandler(handler);
         // connection is null: exercises the stream/handler wiring in
-        // isolation, without a real HTTP3ClientHandler/QuicConnection
+        // isolation, without a real Http3ClientHandler/QuicConnection
         // stack -- H3ClientStream tolerates this (see H3ClientStreamTest).
         H3ClientStream stream = new H3ClientStream(null, new Decoder(4096), responseHandler);
         responseHandler.bindStream(stream);

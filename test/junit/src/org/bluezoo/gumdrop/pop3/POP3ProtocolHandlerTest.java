@@ -44,35 +44,36 @@ import org.junit.Test;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
+import org.bluezoo.gumdrop.pop3.server.Pop3Server;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TimerHandle;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxFactory;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.MessageDescriptor;
-import org.bluezoo.gumdrop.pop3.handler.AuthenticateState;
-import org.bluezoo.gumdrop.pop3.handler.AuthorizationHandler;
-import org.bluezoo.gumdrop.pop3.handler.ClientConnected;
-import org.bluezoo.gumdrop.pop3.handler.ConnectedState;
-import org.bluezoo.gumdrop.pop3.handler.ListState;
-import org.bluezoo.gumdrop.pop3.handler.MailboxStatusState;
-import org.bluezoo.gumdrop.pop3.handler.MarkDeletedState;
-import org.bluezoo.gumdrop.pop3.handler.ResetState;
-import org.bluezoo.gumdrop.pop3.handler.RetrieveState;
-import org.bluezoo.gumdrop.pop3.handler.TopState;
-import org.bluezoo.gumdrop.pop3.handler.TransactionHandler;
-import org.bluezoo.gumdrop.pop3.handler.UidlState;
-import org.bluezoo.gumdrop.pop3.handler.UpdateState;
+import org.bluezoo.gumdrop.pop3.server.AuthenticateState;
+import org.bluezoo.gumdrop.pop3.server.AuthorizationHandler;
+import org.bluezoo.gumdrop.pop3.server.ClientConnected;
+import org.bluezoo.gumdrop.pop3.server.ConnectedState;
+import org.bluezoo.gumdrop.pop3.server.ListState;
+import org.bluezoo.gumdrop.pop3.server.MailboxStatusState;
+import org.bluezoo.gumdrop.pop3.server.MarkDeletedState;
+import org.bluezoo.gumdrop.pop3.server.ResetState;
+import org.bluezoo.gumdrop.pop3.server.RetrieveState;
+import org.bluezoo.gumdrop.pop3.server.TopState;
+import org.bluezoo.gumdrop.pop3.server.TransactionHandler;
+import org.bluezoo.gumdrop.pop3.server.UidlState;
+import org.bluezoo.gumdrop.pop3.server.UpdateState;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link POP3ProtocolHandler}.
+ * Unit tests for {@link Pop3ProtocolHandler}.
  *
  * <p>Tests the POP3 server state machine by simulating client commands
  * through a stub Endpoint and verifying the responses sent back. Uses
@@ -81,7 +82,7 @@ import static org.junit.Assert.*;
  */
 public class POP3ProtocolHandlerTest {
 
-    private POP3ProtocolHandler handler;
+    private Pop3ProtocolHandler handler;
     private StubEndpoint endpoint;
     private TestPOP3Listener listener;
     private StubRealm realm;
@@ -99,7 +100,7 @@ public class POP3ProtocolHandlerTest {
         listener.setEnableUTF8(true);
         listener.setEnablePipelining(false);
 
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         endpoint = new StubEndpoint();
     }
 
@@ -179,7 +180,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testPlaintextGreetingWithAPOP() {
         listener.setEnableAPOP(true);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         String response = lastResponse();
         assertTrue(response.startsWith("+OK"));
@@ -201,11 +202,11 @@ public class POP3ProtocolHandlerTest {
 
     // ═══════════════════════════════════════════════════════════════════
     // Streaming lexer tests (issue #85) — sliced-boundary and golden
-    // transcript coverage, proving the POP3ServerLexer conversion from
+    // transcript coverage, proving the Pop3ServerLexer conversion from
     // buffered-line parsing preserves identical semantic dispatch.
     // ═══════════════════════════════════════════════════════════════════
 
-    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // Mirrors the real transport contract (TcpEndpoint.processInbound()):
     // a single persistent buffer, compacted between receive() calls so
     // unconsumed bytes from a partial token are preserved and physically
     // moved forward, not a fresh isolated buffer per chunk.
@@ -240,7 +241,7 @@ public class POP3ProtocolHandlerTest {
             listener.setEnableAPOP(false);
             listener.setEnableUTF8(true);
             listener.setEnablePipelining(false);
-            handler = new POP3ProtocolHandler(listener);
+            handler = new Pop3ProtocolHandler(listener);
             endpoint = new StubEndpoint();
 
             connectPlaintext();
@@ -365,7 +366,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAExcludesUTF8WhenDisabled() {
         listener.setEnableUTF8(false);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -381,8 +382,8 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testCAPAIncludesSASLWithRealm() {
-        realm.supportedMechanisms.add(SASLMechanism.PLAIN);
-        realm.supportedMechanisms.add(SASLMechanism.LOGIN);
+        realm.supportedMechanisms.add(SaslMechanism.PLAIN);
+        realm.supportedMechanisms.add(SaslMechanism.LOGIN);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -393,7 +394,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAIncludesSTLSWhenAvailable() {
         listener.starttlsAvailable = true;
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -404,7 +405,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAExcludesSTLSWhenSecure() {
         listener.starttlsAvailable = true;
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectSecure();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -442,7 +443,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAIncludesExpireWhenConfigured() {
         listener.setExpireDays(7);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -454,7 +455,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAIncludesExpireNever() {
         listener.setExpireDays(Integer.MAX_VALUE);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -482,7 +483,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testCAPAIncludesLoginDelay() {
         listener.setLoginDelayMs(5000);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("CAPA");
@@ -581,7 +582,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testPASSWithNoRealm() {
         listener.setRealm(null);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("USER testuser");
@@ -604,7 +605,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testAPOPRequiresArguments() {
         listener.setEnableAPOP(true);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("APOP onlyuser");
@@ -626,7 +627,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testSTLSWhenAlreadySecure() {
         listener.starttlsAvailable = true;
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectSecure();
         endpoint.sentData.clear();
         sendCommand("STLS");
@@ -637,7 +638,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testSTLSSuccess() {
         listener.starttlsAvailable = true;
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("STLS");
@@ -663,7 +664,7 @@ public class POP3ProtocolHandlerTest {
     @Test
     public void testUTF8Disabled() {
         listener.setEnableUTF8(false);
-        handler = new POP3ProtocolHandler(listener);
+        handler = new Pop3ProtocolHandler(listener);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("UTF8");
@@ -779,7 +780,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test
     public void testAuthListMechanisms() {
-        realm.supportedMechanisms.add(SASLMechanism.CRAM_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
         connectPlaintext();
         endpoint.sentData.clear();
         sendCommand("AUTH");
@@ -814,7 +815,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test(timeout = 15000)
     public void testAuthCramMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
-        realm.supportedMechanisms.add(SASLMechanism.CRAM_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.CRAM_MD5);
         connectPlaintext();
         endpoint.sentData.clear();
 
@@ -835,7 +836,7 @@ public class POP3ProtocolHandlerTest {
 
     @Test(timeout = 15000)
     public void testAuthDigestMd5ChallengeDoesNotBlockOnReverseDns() throws Exception {
-        realm.supportedMechanisms.add(SASLMechanism.DIGEST_MD5);
+        realm.supportedMechanisms.add(SaslMechanism.DIGEST_MD5);
         connectPlaintext();
         endpoint.sentData.clear();
 
@@ -1341,7 +1342,7 @@ public class POP3ProtocolHandlerTest {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // ConnectedState handler tests (via POP3Service)
+    // ConnectedState handler tests (via Pop3Server)
     // ═══════════════════════════════════════════════════════════════════
 
     @Test
@@ -1635,7 +1636,7 @@ public class POP3ProtocolHandlerTest {
     // Stub implementations
     // ═══════════════════════════════════════════════════════════════════
 
-    static class TestPOP3Listener extends POP3Listener {
+    static class TestPOP3Listener extends Pop3Listener {
         boolean starttlsAvailable = false;
         ClientConnected clientHandler;
 
@@ -1645,7 +1646,7 @@ public class POP3ProtocolHandlerTest {
         }
 
         @Override
-        public POP3Service getService() {
+        public org.bluezoo.gumdrop.pop3.server.Pop3Server getServer() {
             if (clientHandler == null) {
                 return null;
             }
@@ -1653,7 +1654,7 @@ public class POP3ProtocolHandlerTest {
         }
     }
 
-    static class TestPOP3Service extends POP3Service {
+    static class TestPOP3Service extends Pop3Server {
         private final ClientConnected handler;
 
         TestPOP3Service(ClientConnected handler) {
@@ -1661,8 +1662,7 @@ public class POP3ProtocolHandlerTest {
         }
 
         @Override
-        protected ClientConnected createHandler(
-                TCPListener endpoint) {
+        public ClientConnected openSession(TcpListener endpoint) {
             return handler;
         }
     }
@@ -1759,8 +1759,8 @@ public class POP3ProtocolHandlerTest {
     }
 
     static class StubRealm implements Realm {
-        Set<SASLMechanism> supportedMechanisms =
-                new HashSet<SASLMechanism>();
+        Set<SaslMechanism> supportedMechanisms =
+                new HashSet<SaslMechanism>();
 
         @Override
         public Realm forSelectorLoop(SelectorLoop loop) {
@@ -1768,7 +1768,7 @@ public class POP3ProtocolHandlerTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return Collections.unmodifiableSet(supportedMechanisms);
         }
 

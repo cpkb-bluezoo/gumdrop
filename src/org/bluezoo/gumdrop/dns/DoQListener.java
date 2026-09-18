@@ -36,10 +36,11 @@ import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.StreamAcceptHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.TransportFactory;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * QUIC transport listener for DNS-over-QUIC (DoQ) queries.
@@ -53,7 +54,7 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  * the response.
  *
  * <p>This listener follows the same architectural pattern as the
- * HTTP/3 listener: it extends {@link TCPListener} but overrides
+ * HTTP/3 listener: it extends {@link TcpListener} but overrides
  * {@link #requiresTcpAccept()} to return {@code false}, creates a
  * {@link QuicTransportFactory}, and manages {@link QuicEngine}
  * instances directly.
@@ -64,10 +65,10 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoQStreamHandler
- * @see DNSService
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9250">RFC 9250 - DNS over QUIC</a>
  */
-public class DoQListener extends TCPListener
+public class DoQListener extends TcpListener
         implements StreamAcceptHandler {
 
     private static final Logger LOGGER =
@@ -76,7 +77,7 @@ public class DoQListener extends TCPListener
     private static final int DEFAULT_PORT = 853;
 
     private int port = DEFAULT_PORT;
-    private DNSService service;
+    private org.bluezoo.gumdrop.dns.server.DnsServer server;
 
     private Path certFile;
     private Path keyFile;
@@ -102,6 +103,41 @@ public class DoQListener extends TCPListener
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public DoQListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public DoQListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public DoQListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public DoQListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public DoQListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     @Override
     public String getDescription() {
@@ -109,21 +145,21 @@ public class DoQListener extends TCPListener
     }
 
     /**
-     * Sets the owning DNS service.
+     * Sets the owning DNS server.
      *
-     * @param service the owning service
+     * @param server the owning server
      */
-    void setService(DNSService service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+        this.server = server;
     }
 
     /**
-     * Returns the owning service, or null if used standalone.
+     * Returns the owning server, or null if used standalone.
      *
-     * @return the owning service
+     * @return the owning server
      */
-    public DNSService getService() {
-        return service;
+    public org.bluezoo.gumdrop.dns.server.DnsServer getServer() {
+        return server;
     }
 
     /**
@@ -215,13 +251,10 @@ public class DoQListener extends TCPListener
     }
 
     @Override
-    public void start() {
+    public void start(Gumdrop gumdrop) {
         super.start();
-        if (selectorLoop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            if (gumdrop != null) {
-                selectorLoop = gumdrop.nextWorkerLoop();
-            }
+        if (selectorLoop == null && gumdrop != null) {
+            selectorLoop = gumdrop.nextWorkerLoop();
         }
         if (selectorLoop == null) {
             throw new IllegalStateException(
@@ -271,7 +304,7 @@ public class DoQListener extends TCPListener
 
     @Override
     public ProtocolHandler acceptStream(Endpoint stream) {
-        return new DoQStreamHandler(service);
+        return new DoQStreamHandler(server);
     }
 
     /**

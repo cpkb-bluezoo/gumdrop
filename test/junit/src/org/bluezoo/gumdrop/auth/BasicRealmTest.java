@@ -141,9 +141,9 @@ public class BasicRealmTest {
     @Test
     public void testSupportedSASLMechanisms() {
         assertNotNull(realm.getSupportedSASLMechanisms());
-        assertTrue(realm.getSupportedSASLMechanisms().contains(SASLMechanism.PLAIN));
-        assertTrue(realm.getSupportedSASLMechanisms().contains(SASLMechanism.CRAM_MD5));
-        assertTrue(realm.getSupportedSASLMechanisms().contains(SASLMechanism.DIGEST_MD5));
+        assertTrue(realm.getSupportedSASLMechanisms().contains(SaslMechanism.PLAIN));
+        assertTrue(realm.getSupportedSASLMechanisms().contains(SaslMechanism.CRAM_MD5));
+        assertTrue(realm.getSupportedSASLMechanisms().contains(SaslMechanism.DIGEST_MD5));
     }
 
     @Test

@@ -28,20 +28,20 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Unit tests for LDAPResult response controls (RFC 4511 section 4.1.11).
+ * Unit tests for LdapResult response controls (RFC 4511 section 4.1.11).
  */
 public class LDAPResultControlsTest {
 
     @Test
     public void testDefaultNoControls() {
-        LDAPResult result = new LDAPResult(LDAPResultCode.SUCCESS, "", "");
+        LdapResult result = new LdapResult(LdapResultCode.SUCCESS, "", "");
         assertFalse(result.hasControls());
         assertTrue(result.getControls().isEmpty());
     }
 
     @Test
     public void testSetControls() {
-        LDAPResult result = new LDAPResult(LDAPResultCode.SUCCESS, "", "");
+        LdapResult result = new LdapResult(LdapResultCode.SUCCESS, "", "");
         List<Control> controls = Arrays.asList(
                 new Control("1.2.3.4", false),
                 new Control("5.6.7.8", true, new byte[]{0x01}));
@@ -56,7 +56,7 @@ public class LDAPResultControlsTest {
 
     @Test
     public void testSetNullControlsClearsControls() {
-        LDAPResult result = new LDAPResult(LDAPResultCode.SUCCESS, "", "");
+        LdapResult result = new LdapResult(LdapResultCode.SUCCESS, "", "");
         result.setControls(Arrays.asList(new Control("1.2.3.4", false)));
         assertTrue(result.hasControls());
 
@@ -67,7 +67,7 @@ public class LDAPResultControlsTest {
 
     @Test(expected = UnsupportedOperationException.class)
     public void testControlsListIsUnmodifiable() {
-        LDAPResult result = new LDAPResult(LDAPResultCode.SUCCESS, "", "");
+        LdapResult result = new LdapResult(LdapResultCode.SUCCESS, "", "");
         result.setControls(Arrays.asList(new Control("1.2.3.4", false)));
         result.getControls().add(new Control("9.9.9.9", false));
     }

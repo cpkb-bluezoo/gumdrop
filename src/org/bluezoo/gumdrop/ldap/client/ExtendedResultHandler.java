@@ -33,10 +33,10 @@ package org.bluezoo.gumdrop.ldap.client;
  * </ul>
  * 
  * <p>Note: STARTTLS is an extended operation but is handled specially
- * by {@link LDAPConnected#startTLS} and {@link StartTLSResultHandler}.
+ * by {@link LdapConnected#startTLS} and {@link StartTLSResultHandler}.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPSession#extended
+ * @see LdapSession#extended
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.12">RFC 4511 §4.12 — Extended</a>
  */
 public interface ExtendedResultHandler {
@@ -49,8 +49,8 @@ public interface ExtendedResultHandler {
      * @param responseValue the extended response value (may be null)
      * @param session operations for further directory access
      */
-    void handleExtendedResult(LDAPResult result, String responseName,
-                              byte[] responseValue, LDAPSession session);
+    void handleExtendedResult(LdapResult result, String responseName,
+                              byte[] responseValue, LdapSession session);
 
 }
 

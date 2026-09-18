@@ -83,6 +83,7 @@ public class RoleBasedQuotaManager implements QuotaManager {
     private Realm realm;
     private File storageDir;
     private QuotaPolicy defaultPolicy;
+    private volatile Gumdrop gumdrop;
     
     // Role name -> QuotaPolicy
     private final Map<String, QuotaPolicy> rolePolicies;
@@ -125,8 +126,20 @@ public class RoleBasedQuotaManager implements QuotaManager {
     }
     
     /**
+     * Sets the runtime whose {@link StorageExecutor} backs the async usage
+     * save. Called by {@code ImapServer.start(Gumdrop)} (this manager is
+     * shared across the connections a single server configuration serves,
+     * so it has no owning connection of its own to read this from).
+     *
+     * @param gumdrop the owning runtime, or null if none is running
+     */
+    public void setGumdrop(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+    }
+
+    /**
      * Sets the realm for role membership checks.
-     * 
+     *
      * @param realm the realm
      */
     public void setRealm(Realm realm) {
@@ -489,13 +502,13 @@ public class RoleBasedQuotaManager implements QuotaManager {
             }
         };
 
-        Gumdrop gumdrop = Gumdrop.getInstance();
+        Gumdrop gumdrop = this.gumdrop;
         StorageExecutor exec = (gumdrop != null) ? gumdrop.getStorageExecutor() : null;
         if (exec == null) {
             // No live Gumdrop (e.g. a unit test exercising this manager
             // directly): fall back to running inline rather than losing
             // the write, mirroring the equivalent fallback in
-            // IMAPProtocolHandler.submitStorage.
+            // ImapProtocolHandler.submitStorage.
             try {
                 op.call();
                 callback.completed(null);

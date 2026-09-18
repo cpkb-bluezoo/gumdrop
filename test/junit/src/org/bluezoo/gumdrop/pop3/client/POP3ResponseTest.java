@@ -25,7 +25,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link POP3Response}.
+ * Unit tests for {@link Pop3Response}.
  */
 public class POP3ResponseTest {
 
@@ -33,7 +33,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseOkWithMessage() {
-        POP3Response r = POP3Response.parse("+OK POP3 server ready");
+        Pop3Response r = Pop3Response.parse("+OK POP3 server ready");
         assertNotNull(r);
         assertTrue(r.isOk());
         assertFalse(r.isErr());
@@ -43,7 +43,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseOkEmpty() {
-        POP3Response r = POP3Response.parse("+OK");
+        Pop3Response r = Pop3Response.parse("+OK");
         assertNotNull(r);
         assertTrue(r.isOk());
         assertEquals("", r.getMessage());
@@ -51,7 +51,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseOkWithNumbers() {
-        POP3Response r = POP3Response.parse("+OK 2 320");
+        Pop3Response r = Pop3Response.parse("+OK 2 320");
         assertNotNull(r);
         assertTrue(r.isOk());
         assertEquals("2 320", r.getMessage());
@@ -59,7 +59,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseOkWithApopTimestamp() {
-        POP3Response r = POP3Response.parse(
+        Pop3Response r = Pop3Response.parse(
                 "+OK POP3 server ready <1896.697170952@dbc.mtview.ca.us>");
         assertNotNull(r);
         assertTrue(r.isOk());
@@ -70,7 +70,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseErrWithMessage() {
-        POP3Response r = POP3Response.parse("-ERR authentication failed");
+        Pop3Response r = Pop3Response.parse("-ERR authentication failed");
         assertNotNull(r);
         assertTrue(r.isErr());
         assertFalse(r.isOk());
@@ -80,7 +80,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseErrEmpty() {
-        POP3Response r = POP3Response.parse("-ERR");
+        Pop3Response r = Pop3Response.parse("-ERR");
         assertNotNull(r);
         assertTrue(r.isErr());
         assertEquals("", r.getMessage());
@@ -88,7 +88,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseErrNoSuchMessage() {
-        POP3Response r = POP3Response.parse("-ERR no such message");
+        Pop3Response r = Pop3Response.parse("-ERR no such message");
         assertNotNull(r);
         assertTrue(r.isErr());
         assertEquals("no such message", r.getMessage());
@@ -98,7 +98,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseContinuationWithChallenge() {
-        POP3Response r = POP3Response.parse("+ dGVzdA==");
+        Pop3Response r = Pop3Response.parse("+ dGVzdA==");
         assertNotNull(r);
         assertTrue(r.isContinuation());
         assertFalse(r.isOk());
@@ -108,7 +108,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseContinuationEmpty() {
-        POP3Response r = POP3Response.parse("+");
+        Pop3Response r = Pop3Response.parse("+");
         assertNotNull(r);
         assertTrue(r.isContinuation());
         assertEquals("", r.getMessage());
@@ -116,7 +116,7 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseContinuationWithSpace() {
-        POP3Response r = POP3Response.parse("+ ");
+        Pop3Response r = Pop3Response.parse("+ ");
         assertNotNull(r);
         assertTrue(r.isContinuation());
         assertEquals("", r.getMessage());
@@ -126,55 +126,55 @@ public class POP3ResponseTest {
 
     @Test
     public void testParseInvalidReturnsNull() {
-        assertNull(POP3Response.parse("QUIT"));
+        assertNull(Pop3Response.parse("QUIT"));
     }
 
     @Test
     public void testParseGarbageReturnsNull() {
-        assertNull(POP3Response.parse("garbage"));
+        assertNull(Pop3Response.parse("garbage"));
     }
 
     @Test
     public void testParseEmptyReturnsNull() {
-        assertNull(POP3Response.parse(""));
+        assertNull(Pop3Response.parse(""));
     }
 
     @Test
     public void testParseNumericReturnsNull() {
-        assertNull(POP3Response.parse("220 SMTP ready"));
+        assertNull(Pop3Response.parse("220 SMTP ready"));
     }
 
     // ── Status enum ──
 
     @Test
     public void testStatusValues() {
-        assertEquals(POP3Response.Status.OK,
-                POP3Response.parse("+OK").getStatus());
-        assertEquals(POP3Response.Status.ERR,
-                POP3Response.parse("-ERR").getStatus());
-        assertEquals(POP3Response.Status.CONTINUATION,
-                POP3Response.parse("+ data").getStatus());
+        assertEquals(Pop3Response.Status.OK,
+                Pop3Response.parse("+OK").getStatus());
+        assertEquals(Pop3Response.Status.ERR,
+                Pop3Response.parse("-ERR").getStatus());
+        assertEquals(Pop3Response.Status.CONTINUATION,
+                Pop3Response.parse("+ data").getStatus());
     }
 
     // ── toString ──
 
     @Test
     public void testToStringOk() {
-        POP3Response r = POP3Response.parse("+OK hello");
+        Pop3Response r = Pop3Response.parse("+OK hello");
         assertNotNull(r);
         assertEquals("+OK hello", r.toString());
     }
 
     @Test
     public void testToStringErr() {
-        POP3Response r = POP3Response.parse("-ERR nope");
+        Pop3Response r = Pop3Response.parse("-ERR nope");
         assertNotNull(r);
         assertEquals("-ERR nope", r.toString());
     }
 
     @Test
     public void testToStringContinuation() {
-        POP3Response r = POP3Response.parse("+ challenge");
+        Pop3Response r = Pop3Response.parse("+ challenge");
         assertNotNull(r);
         assertEquals("+ challenge", r.toString());
     }

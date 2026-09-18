@@ -26,13 +26,16 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.MailboxFixtures;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.mailbox.Mailbox;
 import org.bluezoo.gumdrop.mailbox.MailboxStore;
 import org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
-import org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler;
-import org.bluezoo.gumdrop.smtp.client.handler.*;
+import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
+import org.bluezoo.gumdrop.smtp.client.*;
+import org.bluezoo.gumdrop.smtp.server.SmtpServer;
+import org.bluezoo.gumdrop.smtp.server.SmtpServerSessionProviders;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -40,15 +43,15 @@ import org.junit.Test;
 import org.junit.rules.Timeout;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -62,7 +65,7 @@ import static org.junit.Assert.*;
  * Integration test for LocalDeliveryHandler.
  *
  * <p>This test starts an SMTP server with the LocalDeliveryHandler configured
- * and uses the Gumdrop SMTPClient to send messages, verifying end-to-end delivery
+ * and uses the Gumdrop SmtpClient to send messages, verifying end-to-end delivery
  * to local mailboxes.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -81,36 +84,31 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             .build();
 
     private Path mailboxDir;
-    private File tempConfigFile;
     private MboxMailboxFactory mailboxFactory;
 
     @Override
-    protected File getTestConfigFile() {
+    protected Collection<? extends Server> buildServers() throws Exception {
         // Local delivery populates mailboxes at runtime, so it must never write
-        // into the source tree. Deliver to a throwaway directory and rewrite the
-        // template config to point the server at it. This runs (via the base
-        // class) before setUpMailbox(), so mailboxDir is ready for verification.
-        try {
-            mailboxDir = MailboxFixtures.newEmptyRoot();
-            String template = new String(Files.readAllBytes(Paths.get(
-                    "test/integration/config/local-delivery-test.xml")),
-                    StandardCharsets.UTF_8);
-            String config = template.replace(
-                    "test/integration/mailbox/local-delivery",
-                    mailboxDir.toString());
-            Path tmp = Files.createTempFile("local-delivery-test-", ".xml");
-            Files.write(tmp, config.getBytes(StandardCharsets.UTF_8));
-            tempConfigFile = tmp.toFile();
-            return tempConfigFile;
-        } catch (IOException e) {
-            throw new RuntimeException(
-                    "Failed to prepare local-delivery test config", e);
-        }
+        // into the source tree. Deliver to a throwaway directory. This runs
+        // (via the base class) before setUpMailbox(), so mailboxDir is ready
+        // for verification.
+        mailboxDir = MailboxFixtures.newEmptyRoot();
+        MboxMailboxFactory serverMailboxFactory = new MboxMailboxFactory(mailboxDir.toFile());
+        SmtpServer server = SmtpServer.compose()
+                .listener(new SmtpListener()
+                        .port(TEST_PORT)
+                        .addresses(InetAddress.getByName("::1")))
+                .mailboxFactory(serverMailboxFactory)
+                .sessionProvider(SmtpServerSessionProviders.localDelivery()
+                        .localDomain(LOCAL_DOMAIN)
+                        .hostname("localhost"))
+                .server();
+        return Collections.singletonList(server);
     }
 
     @Before
     public void setUpMailbox() throws Exception {
-        // mailboxDir was created by getTestConfigFile() (invoked by the base
+        // mailboxDir was created by buildServers() (invoked by the base
         // class before this method); build the verification factory against the
         // same throwaway directory the server delivers into.
         createUserDirectory(TEST_USER);
@@ -121,9 +119,6 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
     @After
     public void tearDownMailbox() {
         MailboxFixtures.delete(mailboxDir);
-        if (tempConfigFile != null) {
-            tempConfigFile.delete();
-        }
     }
 
     private void createUserDirectory(String user) throws Exception {
@@ -140,10 +135,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setSubject("Test Subject via SMTP");
         handler.setBody("This message was delivered via SMTP.");
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SMTPClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         // Wait for the transaction to complete
         assertTrue("Transaction should complete within timeout",
@@ -185,10 +180,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setBody("Body");
         handler.setExpectRecipientRejection(true);
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SMTPClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         assertTrue("Transaction should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -203,10 +198,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setSubject("Multi-recipient Test");
         handler.setBody("This message was sent to multiple recipients.");
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SMTPClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         assertTrue("Transaction should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -228,10 +223,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         handler.setSubjects(new String[]{"First Message", "Second Message"});
         handler.setBodies(new String[]{"First body.", "Second body."});
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SMTPClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         assertTrue("All transactions should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -260,10 +255,10 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         RsetTestHandler handler = new RsetTestHandler();
         handler.setRecipient(TEST_USER + "@" + LOCAL_DOMAIN);
 
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(new SMTPClientProtocolHandler(handler));
+        client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
 
         assertTrue("Test should complete within timeout",
                 handler.awaitCompletion(10, TimeUnit.SECONDS));
@@ -315,9 +310,9 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
     /**
      * A test handler that sends a single email and tracks the result.
      */
-    private static class TestMailHandler implements ServerGreeting, ServerEhloReplyHandler,
-            ServerMailFromReplyHandler, ServerRcptToReplyHandler, ServerDataReplyHandler,
-            ServerMessageReplyHandler {
+    private static class TestMailHandler implements RemoteGreeting, EhloReplyHandler,
+            MailFromReplyHandler, RcptToReplyHandler, DataReplyHandler,
+            MessageReplyHandler {
 
         private final CountDownLatch completionLatch = new CountDownLatch(1);
         private final AtomicBoolean accepted = new AtomicBoolean(false);
@@ -361,7 +356,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             return error.get();
         }
 
-        // ServerGreeting
+        // RemoteGreeting
         @Override
         public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
             hello.ehlo("test.client.local", this);
@@ -373,7 +368,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Connection will close, onDisconnected() will countDown
         }
 
-        // ServerEhloReplyHandler
+        // EhloReplyHandler
         @Override
         public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
                                List<String> authMethods, boolean pipelining) {
@@ -383,7 +378,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
         @Override
         public void handleEhloNotSupported(ClientHelloState hello) {
             // Fall back to HELO
-            hello.helo("test.client.local", new ServerHeloReplyHandler() {
+            hello.helo("test.client.local", new HeloReplyHandler() {
                 @Override
                 public void handleHelo(ClientSession session) {
                     session.mailFrom(new EmailAddress(null, "sender", "external.com", true),
@@ -404,14 +399,14 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             });
         }
 
-        // ServerEhloReplyHandler and ServerMailFromReplyHandler share this signature
+        // EhloReplyHandler and MailFromReplyHandler share this signature
         @Override
         public void handlePermanentFailure(String message) {
             error.set("Permanent failure: " + message);
             // Connection should close, onDisconnected() will countDown
         }
 
-        // ServerMailFromReplyHandler
+        // MailFromReplyHandler
         @Override
         public void handleMailFromOk(ClientEnvelope envelope) {
             recipientIndex = 0;
@@ -426,7 +421,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             }
         }
 
-        // ServerMailFromReplyHandler
+        // MailFromReplyHandler
         @Override
         public void handleTemporaryFailure(ClientSession session) {
             error.set("Temporary failure");
@@ -434,7 +429,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerRcptToReplyHandler
+        // RcptToReplyHandler
         @Override
         public void handleRcptToOk(ClientEnvelopeReady envelope) {
             if (recipientIndex < recipients.size()) {
@@ -478,7 +473,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             }
         }
 
-        // ServerDataReplyHandler
+        // DataReplyHandler
         @Override
         public void handleReadyForData(ClientMessageData data) {
             String message = "Subject: " + subject + "\r\n" +
@@ -497,7 +492,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerMessageReplyHandler
+        // MessageReplyHandler
         @Override
         public void handleMessageAccepted(String queueId, ClientSession session) {
             accepted.set(true);
@@ -512,7 +507,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerReplyHandler (base)
+        // ReplyHandler (base)
         @Override
         public void handleServiceClosing(String message) {
             error.set("Service closing: " + message);
@@ -545,9 +540,9 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
     /**
      * A handler that sends multiple messages on the same connection.
      */
-    private static class MultiTransactionHandler implements ServerGreeting, ServerEhloReplyHandler,
-            ServerMailFromReplyHandler, ServerRcptToReplyHandler, ServerDataReplyHandler,
-            ServerMessageReplyHandler {
+    private static class MultiTransactionHandler implements RemoteGreeting, EhloReplyHandler,
+            MailFromReplyHandler, RcptToReplyHandler, DataReplyHandler,
+            MessageReplyHandler {
 
         private final CountDownLatch completionLatch;
         private final int transactionCount;
@@ -583,7 +578,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             return acceptedCount.get();
         }
 
-        // ServerGreeting
+        // RemoteGreeting
         @Override
         public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
             hello.ehlo("test.client.local", this);
@@ -595,7 +590,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Connection will close, onDisconnected() will countDown
         }
 
-        // ServerEhloReplyHandler
+        // EhloReplyHandler
         @Override
         public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
                                List<String> authMethods, boolean pipelining) {
@@ -609,7 +604,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // Shared by ServerEhloReplyHandler and ServerMailFromReplyHandler
+        // Shared by EhloReplyHandler and MailFromReplyHandler
         @Override
         public void handlePermanentFailure(String message) {
             error.set("Permanent failure: " + message);
@@ -627,7 +622,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             }
         }
 
-        // ServerMailFromReplyHandler
+        // MailFromReplyHandler
         @Override
         public void handleMailFromOk(ClientEnvelope envelope) {
             String[] parts = recipient.split("@");
@@ -641,7 +636,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerRcptToReplyHandler
+        // RcptToReplyHandler
         @Override
         public void handleRcptToOk(ClientEnvelopeReady envelope) {
             envelope.data(this);
@@ -661,7 +656,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerDataReplyHandler
+        // DataReplyHandler
         @Override
         public void handleReadyForData(ClientMessageData data) {
             String message = "Subject: " + subjects[currentTransaction] + "\r\n" +
@@ -678,7 +673,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerMessageReplyHandler
+        // MessageReplyHandler
         @Override
         public void handleMessageAccepted(String queueId, ClientSession session) {
             acceptedCount.incrementAndGet();
@@ -693,7 +688,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerReplyHandler (base)
+        // ReplyHandler (base)
         @Override
         public void handleServiceClosing(String message) {
             error.set("Service closing: " + message);
@@ -724,8 +719,8 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
     /**
      * A handler that tests RSET command clears transaction state.
      */
-    private static class RsetTestHandler implements ServerGreeting, ServerEhloReplyHandler,
-            ServerMailFromReplyHandler, ServerRcptToReplyHandler, ServerRsetReplyHandler {
+    private static class RsetTestHandler implements RemoteGreeting, EhloReplyHandler,
+            MailFromReplyHandler, RcptToReplyHandler, RsetReplyHandler {
 
         private final CountDownLatch completionLatch = new CountDownLatch(1);
         private final AtomicBoolean rsetSuccessful = new AtomicBoolean(false);
@@ -744,7 +739,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             return rsetSuccessful.get();
         }
 
-        // ServerGreeting
+        // RemoteGreeting
         @Override
         public void handleGreeting(ClientHelloState hello, String message, boolean esmtp) {
             hello.ehlo("test.client.local", this);
@@ -756,7 +751,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Connection will close, onDisconnected() will countDown
         }
 
-        // ServerEhloReplyHandler
+        // EhloReplyHandler
         @Override
         public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
                                List<String> authMethods, boolean pipelining) {
@@ -770,14 +765,14 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // Shared by ServerEhloReplyHandler and ServerMailFromReplyHandler
+        // Shared by EhloReplyHandler and MailFromReplyHandler
         @Override
         public void handlePermanentFailure(String message) {
             error.set("Permanent failure: " + message);
             // Connection should close, onDisconnected() will countDown
         }
 
-        // ServerMailFromReplyHandler
+        // MailFromReplyHandler
         @Override
         public void handleMailFromOk(ClientEnvelope envelope) {
             String[] parts = recipient.split("@");
@@ -791,7 +786,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerRcptToReplyHandler
+        // RcptToReplyHandler
         @Override
         public void handleRcptToOk(ClientEnvelopeReady envelope) {
             // Now reset the transaction
@@ -812,7 +807,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerRsetReplyHandler
+        // RsetReplyHandler
         @Override
         public void handleResetOk(ClientSession session) {
             rsetSuccessful.set(true);
@@ -820,7 +815,7 @@ public class LocalDeliveryIntegrationTest extends AbstractServerIntegrationTest 
             // Let onDisconnected() handle the countDown
         }
 
-        // ServerReplyHandler (base)
+        // ReplyHandler (base)
         @Override
         public void handleServiceClosing(String message) {
             error.set("Service closing: " + message);

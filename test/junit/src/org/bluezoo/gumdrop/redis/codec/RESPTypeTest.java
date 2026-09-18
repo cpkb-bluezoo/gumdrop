@@ -25,7 +25,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link RESPType}.
+ * Unit tests for {@link RespType}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -33,67 +33,67 @@ public class RESPTypeTest {
 
     @Test
     public void testSimpleStringPrefix() {
-        assertEquals((byte) '+', RESPType.SIMPLE_STRING.getPrefix());
+        assertEquals((byte) '+', RespType.SIMPLE_STRING.getPrefix());
     }
 
     @Test
     public void testErrorPrefix() {
-        assertEquals((byte) '-', RESPType.ERROR.getPrefix());
+        assertEquals((byte) '-', RespType.ERROR.getPrefix());
     }
 
     @Test
     public void testIntegerPrefix() {
-        assertEquals((byte) ':', RESPType.INTEGER.getPrefix());
+        assertEquals((byte) ':', RespType.INTEGER.getPrefix());
     }
 
     @Test
     public void testBulkStringPrefix() {
-        assertEquals((byte) '$', RESPType.BULK_STRING.getPrefix());
+        assertEquals((byte) '$', RespType.BULK_STRING.getPrefix());
     }
 
     @Test
     public void testArrayPrefix() {
-        assertEquals((byte) '*', RESPType.ARRAY.getPrefix());
+        assertEquals((byte) '*', RespType.ARRAY.getPrefix());
     }
 
     @Test
-    public void testFromPrefixSimpleString() throws RESPException {
-        assertEquals(RESPType.SIMPLE_STRING, RESPType.fromPrefix((byte) '+'));
+    public void testFromPrefixSimpleString() throws RespException {
+        assertEquals(RespType.SIMPLE_STRING, RespType.fromPrefix((byte) '+'));
     }
 
     @Test
-    public void testFromPrefixError() throws RESPException {
-        assertEquals(RESPType.ERROR, RESPType.fromPrefix((byte) '-'));
+    public void testFromPrefixError() throws RespException {
+        assertEquals(RespType.ERROR, RespType.fromPrefix((byte) '-'));
     }
 
     @Test
-    public void testFromPrefixInteger() throws RESPException {
-        assertEquals(RESPType.INTEGER, RESPType.fromPrefix((byte) ':'));
+    public void testFromPrefixInteger() throws RespException {
+        assertEquals(RespType.INTEGER, RespType.fromPrefix((byte) ':'));
     }
 
     @Test
-    public void testFromPrefixBulkString() throws RESPException {
-        assertEquals(RESPType.BULK_STRING, RESPType.fromPrefix((byte) '$'));
+    public void testFromPrefixBulkString() throws RespException {
+        assertEquals(RespType.BULK_STRING, RespType.fromPrefix((byte) '$'));
     }
 
     @Test
-    public void testFromPrefixArray() throws RESPException {
-        assertEquals(RESPType.ARRAY, RESPType.fromPrefix((byte) '*'));
+    public void testFromPrefixArray() throws RespException {
+        assertEquals(RespType.ARRAY, RespType.fromPrefix((byte) '*'));
     }
 
-    @Test(expected = RESPException.class)
-    public void testFromPrefixUnknown() throws RESPException {
-        RESPType.fromPrefix((byte) 'X');
+    @Test(expected = RespException.class)
+    public void testFromPrefixUnknown() throws RespException {
+        RespType.fromPrefix((byte) 'X');
     }
 
-    @Test(expected = RESPException.class)
-    public void testFromPrefixNull() throws RESPException {
-        RESPType.fromPrefix((byte) 0);
+    @Test(expected = RespException.class)
+    public void testFromPrefixNull() throws RespException {
+        RespType.fromPrefix((byte) 0);
     }
 
     @Test
-    public void testAllTypesHaveUniquePrefix() throws RESPException {
-        RESPType[] types = RESPType.values();
+    public void testAllTypesHaveUniquePrefix() throws RespException {
+        RespType[] types = RespType.values();
         for (int i = 0; i < types.length; i++) {
             for (int j = i + 1; j < types.length; j++) {
                 assertNotEquals("Types should have unique prefixes",
@@ -103,10 +103,10 @@ public class RESPTypeTest {
     }
 
     @Test
-    public void testRoundTrip() throws RESPException {
-        for (RESPType type : RESPType.values()) {
+    public void testRoundTrip() throws RespException {
+        for (RespType type : RespType.values()) {
             byte prefix = type.getPrefix();
-            RESPType resolved = RESPType.fromPrefix(prefix);
+            RespType resolved = RespType.fromPrefix(prefix);
             assertEquals(type, resolved);
         }
     }

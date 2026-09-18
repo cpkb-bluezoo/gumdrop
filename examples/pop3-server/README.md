@@ -115,7 +115,7 @@ For production use, you should:
 Example production configuration:
 
 ```java
-POP3Listener server = new POP3Listener();
+Pop3Listener server = new Pop3Listener();
 server.setPort(995);
 server.setSecure(true);
 server.setRealm(ldapRealm);

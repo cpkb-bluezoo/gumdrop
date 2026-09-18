@@ -27,14 +27,14 @@ package org.bluezoo.gumdrop.ldap.client;
  * <p>This handler receives the result of a bind operation, which
  * authenticates the client to the LDAP server.
  * 
- * <p>On success, the handler receives an {@link LDAPSession} interface
+ * <p>On success, the handler receives an {@link LdapSession} interface
  * for performing directory operations. On failure, the handler receives
- * the error result and an {@link LDAPConnected} interface to retry
+ * the error result and an {@link LdapConnected} interface to retry
  * with different credentials or close the connection.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPConnected#bind
- * @see LDAPSession
+ * @see LdapConnected#bind
+ * @see LdapSession
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.2.2">RFC 4511 §4.2.2 — BindResponse</a>
  */
 public interface BindResultHandler {
@@ -47,7 +47,7 @@ public interface BindResultHandler {
      * 
      * @param session operations available in the authenticated session
      */
-    void handleBindSuccess(LDAPSession session);
+    void handleBindSuccess(LdapSession session);
 
     /**
      * Called when bind fails.
@@ -65,7 +65,7 @@ public interface BindResultHandler {
      * @param result the failure result with error code and message
      * @param connection operations to retry or close
      */
-    void handleBindFailure(LDAPResult result, LDAPConnected connection);
+    void handleBindFailure(LdapResult result, LdapConnected connection);
 
 }
 

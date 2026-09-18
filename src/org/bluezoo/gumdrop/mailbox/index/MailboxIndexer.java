@@ -22,6 +22,10 @@
 package org.bluezoo.gumdrop.mailbox.index;
 
 import java.io.IOException;
+
+import org.bluezoo.gumdrop.mailbox.BackgroundWarmSkippedException;
+import org.bluezoo.gumdrop.util.JulWarnings;
+
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -326,12 +330,13 @@ public final class MailboxIndexer implements Runnable {
                 }
                 try {
                     job.work.run();
+                } catch (BackgroundWarmSkippedException e) {
+                    // Expected when a live session already has this mailbox
+                    // open; the warm would be redundant (issue #163).
                 } catch (Throwable t) {
                     job.error = t;
-                    if (LOGGER.isLoggable(Level.WARNING)) {
-                        LOGGER.log(Level.WARNING,
-                                "Mailbox indexing job failed for " + job.key, t);
-                    }
+                    JulWarnings.warn(LOGGER,
+                            "Mailbox indexing job failed for " + job.key, t);
                 } finally {
                     job.done.countDown();
                 }

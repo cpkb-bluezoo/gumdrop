@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.redis.client;
 
 import java.util.List;
 
-import org.bluezoo.gumdrop.redis.codec.RESPValue;
+import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 /**
  * Handler for Redis SCAN family commands (SCAN, HSCAN, SSCAN, ZSCAN).
@@ -44,7 +44,7 @@ public interface ScanResultHandler {
      * @param elements the elements returned in this batch
      * @param session the session for further operations
      */
-    void handleResult(String cursor, List<RESPValue> elements, RedisSession session);
+    void handleResult(String cursor, List<RespValue> elements, RedisSession session);
 
     /**
      * Called when the scan command fails with a Redis error.

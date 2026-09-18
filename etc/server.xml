@@ -1,0 +1,47 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  Copyright (C) 2026 Chris Burdess
+
+  This file is part of gumdrop.
+
+  gumdrop is free software; you can redistribute it and/or modify
+  it under the terms of the GNU Lesser General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  gumdrop is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with gumdrop; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<!--
+  Stock server.xml for the gumdrop servlet container distribution
+  (GUMDROP_HOME/conf/server.xml). Read by
+  org.bluezoo.gumdrop.servlet.container.ServerXmlLoader; see that class's
+  javadoc for the full element/attribute reference.
+
+  Paths here are relative to this file's directory (conf/) and match the
+  layout produced by the 'assemble-container' Ant target: webapps/ROOT is
+  the extracted root webapp, webapps/manager.war is deployed straight from
+  the war with no extraction needed.
+
+  For local HTTPS + HTTP/3 smoke tests see etc/server-tls.xml, scripts/dev-tls-setup.*,
+  and BUILDING.md. Production/container notes: docs/CONTAINER-DEPLOYMENT.md.
+-->
+<server>
+  <!-- realm-servlet.xml defines the admin/editor accounts used by both the
+       root webapp (realm-name "myRealm") and the manager webapp
+       (realm-name "Gumdrop Manager"); both names are aliases for the one
+       realm below. -->
+  <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
+         href="realm-servlet.xml"/>
+
+  <context path="" root="../webapps/ROOT" distributable="true"/>
+  <context path="/manager" root="../webapps/manager.war"/>
+
+  <listener port="8080"/>
+</server>

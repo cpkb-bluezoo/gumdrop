@@ -25,8 +25,8 @@ import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 
 import org.junit.Test;
@@ -200,21 +200,21 @@ public class RequestResponseHeaderIndexTest {
 
     /** Minimal ServletHandler whose getState() returns a fixed stub. */
     private static final class StubServletHandler extends ServletHandler {
-        private final HTTPResponseState stubState;
+        private final HttpResponseState stubState;
 
-        StubServletHandler(HTTPResponseState stubState) {
-            super(null, null, 8192);
+        StubServletHandler(HttpResponseState stubState) {
+            super(new Container(), 8192);
             this.stubState = stubState;
         }
 
         @Override
-        HTTPResponseState getState() {
+        HttpResponseState getState() {
             return stubState;
         }
     }
 
-    /** Minimal HTTPResponseState: only isSecure()/getSecurityInfo() are ever read here. */
-    private static final class StubHTTPResponseState implements HTTPResponseState {
+    /** Minimal HttpResponseState: only isSecure()/getSecurityInfo() are ever read here. */
+    private static final class StubHTTPResponseState implements HttpResponseState {
         @Override public SocketAddress getRemoteAddress() {
             return new InetSocketAddress("127.0.0.1", 54321);
         }
@@ -223,7 +223,7 @@ public class RequestResponseHeaderIndexTest {
         }
         @Override public boolean isSecure() { return false; }
         @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public HTTPVersion getVersion() { return HTTPVersion.HTTP_1_1; }
+        @Override public HttpVersion getVersion() { return HttpVersion.HTTP_1_1; }
         @Override public String getScheme() { return "http"; }
         @Override public SelectorLoop getSelectorLoop() { return null; }
         @Override public Principal getPrincipal() { return null; }

@@ -1,279 +1,271 @@
-# Container & Cloud Deployment
+# Cloud container deployment (Docker / Podman / Kubernetes)
 
-This guide covers running Gumdrop in ephemeral cloud containers (Docker /
-Kubernetes): the operational knobs for per-instance robustness and clean
-lifecycle, plus the horizontal-scaling constraints you must design around.
+This guide is about running Gumdrop in **OCI-style cloud containers**: image
+layout, process lifecycle, resource limits, and scaling constraints in
+orchestrators. It is **not** a tutorial for the stock **servlet container**
+install tree (local smoke tests with `ant assemble-container`, `./start`, and
+`server.xml` are covered in [BUILDING.md](../BUILDING.md)).
 
-Gumdrop is built for a **robust single instance** that runs cleanly in a
-container. Replicas should be treated as **stateless / sticky** — see
-[Horizontal-scale constraints](#horizontal-scale-constraints) before running
-more than one instance.
+## What you are deploying
+
+Gumdrop is an **async I/O framework**: you compose protocol servers in Java
+(`Gumdrop.boot()`, listeners, handlers). That is the primary model for
+application developers.
+
+On top of the same core, the project also ships **optional pre-built stacks**
+(analogous to bundled servers such as a WebDAV site or a simple FTP file
+server):
+
+| Stack | How it is started | Configuration |
+|-------|-------------------|---------------|
+| **Your custom service** | Your `main()` | Java composition; env vars in code ([web/configuration.html](../web/configuration.html)) |
+| **Stock servlet container** | `Bootstrap` → `ContainerMain` | Minimal `conf/server.xml` (webapps, realms, HTTP listeners) |
+| Other bundled servers | Their own `main` or composition docs | Varies by protocol |
+
+Cloud deployment looks **different depending on which of these you ship**:
+
+1. **Custom Gumdrop application** — build a jar (or module set) with your
+   `main`, put it in **your** container image, set `ENTRYPOINT` to your
+   process. No `server.xml`, no `GUMDROP_HOME` layout required unless you
+   choose to use them.
+
+2. **Stock servlet container distribution** — use the Ant/Docker build that
+   produces the Tomcat-style tree (`bin/`, `lib/`, `webapps/`, `conf/`) and
+   the default `bin/gumdrop.sh` entrypoint. This is one pre-built product,
+   not a requirement for every Gumdrop user.
+
+The sections below apply to **both** paths where noted; servlet-only details
+are marked explicitly.
 
 ---
 
-## Quick start
+## Quick start: servlet container image
 
-Requires **Java 25+** at build time (see [BUILDING.md](../BUILDING.md)).
+Requires **Java 25+** at build time ([BUILDING.md](../BUILDING.md)).
 
 ```bash
-# Build the image (lib/ distribution layout)
 docker build -t gumdrop:latest .
-
-# Run with the bundled example config
-docker run --rm -p 8080:8080 -p 8081:8081 gumdrop:latest
-
-# Readiness / liveness
-curl http://localhost:8081/readyz
-curl http://localhost:8081/livez
+docker run --rm -p 8080:8080 gumdrop:latest
 ```
 
-The image uses `bin/gumdrop.sh` with jars in `lib/` (no nested-jar extraction).
-Configuration defaults to `conf/gumdroprc.xml.example` inside `GUMDROP_HOME`
-(`/opt/gumdrop`), which is parameterised through environment variables.
+This runs the **pre-built servlet container** (ROOT webapp + `manager.war` per
+`conf/server.xml`). For local checkout smoke tests without Docker, use
+`ant assemble-container` and `./start` instead.
+
+To run **your own composed `main`** in a container, replace the image
+`ENTRYPOINT` with your application and follow [Custom services in cloud
+containers](#custom-gumdrop-services-in-cloud-containers) below.
 
 ---
 
-## Configuration
+## Custom Gumdrop services in cloud containers
 
-### Config file location
+Typical pattern for a protocol or HTTP service you wrote with Gumdrop 3:
 
-`main()` resolves the configuration file in this order:
+1. **Compose in Java** — see [web/configuration.html](../web/configuration.html)
+   and `examples/*`. One `main` calls `Gumdrop.boot()`, registers your
+   `Server`(s), then `Gumdrop.serve(...)` or `awaitShutdown()`.
+2. **Pack** — ship `gumdrop.jar` (and any extra module jars your app needs) plus
+   your application classes in a runtime image (JRE 25+).
+3. **Configure at runtime** — read `System.getenv(...)` in `main` for ports,
+   TLS material paths, secrets, and feature flags. The framework has no global
+   config file for composed apps.
+4. **Entrypoint** — run your `main` directly, e.g.
+   `java -cp app.jar:gumdrop.jar com.example.MyServer`. Use `-XX:MaxRAMPercentage`
+   and `exec` so the JVM is PID 1 and receives `SIGTERM` (see [JVM sizing and
+   launchers](#jvm-sizing-and-launchers)).
+5. **Graceful stop** — call `GumdropConfig.drainTimeoutMs(...)` or set
+   `-Dgumdrop.drainTimeoutMs` / `GUMDROP_DRAIN_TIMEOUT_MS`; block the main
+   thread on `awaitShutdown()`. Set the orchestrator termination grace period
+   above the drain timeout ([Graceful shutdown / draining](#graceful-shutdown--draining)).
 
-1. an explicit command-line argument,
-2. the `GUMDROP_CONFIG` environment variable,
-3. `~/.gumdroprc`,
-4. `/etc/gumdroprc`.
+Bind listeners with `.bindWildcard()` (or explicit dual-stack wildcard) in pods
+rather than enumerating interface addresses ([Wildcard bind](#wildcard-bind)).
 
-Set `GUMDROP_CONFIG` to point an immutable image at a mounted config.
-
-### Environment-variable interpolation
-
-Any string value in the XML config (attribute values and element text) may
-reference environment variables with:
-
-```
-${ENV:NAME}            # required; empty if unset
-${ENV:NAME:default}    # with a fallback default
-```
-
-This lets a single immutable image be reconfigured per environment
-(12-factor style), and keeps secrets such as keystore passwords out of the
-image:
-
-```xml
-<listener class="org.bluezoo.gumdrop.http.HTTPListener">
-    <property name="port" value="${ENV:HTTP_PORT:8080}"/>
-    <property name="keystore-pass" value="${ENV:GUMDROP_KEYSTORE_PASS}"/>
-</listener>
-```
+Build your own liveness/readiness signalling if the platform requires it
+([Health & readiness](#health--readiness)).
 
 ---
 
-## Health & readiness endpoint
+## Servlet container in cloud containers
 
-`HealthService` exposes a small, dependency-free HTTP endpoint that reports the
-server lifecycle state, independent of the main protocol stacks (so it keeps
-answering while listeners are still starting or while draining):
+If you deploy the **stock servlet container** (zip or Docker image), not a
+custom `main`:
+
+- **Entrypoint:** `bin/gumdrop.sh` → `Bootstrap` → `ContainerMain`.
+- **Config:** `conf/server.xml` ([`ServerXmlLoader`](../src/org/bluezoo/gumdrop/servlet/container/ServerXmlLoader.java)
+  javadoc). Example sources: [`etc/server.xml`](../etc/server.xml),
+  [`etc/server-tls.xml`](../etc/server-tls.xml). Override with `GUMDROP_CONFIG`
+  or a CLI path to `server.xml`.
+- **Layout:** `GUMDROP_HOME` with `lib/` jars (preferred) or legacy fat jar.
 
 ```xml
-<service class="org.bluezoo.gumdrop.health.HealthService">
-    <property name="port" value="${ENV:GUMDROP_HEALTH_PORT:8081}"/>
-    <property name="addresses" value="0.0.0.0"/>
-</service>
+<?xml version='1.0' standalone='yes'?>
+<server>
+  <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
+         href="realm-servlet.xml"/>
+  <context path="" root="../webapps/ROOT" distributable="true"/>
+  <context path="/manager" root="../webapps/manager.war"/>
+  <listener port="8080"/>
+  <listener port="8443" secure="true" keystore-file="keystore.p12"
+            keystore-pass="changeit" bind-wildcard="true"/>
+</server>
 ```
 
-| Path                              | Meaning    | Response                                        |
-|-----------------------------------|------------|-------------------------------------------------|
-| `/livez`, `/healthz`, `/health`   | Liveness   | `200` while the process is up (incl. draining)  |
-| `/readyz` (or any other path)     | Readiness  | `200 ready` when bound; `503 starting`/`draining` otherwise |
+A `secure="true"` listener gets HTTP/2+TLS and **HTTP/3 (QUIC) on the same
+port** automatically (pure Java; no native QUIC library).
 
-State transitions: `starting` → `ready` (all listeners bound) → `draining`
-(graceful shutdown begun).
+Servlet-only options: `GUMDROP_HOT_DEPLOY`, session clustering, webapp paths —
+see [Hot deploy](#hot-deploy) and [Horizontal-scale constraints](#horizontal-scale-constraints).
 
-Kubernetes probes:
+Local TLS smoke (mkcert, `./start-tls`) stays in [BUILDING.md](../BUILDING.md);
+production TLS in cloud images is your keystore/secret wiring into `server.xml`.
 
-```yaml
-livenessProbe:
-  httpGet: { path: /livez, port: 8081 }
-readinessProbe:
-  httpGet: { path: /readyz, port: 8081 }
-```
+---
 
-Liveness stays `200` during draining on purpose — an orchestrator should stop
-routing new traffic (readiness fails) but must not kill a pod that is finishing
-in-flight work.
+## Health & readiness
+
+Gumdrop does not ship a generic liveness/readiness HTTP endpoint for composed
+services. Polling HTTP to ask “is the process up?” is usually the wrong
+pattern; publish readiness in a way that fits your app (queue, sidecar, exec
+probe against your own admin port, etc.).
+
+The stock **Dockerfile** exposes only the servlet HTTP port (8080 by default) and
+does **not** define a `HEALTHCHECK`. Add probes in your orchestrator manifest
+or derivative image when you implement a real readiness signal.
 
 ---
 
 ## Graceful shutdown / draining
 
-On `SIGTERM` (or JVM shutdown), `Gumdrop.shutdown()` runs in three phases:
+[`ContainerMain`](../src/org/bluezoo/gumdrop/servlet/container/ContainerMain.java)
+and composed apps should block on `Gumdrop.awaitShutdown()` after startup.
+`SIGTERM` and Ctrl+C trigger `Gumdrop.shutdown()` (stop accept → drain → force
+stop). Launch scripts use `exec` so the JVM receives signals directly.
 
-1. **Stop accepting** — the accept loop is stopped and server channels closed;
-   readiness immediately flips to `draining`.
-2. **Drain** — waits up to the drain timeout for in-flight connections to
-   finish while the worker loops keep running.
-3. **Force stop** — stops services, worker loops, timers and pools.
+Phases:
 
-The `start` launcher uses `exec`, so the JVM receives `SIGTERM` directly.
+1. **Stop accepting** — accept loop and server channels closed.
+2. **Drain** — wait up to the drain timeout for in-flight connections.
+3. **Force stop** — stop servers (including servlet `Container.destroy()` when
+   applicable), worker loops, timers, pools.
 
-Tune the drain window (milliseconds) with, in order of precedence:
+Tune drain (milliseconds):
 
-- `GUMDROP_DRAIN_TIMEOUT_MS` environment variable, or
-- `-Dgumdrop.drainTimeoutMs=<ms>` system property.
+- System property: `-Dgumdrop.drainTimeoutMs=<ms>`
+- Environment (container launchers): `GUMDROP_DRAIN_TIMEOUT_MS`
+- Code: `GumdropConfig.drainTimeoutMs(...)`
 
-Default is **25000 ms**. Set your orchestrator's
-`terminationGracePeriodSeconds` comfortably above this.
+Default **25000 ms**. Set `terminationGracePeriodSeconds` (or equivalent) above
+that. For fast local servlet smoke, `GUMDROP_DRAIN_TIMEOUT_MS=0` is fine
+([BUILDING.md](../BUILDING.md)).
 
 ---
 
 ## Per-instance resource safety
 
-These listener properties bound resource use and protect against slow/abusive
-peers. They are protocol-agnostic (enforced at the transport layer) and apply
-to every listener type. All are optional with safe defaults.
+Listener limits apply to **any** Gumdrop server (custom or servlet-backed HTTP):
 
 | Property                  | Setter / config name       | Default    | Purpose                                                        |
 |---------------------------|----------------------------|------------|----------------------------------------------------------------|
 | Global connection cap     | `max-connections`          | `0` (off)  | Hard cap on concurrent connections; rejects at accept.         |
 | Per-IP concurrency cap    | `max-connections-per-ip`   | `0` (off)  | Limits concurrent connections from a single source IP.         |
-| Handshake timeout         | `connection-timeout`       | `60s`      | Bounds TLS/DTLS handshake completion; closes on expiry.        |
+| Handshake timeout         | `connection-timeout`       | `60s`      | Bounds TLS/DTLS handshake completion.                          |
 | First-byte / read timeout | `read-timeout`             | `30s`      | Bounds time to first byte on plaintext connections.            |
-| Idle timeout              | `idle-timeout`             | `5m`       | Idle connection timeout (consumed by HTTP/IMAP etc.).          |
+| Idle timeout              | `idle-timeout`             | `5m`       | Idle connection timeout (HTTP, IMAP, etc.).                    |
 | Inbound buffer cap        | `max-net-in-size`          | `1 MiB`    | Maximum buffered unprocessed inbound bytes.                    |
-| Outbound buffer cap       | `max-net-out-size`         | `4 MiB`    | Caps outbound buffering; closes the connection on overflow (slow/zero-window readers). |
+| Outbound buffer cap       | `max-net-out-size`         | `4 MiB`    | Caps outbound buffering; closes on slow readers.               |
 
-Timeout values accept human-friendly strings (e.g. `60s`, `5m`).
+Timeout strings accept forms like `60s`, `5m`.
 
-Related, per-protocol:
-
-- **WebSocket max message size** defaults to **64 MiB** so a fragmented message
-  cannot grow the reassembly buffer without bound.
-- **Rate-limiter maps** (connection & authentication limiters) now self-clean
-  via lazy TTL eviction, so they stay bounded under high distinct-IP churn.
-- **Accept backoff** — the accept loop backs off briefly on file-descriptor
-  exhaustion (`EMFILE`) instead of busy-looping.
-
-### Wildcard bind
-
-For containers, bind a single wildcard socket rather than enumerating each NIC
-address (brittle in pods). Either set `wildcard="true"` or use a wildcard
-token in `addresses`:
-
-```xml
-<property name="wildcard" value="true"/>
-<!-- or -->
-<property name="addresses" value="0.0.0.0"/>   <!-- also: *, ::, [::] -->
-```
+Related: WebSocket reassembly cap (64 MiB), rate-limiter TTL eviction, accept
+backoff on `EMFILE`.
 
 ---
 
-## JVM sizing (the `start` launcher)
+## Wildcard bind
 
-[`start`](../start) and [`bin/gumdrop.sh`](../bin/gumdrop.sh) are container-friendly:
+In pods, bind one wildcard listener instead of every NIC address:
 
-- prefer the **lib/ distribution** (`GUMDROP_HOME/bin/gumdrop.sh`) when present;
-  fall back to the legacy `gumdrop-container.jar` fat jar;
-- size the heap from the container memory limit with
-  `-XX:+UseContainerSupport -XX:MaxRAMPercentage` instead of a fixed `-Xmx`;
-- log to the console (12-factor);
-- `exec` the JVM so it receives `SIGTERM` directly.
+```java
+new Http2Listener().port(8080).bindWildcard();
+```
 
-Overridable environment variables:
+In `server.xml`, use `bind-wildcard="true"` on listeners where supported.
+
+---
+
+## JVM sizing and launchers
+
+**Servlet container / git checkout:** [`start`](../start), [`start.bat`](../start.bat),
+[`bin/gumdrop.sh`](../bin/gumdrop.sh) — `-XX:MaxRAMPercentage`, console logging,
+`exec` for signals. See [BUILDING.md](../BUILDING.md) for assemble and smoke.
+
+**Custom images:** apply the same JVM flags in your `ENTRYPOINT`; read
+`MAX_RAM_PERCENTAGE`, `JAVA_OPTS`, etc. in your launcher or Dockerfile.
 
 | Variable             | Default                        | Purpose                                   |
 |----------------------|--------------------------------|-------------------------------------------|
 | `JAVA`               | `java`                         | Java binary.                              |
-| `GUMDROP_HOME`       | (inferred)                     | Install root for lib/ layout.             |
-| `GUMDROP_JAR`        | `./dist/gumdrop-container.jar` | Legacy fat jar when lib/ layout absent.   |
-| `GUMDROP_CONFIG`     | (search order)                 | Config file path.                         |
-| `LOGGING_PROPERTIES` | `logging.properties`           | `java.util.logging` config.               |
-| `MAX_RAM_PERCENTAGE` | `75.0`                         | Heap as a percentage of container memory. |
-| `JAVA_OPTS`          | (empty)                        | Extra JVM options (appended last).        |
-
-### QUIC / HTTP-3
-
-The HTTP/3 listener is a pure-Java implementation and requires no native
-library or extra setup -- just uncomment the HTTP/3 listener in the config.
+| `GUMDROP_HOME`       | (inferred)                     | Servlet install root (`lib/` layout).     |
+| `GUMDROP_JAR`        | `./dist/gumdrop-container.jar` | Legacy fat jar fallback.                  |
+| `LOGGING_PROPERTIES` | `logging.properties`           | JUL config file.                          |
+| `MAX_RAM_PERCENTAGE` | `75.0`                         | Heap as % of container memory limit.      |
+| `JAVA_OPTS`          | (empty)                        | Extra JVM flags.                          |
 
 ---
 
-## Hot deploy
+## Hot deploy (servlet container only)
 
-Servlet hot deploy uses a filesystem `WatchService` (inotify), which is
-pointless and sometimes unsupported on immutable/overlay container
-filesystems. It is therefore **off by default**. Enable it explicitly when
-needed:
-
-- in config: `<property name="hot-deploy" value="true"/>`, or
-- when not set in config, via the `GUMDROP_HOT_DEPLOY=true` environment
-  variable.
+Servlet hot deploy uses filesystem `WatchService` (inotify), which is a poor fit
+on immutable overlay roots. **Off by default.** Enable with
+`container.setHotDeploy(true)` or `GUMDROP_HOT_DEPLOY=true` when you deliberately
+mount mutable webapp directories.
 
 ---
 
 ## Filesystem expectations
 
-- **Writable `/tmp`** is required for the **legacy fat jar** layout: nested jars are
-  extracted to temp files at startup. The **lib/ distribution zip** loads plain
-  jars from `GUMDROP_HOME/lib/` and does not extract nested dependencies (servlet
-  temp dirs for multipart/JSP still need writable space).
-- If you use `readOnlyRootFilesystem`, mount a writable `emptyDir` at `/tmp` (and
-  at any servlet work directory).
-- **Shared/persistent volumes** are required for stateful services (mail
-  storage, quota) — see below.
+- **Legacy fat jar:** writable `/tmp` for nested-jar extraction.
+- **Lib layout:** plain jars under `GUMDROP_HOME/lib/`; servlet/JSP work dirs
+  still need writable space.
+- **`readOnlyRootFilesystem`:** mount writable `emptyDir` for `/tmp` and servlet
+  work directories.
+- **Stateful protocols** (mail, quota): shared/persistent volumes as needed.
 
 ---
 
 ## Horizontal-scale constraints
 
-Gumdrop keeps a range of state **in-process**. Running multiple replicas is
-supported only under the following constraints; otherwise run a single
-instance.
+Applies to **any** Gumdrop process; servlet session notes matter only when you
+run the servlet container with distributable apps.
 
-- **Sessions require sticky routing.** Servlet sessions live in-process.
-  Route each client consistently to one replica (sticky sessions / session
-  affinity) or sessions will appear to be lost across replicas.
-- **Multicast session replication does not form under Kubernetes.** The
-  cluster session replication
-  ([`servlet/session/Cluster.java`](../src/org/bluezoo/gumdrop/servlet/session/Cluster.java))
-  relies on IP multicast, which typical pod networks do not deliver. Assume it
-  is inactive and rely on sticky sessions instead.
-- **MQTT broker is single-instance.** There is no broker clustering; retained
-  messages, subscriptions and session state are per-instance. Run one broker
-  replica.
-- **Rate-limit / quota / auth state is per-instance.** Connection and
-  authentication rate limiters, quotas, and HTTP Digest nonces are held
-  in-process and are **not shared** across replicas. With N replicas, effective
-  limits are roughly N× and nonces issued by one replica are unknown to
-  others — another reason to use sticky routing.
-- **Mail / quota storage needs a shared volume.** SMTP/IMAP/POP3 mailbox and
-  quota data live on local disk; to share them across replicas, back them with
-  a shared/persistent volume (and be aware of the single-writer expectations of
-  the mailbox format you choose).
-- **DNS cache, sessions, etc. are per-instance** and rebuilt on restart; this
-  is fine for ephemeral containers but means no warm state survives a rollout.
+- **Servlet sessions:** in-process; use sticky routing or accept lost sessions
+  across replicas.
+- **Multicast session replication:** not viable on typical Kubernetes pod
+  networks; assume inactive.
+- **MQTT broker:** single instance; no clustering.
+- **Rate limits / quotas / Digest nonces:** per-instance; sticky routing helps.
+- **Mail storage:** shared volume if multiple replicas must see the same mailboxes.
+- **DNS cache and similar:** per-instance; cold after restart.
 
-### Recommended replica model
+**Stateless HTTP (custom or servlet):** N replicas + LB; sticky sessions if you
+use HTTP sessions; drain below pod grace period.
 
-For stateless HTTP workloads: run N replicas behind a load balancer with
-readiness/liveness probes on the health port, sticky sessions if you use
-servlet sessions, a drain timeout below the pod grace period, and no reliance
-on multicast replication.
-
-For stateful workloads (mail, MQTT): prefer a single instance (optionally with
-a shared volume for mail/quota) until an external shared store is introduced.
+**Stateful mail/MQTT:** prefer one replica or external shared storage.
 
 ---
 
 ## Reference: environment variables
 
-| Variable                    | Consumed by            | Default              | Purpose                                        |
-|-----------------------------|------------------------|----------------------|------------------------------------------------|
-| `GUMDROP_CONFIG`            | server + launcher      | (search order)       | Config file path.                              |
-| `GUMDROP_DRAIN_TIMEOUT_MS`  | server                 | `25000`              | Graceful-drain window (ms).                    |
-| `GUMDROP_HOT_DEPLOY`        | servlet container      | `false`              | Enable servlet hot deploy when not set in config. |
-| `${ENV:NAME[:default]}`     | config parser          | —                    | Interpolate any env var into config values.    |
-| `MAX_RAM_PERCENTAGE`        | launcher               | `75.0`               | Heap percentage of container memory.           |
-| `JAVA`, `GUMDROP_JAR`, `LOGGING_PROPERTIES`, `JAVA_OPTS` | launcher | see table above | Launcher overrides. |
+| Variable                    | Used by                         | Purpose |
+|-----------------------------|----------------------------------|---------|
+| `GUMDROP_CONFIG`            | Servlet container (`ContainerMain`) | Path to `server.xml`. |
+| `GUMDROP_HOME`              | Servlet container bootstrap      | Install root. |
+| `GUMDROP_HOT_DEPLOY`        | Servlet container                | Hot deploy toggle. |
+| `GUMDROP_DRAIN_TIMEOUT_MS`  | `GumdropConfig` / launchers      | Graceful drain window. |
+| `MAX_RAM_PERCENTAGE`, `JAVA`, `JAVA_OPTS`, `LOGGING_PROPERTIES`, `GUMDROP_JAR` | Launchers | JVM and logging. |
 
-System property equivalent: `-Dgumdrop.drainTimeoutMs=<ms>`.
+Composed applications: read whatever env vars **you** define in your `main`; the
+framework does not interpret app-specific settings beyond the drain timeout
+above.

@@ -24,9 +24,9 @@ package org.bluezoo.gumdrop.mime.rfc5322;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentID;
 import org.bluezoo.gumdrop.mime.ContentType;
-import org.bluezoo.gumdrop.mime.MIMELocator;
-import org.bluezoo.gumdrop.mime.MIMEParseException;
-import org.bluezoo.gumdrop.mime.MIMEVersion;
+import org.bluezoo.gumdrop.mime.MimeLocator;
+import org.bluezoo.gumdrop.mime.MimeParseException;
+import org.bluezoo.gumdrop.mime.MimeVersion;
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
@@ -64,64 +64,64 @@ public class MessageParserTest {
         String contentTransferEncoding;
         ContentID contentID;
         String contentDescription;
-        MIMEVersion mimeVersion;
+        MimeVersion mimeVersion;
         StringBuilder body = new StringBuilder();
         int entityCount = 0;
         
         @Override
-        public void setLocator(MIMELocator locator) {
+        public void setLocator(MimeLocator locator) {
             events.add("setLocator");
         }
         
         @Override
-        public void startEntity(String boundary) throws MIMEParseException {
+        public void startEntity(String boundary) throws MimeParseException {
             events.add("startEntity:" + (boundary != null ? boundary : "null"));
             entityCount++;
         }
         
         @Override
-        public void contentType(ContentType ct) throws MIMEParseException {
+        public void contentType(ContentType ct) throws MimeParseException {
             events.add("contentType:" + ct);
             this.contentType = ct;
         }
         
         @Override
-        public void contentDisposition(ContentDisposition cd) throws MIMEParseException {
+        public void contentDisposition(ContentDisposition cd) throws MimeParseException {
             events.add("contentDisposition:" + cd);
             this.contentDisposition = cd;
         }
         
         @Override
-        public void contentTransferEncoding(String encoding) throws MIMEParseException {
+        public void contentTransferEncoding(String encoding) throws MimeParseException {
             events.add("contentTransferEncoding:" + encoding);
             this.contentTransferEncoding = encoding;
         }
         
         @Override
-        public void contentID(ContentID cid) throws MIMEParseException {
+        public void contentID(ContentID cid) throws MimeParseException {
             events.add("contentID:" + cid);
             this.contentID = cid;
         }
         
         @Override
-        public void contentDescription(String description) throws MIMEParseException {
+        public void contentDescription(String description) throws MimeParseException {
             events.add("contentDescription:" + description);
             this.contentDescription = description;
         }
         
         @Override
-        public void mimeVersion(MIMEVersion version) throws MIMEParseException {
+        public void mimeVersion(MimeVersion version) throws MimeParseException {
             events.add("mimeVersion:" + version);
             this.mimeVersion = version;
         }
         
         @Override
-        public void endHeaders() throws MIMEParseException {
+        public void endHeaders() throws MimeParseException {
             events.add("endHeaders");
         }
         
         @Override
-        public void bodyContent(ByteBuffer content) throws MIMEParseException {
+        public void bodyContent(ByteBuffer content) throws MimeParseException {
             byte[] bytes = new byte[content.remaining()];
             content.get(bytes);
             body.append(new String(bytes, StandardCharsets.UTF_8));
@@ -129,55 +129,55 @@ public class MessageParserTest {
         }
         
         @Override
-        public void unexpectedContent(ByteBuffer content) throws MIMEParseException {
+        public void unexpectedContent(ByteBuffer content) throws MimeParseException {
             events.add("unexpectedContent");
         }
         
         @Override
-        public void endEntity(String boundary) throws MIMEParseException {
+        public void endEntity(String boundary) throws MimeParseException {
             events.add("endEntity:" + (boundary != null ? boundary : "null"));
         }
         
         // MessageHandler-specific methods
         
         @Override
-        public void header(String name, String value) throws MIMEParseException {
+        public void header(String name, String value) throws MimeParseException {
             events.add("header:" + name + "=" + value);
             unstructuredHeaders.put(name, value);
         }
         
         @Override
-        public void unexpectedHeader(String name, String value) throws MIMEParseException {
+        public void unexpectedHeader(String name, String value) throws MimeParseException {
             events.add("unexpectedHeader:" + name + "=" + value);
             unexpectedHeaders.put(name, value);
         }
         
         @Override
-        public void dateHeader(String name, OffsetDateTime date) throws MIMEParseException {
+        public void dateHeader(String name, OffsetDateTime date) throws MimeParseException {
             events.add("dateHeader:" + name + "=" + date);
             dateHeaders.put(name, date);
         }
         
         @Override
-        public void addressHeader(String name, List<EmailAddress> addresses) throws MIMEParseException {
+        public void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException {
             events.add("addressHeader:" + name + "=" + addresses);
             addressHeaders.put(name, new ArrayList<>(addresses));
         }
         
         @Override
-        public void messageIDHeader(String name, List<ContentID> contentIDs) throws MIMEParseException {
+        public void messageIDHeader(String name, List<ContentID> contentIDs) throws MimeParseException {
             events.add("messageIDHeader:" + name + "=" + contentIDs);
             messageIDHeaders.put(name, new ArrayList<>(contentIDs));
         }
         
         @Override
-        public void obsoleteStructure(ObsoleteStructureType type) throws MIMEParseException {
+        public void obsoleteStructure(ObsoleteStructureType type) throws MimeParseException {
             events.add("obsoleteStructure:" + type);
             obsoleteStructures.add(type);
         }
     }
     
-    private void parse(MessageParser parser, String content) throws MIMEParseException {
+    private void parse(MessageParser parser, String content) throws MimeParseException {
         ByteBuffer buffer = ByteBuffer.wrap(content.getBytes(StandardCharsets.UTF_8));
         parser.receive(buffer);
         parser.close();
@@ -186,7 +186,7 @@ public class MessageParserTest {
     // Date header tests
     
     @Test
-    public void testDateHeader() throws MIMEParseException {
+    public void testDateHeader() throws MimeParseException {
         // Using full RFC 5322 date format with time
         String content = "Date: Sat, 7 Dec 2024 14:30:00 +0000\r\n" +
             "\r\n" +
@@ -209,7 +209,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testDateHeaderWithTimezone() throws MIMEParseException {
+    public void testDateHeaderWithTimezone() throws MimeParseException {
         String content = "Date: Fri, 6 Dec 2024 09:15:30 -0500\r\n" +
             "\r\n" +
             "Body";
@@ -226,7 +226,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testResentDateHeader() throws MIMEParseException {
+    public void testResentDateHeader() throws MimeParseException {
         String content = "Resent-Date: Mon, 9 Dec 2024 10:00:00 +0100\r\n" +
             "\r\n" +
             "Body";
@@ -243,7 +243,7 @@ public class MessageParserTest {
     // Address header tests
     
     @Test
-    public void testFromHeader() throws MIMEParseException {
+    public void testFromHeader() throws MimeParseException {
         String content = "From: alice@example.com\r\n" +
             "\r\n" +
             "Body";
@@ -261,7 +261,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testFromHeaderWithDisplayName() throws MIMEParseException {
+    public void testFromHeaderWithDisplayName() throws MimeParseException {
         String content = "From: Alice Smith <alice@example.com>\r\n" +
             "\r\n" +
             "Body";
@@ -279,7 +279,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testToHeaderMultipleRecipients() throws MIMEParseException {
+    public void testToHeaderMultipleRecipients() throws MimeParseException {
         String content = "To: alice@example.com, bob@example.com\r\n" +
             "\r\n" +
             "Body";
@@ -298,7 +298,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testCcHeader() throws MIMEParseException {
+    public void testCcHeader() throws MimeParseException {
         String content = "Cc: manager@example.com\r\n" +
             "\r\n" +
             "Body";
@@ -313,7 +313,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testBccHeader() throws MIMEParseException {
+    public void testBccHeader() throws MimeParseException {
         String content = "Bcc: secret@example.com\r\n" +
             "\r\n" +
             "Body";
@@ -328,7 +328,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testReplyToHeader() throws MIMEParseException {
+    public void testReplyToHeader() throws MimeParseException {
         String content = "Reply-To: replies@example.com\r\n" +
             "\r\n" +
             "Body";
@@ -343,7 +343,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testSenderHeader() throws MIMEParseException {
+    public void testSenderHeader() throws MimeParseException {
         String content = "Sender: secretary@example.com\r\n" +
             "\r\n" +
             "Body";
@@ -360,7 +360,7 @@ public class MessageParserTest {
     // Message-ID header tests
     
     @Test
-    public void testMessageIDHeader() throws MIMEParseException {
+    public void testMessageIDHeader() throws MimeParseException {
         String content = "Message-ID: <unique123@example.com>\r\n" +
             "\r\n" +
             "Body";
@@ -379,7 +379,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testInReplyToHeader() throws MIMEParseException {
+    public void testInReplyToHeader() throws MimeParseException {
         String content = "In-Reply-To: <original123@example.com>\r\n" +
             "\r\n" +
             "Body";
@@ -394,7 +394,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testReferencesHeaderMultiple() throws MIMEParseException {
+    public void testReferencesHeaderMultiple() throws MimeParseException {
         String content = "References: <msg1@example.com> <msg2@example.com> <msg3@example.com>\r\n" +
             "\r\n" +
             "Body";
@@ -413,7 +413,7 @@ public class MessageParserTest {
     // Unstructured header tests
     
     @Test
-    public void testSubjectHeader() throws MIMEParseException {
+    public void testSubjectHeader() throws MimeParseException {
         String content = "Subject: Test email subject\r\n" +
             "\r\n" +
             "Body";
@@ -429,7 +429,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testCommentsHeader() throws MIMEParseException {
+    public void testCommentsHeader() throws MimeParseException {
         String content = "Comments: This is a comment\r\n" +
             "\r\n" +
             "Body";
@@ -444,7 +444,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testReceivedHeader() throws MIMEParseException {
+    public void testReceivedHeader() throws MimeParseException {
         String content = "Received: from mail.example.com by mx.example.org; Sat, 7 Dec 2024 12:00:00 +0000\r\n" +
             "\r\n" +
             "Body";
@@ -460,7 +460,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testCustomXHeader() throws MIMEParseException {
+    public void testCustomXHeader() throws MimeParseException {
         String content = "X-Custom-Header: custom value\r\n" +
             "\r\n" +
             "Body";
@@ -478,7 +478,7 @@ public class MessageParserTest {
     // MIME headers (delegated to parent)
     
     @Test
-    public void testContentTypeHeader() throws MIMEParseException {
+    public void testContentTypeHeader() throws MimeParseException {
         String content = "Content-Type: text/plain; charset=utf-8\r\n" +
             "\r\n" +
             "Body";
@@ -495,7 +495,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testMIMEVersionHeader() throws MIMEParseException {
+    public void testMIMEVersionHeader() throws MimeParseException {
         String content = "MIME-Version: 1.0\r\n" +
             "\r\n" +
             "Body";
@@ -507,13 +507,13 @@ public class MessageParserTest {
         parse(parser, content);
         
         assertNotNull(handler.mimeVersion);
-        assertEquals(MIMEVersion.VERSION_1_0, handler.mimeVersion);
+        assertEquals(MimeVersion.VERSION_1_0, handler.mimeVersion);
     }
     
     // Complete message tests
     
     @Test
-    public void testCompleteEmailMessage() throws MIMEParseException {
+    public void testCompleteEmailMessage() throws MimeParseException {
         String content = 
             "Date: Sat, 7 Dec 2024 14:30:00 +0000\r\n" +
             "From: sender@example.com\r\n" +
@@ -545,7 +545,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testMultipartEmail() throws MIMEParseException {
+    public void testMultipartEmail() throws MimeParseException {
         String content = 
             "Date: Sat, 7 Dec 2024 14:30:00 +0000\r\n" +
             "From: sender@example.com\r\n" +
@@ -579,7 +579,7 @@ public class MessageParserTest {
     // Invalid header tests
     
     @Test
-    public void testInvalidDateHeader() throws MIMEParseException {
+    public void testInvalidDateHeader() throws MimeParseException {
         String content = "Date: not a valid date\r\n" +
             "\r\n" +
             "Body";
@@ -596,7 +596,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testInvalidAddressHeader() throws MIMEParseException {
+    public void testInvalidAddressHeader() throws MimeParseException {
         String content = "From: not a valid email address\r\n" +
             "\r\n" +
             "Body";
@@ -613,7 +613,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testInvalidMessageIDHeader() throws MIMEParseException {
+    public void testInvalidMessageIDHeader() throws MimeParseException {
         String content = "Message-ID: not-a-valid-id\r\n" +
             "\r\n" +
             "Body";
@@ -632,7 +632,7 @@ public class MessageParserTest {
     // Parser configuration tests
     
     @Test
-    public void testSetHandlerWithMessageHandler() throws MIMEParseException {
+    public void testSetHandlerWithMessageHandler() throws MimeParseException {
         String content = "Subject: Test\r\n\r\nBody";
         
         TestMessageHandler handler = new TestMessageHandler();
@@ -646,7 +646,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testReset() throws MIMEParseException {
+    public void testReset() throws MimeParseException {
         TestMessageHandler handler = new TestMessageHandler();
         MessageParser parser = new MessageParser();
         parser.setMessageHandler(handler);
@@ -667,7 +667,7 @@ public class MessageParserTest {
     // Header case insensitivity tests
     
     @Test
-    public void testHeaderCaseInsensitivity() throws MIMEParseException {
+    public void testHeaderCaseInsensitivity() throws MimeParseException {
         String content = 
             "DATE: Sat, 7 Dec 2024 14:30:00 +0000\r\n" +
             "from: sender@example.com\r\n" +
@@ -692,7 +692,7 @@ public class MessageParserTest {
     // Address with angle brackets
     
     @Test
-    public void testAddressAngleBracketOnly() throws MIMEParseException {
+    public void testAddressAngleBracketOnly() throws MimeParseException {
         String content = "From: <alice@example.com>\r\n" +
             "\r\n" +
             "Body";
@@ -710,7 +710,7 @@ public class MessageParserTest {
     }
     
     @Test
-    public void testAddressQuotedDisplayName() throws MIMEParseException {
+    public void testAddressQuotedDisplayName() throws MimeParseException {
         String content = "From: \"Smith, Alice\" <alice@example.com>\r\n" +
             "\r\n" +
             "Body";

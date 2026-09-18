@@ -22,7 +22,9 @@
 package org.bluezoo.gumdrop.dns;
 
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
+import java.net.InetAddress;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 /**
  * TCP/TLS transport listener for DNS-over-TLS (DoT) queries.
@@ -42,15 +44,15 @@ import org.bluezoo.gumdrop.TCPListener;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see DoTProtocolHandler
- * @see DNSService
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7858">RFC 7858 - DNS over TLS</a>
  */
-public class DoTListener extends TCPListener {
+public class DoTListener extends TcpListener {
 
     private static final int DEFAULT_PORT = 853;
 
     private int port = DEFAULT_PORT;
-    private DNSService service;
+    private org.bluezoo.gumdrop.dns.server.DnsServer server;
 
     /**
      * Creates a new DoT listener. TLS is enabled by default.
@@ -72,6 +74,41 @@ public class DoTListener extends TCPListener {
     public void setPort(int port) {
         this.port = port;
     }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public DoTListener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public DoTListener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public DoTListener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public DoTListener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public DoTListener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
 
     @Override
     public String getDescription() {
@@ -79,26 +116,26 @@ public class DoTListener extends TCPListener {
     }
 
     /**
-     * Sets the owning DNS service.
+     * Sets the owning DNS server.
      *
-     * @param service the owning service
+     * @param server the owning server
      */
-    void setService(DNSService service) {
-        this.service = service;
+    public void setServer(org.bluezoo.gumdrop.dns.server.DnsServer server) {
+        this.server = server;
     }
 
     /**
-     * Returns the owning service, or null if used standalone.
+     * Returns the owning server, or null if used standalone.
      *
-     * @return the owning service
+     * @return the owning server
      */
-    public DNSService getService() {
-        return service;
+    public org.bluezoo.gumdrop.dns.server.DnsServer getServer() {
+        return server;
     }
 
     @Override
     protected ProtocolHandler createHandler() {
-        return new DoTProtocolHandler(service);
+        return new DoTProtocolHandler(server);
     }
 
 }

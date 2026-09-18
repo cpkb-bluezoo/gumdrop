@@ -35,18 +35,19 @@
  * <h2>Architecture</h2>
  *
  * <ul>
- *   <li>{@link org.bluezoo.gumdrop.mdns.MDNSService} &ndash; owns
+ *   <li>{@link org.bluezoo.gumdrop.mdns.server.MdnsServer} &ndash; owns
  *       configuration, the probing/announcing state machine for this
  *       instance's own hostname, and the public
- *       {@link org.bluezoo.gumdrop.mdns.MDNSService#query query}/{@link
- *       org.bluezoo.gumdrop.mdns.MDNSService#lookup lookup} API</li>
- *   <li>{@link org.bluezoo.gumdrop.mdns.MDNSListener} &ndash; the UDP
+ *       {@link org.bluezoo.gumdrop.mdns.server.MdnsServer#query query}/{@link
+ *       org.bluezoo.gumdrop.mdns.server.MdnsServer#lookup lookup} API;
+ *       do not subclass for application logic, use {@code compose()}</li>
+ *   <li>{@link org.bluezoo.gumdrop.mdns.MdnsListener} &ndash; the UDP
  *       multicast transport: binds port 5353 and joins the mDNS group
  *       on every eligible network interface</li>
- *   <li>{@link org.bluezoo.gumdrop.mdns.MDNSCache} &ndash; the
+ *   <li>{@link org.bluezoo.gumdrop.mdns.MdnsCache} &ndash; the
  *       querier-side record cache, with RFC 6762 section 5.2 active
  *       refresh and section 10.2 cache-flush semantics</li>
- *   <li>{@link org.bluezoo.gumdrop.mdns.DNSSDAdvertiser} &ndash;
+ *   <li>{@link org.bluezoo.gumdrop.mdns.DnssdAdvertiser} &ndash;
  *       builds RFC 6763 PTR/SRV/TXT records for this Gumdrop instance's
  *       own configured services</li>
  * </ul>
@@ -54,18 +55,19 @@
  * <p>Wire-format support for mDNS's two repurposed bits (the QCLASS
  * "QU" bit and the RR CLASS "cache-flush" bit) lives in the sibling
  * {@link org.bluezoo.gumdrop.dns} package, on
- * {@link org.bluezoo.gumdrop.dns.DNSQuestion} and
- * {@link org.bluezoo.gumdrop.dns.DNSResourceRecord} respectively, since
+ * {@link org.bluezoo.gumdrop.dns.DnsQuestion} and
+ * {@link org.bluezoo.gumdrop.dns.DnsResourceRecord} respectively, since
  * mDNS otherwise reuses the standard DNS message format as-is.
  *
  * <h2>Usage</h2>
  *
  * <p>The simplest configuration just claims a hostname:
  * <pre>{@code
- * <service class="org.bluezoo.gumdrop.mdns.MDNSService">
- *   <property name="hostname" value="gumdrop"/>
- *   <listener class="org.bluezoo.gumdrop.mdns.MDNSListener"/>
- * </service>
+ * MdnsServer mdns = MdnsServer.compose()
+ *         .listener(new MdnsListener())
+ *         .hostname("gumdrop")
+ *         .server();
+ * gumdrop.addServer(mdns);
  * }</pre>
  *
  * <p>If {@code hostname} is omitted, the JVM's local hostname (domain
@@ -73,34 +75,34 @@
  * another host already holds the name, or wins a simultaneous-probe
  * tie-break, this instance renames itself (e.g. {@code gumdrop-2}) and
  * re-probes automatically &mdash; check
- * {@link org.bluezoo.gumdrop.mdns.MDNSService#getCurrentName} after
- * {@link org.bluezoo.gumdrop.mdns.MDNSService#isAnnounced} to find out
+ * {@link org.bluezoo.gumdrop.mdns.server.MdnsServer#getCurrentName} after
+ * {@link org.bluezoo.gumdrop.mdns.server.MdnsServer#isAnnounced} to find out
  * what name was actually claimed.
  *
  * <h2>Querying other hosts</h2>
  *
  * <pre>{@code
- * mdnsService.query("printer.local", DNSType.A);
+ * mdnsService.query("printer.local", DnsType.A);
  * // ... answers arrive asynchronously as other hosts respond ...
- * List<DNSResourceRecord> answers = mdnsService.lookup("printer.local", DNSType.A);
+ * List<DnsResourceRecord> answers = mdnsService.lookup("printer.local", DnsType.A);
  * }</pre>
  *
  * <h2>DNS-SD auto-advertisement</h2>
  *
  * <p>Enabled by default once a hostname is successfully announced. It
- * reads {@code Gumdrop.getInstance().getServices()} at that point, so
- * <strong>the {@code mdns} service must be declared last</strong> in
- * {@code gumdroprc.xml} &mdash; services start in document order, and
- * any service started after {@code mdns} won't have its listener ports
- * picked up:
+ * reads {@code gumdrop.getServers()} at that point, so
+ * <strong>the {@code mdns} server must be added to the {@code Gumdrop}
+ * instance last</strong> &mdash; call {@code gumdrop.addServer(...)} for
+ * every other server first; a server added after {@code mdns} won't have
+ * its listener ports picked up yet:
  * <pre>{@code
- * <property name="advertise-services" value="true"/>  <!-- default -->
- * <property name="excluded-services" value="dns"/>     <!-- space-separated -->
+ * mdns.setAdvertiseServices(true);  // default
+ * mdns.setExcludedServices("dns");  // space-separated
  * }</pre>
  *
  * <p>Only a deliberately conservative set of well-established DNS-SD
  * service types is advertised (see
- * {@link org.bluezoo.gumdrop.mdns.DNSSDAdvertiser} for the exact list);
+ * {@link org.bluezoo.gumdrop.mdns.DnssdAdvertiser} for the exact list);
  * a listener whose {@code getDescription()} isn't in that list is
  * silently skipped, not treated as an error.
  *
@@ -118,10 +120,10 @@
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.mdns.MDNSService
- * @see org.bluezoo.gumdrop.mdns.MDNSListener
- * @see org.bluezoo.gumdrop.mdns.MDNSCache
- * @see org.bluezoo.gumdrop.mdns.DNSSDAdvertiser
- * @see org.bluezoo.gumdrop.dns.DNSService
+ * @see org.bluezoo.gumdrop.mdns.server.MdnsServer
+ * @see org.bluezoo.gumdrop.mdns.MdnsListener
+ * @see org.bluezoo.gumdrop.mdns.MdnsCache
+ * @see org.bluezoo.gumdrop.mdns.DnssdAdvertiser
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
  */
 package org.bluezoo.gumdrop.mdns;

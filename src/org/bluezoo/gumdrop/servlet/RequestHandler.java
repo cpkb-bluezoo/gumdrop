@@ -40,7 +40,7 @@ import jakarta.servlet.http.HttpSession;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-class RequestHandler implements Runnable {
+public class RequestHandler implements Runnable {
 
     /**
      * Date format for common log format. Immutable and thread-safe; a single
@@ -53,11 +53,11 @@ class RequestHandler implements Runnable {
                     .withZone(ZoneId.systemDefault());
 
     final ServletHandler handler;
-    final ServletService service;
+    final Container container;
 
-    RequestHandler(ServletHandler handler, ServletService service) {
+    public RequestHandler(ServletHandler handler, Container container) {
         this.handler = handler;
-        this.service = service;
+        this.container = container;
     }
 
     public void run() {
@@ -141,7 +141,7 @@ class RequestHandler implements Runnable {
 
     private void logCompletion(long t1, Request request, Response response) {
         String logEntry = createLogEntry(t1, request, response);
-        service.log(logEntry);
+        container.log(logEntry);
     }
 
     void notifyRequestInitialized(Request request) {
@@ -210,13 +210,12 @@ class RequestHandler implements Runnable {
         String path = (uri == null) ? "" : uri.getPath();
 
         // Lookup context
-        Context context = service.getContainer().getContextByPath(path);
+        Context context = container.getContextByPath(path);
         // Lookup request dispatcher
         if (context == null) {
             return null;
         }
         Thread.currentThread().setContextClassLoader(context.getContextClassLoader());
-        context.service = service;
         request.context = context;
         request.contextPath = context.contextPath;
         response.context = context;

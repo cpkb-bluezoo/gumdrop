@@ -9,10 +9,10 @@ import org.bluezoo.gumdrop.util.ByteBufferPool;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
-import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
+import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
- * Unit tests for {@link SOCKSUDPHeader}. {@link SOCKSUDPHeader#parse}
+ * Unit tests for {@link SocksUDPHeader}. {@link SocksUDPHeader#parse}
  * is a push-style callback API (no materialized "parsed header"
  * object), so {@link #parse} below records a call into a small local
  * test-only holder for assertions.
@@ -30,7 +30,7 @@ public class SOCKSUDPHeaderTest {
 
     private Recorded parse(ByteBuffer data) {
         final Recorded r = new Recorded();
-        SOCKSUDPHeader.parse(data, new SOCKSUDPHeader.Handler() {
+        SocksUDPHeader.parse(data, new SocksUDPHeader.Handler() {
             @Override
             public void datagram(byte frag, InetAddress address,
                     String hostname, int port, ByteBuffer payload) {
@@ -194,7 +194,7 @@ public class SOCKSUDPHeaderTest {
                 80);
         ByteBuffer payload = ByteBuffer.wrap(new byte[]{0x48, 0x49});
 
-        ByteBuffer result = SOCKSUDPHeader.encode(source, payload);
+        ByteBuffer result = SocksUDPHeader.encode(source, payload);
         try {
             assertNotNull(result);
             assertEquals(12, result.remaining()); // 4+4+2 header + 2 data
@@ -224,7 +224,7 @@ public class SOCKSUDPHeaderTest {
                 InetAddress.getByAddress(ipv6), 443);
         ByteBuffer payload = ByteBuffer.wrap(new byte[]{0x01});
 
-        ByteBuffer result = SOCKSUDPHeader.encode(source, payload);
+        ByteBuffer result = SocksUDPHeader.encode(source, payload);
         try {
             // header = 4 + 16 + 2 = 22, data = 1
             assertEquals(23, result.remaining());
@@ -243,7 +243,7 @@ public class SOCKSUDPHeaderTest {
                 InetAddress.getByAddress(new byte[]{1, 2, 3, 4}), 9999);
         ByteBuffer payload = ByteBuffer.allocate(0);
 
-        ByteBuffer result = SOCKSUDPHeader.encode(source, payload);
+        ByteBuffer result = SocksUDPHeader.encode(source, payload);
         try {
             assertEquals(10, result.remaining()); // header only, 0 data
         } finally {
@@ -262,7 +262,7 @@ public class SOCKSUDPHeaderTest {
                 InetAddress.getByAddress(new byte[]{8, 8, 8, 8}), 53);
         ByteBuffer payload = ByteBuffer.wrap(new byte[]{0x01, 0x02});
 
-        ByteBuffer encoded = SOCKSUDPHeader.encode(source, payload);
+        ByteBuffer encoded = SocksUDPHeader.encode(source, payload);
         int capacity = encoded.capacity();
         try {
             Recorded r = parse(encoded.duplicate());
@@ -290,7 +290,7 @@ public class SOCKSUDPHeaderTest {
         byte[] data = {0x01, 0x02, 0x03, 0x04, 0x05};
         ByteBuffer payload = ByteBuffer.wrap(data);
 
-        ByteBuffer encoded = SOCKSUDPHeader.encode(original, payload);
+        ByteBuffer encoded = SocksUDPHeader.encode(original, payload);
         try {
             Recorded r = parse(encoded);
 

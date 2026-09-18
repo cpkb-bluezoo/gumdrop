@@ -27,11 +27,14 @@ import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
+import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.TcpTransportFactory;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
-import org.bluezoo.gumdrop.smtp.client.handler.*;
-import org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler;
+import org.bluezoo.gumdrop.smtp.SmtpListener;
+import org.bluezoo.gumdrop.smtp.client.*;
+import org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 
 import org.junit.BeforeClass;
 import org.junit.Ignore;
@@ -40,8 +43,12 @@ import org.junit.Test;
 import org.junit.rules.Timeout;
 
 import java.io.File;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -83,9 +90,23 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
     private static TestCertificateManager certManager;
 
+    private AcceptAllService acceptAllService;
+
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/smtp-client-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        TlsConfig tls = TlsConfig.keystore(
+                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
+        acceptAllService = new AcceptAllService();
+        acceptAllService.addListener(new SmtpListener()
+                .port(SMTP_PORT)
+                .addresses(InetAddress.getByName(TEST_HOST))
+                .tls(tls));
+        acceptAllService.addListener(new SmtpListener()
+                .port(SMTPS_PORT)
+                .addresses(InetAddress.getByName(TEST_HOST))
+                .secure(true)
+                .tls(tls));
+        return Collections.singletonList(acceptAllService);
     }
 
     @Override
@@ -104,7 +125,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
     }
 
     private AcceptAllService getService() {
-        return (AcceptAllService) registry.getComponent("acceptAllService");
+        return acceptAllService;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -112,20 +133,20 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Helper that wraps ClientEndpoint + SMTPClientProtocolHandler for v2 API.
+     * Helper that wraps ClientEndpoint + SmtpClientProtocolHandler for v2 API.
      */
     private static class SMTPClientHelper {
         private final ClientEndpoint client;
-        private final TCPTransportFactory factory;
+        private final TcpTransportFactory factory;
+        private final Gumdrop gumdrop;
         private final int port;
         private boolean secure;
         private javax.net.ssl.X509TrustManager trustManager;
 
-        SMTPClientHelper(int port) throws Exception {
+        SMTPClientHelper(Gumdrop gumdrop, int port) throws Exception {
             this.port = port;
-            this.factory = new TCPTransportFactory();
-            this.factory.start();
-            Gumdrop gumdrop = Gumdrop.getInstance();
+            this.factory = new TcpTransportFactory();
+            this.gumdrop = gumdrop;
             SelectorLoop selectorLoop = gumdrop.nextWorkerLoop();
             this.client = new ClientEndpoint(factory, selectorLoop, TEST_HOST, port);
         }
@@ -138,19 +159,26 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
             this.trustManager = trustManager;
         }
 
-        void connect(ServerGreeting handler) throws Exception {
+        void connect(RemoteGreeting handler) throws Exception {
             if (secure) {
                 factory.setSecure(true);
             }
             if (trustManager != null) {
                 factory.setTrustManager(trustManager);
             }
-            client.connect(new SMTPClientProtocolHandler(handler));
+            // start() resolves the effective trust manager once, from
+            // whatever is set at that point -- must run after setSecure/
+            // setTrustManager above, not in the constructor, or an
+            // explicitly configured trust manager is silently dropped in
+            // favour of the JVM's default trust store (issue: PKIX path
+            // building failed against the test's self-signed CA).
+            factory.start();
+            client.connect(gumdrop, new SmtpClientProtocolHandler(handler));
         }
     }
 
     private SMTPClientHelper createClient(int port) throws Exception {
-        return new SMTPClientHelper(port);
+        return new SMTPClientHelper(gumdrop, port);
     }
 
     /**
@@ -377,7 +405,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
                                             @Override
                                             public void handleRcptToOk(ClientEnvelopeReady ready) {
                                                 // RSET instead of DATA
-                                                ready.rset(new ServerRsetReplyHandler() {
+                                                ready.rset(new RsetReplyHandler() {
                                                     @Override
                                                     public void handleResetOk(ClientSession session) {
                                                         rsetSucceeded.set(true);
@@ -410,7 +438,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
                                                     }
                                                     @Override
                                                     public void handleServiceClosing(String message) {
-                                                        error.set(new SMTPException("Service closing: " + message));
+                                                        error.set(new SmtpException("Service closing: " + message));
                                                         completeLatch.countDown();
                                                     }
                                                 });
@@ -540,12 +568,12 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
                     public void handleEhlo(ClientSession session, boolean starttls, long maxSize,
                                           List<String> authMethods, boolean pipelining) {
                         if (!starttls) {
-                            error.set(new SMTPException("Server does not offer STARTTLS"));
+                            error.set(new SmtpException("Server does not offer STARTTLS"));
                             completeLatch.countDown();
                             return;
                         }
                         // Upgrade to TLS
-                        session.starttls(new ServerStarttlsReplyHandler() {
+                        session.starttls(new StarttlsReplyHandler() {
                             @Override
                             public void handleTlsEstablished(ClientPostTls postTls) {
                                 starttlsSucceeded.set(true);
@@ -585,17 +613,17 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
                             }
                             @Override
                             public void handleTlsUnavailable(ClientSession session) {
-                                error.set(new SMTPException("STARTTLS unavailable"));
+                                error.set(new SmtpException("STARTTLS unavailable"));
                                 completeLatch.countDown();
                             }
                             @Override
                             public void handlePermanentFailure(String message) {
-                                error.set(new SMTPException("STARTTLS perm: " + message));
+                                error.set(new SmtpException("STARTTLS perm: " + message));
                                 completeLatch.countDown();
                             }
                             @Override
                             public void handleServiceClosing(String message) {
-                                error.set(new SMTPException("Service closing: " + message));
+                                error.set(new SmtpException("Service closing: " + message));
                                 completeLatch.countDown();
                             }
                         });
@@ -772,7 +800,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
     /**
      * Base handler for tests with default error handling.
      */
-    private abstract static class TestHandler implements ServerGreeting {
+    private abstract static class TestHandler implements RemoteGreeting {
         protected final CountDownLatch latch;
         protected final AtomicReference<Exception> error;
 
@@ -783,7 +811,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleServiceUnavailable(String message) {
-            error.set(new SMTPException("Service unavailable: " + message));
+            error.set(new SmtpException("Service unavailable: " + message));
             latch.countDown();
         }
 
@@ -803,7 +831,7 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
         public void onSecurityEstablished(SecurityInfo info) {}
     }
 
-    private abstract static class TestEhloHandler implements ServerEhloReplyHandler {
+    private abstract static class TestEhloHandler implements EhloReplyHandler {
         protected final CountDownLatch latch;
         protected final AtomicReference<Exception> error;
 
@@ -814,24 +842,24 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleEhloNotSupported(ClientHelloState hello) {
-            error.set(new SMTPException("EHLO not supported"));
+            error.set(new SmtpException("EHLO not supported"));
             latch.countDown();
         }
 
         @Override
         public void handlePermanentFailure(String message) {
-            error.set(new SMTPException("EHLO rejected: " + message));
+            error.set(new SmtpException("EHLO rejected: " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new SMTPException("Service closing: " + message));
+            error.set(new SmtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestMailFromHandler implements ServerMailFromReplyHandler {
+    private abstract static class TestMailFromHandler implements MailFromReplyHandler {
         protected final CountDownLatch latch;
         protected final AtomicReference<Exception> error;
 
@@ -842,24 +870,24 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleTemporaryFailure(ClientSession session) {
-            error.set(new SMTPException("MAIL FROM temporary failure"));
+            error.set(new SmtpException("MAIL FROM temporary failure"));
             latch.countDown();
         }
 
         @Override
         public void handlePermanentFailure(String message) {
-            error.set(new SMTPException("MAIL FROM permanent failure: " + message));
+            error.set(new SmtpException("MAIL FROM permanent failure: " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new SMTPException("Service closing: " + message));
+            error.set(new SmtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestRcptToHandler implements ServerRcptToReplyHandler {
+    private abstract static class TestRcptToHandler implements RcptToReplyHandler {
         protected final CountDownLatch latch;
         protected final AtomicReference<Exception> error;
 
@@ -870,24 +898,24 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleTemporaryFailure(ClientEnvelopeState state) {
-            error.set(new SMTPException("RCPT TO temporary failure"));
+            error.set(new SmtpException("RCPT TO temporary failure"));
             latch.countDown();
         }
 
         @Override
         public void handleRecipientRejected(ClientEnvelopeState state) {
-            error.set(new SMTPException("Recipient rejected"));
+            error.set(new SmtpException("Recipient rejected"));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new SMTPException("Service closing: " + message));
+            error.set(new SmtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestDataHandler implements ServerDataReplyHandler {
+    private abstract static class TestDataHandler implements DataReplyHandler {
         protected final CountDownLatch latch;
         protected final AtomicReference<Exception> error;
 
@@ -898,24 +926,24 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleTemporaryFailure(ClientEnvelopeReady envelope) {
-            error.set(new SMTPException("DATA temporary failure"));
+            error.set(new SmtpException("DATA temporary failure"));
             latch.countDown();
         }
 
         @Override
         public void handlePermanentFailure(String message) {
-            error.set(new SMTPException("DATA permanent failure: " + message));
+            error.set(new SmtpException("DATA permanent failure: " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new SMTPException("Service closing: " + message));
+            error.set(new SmtpException("Service closing: " + message));
             latch.countDown();
         }
     }
 
-    private abstract static class TestMessageHandler implements ServerMessageReplyHandler {
+    private abstract static class TestMessageHandler implements MessageReplyHandler {
         protected final CountDownLatch latch;
         protected final AtomicReference<Exception> error;
 
@@ -926,19 +954,19 @@ public class SMTPClientIntegrationTest extends AbstractServerIntegrationTest {
 
         @Override
         public void handleTemporaryFailure(ClientSession session) {
-            error.set(new SMTPException("Message temporary failure"));
+            error.set(new SmtpException("Message temporary failure"));
             latch.countDown();
         }
 
         @Override
         public void handlePermanentFailure(String message, ClientSession session) {
-            error.set(new SMTPException("Message permanent failure: " + message));
+            error.set(new SmtpException("Message permanent failure: " + message));
             latch.countDown();
         }
 
         @Override
         public void handleServiceClosing(String message) {
-            error.set(new SMTPException("Service closing: " + message));
+            error.set(new SmtpException("Service closing: " + message));
             latch.countDown();
         }
     }

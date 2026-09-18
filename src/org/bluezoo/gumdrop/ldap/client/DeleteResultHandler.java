@@ -25,7 +25,7 @@ package org.bluezoo.gumdrop.ldap.client;
  * Handler for delete operation results.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPSession#delete
+ * @see LdapSession#delete
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.8">RFC 4511 §4.8 — Delete</a>
  */
 public interface DeleteResultHandler {
@@ -46,7 +46,7 @@ public interface DeleteResultHandler {
      * @param result the operation result
      * @param session operations for further directory access
      */
-    void handleDeleteResult(LDAPResult result, LDAPSession session);
+    void handleDeleteResult(LdapResult result, LdapSession session);
 
 }
 

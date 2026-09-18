@@ -21,17 +21,20 @@
 
 package org.bluezoo.gumdrop.amqp.rabbitmq;
 
-import org.bluezoo.gumdrop.amqp.client.AMQPClientRecovery;
+import org.bluezoo.gumdrop.amqp.BasicProperties;
+
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.amqp.client.AmqpClientRecovery;
 import org.bluezoo.gumdrop.amqp.client.RecoveryPolicy;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.RecoveryListener;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.DeliveryHandler;
+import org.bluezoo.gumdrop.amqp.client.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.RecoveryHandler;
+import org.bluezoo.gumdrop.amqp.client.RecoveryListener;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueDeclareHandler;
 
 import org.junit.After;
 import org.junit.Assume;
@@ -48,7 +51,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Exercises {@link AMQPClientRecovery}'s reconnect and topology-replay
+ * Exercises {@link AmqpClientRecovery}'s reconnect and topology-replay
  * logic against an unexpected disconnect from a real RabbitMQ broker --
  * not run in CI, see {@link RabbitMQTestSupport}.
  *
@@ -70,12 +73,14 @@ public class RabbitMQRecoveryIntegrationTest {
     // counting down on the recovery wait itself (see its own comment).
     private static final long TIMEOUT_SECONDS = 20;
 
-    private AMQPClientRecovery client;
+    private AmqpClientRecovery client;
+    private Gumdrop gumdrop;
 
     @Before
     public void checkBrokerReachable() {
         Assume.assumeTrue(RabbitMQTestSupport.NOT_REACHABLE_MESSAGE,
                 RabbitMQTestSupport.isPlaintextReachable());
+        gumdrop = Gumdrop.boot();
     }
 
     @After
@@ -83,12 +88,15 @@ public class RabbitMQRecoveryIntegrationTest {
         if (client != null) {
             client.close();
         }
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
     }
 
     @Test
     public void testForcedDisconnectTriggersReconnectAndTopologyReplay() throws Exception {
         String queue = "gumdrop-recovery-test-" + UUID.randomUUID();
-        client = new AMQPClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
+        client = new AmqpClientRecovery(RabbitMQTestSupport.HOST, RabbitMQTestSupport.PLAINTEXT_PORT)
                 .credentials(RabbitMQTestSupport.USERNAME, RabbitMQTestSupport.PASSWORD)
                 .virtualHost(RabbitMQTestSupport.VHOST)
                 .recoveryPolicy(new RecoveryPolicy().withInitialDelayMs(200L).withMaxDelayMs(1000L));
@@ -96,7 +104,7 @@ public class RabbitMQRecoveryIntegrationTest {
         CountDownLatch firstConsumeOk = new CountDownLatch(1);
         AtomicReference<ClientChannel> channelRef = new AtomicReference<>();
 
-        // Registered once, up front, and never cancelled: AMQPClientRecovery
+        // Registered once, up front, and never cancelled: AmqpClientRecovery
         // auto-replays it against the reconnected channel (see
         // RecoverableChannelImpl.rebind()), so re-registering a *second*
         // consumer on the same queue post-recovery (as an earlier version
@@ -118,7 +126,7 @@ public class RabbitMQRecoveryIntegrationTest {
             }
 
             @Override
-            public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.client.BasicProperties properties,
+            public void onDeliveryProperties(org.bluezoo.gumdrop.amqp.BasicProperties properties,
                     long bodySize) {
             }
 
@@ -136,10 +144,10 @@ public class RabbitMQRecoveryIntegrationTest {
             }
         };
 
-        client.connect(new RecoveryHandler() {
+        client.connect(gumdrop, new RecoveryHandler() {
             @Override
             public void onFirstConnect(ClientConnection connection) {
-                connection.channelOpen(1, new ServerChannelOpenHandler() {
+                connection.channelOpen(1, new ChannelOpenHandler() {
                     @Override
                     public void handleChannelOpenOk(final ClientChannel channel) {
                         channelRef.set(channel);
@@ -153,12 +161,12 @@ public class RabbitMQRecoveryIntegrationTest {
                         // non-durable, non-exclusive "transient_nonexcl" queues by
                         // default -- see the equivalent comment in
                         // RabbitMQPlaintextIntegrationTest.)
-                        channel.queueDeclare(queue, true, false, false, null, new ServerQueueDeclareHandler() {
+                        channel.queueDeclare(queue, true, false, false, null, new QueueDeclareHandler() {
                             @Override
                             public void handleQueueDeclareOk(String q, long mc, long cc) {
                                 channel.basicConsume(queue, "", false, false, null,
                                         deliveryHandler,
-                                        new ServerConsumeHandler() {
+                                        new ConsumeHandler() {
                                             @Override
                                             public void handleConsumeOk(String consumerTag) {
                                                 firstConsumeOk.countDown();

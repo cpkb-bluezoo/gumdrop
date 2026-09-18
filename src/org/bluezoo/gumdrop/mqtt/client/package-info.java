@@ -22,14 +22,14 @@
 /**
  * MQTT client (3.1.1 and 5.0), over TCP or a UNIX domain socket.
  *
- * <p>{@link org.bluezoo.gumdrop.mqtt.client.MQTTClient} is the facade
+ * <p>{@link org.bluezoo.gumdrop.mqtt.client.MqttClient} is the facade
  * applications connect and publish/subscribe through; {@link
- * org.bluezoo.gumdrop.mqtt.client.MQTTClientProtocolHandler} drives the
+ * org.bluezoo.gumdrop.mqtt.client.MqttClientProtocolHandler} drives the
  * wire protocol ({@link org.bluezoo.gumdrop.mqtt.codec}); {@link
- * org.bluezoo.gumdrop.mqtt.client.MQTTClientCallback} reports connection
+ * org.bluezoo.gumdrop.mqtt.client.MqttClientCallback} reports connection
  * lifecycle events, and {@link
- * org.bluezoo.gumdrop.mqtt.client.MQTTMessageListener} delivers incoming
- * messages as {@link org.bluezoo.gumdrop.mqtt.store.MQTTMessageContent},
+ * org.bluezoo.gumdrop.mqtt.client.MqttMessageListener} delivers incoming
+ * messages as {@link org.bluezoo.gumdrop.mqtt.store.MqttMessageContent},
  * so a large payload streams to the application rather than being
  * buffered whole.
  *

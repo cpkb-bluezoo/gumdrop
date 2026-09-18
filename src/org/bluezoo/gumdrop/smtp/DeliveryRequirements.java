@@ -41,14 +41,14 @@ import java.time.Instant;
  * </ul>
  * 
  * <p>Note: Per-recipient DSN options (NOTIFY, ORCPT) are tracked separately
- * via {@link DSNRecipientParameters}.
+ * via {@link DsnRecipientParameters}.
  * 
  * <p>Handlers must respect these delivery requirements when relaying messages.
  * Failure to honour REQUIRETLS or DELIVERBY constraints should result in
  * bouncing the message rather than violating the sender's requirements.
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.handler.MailFromHandler#mailFrom
+ * @see org.bluezoo.gumdrop.smtp.server.MailFromHandler#mailFrom
  */
 public interface DeliveryRequirements {
 
@@ -157,14 +157,14 @@ public interface DeliveryRequirements {
      * <p>DSN (RFC 3461) RET parameter indicates how much of the original
      * message to include in any Delivery Status Notification:
      * <ul>
-     *   <li>{@link DSNReturn#FULL} - Include the entire message</li>
-     *   <li>{@link DSNReturn#HDRS} - Include only the headers</li>
+     *   <li>{@link DsnReturn#FULL} - Include the entire message</li>
+     *   <li>{@link DsnReturn#HDRS} - Include only the headers</li>
      * </ul>
      *
      * @return the DSN return type, or null if not specified
      * @see <a href="https://www.rfc-editor.org/rfc/rfc3461">RFC 3461</a>
      */
-    DSNReturn getDsnReturn();
+    DsnReturn getDsnReturn();
 
     /**
      * Returns the DSN envelope identifier.

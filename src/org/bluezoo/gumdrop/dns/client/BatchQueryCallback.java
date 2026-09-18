@@ -23,11 +23,11 @@ package org.bluezoo.gumdrop.dns.client;
 
 import java.util.List;
 
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
 
 /**
- * Callback interface for {@link DNSResolver#queryBatch(String, List,
+ * Callback interface for {@link DnsResolver#queryBatch(String, List,
  * BatchQueryCallback)}, which resolves several RRTYPEs for one name.
  *
  * <p>How many wire exchanges that takes is deliberately not visible
@@ -39,7 +39,7 @@ import org.bluezoo.gumdrop.dns.DNSType;
  * #onComplete()} once nothing is left outstanding.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSResolver#queryBatch(String, List, BatchQueryCallback)
+ * @see DnsResolver#queryBatch(String, List, BatchQueryCallback)
  */
 public interface BatchQueryCallback {
 
@@ -49,7 +49,7 @@ public interface BatchQueryCallback {
      * @param type the resolved type
      * @param records the answer records for this type (never empty)
      */
-    void onResult(DNSType type, List<DNSResourceRecord> records);
+    void onResult(DnsType type, List<DnsResourceRecord> records);
 
     /**
      * Called when one of the requested types failed to resolve.
@@ -59,7 +59,7 @@ public interface BatchQueryCallback {
      * @param type the type that failed
      * @param error a description of the error
      */
-    void onTypeError(DNSType type, String error);
+    void onTypeError(DnsType type, String error);
 
     /**
      * Called once every requested type has reported a result or an

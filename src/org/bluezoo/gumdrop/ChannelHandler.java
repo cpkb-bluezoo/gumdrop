@@ -30,7 +30,7 @@ import java.nio.channels.SelectionKey;
  *
  * <p>Implementations include:
  * <ul>
- * <li>{@link TCPEndpoint} - TCP stream endpoints</li>
+ * <li>{@link TcpEndpoint} - TCP stream endpoints</li>
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -105,7 +105,7 @@ public interface ChannelHandler {
      * @return a handle that can be used to cancel the timer
      */
     default TimerHandle scheduleTimer(long delayMs, Runnable callback) {
-        return Gumdrop.getInstance().scheduleTimer(this, delayMs, callback);
+        return getSelectorLoop().getTimer().schedule(this, delayMs, callback);
     }
 
 }

@@ -38,51 +38,51 @@ import java.util.List;
 import org.bluezoo.gumdrop.mime.ContentDisposition;
 import org.bluezoo.gumdrop.mime.ContentID;
 import org.bluezoo.gumdrop.mime.ContentType;
-import org.bluezoo.gumdrop.mime.MIMELocator;
-import org.bluezoo.gumdrop.mime.MIMEParseException;
-import org.bluezoo.gumdrop.mime.MIMEVersion;
+import org.bluezoo.gumdrop.mime.MimeLocator;
+import org.bluezoo.gumdrop.mime.MimeParseException;
+import org.bluezoo.gumdrop.mime.MimeVersion;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.bluezoo.gumdrop.mime.rfc5322.MessageHandler;
 import org.bluezoo.gumdrop.mime.rfc5322.ObsoleteStructureType;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 
 /**
- * Unit tests for {@link DKIMValidator} — RFC 6376 §6 verifier actions.
+ * Unit tests for {@link DkimValidator} — RFC 6376 §6 verifier actions.
  *
  * <p>Covers GHSA-w9c7-pj22-vfw7: a DKIM signature whose {@code h=} tag
  * does not cover the {@code From} header must not be reported as PASS,
- * since a PASS is used elsewhere (DMARCValidator) to authenticate the
+ * since a PASS is used elsewhere (DmarcValidator) to authenticate the
  * message's From domain.
  */
 public class DKIMValidatorTest {
 
-    /** No-op message handler — the test only needs the raw-header capture DKIMMessageParser already does. */
+    /** No-op message handler — the test only needs the raw-header capture DkimMessageParser already does. */
     private static class NoopMessageHandler implements MessageHandler {
-        @Override public void setLocator(MIMELocator locator) { }
-        @Override public void startEntity(String boundary) throws MIMEParseException { }
-        @Override public void contentType(ContentType ct) throws MIMEParseException { }
-        @Override public void contentDisposition(ContentDisposition cd) throws MIMEParseException { }
-        @Override public void contentTransferEncoding(String encoding) throws MIMEParseException { }
-        @Override public void contentID(ContentID cid) throws MIMEParseException { }
-        @Override public void contentDescription(String description) throws MIMEParseException { }
-        @Override public void mimeVersion(MIMEVersion version) throws MIMEParseException { }
-        @Override public void endHeaders() throws MIMEParseException { }
-        @Override public void bodyContent(ByteBuffer data) throws MIMEParseException { }
-        @Override public void unexpectedContent(ByteBuffer data) throws MIMEParseException { }
-        @Override public void endEntity(String boundary) throws MIMEParseException { }
-        @Override public void header(String name, String value) throws MIMEParseException { }
-        @Override public void unexpectedHeader(String name, String value) throws MIMEParseException { }
-        @Override public void dateHeader(String name, OffsetDateTime date) throws MIMEParseException { }
-        @Override public void addressHeader(String name, List<EmailAddress> addresses) throws MIMEParseException { }
-        @Override public void messageIDHeader(String name, List<ContentID> contentIDs) throws MIMEParseException { }
-        @Override public void obsoleteStructure(ObsoleteStructureType type) throws MIMEParseException { }
+        @Override public void setLocator(MimeLocator locator) { }
+        @Override public void startEntity(String boundary) throws MimeParseException { }
+        @Override public void contentType(ContentType ct) throws MimeParseException { }
+        @Override public void contentDisposition(ContentDisposition cd) throws MimeParseException { }
+        @Override public void contentTransferEncoding(String encoding) throws MimeParseException { }
+        @Override public void contentID(ContentID cid) throws MimeParseException { }
+        @Override public void contentDescription(String description) throws MimeParseException { }
+        @Override public void mimeVersion(MimeVersion version) throws MimeParseException { }
+        @Override public void endHeaders() throws MimeParseException { }
+        @Override public void bodyContent(ByteBuffer data) throws MimeParseException { }
+        @Override public void unexpectedContent(ByteBuffer data) throws MimeParseException { }
+        @Override public void endEntity(String boundary) throws MimeParseException { }
+        @Override public void header(String name, String value) throws MimeParseException { }
+        @Override public void unexpectedHeader(String name, String value) throws MimeParseException { }
+        @Override public void dateHeader(String name, OffsetDateTime date) throws MimeParseException { }
+        @Override public void addressHeader(String name, List<EmailAddress> addresses) throws MimeParseException { }
+        @Override public void messageIDHeader(String name, List<ContentID> contentIDs) throws MimeParseException { }
+        @Override public void obsoleteStructure(ObsoleteStructureType type) throws MimeParseException { }
     }
 
     /** Fake resolver that answers any TXT query with a fixed public-key record, synchronously. */
-    private static class FakeKeyResolver extends DNSResolver {
+    private static class FakeKeyResolver extends DnsResolver {
         private final String txtRecord;
 
         FakeKeyResolver(String txtRecord) {
@@ -90,9 +90,9 @@ public class DKIMValidatorTest {
         }
 
         @Override
-        public void queryTXT(String name, DNSQueryCallback callback) {
-            DNSResourceRecord rr = DNSResourceRecord.txt(name, 300, txtRecord);
-            DNSMessage response = new DNSMessage(1, DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA,
+        public void queryTXT(String name, DnsQueryCallback callback) {
+            DnsResourceRecord rr = DnsResourceRecord.txt(name, 300, txtRecord);
+            DnsMessage response = new DnsMessage(1, DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA,
                     Collections.emptyList(), Collections.singletonList(rr),
                     Collections.emptyList(), Collections.emptyList());
             callback.onResponse(response);
@@ -100,12 +100,12 @@ public class DKIMValidatorTest {
     }
 
     /** Builds a raw RFC 5322 message (DKIM-Signature + given headers + body), signs it, and verifies it. */
-    private DKIMResult verifySignedMessage(List<String> signedHeaderNames) throws Exception {
+    private DkimResult verifySignedMessage(List<String> signedHeaderNames) throws Exception {
         KeyPairGenerator gen = KeyPairGenerator.getInstance("RSA");
         gen.initialize(2048);
         KeyPair kp = gen.generateKeyPair();
 
-        DKIMSigner signer = new DKIMSigner(kp.getPrivate(), "example.com", "sel1");
+        DkimSigner signer = new DkimSigner(kp.getPrivate(), "example.com", "sel1");
         signer.setSignedHeaders(signedHeaderNames);
 
         byte[] body = "Hello world\r\n".getBytes(StandardCharsets.US_ASCII);
@@ -127,7 +127,7 @@ public class DKIMValidatorTest {
         raw.append("\r\n");
         raw.append(new String(body, StandardCharsets.US_ASCII));
 
-        DKIMMessageParser parser = new DKIMMessageParser();
+        DkimMessageParser parser = new DkimMessageParser();
         parser.setMessageHandler(new NoopMessageHandler());
         parser.receive(ByteBuffer.wrap(raw.toString().getBytes(StandardCharsets.US_ASCII)));
         parser.close();
@@ -136,17 +136,17 @@ public class DKIMValidatorTest {
         String p = Base64.getEncoder().encodeToString(kp.getPublic().getEncoded());
         FakeKeyResolver resolver = new FakeKeyResolver("v=DKIM1; k=rsa; p=" + p);
 
-        DKIMValidator validator = new DKIMValidator(resolver);
+        DkimValidator validator = new DkimValidator(resolver);
         validator.setMessageParser(parser);
         byte[] bodyHash = parser.getBodyHash();
         if (bodyHash != null) {
             validator.setBodyHash(bodyHash);
         }
 
-        final DKIMResult[] result = new DKIMResult[1];
-        validator.verify(new DKIMCallback() {
+        final DkimResult[] result = new DkimResult[1];
+        validator.verify(new DkimCallback() {
             @Override
-            public void dkimResult(DKIMResult r, String signingDomain, String selector) {
+            public void dkimResult(DkimResult r, String signingDomain, String selector) {
                 result[0] = r;
             }
         });
@@ -159,16 +159,16 @@ public class DKIMValidatorTest {
     public void testVerifyFailsWhenFromNotInSignedHeaders() throws Exception {
         // A signature that never covers From is cryptographically valid but
         // must not be usable to authenticate the message's From address.
-        DKIMResult result = verifySignedMessage(Arrays.asList("to", "subject"));
+        DkimResult result = verifySignedMessage(Arrays.asList("to", "subject"));
         assertNotEquals("a DKIM signature that does not sign From must not PASS",
-                DKIMResult.PASS, result);
+                DkimResult.PASS, result);
     }
 
     @Test
     public void testVerifyPassesWhenFromIsSigned() throws Exception {
         // Sanity/non-regression companion: a normal signature that does
         // cover From must still verify successfully.
-        DKIMResult result = verifySignedMessage(Arrays.asList("from", "to", "subject"));
-        assertEquals(DKIMResult.PASS, result);
+        DkimResult result = verifySignedMessage(Arrays.asList("from", "to", "subject"));
+        assertEquals(DkimResult.PASS, result);
     }
 }

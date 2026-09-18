@@ -14,7 +14,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Tests for {@link FTPFileInfo}, including RFC 3659 machine-readable
+ * Tests for {@link FtpFileInfo}, including RFC 3659 machine-readable
  * listing format (MLST/MLSD).
  */
 public class FTPFileInfoTest {
@@ -22,7 +22,7 @@ public class FTPFileInfoTest {
     @Test
     public void testFormatAsMLSEntry_file() {
         Instant modified = Instant.parse("2025-06-15T14:30:00Z");
-        FTPFileInfo file = new FTPFileInfo("report.pdf", 204800, modified,
+        FtpFileInfo file = new FtpFileInfo("report.pdf", 204800, modified,
                 "alice", "staff", "rw-r--r--");
 
         String entry = file.formatAsMLSEntry();
@@ -40,7 +40,7 @@ public class FTPFileInfoTest {
     @Test
     public void testFormatAsMLSEntry_writableFile() {
         Instant modified = Instant.parse("2025-01-01T00:00:00Z");
-        FTPFileInfo file = new FTPFileInfo("data.csv", 1024, modified,
+        FtpFileInfo file = new FtpFileInfo("data.csv", 1024, modified,
                 "bob", "users", "rwxr-xr-x");
 
         String entry = file.formatAsMLSEntry();
@@ -54,7 +54,7 @@ public class FTPFileInfoTest {
     @Test
     public void testFormatAsMLSEntry_directory() {
         Instant modified = Instant.parse("2025-03-20T08:00:00Z");
-        FTPFileInfo dir = new FTPFileInfo("docs", modified,
+        FtpFileInfo dir = new FtpFileInfo("docs", modified,
                 "alice", "staff", "rwxr-xr-x");
 
         String entry = dir.formatAsMLSEntry();
@@ -75,7 +75,7 @@ public class FTPFileInfoTest {
     @Test
     public void testFormatAsMLSEntry_readOnlyDirectory() {
         Instant modified = Instant.parse("2025-02-01T12:00:00Z");
-        FTPFileInfo dir = new FTPFileInfo("readonly", modified,
+        FtpFileInfo dir = new FtpFileInfo("readonly", modified,
                 "root", "root", "r-xr-xr-x");
 
         String entry = dir.formatAsMLSEntry();
@@ -85,7 +85,7 @@ public class FTPFileInfoTest {
 
     @Test
     public void testFormatAsMLSEntry_noModifyTime() {
-        FTPFileInfo file = new FTPFileInfo("notime.txt", 100, null,
+        FtpFileInfo file = new FtpFileInfo("notime.txt", 100, null,
                 null, null, null);
 
         String entry = file.formatAsMLSEntry();
@@ -98,7 +98,7 @@ public class FTPFileInfoTest {
     @Test
     public void testFormatAsListingLine() {
         Instant modified = Instant.parse("2025-01-15T10:30:00Z");
-        FTPFileInfo file = new FTPFileInfo("test.txt", 1234, modified,
+        FtpFileInfo file = new FtpFileInfo("test.txt", 1234, modified,
                 "user", "group", "rw-r--r--");
 
         String line = file.formatAsListingLine();
@@ -112,7 +112,7 @@ public class FTPFileInfoTest {
     @Test
     public void testDirectoryListingLine() {
         Instant modified = Instant.parse("2025-01-15T10:30:00Z");
-        FTPFileInfo dir = new FTPFileInfo("subdir", modified,
+        FtpFileInfo dir = new FtpFileInfo("subdir", modified,
                 "user", "group", "rwxr-xr-x");
 
         String line = dir.formatAsListingLine();
@@ -123,7 +123,7 @@ public class FTPFileInfoTest {
     @Test
     public void testAccessors() {
         Instant now = Instant.now();
-        FTPFileInfo file = new FTPFileInfo("file.dat", 999, now,
+        FtpFileInfo file = new FtpFileInfo("file.dat", 999, now,
                 "owner1", "group1", "rwx------");
 
         assertEquals("file.dat", file.getName());
@@ -139,7 +139,7 @@ public class FTPFileInfoTest {
     @Test
     public void testDirectoryAccessors() {
         Instant now = Instant.now();
-        FTPFileInfo dir = new FTPFileInfo("mydir", now,
+        FtpFileInfo dir = new FtpFileInfo("mydir", now,
                 "owner2", "group2", "rwxr-xr-x");
 
         assertEquals("mydir", dir.getName());

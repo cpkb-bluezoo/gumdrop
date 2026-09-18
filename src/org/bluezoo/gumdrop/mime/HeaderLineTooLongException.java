@@ -28,7 +28,7 @@ package org.bluezoo.gumdrop.mime;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5322#section-2.1.1">RFC 5322 §2.1.1</a>
  */
-public class HeaderLineTooLongException extends MIMEParseException {
+public class HeaderLineTooLongException extends MimeParseException {
 
 	private static final long serialVersionUID = 1L;
 
@@ -38,7 +38,7 @@ public class HeaderLineTooLongException extends MIMEParseException {
 	 * @param message the detail message
 	 * @param locator the locator providing position information
 	 */
-	public HeaderLineTooLongException(String message, MIMELocator locator) {
+	public HeaderLineTooLongException(String message, MimeLocator locator) {
 		super(message, locator);
 	}
 }

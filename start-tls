@@ -1,0 +1,38 @@
+#!/bin/sh
+#
+# Start the assembled servlet container with etc/server-tls.xml (HTTPS + HTTP/3
+# on 8443). Run scripts/dev-tls-setup.sh first to create conf/keystore.p12.
+
+set -e
+
+script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+
+if [ -z "${GUMDROP_HOME:-}" ]; then
+	if [ -f "$script_dir/dist/container-home/bin/gumdrop.sh" ]; then
+		GUMDROP_HOME=$script_dir/dist/container-home
+	elif [ -f "$script_dir/bin/gumdrop.sh" ]; then
+		GUMDROP_HOME=$script_dir
+	fi
+	export GUMDROP_HOME
+fi
+
+if [ -z "${GUMDROP_HOME:-}" ] || [ ! -f "$GUMDROP_HOME/bin/gumdrop.sh" ]; then
+	echo "start-tls: run ant assemble-container first." >&2
+	exit 1
+fi
+
+tls_config=$GUMDROP_HOME/conf/server-tls.xml
+if [ ! -f "$tls_config" ]; then
+	echo "start-tls: missing $tls_config (re-run ant assemble-container)." >&2
+	exit 1
+fi
+if [ ! -f "$GUMDROP_HOME/conf/keystore.p12" ]; then
+	echo "start-tls: missing keystore — run scripts/dev-tls-setup.sh first." >&2
+	exit 1
+fi
+
+gumdrop_bin=$GUMDROP_HOME/bin/gumdrop.sh
+if [ -x "$gumdrop_bin" ]; then
+	exec "$gumdrop_bin" "$tls_config" "$@"
+fi
+exec sh "$gumdrop_bin" "$tls_config" "$@"

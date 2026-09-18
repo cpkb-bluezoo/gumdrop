@@ -26,37 +26,38 @@ import java.nio.ByteBuffer;
 /**
  * Handler for WebSocket lifecycle events (RFC 6455).
  *
- * <p>Implement this interface to receive WebSocket events. When used
- * with {@link WebSocketService}, implement
- * {@link WebSocketService#createConnectionHandler} to return instances
- * of this handler. Alternatively, an HTTP request handler can upgrade
+ * <p>Implement this interface to receive WebSocket events. When used with
+ * {@link org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler},
+ * implement its {@code ConnectionHandlerFactory} to return instances of
+ * this handler. Alternatively, an HTTP request handler can upgrade
  * manually via
- * {@link org.bluezoo.gumdrop.http.HTTPResponseState#upgradeToWebSocket}.
+ * {@link org.bluezoo.gumdrop.http.server.HttpResponseState#upgradeToWebSocket}.
  *
- * <p>Example usage with {@code WebSocketService}:
- * <pre>
- * public class EchoService extends WebSocketService {
- *
- *     &#64;Override
- *     protected WebSocketEventHandler createConnectionHandler(
- *             String requestPath, Headers upgradeHeaders) {
- *         return new DefaultWebSocketEventHandler() {
- *
- *             &#64;Override
- *             public void textMessageReceived(WebSocketSession session,
- *                                             String message) {
- *                 session.sendText("Echo: " + message);
- *             }
- *         };
- *     }
- * }
- * </pre>
+ * <p>Example usage:
+ * <pre>{@code
+ * HttpServer server = HttpServer.compose()
+ *         .listener(new Http2Listener().port(8080))
+ *         .streamHandler(WebSocketRequestHandler.builder()
+ *                 .onConnect(new WebSocketRequestHandler.ConnectionHandlerFactory() {
+ *                     public WebSocketEventHandler create(String requestPath, Headers upgradeHeaders) {
+ *                         return new DefaultWebSocketEventHandler() {
+ *                             @Override
+ *                             public void textMessageReceived(WebSocketSession session,
+ *                                                             String message) {
+ *                                 session.sendText("Echo: " + message);
+ *                             }
+ *                         };
+ *                     }
+ *                 })
+ *                 .build())
+ *         .server();
+ * }</pre>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc6455">RFC 6455: The WebSocket Protocol</a>
  * @see WebSocketSession
  * @see DefaultWebSocketEventHandler
- * @see WebSocketService
+ * @see org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler
  */
 public interface WebSocketEventHandler {
 

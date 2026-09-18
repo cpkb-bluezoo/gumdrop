@@ -26,7 +26,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.dns.client.DNSClientTransportHandler;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransportHandler;
 import org.junit.Test;
 
 import static org.junit.Assert.*;
@@ -67,7 +67,7 @@ public class DoHClientTransportTest {
             java.lang.reflect.Field handlerField =
                     DoHClientTransport.class.getDeclaredField("handler");
             handlerField.setAccessible(true);
-            handlerField.set(transport, new DNSClientTransportHandler() {
+            handlerField.set(transport, new DnsClientTransportHandler() {
                 @Override
                 public void onReceive(ByteBuffer response) {
                 }

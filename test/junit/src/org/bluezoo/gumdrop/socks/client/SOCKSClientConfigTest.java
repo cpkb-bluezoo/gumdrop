@@ -5,15 +5,15 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link SOCKSClientConfig}.
+ * Unit tests for {@link SocksClientConfig}.
  */
 public class SOCKSClientConfigTest {
 
     @Test
     public void testDefaultConfig() {
-        SOCKSClientConfig config = new SOCKSClientConfig();
+        SocksClientConfig config = new SocksClientConfig();
 
-        assertEquals(SOCKSClientConfig.Version.SOCKS5,
+        assertEquals(SocksClientConfig.Version.SOCKS5,
                      config.getVersion());
         assertNull(config.getUsername());
         assertNull(config.getPassword());
@@ -23,8 +23,8 @@ public class SOCKSClientConfigTest {
 
     @Test
     public void testCredentialConstructor() {
-        SOCKSClientConfig config =
-                new SOCKSClientConfig("alice", "secret123");
+        SocksClientConfig config =
+                new SocksClientConfig("alice", "secret123");
 
         assertEquals("alice", config.getUsername());
         assertEquals("secret123", config.getPassword());
@@ -33,27 +33,27 @@ public class SOCKSClientConfigTest {
 
     @Test
     public void testSetVersion() {
-        SOCKSClientConfig config = new SOCKSClientConfig();
-        SOCKSClientConfig returned =
-                config.setVersion(SOCKSClientConfig.Version.SOCKS4);
+        SocksClientConfig config = new SocksClientConfig();
+        SocksClientConfig returned =
+                config.setVersion(SocksClientConfig.Version.SOCKS4);
 
         assertSame(config, returned);
-        assertEquals(SOCKSClientConfig.Version.SOCKS4,
+        assertEquals(SocksClientConfig.Version.SOCKS4,
                      config.getVersion());
     }
 
     @Test
     public void testSetVersionAuto() {
-        SOCKSClientConfig config = new SOCKSClientConfig();
-        config.setVersion(SOCKSClientConfig.Version.AUTO);
-        assertEquals(SOCKSClientConfig.Version.AUTO,
+        SocksClientConfig config = new SocksClientConfig();
+        config.setVersion(SocksClientConfig.Version.AUTO);
+        assertEquals(SocksClientConfig.Version.AUTO,
                      config.getVersion());
     }
 
     @Test
     public void testSetUsername() {
-        SOCKSClientConfig config = new SOCKSClientConfig();
-        SOCKSClientConfig returned = config.setUsername("bob");
+        SocksClientConfig config = new SocksClientConfig();
+        SocksClientConfig returned = config.setUsername("bob");
 
         assertSame(config, returned);
         assertEquals("bob", config.getUsername());
@@ -62,8 +62,8 @@ public class SOCKSClientConfigTest {
 
     @Test
     public void testSetPassword() {
-        SOCKSClientConfig config = new SOCKSClientConfig();
-        SOCKSClientConfig returned = config.setPassword("pass");
+        SocksClientConfig config = new SocksClientConfig();
+        SocksClientConfig returned = config.setPassword("pass");
 
         assertSame(config, returned);
         assertEquals("pass", config.getPassword());
@@ -72,7 +72,7 @@ public class SOCKSClientConfigTest {
 
     @Test
     public void testHasCredentialsRequiresBoth() {
-        SOCKSClientConfig config = new SOCKSClientConfig();
+        SocksClientConfig config = new SocksClientConfig();
         config.setUsername("user");
         assertFalse(config.hasCredentials());
 
@@ -82,15 +82,15 @@ public class SOCKSClientConfigTest {
 
     @Test
     public void testHasCredentialsNullUsername() {
-        SOCKSClientConfig config = new SOCKSClientConfig();
+        SocksClientConfig config = new SocksClientConfig();
         config.setPassword("pass");
         assertFalse(config.hasCredentials());
     }
 
     @Test
     public void testSetHandshakeTimeout() {
-        SOCKSClientConfig config = new SOCKSClientConfig();
-        SOCKSClientConfig returned =
+        SocksClientConfig config = new SocksClientConfig();
+        SocksClientConfig returned =
                 config.setHandshakeTimeoutMs(60_000);
 
         assertSame(config, returned);
@@ -99,13 +99,13 @@ public class SOCKSClientConfigTest {
 
     @Test
     public void testFluentChaining() {
-        SOCKSClientConfig config = new SOCKSClientConfig()
-                .setVersion(SOCKSClientConfig.Version.SOCKS5)
+        SocksClientConfig config = new SocksClientConfig()
+                .setVersion(SocksClientConfig.Version.SOCKS5)
                 .setUsername("u")
                 .setPassword("p")
                 .setHandshakeTimeoutMs(5000);
 
-        assertEquals(SOCKSClientConfig.Version.SOCKS5,
+        assertEquals(SocksClientConfig.Version.SOCKS5,
                      config.getVersion());
         assertEquals("u", config.getUsername());
         assertEquals("p", config.getPassword());
@@ -115,14 +115,14 @@ public class SOCKSClientConfigTest {
 
     @Test
     public void testVersionEnum() {
-        SOCKSClientConfig.Version[] values =
-                SOCKSClientConfig.Version.values();
+        SocksClientConfig.Version[] values =
+                SocksClientConfig.Version.values();
         assertEquals(3, values.length);
-        assertEquals(SOCKSClientConfig.Version.AUTO,
-                     SOCKSClientConfig.Version.valueOf("AUTO"));
-        assertEquals(SOCKSClientConfig.Version.SOCKS4,
-                     SOCKSClientConfig.Version.valueOf("SOCKS4"));
-        assertEquals(SOCKSClientConfig.Version.SOCKS5,
-                     SOCKSClientConfig.Version.valueOf("SOCKS5"));
+        assertEquals(SocksClientConfig.Version.AUTO,
+                     SocksClientConfig.Version.valueOf("AUTO"));
+        assertEquals(SocksClientConfig.Version.SOCKS4,
+                     SocksClientConfig.Version.valueOf("SOCKS4"));
+        assertEquals(SocksClientConfig.Version.SOCKS5,
+                     SocksClientConfig.Version.valueOf("SOCKS5"));
     }
 }

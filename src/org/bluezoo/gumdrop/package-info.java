@@ -37,18 +37,19 @@
  * written against, backed by TCP, UDP, or QUIC depending on the {@link
  * org.bluezoo.gumdrop.TransportFactory} in use; {@link
  * org.bluezoo.gumdrop.ProtocolHandler} is the callback interface protocol
- * implementations receive events through. {@link org.bluezoo.gumdrop.TCPListener}
+ * implementations receive events through. {@link org.bluezoo.gumdrop.TcpListener}
  * is the base class for server-side connectors (TCP or, via {@link
- * org.bluezoo.gumdrop.TCPListener#setPath}, a UNIX domain socket); {@link
+ * org.bluezoo.gumdrop.TcpListener#setPath}, a UNIX domain socket); {@link
  * org.bluezoo.gumdrop.ClientEndpoint} is its client-side counterpart for
  * initiating outbound connections. {@link org.bluezoo.gumdrop.SecurityInfo}
  * exposes negotiated TLS/DTLS/QUIC session metadata to protocol handlers,
  * which otherwise only ever see plaintext.
  *
- * <p>Servers are wired together via XML configuration (a {@code gumdroprc}
- * file) read by a built-in dependency-injection container; the {@link
- * org.bluezoo.gumdrop.GumdropConfigurator} SPI allows an alternative DI
- * framework (Guice, Spring, CDI) to be plugged in instead.
+ * <p>Servers are wired together in Java: explicit builder/composition APIs
+ * per protocol (e.g. {@code HttpServer.compose()}), an application {@code
+ * main} constructing a {@link org.bluezoo.gumdrop.Gumdrop} instance via
+ * {@link org.bluezoo.gumdrop.Gumdrop#boot()} and adding servers to it. See
+ * {@code web/configuration.html} for the canonical patterns.
  *
  * <h2>Subpackages</h2>
  *
@@ -78,7 +79,7 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.SelectorLoop
- * @see org.bluezoo.gumdrop.TCPListener
+ * @see org.bluezoo.gumdrop.TcpListener
  * @see org.bluezoo.gumdrop.ClientEndpoint
  */
 package org.bluezoo.gumdrop;

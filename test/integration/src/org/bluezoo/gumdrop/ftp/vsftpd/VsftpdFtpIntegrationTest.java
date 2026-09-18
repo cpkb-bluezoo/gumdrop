@@ -22,25 +22,27 @@
 package org.bluezoo.gumdrop.ftp.vsftpd;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.ftp.client.FTPClient;
-import org.bluezoo.gumdrop.ftp.client.FTPException;
-import org.bluezoo.gumdrop.ftp.client.FTPFileEntry;
-import org.bluezoo.gumdrop.ftp.client.handler.ClientAccountState;
-import org.bluezoo.gumdrop.ftp.client.handler.ClientAuthenticatedState;
-import org.bluezoo.gumdrop.ftp.client.handler.ClientDataSink;
-import org.bluezoo.gumdrop.ftp.client.handler.ClientLoginState;
-import org.bluezoo.gumdrop.ftp.client.handler.ClientPasswordState;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerAuthTlsReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerGreeting;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerListReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerPassReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerPasvReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerRetrReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerSimpleReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerStorReplyHandler;
-import org.bluezoo.gumdrop.ftp.client.handler.ServerUserReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.FtpClient;
+import org.bluezoo.gumdrop.ftp.client.FtpException;
+import org.bluezoo.gumdrop.ftp.client.FtpFileEntry;
+import org.bluezoo.gumdrop.ftp.client.ClientAccountState;
+import org.bluezoo.gumdrop.ftp.client.ClientAuthenticatedState;
+import org.bluezoo.gumdrop.ftp.client.ClientDataSink;
+import org.bluezoo.gumdrop.ftp.client.ClientLoginState;
+import org.bluezoo.gumdrop.ftp.client.ClientPasswordState;
+import org.bluezoo.gumdrop.ftp.client.AuthTlsReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.RemoteGreeting;
+import org.bluezoo.gumdrop.ftp.client.ListReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.PassReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.PasvReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.RetrReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.SimpleReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.StorReplyHandler;
+import org.bluezoo.gumdrop.ftp.client.UserReplyHandler;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -78,17 +80,27 @@ public class VsftpdFtpIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
+    private Gumdrop gumdrop;
+
     @Before
     public void checkReachableAndClearHome() throws Exception {
         assumeTrue(VsftpdTestSupport.NOT_REACHABLE_MESSAGE, VsftpdTestSupport.isReachable());
         VsftpdTestSupport.clearHome();
+        gumdrop = Gumdrop.boot();
+    }
+
+    @After
+    public void tearDown() {
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
     }
 
     // ── Plaintext PASV STOR/RETR/NLST round trip ──
 
     @Test
     public void testPlaintextStorRetrRoundTrip() throws Exception {
-        FTPClient client = new FTPClient(VsftpdTestSupport.HOST, VsftpdTestSupport.PORT);
+        FtpClient client = new FtpClient(VsftpdTestSupport.HOST, VsftpdTestSupport.PORT);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
@@ -96,7 +108,7 @@ public class VsftpdFtpIntegrationTest {
         String fileName = "roundtrip-" + System.nanoTime() + ".txt";
         String content = "hello vsftpd, over plain PASV";
 
-        client.connect(new TestGreeting(doneLatch, error) {
+        client.connect(gumdrop, new TestGreeting(doneLatch, error) {
             @Override
             public void handleGreeting(ClientLoginState login, String message) {
                 login.user(VsftpdTestSupport.USERNAME, new TestUserHandler(doneLatch, error) {
@@ -127,14 +139,14 @@ public class VsftpdFtpIntegrationTest {
 
     @Test
     public void testNlstShowsUploadedFile() throws Exception {
-        FTPClient client = new FTPClient(VsftpdTestSupport.HOST, VsftpdTestSupport.PORT);
+        FtpClient client = new FtpClient(VsftpdTestSupport.HOST, VsftpdTestSupport.PORT);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
-        AtomicReference<List<FTPFileEntry>> entriesRef = new AtomicReference<>();
+        AtomicReference<List<FtpFileEntry>> entriesRef = new AtomicReference<>();
         String fileName = "listed-" + System.nanoTime() + ".txt";
 
-        client.connect(new TestGreeting(doneLatch, error) {
+        client.connect(gumdrop, new TestGreeting(doneLatch, error) {
             @Override
             public void handleGreeting(ClientLoginState login, String message) {
                 login.user(VsftpdTestSupport.USERNAME, new TestUserHandler(doneLatch, error) {
@@ -161,7 +173,7 @@ public class VsftpdFtpIntegrationTest {
             throw error.get();
         }
         boolean found = false;
-        for (FTPFileEntry entry : entriesRef.get()) {
+        for (FtpFileEntry entry : entriesRef.get()) {
             if (entry.getName().contains(fileName)) {
                 found = true;
                 break;
@@ -176,7 +188,7 @@ public class VsftpdFtpIntegrationTest {
     public void testAuthTlsProtPThenStorRetr() throws Exception {
         X509Certificate serverCert = VsftpdTestSupport.loadServerCertificate();
 
-        FTPClient client = new FTPClient(VsftpdTestSupport.HOST, VsftpdTestSupport.PORT);
+        FtpClient client = new FtpClient(VsftpdTestSupport.HOST, VsftpdTestSupport.PORT);
         client.setTrustManager(pinningTrustManager(serverCert));
 
         CountDownLatch doneLatch = new CountDownLatch(1);
@@ -186,10 +198,10 @@ public class VsftpdFtpIntegrationTest {
         String fileName = "tls-roundtrip-" + System.nanoTime() + ".txt";
         String content = "hello vsftpd, over AUTH TLS + PROT P";
 
-        client.connect(new TestGreeting(doneLatch, error) {
+        client.connect(gumdrop, new TestGreeting(doneLatch, error) {
             @Override
             public void handleGreeting(ClientLoginState login, String message) {
-                login.authTls(new ServerAuthTlsReplyHandler() {
+                login.authTls(new AuthTlsReplyHandler() {
                     @Override
                     public void handleTlsEstablished(ClientLoginState login2) {
                         tlsEstablished.set(true);
@@ -296,13 +308,13 @@ public class VsftpdFtpIntegrationTest {
     }
 
     private void list(ClientAuthenticatedState auth, String fileName, CountDownLatch doneLatch,
-            AtomicReference<Exception> error, AtomicReference<List<FTPFileEntry>> entriesRef) {
+            AtomicReference<Exception> error, AtomicReference<List<FtpFileEntry>> entriesRef) {
         auth.pasv(new TestPasvHandler(doneLatch, error) {
             @Override
             public void handlePassive(InetSocketAddress addr, ClientAuthenticatedState a) {
                 a.nlst(null, addr, new TestListHandler(doneLatch, error) {
                     @Override
-                    public void handleEntries(List<FTPFileEntry> entries, ClientAuthenticatedState a2) {
+                    public void handleEntries(List<FtpFileEntry> entries, ClientAuthenticatedState a2) {
                         entriesRef.set(entries);
                         a2.quit();
                         doneLatch.countDown();
@@ -313,7 +325,7 @@ public class VsftpdFtpIntegrationTest {
     }
 
     private void fail(AtomicReference<Exception> error, CountDownLatch doneLatch, String message) {
-        error.set(new FTPException(message));
+        error.set(new FtpException(message));
         doneLatch.countDown();
     }
 
@@ -336,7 +348,7 @@ public class VsftpdFtpIntegrationTest {
     // unexpected callback), adapted from FTPClientIntegrationTest's
     // identical pattern ──
 
-    private abstract class TestGreeting implements ServerGreeting {
+    private abstract class TestGreeting implements RemoteGreeting {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -366,7 +378,7 @@ public class VsftpdFtpIntegrationTest {
         public void onSecurityEstablished(SecurityInfo info) { }
     }
 
-    private abstract class TestUserHandler implements ServerUserReplyHandler {
+    private abstract class TestUserHandler implements UserReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -401,7 +413,7 @@ public class VsftpdFtpIntegrationTest {
         }
     }
 
-    private abstract class TestPassHandler implements ServerPassReplyHandler {
+    private abstract class TestPassHandler implements PassReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -431,7 +443,7 @@ public class VsftpdFtpIntegrationTest {
         }
     }
 
-    private abstract class TestSimpleHandler implements ServerSimpleReplyHandler {
+    private abstract class TestSimpleHandler implements SimpleReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -456,7 +468,7 @@ public class VsftpdFtpIntegrationTest {
         }
     }
 
-    private abstract class TestPasvHandler implements ServerPasvReplyHandler {
+    private abstract class TestPasvHandler implements PasvReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -481,7 +493,7 @@ public class VsftpdFtpIntegrationTest {
         }
     }
 
-    private abstract class TestStorHandler implements ServerStorReplyHandler {
+    private abstract class TestStorHandler implements StorReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -511,7 +523,7 @@ public class VsftpdFtpIntegrationTest {
         }
     }
 
-    private abstract class TestRetrHandler implements ServerRetrReplyHandler {
+    private abstract class TestRetrHandler implements RetrReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -541,7 +553,7 @@ public class VsftpdFtpIntegrationTest {
         }
     }
 
-    private abstract class TestListHandler implements ServerListReplyHandler {
+    private abstract class TestListHandler implements ListReplyHandler {
         final CountDownLatch latch;
         final AtomicReference<Exception> error;
 
@@ -551,7 +563,7 @@ public class VsftpdFtpIntegrationTest {
         }
 
         @Override
-        public void handleEntries(List<FTPFileEntry> entries, ClientAuthenticatedState authenticated) {
+        public void handleEntries(List<FtpFileEntry> entries, ClientAuthenticatedState authenticated) {
             fail(error, latch, "unexpected entries path");
         }
 

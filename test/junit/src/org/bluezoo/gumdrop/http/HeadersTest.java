@@ -212,15 +212,15 @@ public class HeadersTest {
     @Test
     public void testStatusPseudoHeader() {
         Headers headers = new Headers();
-        headers.status(HTTPStatus.OK);
+        headers.status(HttpStatus.OK);
         assertEquals("200", headers.getValue(":status"));
     }
 
     @Test
     public void testStatusPseudoHeaderReplace() {
         Headers headers = new Headers();
-        headers.status(HTTPStatus.OK);
-        headers.status(HTTPStatus.NOT_FOUND);
+        headers.status(HttpStatus.OK);
+        headers.status(HttpStatus.NOT_FOUND);
         assertEquals("404", headers.getValue(":status"));
         assertEquals(1, headers.getHeaders(":status").size());
     }

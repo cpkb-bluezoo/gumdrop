@@ -66,8 +66,6 @@ public class DecoderTest implements StoryTestInterface {
      */
     @Test
     public void testDecode() {
-        System.out.println("Processing file: " + file);
-
         try (InputStream in = new FileInputStream(file)) {
             JSONParser parser = new JSONParser();
             parser.setContentHandler(new StoryHandler(this));
@@ -85,7 +83,6 @@ public class DecoderTest implements StoryTestInterface {
     @Override public void testCase(int seqno, String wire, List<Header> headers) {
         byte[] encodedSequence = toByteArray(wire);
 
-        System.out.println("Test decode for "+seqno+", wire value: " + wire);
         ByteBuffer buf = ByteBuffer.wrap(encodedSequence);
         final List<Header> testHeaders = new ArrayList<>();
         HeaderHandler handler = new HeaderHandler() {
@@ -96,10 +93,9 @@ public class DecoderTest implements StoryTestInterface {
         // decode
         try {
             decoder.decode(buf, handler);
-            assertEquals("Decode failed: ", headers, testHeaders);
+            assertEquals("seqno " + seqno + " wire " + wire, headers, testHeaders);
         } catch (IOException e) {
-            System.out.println("  decode failed at seqno "+seqno+", testHeaders="+testHeaders+": "+e.getMessage());
-            fail("Decode failed: " + e.getMessage());
+            fail("seqno " + seqno + " wire " + wire + ": " + e.getMessage());
         }
     }
 

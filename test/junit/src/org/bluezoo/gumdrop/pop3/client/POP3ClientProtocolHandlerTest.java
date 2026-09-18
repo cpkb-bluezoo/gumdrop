@@ -39,34 +39,34 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientAuthExchange;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientAuthorizationState;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientPasswordState;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientPostStls;
-import org.bluezoo.gumdrop.pop3.client.handler.ClientTransactionState;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerApopReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerAuthAbortHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerAuthReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerCapaReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerDeleReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerGreeting;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerListReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerNoopReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerPassReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerRetrReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerRsetReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerStatReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerStlsReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerTopReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerUidlReplyHandler;
-import org.bluezoo.gumdrop.pop3.client.handler.ServerUserReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.ClientAuthExchange;
+import org.bluezoo.gumdrop.pop3.client.ClientAuthorizationState;
+import org.bluezoo.gumdrop.pop3.client.ClientPasswordState;
+import org.bluezoo.gumdrop.pop3.client.ClientPostStls;
+import org.bluezoo.gumdrop.pop3.client.ClientTransactionState;
+import org.bluezoo.gumdrop.pop3.client.ApopReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.AuthAbortHandler;
+import org.bluezoo.gumdrop.pop3.client.AuthReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.CapaReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.DeleReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.RemoteGreeting;
+import org.bluezoo.gumdrop.pop3.client.ListReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.NoopReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.PassReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.RetrReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.RsetReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.StatReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.StlsReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.TopReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.UidlReplyHandler;
+import org.bluezoo.gumdrop.pop3.client.UserReplyHandler;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.Trace;
 
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link POP3ClientProtocolHandler}.
+ * Unit tests for {@link Pop3ClientProtocolHandler}.
  *
  * <p>Tests the POP3 client state machine by simulating server responses
  * through a stub Endpoint and verifying that the correct callbacks are
@@ -74,14 +74,14 @@ import static org.junit.Assert.*;
  */
 public class POP3ClientProtocolHandlerTest {
 
-    private POP3ClientProtocolHandler handler;
+    private Pop3ClientProtocolHandler handler;
     private RecordingGreetingHandler greetingHandler;
     private StubEndpoint endpoint;
 
     @Before
     public void setUp() {
         greetingHandler = new RecordingGreetingHandler();
-        handler = new POP3ClientProtocolHandler(greetingHandler);
+        handler = new Pop3ClientProtocolHandler(greetingHandler);
         endpoint = new StubEndpoint();
         handler.connected(endpoint);
     }
@@ -138,12 +138,12 @@ public class POP3ClientProtocolHandlerTest {
 
     // ═══════════════════════════════════════════════════════════════════
     // Streaming lexer tests (issue #85) — sliced-boundary and golden
-    // transcript coverage, proving the POP3ClientLexer conversion from
+    // transcript coverage, proving the Pop3ClientLexer conversion from
     // buffered-line parsing preserves identical semantic dispatch, and
     // that requestStop() correctly hands off to DotUnstuffer.
     // ═══════════════════════════════════════════════════════════════════
 
-    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // Mirrors the real transport contract (TcpEndpoint.processInbound()):
     // a single persistent buffer, compacted between receive() calls.
     private void receiveResponseSliced(String line, int chunkSize) {
         byte[] wire = (line + "\r\n").getBytes(StandardCharsets.US_ASCII);
@@ -171,7 +171,7 @@ public class POP3ClientProtocolHandlerTest {
         String line = "+OK POP3 server ready";
         for (int chunkSize = 1; chunkSize <= line.length() + 2; chunkSize++) {
             greetingHandler = new RecordingGreetingHandler();
-            handler = new POP3ClientProtocolHandler(greetingHandler);
+            handler = new Pop3ClientProtocolHandler(greetingHandler);
             endpoint = new StubEndpoint();
             handler.connected(endpoint);
 
@@ -227,7 +227,7 @@ public class POP3ClientProtocolHandlerTest {
 
         for (int chunkSize = 1; chunkSize <= wire.length; chunkSize++) {
             greetingHandler = new RecordingGreetingHandler();
-            handler = new POP3ClientProtocolHandler(greetingHandler);
+            handler = new Pop3ClientProtocolHandler(greetingHandler);
             endpoint = new StubEndpoint();
             handler.connected(endpoint);
             receiveResponse("+OK POP3 server ready");
@@ -984,7 +984,7 @@ public class POP3ClientProtocolHandlerTest {
     @Test
     public void testNullHandlerThrows() {
         try {
-            new POP3ClientProtocolHandler(null);
+            new Pop3ClientProtocolHandler(null);
             fail("Expected NullPointerException");
         } catch (NullPointerException expected) {
             // expected
@@ -1099,7 +1099,7 @@ public class POP3ClientProtocolHandlerTest {
     // Recording handler implementations
     // ═══════════════════════════════════════════════════════════════════
 
-    static class RecordingGreetingHandler implements ServerGreeting {
+    static class RecordingGreetingHandler implements RemoteGreeting {
         boolean greetingReceived;
         String greetingMessage;
         String apopTimestamp;
@@ -1137,7 +1137,7 @@ public class POP3ClientProtocolHandlerTest {
         @Override public void onSecurityEstablished(SecurityInfo info) {}
     }
 
-    static class RecordingCapaHandler implements ServerCapaReplyHandler {
+    static class RecordingCapaHandler implements CapaReplyHandler {
         boolean capabilitiesReceived;
         boolean stls, top, uidl, user, pipelining;
         List<String> saslMechanisms;
@@ -1175,7 +1175,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingUserHandler
-            implements ServerUserReplyHandler {
+            implements UserReplyHandler {
         boolean accepted;
         ClientPasswordState passwordState;
         boolean rejected;
@@ -1199,7 +1199,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingPassHandler
-            implements ServerPassReplyHandler {
+            implements PassReplyHandler {
         boolean authenticated;
         ClientTransactionState transactionState;
         boolean authFailed;
@@ -1224,7 +1224,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingApopHandler
-            implements ServerApopReplyHandler {
+            implements ApopReplyHandler {
         boolean authenticated;
         ClientTransactionState transactionState;
         boolean authFailed;
@@ -1249,7 +1249,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingAuthHandler
-            implements ServerAuthReplyHandler {
+            implements AuthReplyHandler {
         boolean authSuccess;
         ClientTransactionState transactionState;
         boolean challengeReceived;
@@ -1294,7 +1294,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingAuthAbortHandler
-            implements ServerAuthAbortHandler {
+            implements AuthAbortHandler {
         boolean aborted;
 
         @Override
@@ -1307,7 +1307,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingStlsHandler
-            implements ServerStlsReplyHandler {
+            implements StlsReplyHandler {
         boolean tlsEstablished;
         ClientPostStls postStls;
         boolean tlsUnavailable;
@@ -1335,7 +1335,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingStatHandler
-            implements ServerStatReplyHandler {
+            implements StatReplyHandler {
         boolean statReceived;
         int messageCount;
         long totalSize;
@@ -1371,7 +1371,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingListHandler
-            implements ServerListReplyHandler {
+            implements ListReplyHandler {
         boolean singleReceived;
         int singleMessageNumber;
         long singleSize;
@@ -1416,7 +1416,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingRetrHandler
-            implements ServerRetrReplyHandler {
+            implements RetrReplyHandler {
         ByteArrayOutputStream collected = new ByteArrayOutputStream();
         boolean messageComplete;
         boolean noSuchMessage;
@@ -1462,7 +1462,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingTopHandler
-            implements ServerTopReplyHandler {
+            implements TopReplyHandler {
         ByteArrayOutputStream collected = new ByteArrayOutputStream();
         boolean topComplete;
         boolean noSuchMessage;
@@ -1508,7 +1508,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingDeleHandler
-            implements ServerDeleReplyHandler {
+            implements DeleReplyHandler {
         boolean deleted;
         boolean noSuchMessage;
         boolean alreadyDeleted;
@@ -1544,7 +1544,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingUidlHandler
-            implements ServerUidlReplyHandler {
+            implements UidlReplyHandler {
         boolean singleReceived;
         int singleNumber;
         String singleUid;
@@ -1589,7 +1589,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingRsetHandler
-            implements ServerRsetReplyHandler {
+            implements RsetReplyHandler {
         boolean resetOk;
 
         @Override
@@ -1602,7 +1602,7 @@ public class POP3ClientProtocolHandlerTest {
     }
 
     static class RecordingNoopHandler
-            implements ServerNoopReplyHandler {
+            implements NoopReplyHandler {
         boolean ok;
 
         @Override

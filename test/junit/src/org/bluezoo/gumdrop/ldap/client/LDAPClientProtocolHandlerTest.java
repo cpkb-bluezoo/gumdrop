@@ -23,8 +23,8 @@ package org.bluezoo.gumdrop.ldap.client;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.ldap.asn1.BEREncoder;
-import org.bluezoo.gumdrop.ldap.asn1.ASN1Type;
+import org.bluezoo.gumdrop.ldap.asn1.BerEncoder;
+import org.bluezoo.gumdrop.ldap.asn1.Asn1Type;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -39,7 +39,7 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for LDAPClientProtocolHandler — new features:
+ * Unit tests for LdapClientProtocolHandler — new features:
  * abandon (RFC 4511 §4.11), controls (RFC 4511 §4.1.11),
  * unsolicited notifications (RFC 4511 §4.4),
  * intermediate responses (RFC 4511 §4.13).
@@ -47,13 +47,13 @@ import static org.junit.Assert.*;
 public class LDAPClientProtocolHandlerTest {
 
     private RecordingHandler handler;
-    private LDAPClientProtocolHandler protocol;
+    private LdapClientProtocolHandler protocol;
     private StubEndpoint endpoint;
 
     @Before
     public void setUp() {
         handler = new RecordingHandler();
-        protocol = new LDAPClientProtocolHandler(handler, false);
+        protocol = new LdapClientProtocolHandler(handler, false);
         endpoint = new StubEndpoint();
         protocol.connected(endpoint);
     }
@@ -157,7 +157,7 @@ public class LDAPClientProtocolHandlerTest {
 
     private ByteBuffer buildBindResponse(int messageId, int resultCode,
                                          String matchedDN, String diagnostic) {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(1, true);  // BindResponse
@@ -170,7 +170,7 @@ public class LDAPClientProtocolHandlerTest {
     }
 
     private ByteBuffer buildSearchResultDoneWithControls(int messageId) {
-        BEREncoder outer = new BEREncoder();
+        BerEncoder outer = new BerEncoder();
         outer.beginSequence();
         outer.writeInteger(messageId);
         outer.beginApplication(5, true);  // SearchResultDone
@@ -191,7 +191,7 @@ public class LDAPClientProtocolHandlerTest {
     }
 
     private ByteBuffer buildNoticeOfDisconnection() {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(0);  // messageID 0 = unsolicited
         encoder.beginApplication(24, true);  // ExtendedResponse
@@ -208,7 +208,7 @@ public class LDAPClientProtocolHandlerTest {
 
     private ByteBuffer buildIntermediateResponse(int messageId,
                                                   String oid, byte[] value) {
-        BEREncoder encoder = new BEREncoder();
+        BerEncoder encoder = new BerEncoder();
         encoder.beginSequence();
         encoder.writeInteger(messageId);
         encoder.beginApplication(25, true);  // IntermediateResponse
@@ -226,12 +226,12 @@ public class LDAPClientProtocolHandlerTest {
 
     // ── Stub / Recording classes ─────────────────────────────────────────
 
-    static class RecordingHandler implements LDAPConnectionReady {
-        LDAPConnected connection;
+    static class RecordingHandler implements LdapConnectionReady {
+        LdapConnected connection;
         Exception lastError;
 
         @Override
-        public void handleReady(LDAPConnected connection) {
+        public void handleReady(LdapConnected connection) {
             this.connection = connection;
         }
 
@@ -251,23 +251,23 @@ public class LDAPClientProtocolHandlerTest {
     }
 
     static class RecordingBindHandler implements BindResultHandler {
-        LDAPSession session;
-        LDAPResult failureResult;
+        LdapSession session;
+        LdapResult failureResult;
 
         @Override
-        public void handleBindSuccess(LDAPSession session) {
+        public void handleBindSuccess(LdapSession session) {
             this.session = session;
         }
 
         @Override
-        public void handleBindFailure(LDAPResult result, LDAPConnected connection) {
+        public void handleBindFailure(LdapResult result, LdapConnected connection) {
             this.failureResult = result;
         }
     }
 
     static class RecordingSearchHandler implements SearchResultHandler {
         List<SearchResultEntry> entries = new ArrayList<>();
-        LDAPResult doneResult;
+        LdapResult doneResult;
 
         @Override
         public void handleEntry(SearchResultEntry entry) {
@@ -278,7 +278,7 @@ public class LDAPClientProtocolHandlerTest {
         public void handleReference(String[] referralUrls) {}
 
         @Override
-        public void handleDone(LDAPResult result, LDAPSession session) {
+        public void handleDone(LdapResult result, LdapSession session) {
             this.doneResult = result;
         }
     }
@@ -295,7 +295,7 @@ public class LDAPClientProtocolHandlerTest {
         public void handleReference(String[] referralUrls) {}
 
         @Override
-        public void handleDone(LDAPResult result, LDAPSession session) {}
+        public void handleDone(LdapResult result, LdapSession session) {}
 
         @Override
         public void handleIntermediateResponse(String responseName, byte[] responseValue) {

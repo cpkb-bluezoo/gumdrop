@@ -154,8 +154,8 @@ public interface MailboxFactory {
 </pre>
 
 <p>
-Factories are configured in <code>gumdroprc</code> and referenced by servers
-that require mailbox access.
+Factories are composed in Java and attached to servers that require mailbox
+access.
 </p>
 
 <h4>MailboxStore</h4>
@@ -239,57 +239,50 @@ Message metadata without loading content:
 <h3 id="configuration">Configuration</h3>
 
 <p>
-Mailbox factories are configured in <code>gumdroprc</code> and referenced by
-servers:
+Mailbox factories are composed in Java and attached to servers:
 </p>
 
 <pre>
-&lt;!-- Mbox mailbox factory --&gt;
-&lt;mailbox-factory id="mboxFactory" 
-                 class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
-    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
-    &lt;property name="extension"&gt;.mbox&lt;/property&gt;
-&lt;/mailbox-factory&gt;
+// Mbox mailbox factory
+MboxMailboxFactory mboxFactory =
+    new MboxMailboxFactory(Path.of("/var/mail"), ".mbox");
 
-&lt;!-- Maildir mailbox factory --&gt;
-&lt;mailbox-factory id="maildirFactory"
-                 class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
-    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
-&lt;/mailbox-factory&gt;
+// Maildir mailbox factory
+MaildirMailboxFactory maildirFactory =
+    new MaildirMailboxFactory(Path.of("/var/mail"));
 
-&lt;!-- IMAP service using Maildir --&gt;
-&lt;service class="org.bluezoo.gumdrop.imap.DefaultIMAPService"&gt;
-    &lt;property name="mailbox-factory" ref="#maildirFactory"/&gt;
-    &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener" port="143"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.imap.IMAPListener" port="993"
-            secure="true"/&gt;
-&lt;/service&gt;
+// IMAP server using Maildir
+ImapServer imap = ImapServer.compose()
+    .listener(new ImapListener().port(143))
+    .listener(new ImapListener().port(993).secure(true).tls(tls))
+    .realm(mailRealm)
+    .sessionProvider(ImapServerSessionProviders.mailbox(maildirFactory))
+    .server();
 
-&lt;!-- POP3 service using mbox --&gt;
-&lt;service class="org.bluezoo.gumdrop.pop3.DefaultPOP3Service"&gt;
-    &lt;property name="mailbox-factory" ref="#mboxFactory"/&gt;
-    &lt;property name="realm" ref="#mailRealm"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.pop3.POP3Listener" port="110"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.pop3.POP3Listener" port="995"
-            secure="true"/&gt;
-&lt;/service&gt;
+// POP3 server using mbox
+Pop3Server pop3 = Pop3Server.compose()
+    .listener(new Pop3Listener().port(110))
+    .listener(new Pop3Listener().port(995).secure(true).tls(tls))
+    .realm(mailRealm)
+    .sessionProvider(Pop3ServerSessionProviders.mailbox(mboxFactory))
+    .server();
 </pre>
 
 <p>
-SMTP services can also reference a mailbox factory for local delivery:
+SMTP servers can also reference a mailbox factory for local delivery:
 </p>
 
 <pre>
-&lt;service class="org.bluezoo.gumdrop.smtp.LocalDeliveryService"&gt;
-    &lt;property name="mailbox-factory" ref="#mboxFactory"/&gt;
-    &lt;property name="local-domain"&gt;example.com&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
-&lt;/service&gt;
+SmtpServer smtp = SmtpServer.compose()
+    .listener(new SmtpListener().port(25))
+    .mailboxFactory(mboxFactory)
+    .sessionProvider(SmtpServerSessionProviders.localDelivery()
+        .localDomain("example.com"))
+    .server();
 </pre>
 
 <p>
-The <code>LocalDeliveryService</code> uses the mailbox factory to deliver
+The local-delivery session provider uses the mailbox factory to deliver
 messages to local recipients.
 </p>
 
@@ -338,16 +331,14 @@ rewritten on expunge</li>
 <h4>Configuration</h4>
 
 <pre>
-&lt;mailbox-factory id="mbox" 
-                 class="org.bluezoo.gumdrop.mailbox.mbox.MboxMailboxFactory"&gt;
-    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
-    &lt;property name="extension"&gt;.mbox&lt;/property&gt;
-&lt;/mailbox-factory&gt;
+MboxMailboxFactory mbox = new MboxMailboxFactory();
+mbox.setBaseDirectory("/var/mail");
+mbox.setExtension(".mbox");
 </pre>
 
 <ul>
-<li><code>base-directory</code> - directory containing user mailboxes</li>
-<li><code>extension</code> - file extension for mbox files (default: <code>.mbox</code>)</li>
+<li><code>setBaseDirectory</code> - directory containing user mailboxes</li>
+<li><code>setExtension</code> - file extension for mbox files (default: <code>.mbox</code>)</li>
 </ul>
 
 <p>
@@ -448,14 +439,12 @@ when first seen by a client</li>
 <h4>Configuration</h4>
 
 <pre>
-&lt;mailbox-factory id="maildir"
-                 class="org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory"&gt;
-    &lt;property name="base-directory"&gt;/var/mail&lt;/property&gt;
-&lt;/mailbox-factory&gt;
+MaildirMailboxFactory maildir = new MaildirMailboxFactory();
+maildir.setBaseDirectory("/var/mail");
 </pre>
 
 <ul>
-<li><code>base-directory</code> - directory containing user Maildirs</li>
+<li><code>setBaseDirectory</code> - directory containing user Maildirs</li>
 </ul>
 
 <p>

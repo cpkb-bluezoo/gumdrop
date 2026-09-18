@@ -21,11 +21,11 @@
 
 package org.bluezoo.gumdrop.ftp.file;
 
-import org.bluezoo.gumdrop.ftp.FTPAuthenticationResult;
-import org.bluezoo.gumdrop.ftp.FTPConnectionHandler;
-import org.bluezoo.gumdrop.ftp.FTPConnectionMetadata;
-import org.bluezoo.gumdrop.ftp.FTPFileOperationResult;
-import org.bluezoo.gumdrop.ftp.FTPFileSystem;
+import org.bluezoo.gumdrop.ftp.FtpAuthenticationResult;
+import org.bluezoo.gumdrop.ftp.FtpConnectionHandler;
+import org.bluezoo.gumdrop.ftp.FtpConnectionMetadata;
+import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
+import org.bluezoo.gumdrop.ftp.FtpFileSystem;
 
 import java.nio.ByteBuffer;
 import java.text.MessageFormat;
@@ -48,15 +48,15 @@ import java.util.logging.Logger;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class AnonymousFTPHandler implements FTPConnectionHandler {
+public class AnonymousFTPHandler implements FtpConnectionHandler {
     
     private static final Logger LOGGER = Logger.getLogger(AnonymousFTPHandler.class.getName());
     private static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.ftp.L10N");
     
-    private final FTPFileSystem fileSystem;
+    private final FtpFileSystem fileSystem;
     private String welcomeMessage;
     
-    public AnonymousFTPHandler(FTPFileSystem fileSystem) {
+    public AnonymousFTPHandler(FtpFileSystem fileSystem) {
         this.fileSystem = fileSystem;
     }
     
@@ -70,7 +70,7 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
     }
     
     @Override
-    public String connected(FTPConnectionMetadata metadata) {
+    public String connected(FtpConnectionMetadata metadata) {
         LOGGER.info(MessageFormat.format(
                 L10N.getString("info.anon_ftp_connection"), metadata.getClientAddress()));
         return welcomeMessage != null ? welcomeMessage : 
@@ -78,38 +78,38 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
     }
     
     @Override
-    public FTPAuthenticationResult authenticate(String username, String password, 
-                                              String account, FTPConnectionMetadata metadata) {
+    public FtpAuthenticationResult authenticate(String username, String password, 
+                                              String account, FtpConnectionMetadata metadata) {
         
         // Check for anonymous username
         if (username == null || 
             (!username.equalsIgnoreCase("anonymous") && !username.equalsIgnoreCase("ftp"))) {
-            return FTPAuthenticationResult.INVALID_USER;
+            return FtpAuthenticationResult.INVALID_USER;
         }
         
         if (password == null) {
-            return FTPAuthenticationResult.NEED_PASSWORD;
+            return FtpAuthenticationResult.NEED_PASSWORD;
         }
         
         // Traditional anonymous FTP expects email address as password
         // We'll be lenient and accept any non-empty password
         if (password.trim().isEmpty()) {
-            return FTPAuthenticationResult.INVALID_PASSWORD;
+            return FtpAuthenticationResult.INVALID_PASSWORD;
         }
         
         LOGGER.info(MessageFormat.format(
                 L10N.getString("info.anon_ftp_authenticated"), metadata.getClientAddress(), password));
-        return FTPAuthenticationResult.SUCCESS;
+        return FtpAuthenticationResult.SUCCESS;
     }
     
     @Override
-    public FTPFileSystem getFileSystem(FTPConnectionMetadata metadata) {
+    public FtpFileSystem getFileSystem(FtpConnectionMetadata metadata) {
         return fileSystem;
     }
     
     @Override
     public void transferStarting(String path, boolean upload, long size, 
-                               FTPConnectionMetadata metadata) {
+                               FtpConnectionMetadata metadata) {
         if (upload) {
             // Anonymous FTP typically doesn't allow uploads
             LOGGER.warning(MessageFormat.format(
@@ -124,7 +124,7 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
     
     @Override
     public void transferProgress(String path, boolean upload, ByteBuffer data, 
-                               long totalBytesTransferred, FTPConnectionMetadata metadata) {
+                               long totalBytesTransferred, FtpConnectionMetadata metadata) {
         // Log significant download progress for statistics
         if (!upload && totalBytesTransferred % (10 * 1024 * 1024) == 0) { // Every 10MB
             LOGGER.info(MessageFormat.format(
@@ -135,7 +135,7 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
     
     @Override
     public void transferCompleted(String path, boolean upload, long totalBytesTransferred, 
-                                boolean success, FTPConnectionMetadata metadata) {
+                                boolean success, FtpConnectionMetadata metadata) {
         if (upload) {
             LOGGER.warning(MessageFormat.format(
                     L10N.getString("warn.anon_upload_blocked"), metadata.getClientAddress(), path));
@@ -148,15 +148,15 @@ public class AnonymousFTPHandler implements FTPConnectionHandler {
     }
     
     @Override
-    public FTPFileOperationResult handleSiteCommand(String command, FTPConnectionMetadata metadata) {
+    public FtpFileOperationResult handleSiteCommand(String command, FtpConnectionMetadata metadata) {
         // Anonymous users typically don't get SITE commands
         LOGGER.info(MessageFormat.format(
                 L10N.getString("info.anon_site_denied"), metadata.getClientAddress(), command));
-        return FTPFileOperationResult.ACCESS_DENIED;
+        return FtpFileOperationResult.ACCESS_DENIED;
     }
     
     @Override
-    public void disconnected(FTPConnectionMetadata metadata) {
+    public void disconnected(FtpConnectionMetadata metadata) {
         LOGGER.info(MessageFormat.format(
                 L10N.getString("info.anon_ftp_disconnected"), metadata.getClientAddress()));
     }

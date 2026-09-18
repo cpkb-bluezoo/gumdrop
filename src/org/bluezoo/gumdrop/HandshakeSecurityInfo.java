@@ -33,10 +33,8 @@ import org.bluezoo.gumdrop.tls.TlsRecordEngine;
 
 /**
  * {@link SecurityInfo} implementation backed by the in-tree
- * {@link TlsRecordEngine} -- the direct replacement for the former
- * JSSE-backed {@code JSSESecurityInfo}. Downstream consumers depend only
- * on the transport-agnostic {@link SecurityInfo} interface, not this
- * class, so nothing else needed to change for this substitution.
+ * {@link TlsRecordEngine}. Downstream consumers depend only on the
+ * transport-agnostic {@link SecurityInfo} interface, not this class.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see SecurityInfo

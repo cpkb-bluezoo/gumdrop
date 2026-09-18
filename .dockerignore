@@ -10,7 +10,6 @@ doc/
 
 # Tests and their artifacts
 test/
-integrationtest/
 *.properties.tmp
 junit*.properties
 junitvmwatcher*.properties

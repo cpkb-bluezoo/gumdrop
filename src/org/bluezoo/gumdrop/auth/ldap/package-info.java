@@ -22,7 +22,7 @@
 /**
  * LDAP-backed authentication realm.
  *
- * <p>{@link org.bluezoo.gumdrop.auth.ldap.LDAPRealm} implements {@link
+ * <p>{@link org.bluezoo.gumdrop.auth.ldap.LdapRealm} implements {@link
  * org.bluezoo.gumdrop.auth.Realm} by performing an LDAP bind against a
  * directory server through {@link org.bluezoo.gumdrop.ldap.client} --
  * since a directory only ever verifies a bind, not the password itself,

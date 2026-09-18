@@ -1,0 +1,492 @@
+/*
+ * Pop3Listener.java
+ * Copyright (C) 2025, 2026 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.pop3;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import org.bluezoo.gumdrop.ProtocolHandler;
+import org.bluezoo.gumdrop.TcpListener;
+import org.bluezoo.gumdrop.auth.GssapiServer;
+import org.bluezoo.gumdrop.auth.Realm;
+import org.bluezoo.gumdrop.mailbox.MailboxFactory;
+import java.net.InetAddress;
+import org.bluezoo.gumdrop.tls.TlsConfig;
+/**
+ * TCP transport listener for POP3 connections.
+ * This endpoint supports both standard POP3 (port 110) and POP3S (port 995),
+ * with transparent SSL/TLS support and STARTTLS capability.
+ *
+ * <p>POP3 is defined in RFC 1939 with extensions in:
+ * <ul>
+ *   <li>RFC 1957 - Implementation notes and recommendations
+ *   <li>RFC 2449 - POP3 Extension Mechanism
+ *   <li>RFC 2595 - TLS for POP3 (STLS command)
+ *   <li>RFC 6816 - POP3 Support for UTF-8
+ *   <li>RFC 8314 - Cleartext considered obsolete (use TLS)
+ * </ul>
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc1939">RFC 1939 - POP3</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2449">RFC 2449 - POP3 Extensions</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc2595">RFC 2595 - STLS</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc6816">RFC 6816 - UTF-8</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc8314">RFC 8314 - TLS</a>
+ */
+public class Pop3Listener extends TcpListener {
+
+    private static final Logger LOGGER =
+            Logger.getLogger(Pop3Listener.class.getName());
+
+    /**
+     * The default POP3 port (cleartext or with STARTTLS).
+     * RFC 1939 — standard POP3 port.
+     */
+    protected static final int POP3_DEFAULT_PORT = 110;
+
+    /**
+     * The default POP3S port (implicit TLS).
+     * RFC 8314 section 3.3 — implicit TLS for POP3.
+     */
+    protected static final int POP3S_DEFAULT_PORT = 995;
+
+    protected int port = -1;
+    protected Realm realm;
+    protected MailboxFactory mailboxFactory;
+    protected long loginDelayMs = 0;
+    protected long transactionTimeoutMs = 600000; // 10 minutes default
+    protected boolean enableAPOP = true;
+    protected boolean enableUTF8 = true;
+    protected boolean enablePipelining = false;
+
+    // RFC 2449 section 6.5 — message retention policy (-1 = don't advertise)
+    protected int expireDays = -1;
+
+    // RFC 4752 — GSSAPI/Kerberos authentication
+    protected GssapiServer gssapiServer;
+
+    // Back-reference to the owning server (null when used standalone)
+    private org.bluezoo.gumdrop.pop3.server.Pop3Server server;
+
+    private org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider sessionProvider;
+
+    // Metrics for this endpoint (null if telemetry is not enabled)
+    private Pop3ServerMetrics metrics;
+
+    /**
+     * Returns a short description of this endpoint.
+     */
+    @Override
+    public String getDescription() {
+        return secure ? "pop3s" : "pop3";
+    }
+
+    /**
+     * Returns the port number this endpoint is bound to.
+     */
+    @Override
+    public int getPort() {
+        return port;
+    }
+
+    /**
+     * Sets the port number this endpoint should bind to.
+     *
+     * @param port the port number
+     */
+    public void setPort(int port) {
+        this.port = port;
+    }
+    /**
+     * Sets the port. Returns {@code this} for fluent configuration.
+     *
+     * @param port the port number
+     * @return this listener
+     */
+    public Pop3Listener port(int port) {
+        setPort(port);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener bindWildcard() {
+        super.bindWildcard();
+        return this;
+    }
+
+    @Override
+    public Pop3Listener addresses(InetAddress... addrs) {
+        super.addresses(addrs);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener secure(boolean flag) {
+        super.secure(flag);
+        return this;
+    }
+
+    @Override
+    public Pop3Listener tls(TlsConfig tls) {
+        super.tls(tls);
+        return this;
+    }
+
+
+    /**
+     * Returns the authentication realm.
+     *
+     * @return the realm for POP3 authentication, or null if no authentication
+     */
+    public Realm getRealm() {
+        return realm;
+    }
+
+    /**
+     * Sets the authentication realm for POP3 authentication.
+     *
+     * @param realm the realm to use for authentication
+     */
+    public void setRealm(Realm realm) {
+        this.realm = realm;
+    }
+
+    /**
+     * Returns the GSSAPI server for Kerberos authentication (RFC 4752),
+     * or null if GSSAPI is not configured.
+     *
+     * @return the GSSAPI server, or null
+     */
+    public GssapiServer getGSSAPIServer() {
+        return gssapiServer;
+    }
+
+    /**
+     * Sets the GSSAPI server for Kerberos authentication (RFC 4752).
+     *
+     * @param gssapiServer the GSSAPI server
+     */
+    public void setGSSAPIServer(GssapiServer gssapiServer) {
+        this.gssapiServer = gssapiServer;
+    }
+
+    /**
+     * Configures GSSAPI/Kerberos authentication (RFC 4752) by creating
+     * a {@link GssapiServer} from the specified keytab and service
+     * principal.
+     *
+     * @param keytabPath the path to the Kerberos keytab file
+     * @param servicePrincipal the service principal name
+     *        (e.g. "pop/mail.example.com@EXAMPLE.COM")
+     * @throws IOException if the keytab cannot be read or credentials
+     *         cannot be acquired
+     */
+    public void configureGSSAPI(Path keytabPath, String servicePrincipal)
+            throws IOException {
+        this.gssapiServer = new GssapiServer(keytabPath, servicePrincipal);
+    }
+
+    /**
+     * Returns the mailbox factory for this endpoint.
+     *
+     * @return the mailbox factory, or null if not configured
+     */
+    public MailboxFactory getMailboxFactory() {
+        return mailboxFactory;
+    }
+
+    /**
+     * Sets the mailbox factory for creating mailbox instances.
+     * Each POP3 connection will use this factory to obtain a mailbox
+     * for the authenticated user.
+     *
+     * @param mailboxFactory the factory to create mailbox instances
+     */
+    public void setMailboxFactory(MailboxFactory mailboxFactory) {
+        this.mailboxFactory = mailboxFactory;
+    }
+
+    /**
+     * Returns the login delay in milliseconds.
+     * RFC 2449 section 4 recommends a minimum delay between failed
+     * authentication attempts to slow down brute-force attacks.
+     *
+     * @return the login delay in milliseconds
+     */
+    public long getLoginDelayMs() {
+        return loginDelayMs;
+    }
+
+    /**
+     * Sets the login delay in milliseconds.
+     * This is enforced after failed authentication attempts.
+     *
+     * @param loginDelayMs the delay in milliseconds (0 to disable)
+     */
+    public void setLoginDelayMs(long loginDelayMs) {
+        this.loginDelayMs = loginDelayMs;
+    }
+
+    /**
+     * Sets the login delay using a string with optional time unit suffix.
+     * Supported suffixes: ms, s, m, h (milliseconds, seconds, minutes,
+     * hours).
+     *
+     * @param delay the delay string (e.g., "5s", "500ms")
+     */
+    public void setLoginDelay(String delay) {
+        this.loginDelayMs = parseDuration(delay);
+    }
+
+    /**
+     * Returns the transaction timeout in milliseconds.
+     * RFC 1939 section 3 recommends a minimum 10-minute timeout.
+     *
+     * @return the timeout in milliseconds
+     */
+    public long getTransactionTimeoutMs() {
+        return transactionTimeoutMs;
+    }
+
+    /**
+     * Sets the transaction timeout in milliseconds.
+     *
+     * @param transactionTimeoutMs the timeout in milliseconds
+     */
+    public void setTransactionTimeoutMs(long transactionTimeoutMs) {
+        this.transactionTimeoutMs = transactionTimeoutMs;
+    }
+
+    /**
+     * Sets the transaction timeout using a string with optional time
+     * unit suffix.
+     *
+     * @param timeout the timeout string (e.g., "10m", "600s")
+     */
+    public void setTransactionTimeout(String timeout) {
+        this.transactionTimeoutMs = parseDuration(timeout);
+    }
+
+    /**
+     * Returns whether APOP authentication is enabled.
+     *
+     * @return true if APOP is enabled
+     */
+    public boolean isEnableAPOP() {
+        return enableAPOP;
+    }
+
+    /**
+     * Sets whether APOP authentication is enabled.
+     * APOP provides challenge-response authentication without
+     * sending passwords in cleartext.
+     *
+     * @param enableAPOP true to enable APOP
+     */
+    public void setEnableAPOP(boolean enableAPOP) {
+        this.enableAPOP = enableAPOP;
+    }
+
+    /**
+     * Returns whether UTF-8 support is enabled (RFC 6816).
+     *
+     * @return true if UTF-8 is enabled
+     */
+    public boolean isEnableUTF8() {
+        return enableUTF8;
+    }
+
+    /**
+     * Sets whether UTF-8 support is enabled.
+     * When enabled, the endpoint advertises UTF8 capability.
+     *
+     * @param enableUTF8 true to enable UTF-8
+     */
+    public void setEnableUTF8(boolean enableUTF8) {
+        this.enableUTF8 = enableUTF8;
+    }
+
+    /**
+     * Returns whether command pipelining is enabled (RFC 2449
+     * section 6.8).
+     *
+     * @return true if pipelining is enabled
+     */
+    public boolean isEnablePipelining() {
+        return enablePipelining;
+    }
+
+    /**
+     * Sets whether command pipelining is enabled.
+     * When enabled, clients can send multiple commands without
+     * waiting for responses.
+     *
+     * @param enablePipelining true to enable pipelining
+     */
+    public void setEnablePipelining(boolean enablePipelining) {
+        this.enablePipelining = enablePipelining;
+    }
+
+    /**
+     * Returns the EXPIRE value advertised in CAPA (RFC 2449 section 6.5).
+     * A value of 0 means messages may be expired immediately, a positive
+     * value is the minimum retention in days, and -1 means the capability
+     * is not advertised. Use {@code Integer.MAX_VALUE} for NEVER.
+     *
+     * @return the expire days, or -1 if not advertised
+     */
+    public int getExpireDays() {
+        return expireDays;
+    }
+
+    /**
+     * Sets the EXPIRE capability value.
+     *
+     * @param days retention days (0+), {@code Integer.MAX_VALUE} for
+     *             NEVER, or -1 to suppress the capability
+     */
+    public void setExpireDays(int days) {
+        this.expireDays = days;
+    }
+
+    /**
+     * Starts this endpoint, setting default port if not specified.
+     */
+    @Override
+    public void start() {
+        super.start();
+        if (port <= 0) {
+            port = secure ? POP3S_DEFAULT_PORT : POP3_DEFAULT_PORT;
+        }
+
+        if (isMetricsEnabled()) {
+            metrics = new Pop3ServerMetrics(getTelemetryConfig());
+        }
+    }
+
+    /**
+     * Returns the metrics for this endpoint, or null if telemetry is
+     * not enabled.
+     *
+     * @return the POP3 server metrics
+     */
+    public Pop3ServerMetrics getMetrics() {
+        return metrics;
+    }
+
+    /**
+     * Stops this endpoint.
+     */
+    @Override
+    public void stop() {
+        super.stop();
+    }
+
+    /**
+     * Sets the owning server. Called by {@link org.bluezoo.gumdrop.pop3.server.Pop3Server} during
+     * wiring.
+     *
+     * @param server the owning server
+     */
+    public void setServer(org.bluezoo.gumdrop.pop3.server.Pop3Server server) {
+        this.server = server;
+    }
+
+    /**
+     * Returns the owning server, or null if used standalone.
+     *
+     * @return the owning server
+     */
+    public org.bluezoo.gumdrop.pop3.server.Pop3Server getServer() {
+        return server;
+    }
+
+    public void setSessionProvider(
+            org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider sessionProvider) {
+        this.sessionProvider = sessionProvider;
+    }
+
+    public org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider getSessionProvider() {
+        return sessionProvider;
+    }
+
+    public Pop3Listener sessionProvider(
+            org.bluezoo.gumdrop.pop3.server.Pop3ServerSessionProvider sessionProvider) {
+        setSessionProvider(sessionProvider);
+        return this;
+    }
+
+    /**
+     * Opens the application handler pipeline for a new connection.
+     *
+     * @return the handler, or {@code null} for default protocol behaviour
+     */
+    public org.bluezoo.gumdrop.pop3.server.ClientConnected openApplicationSession() {
+        if (sessionProvider != null) {
+            try {
+                return sessionProvider.openSession(this);
+            } catch (Exception e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to create POP3 handler from session provider",
+                            e);
+                }
+            }
+        }
+        org.bluezoo.gumdrop.pop3.server.Pop3Server srv = getServer();
+        if (srv != null) {
+            try {
+                return srv.openSession(this);
+            } catch (Exception e) {
+                if (LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Failed to create POP3 handler from server", e);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Creates a new Pop3ProtocolHandler for a newly accepted
+     * connection.
+     *
+     * @return a new POP3 endpoint handler
+     */
+    @Override
+    protected ProtocolHandler createHandler() {
+        return new Pop3ProtocolHandler(this);
+    }
+
+    /**
+     * Checks if SSL/TLS context is available for STARTTLS.
+     * RFC 2595 section 4 — STLS command availability.
+     *
+     * @return true if STARTTLS is supported, false otherwise
+     */
+    protected boolean isSTARTTLSAvailable() {
+        return isTLSConfigured();
+    }
+
+}

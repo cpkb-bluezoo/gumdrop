@@ -25,7 +25,7 @@
  * <a href="https://opentelemetry.io/docs/specs/otel/protocol/file-exporter/">File Exporter</a>
  * specification.
  *
- * <p>{@link org.bluezoo.gumdrop.telemetry.json.OTLPFileExporter}
+ * <p>{@link org.bluezoo.gumdrop.telemetry.json.OtlpFileExporter}
  * implements {@link org.bluezoo.gumdrop.telemetry.TelemetryExporter};
  * {@link org.bluezoo.gumdrop.telemetry.json.TraceJsonSerializer}, {@link
  * org.bluezoo.gumdrop.telemetry.json.LogJsonSerializer}, and {@link

@@ -24,7 +24,7 @@ package org.bluezoo.gumdrop.dns.client;
 import org.junit.Test;
 
 /**
- * Integration tests for {@link DNSResolver} that require network access
+ * Integration tests for {@link DnsResolver} that require network access
  * (opening real UDP sockets).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -33,7 +33,7 @@ public class DNSResolverIntegrationTest {
 
     @Test
     public void testMultipleServersConfigurable() throws Exception {
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.addServer("8.8.8.8");
         resolver.addServer("1.1.1.1");
         resolver.open();
@@ -42,7 +42,7 @@ public class DNSResolverIntegrationTest {
 
     @Test
     public void testUseSystemResolversAddsFallback() throws Exception {
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.useSystemResolvers();
         resolver.open();
         resolver.close();

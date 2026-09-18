@@ -111,7 +111,7 @@ public class H3ClientWebSocketResponseHandlerTest {
         H3ClientWebSocketResponseHandler responseHandler =
                 new H3ClientWebSocketResponseHandler(null, wsHandler);
         // connection is null: exercises the stream/handler wiring in
-        // isolation, without a real HTTP3ClientHandler/QuicConnection
+        // isolation, without a real Http3ClientHandler/QuicConnection
         // stack -- H3ClientStream tolerates this (see H3ClientStreamTest).
         H3ClientStream stream = new H3ClientStream(null, new Decoder(4096), responseHandler);
         responseHandler.bindStream(stream);

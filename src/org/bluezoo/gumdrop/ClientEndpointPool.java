@@ -46,7 +46,7 @@ import java.util.logging.Logger;
  * SelectorLoop) and supports automatic idle-timeout cleanup.
  *
  * <p>Because {@link Endpoint} is transport-agnostic, this pool works
- * equally well with {@link TCPEndpoint}s and
+ * equally well with {@link TcpEndpoint}s and
  * {@link org.bluezoo.gumdrop.quic.QuicStreamEndpoint}s.
  *
  * <h4>SelectorLoop Affinity</h4>
@@ -77,9 +77,9 @@ import java.util.logging.Logger;
  * pool.release(entry);
  * }</pre>
  *
- * <h4>HTTPClient Integration</h4>
+ * <h4>HttpClient Integration</h4>
  *
- * <p>{@link org.bluezoo.gumdrop.http.client.HTTPClient} accepts a
+ * <p>{@link org.bluezoo.gumdrop.http.HttpClient} accepts a
  * pool via {@code setConnectionPool(ClientEndpointPool)}. For other
  * clients (SMTP, LDAP, Redis), pooling can be managed at the
  * application layer by acquiring/releasing endpoints around client
@@ -88,7 +88,7 @@ import java.util.logging.Logger;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see Endpoint
  * @see ClientEndpoint
- * @see org.bluezoo.gumdrop.http.client.HTTPClient#setConnectionPool
+ * @see org.bluezoo.gumdrop.http.HttpClient#setConnectionPool
  */
 public class ClientEndpointPool {
 

@@ -26,7 +26,7 @@ import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpRoute;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.http.HttpDatagramContext;
 
 import org.junit.Test;
@@ -57,7 +57,7 @@ public class ConnectIpClientProtocolHandlerTest {
         ConnectIpClientProtocolHandler handler =
                 new ConnectIpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
 
-        boolean handled = handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        boolean handled = handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
 
         assertTrue("a connect-ip Upgrade response must be accepted", handled);
         assertNotNull("opened() should have been called", eventHandler.session);
@@ -75,7 +75,7 @@ public class ConnectIpClientProtocolHandlerTest {
         headers.add(new Header("connection", "upgrade"));
         headers.add(new Header("upgrade", "websocket"));
 
-        boolean handled = handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, headers);
+        boolean handled = handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, headers);
 
         assertFalse("an unrelated Upgrade response must not be claimed", handled);
         assertNull("opened() should not have been called", eventHandler.session);
@@ -87,7 +87,7 @@ public class ConnectIpClientProtocolHandlerTest {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
         ConnectIpClientProtocolHandler handler =
                 new ConnectIpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
-        handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
 
         byte[] ipPacket = "hello-target".getBytes(StandardCharsets.US_ASCII);
         ByteBuffer contextEncoded =
@@ -109,7 +109,7 @@ public class ConnectIpClientProtocolHandlerTest {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
         ConnectIpClientProtocolHandler handler =
                 new ConnectIpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
-        handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
 
         InetAddress assignedAddress = InetAddress.getByName("192.0.2.5");
         ByteBuffer capsuleValue = ConnectIpAddress.encodeList(
@@ -129,7 +129,7 @@ public class ConnectIpClientProtocolHandlerTest {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
         ConnectIpClientProtocolHandler handler =
                 new ConnectIpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
-        handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
 
         InetAddress start = InetAddress.getByName("10.0.0.0");
         InetAddress end = InetAddress.getByName("10.0.0.255");
@@ -153,7 +153,7 @@ public class ConnectIpClientProtocolHandlerTest {
         RecordingEndpoint endpoint = new RecordingEndpoint();
         handler.endpoint = endpoint;
 
-        handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
         assertNotNull(eventHandler.session);
 
         byte[] ipPacket = "to-target".getBytes(StandardCharsets.US_ASCII);
@@ -180,7 +180,7 @@ public class ConnectIpClientProtocolHandlerTest {
         RecordingEndpoint endpoint = new RecordingEndpoint();
         handler.endpoint = endpoint;
 
-        handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
         assertNotNull(eventHandler.session);
 
         InetAddress requested = InetAddress.getByName("0.0.0.0");
@@ -203,7 +203,7 @@ public class ConnectIpClientProtocolHandlerTest {
         RecordingConnectIpHandler eventHandler = new RecordingConnectIpHandler();
         ConnectIpClientProtocolHandler handler =
                 new ConnectIpClientProtocolHandler(null, eventHandler, "localhost", 8080, false);
-        handler.handleProtocolSwitch(HTTPStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
+        handler.handleProtocolSwitch(HttpStatus.SWITCHING_PROTOCOLS, upgradeHeaders());
 
         handler.disconnected();
 

@@ -23,14 +23,14 @@ package org.bluezoo.gumdrop.dns.adguard;
 
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.http.doh.DoHClientTransport;
 import org.bluezoo.gumdrop.dns.client.DoQClientTransport;
-import org.bluezoo.gumdrop.dns.client.TCPDNSClientTransport;
-import org.bluezoo.gumdrop.dns.client.UDPDNSClientTransport;
+import org.bluezoo.gumdrop.dns.client.TcpDnsClientTransport;
+import org.bluezoo.gumdrop.dns.client.UdpDnsClientTransport;
 
 import org.junit.After;
 import org.junit.Before;
@@ -76,7 +76,7 @@ public class AdGuardDnsClientIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 10;
 
-    private DNSResolver resolver;
+    private DnsResolver resolver;
 
     @Before
     public void checkReachable() {
@@ -91,12 +91,11 @@ public class AdGuardDnsClientIntegrationTest {
     }
 
     private SelectorLoop loop() {
-        Gumdrop gumdrop = Gumdrop.getInstance();
-        gumdrop.start();
+        Gumdrop gumdrop = Gumdrop.boot();
         return gumdrop.nextWorkerLoop();
     }
 
-    private void assertResolvesToTestAnswer(DNSResolver resolver) throws Exception {
+    private void assertResolvesToTestAnswer(DnsResolver resolver) throws Exception {
         this.resolver = resolver;
         resolver.open();
 
@@ -104,10 +103,10 @@ public class AdGuardDnsClientIntegrationTest {
         AtomicReference<String> resolvedAddress = new AtomicReference<>();
         AtomicReference<String> error = new AtomicReference<>();
 
-        resolver.queryA(AdGuardTestSupport.TEST_HOSTNAME, new DNSQueryCallback() {
+        resolver.queryA(AdGuardTestSupport.TEST_HOSTNAME, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
-                for (DNSResourceRecord record : response.getAnswers()) {
+            public void onResponse(DnsMessage response) {
+                for (DnsResourceRecord record : response.getAnswers()) {
                     InetAddress addr = record.getAddress();
                     if (addr != null) {
                         resolvedAddress.set(addr.getHostAddress());
@@ -137,9 +136,9 @@ public class AdGuardDnsClientIntegrationTest {
 
     @Test
     public void testPlainUdpResolves() throws Exception {
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setSelectorLoop(loop());
-        resolver.setTransport(new UDPDNSClientTransport());
+        resolver.setTransport(new UdpDnsClientTransport());
         resolver.addServer(InetAddress.getByName(AdGuardTestSupport.HOST), AdGuardTestSupport.PLAIN_PORT);
         assertResolvesToTestAnswer(resolver);
     }
@@ -148,9 +147,9 @@ public class AdGuardDnsClientIntegrationTest {
 
     @Test
     public void testPlainTcpResolves() throws Exception {
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setSelectorLoop(loop());
-        resolver.setTransport(new TCPDNSClientTransport());
+        resolver.setTransport(new TcpDnsClientTransport());
         resolver.addServer(InetAddress.getByName(AdGuardTestSupport.HOST), AdGuardTestSupport.PLAIN_PORT);
         assertResolvesToTestAnswer(resolver);
     }
@@ -162,11 +161,11 @@ public class AdGuardDnsClientIntegrationTest {
         X509Certificate serverCert = AdGuardTestSupport.loadServerCertificate();
         String pin = AdGuardTestSupport.computeSpkiSha256Pin(serverCert);
 
-        TCPDNSClientTransport transport = new TCPDNSClientTransport();
+        TcpDnsClientTransport transport = new TcpDnsClientTransport();
         transport.setSecure(true);
         transport.setPinnedSPKIFingerprints(Collections.singleton(pin));
 
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setSelectorLoop(loop());
         resolver.setTransport(transport);
         resolver.addServer(InetAddress.getByName(AdGuardTestSupport.HOST), AdGuardTestSupport.DOT_DOQ_PORT);
@@ -182,7 +181,7 @@ public class AdGuardDnsClientIntegrationTest {
         DoHClientTransport transport = new DoHClientTransport();
         transport.setTrustManager(pinningTrustManager(serverCert));
 
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setSelectorLoop(loop());
         resolver.setTransport(transport);
         resolver.addServer(InetAddress.getByName(AdGuardTestSupport.HOST), AdGuardTestSupport.DOH_PORT);
@@ -198,7 +197,7 @@ public class AdGuardDnsClientIntegrationTest {
         DoQClientTransport transport = new DoQClientTransport();
         transport.setCaFile(caFile);
 
-        DNSResolver resolver = new DNSResolver();
+        DnsResolver resolver = new DnsResolver();
         resolver.setSelectorLoop(loop());
         resolver.setTransport(transport);
         resolver.addServer(InetAddress.getByName(AdGuardTestSupport.HOST), AdGuardTestSupport.DOT_DOQ_PORT);

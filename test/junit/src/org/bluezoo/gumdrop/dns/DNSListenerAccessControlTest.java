@@ -29,7 +29,7 @@ import java.net.InetSocketAddress;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for listener ACL enforcement on {@link DNSListener}.
+ * Unit tests for listener ACL enforcement on {@link DnsListener}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -37,7 +37,7 @@ public class DNSListenerAccessControlTest {
 
     @Test
     public void testBlockedNetworkRejectsSource() throws Exception {
-        DNSListener listener = new DNSListener();
+        DnsListener listener = new DnsListener();
         listener.setBlockedNetworks("10.0.0.0/8");
 
         InetSocketAddress blocked =
@@ -51,7 +51,7 @@ public class DNSListenerAccessControlTest {
 
     @Test
     public void testAllowedNetworkRestrictsSource() throws Exception {
-        DNSListener listener = new DNSListener();
+        DnsListener listener = new DnsListener();
         listener.setAllowedNetworks("192.168.0.0/16");
 
         InetSocketAddress allowed =
@@ -65,7 +65,7 @@ public class DNSListenerAccessControlTest {
 
     @Test
     public void testRateLimitRejectsExcessDatagrams() throws Exception {
-        DNSListener listener = new DNSListener();
+        DnsListener listener = new DnsListener();
         listener.setRateLimit("1/60s");
 
         InetAddress ip = InetAddress.getByName("192.168.1.1");

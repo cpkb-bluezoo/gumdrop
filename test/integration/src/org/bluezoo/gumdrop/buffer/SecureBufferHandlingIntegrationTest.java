@@ -23,12 +23,17 @@ package org.bluezoo.gumdrop.buffer;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
 import org.bluezoo.gumdrop.IntegrationTlsClient;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
+import org.bluezoo.gumdrop.tls.TlsConfig;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 import org.junit.Test;
 
 import java.io.File;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.*;
@@ -49,15 +54,22 @@ public class SecureBufferHandlingIntegrationTest extends AbstractServerIntegrati
     private static final String MESSAGE_PATTERN = "0123456789";
     
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/buffer-test-secure.xml");
+    protected Collection<? extends TcpListener> buildListeners() throws Exception {
+        TlsConfig tls = TlsConfig.keystore(
+                Path.of("test/integration/certs/test-keystore.p12"), "testpass");
+        BufferTestServer server = new BufferTestServer();
+        server.setPort(TEST_PORT);
+        server.addresses(InetAddress.getByName("::1"));
+        server.secure(true);
+        server.tls(tls);
+        return Collections.singletonList(server);
     }
     
     /**
      * Returns the BufferTestServer instance from the running servers.
      */
     private BufferTestServer getBufferTestServer() {
-        for (TCPListener server : servers) {
+        for (TcpListener server : servers) {
             if (server instanceof BufferTestServer) {
                 return (BufferTestServer) server;
             }

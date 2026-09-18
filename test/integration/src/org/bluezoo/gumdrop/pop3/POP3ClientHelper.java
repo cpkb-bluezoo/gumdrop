@@ -42,12 +42,12 @@ public class POP3ClientHelper {
     /**
      * Result of a POP3 command containing status and message.
      */
-    public static class POP3Response {
+    public static class Pop3Response {
         public final boolean ok;
         public final String message;
         public final List<String> lines;
         
-        public POP3Response(boolean ok, String message, List<String> lines) {
+        public Pop3Response(boolean ok, String message, List<String> lines) {
             this.ok = ok;
             this.message = message;
             this.lines = lines;
@@ -66,7 +66,7 @@ public class POP3ClientHelper {
         private final Socket socket;
         private final BufferedReader reader;
         private final PrintWriter writer;
-        private POP3Response lastResponse;
+        private Pop3Response lastResponse;
         
         POP3Session(Socket socket, BufferedReader reader, PrintWriter writer) {
             this.socket = socket;
@@ -77,7 +77,7 @@ public class POP3ClientHelper {
         /**
          * Sends a POP3 command and reads the single-line response.
          */
-        public POP3Response sendCommand(String command) throws IOException {
+        public Pop3Response sendCommand(String command) throws IOException {
             writer.print(command + "\r\n");
             writer.flush();
             lastResponse = readSingleLineResponse();
@@ -88,7 +88,7 @@ public class POP3ClientHelper {
          * Sends a POP3 command and reads a multi-line response.
          * Multi-line responses end with a line containing only ".".
          */
-        public POP3Response sendMultiLineCommand(String command) throws IOException {
+        public Pop3Response sendMultiLineCommand(String command) throws IOException {
             writer.print(command + "\r\n");
             writer.flush();
             lastResponse = readMultiLineResponse();
@@ -98,7 +98,7 @@ public class POP3ClientHelper {
         /**
          * Reads a single-line POP3 response.
          */
-        private POP3Response readSingleLineResponse() throws IOException {
+        private Pop3Response readSingleLineResponse() throws IOException {
             String line = reader.readLine();
             if (line == null) {
                 throw new IOException("Connection closed unexpectedly");
@@ -114,14 +114,14 @@ public class POP3ClientHelper {
             
             List<String> lines = new ArrayList<>();
             lines.add(line);
-            return new POP3Response(ok, message, lines);
+            return new Pop3Response(ok, message, lines);
         }
         
         /**
          * Reads a multi-line POP3 response.
          * The response ends when a line containing only "." is received.
          */
-        private POP3Response readMultiLineResponse() throws IOException {
+        private Pop3Response readMultiLineResponse() throws IOException {
             String firstLine = reader.readLine();
             if (firstLine == null) {
                 throw new IOException("Connection closed unexpectedly");
@@ -140,7 +140,7 @@ public class POP3ClientHelper {
             
             // If it's an error response, it's single-line
             if (!ok) {
-                return new POP3Response(ok, message, lines);
+                return new Pop3Response(ok, message, lines);
             }
             
             // Read multi-line content until we get a line with just "."
@@ -162,13 +162,13 @@ public class POP3ClientHelper {
                 lines.add(line);
             }
             
-            return new POP3Response(ok, message, lines);
+            return new Pop3Response(ok, message, lines);
         }
         
         /**
          * Gets the last response received.
          */
-        public POP3Response getLastResponse() {
+        public Pop3Response getLastResponse() {
             return lastResponse;
         }
         
@@ -224,12 +224,12 @@ public class POP3ClientHelper {
      * Authenticates with USER/PASS and returns true if successful.
      */
     public static boolean authenticate(POP3Session session, String user, String pass) throws IOException {
-        POP3Response userResponse = session.sendCommand("USER " + user);
+        Pop3Response userResponse = session.sendCommand("USER " + user);
         if (!userResponse.ok) {
             return false;
         }
         
-        POP3Response passResponse = session.sendCommand("PASS " + pass);
+        Pop3Response passResponse = session.sendCommand("PASS " + pass);
         return passResponse.ok;
     }
 }

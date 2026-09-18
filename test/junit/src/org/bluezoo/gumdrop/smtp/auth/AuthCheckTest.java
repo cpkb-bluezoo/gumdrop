@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp.auth;
 
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.mime.rfc5322.EmailAddress;
 import org.junit.Before;
 import org.junit.Test;
@@ -59,12 +59,12 @@ public class AuthCheckTest {
 
     @Test
     public void testCheckSenderNullForBounce() {
-        final SPFResult[] captured = { null };
+        final SpfResult[] captured = { null };
 
         AuthPipeline pipeline = new AuthPipeline.Builder(
                 new MockDNSResolver(), clientIP, heloHost)
-                .onSPF(new SPFCallback() {
-                    public void spfResult(SPFResult result, String explanation) {
+                .onSPF(new SpfCallback() {
+                    public void spfResult(SpfResult result, String explanation) {
                         captured[0] = result;
                     }
                 })
@@ -87,8 +87,8 @@ public class AuthCheckTest {
 
         AuthPipeline pipeline = new AuthPipeline.Builder(
                 new MockDNSResolver(), clientIP, heloHost)
-                .onDMARC(new DMARCCallback() {
-                    public void dmarcResult(DMARCResult result, DMARCPolicy policy,
+                .onDMARC(new DmarcCallback() {
+                    public void dmarcResult(DmarcResult result, DmarcPolicy policy,
                                             String domain, AuthVerdict verdict) {
                         // Just verify we get called
                         assertNotNull(result);
@@ -116,8 +116,8 @@ public class AuthCheckTest {
 
         AuthPipeline pipeline = new AuthPipeline.Builder(
                 new MockDNSResolver(), clientIP, heloHost)
-                .onDMARC(new DMARCCallback() {
-                    public void dmarcResult(DMARCResult result, DMARCPolicy policy,
+                .onDMARC(new DmarcCallback() {
+                    public void dmarcResult(DmarcResult result, DmarcPolicy policy,
                                             String domain, AuthVerdict verdict) {
                         assertNotNull(result);
                     }
@@ -248,8 +248,8 @@ public class AuthCheckTest {
     public void testGetResultsBeforeComplete() {
         AuthPipeline pipeline = new AuthPipeline.Builder(
                 new MockDNSResolver(), clientIP, heloHost)
-                .onSPF(new SPFCallback() {
-                    public void spfResult(SPFResult result, String explanation) {
+                .onSPF(new SpfCallback() {
+                    public void spfResult(SpfResult result, String explanation) {
                     }
                 })
                 .build();
@@ -264,7 +264,7 @@ public class AuthCheckTest {
     /**
      * Mock DNS resolver for testing.
      */
-    private static class MockDNSResolver extends DNSResolver {
+    private static class MockDNSResolver extends DnsResolver {
 
         MockDNSResolver() {
             super(); // No-arg constructor

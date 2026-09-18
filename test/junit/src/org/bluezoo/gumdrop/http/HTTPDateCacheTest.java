@@ -40,7 +40,7 @@ public class HTTPDateCacheTest {
 
     @Test
     public void testCachedDateIsIMFFixdate() {
-        String date = HTTPDateCache.get();
+        String date = HttpDateCache.get();
         assertNotNull(date);
         assertTrue("Expected IMF-fixdate, got: " + date,
                    date.matches(IMF_FIXDATE_PATTERN));
@@ -48,7 +48,7 @@ public class HTTPDateCacheTest {
 
     @Test
     public void testCachedDateRefreshesPerSecond() throws InterruptedException {
-        String before = HTTPDateCache.get();
+        String before = HttpDateCache.get();
         // Poll rather than sleeping the worst case: usually resolves well
         // under a second, only ever as slow as the fixed sleep it replaces
         // if the tick lands right after this loop starts.
@@ -56,7 +56,7 @@ public class HTTPDateCacheTest {
         long deadline = System.currentTimeMillis() + 2500;
         while (after.equals(before) && System.currentTimeMillis() < deadline) {
             Thread.sleep(20);
-            after = HTTPDateCache.get();
+            after = HttpDateCache.get();
         }
         assertTrue(after.matches(IMF_FIXDATE_PATTERN));
         assertTrue("Cached date did not refresh: " + before + " == " + after,
@@ -66,14 +66,14 @@ public class HTTPDateCacheTest {
     /**
      * getLineBytes() is the fast-path counterpart to get(): the complete
      * "Date: <value>\r\n" response header line, pre-encoded as ASCII bytes
-     * so HTTPProtocolHandler can bulk-copy it into the output buffer
+     * so HttpProtocolHandler can bulk-copy it into the output buffer
      * instead of encoding get()'s characters one at a time on every
      * response. The two must always describe the same cached instant.
      */
     @Test
     public void testLineBytesMatchCachedDateValue() {
-        String date = HTTPDateCache.get();
-        byte[] line = HTTPDateCache.getLineBytes();
+        String date = HttpDateCache.get();
+        byte[] line = HttpDateCache.getLineBytes();
         assertNotNull(line);
         String expected = "Date: " + date + "\r\n";
         assertArrayEquals(expected.getBytes(StandardCharsets.US_ASCII), line);

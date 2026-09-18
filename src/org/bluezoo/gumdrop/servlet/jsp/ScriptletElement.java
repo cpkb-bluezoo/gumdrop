@@ -41,7 +41,7 @@ package org.bluezoo.gumdrop.servlet.jsp;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class ScriptletElement implements JSPElement {
+public class ScriptletElement implements JspElement {
     
     private final String code;
     private final int lineNumber;
@@ -100,7 +100,7 @@ public class ScriptletElement implements JSPElement {
     }
     
     @Override
-    public void accept(JSPElementVisitor visitor) throws Exception {
+    public void accept(JspElementVisitor visitor) throws Exception {
         visitor.visitScriptlet(this);
     }
     

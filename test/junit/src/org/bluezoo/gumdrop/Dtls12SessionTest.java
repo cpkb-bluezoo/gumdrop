@@ -97,7 +97,7 @@ public class Dtls12SessionTest {
         return new Dtls12HandshakeConfig(base);
     }
 
-    private static final class RecordingEndpoint extends UDPEndpoint {
+    private static final class RecordingEndpoint extends UdpEndpoint {
         final Deque<ByteBuffer> sent = new ArrayDeque<ByteBuffer>();
         final List<TimerHandle> timers = new ArrayList<TimerHandle>();
         SecurityInfo securityInfo;

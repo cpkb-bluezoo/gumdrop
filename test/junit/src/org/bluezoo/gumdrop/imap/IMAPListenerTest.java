@@ -30,15 +30,15 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link IMAPListener} capability and configuration.
+ * Unit tests for {@link ImapListener} capability and configuration.
  */
 public class IMAPListenerTest {
 
-    private IMAPListener listener;
+    private ImapListener listener;
 
     @Before
     public void setUp() {
-        listener = new IMAPListener();
+        listener = new ImapListener();
     }
 
     @Test

@@ -18,15 +18,15 @@ public class DNSQueryIdGeneratorTest {
     public void testAllocateAvoidsInUse() {
         Set<Integer> inUse = new HashSet<>();
         inUse.add(42);
-        int id = DNSQueryIdGenerator.allocate(inUse);
+        int id = DnsQueryIdGenerator.allocate(inUse);
         assertNotEquals(42, id);
         assertTrue(id >= 1 && id <= 65535);
     }
 
     @Test
     public void testAllocateNotSequential() {
-        int first = DNSQueryIdGenerator.allocate(new HashSet<Integer>());
-        int second = DNSQueryIdGenerator.allocate(new HashSet<Integer>());
+        int first = DnsQueryIdGenerator.allocate(new HashSet<Integer>());
+        int second = DnsQueryIdGenerator.allocate(new HashSet<Integer>());
         assertFalse("IDs should not be trivially sequential",
                 second == first + 1 || second == first);
     }
@@ -34,7 +34,7 @@ public class DNSQueryIdGeneratorTest {
     @Test
     public void testSyntheticInRange() {
         for (int i = 0; i < 100; i++) {
-            int id = DNSQueryIdGenerator.allocateSynthetic();
+            int id = DnsQueryIdGenerator.allocateSynthetic();
             assertTrue(id >= 1 && id <= 65535);
         }
     }

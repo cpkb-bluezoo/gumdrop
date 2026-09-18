@@ -35,37 +35,37 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoModelAdapter;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
 import org.bluezoo.gumdrop.grpc.proto.ProtoParseException;
 import org.bluezoo.gumdrop.grpc.proto.RpcDescriptor;
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParseException;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ProtobufParseException;
+import org.bluezoo.protobuf.ProtobufParser;
+import org.bluezoo.protobuf.ProtobufWriter;
 
 /**
- * HTTPRequestHandler that processes gRPC requests using push parsers.
+ * HttpRequestHandler that processes gRPC requests using push parsers.
  *
  * <p>gRPC framing and protobuf decoding stream from the HTTP request body
  * into {@link ProtoMessageHandler} events without buffering the entire body.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class GrpcHandler extends DefaultHTTPRequestHandler {
+public class GrpcHandler extends DefaultHttpRequestHandler {
 
     private static final Logger LOGGER = Logger.getLogger(GrpcHandler.class.getName());
     private static final String CONTENT_TYPE_GRPC = "application/grpc";
     private static final int GRPC_STATUS_UNIMPLEMENTED = 12;
 
     private final ProtoFile protoFile;
-    private final GrpcService service;
+    private final GrpcServer server;
     private final String path;
     private final long maxMessageSize;
     private final String requestTypeName;
     private final String responseTypeName;
 
-    private HTTPResponseState state;
+    private HttpResponseState state;
     private GrpcResponseSenderImpl responseSender;
     private ProtoMessageHandler requestHandler;
     private ProtoModelAdapter protoAdapter;
@@ -74,10 +74,10 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
     private boolean bodyStarted;
     private boolean bodyRejected;
 
-    GrpcHandler(ProtoFile protoFile, GrpcService service, String path,
+    GrpcHandler(ProtoFile protoFile, GrpcServer server, String path,
             long maxMessageSize, RpcDescriptor rpc) {
         this.protoFile = protoFile;
-        this.service = service;
+        this.server = server;
         this.path = path;
         this.maxMessageSize = maxMessageSize;
         this.requestTypeName = rpc != null ? rpc.getInputTypeName() : null;
@@ -85,22 +85,22 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void headers(HTTPResponseState state, Headers headers) {
+    public void headers(HttpResponseState state, Headers headers) {
         this.state = state;
     }
 
     @Override
-    public void startRequestBody(HTTPResponseState state) {
+    public void startRequestBody(HttpResponseState state) {
         this.state = state;
         bodyStarted = true;
 
         if (requestTypeName == null) {
-            reject(HTTPStatus.NOT_FOUND, "Unknown RPC");
+            reject(HttpStatus.NOT_FOUND, "Unknown RPC");
             return;
         }
 
         responseSender = new GrpcResponseSenderImpl(state);
-        requestHandler = service.startUnaryCall(path, responseSender);
+        requestHandler = server.startUnaryCall(path, responseSender);
         if (requestHandler == null) {
             responseSender.sendError(GRPC_STATUS_UNIMPLEMENTED, "Unimplemented");
             bodyRejected = true;
@@ -112,7 +112,7 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
             protoAdapter.startRootMessage(requestTypeName);
         } catch (ProtoParseException e) {
             LOGGER.log(Level.WARNING, "Failed to start request message", e);
-            reject(HTTPStatus.BAD_REQUEST, "Invalid request type");
+            reject(HttpStatus.BAD_REQUEST, "Invalid request type");
             return;
         }
 
@@ -122,7 +122,7 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+    public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
         if (bodyRejected || !bodyStarted || frameParser == null
                 || data == null || !data.hasRemaining()) {
             return;
@@ -131,10 +131,10 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
     }
 
     @Override
-    public void endRequestBody(HTTPResponseState state) {
+    public void endRequestBody(HttpResponseState state) {
         if (bodyRejected || !bodyStarted) {
             if (!bodyStarted) {
-                reject(HTTPStatus.BAD_REQUEST, "Missing request body");
+                reject(HttpStatus.BAD_REQUEST, "Missing request body");
             }
             return;
         }
@@ -142,7 +142,7 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
             return;
         }
         if (frameParser.hasPartialFrame() || !frameParser.isMessageCompleted()) {
-            reject(HTTPStatus.BAD_REQUEST, "Invalid gRPC frame");
+            reject(HttpStatus.BAD_REQUEST, "Invalid gRPC frame");
         }
     }
 
@@ -158,7 +158,7 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
                 protobufParser.receive(data);
             } catch (ProtobufParseException e) {
                 LOGGER.log(Level.WARNING, "Protobuf parse error", e);
-                reject(HTTPStatus.BAD_REQUEST, "Invalid request message");
+                reject(HttpStatus.BAD_REQUEST, "Invalid request message");
             }
         }
 
@@ -169,18 +169,18 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
                 protoAdapter.endRootMessage();
             } catch (ProtoParseException | ProtobufParseException e) {
                 LOGGER.log(Level.WARNING, "Failed to complete request message", e);
-                reject(HTTPStatus.BAD_REQUEST, "Invalid request message");
+                reject(HttpStatus.BAD_REQUEST, "Invalid request message");
             }
         }
 
         @Override
         public void parseError(String message) {
             LOGGER.warning(message);
-            reject(HTTPStatus.BAD_REQUEST, "Invalid gRPC frame");
+            reject(HttpStatus.BAD_REQUEST, "Invalid gRPC frame");
         }
     }
 
-    private void reject(HTTPStatus status, String message) {
+    private void reject(HttpStatus status, String message) {
         if (bodyRejected) {
             return;
         }
@@ -188,7 +188,7 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
         sendError(state, status, message);
     }
 
-    private void sendError(HTTPResponseState state, HTTPStatus status, String message) {
+    private void sendError(HttpResponseState state, HttpStatus status, String message) {
         Headers response = new Headers();
         response.status(status);
         response.add("content-type", "text/plain");
@@ -201,10 +201,10 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
 
     private final class GrpcResponseSenderImpl implements GrpcResponseSender {
 
-        private final HTTPResponseState responseState;
+        private final HttpResponseState responseState;
         private boolean sent;
 
-        GrpcResponseSenderImpl(HTTPResponseState responseState) {
+        GrpcResponseSenderImpl(HttpResponseState responseState) {
             this.responseState = responseState;
         }
 
@@ -228,7 +228,7 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
             sent = true;
 
             Headers response = new Headers();
-            response.status(HTTPStatus.OK);
+            response.status(HttpStatus.OK);
             response.add("content-type", CONTENT_TYPE_GRPC);
             response.add("grpc-status", String.valueOf(status));
             response.add("grpc-message", message != null ? message : "");
@@ -254,7 +254,7 @@ public class GrpcHandler extends DefaultHTTPRequestHandler {
             sent = true;
 
             Headers response = new Headers();
-            response.status(HTTPStatus.OK);
+            response.status(HttpStatus.OK);
             response.add("content-type", CONTENT_TYPE_GRPC);
             responseState.headers(response);
             responseState.startResponseBody();

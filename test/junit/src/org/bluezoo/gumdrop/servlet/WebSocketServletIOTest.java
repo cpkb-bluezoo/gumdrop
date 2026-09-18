@@ -8,8 +8,8 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
@@ -42,7 +42,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testMessageDeliveryDoesNotRequireBlockingReadSide() throws Exception {
         TrackingState state = new TrackingState();
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -62,7 +62,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testHighWatermarkPausesRequestBody() throws Exception {
         TrackingState state = new TrackingState();
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -75,7 +75,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testReadListenerNotifiedOnMessage() throws Exception {
         TrackingState state = new TrackingState();
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -99,7 +99,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testReadListenerOnAllDataReadAfterClose() throws Exception {
         TrackingState state = new TrackingState();
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -131,7 +131,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testBlockingReadWithoutListener() throws Exception {
         TrackingState state = new TrackingState();
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -172,7 +172,7 @@ public class WebSocketServletIOTest {
                 task.run();
             }
         };
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -195,7 +195,7 @@ public class WebSocketServletIOTest {
                 task.run();
             }
         };
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -224,7 +224,7 @@ public class WebSocketServletIOTest {
                 task.run();
             }
         };
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -241,7 +241,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testWriteListenerIsReadyReflectsTransportBackpressure() throws Exception {
         BackpressureState state = new BackpressureState(5 * 1024 * 1024);
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -271,7 +271,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testWriteNonBlockingThrowsWhenNotReady() throws Exception {
         BackpressureState state = new BackpressureState(5 * 1024 * 1024);
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -296,7 +296,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testUpgradeHandlerDestroyMarshalledToWorkerThread() throws Exception {
         TrackingState state = new TrackingState();
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         final CountDownLatch initStarted = new CountDownLatch(1);
         final CountDownLatch destroyDone = new CountDownLatch(1);
@@ -328,7 +328,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testUpgradeHandlerInitMarshalledToWorkerThread() throws Exception {
         TrackingState state = new TrackingState();
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         final CountDownLatch initDone = new CountDownLatch(1);
         final AtomicReference<String> initThread = new AtomicReference<String>();
@@ -355,7 +355,7 @@ public class WebSocketServletIOTest {
     @Test
     public void testResumeRequestBodyAfterDrain() throws Exception {
         TrackingState state = new TrackingState();
-        ServletService service = new ServletService();
+        Container service = new Container();
         StubServletHandler handler = new StubServletHandler(service, state);
         ServletWebConnection connection =
                 new ServletWebConnection(new NoOpUpgradeHandler(), state, handler);
@@ -440,20 +440,20 @@ public class WebSocketServletIOTest {
     }
 
     private static final class StubServletHandler extends ServletHandler {
-        private final HTTPResponseState stubState;
+        private final HttpResponseState stubState;
 
-        StubServletHandler(ServletService service, HTTPResponseState stubState) {
-            super(service, service.getContainer(), 8192);
+        StubServletHandler(Container service, HttpResponseState stubState) {
+            super(service, 8192);
             this.stubState = stubState;
         }
 
         @Override
-        HTTPResponseState getState() {
+        HttpResponseState getState() {
             return stubState;
         }
     }
 
-    private static class StubHTTPResponseState implements HTTPResponseState {
+    private static class StubHTTPResponseState implements HttpResponseState {
         @Override public java.net.SocketAddress getRemoteAddress() {
             return new java.net.InetSocketAddress("127.0.0.1", 54321);
         }
@@ -462,7 +462,7 @@ public class WebSocketServletIOTest {
         }
         @Override public boolean isSecure() { return false; }
         @Override public org.bluezoo.gumdrop.SecurityInfo getSecurityInfo() { return null; }
-        @Override public HTTPVersion getVersion() { return HTTPVersion.HTTP_2_0; }
+        @Override public HttpVersion getVersion() { return HttpVersion.HTTP_2_0; }
         @Override public String getScheme() { return "http"; }
         @Override public org.bluezoo.gumdrop.SelectorLoop getSelectorLoop() { return null; }
         @Override public java.security.Principal getPrincipal() { return null; }

@@ -21,23 +21,23 @@
 
 package org.bluezoo.gumdrop;
 
-import org.bluezoo.gumdrop.ftp.FTPListener;
-import org.bluezoo.gumdrop.ftp.FTPProtocolHandler;
+import org.bluezoo.gumdrop.ftp.FtpListener;
+import org.bluezoo.gumdrop.ftp.FtpProtocolHandler;
 import org.bluezoo.gumdrop.ftp.file.BasicFTPFileSystem;
 import org.bluezoo.gumdrop.ftp.file.SimpleFTPHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.imap.IMAPListener;
-import org.bluezoo.gumdrop.imap.IMAPProtocolHandler;
+import org.bluezoo.gumdrop.imap.ImapListener;
+import org.bluezoo.gumdrop.imap.ImapProtocolHandler;
 import org.bluezoo.gumdrop.mailbox.maildir.MaildirMailboxFactory;
-import org.bluezoo.gumdrop.pop3.POP3Listener;
-import org.bluezoo.gumdrop.pop3.POP3ProtocolHandler;
+import org.bluezoo.gumdrop.pop3.Pop3Listener;
+import org.bluezoo.gumdrop.pop3.Pop3ProtocolHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.auth.Realm;
-import org.bluezoo.gumdrop.auth.SASLMechanism;
+import org.bluezoo.gumdrop.auth.SaslMechanism;
 import org.bluezoo.gumdrop.testsupport.RecordingStubEndpoint;
 
 import org.junit.After;
@@ -93,12 +93,7 @@ public class AsyncDiskOffloadBoundaryTest {
         tempRoot = Files.createTempDirectory("gumdrop-async-disk-boundary");
         StorageExecutor.workThreadObserver = null;
 
-        System.setProperty("gumdrop.workers", "1");
-        gumdrop = Gumdrop.getInstance();
-        gumdrop.setDrainTimeoutMs(0);
-        if (!gumdrop.isStarted()) {
-            gumdrop.start();
-        }
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(1).drainTimeoutMs(0));
         assertNotNull("StorageExecutor must exist after Gumdrop.start()",
                 gumdrop.getStorageExecutor());
     }
@@ -128,8 +123,8 @@ public class AsyncDiskOffloadBoundaryTest {
             }
         };
 
-        HTTPRequestHandler handler = newFileHandler(tempRoot, true);
-        RecordingState st = new RecordingState();
+        HttpRequestHandler handler = newFileHandler(tempRoot, true);
+        RecordingState st = new RecordingState(gumdrop.nextWorkerLoop());
         Headers req = new Headers();
         req.add(":method", "GET");
         req.add(":path", "/hello.txt");
@@ -139,7 +134,7 @@ public class AsyncDiskOffloadBoundaryTest {
                 observed.await(5, TimeUnit.SECONDS));
         assertTrue("response did not complete",
                 st.await(5, TimeUnit.SECONDS));
-        assertEquals(HTTPStatus.OK.code, st.status());
+        assertEquals(HttpStatus.OK.code, st.status());
         assertEquals("Hello", new String(st.body(), StandardCharsets.UTF_8));
         assertTrue("WebDAV offload must run on gumdrop-storage-*, was "
                         + workThread.get(),
@@ -152,9 +147,10 @@ public class AsyncDiskOffloadBoundaryTest {
         Path sub = Files.createDirectory(tempRoot.resolve("subdir"));
         BasicFTPFileSystem fs = new BasicFTPFileSystem(tempRoot, false);
         SimpleFTPHandler connHandler = new SimpleFTPHandler(fs);
-        FTPProtocolHandler handler =
-                new FTPProtocolHandler(new FTPListener(), connHandler);
+        FtpProtocolHandler handler =
+                new FtpProtocolHandler(new FtpListener(), connHandler);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(21);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
 
         handler.connected(endpoint);
         endpoint.clearResponses();
@@ -203,13 +199,14 @@ public class AsyncDiskOffloadBoundaryTest {
                         .resolve("1000.1.localhost,S=" + msg.length()),
                 msg.getBytes(StandardCharsets.US_ASCII));
 
-        IMAPListener listener = new IMAPListener();
+        ImapListener listener = new ImapListener();
         listener.setRealm(new AcceptingRealm("editor", "editor"));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
         listener.setAllowPlaintextLogin(true);
 
-        IMAPProtocolHandler handler = new IMAPProtocolHandler(listener);
+        ImapProtocolHandler handler = new ImapProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(143);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
 
         final AtomicReference<String> workThread =
                 new AtomicReference<String>();
@@ -269,12 +266,13 @@ public class AsyncDiskOffloadBoundaryTest {
                         .resolve("1000.1.localhost,S=" + msg.length()),
                 msg.getBytes(StandardCharsets.US_ASCII));
 
-        POP3Listener listener = new POP3Listener();
+        Pop3Listener listener = new Pop3Listener();
         listener.setRealm(new AcceptingRealm("editor", "editor"));
         listener.setMailboxFactory(new MaildirMailboxFactory(mailRoot));
 
-        POP3ProtocolHandler handler = new POP3ProtocolHandler(listener);
+        Pop3ProtocolHandler handler = new Pop3ProtocolHandler(listener);
         RecordingStubEndpoint endpoint = new RecordingStubEndpoint(110);
+        endpoint.setSelectorLoop(gumdrop.nextWorkerLoop());
 
         final AtomicReference<String> workThread =
                 new AtomicReference<String>();
@@ -369,8 +367,8 @@ public class AsyncDiskOffloadBoundaryTest {
                 }
             };
 
-            HTTPRequestHandler handler = newFileHandler(tempRoot, true);
-            RecordingState st = new RecordingState();
+            HttpRequestHandler handler = newFileHandler(tempRoot, true);
+            RecordingState st = new RecordingState(gumdrop.nextWorkerLoop());
             Headers req = new Headers();
             req.add(":method", "GET");
             req.add(":path", "/sat.txt");
@@ -379,7 +377,7 @@ public class AsyncDiskOffloadBoundaryTest {
             assertTrue("saturated GET must still complete (error path)",
                     st.await(5, TimeUnit.SECONDS));
             assertEquals("saturated offload should surface as 500",
-                    HTTPStatus.INTERNAL_SERVER_ERROR.code, st.status());
+                    HttpStatus.INTERNAL_SERVER_ERROR.code, st.status());
             assertFalse("rejected WebDAV work must not run on any thread",
                     rejectedWorkRan.get());
         } finally {
@@ -461,7 +459,7 @@ public class AsyncDiskOffloadBoundaryTest {
 
     // ── helpers ──
 
-    private static HTTPRequestHandler newFileHandler(Path root,
+    private static HttpRequestHandler newFileHandler(Path root,
             boolean allowWrite) throws Exception {
         Class<?> handlerClass =
                 Class.forName("org.bluezoo.gumdrop.webdav.FileHandler");
@@ -478,7 +476,7 @@ public class AsyncDiskOffloadBoundaryTest {
         Object lockManager = lockCtor.newInstance();
         Map<String, String> types = new HashMap<String, String>();
         types.put("txt", "text/plain");
-        return (HTTPRequestHandler) ctor.newInstance(root, allowWrite, true,
+        return (HttpRequestHandler) ctor.newInstance(root, allowWrite, true,
                 "GET, HEAD, PUT, DELETE, OPTIONS, PROPFIND, MKCOL, COPY, MOVE",
                 new String[]{"index.html"}, types, lockManager, null);
     }
@@ -494,7 +492,7 @@ public class AsyncDiskOffloadBoundaryTest {
         f.set(gumdrop, replacement);
     }
 
-    private static void sendFtp(FTPProtocolHandler handler, String command) {
+    private static void sendFtp(FtpProtocolHandler handler, String command) {
         byte[] data = (command + "\r\n").getBytes(StandardCharsets.US_ASCII);
         handler.receive(ByteBuffer.wrap(data));
     }
@@ -509,9 +507,9 @@ public class AsyncDiskOffloadBoundaryTest {
     private static final class AcceptingRealm implements Realm {
         private final String user;
         private final String pass;
-        private static final Set<SASLMechanism> SUPPORTED =
+        private static final Set<SaslMechanism> SUPPORTED =
                 Collections.unmodifiableSet(
-                        EnumSet.of(SASLMechanism.PLAIN, SASLMechanism.LOGIN));
+                        EnumSet.of(SaslMechanism.PLAIN, SaslMechanism.LOGIN));
 
         AcceptingRealm(String user, String pass) {
             this.user = user;
@@ -524,7 +522,7 @@ public class AsyncDiskOffloadBoundaryTest {
         }
 
         @Override
-        public Set<SASLMechanism> getSupportedSASLMechanisms() {
+        public Set<SaslMechanism> getSupportedSASLMechanisms() {
             return SUPPORTED;
         }
 
@@ -624,13 +622,18 @@ public class AsyncDiskOffloadBoundaryTest {
         }
     }
 
-    private static final class RecordingState implements HTTPResponseState {
+    private static final class RecordingState implements HttpResponseState {
         private final Object lock = new Object();
         private final ByteArrayOutputStream bodyOut =
                 new ByteArrayOutputStream();
         private final CountDownLatch done = new CountDownLatch(1);
+        private final SelectorLoop selectorLoop;
         private Headers responseHeaders;
         private int statusCode = -1;
+
+        RecordingState(SelectorLoop selectorLoop) {
+            this.selectorLoop = selectorLoop;
+        }
 
         boolean await(long t, TimeUnit u) throws InterruptedException {
             return done.await(t, u);
@@ -702,11 +705,11 @@ public class AsyncDiskOffloadBoundaryTest {
         @Override public SocketAddress getLocalAddress() { return null; }
         @Override public boolean isSecure() { return false; }
         @Override public SecurityInfo getSecurityInfo() { return null; }
-        @Override public HTTPVersion getVersion() {
-            return HTTPVersion.HTTP_1_1;
+        @Override public HttpVersion getVersion() {
+            return HttpVersion.HTTP_1_1;
         }
         @Override public String getScheme() { return "http"; }
-        @Override public SelectorLoop getSelectorLoop() { return null; }
+        @Override public SelectorLoop getSelectorLoop() { return selectorLoop; }
         @Override public Principal getPrincipal() { return null; }
     }
 }

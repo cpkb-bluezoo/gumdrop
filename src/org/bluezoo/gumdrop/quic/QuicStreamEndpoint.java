@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
  * <p>All real I/O and flow-control accounting is owned by the
  * connection: {@link #send} just hands data to
  * {@link QuicConnection#queueStreamData}, which buffers it unconditionally
- * (matching how {@code TCPEndpoint} buffers unboundedly, relying on
+ * (matching how {@code TcpEndpoint} buffers unboundedly, relying on
  * {@link #onWriteReady} as an advisory pacing signal rather than a hard
  * backpressure block) and drains as much as the current flow-control
  * window and congestion window allow on each

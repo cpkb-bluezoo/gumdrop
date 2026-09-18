@@ -1,0 +1,417 @@
+/*
+ * BerDecoder.java
+ * Copyright (C) 2025 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.ldap.asn1;
+
+import org.bluezoo.gumdrop.util.ByteBufferPool;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+
+/**
+ * Streaming BER (Basic Encoding Rules) decoder for ASN.1 data (ITU-T X.690).
+ *
+ * <p>This decoder is designed for use with non-blocking I/O. It accepts
+ * data incrementally via {@link #receive(ByteBuffer)} and returns complete
+ * LDAP messages (RFC 4511 section 5.1) via {@link #next()}.</p>
+ *
+ * <h4>Usage Example</h4>
+ * <pre>{@code
+ * BerDecoder decoder = new BerDecoder();
+ *
+ * // In receive callback
+ * decoder.receive(buffer);
+ *
+ * Asn1Element element;
+ * while ((element = decoder.next()) != null) {
+ *     // Process complete element
+ * }
+ * }</pre>
+ *
+ * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
+ * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-5.1">RFC 4511 §5.1 — Protocol Encoding</a>
+ */
+public final class BerDecoder {
+
+    // Decoder states
+    private static final int STATE_TAG = 0;
+    private static final int STATE_TAG_MULTI = 1;
+    private static final int STATE_LENGTH = 2;
+    private static final int STATE_LENGTH_MULTI = 3;
+    private static final int STATE_VALUE = 4;
+
+    // Internal buffer for accumulating data
+    private ByteBuffer buffer;
+    
+    // Current decode state
+    private int state;
+    private int tag;
+    private int length;
+    private int lengthBytesRemaining;
+    private byte[] valueBuffer;
+    private int valueOffset;
+    
+    // Completed elements ready for retrieval
+    private final Deque<Asn1Element> completed;
+
+    /**
+     * Creates a new BER decoder with default buffer size (8KB).
+     */
+    public BerDecoder() {
+        this(8192);
+    }
+
+    /**
+     * Creates a new BER decoder with the specified initial buffer size.
+     *
+     * @param bufferSize initial buffer capacity
+     */
+    public BerDecoder(int bufferSize) {
+        buffer = ByteBufferPool.acquire(bufferSize);
+        buffer.flip(); // Start empty, ready for reading
+        completed = new ArrayDeque<Asn1Element>();
+        reset();
+    }
+
+    /**
+     * Resets the decoder state, discarding any partial data.
+     */
+    public void reset() {
+        state = STATE_TAG;
+        tag = 0;
+        length = 0;
+        lengthBytesRemaining = 0;
+        valueBuffer = null;
+        valueOffset = 0;
+        buffer.clear();
+        buffer.flip();
+        completed.clear();
+    }
+
+    /**
+     * Receives data for decoding.
+     *
+     * @param data the data to decode
+     * @throws Asn1Exception if the data is malformed
+     */
+    public void receive(ByteBuffer data) throws Asn1Exception {
+        // Append new data to our buffer
+        ensureCapacity(data.remaining());
+        int pos = buffer.position();
+        int lim = buffer.limit();
+        buffer.position(lim);
+        buffer.limit(buffer.capacity());
+        buffer.put(data);
+        buffer.limit(buffer.position());
+        buffer.position(pos);
+
+        // Process as much as we can
+        decode();
+    }
+
+    /**
+     * Returns the next complete element, or null if none available.
+     *
+     * @return the next element, or null
+     */
+    public Asn1Element next() {
+        if (completed.isEmpty()) {
+            return null;
+        }
+        return completed.pollFirst();
+    }
+
+    /**
+     * Returns whether there is data still being accumulated.
+     *
+     * @return true if partial data exists
+     */
+    public boolean hasPartialData() {
+        return state != STATE_TAG || buffer.hasRemaining();
+    }
+
+    private void ensureCapacity(int additional) {
+        int required = buffer.remaining() + additional;
+        if (required > buffer.capacity()) {
+            int newCapacity = Math.max(buffer.capacity() * 2, required);
+            ByteBuffer newBuffer = ByteBufferPool.acquire(newCapacity);
+            newBuffer.put(buffer);
+            newBuffer.flip();
+            ByteBufferPool.release(buffer);
+            buffer = newBuffer;
+        }
+    }
+
+    private void decode() throws Asn1Exception {
+        while (buffer.hasRemaining()) {
+            switch (state) {
+                case STATE_TAG:
+                    decodeTag();
+                    break;
+                case STATE_TAG_MULTI:
+                    decodeTagMulti();
+                    break;
+                case STATE_LENGTH:
+                    decodeLength();
+                    break;
+                case STATE_LENGTH_MULTI:
+                    decodeLengthMulti();
+                    break;
+                case STATE_VALUE:
+                    decodeValue();
+                    break;
+            }
+            
+            // If we're back to STATE_TAG and have no more data, break
+            if (state == STATE_TAG && !buffer.hasRemaining()) {
+                break;
+            }
+        }
+        
+        // Compact the buffer to free up space
+        buffer.compact();
+        buffer.flip();
+    }
+
+    private void decodeTag() throws Asn1Exception {
+        int b = buffer.get() & 0xFF;
+        if ((b & 0x1F) == 0x1F) {
+            // Multi-byte tag
+            tag = b;
+            state = STATE_TAG_MULTI;
+        } else {
+            tag = b;
+            state = STATE_LENGTH;
+        }
+    }
+
+    private void decodeTagMulti() throws Asn1Exception {
+        while (buffer.hasRemaining()) {
+            int b = buffer.get() & 0xFF;
+            tag = (tag << 8) | b;
+            if ((b & 0x80) == 0) {
+                // Last byte of multi-byte tag
+                state = STATE_LENGTH;
+                return;
+            }
+        }
+    }
+
+    private void decodeLength() throws Asn1Exception {
+        int b = buffer.get() & 0xFF;
+        if (b == 0x80) {
+            // Indefinite length - not supported for simplicity
+            throw new Asn1Exception("Indefinite length encoding not supported");
+        } else if ((b & 0x80) == 0) {
+            // Short form
+            length = b;
+            startValue();
+        } else {
+            // Long form
+            lengthBytesRemaining = b & 0x7F;
+            if (lengthBytesRemaining > 4) {
+                throw new Asn1Exception("Length too large: " + lengthBytesRemaining + " bytes");
+            }
+            length = 0;
+            state = STATE_LENGTH_MULTI;
+        }
+    }
+
+    private void decodeLengthMulti() throws Asn1Exception {
+        while (buffer.hasRemaining() && lengthBytesRemaining > 0) {
+            int b = buffer.get() & 0xFF;
+            length = (length << 8) | b;
+            lengthBytesRemaining--;
+        }
+        if (lengthBytesRemaining == 0) {
+            startValue();
+        }
+    }
+
+    private void startValue() throws Asn1Exception {
+        if (length == 0) {
+            // Empty value
+            completeElement(new byte[0]);
+        } else if (length < 0 || length > 10 * 1024 * 1024) {
+            // A 4-byte long-form length can overflow int and wrap
+            // negative; reject that the same as an oversized value
+            // rather than letting it reach new byte[length] below.
+            throw new Asn1Exception("Value too large: " + length + " bytes");
+        } else {
+            valueBuffer = new byte[length];
+            valueOffset = 0;
+            state = STATE_VALUE;
+        }
+    }
+
+    private void decodeValue() throws Asn1Exception {
+        int available = buffer.remaining();
+        int needed = length - valueOffset;
+        int toCopy = Math.min(available, needed);
+        
+        buffer.get(valueBuffer, valueOffset, toCopy);
+        valueOffset += toCopy;
+        
+        if (valueOffset == length) {
+            completeElement(valueBuffer);
+        }
+    }
+
+    private void completeElement(byte[] value) throws Asn1Exception {
+        Asn1Element element;
+        
+        if (Asn1Type.isConstructed(tag)) {
+            // Parse children
+            List<Asn1Element> children = parseChildren(value);
+            element = new Asn1Element(tag, children);
+        } else {
+            element = new Asn1Element(tag, value);
+        }
+        
+        completed.add(element);
+        
+        // Reset for next element
+        state = STATE_TAG;
+        tag = 0;
+        length = 0;
+        valueBuffer = null;
+        valueOffset = 0;
+    }
+
+    /**
+     * Parses the children of a constructed element directly out of its
+     * already-fully-received value bytes (issue #195).
+     *
+     * <p>{@code data} is a complete, self-contained TLV sequence -- there
+     * is no partial/incremental data to tolerate the way {@link
+     * #decode()} must for the top-level stream, so this walks it with a
+     * plain recursive-descent parse ({@link #parseOneElement}) instead of
+     * spinning up a whole new {@code BerDecoder} (with its own {@link
+     * ByteBufferPool}-backed scratch buffer and streaming state machine)
+     * per nesting level. A deeply nested constructed value (e.g. an LDAP
+     * search filter with many nested AND/OR/NOT terms) previously meant
+     * one extra decoder object and one extra pooled-buffer
+     * acquire-and-copy per level of nesting; this makes no allocation at
+     * all beyond the {@link Asn1Element}s and leaf value byte arrays the
+     * result must own regardless.
+     */
+    private List<Asn1Element> parseChildren(byte[] data) throws Asn1Exception {
+        List<Asn1Element> children = new ArrayList<Asn1Element>();
+        int pos = 0;
+        int end = data.length;
+        while (pos < end) {
+            pos = parseOneElement(data, pos, end, children);
+        }
+        return children;
+    }
+
+    /**
+     * Parses one complete TLV element from {@code data[pos..end)},
+     * appends it to {@code children} (recursing into {@link
+     * #parseChildren} in all but name for a constructed element's own
+     * children), and returns the offset immediately past it.
+     *
+     * <p>Mirrors {@link #decodeTag}/{@link #decodeTagMulti}/{@link
+     * #decodeLength}/{@link #decodeLengthMulti} exactly (same tag/length
+     * encoding rules, same limits), just as a single-pass array walk
+     * rather than a state machine spread across possibly-multiple
+     * {@link #receive} calls -- appropriate here since all of {@code
+     * data} is already available at once.
+     */
+    private int parseOneElement(byte[] data, int pos, int end, List<Asn1Element> children)
+            throws Asn1Exception {
+        if (pos >= end) {
+            throw new Asn1Exception("Truncated element in constructed type");
+        }
+        int elementTag = data[pos++] & 0xFF;
+        if ((elementTag & 0x1F) == 0x1F) {
+            // Multi-byte tag
+            boolean more = true;
+            while (more) {
+                if (pos >= end) {
+                    throw new Asn1Exception("Truncated tag in constructed type");
+                }
+                int b = data[pos++] & 0xFF;
+                elementTag = (elementTag << 8) | b;
+                more = (b & 0x80) != 0;
+            }
+        }
+
+        if (pos >= end) {
+            throw new Asn1Exception("Truncated length in constructed type");
+        }
+        int lengthByte = data[pos++] & 0xFF;
+        int elementLength;
+        if (lengthByte == 0x80) {
+            throw new Asn1Exception("Indefinite length encoding not supported");
+        } else if ((lengthByte & 0x80) == 0) {
+            // Short form
+            elementLength = lengthByte;
+        } else {
+            // Long form
+            int lengthBytesRemainingLocal = lengthByte & 0x7F;
+            if (lengthBytesRemainingLocal > 4) {
+                throw new Asn1Exception("Length too large: " + lengthBytesRemainingLocal + " bytes");
+            }
+            elementLength = 0;
+            for (int i = 0; i < lengthBytesRemainingLocal; i++) {
+                if (pos >= end) {
+                    throw new Asn1Exception("Truncated length in constructed type");
+                }
+                elementLength = (elementLength << 8) | (data[pos++] & 0xFF);
+            }
+        }
+
+        if (elementLength < 0 || elementLength > 10 * 1024 * 1024) {
+            // A 4-byte long-form length can overflow int and wrap
+            // negative, same as in decodeLengthMulti/startValue --
+            // reject it here too, before it can bypass the
+            // pos + elementLength > end check below (adding a
+            // negative value only ever shrinks that sum).
+            throw new Asn1Exception("Value too large: " + elementLength + " bytes");
+        }
+        if (pos + elementLength > end) {
+            throw new Asn1Exception("Incomplete child element in constructed type");
+        }
+
+        Asn1Element element;
+        if (Asn1Type.isConstructed(elementTag)) {
+            List<Asn1Element> nestedChildren = new ArrayList<Asn1Element>();
+            int childPos = pos;
+            int childEnd = pos + elementLength;
+            while (childPos < childEnd) {
+                childPos = parseOneElement(data, childPos, childEnd, nestedChildren);
+            }
+            element = new Asn1Element(elementTag, nestedChildren);
+        } else {
+            byte[] value = new byte[elementLength];
+            System.arraycopy(data, pos, value, 0, elementLength);
+            element = new Asn1Element(elementTag, value);
+        }
+
+        children.add(element);
+        return pos + elementLength;
+    }
+}
+

@@ -21,12 +21,12 @@
 
 package org.bluezoo.gumdrop.telemetry.export;
 
-import org.bluezoo.gumdrop.telemetry.otlp.OTLPExporter;
-import org.bluezoo.gumdrop.telemetry.otlp.OTLPGrpcExporter;
+import org.bluezoo.gumdrop.telemetry.otlp.OtlpExporter;
+import org.bluezoo.gumdrop.telemetry.otlp.OtlpGrpcExporter;
 import org.bluezoo.gumdrop.telemetry.TelemetryConfig;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporter;
 import org.bluezoo.gumdrop.telemetry.TelemetryExporterFactory;
-import org.bluezoo.gumdrop.telemetry.json.OTLPFileExporter;
+import org.bluezoo.gumdrop.telemetry.json.OtlpFileExporter;
 
 /**
  * Default OTLP/HTTP, OTLP/gRPC, and JSONL file export for Gumdrop telemetry.
@@ -41,15 +41,15 @@ public class DefaultTelemetryExporterFactory implements TelemetryExporterFactory
             return null;
         }
         if ("file".equalsIgnoreCase(config.getExporterType())) {
-            return new OTLPFileExporter(config,
+            return new OtlpFileExporter(config,
                     config.getFileTracesPath(),
                     config.getFileLogsPath(),
                     config.getFileMetricsPath());
         }
         if ("grpc".equalsIgnoreCase(config.getProtocol())) {
-            return new OTLPGrpcExporter(config);
+            return new OtlpGrpcExporter(config);
         }
-        return new OTLPExporter(config);
+        return new OtlpExporter(config);
     }
 
 }

@@ -21,12 +21,12 @@
 
 package org.bluezoo.gumdrop.http.doh;
 
-import org.bluezoo.gumdrop.dns.client.DNSClientTransport;
+import org.bluezoo.gumdrop.dns.client.DnsClientTransport;
 import org.bluezoo.gumdrop.dns.client.DoHTransportFactory;
 
 /**
  * {@link java.util.ServiceLoader}-discovered {@link DoHTransportFactory}
- * implementation, letting {@link org.bluezoo.gumdrop.dns.client.DNSResolver}
+ * implementation, letting {@link org.bluezoo.gumdrop.dns.client.DnsResolver}
  * (in core, which cannot depend on the HTTP client stack) create {@link
  * DoHClientTransport} instances when the HTTP module is present.
  *
@@ -35,7 +35,7 @@ import org.bluezoo.gumdrop.dns.client.DoHTransportFactory;
 public final class DoHTransportFactoryImpl implements DoHTransportFactory {
 
     @Override
-    public DNSClientTransport createTransport(String path) {
+    public DnsClientTransport createTransport(String path) {
         DoHClientTransport transport = new DoHClientTransport();
         if (path != null) {
             transport.setPath(path);

@@ -10,24 +10,25 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
+import org.bluezoo.gumdrop.GumdropConfig;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPListener;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.http.HttpStatus;
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ClientEndpoint;
 import org.bluezoo.gumdrop.SecurityInfo;
-import org.bluezoo.gumdrop.TCPTransportFactory;
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClientProtocolHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpClientProtocolHandler;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 import java.io.ByteArrayOutputStream;
 import java.net.InetSocketAddress;
@@ -45,7 +46,7 @@ import java.util.logging.Logger;
 import static org.junit.Assert.*;
 
 /**
- * Focused integration tests for OTLPEndpoint HTTP client functionality.
+ * Focused integration tests for OtlpEndpoint HTTP client functionality.
  */
 public class OTLPEndpointIntegrationTest {
 
@@ -53,7 +54,7 @@ public class OTLPEndpointIntegrationTest {
     private static final Logger LOGGER = Logger.getLogger(OTLPEndpointIntegrationTest.class.getName());
 
     private Gumdrop gumdrop;
-    private HTTPListener server;
+    private Http2Listener server;
     private TestHandler lastHandler;
 
     @Before
@@ -61,22 +62,20 @@ public class OTLPEndpointIntegrationTest {
         Logger.getLogger("").setLevel(Level.FINE);
         
         // Create test server
-        server = new HTTPListener();
+        server = new Http2Listener();
         server.setPort(TEST_PORT);
         server.setAddresses("::1");
-        server.setHandlerFactory(new HTTPRequestHandlerFactory() {
+        server.setStreamHandler(new HttpStreamHandler() {
             @Override
-            public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
+            public HttpRequestHandler openStream(HttpResponseState state) {
                 lastHandler = new TestHandler();
                 return lastHandler;
             }
         });
 
         // Start server
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(server);
-        gumdrop.start();
 
         // Wait for server
         waitForPort(TEST_PORT);
@@ -93,10 +92,10 @@ public class OTLPEndpointIntegrationTest {
 
     @Test
     public void testHTTPClientChunkedUpload() throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
-        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
-                new HTTPClientHandler() {
+        HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
+                new HttpClientHandler() {
                     @Override
                     public void onConnected(Endpoint endpoint) {
                         LOGGER.info("Client connected");
@@ -116,7 +115,7 @@ public class OTLPEndpointIntegrationTest {
         endpointHandler.setH2Enabled(false);
 
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(endpointHandler);
+        client.connect(gumdrop, endpointHandler);
 
         // Wait for connection to be ready
         long deadline = System.currentTimeMillis() + 5000;
@@ -126,20 +125,20 @@ public class OTLPEndpointIntegrationTest {
         assertTrue("Should connect", endpointHandler.isOpen());
 
         final CountDownLatch responseLatch = new CountDownLatch(1);
-        final AtomicReference<HTTPResponse> responseRef = new AtomicReference<>();
+        final AtomicReference<HttpResponse> responseRef = new AtomicReference<>();
         final AtomicReference<Exception> errorRef = new AtomicReference<>();
 
         // Create POST request with Transfer-Encoding: chunked
-        HTTPRequest request = endpointHandler.post("/v1/traces");
+        HttpRequest request = endpointHandler.post("/v1/traces");
         request.header("Content-Type", "application/x-protobuf");
         request.header("Transfer-Encoding", "chunked");
 
         LOGGER.info("Starting request body");
         
         // Start body with response handler
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 LOGGER.info("Response 2xx received: " + response.getStatus());
                 responseRef.set(response);
             }
@@ -183,10 +182,10 @@ public class OTLPEndpointIntegrationTest {
 
     @Test
     public void testHTTPClientSimpleGET() throws Exception {
-        TCPTransportFactory factory = new TCPTransportFactory();
+        TcpTransportFactory factory = new TcpTransportFactory();
         factory.start();
-        HTTPClientProtocolHandler endpointHandler = new HTTPClientProtocolHandler(
-                new HTTPClientHandler() {
+        HttpClientProtocolHandler endpointHandler = new HttpClientProtocolHandler(
+                new HttpClientHandler() {
                     @Override
                     public void onConnected(Endpoint endpoint) {}
                     @Override
@@ -200,7 +199,7 @@ public class OTLPEndpointIntegrationTest {
         endpointHandler.setH2Enabled(false);
 
         ClientEndpoint client = new ClientEndpoint(factory, "::1", TEST_PORT);
-        client.connect(endpointHandler);
+        client.connect(gumdrop, endpointHandler);
 
         long deadline = System.currentTimeMillis() + 5000;
         while (!endpointHandler.isOpen() && System.currentTimeMillis() < deadline) {
@@ -209,12 +208,12 @@ public class OTLPEndpointIntegrationTest {
         assertTrue("Should connect", endpointHandler.isOpen());
 
         final CountDownLatch responseLatch = new CountDownLatch(1);
-        final AtomicReference<HTTPResponse> responseRef = new AtomicReference<>();
+        final AtomicReference<HttpResponse> responseRef = new AtomicReference<>();
 
-        HTTPRequest request = endpointHandler.get("/test");
-        request.send(new DefaultHTTPResponseHandler() {
+        HttpRequest request = endpointHandler.get("/test");
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 responseRef.set(response);
             }
             @Override
@@ -229,7 +228,7 @@ public class OTLPEndpointIntegrationTest {
 
         assertTrue("Should get response", responseLatch.await(5, TimeUnit.SECONDS));
         assertNotNull("Should have response", responseRef.get());
-        assertEquals("Should be 200 OK", HTTPStatus.OK, responseRef.get().getStatus());
+        assertEquals("Should be 200 OK", HttpStatus.OK, responseRef.get().getStatus());
 
         endpointHandler.close();
     }
@@ -254,15 +253,15 @@ public class OTLPEndpointIntegrationTest {
      * <p>Uses the correct event-driven pattern: waits for requestComplete()
      * to know when the request is done, not by checking headers.
      */
-    static class TestHandler extends DefaultHTTPRequestHandler {
+    static class TestHandler extends DefaultHttpRequestHandler {
         private ByteArrayOutputStream bodyBuffer = new ByteArrayOutputStream();
         private Headers requestHeaders;
-        private HTTPResponseState state;
+        private HttpResponseState state;
         private String path;
         private boolean hasBody;
 
         @Override
-        public void headers(HTTPResponseState state, Headers headers) {
+        public void headers(HttpResponseState state, Headers headers) {
             this.state = state;
             this.requestHeaders = headers;
             this.path = headers.getPath();
@@ -272,13 +271,13 @@ public class OTLPEndpointIntegrationTest {
         }
 
         @Override
-        public void startRequestBody(HTTPResponseState state) {
+        public void startRequestBody(HttpResponseState state) {
             hasBody = true;
             LOGGER.info("  startRequestBody called");
         }
 
         @Override
-        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
             int remaining = data.remaining();
             byte[] buf = new byte[remaining];
             data.get(buf);
@@ -289,19 +288,19 @@ public class OTLPEndpointIntegrationTest {
         }
 
         @Override
-        public void endRequestBody(HTTPResponseState state) {
+        public void endRequestBody(HttpResponseState state) {
             LOGGER.info("  endRequestBody called, total: " + bodyBuffer.size() + " bytes");
         }
 
         @Override
-        public void requestComplete(HTTPResponseState state) {
+        public void requestComplete(HttpResponseState state) {
             LOGGER.info("  requestComplete called, body=" + hasBody + ", bodySize=" + bodyBuffer.size());
             sendOk();
         }
 
         private void sendOk() {
             Headers response = new Headers();
-            response.status(HTTPStatus.OK);
+            response.status(HttpStatus.OK);
             response.add(new Header("Content-Length", "0"));
             state.headers(response);
             state.complete();

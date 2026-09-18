@@ -52,8 +52,8 @@ package org.bluezoo.gumdrop.mqtt.codec;
  */
 public class ConnectPacket {
 
-    private MQTTProperties properties = MQTTProperties.EMPTY;
-    private MQTTVersion version;
+    private MqttProperties properties = MqttProperties.EMPTY;
+    private MqttVersion version;
     private boolean cleanSession;
     private int keepAlive;
     private String clientId;
@@ -64,7 +64,7 @@ public class ConnectPacket {
     private boolean willRetain;
     private String willTopic;
     private byte[] willPayload;
-    private MQTTProperties willProperties;
+    private MqttProperties willProperties;
 
     // Credentials
     private String username;
@@ -82,7 +82,7 @@ public class ConnectPacket {
      * @return the properties, never null
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901027">MQTT 5.0 §2.2.2 Properties</a>
      */
-    public MQTTProperties getProperties() {
+    public MqttProperties getProperties() {
         return properties;
     }
 
@@ -91,8 +91,8 @@ public class ConnectPacket {
      *
      * @param properties the properties, or null for empty
      */
-    public void setProperties(MQTTProperties properties) {
-        this.properties = properties != null ? properties : MQTTProperties.EMPTY;
+    public void setProperties(MqttProperties properties) {
+        this.properties = properties != null ? properties : MqttProperties.EMPTY;
     }
 
     /**
@@ -103,7 +103,7 @@ public class ConnectPacket {
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc398718030">MQTT 3.1.1 §3.1.2.2 Protocol Level</a>
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901037">MQTT 5.0 §3.1.2.2 Protocol Version</a>
      */
-    public MQTTVersion getVersion() {
+    public MqttVersion getVersion() {
         return version;
     }
 
@@ -113,7 +113,7 @@ public class ConnectPacket {
      * @param version the protocol version
      * @see #getVersion()
      */
-    public void setVersion(MQTTVersion version) {
+    public void setVersion(MqttVersion version) {
         this.version = version;
     }
 
@@ -345,7 +345,7 @@ public class ConnectPacket {
      * @return the Will Properties, or null if not set
      * @see <a href="https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901060">MQTT 5.0 §3.1.3.2 Will Properties</a>
      */
-    public MQTTProperties getWillProperties() {
+    public MqttProperties getWillProperties() {
         return willProperties;
     }
 
@@ -355,7 +355,7 @@ public class ConnectPacket {
      * @param willProperties the Will Properties
      * @see #getWillProperties()
      */
-    public void setWillProperties(MQTTProperties willProperties) {
+    public void setWillProperties(MqttProperties willProperties) {
         this.willProperties = willProperties;
     }
 

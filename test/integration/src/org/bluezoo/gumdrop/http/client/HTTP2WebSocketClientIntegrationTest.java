@@ -28,14 +28,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPListener;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.websocket.client.WebSocketClient;
@@ -52,15 +54,15 @@ import static org.junit.Assert.*;
  * WebSocket-over-HTTP/2 integration test (RFC 8441) for the public
  * {@link WebSocketClient} facade.
  *
- * <p>Drives a real {@link HTTPListener} server (TLS, keystore-based, ALPN
+ * <p>Drives a real {@link Http2Listener} server (TLS, keystore-based, ALPN
  * offering "h2") whose request handler accepts an Extended CONNECT upgrade
- * via {@link HTTPResponseState#upgradeToWebSocket} and echoes text/binary
+ * via {@link HttpResponseState#upgradeToWebSocket} and echoes text/binary
  * messages back, proving the client-side Extended-CONNECT-over-h2 path
  * (added alongside the already-working h1.1 and h3 paths) interoperates
  * end to end, over real loopback TCP+TLS -- and that ordinary, concurrent
  * h2 requests on the same server are unaffected by another stream on a
  * different connection being WebSocket-upgraded (the regression this stage
- * specifically had to avoid: see {@code HTTPProtocolHandler.switchToWebSocketMode}).
+ * specifically had to avoid: see {@code HttpProtocolHandler.switchToWebSocketMode}).
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -77,7 +79,7 @@ public class HTTP2WebSocketClientIntegrationTest {
             .build();
 
     private static Gumdrop gumdrop;
-    private static HTTPListener listener;
+    private static Http2Listener listener;
 
     @BeforeClass
     public static void startServer() throws Exception {
@@ -97,17 +99,16 @@ public class HTTP2WebSocketClientIntegrationTest {
 
         System.setProperty("gumdrop.workers", "2");
 
-        listener = new HTTPListener();
+        listener = new Http2Listener();
         listener.setPort(PORT);
         listener.setAddresses(TEST_HOST);
         listener.setSecure(true);
         listener.setKeystoreFile(keystore.getAbsolutePath());
         listener.setKeystorePass("testpass");
-        listener.setHandlerFactory(new H2EchoWebSocketHandlerFactory());
+        listener.setStreamHandler(new H2EchoWebSocketHandlerFactory());
 
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
-        gumdrop.start();
 
         Thread.sleep(500);
     }
@@ -145,7 +146,7 @@ public class HTTP2WebSocketClientIntegrationTest {
         client.setVerifyPeer(false);
 
         try {
-            client.connect("/ws", new DefaultWebSocketEventHandler() {
+            client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
                 @Override
                 public void opened(WebSocketSession session) {
                     sessionRef.set(session);
@@ -207,7 +208,7 @@ public class HTTP2WebSocketClientIntegrationTest {
 
     /**
      * Regression coverage for the crux fix in this stage
-     * ({@code HTTPProtocolHandler.switchToWebSocketMode} no longer flips
+     * ({@code HttpProtocolHandler.switchToWebSocketMode} no longer flips
      * connection-wide state for h2): an ordinary streaming h2 request and a
      * WebSocket-upgraded h2 stream, concurrently multiplexed on the *same*
      * TCP+TLS connection, with traffic on both interleaved. Before the fix,
@@ -227,12 +228,12 @@ public class HTTP2WebSocketClientIntegrationTest {
         wsClient.setSecure(true);
         wsClient.setVerifyPeer(false);
 
-        HTTPClient httpClient = new HTTPClient(TEST_HOST, PORT);
+        HttpClient httpClient = new HttpClient(TEST_HOST, PORT);
         httpClient.setSecure(true);
         httpClient.setVerifyPeer(false);
 
         try {
-            wsClient.connect("/ws", new DefaultWebSocketEventHandler() {
+            wsClient.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
                 @Override
                 public void opened(WebSocketSession session) {
                     sessionRef.set(session);
@@ -262,24 +263,24 @@ public class HTTP2WebSocketClientIntegrationTest {
             // connection) keeps serving ordinary h2 requests correctly.
             final CountDownLatch httpDone = new CountDownLatch(1);
             final AtomicReference<Exception> httpError = new AtomicReference<>();
-            final AtomicReference<HTTPStatus> httpStatus = new AtomicReference<>();
+            final AtomicReference<HttpStatus> httpStatus = new AtomicReference<>();
 
-            httpClient.connect(new HTTPClientHandler() {
+            httpClient.connect(gumdrop, new HttpClientHandler() {
                 @Override
                 public void onConnected(org.bluezoo.gumdrop.Endpoint endpoint) {
                 }
 
                 @Override
                 public void onSecurityEstablished(org.bluezoo.gumdrop.SecurityInfo info) {
-                    HTTPRequest request = httpClient.request("GET", "/test");
-                    request.send(new DefaultHTTPResponseHandler() {
+                    HttpRequest request = httpClient.request("GET", "/test");
+                    request.send(new DefaultHttpResponseHandler() {
                         @Override
-                        public void ok(HTTPResponse response) {
+                        public void ok(HttpResponse response) {
                             httpStatus.set(response.getStatus());
                         }
 
                         @Override
-                        public void error(HTTPResponse response) {
+                        public void error(HttpResponse response) {
                             httpStatus.set(response.getStatus());
                         }
 
@@ -313,9 +314,9 @@ public class HTTP2WebSocketClientIntegrationTest {
             assertTrue("Ordinary concurrent HTTP/2 request should have completed",
                     httpDone.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
             assertNull("Ordinary request failed: " + httpError.get(), httpError.get());
-            assertEquals(HTTPStatus.OK, httpStatus.get());
+            assertEquals(HttpStatus.OK, httpStatus.get());
             assertEquals("Should have negotiated HTTP/2",
-                    org.bluezoo.gumdrop.http.HTTPVersion.HTTP_2_0, httpClient.getVersion());
+                    org.bluezoo.gumdrop.http.HttpVersion.HTTP_2_0, httpClient.getVersion());
 
             assertTrue("WebSocket text echo should still have arrived",
                     textEchoed.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS));
@@ -331,13 +332,13 @@ public class HTTP2WebSocketClientIntegrationTest {
     // requests via EchoHandlerFactory-equivalent behaviour)
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static class H2EchoWebSocketHandlerFactory implements HTTPRequestHandlerFactory {
+    private static class H2EchoWebSocketHandlerFactory implements HttpStreamHandler {
 
         @Override
-        public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
-            return new DefaultHTTPRequestHandler() {
+        public HttpRequestHandler openStream(HttpResponseState state) {
+            return new DefaultHttpRequestHandler() {
                 @Override
-                public void headers(HTTPResponseState state, Headers headers) {
+                public void headers(HttpResponseState state, Headers headers) {
                     if ("CONNECT".equals(headers.getValue(":method"))
                             && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {
@@ -361,7 +362,7 @@ public class HTTP2WebSocketClientIntegrationTest {
                         });
                     } else {
                         Headers responseHeaders = new Headers();
-                        responseHeaders.status(HTTPStatus.OK);
+                        responseHeaders.status(HttpStatus.OK);
                         state.headers(responseHeaders);
                         state.complete();
                     }

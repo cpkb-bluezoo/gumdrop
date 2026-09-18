@@ -22,18 +22,22 @@
 package org.bluezoo.gumdrop.mqtt;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.Server;
+import org.bluezoo.gumdrop.mqtt.server.MqttServer;
 
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 import static org.junit.Assert.*;
 
-import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 import org.bluezoo.gumdrop.mqtt.codec.*;
@@ -57,8 +61,13 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
             .build();
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/mqtt-server-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        MqttServer server = MqttServer.compose()
+                .listener(new MqttListener()
+                        .port(TEST_PORT)
+                        .addresses(InetAddress.getByName("::1")))
+                .server();
+        return Collections.singletonList(server);
     }
 
     @Test
@@ -69,11 +78,11 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
 
             // Send CONNECT
             ConnectPacket connect = new ConnectPacket();
-            connect.setVersion(MQTTVersion.V3_1_1);
+            connect.setVersion(MqttVersion.V3_1_1);
             connect.setCleanSession(true);
             connect.setKeepAlive(30);
             connect.setClientId("integrationTest");
-            ByteBuffer connectBuf = MQTTPacketEncoder.encodeConnect(connect);
+            ByteBuffer connectBuf = MqttPacketEncoder.encodeConnect(connect);
             out.write(toBytes(connectBuf));
             out.flush();
 
@@ -82,14 +91,14 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
             assertNotNull("Should receive CONNACK", connAckRaw);
             int packetType = (connAckRaw[0] >> 4) & 0x0F;
             assertEquals("Should be CONNACK",
-                    MQTTPacketType.CONNACK.getValue(), packetType);
+                    MqttPacketType.CONNACK.getValue(), packetType);
             assertEquals("Return code should be 0 (accepted)",
                     0, connAckRaw[3]);
 
             // Send DISCONNECT
-            ByteBuffer discBuf = MQTTPacketEncoder.encodeDisconnect(
-                    MQTTEventHandler.DISCONNECT_NORMAL,
-                    MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+            ByteBuffer discBuf = MqttPacketEncoder.encodeDisconnect(
+                    MqttEventHandler.DISCONNECT_NORMAL,
+                    MqttProperties.EMPTY, MqttVersion.V3_1_1);
             out.write(toBytes(discBuf));
             out.flush();
         }
@@ -104,7 +113,7 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
             connectClient(out, in, "pingTest");
 
             // Send PINGREQ
-            ByteBuffer pingBuf = MQTTPacketEncoder.encodePingReq();
+            ByteBuffer pingBuf = MqttPacketEncoder.encodePingReq();
             out.write(toBytes(pingBuf));
             out.flush();
 
@@ -113,7 +122,7 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
             assertNotNull("Should receive PINGRESP", pingResp);
             int packetType = (pingResp[0] >> 4) & 0x0F;
             assertEquals("Should be PINGRESP",
-                    MQTTPacketType.PINGRESP.getValue(), packetType);
+                    MqttPacketType.PINGRESP.getValue(), packetType);
         }
     }
 
@@ -130,11 +139,11 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
             connectClient(subOut, subIn, "subscriber");
 
             // Subscribe to "test/topic"
-            ByteBuffer subBuf = MQTTPacketEncoder.encodeSubscribe(
+            ByteBuffer subBuf = MqttPacketEncoder.encodeSubscribe(
                     1,
                     new String[]{"test/topic"},
                     new int[]{QoS.AT_LEAST_ONCE.getValue()},
-                    MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                    MqttProperties.EMPTY, MqttVersion.V3_1_1);
             subOut.write(toBytes(subBuf));
             subOut.flush();
 
@@ -143,15 +152,15 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
             assertNotNull("Should receive SUBACK", subAckRaw);
             int subAckType = (subAckRaw[0] >> 4) & 0x0F;
             assertEquals("Should be SUBACK",
-                    MQTTPacketType.SUBACK.getValue(), subAckType);
+                    MqttPacketType.SUBACK.getValue(), subAckType);
 
             connectClient(pubOut, pubIn, "publisher");
 
             // Publish to "test/topic"
-            ByteBuffer pubBuf = MQTTPacketEncoder.encodePublish(
+            ByteBuffer pubBuf = MqttPacketEncoder.encodePublish(
                     "test/topic", 0, false, false, 0,
                     "hello MQTT".getBytes(StandardCharsets.UTF_8),
-                    MQTTProperties.EMPTY, MQTTVersion.V3_1_1);
+                    MqttProperties.EMPTY, MqttVersion.V3_1_1);
             pubOut.write(toBytes(pubBuf));
             pubOut.flush();
 
@@ -160,7 +169,7 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
             assertNotNull("Subscriber should receive PUBLISH", publishRaw);
             int pubType = (publishRaw[0] >> 4) & 0x0F;
             assertEquals("Should be PUBLISH",
-                    MQTTPacketType.PUBLISH.getValue(), pubType);
+                    MqttPacketType.PUBLISH.getValue(), pubType);
         }
     }
 
@@ -169,11 +178,11 @@ public class MQTTServerIntegrationTest extends AbstractServerIntegrationTest {
     private void connectClient(OutputStream out, InputStream in,
                                String clientId) throws Exception {
         ConnectPacket connect = new ConnectPacket();
-        connect.setVersion(MQTTVersion.V3_1_1);
+        connect.setVersion(MqttVersion.V3_1_1);
         connect.setCleanSession(true);
         connect.setKeepAlive(30);
         connect.setClientId(clientId);
-        out.write(toBytes(MQTTPacketEncoder.encodeConnect(connect)));
+        out.write(toBytes(MqttPacketEncoder.encodeConnect(connect)));
         out.flush();
 
         byte[] connAck = readPacket(in);

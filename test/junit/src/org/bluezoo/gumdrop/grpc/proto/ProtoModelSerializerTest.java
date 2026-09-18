@@ -28,8 +28,8 @@ import static org.junit.Assert.fail;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ProtobufWriter;
 import org.junit.Test;
 
 /**

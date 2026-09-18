@@ -107,7 +107,7 @@ import java.nio.ByteBuffer;
  * After {@link #feed(ByteBuffer)} returns, the buffer's position marks the
  * start of unconsumed data (a partial structured token still being
  * accumulated). The caller is responsible for compacting the buffer
- * before reading more data — see {@code TCPEndpoint.processInbound()} for
+ * before reading more data — see {@code TcpEndpoint.processInbound()} for
  * the transport-level contract this class relies on: unconsumed bytes are
  * preserved across reads via {@code compact()}, and the receive buffer
  * grows (bounded by {@code maxNetInSize}) if a single token does not yet
@@ -478,7 +478,7 @@ public abstract class ByteStreamLexer<T extends Enum<T>> {
      * entirely — for example, a client handing off to a separate
      * dot-unstuffing state machine for message content whose length isn't
      * known up front and isn't a fixed delimiter search either (see
-     * {@code POP3ClientLexer}'s class Javadoc for why that case doesn't
+     * {@code Pop3ClientLexer}'s class Javadoc for why that case doesn't
      * fit {@link #enterRaw(long)} or {@link #enterRawUntil(byte[])}).
      *
      * <p>{@link #feed(ByteBuffer)} returns as soon as this takes effect,

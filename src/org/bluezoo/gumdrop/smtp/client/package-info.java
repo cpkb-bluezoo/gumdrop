@@ -23,24 +23,54 @@
  * Non-blocking SMTP client (RFC 5321) for sending outbound email, with
  * STARTTLS, SASL authentication, and transparent BDAT (CHUNKING) support.
  *
- * <p>{@link org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler}
+ * <p>{@link org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler}
  * drives the protocol exchange, using BDAT instead of dot-stuffed DATA
  * transparently whenever the server advertises CHUNKING support. The
- * protocol flow is modeled as a sequence of state interfaces (package
- * {@link org.bluezoo.gumdrop.smtp.client.handler}) so only the commands
- * legal at each point can be issued: {@link
- * org.bluezoo.gumdrop.smtp.client.handler.ServerGreeting} is the entry
- * point, through {@link
- * org.bluezoo.gumdrop.smtp.client.handler.ClientHelloState} (post
+ * protocol flow is modeled as a sequence of state interfaces in this
+ * package so only the commands legal at each point can be issued: {@link
+ * org.bluezoo.gumdrop.smtp.client.RemoteGreeting} is the entry
+ * point (passed directly to {@link
+ * org.bluezoo.gumdrop.smtp.client.SmtpClient#connect}),
+ * through {@link org.bluezoo.gumdrop.smtp.client.ClientHelloState} (post
  * EHLO/HELO), {@link
- * org.bluezoo.gumdrop.smtp.client.handler.ClientEnvelopeState} (MAIL
+ * org.bluezoo.gumdrop.smtp.client.ClientEnvelopeState} (MAIL
  * FROM/RCPT TO/DATA), to {@link
- * org.bluezoo.gumdrop.smtp.client.handler.ClientMessageData} for
+ * org.bluezoo.gumdrop.smtp.client.ClientMessageData} for
  * streaming the message body. After STARTTLS succeeds, the handler must
  * re-issue EHLO per RFC 5321 section 4.1.1.1, receiving a fresh state.
  *
+ * <h2>Server Reply Handler Interfaces</h2>
+ * <p>These interfaces define callbacks your handler receives for server responses:
+ * <ul>
+ *   <li>{@link RemoteGreeting} - Entry point for new connections</li>
+ *   <li>{@link EhloReplyHandler} - Receives EHLO response</li>
+ *   <li>{@link HeloReplyHandler} - Receives HELO response</li>
+ *   <li>{@link StarttlsReplyHandler} - Receives STARTTLS response</li>
+ *   <li>{@link AuthReplyHandler} - Receives AUTH responses</li>
+ *   <li>{@link MailFromReplyHandler} - Receives MAIL FROM response</li>
+ *   <li>{@link RcptToReplyHandler} - Receives RCPT TO response</li>
+ *   <li>{@link DataReplyHandler} - Receives DATA/BDAT response</li>
+ *   <li>{@link MessageReplyHandler} - Receives message completion response</li>
+ *   <li>{@link RsetReplyHandler} - Receives RSET response</li>
+ *   <li>{@link ReplyHandler} - Common reply handler methods</li>
+ * </ul>
+ *
+ * <h2>Client State Interfaces</h2>
+ * <p>These interfaces are provided to your handler callbacks, allowing you to
+ * issue SMTP commands at the appropriate protocol stage:
+ * <ul>
+ *   <li>{@link ClientSession} - Base session operations (RSET, QUIT)</li>
+ *   <li>{@link ClientHelloState} - Post-connect/EHLO state for starting transactions</li>
+ *   <li>{@link ClientPostTls} - Post-STARTTLS state for re-issuing EHLO</li>
+ *   <li>{@link ClientAuthExchange} - SASL authentication exchange</li>
+ *   <li>{@link ClientEnvelope} - MAIL FROM state</li>
+ *   <li>{@link ClientEnvelopeReady} - Ready to start a new transaction</li>
+ *   <li>{@link ClientEnvelopeState} - RCPT TO and DATA state</li>
+ *   <li>{@link ClientMessageData} - Message content streaming state</li>
+ * </ul>
+ *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.smtp.client.SMTPClientProtocolHandler
+ * @see org.bluezoo.gumdrop.smtp.client.SmtpClientProtocolHandler
  * @see org.bluezoo.gumdrop.smtp
  * @see <a href="https://www.rfc-editor.org/rfc/rfc5321">RFC 5321</a> (SMTP)
  * @see <a href="https://www.rfc-editor.org/rfc/rfc3207">RFC 3207</a> (STARTTLS)

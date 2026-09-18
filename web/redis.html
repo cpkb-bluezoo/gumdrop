@@ -509,7 +509,7 @@ session.get("key", new BulkResultHandler() {
 <pre>
 session.hgetall("user:1", new ArrayResultHandler() {
     @Override
-    public void handleResult(List&lt;RESPValue&gt; array, RedisSession session) {
+    public void handleResult(List&lt;RespValue&gt; array, RedisSession session) {
         // HGETALL returns alternating field/value pairs
         for (int i = 0; i &lt; array.size(); i += 2) {
             String field = array.get(i).asString();
@@ -543,7 +543,7 @@ Verbatim String (=), Big Number ((), and Blob Error (!).
 // Negotiate RESP3 protocol
 session.hello(3, new ArrayResultHandler() {
     @Override
-    public void handleResult(List&lt;RESPValue&gt; array, RedisSession session) {
+    public void handleResult(List&lt;RespValue&gt; array, RedisSession session) {
         // Server properties (flattened map): server, version, proto, id, mode, role
         for (int i = 0; i &lt; array.size(); i += 2) {
             System.out.println(array.get(i).asString() + ": " + array.get(i + 1).asString());
@@ -597,9 +597,9 @@ cursor to track position.
 // Iterate all keys matching "user:*"
 session.scan("0", "user:*", 100, new ScanResultHandler() {
     @Override
-    public void handleResult(String cursor, List&lt;RESPValue&gt; elements,
+    public void handleResult(String cursor, List&lt;RespValue&gt; elements,
                              RedisSession session) {
-        for (RESPValue key : elements) {
+        for (RespValue key : elements) {
             System.out.println("Key: " + key.asString());
         }
         if (!"0".equals(cursor)) {
@@ -628,7 +628,7 @@ These are commonly used to implement job queues and message consumers.
 // Block until an element is available on "queue" (5 second timeout)
 session.blpop(5.0, new ArrayResultHandler() {
     @Override
-    public void handleResult(List&lt;RESPValue&gt; array, RedisSession session) {
+    public void handleResult(List&lt;RespValue&gt; array, RedisSession session) {
         // array[0] = key, array[1] = value
         String key = array.get(0).asString();
         String value = array.get(1).asString();
@@ -770,7 +770,7 @@ session.multi(new StringResultHandler() {
         // Execute all queued commands
         session.exec(new ArrayResultHandler() {
             @Override
-            public void handleResult(List&lt;RESPValue&gt; results, RedisSession session) {
+            public void handleResult(List&lt;RespValue&gt; results, RedisSession session) {
                 // results[0] = INCR result (integer)
                 // results[1] = GET result (bulk string)
                 // results[2] = SET result ("OK")
@@ -818,7 +818,7 @@ session.watch(new StringResultHandler() {
                         s.set("balance", String.valueOf(newBalance), null);
                         s.exec(new ArrayResultHandler() {
                             @Override
-                            public void handleResult(List&lt;RESPValue&gt; results, RedisSession s) {
+                            public void handleResult(List&lt;RespValue&gt; results, RedisSession s) {
                                 // Transaction succeeded
                             }
                             
@@ -990,7 +990,7 @@ public class RedisSessionServlet extends HttpServlet {
             public void onSession(RedisSession redis) {
                 redis.hgetall("session:" + sessionId, new ArrayResultHandler() {
                     @Override
-                    public void handleResult(List&lt;RESPValue&gt; array, RedisSession s) {
+                    public void handleResult(List&lt;RespValue&gt; array, RedisSession s) {
                         Map&lt;String, String&gt; attrs = new HashMap&lt;&gt;();
                         for (int i = 0; i &lt; array.size(); i += 2) {
                             attrs.put(array.get(i).asString(), 

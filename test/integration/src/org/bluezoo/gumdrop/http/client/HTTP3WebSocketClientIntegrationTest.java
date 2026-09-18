@@ -28,13 +28,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
-import org.bluezoo.gumdrop.http.h3.HTTP3Listener;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
+import org.bluezoo.gumdrop.http.h3.Http3Listener;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.websocket.client.WebSocketClient;
@@ -51,8 +52,8 @@ import static org.junit.Assert.*;
  * WebSocket-over-HTTP/3 integration test (RFC 9220) for the public
  * {@link WebSocketClient} facade with {@link WebSocketClient#setH3Enabled(boolean)}.
  *
- * <p>Drives a real {@link HTTP3Listener} server that accepts an Extended
- * CONNECT upgrade (via {@link HTTPResponseState#upgradeToWebSocket}) and
+ * <p>Drives a real {@link Http3Listener} server that accepts an Extended
+ * CONNECT upgrade (via {@link HttpResponseState#upgradeToWebSocket}) and
  * echoes text/binary messages back, over real loopback QUIC -- proving
  * the client-side Extended CONNECT path (added alongside the existing,
  * already-working server-side path) actually interoperates end to end.
@@ -74,7 +75,7 @@ public class HTTP3WebSocketClientIntegrationTest {
             .build();
 
     private static Gumdrop gumdrop;
-    private static HTTP3Listener listener;
+    private static Http3Listener listener;
 
     @BeforeClass
     public static void startServer() throws Exception {
@@ -95,16 +96,15 @@ public class HTTP3WebSocketClientIntegrationTest {
 
         System.setProperty("gumdrop.workers", "2");
 
-        listener = new HTTP3Listener();
+        listener = new Http3Listener();
         listener.setPort(H3_PORT);
         listener.setAddresses(TEST_HOST);
         listener.setCertFile(pemCert.getAbsolutePath());
         listener.setKeyFile(pemKey.getAbsolutePath());
-        listener.setHandlerFactory(new EchoWebSocketHandlerFactory());
+        listener.setStreamHandler(new EchoWebSocketHandlerFactory());
 
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
-        gumdrop.start();
 
         // QUIC binds a UDP socket, so there is no TCP port to poll for
         // readiness; allow a brief moment for the engine to bind.
@@ -142,7 +142,7 @@ public class HTTP3WebSocketClientIntegrationTest {
         client.setVerifyPeer(false);
 
         try {
-            client.connect("/ws", new DefaultWebSocketEventHandler() {
+            client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
                 @Override
                 public void opened(WebSocketSession session) {
                     sessionRef.set(session);
@@ -206,13 +206,13 @@ public class HTTP3WebSocketClientIntegrationTest {
     // Server-side WebSocket-over-H3 echo handler
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static class EchoWebSocketHandlerFactory implements HTTPRequestHandlerFactory {
+    private static class EchoWebSocketHandlerFactory implements HttpStreamHandler {
 
         @Override
-        public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
-            return new DefaultHTTPRequestHandler() {
+        public HttpRequestHandler openStream(HttpResponseState state) {
+            return new DefaultHttpRequestHandler() {
                 @Override
-                public void headers(HTTPResponseState state, Headers headers) {
+                public void headers(HttpResponseState state, Headers headers) {
                     if ("CONNECT".equals(headers.getValue(":method"))
                             && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {
@@ -239,9 +239,9 @@ public class HTTP3WebSocketClientIntegrationTest {
                     }
                 }
 
-                private void sendNotFound(HTTPResponseState state) {
+                private void sendNotFound(HttpResponseState state) {
                     Headers responseHeaders = new Headers();
-                    responseHeaders.status(org.bluezoo.gumdrop.http.HTTPStatus.NOT_FOUND);
+                    responseHeaders.status(org.bluezoo.gumdrop.http.HttpStatus.NOT_FOUND);
                     state.headers(responseHeaders);
                     state.complete();
                 }

@@ -22,12 +22,12 @@
 /**
  * gRPC server, riding gumdrop's generic HTTP request handling.
  *
- * <p>{@link org.bluezoo.gumdrop.grpc.server.GrpcService} is the
+ * <p>{@link org.bluezoo.gumdrop.grpc.server.GrpcServer} is the
  * application service base, creating a {@link
  * org.bluezoo.gumdrop.grpc.server.GrpcHandler} (an {@link
- * org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler}, the same base
+ * org.bluezoo.gumdrop.http.DefaultHttpRequestHandler}, the same base
  * class an HTTP/1.1, HTTP/2, or HTTP/3 request handler would extend)
- * per call via a {@link org.bluezoo.gumdrop.grpc.server.GrpcHandlerFactory},
+ * per call via a {@link org.bluezoo.gumdrop.grpc.server.GrpcRequestHandler},
  * so gRPC's message framing and deframing ({@link
  * org.bluezoo.gumdrop.grpc}) sits directly on top of ordinary HTTP
  * request/response handling rather than a separate connection type.
@@ -37,6 +37,6 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.grpc
- * @see org.bluezoo.gumdrop.http.HTTPService
+ * @see org.bluezoo.gumdrop.http.HttpServer
  */
 package org.bluezoo.gumdrop.grpc.server;

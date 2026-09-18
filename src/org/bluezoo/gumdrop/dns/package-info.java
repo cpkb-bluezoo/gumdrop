@@ -21,23 +21,23 @@
 
 /**
  * DNS service: resolve locally, proxy to upstream servers, and cache
- * responses respecting TTL. {@link org.bluezoo.gumdrop.dns.DNSService}
+ * responses respecting TTL. {@link org.bluezoo.gumdrop.dns.server.DnsServer}
  * owns configuration, caching, and resolution logic, overridable for
  * custom name resolution. Three transport listeners share it: {@link
- * org.bluezoo.gumdrop.dns.DNSListener} for plain UDP queries, {@link
+ * org.bluezoo.gumdrop.dns.DnsListener} for plain UDP queries, {@link
  * org.bluezoo.gumdrop.dns.DoTListener} for DNS-over-TLS (RFC 7858), and
  * {@link org.bluezoo.gumdrop.dns.DoQListener} for DNS-over-QUIC (RFC
  * 9250, over {@link org.bluezoo.gumdrop.quic}).
  *
- * <p>{@link org.bluezoo.gumdrop.dns.DNSResourceRecord} provides factory
+ * <p>{@link org.bluezoo.gumdrop.dns.DnsResourceRecord} provides factory
  * methods for the common record types (A, AAAA, CNAME, MX, NS, PTR, SOA,
  * TXT). {@link org.bluezoo.gumdrop.mdns} builds on this package's
  * message format for multicast DNS and DNS-SD.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.dns.DNSService
- * @see org.bluezoo.gumdrop.dns.DNSMessage
- * @see org.bluezoo.gumdrop.dns.DNSResourceRecord
+ * @see org.bluezoo.gumdrop.dns.server.DnsServer
+ * @see org.bluezoo.gumdrop.dns.DnsMessage
+ * @see org.bluezoo.gumdrop.dns.DnsResourceRecord
  * @see org.bluezoo.gumdrop.dns.client
  * @see org.bluezoo.gumdrop.mdns
  */

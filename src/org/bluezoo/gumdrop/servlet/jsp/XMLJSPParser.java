@@ -57,7 +57,7 @@ import java.util.Stack;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class XMLJSPParser implements JSPParser {
+public class XMLJSPParser implements JspParser {
 
     private static final String JSP_NAMESPACE = "http://java.sun.com/JSP/Page";
     private static final String XML_DECLARATION_PREFIX = "<?xml";
@@ -72,19 +72,19 @@ public class XMLJSPParser implements JSPParser {
     }
 
     @Override
-    public JSPPage parse(InputStream input, String encoding, String jspUri)
-            throws IOException, JSPParseException {
+    public JspPage parse(InputStream input, String encoding, String jspUri)
+            throws IOException, JspParseException {
         return parse(input, encoding, jspUri, null);
     }
 
     @Override
-    public JSPPage parse(InputStream input, String encoding, String jspUri, 
-                        JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties)
-            throws IOException, JSPParseException {
+    public JspPage parse(InputStream input, String encoding, String jspUri, 
+                        JspPropertyGroupResolver.ResolvedJSPProperties jspProperties)
+            throws IOException, JspParseException {
 
         try {
             // Create content handler with JSP properties
-            JSPContentHandler handler = new JSPContentHandler(jspUri, encoding, jspProperties);
+            JspContentHandler handler = new JspContentHandler(jspUri, encoding, jspProperties);
             
             // Use Gonzalez streaming parser
             XMLParseUtils.parseStream(input, handler, handler, jspUri, null);
@@ -92,11 +92,11 @@ public class XMLJSPParser implements JSPParser {
             return handler.getJSPPage();
 
         } catch (SAXException e) {
-            // Check if this wraps a JSPParseException
-            if (e.getCause() instanceof JSPParseException) {
-                throw (JSPParseException) e.getCause();
+            // Check if this wraps a JspParseException
+            if (e.getCause() instanceof JspParseException) {
+                throw (JspParseException) e.getCause();
             }
-            throw new JSPParseException("XML parsing error: " + e.getMessage(), jspUri, -1, -1, e);
+            throw new JspParseException("XML parsing error: " + e.getMessage(), jspUri, -1, -1, e);
         }
     }
 
@@ -191,24 +191,24 @@ public class XMLJSPParser implements JSPParser {
     /**
      * SAX content handler for parsing XML JSP content.
      */
-    private static class JSPContentHandler extends DefaultHandler {
+    private static class JspContentHandler extends DefaultHandler {
 
-        private final JSPPage jspPage;
+        private final JspPage jspPage;
         private final Stack<String> elementStack = new Stack<String>();
         private final StringBuilder textBuffer = new StringBuilder();
-        private final JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties;
+        private final JspPropertyGroupResolver.ResolvedJSPProperties jspProperties;
         private final Stack<StandardActionElement> actionStack =
                 new Stack<StandardActionElement>();
 
         private Locator locator;
 
-        public JSPContentHandler(String jspUri, String encoding, 
-                               JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties) {
-            this.jspPage = new JSPPage(jspUri, encoding);
+        public JspContentHandler(String jspUri, String encoding, 
+                               JspPropertyGroupResolver.ResolvedJSPProperties jspProperties) {
+            this.jspPage = new JspPage(jspUri, encoding);
             this.jspProperties = jspProperties;
         }
 
-        public JSPPage getJSPPage() {
+        public JspPage getJSPPage() {
             return jspPage;
         }
 
@@ -274,7 +274,7 @@ public class XMLJSPParser implements JSPParser {
                     // Check if scripting is disabled
                     if (jspProperties != null && jspProperties.getScriptingInvalid() != null && 
                         jspProperties.getScriptingInvalid()) {
-                        throw new SAXException(new JSPParseException(
+                        throw new SAXException(new JspParseException(
                             "Scripting is disabled for this JSP page", 
                             jspPage.getUri(), line, column));
                     }
@@ -399,7 +399,7 @@ public class XMLJSPParser implements JSPParser {
                     }
                 }
             }
-            // Note: Page directives are handled by JSPPage internally during code generation
+            // Note: Page directives are handled by JspPage internally during code generation
         }
 
         private void handleRootElement(Map<String, String> attributes) {

@@ -56,7 +56,7 @@ final class EncoderStreamWriter {
     static void writeInsertWithNameReference(ByteBuffer out, boolean isStaticTable, long nameIndex, byte[] value) {
         int tBit = isStaticTable ? 0x40 : 0x00;
         PrefixedInteger.encode(out, 0x80 | tBit, nameIndex, 6);
-        QPACKStrings.write(out, value, 7, 0x00);
+        QpackStrings.write(out, value, 7, 0x00);
     }
 
     /**
@@ -67,8 +67,8 @@ final class EncoderStreamWriter {
      * @param value the literal value
      */
     static void writeInsertWithLiteralName(ByteBuffer out, byte[] name, byte[] value) {
-        QPACKStrings.write(out, name, 5, 0x40);
-        QPACKStrings.write(out, value, 7, 0x00);
+        QpackStrings.write(out, name, 5, 0x40);
+        QpackStrings.write(out, value, 7, 0x00);
     }
 
     /**

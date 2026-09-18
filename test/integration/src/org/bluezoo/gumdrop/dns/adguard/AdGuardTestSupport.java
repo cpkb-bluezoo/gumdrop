@@ -141,7 +141,7 @@ final class AdGuardTestSupport {
     /**
      * Computes the RFC 7469-style SPKI SHA-256 pin (colon-separated
      * lowercase hex) of the server's certificate, for use with {@code
-     * TCPDNSClientTransport#setPinnedSPKIFingerprints}.
+     * TcpDnsClientTransport#setPinnedSPKIFingerprints}.
      */
     static String computeSpkiSha256Pin(X509Certificate cert) throws Exception {
         byte[] spki = cert.getPublicKey().getEncoded();

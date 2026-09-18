@@ -34,18 +34,19 @@ import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
-import org.bluezoo.gumdrop.TCPTransportFactory;
-import org.bluezoo.gumdrop.dns.DNSMessage;
-import org.bluezoo.gumdrop.dns.DNSQueryCallback;
-import org.bluezoo.gumdrop.dns.DNSResourceRecord;
-import org.bluezoo.gumdrop.dns.DNSType;
-import org.bluezoo.gumdrop.dns.client.DNSResolver;
+import org.bluezoo.gumdrop.TcpTransportFactory;
+import org.bluezoo.gumdrop.dns.DnsMessage;
+import org.bluezoo.gumdrop.dns.DnsQueryCallback;
+import org.bluezoo.gumdrop.dns.DnsResourceRecord;
+import org.bluezoo.gumdrop.dns.DnsType;
+import org.bluezoo.gumdrop.dns.client.DnsResolver;
 import org.bluezoo.gumdrop.dns.client.HostsFile;
 import org.bluezoo.gumdrop.http.Capsule;
 import org.bluezoo.gumdrop.http.ConnectIpAddress;
 import org.bluezoo.gumdrop.http.ConnectIpRoute;
 import org.bluezoo.gumdrop.http.ConnectIpTarget;
-import org.bluezoo.gumdrop.http.HTTPVersion;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.HttpVersion;
 import org.bluezoo.gumdrop.tls.ServerCredentials;
 import org.bluezoo.gumdrop.util.EmptyX509TrustManager;
 
@@ -122,14 +123,16 @@ public class ConnectIpClient implements AltSvcListener {
     private boolean dnsHttpsRecordEnabled = true;
 
     // Internal transport components (created at connect time) -- TCP/H1.1/H2 path
-    private TCPTransportFactory transportFactory;
+    private TcpTransportFactory transportFactory;
     private ClientEndpoint clientEndpoint;
     private ConnectIpClientProtocolHandler protocolHandler;
     private ConnectIpClientSession h2Session;
 
     // Internal transport components (created at connect time) -- HTTP/3 path
-    private HTTPClient httpClient;
+    private HttpClient httpClient;
     private ConnectIpClientSession h3Session;
+
+    private Gumdrop gumdrop;
 
     /**
      * Creates a CONNECT-IP client for the given proxy host and port.
@@ -191,7 +194,7 @@ public class ConnectIpClient implements AltSvcListener {
 
     /**
      * Creates a CONNECT-IP client for a proxy reached over a UNIX domain
-     * socket, mirroring {@link org.bluezoo.gumdrop.TCPListener#setPath}
+     * socket, mirroring {@link org.bluezoo.gumdrop.TcpListener#setPath}
      * on the server side. Only the proxy connection itself may be a UNIX
      * domain socket -- the IP target requested through the tunnel (see
      * {@link #connect}) is a network-scope hint, per RFC 9484.
@@ -352,7 +355,7 @@ public class ConnectIpClient implements AltSvcListener {
      * connection with no negotiation at all: the client sends the h2
      * connection preface immediately and assumes the proxy already speaks
      * h2, by prior arrangement (matching {@link
-     * HTTPClient#setH2WithPriorKnowledge(boolean)} and {@link
+     * HttpClient#setH2WithPriorKnowledge(boolean)} and {@link
      * ConnectUdpClient#setH2WithPriorKnowledge(boolean)}, the equivalent
      * settings elsewhere). Combined with {@link #setSecure(boolean)}{@code
      * (false)}, this is what enables CONNECT-IP-over-h2c.
@@ -372,7 +375,7 @@ public class ConnectIpClient implements AltSvcListener {
      * support, checked before connecting.
      *
      * <p>When enabled (the default), {@link #connect} queries an HTTPS
-     * record for the proxy host via gumdrop's async {@link DNSResolver}
+     * record for the proxy host via gumdrop's async {@link DnsResolver}
      * before choosing a transport; if it advertises "h3" ALPN support, the
      * connection uses Extended CONNECT over QUIC directly. This is the
      * first tier of automatic negotiation, checked ahead of the {@link
@@ -401,9 +404,11 @@ public class ConnectIpClient implements AltSvcListener {
      * @param ipProto the IP protocol scope hint ({@link
      *                ConnectIpTarget#WILDCARD} for "unspecified", or a
      *                decimal Internet Protocol Number)
+     * @param gumdrop the runtime this connection is made under
      * @param handler the handler to receive CONNECT-IP events
      */
-    public void connect(String target, String ipProto, final ConnectIpEventHandler handler) {
+    public void connect(Gumdrop gumdrop, String target, String ipProto, final ConnectIpEventHandler handler) {
+        this.gumdrop = gumdrop;
         if (socketPath != null) {
             if (h3Enabled) {
                 handler.error(new IOException(
@@ -429,7 +434,7 @@ public class ConnectIpClient implements AltSvcListener {
      * <p>Skipped entirely -- straight to {@link #connectTcp} -- when
      * there is no proxy hostname to query: a literal {@link InetAddress}
      * was given at construction, {@link #host} is itself a literal IP, or
-     * it's {@code localhost} (matching {@link DNSResolver#resolve}'s own
+     * it's {@code localhost} (matching {@link DnsResolver#resolve}'s own
      * loopback fast-path).
      */
     private void discoverAndConnect(final String target, final String ipProto,
@@ -445,8 +450,6 @@ public class ConnectIpClient implements AltSvcListener {
 
         SelectorLoop loop = selectorLoop;
         if (loop == null) {
-            Gumdrop gumdrop = Gumdrop.getInstance();
-            gumdrop.start();
             loop = gumdrop.nextWorkerLoop();
         }
         if (loop == null) {
@@ -454,12 +457,12 @@ public class ConnectIpClient implements AltSvcListener {
             return;
         }
 
-        DNSResolver resolver = DNSResolver.forLoop(loop);
-        resolver.queryHTTPS(host, new DNSQueryCallback() {
+        DnsResolver resolver = DnsResolver.forLoop(loop);
+        resolver.queryHTTPS(host, new DnsQueryCallback() {
             @Override
-            public void onResponse(DNSMessage response) {
-                for (DNSResourceRecord rr : response.getAnswers()) {
-                    if (rr.getType() != DNSType.HTTPS || rr.isSVCBAliasForm()) {
+            public void onResponse(DnsMessage response) {
+                for (DnsResourceRecord rr : response.getAnswers()) {
+                    if (rr.getType() != DnsType.HTTPS || rr.isSVCBAliasForm()) {
                         continue;
                     }
                     if (rr.getSVCBAlpnProtocols().contains("h3")) {
@@ -513,7 +516,7 @@ public class ConnectIpClient implements AltSvcListener {
     private void connectTcp(final String target, final String ipProto, final ConnectIpEventHandler handler) {
         final String path = ConnectIpTarget.encode(target, ipProto);
 
-        transportFactory = new TCPTransportFactory();
+        transportFactory = new TcpTransportFactory();
         transportFactory.setSecure(secure);
         if (clientCredentials != null) {
             transportFactory.setClientCredentials(clientCredentials);
@@ -540,11 +543,11 @@ public class ConnectIpClient implements AltSvcListener {
         }
         transportFactory.start();
 
-        HTTPClientHandler internalHandler = new HTTPClientHandler() {
+        HttpClientHandler internalHandler = new HttpClientHandler() {
 
             @Override
             public void onConnected(Endpoint endpoint) {
-                if (protocolHandler.getVersion() == HTTPVersion.HTTP_2_0) {
+                if (protocolHandler.getVersion() == HttpVersion.HTTP_2_0) {
                     // RFC 9484 section 4: must not attempt Extended CONNECT
                     // before knowing the proxy advertised support for it --
                     // which, unlike this onConnected callback itself, isn't
@@ -564,7 +567,7 @@ public class ConnectIpClient implements AltSvcListener {
                     return;
                 }
                 // RFC 9110 section 7.8 -- HTTP/1.1 Upgrade handshake
-                HTTPRequest request = protocolHandler.get(path);
+                HttpRequest request = protocolHandler.get(path);
                 request.header("connection", "upgrade");
                 request.header("upgrade", "connect-ip");
                 request.header(Capsule.PROTOCOL_HEADER, "?1");
@@ -589,7 +592,7 @@ public class ConnectIpClient implements AltSvcListener {
 
         // RFC 9110 section 7.2 / RFC 9113 section 8.3.1: a UNIX domain
         // socket has no hostname of its own -- "localhost" matches
-        // HTTPClient's own default for the same case.
+        // HttpClient's own default for the same case.
         protocolHandler = (socketPath != null)
                 ? new ConnectIpClientProtocolHandler(
                         internalHandler, handler, "localhost", secure ? 443 : 80, secure)
@@ -638,7 +641,7 @@ public class ConnectIpClient implements AltSvcListener {
                             transportFactory, hostAddress, port);
                 }
             }
-            clientEndpoint.connect(protocolHandler);
+            clientEndpoint.connect(gumdrop, protocolHandler);
         } catch (IOException e) {
             handler.error(e);
         }
@@ -646,7 +649,7 @@ public class ConnectIpClient implements AltSvcListener {
 
     /**
      * Populates {@link AltSvcCache} for later, separate {@code connect()}
-     * calls (from this class or {@link HTTPClient}) to the same origin.
+     * calls (from this class or {@link HttpClient}) to the same origin.
      *
      * @param value the raw Alt-Svc header value
      */
@@ -678,13 +681,13 @@ public class ConnectIpClient implements AltSvcListener {
      * the CONNECT-IP tunnel over HTTP/2, via {@link
      * H2ConnectIpResponseHandler}.
      *
-     * <p>Builds the request through the same generic {@link HTTPRequest}
+     * <p>Builds the request through the same generic {@link HttpRequest}
      * API any other h2 request uses -- {@code :protocol} is just another
      * header from this layer's perspective, matching {@link
      * ConnectUdpClient#connectExtendedConnect} (private, but the same shape).
      */
     private void connectExtendedConnect(String path, final ConnectIpEventHandler handler) {
-        HTTPRequest request = protocolHandler.request("CONNECT", path);
+        HttpRequest request = protocolHandler.request("CONNECT", path);
         request.header(":protocol", "connect-ip");
         request.header(Capsule.PROTOCOL_HEADER, "?1");
         request.startRequestBody(new H2ConnectIpResponseHandler(
@@ -740,25 +743,25 @@ public class ConnectIpClient implements AltSvcListener {
     /**
      * RFC 9484 section 4 -- connects and requests the CONNECT-IP tunnel
      * over HTTP/3 Extended CONNECT, via an internally-managed {@link
-     * HTTPClient}.
+     * HttpClient}.
      */
     private void connectH3(final String target, final String ipProto, final ConnectIpEventHandler handler) {
         if (host != null) {
             httpClient = (selectorLoop != null)
-                    ? new HTTPClient(selectorLoop, host, port) : new HTTPClient(host, port);
+                    ? new HttpClient(selectorLoop, host, port) : new HttpClient(host, port);
         } else {
             httpClient = (selectorLoop != null)
-                    ? new HTTPClient(selectorLoop, hostAddress, port) : new HTTPClient(hostAddress, port);
+                    ? new HttpClient(selectorLoop, hostAddress, port) : new HttpClient(hostAddress, port);
         }
         httpClient.setH3Enabled(true);
-        // Note: HTTPClient's QUIC/H3 path (unlike its TCP/H1.1 path)
+        // Note: HttpClient's QUIC/H3 path (unlike its TCP/H1.1 path)
         // doesn't consult a custom X509TrustManager at all today, only
         // verifyPeer -- trustManager/keystoreFile are therefore not wired
         // through here; matches the same, pre-existing gap in
         // ConnectUdpClient#connectH3/WebSocketClient#connectH3.
         httpClient.setVerifyPeer(verifyPeer);
 
-        httpClient.connect(new HTTPClientHandler() {
+        httpClient.connect(gumdrop, new HttpClientHandler() {
             @Override
             public void onConnected(Endpoint endpoint) {
             }
@@ -880,7 +883,7 @@ public class ConnectIpClient implements AltSvcListener {
      * these callbacks fire. This handler only exists to catch non-101
      * responses (proxy refused the tunnel) and errors.
      */
-    private static class UpgradeResponseHandler extends DefaultHTTPResponseHandler {
+    private static class UpgradeResponseHandler extends DefaultHttpResponseHandler {
 
         private final ConnectIpEventHandler handler;
 
@@ -889,7 +892,7 @@ public class ConnectIpClient implements AltSvcListener {
         }
 
         @Override
-        public void ok(HTTPResponse response) {
+        public void ok(HttpResponse response) {
             // A 2xx response means the proxy did not upgrade
             handler.error(new IOException(
                     "Proxy did not upgrade to connect-ip: "
@@ -897,7 +900,7 @@ public class ConnectIpClient implements AltSvcListener {
         }
 
         @Override
-        public void error(HTTPResponse response) {
+        public void error(HttpResponse response) {
             handler.error(new IOException(
                     "CONNECT-IP upgrade failed: " + response.getStatus()));
         }

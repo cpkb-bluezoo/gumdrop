@@ -12,14 +12,14 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Tests for {@link FTPListener}, focusing on RFC 4217 implicit FTPS
+ * Tests for {@link FtpListener}, focusing on RFC 4217 implicit FTPS
  * port defaulting.
  */
 public class FTPListenerTest {
 
     @Test
     public void testDefaultPortIsFTP() {
-        FTPListener listener = new FTPListener();
+        FtpListener listener = new FtpListener();
         assertEquals("Default port should be 21",
                 21, listener.getPort());
     }
@@ -27,7 +27,7 @@ public class FTPListenerTest {
     @Test
     public void testSecureDefaultPortIsFTPS() {
         // RFC 4217: implicit FTPS uses port 990
-        FTPListener listener = new FTPListener();
+        FtpListener listener = new FtpListener();
         listener.setSecure(true);
         assertEquals("Secure listener should default to port 990",
                 990, listener.getPort());
@@ -35,7 +35,7 @@ public class FTPListenerTest {
 
     @Test
     public void testExplicitPortOverridesSecureDefault() {
-        FTPListener listener = new FTPListener();
+        FtpListener listener = new FtpListener();
         listener.setSecure(true);
         listener.setPort(2121);
         assertEquals("Explicitly set port should override FTPS default",
@@ -44,7 +44,7 @@ public class FTPListenerTest {
 
     @Test
     public void testExplicitPortNotOverriddenBySecure() {
-        FTPListener listener = new FTPListener();
+        FtpListener listener = new FtpListener();
         listener.setPort(8021);
         listener.setSecure(true);
         assertEquals("Port set before setSecure should be preserved",
@@ -53,20 +53,20 @@ public class FTPListenerTest {
 
     @Test
     public void testNonSecureExplicitPort() {
-        FTPListener listener = new FTPListener();
+        FtpListener listener = new FtpListener();
         listener.setPort(2100);
         assertEquals(2100, listener.getPort());
     }
 
     @Test
     public void testDescriptionFTP() {
-        FTPListener listener = new FTPListener();
+        FtpListener listener = new FtpListener();
         assertEquals("ftp", listener.getDescription());
     }
 
     @Test
     public void testDescriptionFTPS() {
-        FTPListener listener = new FTPListener();
+        FtpListener listener = new FtpListener();
         listener.setSecure(true);
         assertEquals("ftps", listener.getDescription());
     }

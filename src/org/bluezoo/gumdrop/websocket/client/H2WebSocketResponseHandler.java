@@ -28,9 +28,9 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketExtension;
@@ -39,12 +39,12 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
 /**
  * RFC 8441 — bridges a generic HTTP/2 Extended CONNECT response
- * ({@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler}) to a
+ * ({@link org.bluezoo.gumdrop.http.client.HttpResponseHandler}) to a
  * {@link WebSocketConnection}.
  *
  * <p>Unlike the h3/RFC 9220 client (which has its own dedicated
  * {@code H3ClientStream}), h2 responses already route generically through
- * {@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler} — a {@code 200}
+ * {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler} — a {@code 200}
  * to an Extended CONNECT is indistinguishable, at that layer, from a
  * {@code 200} to any other request. This class is what makes it WebSocket-
  * shaped: it collects {@code sec-websocket-extensions} from the header
@@ -57,12 +57,12 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://tools.ietf.org/html/rfc8441">RFC 8441: Bootstrapping WebSockets with HTTP/2</a>
  */
-class H2WebSocketResponseHandler extends DefaultHTTPResponseHandler {
+class H2WebSocketResponseHandler extends DefaultHttpResponseHandler {
 
     private static final Logger LOGGER =
             Logger.getLogger(H2WebSocketResponseHandler.class.getName());
 
-    private final HTTPRequest request;
+    private final HttpRequest request;
     private final List<WebSocketExtension> requestedExtensions;
     private final WebSocketEventHandler wsHandler;
 
@@ -70,7 +70,7 @@ class H2WebSocketResponseHandler extends DefaultHTTPResponseHandler {
     private boolean failed;
     private H2ClientWebSocketConnectionAdapter webSocketAdapter;
 
-    H2WebSocketResponseHandler(HTTPRequest request,
+    H2WebSocketResponseHandler(HttpRequest request,
                                List<WebSocketExtension> requestedExtensions,
                                WebSocketEventHandler wsHandler) {
         this.request = request;
@@ -79,14 +79,14 @@ class H2WebSocketResponseHandler extends DefaultHTTPResponseHandler {
     }
 
     @Override
-    public void ok(HTTPResponse response) {
+    public void ok(HttpResponse response) {
         // Nothing to do yet -- sec-websocket-extensions (if any) arrives
         // via header(), and the bridge is built in startResponseBody()
         // once the header section is known to be complete.
     }
 
     @Override
-    public void error(HTTPResponse response) {
+    public void error(HttpResponse response) {
         failed = true;
         wsHandler.error(new IOException(
                 "WebSocket-over-HTTP/2 upgrade failed: " + response.getStatus()));
@@ -212,9 +212,9 @@ class H2WebSocketResponseHandler extends DefaultHTTPResponseHandler {
     private static class H2ClientWebSocketTransport
             implements WebSocketConnection.WebSocketTransport {
 
-        private final HTTPRequest request;
+        private final HttpRequest request;
 
-        H2ClientWebSocketTransport(HTTPRequest request) {
+        H2ClientWebSocketTransport(HttpRequest request) {
             this.request = request;
         }
 

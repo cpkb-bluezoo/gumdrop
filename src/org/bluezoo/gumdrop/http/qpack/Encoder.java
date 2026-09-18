@@ -47,7 +47,7 @@ import org.bluezoo.gumdrop.http.Header;
  * @see Decoder
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9204#section-4.5">RFC 9204 section 4.5</a>
  */
-public final class Encoder extends QPACKConstants implements DecoderStreamHandler {
+public final class Encoder extends QpackConstants implements DecoderStreamHandler {
 
     private static final class OutstandingSection {
         final long requiredInsertCount;
@@ -215,16 +215,16 @@ public final class Encoder extends QPACKConstants implements DecoderStreamHandle
                 // RFC 9204 section 4.5.4: Literal Field Line with Name
                 // Reference, N=0, T=1 (static)
                 PrefixedInteger.encode(fieldLines, 0x50, staticNameIndex, 4);
-                QPACKStrings.write(fieldLines, valueBytes(value), 7, 0x00);
+                QpackStrings.write(fieldLines, valueBytes(value), 7, 0x00);
             } else if (dynamicNameMatch != null && !dynamicNameMatch.fullMatch) {
                 // RFC 9204 section 4.5.4: Literal Field Line with Name
                 // Reference, N=0, T=0 (dynamic)
                 PrefixedInteger.encode(fieldLines, 0x40, base - 1 - dynamicNameMatch.absoluteIndex, 4);
-                QPACKStrings.write(fieldLines, valueBytes(value), 7, 0x00);
+                QpackStrings.write(fieldLines, valueBytes(value), 7, 0x00);
             } else {
                 // RFC 9204 section 4.5.6: Literal Field Line with Literal Name, N=0
-                QPACKStrings.write(fieldLines, nameBytes(name), 3, 0x20);
-                QPACKStrings.write(fieldLines, valueBytes(value), 7, 0x00);
+                QpackStrings.write(fieldLines, nameBytes(name), 3, 0x20);
+                QpackStrings.write(fieldLines, valueBytes(value), 7, 0x00);
             }
         }
 

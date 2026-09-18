@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.buffer;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.SecurityInfo;
 
 import java.nio.ByteBuffer;
@@ -32,7 +32,7 @@ import java.nio.ByteBuffer;
  * Simple echo server for TLS testing.
  * Echoes back whatever data it receives.
  */
-public class TLSEchoServer extends TCPListener {
+public class TLSEchoServer extends TcpListener {
 
     private int port = 19445;
 

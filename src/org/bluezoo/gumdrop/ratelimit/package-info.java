@@ -20,7 +20,7 @@
  */
 
 /**
- * Rate limiting shared by any {@link org.bluezoo.gumdrop.TCPListener},
+ * Rate limiting shared by any {@link org.bluezoo.gumdrop.TcpListener},
  * protecting against connection flooding, brute-force authentication,
  * and general resource exhaustion.
  *
@@ -36,7 +36,7 @@
  * AUTHENTICATION_FAILED} when telemetry is configured.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see org.bluezoo.gumdrop.TCPListener
+ * @see org.bluezoo.gumdrop.TcpListener
  * @see org.bluezoo.gumdrop.telemetry.ErrorCategory#RATE_LIMITED
  */
 package org.bluezoo.gumdrop.ratelimit;

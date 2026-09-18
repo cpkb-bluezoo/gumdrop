@@ -25,6 +25,8 @@ import java.util.concurrent.Executor;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TlsHandshakeAsyncOffload;
 
 /**
@@ -54,12 +56,14 @@ final class QuicHandshakeAsyncOffload {
 
     QuicHandshakeAsyncOffload(QuicTlsEngineListener listener) {
         this.listener = listener;
+        SelectorLoop loop = listener.getSelectorLoop();
+        Gumdrop gumdrop = (loop != null) ? loop.getGumdrop() : null;
         this.delegate = new TlsHandshakeAsyncOffload(new Executor() {
             @Override
             public void execute(Runnable command) {
                 listener.execute(command);
             }
-        });
+        }, gumdrop);
     }
 
     Object lock() {

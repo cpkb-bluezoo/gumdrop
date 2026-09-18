@@ -28,7 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Unit tests for ASN1Element.
+ * Unit tests for Asn1Element.
  */
 public class ASN1ElementTest {
 
@@ -37,9 +37,9 @@ public class ASN1ElementTest {
     @Test
     public void testPrimitiveElement() {
         byte[] value = {0x01, 0x02, 0x03};
-        ASN1Element element = new ASN1Element(ASN1Type.OCTET_STRING, value);
+        Asn1Element element = new Asn1Element(Asn1Type.OCTET_STRING, value);
         
-        assertEquals(ASN1Type.OCTET_STRING, element.getTag());
+        assertEquals(Asn1Type.OCTET_STRING, element.getTag());
         assertArrayEquals(value, element.getValue());
         assertNull(element.getChildren());
         assertFalse(element.isConstructed());
@@ -47,9 +47,9 @@ public class ASN1ElementTest {
 
     @Test
     public void testPrimitiveElementEmptyValue() {
-        ASN1Element element = new ASN1Element(ASN1Type.NULL, new byte[0]);
+        Asn1Element element = new Asn1Element(Asn1Type.NULL, new byte[0]);
         
-        assertEquals(ASN1Type.NULL, element.getTag());
+        assertEquals(Asn1Type.NULL, element.getTag());
         assertEquals(0, element.getValue().length);
     }
 
@@ -57,13 +57,13 @@ public class ASN1ElementTest {
 
     @Test
     public void testConstructedElement() {
-        List<ASN1Element> children = new ArrayList<ASN1Element>();
-        children.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01}));
-        children.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x02}));
+        List<Asn1Element> children = new ArrayList<Asn1Element>();
+        children.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01}));
+        children.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x02}));
         
-        ASN1Element element = new ASN1Element(ASN1Type.SEQUENCE, children);
+        Asn1Element element = new Asn1Element(Asn1Type.SEQUENCE, children);
         
-        assertEquals(ASN1Type.SEQUENCE, element.getTag());
+        assertEquals(Asn1Type.SEQUENCE, element.getTag());
         assertTrue(element.isConstructed());
         assertNull(element.getValue());
         assertNotNull(element.getChildren());
@@ -72,8 +72,8 @@ public class ASN1ElementTest {
 
     @Test
     public void testConstructedElementEmptyChildren() {
-        List<ASN1Element> children = new ArrayList<ASN1Element>();
-        ASN1Element element = new ASN1Element(ASN1Type.SEQUENCE, children);
+        List<Asn1Element> children = new ArrayList<Asn1Element>();
+        Asn1Element element = new Asn1Element(Asn1Type.SEQUENCE, children);
         
         assertEquals(0, element.getChildCount());
     }
@@ -82,103 +82,103 @@ public class ASN1ElementTest {
 
     @Test
     public void testGetTagClassUniversal() {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01});
-        assertEquals(ASN1Type.CLASS_UNIVERSAL, element.getTagClass());
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01});
+        assertEquals(Asn1Type.CLASS_UNIVERSAL, element.getTagClass());
     }
 
     @Test
     public void testGetTagClassContext() {
-        int contextTag = ASN1Type.contextTag(5, false);
-        ASN1Element element = new ASN1Element(contextTag, new byte[] {0x01});
-        assertEquals(ASN1Type.CLASS_CONTEXT, element.getTagClass());
+        int contextTag = Asn1Type.contextTag(5, false);
+        Asn1Element element = new Asn1Element(contextTag, new byte[] {0x01});
+        assertEquals(Asn1Type.CLASS_CONTEXT, element.getTagClass());
     }
 
     @Test
     public void testGetTagClassApplication() {
-        int appTag = ASN1Type.applicationTag(3, true);
-        ASN1Element element = new ASN1Element(appTag, new ArrayList<ASN1Element>());
-        assertEquals(ASN1Type.CLASS_APPLICATION, element.getTagClass());
+        int appTag = Asn1Type.applicationTag(3, true);
+        Asn1Element element = new Asn1Element(appTag, new ArrayList<Asn1Element>());
+        assertEquals(Asn1Type.CLASS_APPLICATION, element.getTagClass());
     }
 
     // Test tag number extraction
 
     @Test
     public void testGetTagNumber() {
-        ASN1Element intElement = new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01});
+        Asn1Element intElement = new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01});
         assertEquals(2, intElement.getTagNumber());  // INTEGER = 0x02
         
-        int ctxTag7 = ASN1Type.contextTag(7, false);
-        ASN1Element ctxElement = new ASN1Element(ctxTag7, new byte[] {0x01});
+        int ctxTag7 = Asn1Type.contextTag(7, false);
+        Asn1Element ctxElement = new Asn1Element(ctxTag7, new byte[] {0x01});
         assertEquals(7, ctxElement.getTagNumber());
     }
 
     // Test value accessors
 
     @Test
-    public void testAsBooleanTrue() throws ASN1Exception {
-        ASN1Element element = new ASN1Element(ASN1Type.BOOLEAN, new byte[] {(byte) 0xFF});
+    public void testAsBooleanTrue() throws Asn1Exception {
+        Asn1Element element = new Asn1Element(Asn1Type.BOOLEAN, new byte[] {(byte) 0xFF});
         assertTrue(element.asBoolean());
     }
 
     @Test
-    public void testAsBooleanFalse() throws ASN1Exception {
-        ASN1Element element = new ASN1Element(ASN1Type.BOOLEAN, new byte[] {0x00});
+    public void testAsBooleanFalse() throws Asn1Exception {
+        Asn1Element element = new Asn1Element(Asn1Type.BOOLEAN, new byte[] {0x00});
         assertFalse(element.asBoolean());
     }
 
     @Test
-    public void testAsBooleanNonZero() throws ASN1Exception {
+    public void testAsBooleanNonZero() throws Asn1Exception {
         // Any non-zero value is true
-        ASN1Element element = new ASN1Element(ASN1Type.BOOLEAN, new byte[] {0x01});
+        Asn1Element element = new Asn1Element(Asn1Type.BOOLEAN, new byte[] {0x01});
         assertTrue(element.asBoolean());
     }
 
-    @Test(expected = ASN1Exception.class)
-    public void testAsBooleanInvalidLength() throws ASN1Exception {
-        ASN1Element element = new ASN1Element(ASN1Type.BOOLEAN, new byte[] {0x00, 0x01});
+    @Test(expected = Asn1Exception.class)
+    public void testAsBooleanInvalidLength() throws Asn1Exception {
+        Asn1Element element = new Asn1Element(Asn1Type.BOOLEAN, new byte[] {0x00, 0x01});
         element.asBoolean();
     }
 
     @Test
-    public void testAsIntPositive() throws ASN1Exception {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[] {0x2A});
+    public void testAsIntPositive() throws Asn1Exception {
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[] {0x2A});
         assertEquals(42, element.asInt());
     }
 
     @Test
-    public void testAsIntNegative() throws ASN1Exception {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[] {(byte) 0xFF});
+    public void testAsIntNegative() throws Asn1Exception {
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[] {(byte) 0xFF});
         assertEquals(-1, element.asInt());
     }
 
     @Test
-    public void testAsIntTwoBytes() throws ASN1Exception {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01, 0x00});
+    public void testAsIntTwoBytes() throws Asn1Exception {
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01, 0x00});
         assertEquals(256, element.asInt());
     }
 
     @Test
-    public void testAsIntFourBytes() throws ASN1Exception {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[] {0x12, 0x34, 0x56, 0x78});
+    public void testAsIntFourBytes() throws Asn1Exception {
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[] {0x12, 0x34, 0x56, 0x78});
         assertEquals(0x12345678, element.asInt());
     }
 
     @Test
-    public void testAsIntNegativeTwoBytes() throws ASN1Exception {
+    public void testAsIntNegativeTwoBytes() throws Asn1Exception {
         // -256 = 0xFF00
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[] {(byte) 0xFF, 0x00});
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[] {(byte) 0xFF, 0x00});
         assertEquals(-256, element.asInt());
     }
 
-    @Test(expected = ASN1Exception.class)
-    public void testAsIntEmpty() throws ASN1Exception {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[0]);
+    @Test(expected = Asn1Exception.class)
+    public void testAsIntEmpty() throws Asn1Exception {
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[0]);
         element.asInt();
     }
 
     @Test
-    public void testAsLong() throws ASN1Exception {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, 
+    public void testAsLong() throws Asn1Exception {
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, 
                 new byte[] {0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00});
         assertEquals(0x100000000L, element.asLong());
     }
@@ -186,40 +186,40 @@ public class ASN1ElementTest {
     @Test
     public void testAsString() {
         byte[] value = "hello".getBytes();
-        ASN1Element element = new ASN1Element(ASN1Type.OCTET_STRING, value);
+        Asn1Element element = new Asn1Element(Asn1Type.OCTET_STRING, value);
         assertEquals("hello", element.asString());
     }
 
     @Test
     public void testAsStringEmpty() {
-        ASN1Element element = new ASN1Element(ASN1Type.OCTET_STRING, new byte[0]);
+        Asn1Element element = new Asn1Element(Asn1Type.OCTET_STRING, new byte[0]);
         assertEquals("", element.asString());
     }
 
     @Test
     public void testAsStringNull() {
-        List<ASN1Element> children = new ArrayList<ASN1Element>();
-        ASN1Element element = new ASN1Element(ASN1Type.SEQUENCE, children);
+        List<Asn1Element> children = new ArrayList<Asn1Element>();
+        Asn1Element element = new Asn1Element(Asn1Type.SEQUENCE, children);
         assertNull(element.asString());
     }
 
     @Test
     public void testAsOctetString() {
         byte[] value = {0x01, 0x02, 0x03};
-        ASN1Element element = new ASN1Element(ASN1Type.OCTET_STRING, value);
+        Asn1Element element = new Asn1Element(Asn1Type.OCTET_STRING, value);
         assertArrayEquals(value, element.asOctetString());
     }
 
     // Test child access
 
     @Test
-    public void testGetChild() throws ASN1Exception {
-        List<ASN1Element> children = new ArrayList<ASN1Element>();
-        children.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01}));
-        children.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x02}));
-        children.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x03}));
+    public void testGetChild() throws Asn1Exception {
+        List<Asn1Element> children = new ArrayList<Asn1Element>();
+        children.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01}));
+        children.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x02}));
+        children.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x03}));
         
-        ASN1Element element = new ASN1Element(ASN1Type.SEQUENCE, children);
+        Asn1Element element = new Asn1Element(Asn1Type.SEQUENCE, children);
         
         assertEquals(1, element.getChild(0).asInt());
         assertEquals(2, element.getChild(1).asInt());
@@ -228,22 +228,22 @@ public class ASN1ElementTest {
 
     @Test(expected = IndexOutOfBoundsException.class)
     public void testGetChildOutOfBounds() {
-        List<ASN1Element> children = new ArrayList<ASN1Element>();
-        children.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01}));
+        List<Asn1Element> children = new ArrayList<Asn1Element>();
+        children.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01}));
         
-        ASN1Element element = new ASN1Element(ASN1Type.SEQUENCE, children);
+        Asn1Element element = new Asn1Element(Asn1Type.SEQUENCE, children);
         element.getChild(5);
     }
 
     @Test(expected = IndexOutOfBoundsException.class)
     public void testGetChildFromPrimitive() {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01});
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01});
         element.getChild(0);
     }
 
     @Test
     public void testGetChildCountPrimitive() {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01});
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01});
         assertEquals(0, element.getChildCount());
     }
 
@@ -251,7 +251,7 @@ public class ASN1ElementTest {
 
     @Test
     public void testToStringPrimitive() {
-        ASN1Element element = new ASN1Element(ASN1Type.INTEGER, new byte[] {0x2A});
+        Asn1Element element = new Asn1Element(Asn1Type.INTEGER, new byte[] {0x2A});
         String str = element.toString();
         
         assertTrue(str.contains("INTEGER"));
@@ -259,7 +259,7 @@ public class ASN1ElementTest {
 
     @Test
     public void testToStringOctetString() {
-        ASN1Element element = new ASN1Element(ASN1Type.OCTET_STRING, "test".getBytes());
+        Asn1Element element = new Asn1Element(Asn1Type.OCTET_STRING, "test".getBytes());
         String str = element.toString();
         
         assertTrue(str.contains("OCTET STRING"));
@@ -268,10 +268,10 @@ public class ASN1ElementTest {
 
     @Test
     public void testToStringConstructed() {
-        List<ASN1Element> children = new ArrayList<ASN1Element>();
-        children.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01}));
+        List<Asn1Element> children = new ArrayList<Asn1Element>();
+        children.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01}));
         
-        ASN1Element element = new ASN1Element(ASN1Type.SEQUENCE, children);
+        Asn1Element element = new Asn1Element(Asn1Type.SEQUENCE, children);
         String str = element.toString();
         
         assertTrue(str.contains("SEQUENCE"));
@@ -280,8 +280,8 @@ public class ASN1ElementTest {
 
     @Test
     public void testToStringContextTag() {
-        int ctxTag = ASN1Type.contextTag(3, false);
-        ASN1Element element = new ASN1Element(ctxTag, new byte[] {0x01});
+        int ctxTag = Asn1Type.contextTag(3, false);
+        Asn1Element element = new Asn1Element(ctxTag, new byte[] {0x01});
         String str = element.toString();
         
         assertTrue(str.contains("CONTEXT"));
@@ -292,19 +292,19 @@ public class ASN1ElementTest {
 
     @Test
     public void testChildrenListImmutable() {
-        List<ASN1Element> children = new ArrayList<ASN1Element>();
-        children.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x01}));
+        List<Asn1Element> children = new ArrayList<Asn1Element>();
+        children.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x01}));
         
-        ASN1Element element = new ASN1Element(ASN1Type.SEQUENCE, children);
+        Asn1Element element = new Asn1Element(Asn1Type.SEQUENCE, children);
         
         // Modifying original list shouldn't affect element
-        children.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x02}));
+        children.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x02}));
         assertEquals(1, element.getChildCount());
         
         // Returned list should be unmodifiable
-        List<ASN1Element> returnedChildren = element.getChildren();
+        List<Asn1Element> returnedChildren = element.getChildren();
         try {
-            returnedChildren.add(new ASN1Element(ASN1Type.INTEGER, new byte[] {0x03}));
+            returnedChildren.add(new Asn1Element(Asn1Type.INTEGER, new byte[] {0x03}));
             fail("Should throw UnsupportedOperationException");
         } catch (UnsupportedOperationException e) {
             // Expected

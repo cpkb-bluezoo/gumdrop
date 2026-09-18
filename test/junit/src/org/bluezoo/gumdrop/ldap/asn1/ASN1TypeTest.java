@@ -25,7 +25,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for ASN1Type constants and utilities.
+ * Unit tests for Asn1Type constants and utilities.
  */
 public class ASN1TypeTest {
 
@@ -33,65 +33,65 @@ public class ASN1TypeTest {
     
     @Test
     public void testGetTagClassUniversal() {
-        assertEquals(ASN1Type.CLASS_UNIVERSAL, ASN1Type.getTagClass(ASN1Type.INTEGER));
-        assertEquals(ASN1Type.CLASS_UNIVERSAL, ASN1Type.getTagClass(ASN1Type.BOOLEAN));
-        assertEquals(ASN1Type.CLASS_UNIVERSAL, ASN1Type.getTagClass(ASN1Type.OCTET_STRING));
-        assertEquals(ASN1Type.CLASS_UNIVERSAL, ASN1Type.getTagClass(ASN1Type.SEQUENCE));
+        assertEquals(Asn1Type.CLASS_UNIVERSAL, Asn1Type.getTagClass(Asn1Type.INTEGER));
+        assertEquals(Asn1Type.CLASS_UNIVERSAL, Asn1Type.getTagClass(Asn1Type.BOOLEAN));
+        assertEquals(Asn1Type.CLASS_UNIVERSAL, Asn1Type.getTagClass(Asn1Type.OCTET_STRING));
+        assertEquals(Asn1Type.CLASS_UNIVERSAL, Asn1Type.getTagClass(Asn1Type.SEQUENCE));
     }
 
     @Test
     public void testGetTagClassApplication() {
-        int appTag = ASN1Type.applicationTag(5, false);
-        assertEquals(ASN1Type.CLASS_APPLICATION, ASN1Type.getTagClass(appTag));
+        int appTag = Asn1Type.applicationTag(5, false);
+        assertEquals(Asn1Type.CLASS_APPLICATION, Asn1Type.getTagClass(appTag));
     }
 
     @Test
     public void testGetTagClassContext() {
-        int ctxTag = ASN1Type.contextTag(3, false);
-        assertEquals(ASN1Type.CLASS_CONTEXT, ASN1Type.getTagClass(ctxTag));
+        int ctxTag = Asn1Type.contextTag(3, false);
+        assertEquals(Asn1Type.CLASS_CONTEXT, Asn1Type.getTagClass(ctxTag));
     }
 
     // Test constructed flag
 
     @Test
     public void testIsConstructedPrimitive() {
-        assertFalse(ASN1Type.isConstructed(ASN1Type.INTEGER));
-        assertFalse(ASN1Type.isConstructed(ASN1Type.BOOLEAN));
-        assertFalse(ASN1Type.isConstructed(ASN1Type.OCTET_STRING));
+        assertFalse(Asn1Type.isConstructed(Asn1Type.INTEGER));
+        assertFalse(Asn1Type.isConstructed(Asn1Type.BOOLEAN));
+        assertFalse(Asn1Type.isConstructed(Asn1Type.OCTET_STRING));
     }
 
     @Test
     public void testIsConstructedSequence() {
-        assertTrue(ASN1Type.isConstructed(ASN1Type.SEQUENCE));
-        assertTrue(ASN1Type.isConstructed(ASN1Type.SET));
+        assertTrue(Asn1Type.isConstructed(Asn1Type.SEQUENCE));
+        assertTrue(Asn1Type.isConstructed(Asn1Type.SET));
     }
 
     @Test
     public void testIsConstructedContextTags() {
-        int primitiveCtx = ASN1Type.contextTag(0, false);
-        int constructedCtx = ASN1Type.contextTag(0, true);
+        int primitiveCtx = Asn1Type.contextTag(0, false);
+        int constructedCtx = Asn1Type.contextTag(0, true);
         
-        assertFalse(ASN1Type.isConstructed(primitiveCtx));
-        assertTrue(ASN1Type.isConstructed(constructedCtx));
+        assertFalse(Asn1Type.isConstructed(primitiveCtx));
+        assertTrue(Asn1Type.isConstructed(constructedCtx));
     }
 
     // Test tag number extraction
 
     @Test
     public void testGetTagNumber() {
-        assertEquals(2, ASN1Type.getTagNumber(ASN1Type.INTEGER));
-        assertEquals(1, ASN1Type.getTagNumber(ASN1Type.BOOLEAN));
-        assertEquals(4, ASN1Type.getTagNumber(ASN1Type.OCTET_STRING));
-        assertEquals(16, ASN1Type.getTagNumber(ASN1Type.SEQUENCE)); // 0x30 & 0x1F = 0x10 = 16
+        assertEquals(2, Asn1Type.getTagNumber(Asn1Type.INTEGER));
+        assertEquals(1, Asn1Type.getTagNumber(Asn1Type.BOOLEAN));
+        assertEquals(4, Asn1Type.getTagNumber(Asn1Type.OCTET_STRING));
+        assertEquals(16, Asn1Type.getTagNumber(Asn1Type.SEQUENCE)); // 0x30 & 0x1F = 0x10 = 16
     }
 
     @Test
     public void testGetTagNumberContext() {
-        int ctxTag5 = ASN1Type.contextTag(5, false);
-        assertEquals(5, ASN1Type.getTagNumber(ctxTag5));
+        int ctxTag5 = Asn1Type.contextTag(5, false);
+        assertEquals(5, Asn1Type.getTagNumber(ctxTag5));
         
-        int ctxTag0 = ASN1Type.contextTag(0, true);
-        assertEquals(0, ASN1Type.getTagNumber(ctxTag0));
+        int ctxTag0 = Asn1Type.contextTag(0, true);
+        assertEquals(0, Asn1Type.getTagNumber(ctxTag0));
     }
 
     // Test tag creation
@@ -99,51 +99,51 @@ public class ASN1TypeTest {
     @Test
     public void testContextTag() {
         // Context-specific primitive tag 0 should be 0x80
-        assertEquals(0x80, ASN1Type.contextTag(0, false));
+        assertEquals(0x80, Asn1Type.contextTag(0, false));
         
         // Context-specific constructed tag 0 should be 0xA0
-        assertEquals(0xA0, ASN1Type.contextTag(0, true));
+        assertEquals(0xA0, Asn1Type.contextTag(0, true));
         
         // Context-specific primitive tag 3 should be 0x83
-        assertEquals(0x83, ASN1Type.contextTag(3, false));
+        assertEquals(0x83, Asn1Type.contextTag(3, false));
         
         // Context-specific constructed tag 7 should be 0xA7
-        assertEquals(0xA7, ASN1Type.contextTag(7, true));
+        assertEquals(0xA7, Asn1Type.contextTag(7, true));
     }
 
     @Test
     public void testApplicationTag() {
         // Application primitive tag 0 should be 0x40
-        assertEquals(0x40, ASN1Type.applicationTag(0, false));
+        assertEquals(0x40, Asn1Type.applicationTag(0, false));
         
         // Application constructed tag 0 should be 0x60
-        assertEquals(0x60, ASN1Type.applicationTag(0, true));
+        assertEquals(0x60, Asn1Type.applicationTag(0, true));
         
         // Application primitive tag 3 should be 0x43 (BindRequest)
-        assertEquals(0x43, ASN1Type.applicationTag(3, false));
+        assertEquals(0x43, Asn1Type.applicationTag(3, false));
     }
 
     // Test tag name conversion
 
     @Test
     public void testGetTagNameUniversal() {
-        assertEquals("BOOLEAN", ASN1Type.getTagName(ASN1Type.BOOLEAN));
-        assertEquals("INTEGER", ASN1Type.getTagName(ASN1Type.INTEGER));
-        assertEquals("OCTET STRING", ASN1Type.getTagName(ASN1Type.OCTET_STRING));
-        assertEquals("SEQUENCE", ASN1Type.getTagName(ASN1Type.SEQUENCE));
-        assertEquals("SET", ASN1Type.getTagName(ASN1Type.SET));
-        assertEquals("NULL", ASN1Type.getTagName(ASN1Type.NULL));
-        assertEquals("ENUMERATED", ASN1Type.getTagName(ASN1Type.ENUMERATED));
+        assertEquals("BOOLEAN", Asn1Type.getTagName(Asn1Type.BOOLEAN));
+        assertEquals("INTEGER", Asn1Type.getTagName(Asn1Type.INTEGER));
+        assertEquals("OCTET STRING", Asn1Type.getTagName(Asn1Type.OCTET_STRING));
+        assertEquals("SEQUENCE", Asn1Type.getTagName(Asn1Type.SEQUENCE));
+        assertEquals("SET", Asn1Type.getTagName(Asn1Type.SET));
+        assertEquals("NULL", Asn1Type.getTagName(Asn1Type.NULL));
+        assertEquals("ENUMERATED", Asn1Type.getTagName(Asn1Type.ENUMERATED));
     }
 
     @Test
     public void testGetTagNameContext() {
-        String name = ASN1Type.getTagName(ASN1Type.contextTag(3, false));
+        String name = Asn1Type.getTagName(Asn1Type.contextTag(3, false));
         assertTrue(name.contains("CONTEXT"));
         assertTrue(name.contains("3"));
         assertTrue(name.contains("primitive"));
         
-        String name2 = ASN1Type.getTagName(ASN1Type.contextTag(5, true));
+        String name2 = Asn1Type.getTagName(Asn1Type.contextTag(5, true));
         assertTrue(name2.contains("CONTEXT"));
         assertTrue(name2.contains("5"));
         assertTrue(name2.contains("constructed"));
@@ -151,7 +151,7 @@ public class ASN1TypeTest {
 
     @Test
     public void testGetTagNameApplication() {
-        String name = ASN1Type.getTagName(ASN1Type.applicationTag(0, true));
+        String name = Asn1Type.getTagName(Asn1Type.applicationTag(0, true));
         assertTrue(name.contains("APPLICATION"));
         assertTrue(name.contains("0"));
     }
@@ -161,32 +161,32 @@ public class ASN1TypeTest {
     @Test
     public void testUniversalTypeConstants() {
         // Verify the values match ASN.1 universal tag numbers
-        assertEquals(0x01, ASN1Type.BOOLEAN);
-        assertEquals(0x02, ASN1Type.INTEGER);
-        assertEquals(0x03, ASN1Type.BIT_STRING);
-        assertEquals(0x04, ASN1Type.OCTET_STRING);
-        assertEquals(0x05, ASN1Type.NULL);
-        assertEquals(0x06, ASN1Type.OBJECT_IDENTIFIER);
-        assertEquals(0x0A, ASN1Type.ENUMERATED);
-        assertEquals(0x0C, ASN1Type.UTF8_STRING);
-        assertEquals(0x30, ASN1Type.SEQUENCE);
-        assertEquals(0x31, ASN1Type.SET);
+        assertEquals(0x01, Asn1Type.BOOLEAN);
+        assertEquals(0x02, Asn1Type.INTEGER);
+        assertEquals(0x03, Asn1Type.BIT_STRING);
+        assertEquals(0x04, Asn1Type.OCTET_STRING);
+        assertEquals(0x05, Asn1Type.NULL);
+        assertEquals(0x06, Asn1Type.OBJECT_IDENTIFIER);
+        assertEquals(0x0A, Asn1Type.ENUMERATED);
+        assertEquals(0x0C, Asn1Type.UTF8_STRING);
+        assertEquals(0x30, Asn1Type.SEQUENCE);
+        assertEquals(0x31, Asn1Type.SET);
     }
 
     // Test class constants
 
     @Test
     public void testClassConstants() {
-        assertEquals(0x00, ASN1Type.CLASS_UNIVERSAL);
-        assertEquals(0x40, ASN1Type.CLASS_APPLICATION);
-        assertEquals(0x80, ASN1Type.CLASS_CONTEXT);
-        assertEquals(0xC0, ASN1Type.CLASS_PRIVATE);
+        assertEquals(0x00, Asn1Type.CLASS_UNIVERSAL);
+        assertEquals(0x40, Asn1Type.CLASS_APPLICATION);
+        assertEquals(0x80, Asn1Type.CLASS_CONTEXT);
+        assertEquals(0xC0, Asn1Type.CLASS_PRIVATE);
     }
 
     @Test
     public void testConstructedConstant() {
-        assertEquals(0x20, ASN1Type.CONSTRUCTED);
-        assertEquals(0x00, ASN1Type.PRIMITIVE);
+        assertEquals(0x20, Asn1Type.CONSTRUCTED);
+        assertEquals(0x00, Asn1Type.PRIMITIVE);
     }
 }
 

@@ -27,13 +27,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPListener;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPStatus;
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.HttpStatus;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.websocket.DefaultWebSocketEventHandler;
 import org.bluezoo.gumdrop.websocket.WebSocketSession;
 import org.bluezoo.gumdrop.websocket.client.WebSocketClient;
@@ -52,14 +53,14 @@ import static org.junit.Assert.*;
  * facade with {@link WebSocketClient#setH2WithPriorKnowledge(boolean)}.
  *
  * <p>Companion to {@link HTTP2WebSocketClientIntegrationTest} (TLS+ALPN);
- * this drives a real {@link HTTPListener} with no TLS at all, proving
+ * this drives a real {@link Http2Listener} with no TLS at all, proving
  * WebSocket-over-h2 works over the cleartext prior-knowledge path too --
  * the only h2c mechanism this project supports for WebSocket (the older
  * HTTP/1.1-{@code Upgrade}-header h2c bootstrap is deprecated by RFC 9113
  * §3.1 itself and deliberately not implemented here; see {@link
  * WebSocketClient#setH2WithPriorKnowledge(boolean)}'s javadoc for the
  * reasoning). The server side needed no changes at all: {@link
- * HTTPListener} already accepts the h2 connection preface directly on a
+ * HttpListener} already accepts the h2 connection preface directly on a
  * cleartext connection (RFC 9113 §3.4), independent of how the WebSocket
  * upgrade itself is validated.
  *
@@ -78,21 +79,20 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
             .build();
 
     private static Gumdrop gumdrop;
-    private static HTTPListener listener;
+    private static Http2Listener listener;
 
     @BeforeClass
     public static void startServer() throws Exception {
         System.setProperty("gumdrop.workers", "2");
 
-        listener = new HTTPListener();
+        listener = new Http2Listener();
         listener.setPort(PORT);
         listener.setAddresses(TEST_HOST);
         // No setSecure/keystore at all -- plain cleartext TCP.
-        listener.setHandlerFactory(new H2cEchoWebSocketHandlerFactory());
+        listener.setStreamHandler(new H2cEchoWebSocketHandlerFactory());
 
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(listener);
-        gumdrop.start();
 
         Thread.sleep(500);
     }
@@ -126,7 +126,7 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
         client.setH2WithPriorKnowledge(true);
 
         try {
-            client.connect("/ws", new DefaultWebSocketEventHandler() {
+            client.connect(gumdrop, "/ws", new DefaultWebSocketEventHandler() {
                 @Override
                 public void opened(WebSocketSession session) {
                     sessionRef.set(session);
@@ -190,13 +190,13 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
     // Server-side WebSocket-over-h2c echo handler
     // ─────────────────────────────────────────────────────────────────────────
 
-    private static class H2cEchoWebSocketHandlerFactory implements HTTPRequestHandlerFactory {
+    private static class H2cEchoWebSocketHandlerFactory implements HttpStreamHandler {
 
         @Override
-        public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
-            return new DefaultHTTPRequestHandler() {
+        public HttpRequestHandler openStream(HttpResponseState state) {
+            return new DefaultHttpRequestHandler() {
                 @Override
-                public void headers(HTTPResponseState state, Headers headers) {
+                public void headers(HttpResponseState state, Headers headers) {
                     if ("CONNECT".equals(headers.getValue(":method"))
                             && "websocket".equalsIgnoreCase(headers.getValue(":protocol"))) {
                         state.upgradeToWebSocket(null, new DefaultWebSocketEventHandler() {
@@ -220,7 +220,7 @@ public class HTTP2H2CWebSocketClientIntegrationTest {
                         });
                     } else {
                         Headers responseHeaders = new Headers();
-                        responseHeaders.status(HTTPStatus.OK);
+                        responseHeaders.status(HttpStatus.OK);
                         state.headers(responseHeaders);
                         state.complete();
                     }

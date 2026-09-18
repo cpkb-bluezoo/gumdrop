@@ -22,15 +22,16 @@
 package org.bluezoo.gumdrop.telemetry;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.DefaultHTTPRequestHandler;
+import org.bluezoo.gumdrop.http.server.DefaultHttpRequestHandler;
 import org.bluezoo.gumdrop.http.Header;
 import org.bluezoo.gumdrop.http.Headers;
-import org.bluezoo.gumdrop.http.HTTPRequestHandler;
-import org.bluezoo.gumdrop.http.HTTPRequestHandlerFactory;
-import org.bluezoo.gumdrop.http.HTTPResponseState;
-import org.bluezoo.gumdrop.http.HTTPListener;
-import org.bluezoo.gumdrop.http.HTTPStatus;
+import org.bluezoo.gumdrop.http.server.HttpRequestHandler;
+import org.bluezoo.gumdrop.http.server.HttpStreamHandler;
+import org.bluezoo.gumdrop.http.server.HttpResponseState;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.http.HttpStatus;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -49,7 +50,7 @@ import java.util.logging.Logger;
  * 
  * <p>This class implements a minimal OTLP/HTTP endpoint that receives
  * telemetry data (traces, logs, metrics) and stores the raw requests 
- * for verification in tests. It runs as a Gumdrop HTTPListener subclass.
+ * for verification in tests. It runs as a Gumdrop Http2Listener subclass.
  * 
  * <p>Usage:
  * <pre>
@@ -132,10 +133,8 @@ public class MockOTLPCollector {
             server.setSecure(true);
         }
 
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(server);
-        gumdrop.start();
 
         // Wait for server to be ready
         waitForReady();
@@ -326,17 +325,17 @@ public class MockOTLPCollector {
     /**
      * Custom HTTP server that handles OTLP requests.
      */
-    static class OTLPCollectorServer extends HTTPListener {
+    static class OTLPCollectorServer extends Http2Listener {
 
         OTLPCollectorServer(MockOTLPCollector collector) {
-            setHandlerFactory(new OTLPHandlerFactory(collector));
+            setStreamHandler(new OTLPHandlerFactory(collector));
         }
     }
 
     /**
-     * Factory that creates OTLP request handlers.
+     * Stream handler that creates OTLP request handlers.
      */
-    static class OTLPHandlerFactory implements HTTPRequestHandlerFactory {
+    static class OTLPHandlerFactory implements HttpStreamHandler {
 
         private final MockOTLPCollector collector;
 
@@ -345,7 +344,7 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public HTTPRequestHandler createHandler(HTTPResponseState state, Headers headers) {
+        public HttpRequestHandler openStream(HttpResponseState state) {
             return new OTLPRequestHandler(collector);
         }
     }
@@ -359,12 +358,12 @@ public class MockOTLPCollector {
      * <p>Uses the correct event-driven pattern: waits for requestComplete()
      * to know when the request is fully received.
      */
-    static class OTLPRequestHandler extends DefaultHTTPRequestHandler {
+    static class OTLPRequestHandler extends DefaultHttpRequestHandler {
 
         private final MockOTLPCollector collector;
         private ByteArrayOutputStream bodyBuffer;
         private String currentPath;
-        private HTTPResponseState state;
+        private HttpResponseState state;
         private boolean hasBody;
 
         OTLPRequestHandler(MockOTLPCollector collector) {
@@ -373,7 +372,7 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public void headers(HTTPResponseState state, Headers headers) {
+        public void headers(HttpResponseState state, Headers headers) {
             this.state = state;
             this.currentPath = headers.getPath();
             
@@ -382,12 +381,12 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public void startRequestBody(HTTPResponseState state) {
+        public void startRequestBody(HttpResponseState state) {
             hasBody = true;
         }
 
         @Override
-        public void requestBodyContent(HTTPResponseState state, ByteBuffer data) {
+        public void requestBodyContent(HttpResponseState state, ByteBuffer data) {
             try {
                 int remaining = data.remaining();
                 byte[] buf = new byte[remaining];
@@ -399,12 +398,12 @@ public class MockOTLPCollector {
         }
 
         @Override
-        public void endRequestBody(HTTPResponseState state) {
+        public void endRequestBody(HttpResponseState state) {
             // Body complete, but wait for requestComplete() before responding
         }
 
         @Override
-        public void requestComplete(HTTPResponseState state) {
+        public void requestComplete(HttpResponseState state) {
             // Request fully received - now handle it
             byte[] body = bodyBuffer.toByteArray();
             
@@ -450,7 +449,7 @@ public class MockOTLPCollector {
 
         private void sendSuccess() {
             Headers responseHeaders = new Headers();
-            responseHeaders.status(HTTPStatus.OK);
+            responseHeaders.status(HttpStatus.OK);
             responseHeaders.add(new Header("Content-Type", "application/x-protobuf"));
             responseHeaders.add(new Header("Content-Length", "0"));
             state.headers(responseHeaders);
@@ -459,7 +458,7 @@ public class MockOTLPCollector {
 
         private void sendError(int statusCode) {
             Headers responseHeaders = new Headers();
-            responseHeaders.status(HTTPStatus.fromCode(statusCode));
+            responseHeaders.status(HttpStatus.fromCode(statusCode));
             responseHeaders.add(new Header("Content-Length", "0"));
             state.headers(responseHeaders);
             state.complete();

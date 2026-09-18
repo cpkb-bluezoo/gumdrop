@@ -42,13 +42,14 @@ import org.bluezoo.gumdrop.servlet.jndi.Resource;
 import org.bluezoo.gumdrop.servlet.jndi.ResourceRef;
 import org.bluezoo.gumdrop.servlet.jndi.ServiceRef;
 import org.bluezoo.gumdrop.servlet.jndi.ServletInitialContext;
-import org.bluezoo.gumdrop.servlet.manager.ManagerContainerService;
-import org.bluezoo.gumdrop.servlet.manager.ManagerContextService;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContainerServer;
+import org.bluezoo.gumdrop.servlet.manager.ManagerContextServer;
 import org.bluezoo.gumdrop.servlet.manager.HitStatistics;
 import org.bluezoo.gumdrop.servlet.session.SessionContext;
 import org.bluezoo.gumdrop.servlet.session.SessionManager;
 import org.bluezoo.gumdrop.util.IteratorEnumeration;
 import org.bluezoo.gumdrop.util.JarInputStream;
+import org.bluezoo.gumdrop.util.JulWarnings;
 import org.bluezoo.util.ByteArrays;
 
 import org.xml.sax.SAXException;
@@ -98,13 +99,13 @@ import jakarta.servlet.annotation.WebListener;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.descriptor.JspConfigDescriptor;
 import org.bluezoo.gumdrop.servlet.jsp.InMemoryJavaCompiler;
-import org.bluezoo.gumdrop.servlet.jsp.JSPCodeGenerator;
-import org.bluezoo.gumdrop.servlet.jsp.JSPDependencyTracker;
-import org.bluezoo.gumdrop.servlet.jsp.JSPPage;
-import org.bluezoo.gumdrop.servlet.jsp.JSPParseException;
-import org.bluezoo.gumdrop.servlet.jsp.JSPParserFactory;
-import org.bluezoo.gumdrop.servlet.jsp.JSPPropertyGroupResolver;
-import org.bluezoo.gumdrop.servlet.jsp.JSPServlet;
+import org.bluezoo.gumdrop.servlet.jsp.JspCodeGenerator;
+import org.bluezoo.gumdrop.servlet.jsp.JspDependencyTracker;
+import org.bluezoo.gumdrop.servlet.jsp.JspPage;
+import org.bluezoo.gumdrop.servlet.jsp.JspParseException;
+import org.bluezoo.gumdrop.servlet.jsp.JspParserFactory;
+import org.bluezoo.gumdrop.servlet.jsp.JspPropertyGroupResolver;
+import org.bluezoo.gumdrop.servlet.jsp.JspServlet;
 import org.bluezoo.gumdrop.servlet.jsp.TaglibRegistry;
 import javax.tools.JavaCompiler;
 import javax.tools.JavaFileObject;
@@ -128,11 +129,11 @@ import javax.xml.ws.WebServiceRefs;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public final class Context extends DeploymentDescriptor implements ManagerContextService, SessionContext, Comparator<WebFragment> {
+public final class Context extends DeploymentDescriptor implements ManagerContextServer, SessionContext, Comparator<WebFragment> {
 
     static final ResourceBundle L10N = ResourceBundle.getBundle("org.bluezoo.gumdrop.servlet.L10N");
 
-    static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet");
+    public static final Logger LOGGER = Logger.getLogger("org.bluezoo.gumdrop.servlet");
 
     private static final String SCI_SERVICE =
             "META-INF/services/jakarta.servlet.ServletContainerInitializer";
@@ -152,7 +153,6 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     File root;
     private ContainerClassLoader containerClassLoader;
     private ContextClassLoader contextClassLoader;
-    ServletService service;
     byte[] digest; // MD5 digest of web.xml
 
     // ── Resource lookup caches (issue #137) ──
@@ -346,6 +346,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     /** Interval between timer-driven session expiry sweeps (issue #311). */
     private static final long SESSION_SWEEP_INTERVAL_MS = 1000;
     TimerHandle sessionSweepTimer;
+    private Gumdrop gumdrop;
 
     boolean distributable;
     boolean initialized;
@@ -367,13 +368,13 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     Map<String,? extends ServletRegistration> servletRegistrations = new LinkedHashMap<>();
 
     // JSP parser factory
-    private JSPParserFactory jspParserFactory;
+    private JspParserFactory jspParserFactory;
     
     // In-memory JSP compiler (eliminates temp file I/O)
     private InMemoryJavaCompiler jspCompiler;
     
     // JSP dependency tracker for incremental compilation
-    private JSPDependencyTracker jspDependencyTracker;
+    private JspDependencyTracker jspDependencyTracker;
     
     Map<String,? extends FilterRegistration> filterRegistrations = new LinkedHashMap<>();
 
@@ -455,11 +456,15 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     /**
      * Sets the container for this context.
      * Must be called before {@link #load()} when using the no-arg constructor.
+     * A no-op when {@code container} is already this context's container
+     * (as when {@link #Context(Container, String, File)} already assigned
+     * it and {@link Container#start()} re-asserts it during {@code
+     * initContexts()}); throws if reassigning to a different container.
      *
      * @param container the parent container
      */
     public void setContainer(Container container) {
-        if (this.container != null) {
+        if (this.container != null && this.container != container) {
             throw new IllegalStateException("Container already set");
         }
         this.container = container;
@@ -558,20 +563,20 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         initializeInternal();
     }
 
-    @Override public ManagerContainerService getContainer() {
+    @Override public ManagerContainerServer getContainer() {
         return container;
     }
 
     @Override public ThreadPoolExecutor getWorkerThreadPool() {
-        return service.getWorkerThreadPool();
+        return container.getWorkerThreadPool();
     }
 
     @Override public String getWorkerKeepAlive() {
-        return service.getWorkerKeepAlive();
+        return container.getWorkerKeepAlive();
     }
 
     @Override public void setWorkerKeepAlive(String val) {
-        service.setWorkerKeepAlive(val);
+        container.setWorkerKeepAlive(val);
     }
 
     @Override public HitStatistics getHitStatistics() {
@@ -717,7 +722,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             jspServletDef.context = this;
             jspServletDef.displayName = L10N.getString("jsp_servlet_display_name");
             jspServletDef.name = "jsp";
-            jspServletDef.className = JSPServlet.class.getName();
+            jspServletDef.className = JspServlet.class.getName();
             jspServletDef.loadOnStartup = 3;
             servletDefs.put("jsp", jspServletDef);
             
@@ -1268,7 +1273,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         } catch (ClassNotFoundException | NoClassDefFoundError e) {
             String message = L10N.getString("err.load_resource");
             message = MessageFormat.format(message, className);
-            LOGGER.log(Level.SEVERE, message, e);
+            JulWarnings.severe(LOGGER, message, e);
         }
     }
 
@@ -1430,6 +1435,21 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
 
     /**
      * Initializes this context and all filters and servlets in it.
+     *
+     * @param gumdrop the runtime this context is starting under
+     * @see SRV.9.12
+     */
+    public synchronized void init(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+        init();
+    }
+
+    /**
+     * Initializes this context and all filters and servlets in it, using
+     * the {@link Gumdrop} runtime captured by the most recent
+     * {@link #init(Gumdrop)} call (or {@code null} if none was ever set,
+     * e.g. in unit tests that construct a {@link Context} directly).
+     * Used internally by {@link #reload()}.
      * @see SRV.9.12
      */
     public synchronized void init() {
@@ -1488,14 +1508,14 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
                             }
                         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
                             String message = Context.L10N.getString("err.init_resource");
-                            Context.LOGGER.log(Level.SEVERE, message, e);
+                            JulWarnings.severe(Context.LOGGER, message, e);
                         }
                     }
                 }
             }
         } catch (NamingException e) {
             String message = Context.L10N.getString("err.bind_resource");
-            Context.LOGGER.log(Level.SEVERE, message, e);
+            JulWarnings.severe(Context.LOGGER, message, e);
         }
 
         // Ensure that listener, filter, servlets, and lifecycle callbacks
@@ -1562,13 +1582,6 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         // Post-construct
         for (LifecycleCallback postConstruct : postConstructs) {
             postConstruct.execute();
-        }
-
-        // Configure authentication provider if authentication is configured
-        if (getAuthMethod() != null && service != null) {
-            ServletAuthenticationProvider authProvider =
-                    new ServletAuthenticationProvider(this);
-            service.setAuthenticationProvider(authProvider);
         }
 
         // Register with cluster (or re-register with new UUID after reload)
@@ -1667,7 +1680,10 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
     }
 
     private void scheduleNextSessionSweep(final long intervalMs) {
-        sessionSweepTimer = Gumdrop.getInstance().scheduleTimer(null, intervalMs,
+        if (gumdrop == null) {
+            return;
+        }
+        sessionSweepTimer = gumdrop.scheduleTimer(null, intervalMs,
                 new Runnable() {
                     @Override
                     public void run() {
@@ -2981,15 +2997,15 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             }
 
             // Step 3: Resolve comprehensive JSP properties from configuration
-            JSPPropertyGroupResolver.ResolvedJSPProperties jspProperties = 
-                JSPPropertyGroupResolver.resolve(path, jspConfig);
+            JspPropertyGroupResolver.ResolvedJSPProperties jspProperties = 
+                JspPropertyGroupResolver.resolve(path, jspConfig);
             String encoding = jspProperties.getPageEncoding();
 
             // Step 4: Parse JSP file using parser factory with resolved properties
-            JSPPage jspPage;
+            JspPage jspPage;
             try {
                 jspPage = jspParserFactory.parseJSP(jspInputStream, encoding, path, jspProperties);
-            } catch (JSPParseException e) {
+            } catch (JspParseException e) {
                 throw new RuntimeException("Failed to parse JSP file: " + path, e);
             } finally {
                 try {
@@ -3006,7 +3022,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
             String className = generateClassNameFromPath(path);
             
             ByteArrayOutputStream sourceOut = new ByteArrayOutputStream();
-            JSPCodeGenerator generator = new JSPCodeGenerator(jspPage, sourceOut, taglibRegistry, jspProperties);
+            JspCodeGenerator generator = new JspCodeGenerator(jspPage, sourceOut, taglibRegistry, jspProperties);
             generator.setClassName(className);
             generator.generateCode();
             String sourceCode = sourceOut.toString("UTF-8");
@@ -3056,7 +3072,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      */
     private synchronized void initializeJSPInfrastructure() {
         if (jspParserFactory == null) {
-            jspParserFactory = new JSPParserFactory();
+            jspParserFactory = new JspParserFactory();
         }
         
         if (jspCompiler == null) {
@@ -3075,7 +3091,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         }
         
         if (jspDependencyTracker == null) {
-            jspDependencyTracker = new JSPDependencyTracker(this, root);
+            jspDependencyTracker = new JspDependencyTracker(this, root);
         }
     }
     
@@ -3085,7 +3101,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
      * @param jspPage the parsed JSP page
      * @return set of included file paths
      */
-    private Set<String> extractDependencies(JSPPage jspPage) {
+    private Set<String> extractDependencies(JspPage jspPage) {
         Set<String> dependencies = new HashSet<String>();
         
         // Add static includes
@@ -3095,7 +3111,7 @@ public final class Context extends DeploymentDescriptor implements ManagerContex
         }
         
         // Add taglib TLD references
-        // Note: JSPPage would need to track these - simplified for now
+        // Note: JspPage would need to track these - simplified for now
         
         return dependencies;
     }

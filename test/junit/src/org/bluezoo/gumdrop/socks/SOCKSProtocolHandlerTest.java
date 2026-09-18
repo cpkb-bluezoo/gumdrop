@@ -8,29 +8,31 @@ import java.nio.charset.StandardCharsets;
 import org.junit.Before;
 import org.junit.Test;
 
+import org.bluezoo.gumdrop.socks.server.SocksServer;
+
 import static org.junit.Assert.*;
-import static org.bluezoo.gumdrop.socks.SOCKSConstants.*;
+import static org.bluezoo.gumdrop.socks.SocksConstants.*;
 
 /**
- * Unit tests for {@link SOCKSProtocolHandler}.
+ * Unit tests for {@link SocksProtocolHandler}.
  *
  * <p>Tests the state machine, version detection, protocol parsing,
  * and reply construction by feeding raw bytes via
- * {@link SOCKSProtocolHandler#receive(ByteBuffer)} and inspecting
+ * {@link SocksProtocolHandler#receive(ByteBuffer)} and inspecting
  * what is sent back via a {@link StubEndpoint}.
  */
 public class SOCKSProtocolHandlerTest {
 
-    private DefaultSOCKSService service;
-    private SOCKSListener listener;
-    private SOCKSProtocolHandler handler;
+    private SocksServer service;
+    private SocksListener listener;
+    private SocksProtocolHandler handler;
     private StubEndpoint endpoint;
 
     @Before
     public void setUp() {
-        service = new DefaultSOCKSService();
-        listener = new SOCKSListener();
-        listener.setService(service);
+        service = new SocksServer();
+        listener = new SocksListener();
+        listener.setServer(service);
         handler = service.createProtocolHandler(listener);
         endpoint = new StubEndpoint();
         handler.connected(endpoint);
@@ -174,7 +176,7 @@ public class SOCKSProtocolHandlerTest {
 
         handler.receive(req);
 
-        // DNS resolution fails (no SelectorLoop/DNSResolver); handler
+        // DNS resolution fails (no SelectorLoop/DnsResolver); handler
         // catches the error and closes.
         assertFalse(endpoint.isOpen());
     }
@@ -249,7 +251,7 @@ public class SOCKSProtocolHandlerTest {
 
         handler.receive(buf);
 
-        // DNS resolution fails (no SelectorLoop/DNSResolver); handler
+        // DNS resolution fails (no SelectorLoop/DnsResolver); handler
         // catches the error and closes.
         assertFalse(endpoint.isOpen());
     }
@@ -422,12 +424,12 @@ public class SOCKSProtocolHandlerTest {
     @Test
     public void testConnectHandlerDeny() {
         handler.setConnectHandler(
-                new org.bluezoo.gumdrop.socks.handler.ConnectHandler() {
+                new org.bluezoo.gumdrop.socks.server.ConnectHandler() {
                     @Override
                     public void handleConnect(
-                            org.bluezoo.gumdrop.socks.handler
+                            org.bluezoo.gumdrop.socks.server
                                     .ConnectState state,
-                            SOCKSRequest request,
+                            SocksRequest request,
                             org.bluezoo.gumdrop.Endpoint clientEp) {
                         state.deny(SOCKS5_REPLY_NOT_ALLOWED);
                     }

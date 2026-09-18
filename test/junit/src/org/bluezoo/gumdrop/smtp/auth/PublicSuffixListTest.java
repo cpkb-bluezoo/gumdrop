@@ -119,7 +119,7 @@ public class PublicSuffixListTest {
 
     @Test
     public void testCaseInsensitivity() {
-        // DMARCValidator lowercases before calling this, but the PSL data
+        // DmarcValidator lowercases before calling this, but the PSL data
         // itself is stored lowercase regardless of input case.
         assertEquals("example.co.uk", psl.getRegistrableDomain("example.co.uk"));
     }

@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.buffer;
 
 import org.bluezoo.gumdrop.Endpoint;
 import org.bluezoo.gumdrop.ProtocolHandler;
-import org.bluezoo.gumdrop.TCPListener;
+import org.bluezoo.gumdrop.TcpListener;
 import org.bluezoo.gumdrop.SecurityInfo;
 
 import java.nio.ByteBuffer;
@@ -40,7 +40,7 @@ import java.util.List;
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class BufferTestServer extends TCPListener {
+public class BufferTestServer extends TcpListener {
 
     private int port = 19080;
 

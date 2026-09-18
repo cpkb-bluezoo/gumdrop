@@ -28,7 +28,7 @@ package org.bluezoo.gumdrop.http.client;
  * appears in an HTTP response, enabling protocol upgrade discovery.
  *
  * <p>Also holds the shared, dependency-free Alt-Svc header parsing logic
- * (RFC 7838), so both {@code HTTPClient} and {@code WebSocketClient} (in a
+ * (RFC 7838), so both {@code HttpClient} and {@code WebSocketClient} (in a
  * different package) can reuse the same parser instead of duplicating it.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>

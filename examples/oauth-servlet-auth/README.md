@@ -15,6 +15,10 @@ The `OAuthRealm` validates OAuth 2.0 access tokens by performing token introspec
 
 ## Configuration
 
+> **Gumdrop 3** wires servers via Java composition (`HttpServer` +
+> `ServletRequestHandler`), not XML. See
+> [web/configuration.html](../../web/configuration.html).
+
 ### 1. OAuth Properties File (`oauth.properties`)
 
 ```properties
@@ -42,41 +46,33 @@ oauth.scope.mapping.user=read,write
 oauth.scope.mapping.readonly=read
 ```
 
-### 2. Gumdrop Server Configuration (`server.xml`)
+### 2. Gumdrop Server Setup (Java composition)
 
-```xml
-<?xml version='1.0' standalone='yes'?>
-<gumdrop>
-    <!--
-        OAuthRealm requires a Properties instance in its constructor.
-        It is not directly DI-instantiable; use a factory bean or
-        programmatic setup. The example below assumes a factory that
-        loads oauth.properties and passes the Properties to OAuthRealm.
-    -->
-    <component id="oauthRealmFactory"
-               class="com.example.OAuthRealmFactory">
-        <property name="config-file">oauth.properties</property>
-    </component>
-    <realm id="oauth" factory="#oauthRealmFactory"/>
-    
-    <!-- Servlet service with OAuth authentication -->
-    <service id="api" class="org.bluezoo.gumdrop.servlet.ServletService">
-        <property name="realm" ref="#oauth"/>
-        
-        <container class="org.bluezoo.gumdrop.servlet.Container">
-            <context>
-                <property name="contextPath">/api</property>
-                <property name="docBase">webapps/api</property>
-            </context>
-        </container>
-        <listener class="org.bluezoo.gumdrop.http.HTTPListener">
-            <property name="port">8443</property>
-            <property name="secure">true</property>
-            <property name="keystore-file">keystore.p12</property>
-            <property name="keystore-pass">changeit</property>
-        </listener>
-    </service>
-</gumdrop>
+`OAuthRealm` takes a `Properties` instance directly in its constructor —
+load `oauth.properties` and hand it straight to the realm, then wire the
+container and listener with `HttpServer.compose()`:
+
+```java
+Properties oauthConfig = new Properties();
+try (InputStream in = Files.newInputStream(Path.of("config/oauth.properties"))) {
+    oauthConfig.load(in);
+}
+OAuthRealm realm = new OAuthRealm(oauthConfig);
+
+Container container = new Container();
+container.addRealm("oauth", realm);
+container.addContext(new Context(container, "/api", new File("webapps/api")));
+
+HttpServer server = HttpServer.compose()
+        .listener(new Http2Listener()
+                .port(8443)
+                .secure(true)
+                .tls(TlsConfig.keystore(Path.of("config/keystore.p12"), "changeit")))
+        .streamHandler(new ServletRequestHandler(container))
+        .server();
+
+Gumdrop.getInstance().addServer(server);
+Gumdrop.getInstance().start();
 ```
 
 ### 3. Web Application Security (`web.xml`)

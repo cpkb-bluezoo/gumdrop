@@ -21,7 +21,7 @@
 
 package org.bluezoo.gumdrop.smtp;
 
-import org.bluezoo.gumdrop.auth.SASLUtils;
+import org.bluezoo.gumdrop.auth.SaslUtils;
 import org.bluezoo.gumdrop.auth.Realm;
 import org.bluezoo.util.ByteArrays;
 import org.junit.Test;
@@ -34,7 +34,7 @@ import static org.junit.Assert.*;
 
 /**
  * Unit tests for SMTP server-side SASL authentication mechanisms
- * (items 81-83) and supporting SASLUtils methods.
+ * (items 81-83) and supporting SaslUtils methods.
  */
 public class SMTPServerAuthTest {
 
@@ -42,7 +42,7 @@ public class SMTPServerAuthTest {
 
     @Test
     public void testCramMD5ChallengeFormat() {
-        String challenge = SASLUtils.generateCramMD5Challenge("mail.example.com");
+        String challenge = SaslUtils.generateCramMD5Challenge("mail.example.com");
         assertNotNull(challenge);
         assertTrue(challenge.startsWith("<"));
         assertTrue(challenge.endsWith(">"));
@@ -53,31 +53,31 @@ public class SMTPServerAuthTest {
     public void testCramMD5ResponseVerification() {
         String challenge = "<12345.678@mail.example.com>";
         String password = "secret";
-        String expected = SASLUtils.computeCramMD5Response(password, challenge);
+        String expected = SaslUtils.computeCramMD5Response(password, challenge);
         assertNotNull(expected);
         assertFalse(expected.isEmpty());
         String response = "testuser " + expected;
-        assertTrue(SASLUtils.verifyCramMD5(response, challenge, password));
+        assertTrue(SaslUtils.verifyCramMD5(response, challenge, password));
     }
 
     @Test
     public void testCramMD5WrongPassword() {
         String challenge = "<12345.678@mail.example.com>";
-        String correctDigest = SASLUtils.computeCramMD5Response("secret", challenge);
+        String correctDigest = SaslUtils.computeCramMD5Response("secret", challenge);
         String response = "testuser " + correctDigest;
-        assertFalse(SASLUtils.verifyCramMD5(response, challenge, "wrongpassword"));
+        assertFalse(SaslUtils.verifyCramMD5(response, challenge, "wrongpassword"));
     }
 
     @Test
     public void testCramMD5MalformedResponse() {
-        assertFalse(SASLUtils.verifyCramMD5("nospaceinresponse", "<c@h>", "pass"));
+        assertFalse(SaslUtils.verifyCramMD5("nospaceinresponse", "<c@h>", "pass"));
     }
 
     // -- DIGEST-MD5 (RFC 2831) --
 
     @Test
     public void testDigestMD5ChallengeFormat() {
-        String challenge = SASLUtils.generateDigestMD5Challenge("example.com", "abc123");
+        String challenge = SaslUtils.generateDigestMD5Challenge("example.com", "abc123");
         assertNotNull(challenge);
         assertTrue(challenge.contains("realm=\"example.com\""));
         assertTrue(challenge.contains("nonce=\"abc123\""));
@@ -88,7 +88,7 @@ public class SMTPServerAuthTest {
     @Test
     public void testDigestParamsParsingSimple() {
         String input = "username=\"alice\",realm=\"example.com\",nonce=\"abc123\"";
-        Map<String, String> params = SASLUtils.parseDigestParams(input);
+        Map<String, String> params = SaslUtils.parseDigestParams(input);
         assertEquals("alice", params.get("username"));
         assertEquals("example.com", params.get("realm"));
         assertEquals("abc123", params.get("nonce"));
@@ -97,13 +97,13 @@ public class SMTPServerAuthTest {
     @Test
     public void testDigestParamsParsingWithEscapes() {
         String input = "username=\"ali\\\"ce\"";
-        Map<String, String> params = SASLUtils.parseDigestParams(input);
+        Map<String, String> params = SaslUtils.parseDigestParams(input);
         assertEquals("ali\"ce", params.get("username"));
     }
 
     @Test
     public void testDigestHA1Computation() {
-        String ha1 = SASLUtils.computeDigestHA1("alice", "example.com", "secret");
+        String ha1 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
         assertNotNull(ha1);
         assertEquals(32, ha1.length()); // MD5 hex = 32 chars
     }
@@ -114,7 +114,7 @@ public class SMTPServerAuthTest {
         String realm = "example.com";
         String password = "secret";
         String serverNonce = "abc123";
-        String ha1 = SASLUtils.computeDigestHA1(username, realm, password);
+        String ha1 = SaslUtils.computeDigestHA1(username, realm, password);
         String cnonce = "clientnonce1234";
         String nc = "00000001";
         String qop = "auth";
@@ -128,11 +128,11 @@ public class SMTPServerAuthTest {
         byte[] a1 = new byte[h.length + suffix.length];
         System.arraycopy(h, 0, a1, 0, h.length);
         System.arraycopy(suffix, 0, a1, h.length, suffix.length);
-        String sessionHA1 = SASLUtils.md5Hex(a1);
-        String ha2 = SASLUtils.md5Hex(
+        String sessionHA1 = SaslUtils.md5Hex(a1);
+        String ha2 = SaslUtils.md5Hex(
                 ("AUTHENTICATE:" + digestUri).getBytes(
                         java.nio.charset.StandardCharsets.UTF_8));
-        String responseHash = SASLUtils.md5Hex(
+        String responseHash = SaslUtils.md5Hex(
                 (sessionHA1 + ":" + serverNonce + ":" + nc + ":" + cnonce
                         + ":" + qop + ":" + ha2).getBytes(
                         java.nio.charset.StandardCharsets.UTF_8));
@@ -147,7 +147,7 @@ public class SMTPServerAuthTest {
         params.put("digest-uri", digestUri);
         params.put("response", responseHash);
 
-        String rspAuth = SASLUtils.verifyDigestMD5ClientResponse(
+        String rspAuth = SaslUtils.verifyDigestMD5ClientResponse(
                 ha1, serverNonce, params);
         assertNotNull(rspAuth);
         assertEquals(32, rspAuth.length());
@@ -155,7 +155,7 @@ public class SMTPServerAuthTest {
 
     @Test
     public void testDigestMD5WrongResponseRejected() {
-        String ha1 = SASLUtils.computeDigestHA1("alice", "example.com", "secret");
+        String ha1 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
         String serverNonce = "abc123";
 
         Map<String, String> params = new HashMap<String, String>();
@@ -167,13 +167,13 @@ public class SMTPServerAuthTest {
         params.put("digest-uri", "ldap/example.com");
         params.put("response", "00000000000000000000000000000000");
 
-        assertNull(SASLUtils.verifyDigestMD5ClientResponse(
+        assertNull(SaslUtils.verifyDigestMD5ClientResponse(
                 ha1, serverNonce, params));
     }
 
     @Test
     public void testDigestMD5WrongNonceRejected() {
-        String ha1 = SASLUtils.computeDigestHA1("alice", "example.com", "secret");
+        String ha1 = SaslUtils.computeDigestHA1("alice", "example.com", "secret");
 
         Map<String, String> params = new HashMap<String, String>();
         params.put("nonce", "wrongnonce");
@@ -183,7 +183,7 @@ public class SMTPServerAuthTest {
         params.put("digest-uri", "ldap/example.com");
         params.put("response", "00000000000000000000000000000000");
 
-        assertNull(SASLUtils.verifyDigestMD5ClientResponse(
+        assertNull(SaslUtils.verifyDigestMD5ClientResponse(
                 ha1, "abc123", params));
     }
 
@@ -191,7 +191,7 @@ public class SMTPServerAuthTest {
 
     @Test
     public void testScramServerFirstMessage() {
-        String serverFirst = SASLUtils.generateScramServerFirst(
+        String serverFirst = SaslUtils.generateScramServerFirst(
                 "clientnonce+servernonce", "c2FsdA==", 4096);
         assertEquals("r=clientnonce+servernonce,s=c2FsdA==,i=4096", serverFirst);
     }
@@ -234,12 +234,12 @@ public class SMTPServerAuthTest {
                 Realm.ScramCredentials.derive("secret", salt, 4096, "SHA-256");
         String clientNonce = "clientnonce";
         String serverNonce = clientNonce + "servernonce";
-        String serverFirst = SASLUtils.generateScramServerFirst(
+        String serverFirst = SaslUtils.generateScramServerFirst(
                 serverNonce, creds.salt, creds.iterations);
         String authChallenge = "n=alice,r=" + clientNonce + "," + serverFirst;
         String clientFinal = "c=biws,r=" + serverNonce + ",p="
                 + java.util.Base64.getEncoder().encodeToString(new byte[32]);
-        assertNull(SASLUtils.verifyScramClientFinal(
+        assertNull(SaslUtils.verifyScramClientFinal(
                 creds, authChallenge, clientFinal, serverNonce));
     }
 
@@ -248,11 +248,11 @@ public class SMTPServerAuthTest {
         byte[] salt = new byte[]{1, 2, 3, 4};
         Realm.ScramCredentials creds =
                 Realm.ScramCredentials.derive("secret", salt, 4096, "SHA-256");
-        String serverFirst = SASLUtils.generateScramServerFirst(
+        String serverFirst = SaslUtils.generateScramServerFirst(
                 "expected", creds.salt, creds.iterations);
         String authChallenge = "n=alice,r=client," + serverFirst;
         String clientFinal = "c=biws,r=wrong,p=AAAA";
-        assertNull(SASLUtils.verifyScramClientFinal(
+        assertNull(SaslUtils.verifyScramClientFinal(
                 creds, authChallenge, clientFinal, "expected"));
     }
 
@@ -263,8 +263,8 @@ public class SMTPServerAuthTest {
         Realm.ScramCredentials creds =
                 Realm.ScramCredentials.derive(password, salt, 4096, "SHA-256");
         String clientNonce = "client";
-        String serverNonce = clientNonce + SASLUtils.generateNonce(16);
-        String serverFirst = SASLUtils.generateScramServerFirst(
+        String serverNonce = clientNonce + SaslUtils.generateNonce(16);
+        String serverFirst = SaslUtils.generateScramServerFirst(
                 serverNonce, creds.salt, creds.iterations);
         String clientFirstBare = "n=alice,r=" + clientNonce;
         String authChallenge = clientFirstBare + "," + serverFirst;
@@ -281,7 +281,7 @@ public class SMTPServerAuthTest {
         byte[] clientKey = mac.doFinal("Client Key".getBytes(
                 java.nio.charset.StandardCharsets.UTF_8));
 
-        byte[] clientSignature = SASLUtils.hmacSHA256(creds.storedKey,
+        byte[] clientSignature = SaslUtils.hmacSHA256(creds.storedKey,
                 authMessage.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         byte[] clientProof = new byte[clientSignature.length];
         for (int i = 0; i < clientProof.length; i++) {
@@ -290,10 +290,10 @@ public class SMTPServerAuthTest {
         String clientFinal = clientFinalWithoutProof + ",p="
                 + java.util.Base64.getEncoder().encodeToString(clientProof);
 
-        byte[] serverSignature = SASLUtils.verifyScramClientFinal(
+        byte[] serverSignature = SaslUtils.verifyScramClientFinal(
                 creds, authChallenge, clientFinal, serverNonce);
         assertNotNull(serverSignature);
-        byte[] expected = SASLUtils.hmacSHA256(creds.serverKey,
+        byte[] expected = SaslUtils.hmacSHA256(creds.serverKey,
                 authMessage.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         assertArrayEquals(expected, serverSignature);
     }
@@ -303,7 +303,7 @@ public class SMTPServerAuthTest {
     @Test
     public void testOAuthBearerCredentialsParsing() {
         String credentials = "n,a=user@example.com,\u0001auth=Bearer my-token\u0001\u0001";
-        Map<String, String> result = SASLUtils.parseOAuthBearerCredentials(credentials);
+        Map<String, String> result = SaslUtils.parseOAuthBearerCredentials(credentials);
         assertEquals("user@example.com", result.get("user"));
         assertEquals("my-token", result.get("token"));
     }
@@ -311,14 +311,14 @@ public class SMTPServerAuthTest {
     @Test
     public void testOAuthBearerNoUser() {
         String credentials = "n,,\u0001auth=Bearer token123\u0001\u0001";
-        Map<String, String> result = SASLUtils.parseOAuthBearerCredentials(credentials);
+        Map<String, String> result = SaslUtils.parseOAuthBearerCredentials(credentials);
         assertNull(result.get("user"));
         assertEquals("token123", result.get("token"));
     }
 
     @Test
     public void testOAuthBearerEmptyCredentials() {
-        Map<String, String> result = SASLUtils.parseOAuthBearerCredentials("");
+        Map<String, String> result = SaslUtils.parseOAuthBearerCredentials("");
         assertNull(result.get("token"));
     }
 
@@ -326,8 +326,8 @@ public class SMTPServerAuthTest {
 
     @Test
     public void testNonceGeneration() {
-        String nonce1 = SASLUtils.generateNonce(16);
-        String nonce2 = SASLUtils.generateNonce(16);
+        String nonce1 = SaslUtils.generateNonce(16);
+        String nonce2 = SaslUtils.generateNonce(16);
         assertNotNull(nonce1);
         assertNotNull(nonce2);
         assertEquals(32, nonce1.length()); // 16 bytes = 32 hex chars
@@ -340,7 +340,7 @@ public class SMTPServerAuthTest {
     public void testHmacMD5() {
         byte[] key = "key".getBytes();
         byte[] data = "The quick brown fox".getBytes();
-        byte[] hmac = SASLUtils.hmacMD5(key, data);
+        byte[] hmac = SaslUtils.hmacMD5(key, data);
         assertNotNull(hmac);
         assertEquals(16, hmac.length); // MD5 = 16 bytes
     }
@@ -349,7 +349,7 @@ public class SMTPServerAuthTest {
     public void testHmacSHA256() {
         byte[] key = "key".getBytes();
         byte[] data = "data".getBytes();
-        byte[] hmac = SASLUtils.hmacSHA256(key, data);
+        byte[] hmac = SaslUtils.hmacSHA256(key, data);
         assertNotNull(hmac);
         assertEquals(32, hmac.length); // SHA-256 = 32 bytes
     }
@@ -359,8 +359,8 @@ public class SMTPServerAuthTest {
     @Test
     public void testBase64RoundTrip() {
         String original = "Hello, World!";
-        String encoded = SASLUtils.encodeBase64(original);
-        String decoded = SASLUtils.decodeBase64ToString(encoded);
+        String encoded = SaslUtils.encodeBase64(original);
+        String decoded = SaslUtils.decodeBase64ToString(encoded);
         assertEquals(original, decoded);
     }
 
@@ -369,7 +369,7 @@ public class SMTPServerAuthTest {
     @Test
     public void testPlainCredentialsParsing() {
         byte[] creds = "\0alice\0secret".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        String[] parsed = SASLUtils.parsePlainCredentials(creds);
+        String[] parsed = SaslUtils.parsePlainCredentials(creds);
         assertEquals(3, parsed.length);
         assertEquals("", parsed[0]); // authzid
         assertEquals("alice", parsed[1]); // authcid
@@ -379,7 +379,7 @@ public class SMTPServerAuthTest {
     @Test
     public void testPlainCredentialsWithAuthzid() {
         byte[] creds = "admin\0alice\0secret".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        String[] parsed = SASLUtils.parsePlainCredentials(creds);
+        String[] parsed = SaslUtils.parsePlainCredentials(creds);
         assertEquals("admin", parsed[0]);
         assertEquals("alice", parsed[1]);
         assertEquals("secret", parsed[2]);
@@ -387,14 +387,14 @@ public class SMTPServerAuthTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void testPlainCredentialsMalformed() {
-        SASLUtils.parsePlainCredentials("notnulls".getBytes());
+        SaslUtils.parsePlainCredentials("notnulls".getBytes());
     }
 
     // -- SHA-256 hash --
 
     @Test
     public void testSha256() {
-        byte[] hash = SASLUtils.sha256("test".getBytes());
+        byte[] hash = SaslUtils.sha256("test".getBytes());
         assertNotNull(hash);
         assertEquals(32, hash.length);
     }
@@ -403,7 +403,7 @@ public class SMTPServerAuthTest {
 
     @Test
     public void testMd5Hex() {
-        String hex = SASLUtils.md5Hex("test".getBytes());
+        String hex = SaslUtils.md5Hex("test".getBytes());
         assertNotNull(hex);
         assertEquals(32, hex.length());
     }

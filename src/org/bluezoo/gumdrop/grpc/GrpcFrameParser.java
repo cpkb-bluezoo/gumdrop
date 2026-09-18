@@ -28,8 +28,8 @@ import java.util.ResourceBundle;
 /**
  * Push-parser for gRPC length-prefixed message frames.
  *
- * <p>Follows the same event-driven pattern as {@code MQTTFrameParser} and
- * {@link org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser}: frame
+ * <p>Follows the same event-driven pattern as {@code MqttFrameParser} and
+ * {@link org.bluezoo.protobuf.ProtobufParser}: frame
  * payloads are forwarded as slices from the input buffer without buffering
  * the entire HTTP body.
  *

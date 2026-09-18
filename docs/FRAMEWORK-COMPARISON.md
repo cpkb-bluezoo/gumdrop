@@ -14,7 +14,7 @@ This document compares deployment size, dependencies, and startup characteristic
 
 | Framework | Deployment Model | Total JAR Size | Dependencies | Download & Build Time | Notes |
 |-----------|------------------|----------------|--------------|---------------|-------|
-| **Gumdrop (HTTPService)** | gumdrop.jar + gonzalez-core OR jsonparser | ~2.7 MB / ~2.57 MB | 2–3 JARs | Seconds | Minimal async microservice |
+| **Gumdrop (HttpServer)** | gumdrop.jar + gonzalez-core OR jsonparser | ~2.7 MB / ~2.57 MB | 2–3 JARs | Seconds | Minimal async microservice |
 | **Gumdrop (Servlet)** | gumdrop-container.jar (fat) | ~5.2 MB | Self-contained | Seconds | Full servlet container |
 | **Netty** | netty-codec-http + XML or JSON | ~2.3 MB / ~4.5 MB | 6–8 Netty + aalto or Jackson | ~10–30 sec | No servlet, HTTP handler only |
 | **Jetty** | jetty-server + embedded | ~8–12 MB | Jetty + JSP compiler | ~30–60 sec | Servlet container |
@@ -27,7 +27,7 @@ This document compares deployment size, dependencies, and startup characteristic
 
 ### Deployment Options
 
-#### Option A: HTTPService (Microservice / Async API)
+#### Option A: HttpServer (Microservice / Async API)
 
 For a pure async microservice without servlets:
 
@@ -61,7 +61,7 @@ For a pure async microservice without servlets:
 
 **Total:** Single 5.2 MB JAR. No external runtime dependencies.
 
-**Startup:** `java -jar gumdrop-container.jar` with config. Fast startup (minimal DI for config only, no reflection-heavy init).
+**Startup:** `java -cp gumdrop.jar:... com.example.MyMain`, a compiled `main` that composes servers in Java (see [web/configuration.html](../web/configuration.html)). Fast startup — no reflection-heavy DI/config parsing at all.
 
 ### Gumdrop Measurements (from this repo)
 
@@ -73,44 +73,37 @@ For a pure async microservice without servlets:
 | jsonparser-1.3.jar | 31,331 bytes |
 | lib/ total (all deps) | ~3.5 MB |
 
-### Sample gumdroprc Configurations
+### Sample Composition
 
-**HTTPService** (e.g. `gumdroprc.http` — async HTTPService, no servlet container:
+**HttpServer** — async HttpServer, no servlet container:
 
-```xml
-<?xml version='1.0' standalone='yes'?>
-<gumdrop>
-	<service id="myservice" class="com.example.myservice.MyService">
-		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
-			<property name="port" value="443"/>
-			<property name="secure" value="true"/>
-			<property name="keystore-file" path="myserver.p12"/>
-			<property name="keystore-pass" value="tlspassword"/>
-		</listener>
-	</service>
-</gumdrop>
+```java
+TlsConfig tls = TlsConfig.keystore(Path.of("myserver.p12"), "tlspassword");
+HttpServer server = HttpServer.compose()
+        .listener(new Http2Listener().port(443).secure(true).tls(tls))
+        .streamHandler(new MyStreamHandler())
+        .server();
+gumdrop.addServer(server);
 ```
 
-**Servlet container** (`gumdroprc.servlet`):
+**Servlet container:**
 
-```xml
-<?xml version='1.0' standalone='yes'?>
-<gumdrop>
-	<service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
-		<property name="container" ref="#mainContainer"/>
-		<property name="hot-deploy" value="true"/>
-		<context path="" root="myservice.war" distributable="true"/>
-		<listener class="org.bluezoo.gumdrop.http.HTTPListener">
-			<property name="port" value="443"/>
-			<property name="secure" value="true"/>
-			<property name="keystore-file" path="myserver.p12"/>
-			<property name="keystore-pass" value="tlspassword"/>
-		</listener>
-	</service>
-</gumdrop>
+```java
+TlsConfig tls = TlsConfig.keystore(Path.of("myserver.p12"), "tlspassword");
+Container container = new Container();
+container.setHotDeploy(true);
+Context context = new Context(container, "", new File("myservice.war"));
+context.setDistributable(true);
+container.addContext(context);
+
+HttpServer server = HttpServer.compose()
+        .listener(new Http2Listener().port(443).secure(true).tls(tls))
+        .streamHandler(new ServletRequestHandler(container))
+        .server();
+gumdrop.addServer(server);
 ```
 
-Run with: `./start gumdroprc.http` or `./start gumdroprc.servlet`
+Run either with `java -cp gumdrop.jar:... com.example.MyMain`.
 
 ---
 
@@ -180,7 +173,7 @@ Netty includes codec modules for both:
 
 ### Configuration
 
-Netty has **no configuration files**. You write your own hardcoded bootstrap configuration in Java — ports, TLS settings, pipeline handlers, and routing are all defined in code. To change listeners, endpoints, or behaviour you must edit the source and recompile. There is no equivalent to gumdroprc, `application.properties`, or server.xml.
+Netty has **no configuration files**. You write your own hardcoded bootstrap configuration in Java — ports, TLS settings, pipeline handlers, and routing are all defined in code. To change listeners, endpoints, or behaviour you must edit the source and recompile. Gumdrop 3 takes the same approach (composition in Java, no config file); the comparison below is against Jetty/Tomcat/Spring Boot, which do use `application.properties` or `server.xml`.
 
 ---
 
@@ -302,17 +295,19 @@ Spring Boot wraps an embedded servlet container (Tomcat by default) and adds:
 
 ## Sample Configuration: Deploying myservice.war
 
-Below are the configuration files required to deploy a web application `myservice.war` on each framework. Gumdrop uses a single gumdroprc file; Jetty and Tomcat use XML; Spring Boot uses properties plus Java code for external WARs.
+Below are the configuration files required to deploy a web application `myservice.war` on each framework. Gumdrop 3 has no configuration file — like Netty, contexts are added in Java; Jetty and Tomcat use XML with drop-in WAR auto-deploy; Spring Boot uses properties plus Java code for external WARs.
 
 ### Gumdrop
 
-Add one line to the `contexts` list in `gumdroprc.servlet` (or your gumdroprc):
-
-```xml
-<context path="/myservice" root="/opt/apps/myservice.war"/>
+```java
+container.addContext(new Context(container, "/myservice",
+        new File("/opt/apps/myservice.war")));
 ```
 
-No recompile, no Java code. Change path or root and restart.
+Changing the path or WAR root means editing this line and restarting the
+process (no drop-in auto-deploy) — hot deploy (`container.setHotDeploy(true)`)
+picks up in-place changes to an already-deployed WAR's contents without a
+restart, but adding or removing a context is a code change.
 
 ### Jetty (standalone distribution)
 
@@ -404,7 +399,7 @@ There is no XML or properties-only way to deploy an external WAR; it requires Ja
 | **Servlet API** | ✓ Optional | ✗ | ✓ | ✓ | ✓ |
 | **JSON parsing** | jsonparser (31 KB) | netty-codec (JsonObjectDecoder) + Jackson/Gson for POJOs | Add lib | Add lib | Jackson (included) |
 | **XML parsing** | gonzalez-core (~146 KB) | netty-codec-xml (Aalto, async) | Add lib | Add lib | Add lib |
-| **DI framework** | ✓ (minimal, config only) | ✗ | ✗ | ✗ | ✓ (Spring, full) |
+| **DI framework** | ✗ (composition in Java) | ✗ | ✗ | ✗ | ✓ (Spring, full) |
 | **Build tool** | Ant (or Maven for deps) | Maven/Gradle | Maven/Gradle | Maven/Gradle | Maven/Gradle |
 | **Minimal deploy size** | ~2.57 MB | ~2.3 MB (XML) / ~4.5 MB (+Jackson) | ~6 MB | ~6 MB | ~25 MB |
 | **Fat JAR size** | 5.2 MB | N/A | ~8–12 MB | ~10–18 MB | ~25–80 MB |

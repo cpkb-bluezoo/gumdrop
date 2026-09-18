@@ -41,7 +41,7 @@ import org.bluezoo.gumdrop.telemetry.Trace;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link SMTPProtocolHandler}'s streaming-lexer conversion
+ * Unit tests for {@link SmtpProtocolHandler}'s streaming-lexer conversion
  * (issue #85): command recognition/dispatch, DATA dot-unstuffing, BDAT
  * chunked transfer (including the zero-chunk synchronous-state-revert
  * edge case), and sliced-boundary fuzzing, using a stub {@link Endpoint}
@@ -50,14 +50,14 @@ import static org.junit.Assert.*;
  */
 public class SMTPProtocolHandlerTest {
 
-    private SMTPProtocolHandler handler;
+    private SmtpProtocolHandler handler;
     private StubEndpoint endpoint;
-    private SMTPListener listener;
+    private SmtpListener listener;
 
     @Before
     public void setUp() {
-        listener = new SMTPListener();
-        handler = new SMTPProtocolHandler(listener, null);
+        listener = new SmtpListener();
+        handler = new SmtpProtocolHandler(listener, null);
         endpoint = new StubEndpoint();
     }
 
@@ -74,7 +74,7 @@ public class SMTPProtocolHandlerTest {
         handler.receive(ByteBuffer.wrap(data.getBytes(StandardCharsets.US_ASCII)));
     }
 
-    // Mirrors the real transport contract (TCPEndpoint.processInbound()):
+    // Mirrors the real transport contract (TcpEndpoint.processInbound()):
     // a single persistent buffer, compacted between receive() calls so
     // unconsumed bytes from a partial token are preserved and physically
     // moved forward, not a fresh isolated buffer per chunk.
@@ -224,8 +224,8 @@ public class SMTPProtocolHandlerTest {
     @Test
     public void testMailFromSlicedAtEveryChunkSize() {
         for (int chunkSize = 1; chunkSize <= 16; chunkSize++) {
-            listener = new SMTPListener();
-            handler = new SMTPProtocolHandler(listener, null);
+            listener = new SmtpListener();
+            handler = new SmtpProtocolHandler(listener, null);
             endpoint = new StubEndpoint();
 
             heloReady();

@@ -68,8 +68,6 @@ public class EncoderTest implements StoryTestInterface {
      */
     @Test
     public void testEncode() {
-        System.out.println("Processing story file: " + file);
-
         try (InputStream in = new FileInputStream(file)) {
             JSONParser parser = new JSONParser();
             parser.setContentHandler(new StoryHandler(this));
@@ -85,9 +83,6 @@ public class EncoderTest implements StoryTestInterface {
      * Test an individual request within the story file
      */
     @Override public void testCase(int seqno, String wire, List<Header> headers) {
-        byte[] encodedSequence = toByteArray(wire);
-
-        System.out.println("Test encode for "+seqno+", wire value: " + wire);
         ByteBuffer buf = ByteBuffer.allocate(4096);
 
         // We can't actually test for equality between the encoded values
@@ -105,22 +100,10 @@ public class EncoderTest implements StoryTestInterface {
                 }
             };
             decoder.decode(buf, handler);
-            assertEquals("Encode and decode failed: ", headers, testHeaders);
+            assertEquals("seqno " + seqno + " wire " + wire, headers, testHeaders);
         } catch (IOException e) {
-            fail("Encode and decode failed: " + e.getMessage());
+            fail("seqno " + seqno + " wire " + wire + ": " + e.getMessage());
         }
-    }
-
-    public static byte[] toByteArray(String hexString) {
-        if (hexString == null || hexString.length() % 2 != 0) {
-            throw new IllegalArgumentException("Hex string must not be null and must have an even length.");
-        }
-        byte[] byteArray = new byte[hexString.length() / 2];
-        for (int i = 0; i < hexString.length(); i += 2) {
-            String hexPair = hexString.substring(i, i + 2);
-            byteArray[i / 2] = (byte) Integer.parseInt(hexPair, 16);
-        }
-        return byteArray;
     }
 
 }

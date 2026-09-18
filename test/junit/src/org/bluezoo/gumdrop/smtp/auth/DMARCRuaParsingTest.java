@@ -29,13 +29,13 @@ import java.util.List;
 
 /**
  * Unit tests for DMARC record rua/ruf parsing (RFC 7489 §6.2)
- * and the Ed25519 key parsing in DKIMValidator (RFC 8463 §4).
+ * and the Ed25519 key parsing in DkimValidator (RFC 8463 §4).
  */
 public class DMARCRuaParsingTest {
 
     @Test
     public void testParseSingleRua() throws Exception {
-        DMARCValidator.DMARCRecord rec = parseDMARC(
+        DmarcValidator.DmarcRecord rec = parseDMARC(
                 "v=DMARC1; p=none; rua=mailto:reports@example.com");
 
         assertNotNull(rec);
@@ -46,7 +46,7 @@ public class DMARCRuaParsingTest {
 
     @Test
     public void testParseMultipleRua() throws Exception {
-        DMARCValidator.DMARCRecord rec = parseDMARC(
+        DmarcValidator.DmarcRecord rec = parseDMARC(
                 "v=DMARC1; p=reject; rua=mailto:a@example.com,mailto:b@example.com");
 
         assertNotNull(rec);
@@ -58,7 +58,7 @@ public class DMARCRuaParsingTest {
 
     @Test
     public void testParseRuaWithSizeLimit() throws Exception {
-        DMARCValidator.DMARCRecord rec = parseDMARC(
+        DmarcValidator.DmarcRecord rec = parseDMARC(
                 "v=DMARC1; p=none; rua=mailto:reports@example.com!10m");
 
         assertNotNull(rec);
@@ -69,7 +69,7 @@ public class DMARCRuaParsingTest {
 
     @Test
     public void testParseRuf() throws Exception {
-        DMARCValidator.DMARCRecord rec = parseDMARC(
+        DmarcValidator.DmarcRecord rec = parseDMARC(
                 "v=DMARC1; p=quarantine; ruf=mailto:forensic@example.com");
 
         assertNotNull(rec);
@@ -80,7 +80,7 @@ public class DMARCRuaParsingTest {
 
     @Test
     public void testParseRuaAndRuf() throws Exception {
-        DMARCValidator.DMARCRecord rec = parseDMARC(
+        DmarcValidator.DmarcRecord rec = parseDMARC(
                 "v=DMARC1; p=reject; rua=mailto:agg@example.com; ruf=mailto:fail@example.com");
 
         assertNotNull(rec);
@@ -94,7 +94,7 @@ public class DMARCRuaParsingTest {
 
     @Test
     public void testNoRuaTag() throws Exception {
-        DMARCValidator.DMARCRecord rec = parseDMARC("v=DMARC1; p=none");
+        DmarcValidator.DmarcRecord rec = parseDMARC("v=DMARC1; p=none");
 
         assertNotNull(rec);
         assertNull(rec.rua);
@@ -102,13 +102,13 @@ public class DMARCRuaParsingTest {
 
     @Test
     public void testFullRecordWithAlignmentAndPct() throws Exception {
-        DMARCValidator.DMARCRecord rec = parseDMARC(
+        DmarcValidator.DmarcRecord rec = parseDMARC(
                 "v=DMARC1; p=quarantine; sp=reject; adkim=s; aspf=s; pct=50; " +
                 "rua=mailto:dmarc@example.com");
 
         assertNotNull(rec);
-        assertEquals(DMARCPolicy.QUARANTINE, rec.policy);
-        assertEquals(DMARCPolicy.REJECT, rec.subdomainPolicy);
+        assertEquals(DmarcPolicy.QUARANTINE, rec.policy);
+        assertEquals(DmarcPolicy.REJECT, rec.subdomainPolicy);
         assertEquals("s", rec.adkim);
         assertEquals("s", rec.aspf);
         assertEquals(50, rec.pct);
@@ -119,11 +119,11 @@ public class DMARCRuaParsingTest {
     /**
      * Uses reflection to invoke the private parseDMARCRecord method.
      */
-    private DMARCValidator.DMARCRecord parseDMARC(String txt) throws Exception {
-        Method method = DMARCValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
+    private DmarcValidator.DmarcRecord parseDMARC(String txt) throws Exception {
+        Method method = DmarcValidator.class.getDeclaredMethod("parseDMARCRecord", String.class);
         method.setAccessible(true);
-        DMARCValidator validator = new DMARCValidator(null);
-        return (DMARCValidator.DMARCRecord) method.invoke(validator, txt);
+        DmarcValidator validator = new DmarcValidator(null);
+        return (DmarcValidator.DmarcRecord) method.invoke(validator, txt);
     }
 
 }

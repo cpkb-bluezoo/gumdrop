@@ -26,22 +26,29 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.bluezoo.gumdrop.http.Headers;
+import org.bluezoo.gumdrop.websocket.server.WebSocketRequestHandler;
 
 /**
- * WebSocket service for integration tests: echoes text messages back
- * prefixed with {@code "echo:"}, and binary messages back unchanged.
+ * WebSocket connection factory for integration tests: echoes text messages
+ * back prefixed with {@code "echo:"}, and binary messages back unchanged.
  * Also exposes every connected session's handler so tests can assert on
  * lifecycle events (opened/closed/error) observed server-side.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class EchoWebSocketService extends WebSocketService {
+public class EchoWebSocketService
+        implements WebSocketRequestHandler.ConnectionHandlerFactory {
 
     /** Handlers for every connection accepted so far, in connection order. */
     public final CopyOnWriteArrayList<EchoHandler> handlers = new CopyOnWriteArrayList<>();
 
+    /** Builds the {@link WebSocketRequestHandler} to compose onto {@code HttpServer}. */
+    public WebSocketRequestHandler toHandler() {
+        return WebSocketRequestHandler.builder().onConnect(this).build();
+    }
+
     @Override
-    protected WebSocketEventHandler createConnectionHandler(String requestPath, Headers upgradeHeaders) {
+    public WebSocketEventHandler create(String requestPath, Headers upgradeHeaders) {
         EchoHandler handler = new EchoHandler(requestPath);
         handlers.add(handler);
         return handler;

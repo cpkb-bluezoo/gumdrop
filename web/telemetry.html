@@ -95,32 +95,34 @@ integer, or double)</li>
 <h3 id="configuration">Configuration</h3>
 
 <p>
-Telemetry is configured via the <code>TelemetryConfig</code> component in
-gumdroprc. <b>HTTPS is strongly recommended</b> for OTLP export to protect
-telemetry data in transit:
+Telemetry is configured via a <code>TelemetryConfig</code> instance,
+composed in Java and attached to a server. <b>HTTPS is strongly
+recommended</b> for OTLP export to protect telemetry data in transit:
 </p>
 
 <pre>
-&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
-    &lt;!-- Service identification --&gt;
-    &lt;property name="service-name"&gt;my-mail-server&lt;/property&gt;
-    &lt;property name="service-version"&gt;1.0.0&lt;/property&gt;
-    &lt;property name="service-namespace"&gt;production&lt;/property&gt;
-    &lt;property name="deployment-environment"&gt;prod-east&lt;/property&gt;
-    
-    &lt;!-- OTLP endpoint (OpenTelemetry Collector) - use HTTPS in production --&gt;
-    &lt;!-- For HTTP/protobuf use port 4318; for gRPC use port 4317 --&gt;
-    &lt;property name="endpoint"&gt;https://otel-collector:4318&lt;/property&gt;
-    &lt;property name="protocol"&gt;http/protobuf&lt;/property&gt;
-    
-    &lt;!-- TLS configuration for OTLP export --&gt;
-    &lt;property name="truststore-file"&gt;/etc/gumdrop/otlp-truststore.p12&lt;/property&gt;
-    &lt;property name="truststore-pass"&gt;changeit&lt;/property&gt;
-    
-    &lt;!-- Metrics configuration --&gt;
-    &lt;property name="metrics-temporality-name"&gt;cumulative&lt;/property&gt;
-    &lt;property name="metrics-interval-ms"&gt;60000&lt;/property&gt;
-&lt;/component&gt;
+TelemetryConfig telemetry = new TelemetryConfig();
+
+// Service identification
+telemetry.setServiceName("my-mail-server");
+telemetry.setServiceVersion("1.0.0");
+telemetry.setServiceNamespace("production");
+telemetry.setDeploymentEnvironment("prod-east");
+
+// OTLP endpoint (OpenTelemetry Collector) - use HTTPS in production
+// For HTTP/protobuf use port 4318; for gRPC use port 4317
+telemetry.setEndpoint("https://otel-collector:4318");
+telemetry.setProtocol("http/protobuf");
+
+// TLS configuration for OTLP export
+telemetry.setTruststoreFile("/etc/gumdrop/otlp-truststore.p12");
+telemetry.setTruststorePass("changeit");
+
+// Metrics configuration
+telemetry.setMetricsTemporalityName("cumulative");
+telemetry.setMetricsIntervalMs(60000);
+
+telemetry.init();
 </pre>
 
 <p>
@@ -167,21 +169,25 @@ metrics) can be disabled if needed.
 <h4>Associating Telemetry with Servers</h4>
 
 <p>
-To enable telemetry for a server, reference the configuration:
+To enable telemetry for a listener, call <code>setTelemetryConfig</code>
+on it before starting the server:
 </p>
 
 <pre>
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
-    &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
-&lt;/service&gt;
+SmtpListener smtpListener = new SmtpListener().port(25);
+smtpListener.setTelemetryConfig(telemetry);
+SmtpServer smtp = SmtpServer.compose()
+    .listener(smtpListener)
+    .sessionProvider(SmtpServerSessionProviders.relay()
+        .hostname("relay.example.com"))
+    .server();
 
-&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
-    &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-        &lt;property name="port"&gt;8080&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+Http2Listener httpListener = new Http2Listener().port(8080);
+httpListener.setTelemetryConfig(telemetry);
+HttpServer http = HttpServer.compose()
+    .listener(httpListener)
+    .streamHandler(new MyStreamHandler())
+    .server();
 </pre>
 
 <h3 id="builtin">Built-in Instrumentation</h3>
@@ -710,7 +716,7 @@ for Prometheus-style scrapers.</li>
 </ul>
 
 <pre>
-&lt;property name="metrics-temporality-name"&gt;delta&lt;/property&gt;
+telemetry.setMetricsTemporalityName("delta");
 </pre>
 
 <h3 id="distributed">Distributed Tracing</h3>
@@ -745,11 +751,11 @@ manual header handling:
 </p>
 
 <pre>
-HTTPClient client = new HTTPClient(loop, downstreamHost, downstreamPort);
+HttpClient client = new HttpClient(loop, downstreamHost, downstreamPort);
 client.setTrace(state.getTrace());  // Propagates traceparent automatically
-client.connect(new HTTPClientHandler() {
+client.connect(new HttpClientHandler() {
     public void onConnected(Endpoint endpoint) {
-        HTTPRequest request = client.post("/api");
+        HttpRequest request = client.post("/api");
         request.header("Content-Type", "application/json");
         request.send(responseHandler);
     }
@@ -819,14 +825,14 @@ that signed the collector's certificate:
 </p>
 
 <pre>
-&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
-    &lt;property name="service-name"&gt;my-service&lt;/property&gt;
-    &lt;property name="endpoint"&gt;https://otel-collector:4318&lt;/property&gt;
-    
-    &lt;!-- Truststore containing the CA certificate for the collector --&gt;
-    &lt;property name="truststore-file"&gt;/etc/gumdrop/otlp-truststore.p12&lt;/property&gt;
-    &lt;property name="truststore-pass"&gt;changeit&lt;/property&gt;
-&lt;/component&gt;
+TelemetryConfig telemetry = new TelemetryConfig();
+telemetry.setServiceName("my-service");
+telemetry.setEndpoint("https://otel-collector:4318");
+
+// Truststore containing the CA certificate for the collector
+telemetry.setTruststoreFile("/etc/gumdrop/otlp-truststore.p12");
+telemetry.setTruststorePass("changeit");
+telemetry.init();
 </pre>
 
 <p>
@@ -891,48 +897,49 @@ service:
 <h4>Authentication</h4>
 
 <p>
-For authenticated endpoints, use the <code>headers</code> property:
+For authenticated endpoints, call <code>setHeaders</code>:
 </p>
 
 <pre>
-&lt;property name="headers"&gt;Authorization=Bearer token123,X-Org-Id=my-org&lt;/property&gt;
+telemetry.setHeaders("Authorization=Bearer token123,X-Org-Id=my-org");
 </pre>
 
 <h4>Complete Example Configuration</h4>
 
 <pre>
-&lt;!-- Telemetry configuration with HTTPS --&gt;
-&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
-    &lt;property name="service-name"&gt;mail-gateway&lt;/property&gt;
-    &lt;property name="service-version"&gt;2.1.0&lt;/property&gt;
-    &lt;property name="deployment-environment"&gt;production&lt;/property&gt;
-    &lt;property name="service-instance-id"&gt;mail-gw-01&lt;/property&gt;
-    
-    &lt;!-- HTTPS endpoint (recommended for production) --&gt;
-    &lt;property name="endpoint"&gt;https://otel-collector.monitoring:4318&lt;/property&gt;
-    &lt;property name="truststore-file"&gt;/etc/gumdrop/otlp-truststore.p12&lt;/property&gt;
-    &lt;property name="truststore-pass"&gt;changeit&lt;/property&gt;
-    
-    &lt;property name="batch-size"&gt;256&lt;/property&gt;
-    &lt;property name="flush-interval-ms"&gt;3000&lt;/property&gt;
-    &lt;property name="metrics-interval-ms"&gt;30000&lt;/property&gt;
-&lt;/component&gt;
+// Telemetry configuration with HTTPS
+TelemetryConfig telemetry = new TelemetryConfig();
+telemetry.setServiceName("mail-gateway");
+telemetry.setServiceVersion("2.1.0");
+telemetry.setDeploymentEnvironment("production");
+telemetry.setServiceInstanceId("mail-gw-01");
 
-&lt;!-- SMTP service with telemetry --&gt;
-&lt;service id="smtp" class="org.bluezoo.gumdrop.smtp.SimpleRelayService"&gt;
-    &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-    &lt;property name="handler-factory" ref="#smtpHandler"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.smtp.SMTPListener" port="25"/&gt;
-&lt;/service&gt;
+// HTTPS endpoint (recommended for production)
+telemetry.setEndpoint("https://otel-collector.monitoring:4318");
+telemetry.setTruststoreFile("/etc/gumdrop/otlp-truststore.p12");
+telemetry.setTruststorePass("changeit");
 
-&lt;!-- HTTP servlet service with telemetry --&gt;
-&lt;service id="http" class="org.bluezoo.gumdrop.servlet.ServletService"&gt;
-    &lt;property name="telemetry-config" ref="#telemetry"/&gt;
-    &lt;property name="web-app" ref="#webapp"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.http.HTTPListener"&gt;
-        &lt;property name="port"&gt;8080&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+telemetry.setBatchSize(256);
+telemetry.setFlushIntervalMs(3000);
+telemetry.setMetricsIntervalMs(30000);
+telemetry.init();
+
+// SMTP server with telemetry
+SmtpListener smtpListener = new SmtpListener().port(25);
+smtpListener.setTelemetryConfig(telemetry);
+SmtpServer smtp = SmtpServer.compose()
+    .listener(smtpListener)
+    .sessionProvider(SmtpServerSessionProviders.relay()
+        .hostname("relay.example.com"))
+    .server();
+
+// HTTP servlet server with telemetry
+Http2Listener httpListener = new Http2Listener().port(8080);
+httpListener.setTelemetryConfig(telemetry);
+HttpServer http = HttpServer.compose()
+    .listener(httpListener)
+    .streamHandler(new ServletRequestHandler(container))
+    .server();
 </pre>
 
 <h4>Shutdown Guarantees</h4>
@@ -948,7 +955,7 @@ disconnects are recorded in telemetry with exception details before the trace en
 to guarantee telemetry spans are ended even when exceptions occur</li>
 <li><b>JVM shutdown hook</b> - When an exporter is configured, a shutdown hook
 is automatically registered to flush pending telemetry data before the JVM exits</li>
-<li><b>Force flush</b> - The <code>OTLPExporter.forceFlush()</code> method can be
+<li><b>Force flush</b> - The <code>OtlpExporter.forceFlush()</code> method can be
 called programmatically to immediately export all pending data</li>
 </ul>
 
@@ -961,7 +968,7 @@ development, reduce <code>flush-interval-ms</code> to export more frequently.
 <h3 id="file-exporter">File Exporter (JSONL)</h3>
 
 <p>
-The <code>OTLPFileExporter</code> writes telemetry data to local files in
+The <code>OtlpFileExporter</code> writes telemetry data to local files in
 <a href="https://opentelemetry.io/docs/specs/otel/protocol/file-exporter/">
 OpenTelemetry OTLP JSON Lines format</a>. Each line is a complete OTLP JSON
 object (<code>ExportTraceServiceRequest</code>,
@@ -1006,20 +1013,20 @@ signal type. Any signal without a configured path writes to stdout.
 </p>
 
 <pre>
-&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
-    &lt;property name="service-name"&gt;my-service&lt;/property&gt;
-    &lt;property name="exporter-type"&gt;file&lt;/property&gt;
+TelemetryConfig telemetry = new TelemetryConfig();
+telemetry.setServiceName("my-service");
+telemetry.setExporterType("file");
 
-    &lt;!-- Separate files per signal type --&gt;
-    &lt;property name="file-traces-path"&gt;/var/log/otel/traces.jsonl&lt;/property&gt;
-    &lt;property name="file-logs-path"&gt;/var/log/otel/logs.jsonl&lt;/property&gt;
-    &lt;property name="file-metrics-path"&gt;/var/log/otel/metrics.jsonl&lt;/property&gt;
+// Separate files per signal type
+telemetry.setFileTracesPath("/var/log/otel/traces.jsonl");
+telemetry.setFileLogsPath("/var/log/otel/logs.jsonl");
+telemetry.setFileMetricsPath("/var/log/otel/metrics.jsonl");
 
-    &lt;!-- Optional: tune I/O buffer size --&gt;
-    &lt;property name="file-buffer-size"&gt;16384&lt;/property&gt;
+// Optional: tune I/O buffer size
+telemetry.setFileBufferSize(16384);
 
-    &lt;property name="metrics-interval-ms"&gt;60000&lt;/property&gt;
-&lt;/component&gt;
+telemetry.setMetricsIntervalMs(60000);
+telemetry.init();
 </pre>
 
 <h4>Stdout Mode</h4>
@@ -1030,11 +1037,11 @@ the simplest way to see telemetry output during development:
 </p>
 
 <pre>
-&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
-    &lt;property name="service-name"&gt;my-service&lt;/property&gt;
-    &lt;property name="exporter-type"&gt;file&lt;/property&gt;
-    &lt;!-- No file paths = all output goes to stdout --&gt;
-&lt;/component&gt;
+TelemetryConfig telemetry = new TelemetryConfig();
+telemetry.setServiceName("my-service");
+telemetry.setExporterType("file");
+// No file paths = all output goes to stdout
+telemetry.init();
 </pre>
 
 <h4>Working with JSONL Output</h4>
@@ -1114,10 +1121,10 @@ The JMX bridge is enabled by default when metrics are enabled. Disable it with:
 </p>
 
 <pre>
-&lt;component id="telemetry" class="org.bluezoo.gumdrop.telemetry.TelemetryConfig"&gt;
-    &lt;property name="metrics-enabled"&gt;true&lt;/property&gt;
-    &lt;property name="jmx-bridge-enabled"&gt;false&lt;/property&gt;
-&lt;/component&gt;
+TelemetryConfig telemetry = new TelemetryConfig();
+telemetry.setMetricsEnabled(true);
+telemetry.setJmxBridgeEnabled(false);
+telemetry.init();
 </pre>
 
 <p>

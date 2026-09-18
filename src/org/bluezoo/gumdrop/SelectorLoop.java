@@ -80,6 +80,7 @@ public class SelectorLoop implements Runnable {
             Long.getLong("gumdrop.selectorLoop.selectTimeoutMs", 0L);
 
     private final int index;
+    private Gumdrop gumdrop;
     private Thread thread;
     // volatile so cross-thread producers reliably observe a non-null selector
     // and their wakeup() takes effect (the loop no longer polls on a timeout).
@@ -121,6 +122,29 @@ public class SelectorLoop implements Runnable {
      */
     ScheduledTimer getTimer() {
         return timer;
+    }
+
+    /**
+     * Sets the {@link Gumdrop} runtime that owns this loop, so code that
+     * only holds a loop reference (e.g. a DNS transport mid-resolution)
+     * can recover it without a singleton lookup. Set by {@link Gumdrop}
+     * itself when it creates a worker loop; left {@code null} for a
+     * standalone {@link SelectorLoop} created outside any runtime.
+     *
+     * @param gumdrop the owning runtime
+     */
+    void setGumdrop(Gumdrop gumdrop) {
+        this.gumdrop = gumdrop;
+    }
+
+    /**
+     * Returns the {@link Gumdrop} runtime that owns this loop, or
+     * {@code null} for a standalone loop created outside any runtime.
+     *
+     * @return the owning runtime, or null
+     */
+    public Gumdrop getGumdrop() {
+        return gumdrop;
     }
 
     /**
@@ -227,7 +251,7 @@ public class SelectorLoop implements Runnable {
 
                             if (key.isValid() && key.isConnectable()) {
                                 // Only TCP connections have OP_CONNECT
-                                doTcpEndpointConnect(key, (TCPEndpoint) handler);
+                                doTcpEndpointConnect(key, (TcpEndpoint) handler);
                             }
                         } catch (CancelledKeyException e) {
                             // Key was cancelled while dispatching, continue.
@@ -315,11 +339,11 @@ public class SelectorLoop implements Runnable {
             try {
                 switch (handler.getChannelType()) {
                     case TCP:
-                        ((TCPEndpoint) handler).handleDispatchError(cause);
+                        ((TcpEndpoint) handler).handleDispatchError(cause);
                         return;
                     case DATAGRAM_SERVER:
                     case DATAGRAM_CLIENT:
-                        ((UDPEndpoint) handler).close();
+                        ((UdpEndpoint) handler).close();
                         return;
                     case QUIC:
                         ((QuicEngine) handler).close();
@@ -351,11 +375,11 @@ public class SelectorLoop implements Runnable {
     private void doRead(SelectionKey key, ChannelHandler handler) {
         switch (handler.getChannelType()) {
             case TCP:
-                doTcpEndpointRead(key, (TCPEndpoint) handler);
+                doTcpEndpointRead(key, (TcpEndpoint) handler);
                 break;
             case DATAGRAM_SERVER:
             case DATAGRAM_CLIENT:
-                doUDPEndpointRead(key, (UDPEndpoint) handler);
+                doUDPEndpointRead(key, (UdpEndpoint) handler);
                 break;
             case QUIC:
                 doQuicRead(key, (QuicEngine) handler);
@@ -366,11 +390,11 @@ public class SelectorLoop implements Runnable {
     private void doWrite(SelectionKey key, ChannelHandler handler) {
         switch (handler.getChannelType()) {
             case TCP:
-                doTcpEndpointWrite(key, (TCPEndpoint) handler);
+                doTcpEndpointWrite(key, (TcpEndpoint) handler);
                 break;
             case DATAGRAM_SERVER:
             case DATAGRAM_CLIENT:
-                doUDPEndpointWrite(key, (UDPEndpoint) handler);
+                doUDPEndpointWrite(key, (UdpEndpoint) handler);
                 break;
             case QUIC:
                 doQuicWrite(key, (QuicEngine) handler);
@@ -378,9 +402,9 @@ public class SelectorLoop implements Runnable {
         }
     }
 
-    // -- TCPEndpoint methods --
+    // -- TcpEndpoint methods --
 
-    private void doTcpEndpointRead(SelectionKey key, TCPEndpoint endpoint) {
+    private void doTcpEndpointRead(SelectionKey key, TcpEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
 
         try {
@@ -408,7 +432,7 @@ public class SelectorLoop implements Runnable {
         }
     }
 
-    private void doTcpEndpointWrite(SelectionKey key, TCPEndpoint endpoint) {
+    private void doTcpEndpointWrite(SelectionKey key, TcpEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
 
         try {
@@ -469,7 +493,7 @@ public class SelectorLoop implements Runnable {
         }
     }
 
-    private void doTcpEndpointConnect(SelectionKey key, TCPEndpoint endpoint) {
+    private void doTcpEndpointConnect(SelectionKey key, TcpEndpoint endpoint) {
         SocketChannel sc = (SocketChannel) key.channel();
 
         try {
@@ -491,10 +515,10 @@ public class SelectorLoop implements Runnable {
         }
     }
 
-    // -- UDPEndpoint methods --
+    // -- UdpEndpoint methods --
 
     private void doUDPEndpointRead(SelectionKey key,
-                                         UDPEndpoint endpoint) {
+                                         UdpEndpoint endpoint) {
         DatagramChannel dc = (DatagramChannel) key.channel();
         endpoint.netIn.clear();
 
@@ -528,11 +552,11 @@ public class SelectorLoop implements Runnable {
     }
 
     private void doUDPEndpointWrite(SelectionKey key,
-                                          UDPEndpoint endpoint) {
+                                          UdpEndpoint endpoint) {
         DatagramChannel dc = (DatagramChannel) key.channel();
 
         try {
-            UDPEndpoint.PendingDatagram pending;
+            UdpEndpoint.PendingDatagram pending;
             while ((pending = endpoint.pendingDatagrams.poll()) != null) {
                 ByteBuffer data = pending.data;
                 InetSocketAddress dest = pending.destination;
@@ -581,13 +605,13 @@ public class SelectorLoop implements Runnable {
     // -- Registration methods --
 
     /**
-     * Registers a TCPEndpoint with this SelectorLoop.
+     * Registers a TcpEndpoint with this SelectorLoop.
      * Thread-safe.
      *
      * @param channel the socket channel
-     * @param endpoint the TCPEndpoint
+     * @param endpoint the TcpEndpoint
      */
-    void register(SocketChannel channel, TCPEndpoint endpoint) {
+    void register(SocketChannel channel, TcpEndpoint endpoint) {
         // Set synchronously, on the calling thread, rather than waiting for
         // processPendingRegistrations() to run on this loop's own thread --
         // a handler that calls scheduleTimer() (whose default ChannelHandler
@@ -604,13 +628,13 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
-     * Registers a TCPEndpoint for CONNECT events.
+     * Registers a TcpEndpoint for CONNECT events.
      * Thread-safe.
      *
      * @param channel the socket channel
-     * @param endpoint the TCPEndpoint
+     * @param endpoint the TcpEndpoint
      */
-    void registerForConnect(SocketChannel channel, TCPEndpoint endpoint) {
+    void registerForConnect(SocketChannel channel, TcpEndpoint endpoint) {
         endpoint.setSelectorLoop(this);
         pendingRegistrations.add(new PendingRegistration(channel, endpoint, true));
         if (selector != null) {
@@ -619,13 +643,13 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
-     * Registers a TCPEndpoint with this SelectorLoop for OP_READ.
+     * Registers a TcpEndpoint with this SelectorLoop for OP_READ.
      * Thread-safe.  The endpoint must already have its channel set.
      *
      * @param channel the socket channel (must be non-blocking)
      * @param endpoint the TCP endpoint
      */
-    public void registerTCP(SocketChannel channel, TCPEndpoint endpoint) {
+    public void registerTCP(SocketChannel channel, TcpEndpoint endpoint) {
         register(channel, endpoint);
     }
 
@@ -637,7 +661,7 @@ public class SelectorLoop implements Runnable {
      * @param handler the datagram server or client
      */
     public void registerDatagram(DatagramChannel channel, ChannelHandler handler) {
-        // See the identical comment in register(SocketChannel, TCPEndpoint).
+        // See the identical comment in register(SocketChannel, TcpEndpoint).
         handler.setSelectorLoop(this);
         pendingRegistrations.add(new PendingRegistration(channel, handler, false));
         if (selector != null) {
@@ -672,12 +696,12 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
-     * Removes OP_READ interest for a TCPEndpoint (backpressure).
+     * Removes OP_READ interest for a TcpEndpoint (backpressure).
      * May be called from any thread.
      *
      * @param endpoint the endpoint to pause reading
      */
-    void cancelRead(TCPEndpoint endpoint) {
+    void cancelRead(TcpEndpoint endpoint) {
         SelectionKey key = endpoint.getSelectionKey();
         if (key != null && key.isValid()) {
             if (Thread.currentThread() == thread) {
@@ -692,12 +716,12 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
-     * Adds OP_READ interest for a TCPEndpoint (resume after pause).
+     * Adds OP_READ interest for a TcpEndpoint (resume after pause).
      * May be called from any thread.
      *
      * @param endpoint the endpoint to resume reading
      */
-    void requestRead(TCPEndpoint endpoint) {
+    void requestRead(TcpEndpoint endpoint) {
         SelectionKey key = endpoint.getSelectionKey();
         if (key != null && key.isValid()) {
             if (Thread.currentThread() == thread) {
@@ -712,12 +736,12 @@ public class SelectorLoop implements Runnable {
     }
 
     /**
-     * Requests OP_WRITE interest for a TCPEndpoint.
+     * Requests OP_WRITE interest for a TcpEndpoint.
      * May be called from any thread.
      *
      * @param endpoint the endpoint with pending data
      */
-    void requestWrite(TCPEndpoint endpoint) {
+    void requestWrite(TcpEndpoint endpoint) {
         requestWriteInternal(endpoint);
     }
 
@@ -771,9 +795,7 @@ public class SelectorLoop implements Runnable {
     public void shutdown() {
         active = false;
         timer.shutdown();
-        if (selector != null) {
-            selector.wakeup();
-        }
+        wakeup();
     }
 
     /**

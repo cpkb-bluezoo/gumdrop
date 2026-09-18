@@ -23,7 +23,7 @@
  * General-purpose utilities used throughout gumdrop: I/O and SSL/TLS
  * helpers, and small standalone algorithms.
  *
- * <p>{@link org.bluezoo.gumdrop.util.CIDRNetwork} matches an address
+ * <p>{@link org.bluezoo.gumdrop.util.CidrNetwork} matches an address
  * against a CIDR block; {@link org.bluezoo.gumdrop.util.SniCredentialsResolver}
  * selects a {@link org.bluezoo.gumdrop.tls.ServerCredentials} by SNI
  * hostname, for virtual hosting; {@link

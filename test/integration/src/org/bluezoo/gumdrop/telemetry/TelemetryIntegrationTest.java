@@ -21,16 +21,17 @@
 
 package org.bluezoo.gumdrop.telemetry;
 
-import org.bluezoo.gumdrop.telemetry.otlp.OTLPExporter;
+import org.bluezoo.gumdrop.telemetry.otlp.OtlpExporter;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import org.bluezoo.gumdrop.Gumdrop;
+import org.bluezoo.gumdrop.GumdropConfig;
 import org.bluezoo.gumdrop.TestCertificateManager;
-import org.bluezoo.gumdrop.http.HTTPListener;
-import org.bluezoo.gumdrop.smtp.SMTPListener;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.smtp.SmtpListener;
 
 import java.io.File;
 import java.io.BufferedReader;
@@ -70,10 +71,10 @@ public class TelemetryIntegrationTest {
 
     private MockOTLPCollector collector;
     private TelemetryConfig telemetryConfig;
-    private OTLPExporter exporter;
+    private OtlpExporter exporter;
     private Gumdrop gumdrop;
-    private HTTPListener httpServer;
-    private SMTPListener smtpServer;
+    private Http2Listener httpServer;
+    private SmtpListener smtpServer;
 
     private Logger rootLogger;
     private Level originalLogLevel;
@@ -110,35 +111,32 @@ public class TelemetryIntegrationTest {
         }
 
         // Initialize the config - this automatically creates the exporter
-        // (In production, this is called by ComponentRegistry after setting properties)
         telemetryConfig.init();
-        exporter = (OTLPExporter) telemetryConfig.getExporter();
+        exporter = (OtlpExporter) telemetryConfig.getExporter();
 
         // Create HTTP server with telemetry enabled
-        httpServer = new HTTPListener();
+        httpServer = new Http2Listener();
         httpServer.setPort(HTTP_PORT);
         httpServer.setAddresses("::1");
         httpServer.setTelemetryConfig(telemetryConfig);
 
         // Create SMTP server with telemetry enabled
-        smtpServer = new SMTPListener();
+        smtpServer = new SmtpListener();
         smtpServer.setPort(SMTP_PORT);
         smtpServer.setAddresses("::1");
         smtpServer.setTelemetryConfig(telemetryConfig);
 
-        // Start both servers using singleton with lifecycle management
-        System.setProperty("gumdrop.workers", "2");
-        gumdrop = Gumdrop.getInstance();
+        // Start both servers using their own dedicated runtime
+        gumdrop = Gumdrop.boot(GumdropConfig.create().workerThreads(2));
         gumdrop.addListener(httpServer);
         gumdrop.addListener(smtpServer);
-        gumdrop.start();
 
         // Wait for servers to be ready
         waitForPort(HTTP_PORT);
         waitForPort(SMTP_PORT);
         
         // Wait for OTLP connections to be established
-        // The HTTPClient connects asynchronously, so we use waitForConnections
+        // The HttpClient connects asynchronously, so we use waitForConnections
         // to block until connections are ready
         System.out.println("Waiting for OTLP exporter connections...");
         boolean connected = exporter.waitForConnections(5000);

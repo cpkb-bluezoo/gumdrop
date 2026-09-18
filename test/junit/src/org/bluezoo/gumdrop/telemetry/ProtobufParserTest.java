@@ -11,12 +11,12 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
-import org.bluezoo.gumdrop.telemetry.protobuf.DefaultProtobufHandler;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParseException;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufParser;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufHandler;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.DefaultProtobufHandler;
+import org.bluezoo.protobuf.ProtobufParseException;
+import org.bluezoo.protobuf.ProtobufParser;
+import org.bluezoo.protobuf.ProtobufHandler;
+import org.bluezoo.protobuf.ProtobufWriter;
 
 /**
  * JUnit 4 test class for ProtobufParser.

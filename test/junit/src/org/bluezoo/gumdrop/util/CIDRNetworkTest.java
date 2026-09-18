@@ -30,7 +30,7 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link CIDRNetwork}.
+ * Unit tests for {@link CidrNetwork}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -40,7 +40,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv4SingleHost() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("192.168.1.100/32");
+        CidrNetwork network = new CidrNetwork("192.168.1.100/32");
         
         assertTrue(network.isIPv4());
         assertFalse(network.isIPv6());
@@ -52,7 +52,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv4Slash24() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("192.168.1.0/24");
+        CidrNetwork network = new CidrNetwork("192.168.1.0/24");
         
         assertTrue(network.matches(InetAddress.getByName("192.168.1.0")));
         assertTrue(network.matches(InetAddress.getByName("192.168.1.1")));
@@ -65,7 +65,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv4Slash16() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("172.16.0.0/16");
+        CidrNetwork network = new CidrNetwork("172.16.0.0/16");
         
         assertTrue(network.matches(InetAddress.getByName("172.16.0.1")));
         assertTrue(network.matches(InetAddress.getByName("172.16.255.255")));
@@ -76,7 +76,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv4Slash8() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("10.0.0.0/8");
+        CidrNetwork network = new CidrNetwork("10.0.0.0/8");
         
         assertTrue(network.matches(InetAddress.getByName("10.0.0.1")));
         assertTrue(network.matches(InetAddress.getByName("10.255.255.255")));
@@ -87,7 +87,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv4Slash0() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("0.0.0.0/0");
+        CidrNetwork network = new CidrNetwork("0.0.0.0/0");
         
         // /0 matches everything
         assertTrue(network.matches(InetAddress.getByName("0.0.0.0")));
@@ -99,7 +99,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv6SingleHost() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("2001:db8::1/128");
+        CidrNetwork network = new CidrNetwork("2001:db8::1/128");
         
         assertFalse(network.isIPv4());
         assertTrue(network.isIPv6());
@@ -110,7 +110,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv6Slash64() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("2001:db8:85a3::/64");
+        CidrNetwork network = new CidrNetwork("2001:db8:85a3::/64");
         
         assertTrue(network.matches(InetAddress.getByName("2001:db8:85a3::1")));
         assertTrue(network.matches(InetAddress.getByName("2001:db8:85a3::ffff:ffff:ffff:ffff")));
@@ -120,7 +120,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv6Slash32() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("2001:db8::/32");
+        CidrNetwork network = new CidrNetwork("2001:db8::/32");
         
         assertTrue(network.matches(InetAddress.getByName("2001:db8::1")));
         assertTrue(network.matches(InetAddress.getByName("2001:db8:ffff:ffff:ffff:ffff:ffff:ffff")));
@@ -130,7 +130,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv6LinkLocal() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("fe80::/10");
+        CidrNetwork network = new CidrNetwork("fe80::/10");
         
         assertTrue(network.matches(InetAddress.getByName("fe80::1")));
         assertTrue(network.matches(InetAddress.getByName("febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff")));
@@ -140,7 +140,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv6Loopback() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("::1/128");
+        CidrNetwork network = new CidrNetwork("::1/128");
         
         assertTrue(network.matches(InetAddress.getByName("::1")));
         assertFalse(network.matches(InetAddress.getByName("::2")));
@@ -150,7 +150,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv4NetworkDoesNotMatchIPv6() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("192.168.1.0/24");
+        CidrNetwork network = new CidrNetwork("192.168.1.0/24");
         
         // Pure IPv6 addresses should not match an IPv4 network
         assertFalse(network.matches(InetAddress.getByName("2001:db8::1")));
@@ -158,7 +158,7 @@ public class CIDRNetworkTest {
     
     @Test
     public void testIPv6NetworkDoesNotMatchIPv4() throws Exception {
-        CIDRNetwork network = new CIDRNetwork("2001:db8::/32");
+        CidrNetwork network = new CidrNetwork("2001:db8::/32");
         
         assertFalse(network.matches(InetAddress.getByName("192.168.1.1")));
     }
@@ -167,56 +167,56 @@ public class CIDRNetworkTest {
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidCIDRNoPrefixLength() {
-        new CIDRNetwork("192.168.1.0");
+        new CidrNetwork("192.168.1.0");
     }
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidCIDRBadPrefix() {
-        new CIDRNetwork("192.168.1.0/abc");
+        new CidrNetwork("192.168.1.0/abc");
     }
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidCIDRPrefixTooLargeIPv4() {
-        new CIDRNetwork("192.168.1.0/33");
+        new CidrNetwork("192.168.1.0/33");
     }
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidCIDRPrefixTooLargeIPv6() {
-        new CIDRNetwork("2001:db8::/129");
+        new CidrNetwork("2001:db8::/129");
     }
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidCIDRNegativePrefix() {
-        new CIDRNetwork("192.168.1.0/-1");
+        new CidrNetwork("192.168.1.0/-1");
     }
     
     @Test(expected = IllegalArgumentException.class)
     public void testInvalidCIDRBadAddress() {
-        new CIDRNetwork("not.an.ip/24");
+        new CidrNetwork("not.an.ip/24");
     }
     
     // Utility tests
     
     @Test
     public void testGetOriginalCIDR() {
-        CIDRNetwork network = new CIDRNetwork("192.168.1.0/24");
+        CidrNetwork network = new CidrNetwork("192.168.1.0/24");
         assertEquals("192.168.1.0/24", network.getOriginalCIDR());
     }
     
     @Test
     public void testToString() {
-        CIDRNetwork ipv4 = new CIDRNetwork("192.168.1.0/24");
+        CidrNetwork ipv4 = new CidrNetwork("192.168.1.0/24");
         assertTrue(ipv4.toString().contains("IPv4"));
         
-        CIDRNetwork ipv6 = new CIDRNetwork("2001:db8::/32");
+        CidrNetwork ipv6 = new CidrNetwork("2001:db8::/32");
         assertTrue(ipv6.toString().contains("IPv6"));
     }
     
     @Test
     public void testEquals() {
-        CIDRNetwork n1 = new CIDRNetwork("192.168.1.0/24");
-        CIDRNetwork n2 = new CIDRNetwork("192.168.1.0/24");
-        CIDRNetwork n3 = new CIDRNetwork("192.168.2.0/24");
+        CidrNetwork n1 = new CidrNetwork("192.168.1.0/24");
+        CidrNetwork n2 = new CidrNetwork("192.168.1.0/24");
+        CidrNetwork n3 = new CidrNetwork("192.168.2.0/24");
         
         assertEquals(n1, n2);
         assertNotEquals(n1, n3);
@@ -224,30 +224,30 @@ public class CIDRNetworkTest {
     
     @Test
     public void testHashCode() {
-        CIDRNetwork n1 = new CIDRNetwork("192.168.1.0/24");
-        CIDRNetwork n2 = new CIDRNetwork("192.168.1.0/24");
+        CidrNetwork n1 = new CidrNetwork("192.168.1.0/24");
+        CidrNetwork n2 = new CidrNetwork("192.168.1.0/24");
         
         assertEquals(n1.hashCode(), n2.hashCode());
     }
     
     @Test
     public void testMatchesAny() throws Exception {
-        List<CIDRNetwork> networks = Arrays.asList(
-            new CIDRNetwork("192.168.1.0/24"),
-            new CIDRNetwork("10.0.0.0/8"),
-            new CIDRNetwork("172.16.0.0/12")
+        List<CidrNetwork> networks = Arrays.asList(
+            new CidrNetwork("192.168.1.0/24"),
+            new CidrNetwork("10.0.0.0/8"),
+            new CidrNetwork("172.16.0.0/12")
         );
         
-        assertTrue(CIDRNetwork.matchesAny(InetAddress.getByName("192.168.1.50"), networks));
-        assertTrue(CIDRNetwork.matchesAny(InetAddress.getByName("10.1.2.3"), networks));
-        assertTrue(CIDRNetwork.matchesAny(InetAddress.getByName("172.20.1.1"), networks));
+        assertTrue(CidrNetwork.matchesAny(InetAddress.getByName("192.168.1.50"), networks));
+        assertTrue(CidrNetwork.matchesAny(InetAddress.getByName("10.1.2.3"), networks));
+        assertTrue(CidrNetwork.matchesAny(InetAddress.getByName("172.20.1.1"), networks));
         
-        assertFalse(CIDRNetwork.matchesAny(InetAddress.getByName("8.8.8.8"), networks));
+        assertFalse(CidrNetwork.matchesAny(InetAddress.getByName("8.8.8.8"), networks));
     }
     
     @Test
     public void testParseList() throws Exception {
-        List<CIDRNetwork> networks = CIDRNetwork.parseList("192.168.1.0/24, 10.0.0.0/8, 2001:db8::/32");
+        List<CidrNetwork> networks = CidrNetwork.parseList("192.168.1.0/24, 10.0.0.0/8, 2001:db8::/32");
         
         assertEquals(3, networks.size());
         assertTrue(networks.get(0).isIPv4());
@@ -257,16 +257,16 @@ public class CIDRNetworkTest {
     
     @Test
     public void testParseListEmpty() {
-        List<CIDRNetwork> networks = CIDRNetwork.parseList("");
+        List<CidrNetwork> networks = CidrNetwork.parseList("");
         assertTrue(networks.isEmpty());
         
-        networks = CIDRNetwork.parseList(null);
+        networks = CidrNetwork.parseList(null);
         assertTrue(networks.isEmpty());
     }
     
     @Test
     public void testParseListWithExtraWhitespace() {
-        List<CIDRNetwork> networks = CIDRNetwork.parseList("  192.168.1.0/24  ,  10.0.0.0/8  ");
+        List<CidrNetwork> networks = CidrNetwork.parseList("  192.168.1.0/24  ,  10.0.0.0/8  ");
         assertEquals(2, networks.size());
     }
 }

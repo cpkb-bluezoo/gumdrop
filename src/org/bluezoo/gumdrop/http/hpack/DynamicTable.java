@@ -109,7 +109,7 @@ final class DynamicTable {
      * @param maxSize the maximum permitted table size in octets
      */
     void insert(Header header, int maxSize) {
-        int entrySize = HPACKConstants.headerSize(header);
+        int entrySize = HpackConstants.headerSize(header);
         while (count > 0 && byteSize + entrySize > maxSize) {
             evictOldest();
         }
@@ -164,12 +164,12 @@ final class DynamicTable {
         head = (head - 1 + entries.length) % entries.length;
         entries[head] = header;
         count++;
-        byteSize += HPACKConstants.headerSize(header);
+        byteSize += HpackConstants.headerSize(header);
     }
 
     private void evictOldest() {
         int tail = (head + count - 1) % entries.length;
-        byteSize -= HPACKConstants.headerSize(entries[tail]);
+        byteSize -= HpackConstants.headerSize(entries[tail]);
         entries[tail] = null; // release reference
         count--;
     }

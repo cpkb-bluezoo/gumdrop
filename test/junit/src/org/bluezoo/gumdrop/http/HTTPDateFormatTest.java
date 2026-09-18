@@ -39,18 +39,18 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link HTTPDateFormat}.
+ * Unit tests for {@link HttpDateFormat}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
 public class HTTPDateFormatTest {
 
-    private HTTPDateFormat format;
+    private HttpDateFormat format;
     private Calendar calendar;
     
     @Before
     public void setUp() {
-        format = new HTTPDateFormat();
+        format = new HttpDateFormat();
         calendar = new GregorianCalendar(TimeZone.getTimeZone("GMT"));
     }
     
@@ -84,7 +84,7 @@ public class HTTPDateFormatTest {
 
     /**
      * format(long) is a Date-allocation-free entry point added for
-     * HTTPDateCache (which refreshes a cached header value once per
+     * HttpDateCache (which refreshes a cached header value once per
      * second and previously wrapped System.currentTimeMillis() in a
      * throwaway Date purely to call format(Date)). It must produce
      * byte-for-byte the same output as format(Date) for the same instant.
@@ -274,7 +274,7 @@ public class HTTPDateFormatTest {
         // A single instance is shared as a static field and invoked from many
         // worker/selector threads; before the per-thread calendar fix this raced
         // on DateFormat's mutable calendar, producing corrupt output or throwing.
-        final HTTPDateFormat shared = new HTTPDateFormat();
+        final HttpDateFormat shared = new HttpDateFormat();
 
         Calendar c = new GregorianCalendar(TimeZone.getTimeZone("GMT"));
         c.clear();

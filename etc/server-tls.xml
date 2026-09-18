@@ -1,0 +1,21 @@
+<?xml version='1.0' standalone='yes'?>
+<!--
+  Local HTTPS + HTTP/3 (QUIC) smoke configuration for the stock servlet container.
+
+  Requires a PKCS#12 keystore beside this file (conf/keystore.p12 after
+  assemble-container). Generate it with scripts/dev-tls-setup.sh (or .bat)
+  and run via ./start-tls (or start-tls.bat).
+
+  Password below must match the dev-tls-setup script (default changeit).
+-->
+<server>
+  <realm name="myRealm,Gumdrop Manager" class="org.bluezoo.gumdrop.auth.BasicRealm"
+         href="realm-servlet.xml"/>
+
+  <context path="" root="../webapps/ROOT" distributable="true"/>
+  <context path="/manager" root="../webapps/manager.war"/>
+
+  <listener port="8080"/>
+  <listener port="8443" secure="true" keystore-file="keystore.p12"
+            keystore-pass="changeit" bind-wildcard="true"/>
+</server>

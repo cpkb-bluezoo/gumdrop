@@ -3113,7 +3113,7 @@ public final class QuicConnection implements QuicTlsEngineListener {
         // discardZeroRttDataAndKeys) -- but 0-RTT protection must still
         // stop being used for new data once established, or a client
         // that (correctly) deferred a non-eligible request until
-        // establishment (see HTTP3ClientHandler.isSafeToSendNow) would
+        // establishment (see Http3ClientHandler.isSafeToSendNow) would
         // have that data sent under 0-RTT keys anyway the moment it's
         // finally queued, defeating the whole point of deferring it.
         if (zeroRttSendKeys == null || established) {

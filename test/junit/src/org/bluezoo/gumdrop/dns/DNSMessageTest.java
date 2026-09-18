@@ -32,7 +32,7 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DNSMessage}.
+ * Unit tests for {@link DnsMessage}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -40,19 +40,19 @@ public class DNSMessageTest {
 
     @Test
     public void testCreateQuery() {
-        DNSMessage query = DNSMessage.createQuery(1234, "example.com", DNSType.A);
+        DnsMessage query = DnsMessage.createQuery(1234, "example.com", DnsType.A);
         
         assertEquals(1234, query.getId());
         assertTrue(query.isQuery());
         assertFalse(query.isResponse());
-        assertEquals(DNSMessage.OPCODE_QUERY, query.getOpcode());
+        assertEquals(DnsMessage.OPCODE_QUERY, query.getOpcode());
         assertTrue(query.isRecursionDesired());
         
-        List<DNSQuestion> questions = query.getQuestions();
+        List<DnsQuestion> questions = query.getQuestions();
         assertEquals(1, questions.size());
         assertEquals("example.com", questions.get(0).getName());
-        assertEquals(DNSType.A, questions.get(0).getType());
-        assertEquals(DNSClass.IN, questions.get(0).getDNSClass());
+        assertEquals(DnsType.A, questions.get(0).getType());
+        assertEquals(DnsClass.IN, questions.get(0).getDNSClass());
         
         assertTrue(query.getAnswers().isEmpty());
         assertTrue(query.getAuthorities().isEmpty());
@@ -61,37 +61,37 @@ public class DNSMessageTest {
     
     @Test
     public void testSerializeAndParseQuery() throws Exception {
-        DNSMessage original = DNSMessage.createQuery(5678, "www.example.org", DNSType.AAAA);
+        DnsMessage original = DnsMessage.createQuery(5678, "www.example.org", DnsType.AAAA);
         
         ByteBuffer serialized = original.serialize();
         // serialize() returns a buffer ready for get, no need to flip
         
-        DNSMessage parsed = DNSMessage.parse(serialized);
+        DnsMessage parsed = DnsMessage.parse(serialized);
         
         assertEquals(original.getId(), parsed.getId());
         assertEquals(original.isQuery(), parsed.isQuery());
         assertEquals(original.isRecursionDesired(), parsed.isRecursionDesired());
         
         assertEquals(1, parsed.getQuestions().size());
-        DNSQuestion question = parsed.getQuestions().get(0);
+        DnsQuestion question = parsed.getQuestions().get(0);
         assertEquals("www.example.org", question.getName());
-        assertEquals(DNSType.AAAA, question.getType());
+        assertEquals(DnsType.AAAA, question.getType());
     }
     
     @Test
     public void testCreateResponse() throws Exception {
-        DNSMessage query = DNSMessage.createQuery(1000, "example.com", DNSType.A);
+        DnsMessage query = DnsMessage.createQuery(1000, "example.com", DnsType.A);
         
         InetAddress addr = InetAddress.getByName("93.184.216.34");
-        DNSResourceRecord answer = DNSResourceRecord.a("example.com", 300, addr);
+        DnsResourceRecord answer = DnsResourceRecord.a("example.com", 300, addr);
         
-        DNSMessage response = query.createResponse(Collections.singletonList(answer));
+        DnsMessage response = query.createResponse(Collections.singletonList(answer));
         
         assertTrue(response.isResponse());
         assertFalse(response.isQuery());
         assertEquals(1000, response.getId());
         assertTrue(response.isRecursionAvailable());
-        assertEquals(DNSMessage.RCODE_NOERROR, response.getRcode());
+        assertEquals(DnsMessage.RCODE_NOERROR, response.getRcode());
         
         assertEquals(1, response.getAnswers().size());
         assertEquals("example.com", response.getAnswers().get(0).getName());
@@ -99,21 +99,21 @@ public class DNSMessageTest {
     
     @Test
     public void testCreateErrorResponse() {
-        DNSMessage query = DNSMessage.createQuery(2000, "nonexistent.invalid", DNSType.A);
+        DnsMessage query = DnsMessage.createQuery(2000, "nonexistent.invalid", DnsType.A);
         
-        DNSMessage response = query.createErrorResponse(DNSMessage.RCODE_NXDOMAIN);
+        DnsMessage response = query.createErrorResponse(DnsMessage.RCODE_NXDOMAIN);
         
         assertTrue(response.isResponse());
-        assertEquals(DNSMessage.RCODE_NXDOMAIN, response.getRcode());
+        assertEquals(DnsMessage.RCODE_NXDOMAIN, response.getRcode());
         assertTrue(response.getAnswers().isEmpty());
     }
     
     @Test
     public void testFlags() {
         // Create message with specific flags
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_AA | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_AA | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
         
-        DNSMessage msg = new DNSMessage(1, flags,
+        DnsMessage msg = new DnsMessage(1, flags,
                 Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList(),
@@ -131,12 +131,12 @@ public class DNSMessageTest {
         InetAddress addr1 = InetAddress.getByName("1.2.3.4");
         InetAddress addr2 = InetAddress.getByName("5.6.7.8");
         
-        DNSQuestion question = new DNSQuestion("multi.example.com", DNSType.A);
-        DNSResourceRecord answer1 = DNSResourceRecord.a("multi.example.com", 300, addr1);
-        DNSResourceRecord answer2 = DNSResourceRecord.a("multi.example.com", 300, addr2);
+        DnsQuestion question = new DnsQuestion("multi.example.com", DnsType.A);
+        DnsResourceRecord answer1 = DnsResourceRecord.a("multi.example.com", 300, addr1);
+        DnsResourceRecord answer2 = DnsResourceRecord.a("multi.example.com", 300, addr2);
         
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        DNSMessage original = new DNSMessage(100, flags,
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        DnsMessage original = new DnsMessage(100, flags,
                 Collections.singletonList(question),
                 Arrays.asList(answer1, answer2),
                 Collections.emptyList(),
@@ -145,7 +145,7 @@ public class DNSMessageTest {
         ByteBuffer serialized = original.serialize();
         // serialize() returns a buffer ready for get, no need to flip
         
-        DNSMessage parsed = DNSMessage.parse(serialized);
+        DnsMessage parsed = DnsMessage.parse(serialized);
         
         assertEquals(2, parsed.getAnswers().size());
         assertEquals("1.2.3.4", parsed.getAnswers().get(0).getAddress().getHostAddress());
@@ -154,7 +154,7 @@ public class DNSMessageTest {
     
     @Test
     public void testEncodeName() {
-        byte[] encoded = DNSMessage.encodeName("www.example.com");
+        byte[] encoded = DnsMessage.encodeName("www.example.com");
         
         // Should be: 3www7example3com0
         assertEquals(17, encoded.length);
@@ -169,15 +169,15 @@ public class DNSMessageTest {
     
     @Test
     public void testEncodeNameWithTrailingDot() {
-        byte[] withDot = DNSMessage.encodeName("example.com.");
-        byte[] withoutDot = DNSMessage.encodeName("example.com");
+        byte[] withDot = DnsMessage.encodeName("example.com.");
+        byte[] withoutDot = DnsMessage.encodeName("example.com");
         
         assertArrayEquals(withDot, withoutDot);
     }
     
     @Test
     public void testEncodeEmptyName() {
-        byte[] encoded = DNSMessage.encodeName("");
+        byte[] encoded = DnsMessage.encodeName("");
         assertEquals(1, encoded.length);
         assertEquals(0, encoded[0]);
     }
@@ -192,7 +192,7 @@ public class DNSMessageTest {
         };
         
         ByteBuffer buf = ByteBuffer.wrap(data);
-        String name = DNSMessage.decodeName(buf, buf);
+        String name = DnsMessage.decodeName(buf, buf);
         
         assertEquals("www.example.com", name);
     }
@@ -200,7 +200,7 @@ public class DNSMessageTest {
     @Test
     public void testIdMasking() {
         // ID should be masked to 16 bits
-        DNSMessage msg = DNSMessage.createQuery(0x12345678, "test.com", DNSType.A);
+        DnsMessage msg = DnsMessage.createQuery(0x12345678, "test.com", DnsType.A);
         assertEquals(0x5678, msg.getId());
     }
     
@@ -208,44 +208,44 @@ public class DNSMessageTest {
 
     @Test
     public void testCreateQueryWithEdns0() throws Exception {
-        List<DNSResourceRecord> additionals = Collections.singletonList(
-                DNSResourceRecord.opt(4096));
-        DNSMessage query = DNSMessage.createQuery(
-                9999, "example.com", DNSType.A, additionals);
+        List<DnsResourceRecord> additionals = Collections.singletonList(
+                DnsResourceRecord.opt(4096));
+        DnsMessage query = DnsMessage.createQuery(
+                9999, "example.com", DnsType.A, additionals);
 
         assertEquals(9999, query.getId());
         assertTrue(query.isQuery());
         assertEquals(1, query.getAdditionals().size());
-        assertEquals(DNSType.OPT, query.getAdditionals().get(0).getType());
+        assertEquals(DnsType.OPT, query.getAdditionals().get(0).getType());
         assertEquals(4096, query.getAdditionals().get(0).getUdpPayloadSize());
     }
 
     @Test
     public void testSerializeAndParseEdns0() throws Exception {
-        List<DNSResourceRecord> additionals = Collections.singletonList(
-                DNSResourceRecord.opt(4096));
-        DNSMessage original = DNSMessage.createQuery(
-                7777, "edns.example.com", DNSType.AAAA, additionals);
+        List<DnsResourceRecord> additionals = Collections.singletonList(
+                DnsResourceRecord.opt(4096));
+        DnsMessage original = DnsMessage.createQuery(
+                7777, "edns.example.com", DnsType.AAAA, additionals);
 
         ByteBuffer serialized = original.serialize();
-        DNSMessage parsed = DNSMessage.parse(serialized);
+        DnsMessage parsed = DnsMessage.parse(serialized);
 
         assertEquals(7777, parsed.getId());
         assertEquals(1, parsed.getAdditionals().size());
-        DNSResourceRecord opt = parsed.getAdditionals().get(0);
-        assertEquals(DNSType.OPT, opt.getType());
+        DnsResourceRecord opt = parsed.getAdditionals().get(0);
+        assertEquals(DnsType.OPT, opt.getType());
         assertEquals(4096, opt.getUdpPayloadSize());
     }
 
     @Test
     public void testDefaultEdnsUdpSize() {
-        assertEquals(4096, DNSMessage.DEFAULT_EDNS_UDP_SIZE);
+        assertEquals(4096, DnsMessage.DEFAULT_EDNS_UDP_SIZE);
     }
 
-    @Test(expected = DNSFormatException.class)
-    public void testParseTooShort() throws DNSFormatException {
+    @Test(expected = DnsFormatException.class)
+    public void testParseTooShort() throws DnsFormatException {
         ByteBuffer buf = ByteBuffer.wrap(new byte[10]); // Less than 12 bytes header
-        DNSMessage.parse(buf);
+        DnsMessage.parse(buf);
     }
     
     // -- Name compression tests (RFC 1035 section 4.1.4) --
@@ -254,10 +254,10 @@ public class DNSMessageTest {
      * Regression test for issue #257 — JQF/Zest fuzzing found that a
      * compression pointer whose offset points past the end of the
      * message threw an unchecked IllegalArgumentException (from
-     * ByteBuffer.position()) instead of the declared DNSFormatException.
+     * ByteBuffer.position()) instead of the declared DnsFormatException.
      */
-    @Test(expected = DNSFormatException.class)
-    public void testCompressionPointerOutOfRangeThrowsFormatException() throws DNSFormatException {
+    @Test(expected = DnsFormatException.class)
+    public void testCompressionPointerOutOfRangeThrowsFormatException() throws DnsFormatException {
         byte[] data = new byte[] {
             0x00, 0x00, // ID
             0x00, 0x00, // FLAGS
@@ -269,7 +269,7 @@ public class DNSMessageTest {
             0x00, 0x01, // QTYPE (unreached)
             0x00, 0x01, // QCLASS (unreached)
         };
-        DNSMessage.parse(ByteBuffer.wrap(data));
+        DnsMessage.parse(ByteBuffer.wrap(data));
     }
 
     /**
@@ -282,8 +282,8 @@ public class DNSMessageTest {
      * recurses forever, exhausting the stack (a remote, single-message
      * denial-of-service vector) instead of being rejected as malformed.
      */
-    @Test(expected = DNSFormatException.class)
-    public void testCyclicCompressionPointersThrowFormatExceptionNotStackOverflow() throws DNSFormatException {
+    @Test(expected = DnsFormatException.class)
+    public void testCyclicCompressionPointersThrowFormatExceptionNotStackOverflow() throws DnsFormatException {
         byte[] data = new byte[] {
             0x00, 0x00, // ID
             0x00, 0x00, // FLAGS
@@ -297,7 +297,7 @@ public class DNSMessageTest {
             0x00, 0x01, // QTYPE (unreached)
             0x00, 0x01, // QCLASS (unreached)
         };
-        DNSMessage.parse(ByteBuffer.wrap(data));
+        DnsMessage.parse(ByteBuffer.wrap(data));
     }
 
     @Test
@@ -306,13 +306,13 @@ public class DNSMessageTest {
         InetAddress addr2 = InetAddress.getByName("5.6.7.8");
         InetAddress addr3 = InetAddress.getByName("9.10.11.12");
 
-        DNSQuestion question = new DNSQuestion("www.example.com", DNSType.A);
-        DNSResourceRecord a1 = DNSResourceRecord.a("www.example.com", 300, addr1);
-        DNSResourceRecord a2 = DNSResourceRecord.a("www.example.com", 300, addr2);
-        DNSResourceRecord ns = DNSResourceRecord.ns("example.com", 86400, "ns1.example.com");
+        DnsQuestion question = new DnsQuestion("www.example.com", DnsType.A);
+        DnsResourceRecord a1 = DnsResourceRecord.a("www.example.com", 300, addr1);
+        DnsResourceRecord a2 = DnsResourceRecord.a("www.example.com", 300, addr2);
+        DnsResourceRecord ns = DnsResourceRecord.ns("example.com", 86400, "ns1.example.com");
 
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        DNSMessage msg = new DNSMessage(1, flags,
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        DnsMessage msg = new DnsMessage(1, flags,
                 Collections.singletonList(question),
                 Arrays.asList(a1, a2),
                 Collections.singletonList(ns),
@@ -323,7 +323,7 @@ public class DNSMessageTest {
         // Without compression each "www.example.com" is 17 bytes.
         // With compression, second+ occurrences use a 2-byte pointer.
         // Just verify it round-trips correctly and is smaller than naive size.
-        DNSMessage parsed = DNSMessage.parse(compressed);
+        DnsMessage parsed = DnsMessage.parse(compressed);
         assertEquals(1, parsed.getId());
         assertEquals(2, parsed.getAnswers().size());
         assertEquals("www.example.com", parsed.getAnswers().get(0).getName());
@@ -335,35 +335,35 @@ public class DNSMessageTest {
     @Test
     public void testCompressionRoundTrip() throws Exception {
         InetAddress addr = InetAddress.getByName("10.0.0.1");
-        DNSResourceRecord mx = DNSResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
-        DNSResourceRecord a = DNSResourceRecord.a("mail.example.com", 300, addr);
+        DnsResourceRecord mx = DnsResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
+        DnsResourceRecord a = DnsResourceRecord.a("mail.example.com", 300, addr);
 
-        DNSQuestion q = new DNSQuestion("example.com", DNSType.MX);
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        DNSMessage original = new DNSMessage(42, flags,
+        DnsQuestion q = new DnsQuestion("example.com", DnsType.MX);
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        DnsMessage original = new DnsMessage(42, flags,
                 Collections.singletonList(q),
                 Collections.singletonList(mx),
                 Collections.emptyList(),
                 Collections.singletonList(a));
 
         ByteBuffer serialized = original.serialize();
-        DNSMessage parsed = DNSMessage.parse(serialized);
+        DnsMessage parsed = DnsMessage.parse(serialized);
 
         assertEquals(42, parsed.getId());
         assertEquals("example.com", parsed.getQuestions().get(0).getName());
-        assertEquals(DNSType.MX, parsed.getAnswers().get(0).getType());
+        assertEquals(DnsType.MX, parsed.getAnswers().get(0).getType());
         assertEquals("mail.example.com", parsed.getAdditionals().get(0).getName());
     }
 
     @Test
     public void testWireSizeMatchesSerializedLength() throws Exception {
         InetAddress addr = InetAddress.getByName("10.0.0.1");
-        DNSResourceRecord mx = DNSResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
-        DNSResourceRecord a = DNSResourceRecord.a("mail.example.com", 300, addr);
+        DnsResourceRecord mx = DnsResourceRecord.mx("example.com", 3600, 10, "mail.example.com");
+        DnsResourceRecord a = DnsResourceRecord.a("mail.example.com", 300, addr);
 
-        DNSQuestion q = new DNSQuestion("example.com", DNSType.MX);
-        int flags = DNSMessage.FLAG_QR | DNSMessage.FLAG_RD | DNSMessage.FLAG_RA;
-        DNSMessage msg = new DNSMessage(42, flags,
+        DnsQuestion q = new DnsQuestion("example.com", DnsType.MX);
+        int flags = DnsMessage.FLAG_QR | DnsMessage.FLAG_RD | DnsMessage.FLAG_RA;
+        DnsMessage msg = new DnsMessage(42, flags,
                 Collections.singletonList(q),
                 Collections.singletonList(mx),
                 Collections.emptyList(),
@@ -374,7 +374,7 @@ public class DNSMessageTest {
 
     @Test
     public void testToString() {
-        DNSMessage query = DNSMessage.createQuery(1, "test.com", DNSType.A);
+        DnsMessage query = DnsMessage.createQuery(1, "test.com", DnsType.A);
         String str = query.toString();
 
         assertTrue(str.contains("QUERY"));
@@ -387,15 +387,15 @@ public class DNSMessageTest {
         // RFC 6762 section 5.4: the mDNS "QU" bit shares the QCLASS
         // field's top bit; parsing must not confuse it with an unknown
         // class, and encoding must reproduce it.
-        DNSQuestion q = new DNSQuestion("gumdrop.local", DNSType.A, DNSClass.IN, true);
-        DNSMessage original = new DNSMessage(99, DNSMessage.FLAG_RD,
+        DnsQuestion q = new DnsQuestion("gumdrop.local", DnsType.A, DnsClass.IN, true);
+        DnsMessage original = new DnsMessage(99, DnsMessage.FLAG_RD,
                 Collections.singletonList(q),
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyList());
 
-        DNSMessage parsed = DNSMessage.parse(original.serialize());
+        DnsMessage parsed = DnsMessage.parse(original.serialize());
 
-        DNSQuestion parsedQuestion = parsed.getQuestions().get(0);
-        assertEquals(DNSClass.IN, parsedQuestion.getDNSClass());
+        DnsQuestion parsedQuestion = parsed.getQuestions().get(0);
+        assertEquals(DnsClass.IN, parsedQuestion.getDNSClass());
         assertTrue(parsedQuestion.isUnicastResponseRequested());
     }
 
@@ -404,18 +404,18 @@ public class DNSMessageTest {
         // RFC 6762 section 10.2: the mDNS cache-flush bit shares the RR
         // CLASS field's top bit.
         InetAddress addr = InetAddress.getByName("192.0.2.5");
-        int rawClass = DNSClass.IN.getValue() | DNSResourceRecord.CACHE_FLUSH_BIT;
-        DNSResourceRecord rr = new DNSResourceRecord("gumdrop.local", DNSType.A,
-                DNSType.A.getValue(), DNSClass.IN, rawClass, 120, addr.getAddress());
-        DNSMessage original = new DNSMessage(0, DNSMessage.FLAG_QR | DNSMessage.FLAG_AA,
+        int rawClass = DnsClass.IN.getValue() | DnsResourceRecord.CACHE_FLUSH_BIT;
+        DnsResourceRecord rr = new DnsResourceRecord("gumdrop.local", DnsType.A,
+                DnsType.A.getValue(), DnsClass.IN, rawClass, 120, addr.getAddress());
+        DnsMessage original = new DnsMessage(0, DnsMessage.FLAG_QR | DnsMessage.FLAG_AA,
                 Collections.emptyList(),
                 Collections.singletonList(rr),
                 Collections.emptyList(), Collections.emptyList());
 
-        DNSMessage parsed = DNSMessage.parse(original.serialize());
+        DnsMessage parsed = DnsMessage.parse(original.serialize());
 
-        DNSResourceRecord parsedRr = parsed.getAnswers().get(0);
-        assertEquals(DNSClass.IN, parsedRr.getDNSClass());
+        DnsResourceRecord parsedRr = parsed.getAnswers().get(0);
+        assertEquals(DnsClass.IN, parsedRr.getDNSClass());
         assertTrue(parsedRr.isCacheFlush());
     }
 }

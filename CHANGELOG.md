@@ -6,7 +6,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
+**Gumdrop 3.0.0** (release date not set). Major version: Java 25 baseline,
+in-tree TLS, Jakarta Servlet 6.1, and a handler-first public API reshape.
+Further 3.0 work may land before release; the items below are the large
+user-visible themes since 2.2.x.
 
 ### Added
 
@@ -17,6 +20,15 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   25+.
 - **DTLS 1.3** on UDP listeners (`Dtls13Session`, unified record format,
   cookie-based HelloRetryRequest) alongside existing DTLS 1.2 support.
+- **Jakarta Servlet 6.1 container** on HTTP/1.1, HTTP/2, and HTTP/3, including
+  request IDs and `ServletConnection`, three-argument `sendRedirect`, expanded
+  error-dispatch attributes, `jakarta.servlet.request.secure_protocol` on TLS
+  and QUIC, `HttpSession.getAccessor()` for use outside an active request, and
+  `ByteBuffer` read/write on servlet streams. See [web/servlet.html](web/servlet.html).
+- **Handler-first HTTP server wiring**: compose `HttpServer` with
+  `HttpStreamHandler` implementations such as `ServletRequestHandler`,
+  `WebDAVRequestHandler`, and `WebSocketRequestHandler` instead of separate
+  “application server” types (see **Removed**).
 - **RFC 9218 extensible prioritisation**: `PRIORITY_UPDATE` and urgency-based
   scheduling on HTTP/2 and HTTP/3.
 - **RFC 9221 QUIC DATAGRAM**: unreliable datagram send/receive with
@@ -34,15 +46,30 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   ML-KEM/ML-DSA support). The build uses `--release 25` exclusively.
 - **TCP/TLS and DTLS** now use the in-tree engine instead of JSSE
   `SSLEngine`; **QUIC/HTTP/3 TLS** uses the same engine via
-  `QuicTlsClientEngine`/`QuicTlsServerEngine`, not Agent15.
+  `QuicTlsClientEngine`/`QuicTlsServerEngine`, not Agent15. Application code
+  that integrated via `SSLEngine` must move to Gumdrop's TLS types and
+  listener/credential configuration ([web/tls.html](web/tls.html)).
+- **Public API layout and naming (breaking)**: camelCase acronyms throughout
+  (`HttpServer`, `SmtpClient`, …; **WebDAV** and **WebSocket** spelled as
+  tradenames). Protocol facades sit at each package root; server and client
+  SPI live under `{protocol}.server` and `{protocol}.client` (for example
+  `http.server.HttpRequestHandler`, `http.client.HttpClient`). Mail and
+  network servers are `{Protocol}Server` in `{protocol}.server` with
+  root re-exports. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+  [docs/GUMDROP-3-PLAN.md](docs/GUMDROP-3-PLAN.md).
 - **Modularised build**: Gumdrop is split into smaller interlinked internal
   jars (core, servlet stack, and per-protocol modules) with JPMS descriptors;
   `dist/gumdrop.jar` remains the all-in-one library artifact. Several types
   moved to JPMS-clean subpackages (`auth.oauth`, `auth.ldap`, `mailbox.spi`,
   `http.doh`, `telemetry.otlp`).
+- **Protocol Buffers wire codec** is no longer in Gumdrop: the generic
+  push parser and writer live in the standalone
+  [jprotobuf](https://github.com/cpkb-bluezoo/jprotobuf) library
+  (`org.bluezoo:jprotobuf`, package `org.bluezoo.protobuf`), used by gRPC,
+  servlet session replication, and OTLP export. OTLP-specific encoders
+  (`TraceSerializer`, `MetricSerializer`, `LogSerializer`) remain in Gumdrop
+  under `org.bluezoo.gumdrop.telemetry.otlp`.
 - **QUIC Retry-based address validation is enabled by default** on listeners.
-- **Compile/runtime and test dependencies** (third-party jars, J2EE APIs,
-  JUnit/Hamcrest) are downloaded by Ant when needed, not stored in git.
 - **Gonzalez dependency is now `gonzalez-core` only** (same JPMS module name).
 - **`gumdrop-container.jar`** (fat jar) is deprecated in favour of the zip
   layout.
@@ -63,6 +90,27 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **`gumdrop-protocols.jar`** aggregate (superseded by per-protocol jars and
   `gumdrop.jar`).
+- **Separate HTTP application server types** `ServletServer`, `WebdavServer`,
+  and `WebSocketServer` (and related listener-only entry points): use
+  `HttpServer` with `ServletRequestHandler`, `WebDAVRequestHandler`, or
+  `WebSocketRequestHandler` instead.
+- **`HttpRequestHandlerFactory`**: register a handler or router on
+  `HttpServer` directly.
+- **`org.bluezoo.gumdrop.telemetry.protobuf`**: generic codec removed in
+  favour of `org.bluezoo.protobuf` in jprotobuf (see **Changed**).
+- **`gumdroprc` XML configuration and `ComponentRegistry`** (breaking):
+  `org.bluezoo.gumdrop.config` (`ConfigurationParser`, `ComponentRegistry`,
+  reflective setter injection), the `GumdropConfigurator` SPI, and
+  `Gumdrop.getInstance(File)` are gone, along with `Gumdrop.main()` itself.
+  Applications compose servers in Java — see
+  [web/configuration.html](web/configuration.html). The one exception is the stock
+  servlet container distribution: its launcher
+  (`Bootstrap`/`ContainerMain`) reads a new, minimal `server.xml` (contexts,
+  realms, listeners only — not a `gumdroprc` replacement) — see
+  [CONTAINER-DEPLOYMENT.md](docs/CONTAINER-DEPLOYMENT.md).
+- **`health` package** (`HealthServer` and the k8s liveness/readiness HTTP
+  endpoint it exposed): polling a service over HTTP for readiness is the
+  wrong pattern for cloud operations, and no replacement is planned.
 
 ## [2.2.0] - 2026-08-20
 
@@ -75,25 +123,25 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   0-RTT, Retry packets, passive connection migration, WebSocket-over-HTTP/3
   (RFC 9220), and automatic h3/h2/h1.x transport negotiation.
 - **Multicast DNS (RFC 6762) and DNS-SD (RFC 6763)**: new
-  `org.bluezoo.gumdrop.mdns` package. `MDNSService`/`MDNSListener`
+  `org.bluezoo.gumdrop.mdns` package. `MdnsServer`/`MdnsListener`
   implement the full RFC 6762 peer lifecycle for a `.local` hostname —
   probing with conflict detection and automatic rename, announcing,
   answering queries (with known-answer suppression and QU-bit unicast
-  replies), and a goodbye packet on shutdown — plus an `MDNSCache` for
+  replies), and a goodbye packet on shutdown — plus an `MdnsCache` for
   querying other hosts' records, with RFC 6762 §5.2 active refresh and
-  §10.2 cache-flush semantics. `DNSSDAdvertiser` auto-advertises
+  §10.2 cache-flush semantics. `DnssdAdvertiser` auto-advertises
   gumdrop's own configured services (HTTP, IMAP, POP3, FTP, SMTP, DNS)
-  as browsable DNS-SD records. `DNSQuestion`/`DNSResourceRecord` in the
+  as browsable DNS-SD records. `DnsQuestion`/`DnsResourceRecord` in the
   `dns` package gained the QU and cache-flush wire-format bits mDNS
   needs, plus a multi-string TXT record factory for DNS-SD attribute
   pairs, and gained HTTPS/SVCB (RFC 9460) record factory methods.
-- **RFC 10029 batched DNS queries** (`DNSResolver.queryBatch()`/
+- **RFC 10029 batched DNS queries** (`DnsResolver.queryBatch()`/
   `BatchQueryCallback`): requests extra RRTYPEs for the same name via
   an MQTYPE-Query EDNS0 option, merging what a supporting server
   returns into one round trip instead of several — used internally to
   fetch A/AAAA and HTTPS records together for HTTP/3 connection setup.
   Falls back automatically per-server via a capability cache for
-  servers that don't support the option. `DNSService` gained matching
+  servers that don't support the option. `DnsServer` gained matching
   server-side support.
 - **ResolvConf** pure-Java parser for system DNS nameserver discovery
   (replacing native `getSystemNameservers()` on POSIX; Windows still
@@ -126,7 +174,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   after `max(3×PTO, 6×kInitialRtt)`, per the RFC's specified failure
   mode.
 - **DoQ query responses were silently dropped and always timed out**:
-  `DNSResolver`'s response correlation matched against the resolver's
+  `DnsResolver`'s response correlation matched against the resolver's
   original query ID, but RFC 9250 mandates ID 0 on the wire for DoQ.
   Fixed within `DoQClientTransport`, transparent to callers.
 
@@ -176,7 +224,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   `onWriteReady` callback was cleared after invocation rather than before,
   which could cause a stale callback to be replayed or a re-registering
   callback to be lost.
-- **SOCKS5 client partial-read handshake failures**: `SOCKSClientHandler`
+- **SOCKS5 client partial-read handshake failures**: `SocksClientHandler`
   did not handle a handshake reply split across multiple `receive()` calls,
   causing stalls or errors against servers (such as Dante) that write the
   method-selection, authentication, and CONNECT replies as separate TCP
@@ -201,8 +249,8 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   (issue #188, #189): the client previously only supported SASL PLAIN. It now
   also supports RabbitMQ's `AMQPLAIN` mechanism, `EXTERNAL` (TLS client
   certificate), and `GSSAPI`/Kerberos (worker-thread offloaded for KDC
-  contact), reusing gumdrop's shared `SASLUtils` infrastructure where
-  possible. `AMQPClientProtocolHandler` now also drives
+  contact), reusing gumdrop's shared `SaslUtils` infrastructure where
+  possible. `AmqpClientProtocolHandler` now also drives
   `connection.secure`/`secure-ok` round trips so multi-step mechanisms work,
   not just single-shot ones.
 - **FTP client** (`org.bluezoo.gumdrop.ftp.client`, #113): async FTP client
@@ -223,12 +271,12 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 - Maven Central publishing workflow and `SECURITY.md` vulnerability
   disclosure policy added.
 - Dependabot configuration added for automated dependency update PRs.
-- **DTLS support for UDP listeners** (issue #190): `UDPEndpoint` now
+- **DTLS support for UDP listeners** (issue #190): `UdpEndpoint` now
   maintains one DTLS session per peer address, so a single bound socket
   serves many concurrent DTLS clients (DNS-over-DTLS, RFC 8094, in
   particular). Includes RFC 6347 §4.2.4 handshake flight retransmission
   with exponential backoff, and `securityEstablished(SecurityInfo)` now
-  actually fires for DTLS, backed by the same `JSSESecurityInfo` used for
+  actually fires for DTLS, backed by the same `JsseSecurityInfo` used for
   TCP/TLS.
 
 ### Changed
@@ -292,22 +340,22 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   moved off a single shared `synchronized` block onto a
   `ConcurrentHashMap`, so it no longer contends across every connection
   an auth provider instance serves.
-- **`UDPEndpoint`'s receive buffer is now a pooled direct buffer**
-  (issue #193), matching `TCPEndpoint`'s read/write path, instead of a
+- **`UdpEndpoint`'s receive buffer is now a pooled direct buffer**
+  (issue #193), matching `TcpEndpoint`'s read/write path, instead of a
   plain heap allocation that forced the JVM's internal direct-buffer
   bounce-copy on every datagram.
 - **`Container.getContextByPath` is now an indexed lookup** (issue #194)
   instead of an unindexed linear scan with `String.startsWith` over every
   deployed context on every request.
-- **LDAP `BERDecoder` no longer allocates a decoder and pooled buffer per
+- **LDAP `BerDecoder` no longer allocates a decoder and pooled buffer per
   nesting level** (issue #195): constructed (nested) BER values are now
   parsed in place via plain recursive descent over the already-received
-  bytes, rather than spinning up a whole new `BERDecoder` per level of
+  bytes, rather than spinning up a whole new `BerDecoder` per level of
   nesting — relevant to deeply nested LDAP search filters.
 
 ### Fixed
 
-- **`HTTP3Listener` NullPointerException** on certain startup configurations
+- **`Http3Listener` NullPointerException** on certain startup configurations
   (#108).
 - **HTTP/2 `Content-Length` validation ordering** corrected so a mismatched
   length is rejected before the affected body is processed (#67).
@@ -322,7 +370,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 - **HTTP authentication enforcement gaps across HTTP/1.1, HTTP/2, and
   HTTP/3** closed — auth constraints evaluated on one protocol version were
   not consistently reaching requests served over another (#117).
-- **`JSPServlet` exception messages no longer leak internal detail** to
+- **`JspServlet` exception messages no longer leak internal detail** to
   clients on compilation/runtime errors (#174, #177).
 - **Zip Slip vulnerability in `Context.getResourcePaths()`** fixed —
   crafted WAR entries could previously write outside the deployment
@@ -353,8 +401,8 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   application. Fixed with strict path confinement and regression tests.
 
 - **IMAP/POP3 SCRAM-SHA-256 proof verification broken**:
-  Server-side SCRAM proof verification in `SASLUtils`, `IMAPProtocolHandler`,
-  and `POP3ProtocolHandler` did not properly verify the client proof,
+  Server-side SCRAM proof verification in `SaslUtils`, `ImapProtocolHandler`,
+  and `Pop3ProtocolHandler` did not properly verify the client proof,
   potentially allowing authentication bypass.
 
 - **`WEB-INF`/`META-INF` bypass in `DefaultServlet` path checks**:
@@ -364,31 +412,31 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **IMAP/POP3/SMTP DIGEST-MD5 response verification broken**:
   the same class of flaw as the SCRAM issue above, affecting DIGEST-MD5
-  response verification in `SASLUtils`, `IMAPProtocolHandler`,
-  `POP3ProtocolHandler`, and `SMTPProtocolHandler`.
+  response verification in `SaslUtils`, `ImapProtocolHandler`,
+  `Pop3ProtocolHandler`, and `SmtpProtocolHandler`.
 
 - **Strict allowlist for replicated session deserialization**: 
   `SessionSerializer` now validates deserialized cluster-session
-  class names against a strict allowlist in `Container`/`ServletService`
+  class names against a strict allowlist in `Container`/`ServletServer`
   instead of deserializing arbitrary classes, closing an insecure
   deserialization vector in cluster session replication.
 
 - **Conflicting `Content-Length` headers not rejected on HTTP/1**: 
-  `HTTPProtocolHandler`, `Stream`, and
-  `HTTPVersion` now reject requests carrying multiple/conflicting
+  `HttpProtocolHandler`, `Stream`, and
+  `HttpVersion` now reject requests carrying multiple/conflicting
   `Content-Length` headers instead of picking one.
 
 - **`Transfer-Encoding` header with multiple codings not rejected**: 
-  `HTTPUtils` now rejects a
+  `HttpUtils` now rejects a
   `Transfer-Encoding` header listing multiple codings.
 
 - **SOCKS NO-AUTH/SOCKS4 accepted despite configured realm**: 
-  `SOCKSProtocolHandler` now rejects unauthenticated
+  `SocksProtocolHandler` now rejects unauthenticated
   NO-AUTH and SOCKS4 negotiation when a realm requiring authentication is
   configured.
 
 - **SMTP auth state derived from XCLIENT LOGIN assertion**: 
-  `SMTPProtocolHandler` no longer trusts an
+  `SmtpProtocolHandler` no longer trusts an
   XCLIENT-asserted `LOGIN` value as proof of authenticated state.
 
 - **JWT validation failure fell back to an insecure path**: 
@@ -420,18 +468,18 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   minimum) and caches derived credentials to offset the added cost.
 
 - **Digest authentication nonce hardened**: HTTP Digest nonce
-  generation in `HTTPAuthenticationProvider` no longer uses
+  generation in `HttpAuthenticationProvider` no longer uses
   `Math.random()`; it now mixes the current time with `SecureRandom` bytes
   so nonces are unpredictable.
 
 - **HTTP Digest replay guard and request binding weak**:
-  `HTTPAuthenticationProvider`'s Digest authentication lacked adequate
+  `HttpAuthenticationProvider`'s Digest authentication lacked adequate
   replay protection and binding to the specific request; fixed with
   nonce/request-binding checks.
 
 - **IMAP/SMTP OAUTHBEARER authentication not bound to token subject**: 
-  `IMAPProtocolHandler` and
-  `SMTPProtocolHandler` accepted an OAUTHBEARER token without binding the
+  `ImapProtocolHandler` and
+  `SmtpProtocolHandler` accepted an OAUTHBEARER token without binding the
   authenticated identity to the token's subject claim.
 
 - **JWT validation missing required `exp` claim check; array `aud` claims
@@ -448,7 +496,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   for it, and raise a new `WebSocketMessageTooBigException`.
 
 - **No configurable maximum HTTP request body size**:
-  `HTTPListener`, `HTTPProtocolHandler`, and `Stream` now support an
+  `Http2Listener`, `HttpProtocolHandler`, and `Stream` now support an
   enforceable maximum body size.
 
 - **gRPC bodies buffered fully in memory instead of streamed**: 
@@ -457,22 +505,22 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   bodies.
 
 - **DNS listener ACLs and RFC 7873 cookies not enforced**:
-  `DNSListener`/`DNSService` now enforce access-control lists and DNS
+  `DnsListener`/`DnsServer` now enforce access-control lists and DNS
   cookie validation to mitigate spoofing/amplification abuse.
 
 - **Active-mode FTP data address not verified against the control client**: 
-  `FTPDataConnectionCoordinator`,
-  `FTPListener`, and `FTPProtocolHandler` now verify that an active-mode
+  `FtpDataConnectionCoordinator`,
+  `FtpListener`, and `FtpProtocolHandler` now verify that an active-mode
   data connection actually originates from the control connection's peer
   address.
 
 - **HTTP/2 concurrency slot released before the response actually
-  completed**: `HTTPProtocolHandler`/`Stream` now hold
+  completed**: `HttpProtocolHandler`/`Stream` now hold
   the HTTP/2 concurrency slot until the response completes, closing a
   concurrency-limit-bypass window.
 
 - **Client-sent `PUSH_PROMISE` accepted instead of rejected**: 
-  `HTTPProtocolHandler` now rejects a
+  `HttpProtocolHandler` now rejects a
   client-sent `PUSH_PROMISE` frame with `PROTOCOL_ERROR` and `GOAWAY`
   instead of accepting it — servers are never a valid recipient of this
   frame per RFC 9113 §6.6.
@@ -487,21 +535,21 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   overflow-driven memory/logic issues.
 
 - **IMAP command literal size not enforced on every literal-accepting
-  command**: `IMAPProtocolHandler` now enforces
+  command**: `ImapProtocolHandler` now enforces
   `maxLiteralSize` consistently.
 
 - **Resolved SOCKS destination addresses not validated against the
-  destination filter**: `SOCKSProtocolHandler`/
-  `SOCKSUDPRelay` now validate every DNS-resolved address, not just the
+  destination filter**: `SocksProtocolHandler`/
+  `SocksUdpRelay` now validate every DNS-resolved address, not just the
   literal target, against the configured destination policy.
 
 - **SOCKS BIND lacked destination-policy and bind-interface restriction**: 
-  `SOCKSBindRelay`/`SOCKSProtocolHandler` extend
+  `SocksBindRelay`/`SocksProtocolHandler` extend
   destination-policy enforcement to the BIND command and restrict which
   interfaces BIND may listen on.
 
 - **DNS response validation gaps: QR bit, source address, question section**: 
-  `DNSService` now validates the QR
+  `DnsServer` now validates the QR
   bit, response source address, and echoed question section on incoming
   DNS responses.
 
@@ -510,12 +558,12 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   replay/timestamp validation unconditionally.
 
 - **Timing-unsafe MAC/digest comparisons**: 
-  `HTTPAuthenticationProvider`, `IMAPProtocolHandler`,
-  `POP3ProtocolHandler`, and `DKIMValidator` now use constant-time
+  `HttpAuthenticationProvider`, `ImapProtocolHandler`,
+  `Pop3ProtocolHandler`, and `DkimValidator` now use constant-time
   comparison for credential/digest checks.
 
 - **No HTTP/1.1 header-count limit**:
-  `HTTPProtocolHandler` now enforces a maximum header count per request.
+  `HttpProtocolHandler` now enforces a maximum header count per request.
 
 - **No maximum line length enforced in `LineParser`**: 
   `LineParser` (and the FTP/HTTP/IMAP/POP3/SMTP handlers built on
@@ -523,7 +571,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   exhaustion.
 
 - **Non-PRI input accepted after an h2c 101 Switching Protocols upgrade**: 
-  `HTTPProtocolHandler` now
+  `HttpProtocolHandler` now
   rejects non-conforming input following an h2c upgrade.
 
 - **FTP unique-name generation not re-validated against path policy**: 
@@ -535,22 +583,22 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   from client-supplied multipart filenames and canonicalizes the result.
 
 - **Unbounded SOCKS5 GSSAPI token length**:
-  `SOCKSProtocolHandler`/`SOCKSConstants` now cap GSSAPI token length at
+  `SocksProtocolHandler`/`SocksConstants` now cap GSSAPI token length at
   16 KiB.
 
 - **`rsa-sha1` DKIM signatures accepted**: 
-  `DKIMValidator` no longer accepts `rsa-sha1` signatures.
+  `DkimValidator` no longer accepts `rsa-sha1` signatures.
 
 - **TLS peer-verification disable flag not applied to TCP/TLS**: 
-  `HTTPClient.setVerifyPeer(false)` previously only affected
+  `HttpClient.setVerifyPeer(false)` previously only affected
   QUIC connections; it now applies to TCP/TLS connections too.
 
-- **No SSRF protection option on `HTTPClient`**: 
-  `HTTPClient` gains an opt-in SSRF protection mode that
+- **No SSRF protection option on `HttpClient`**: 
+  `HttpClient` gains an opt-in SSRF protection mode that
   blocks requests/redirects to internal address ranges.
 
 - **WebDAV XML parsing hardened against XXE/DoS**:
-  `WebDAVRequestParser` and `DeadPropertyParser` now explicitly install a
+  `WebdavRequestParser` and `DeadPropertyParser` now explicitly install a
   deny-external-entities resolver (`XMLParseUtils.DENY_EXTERNAL_ENTITIES`)
   rather than relying on the parser default, and WebDAV request bodies are
   capped in size (rejecting oversized bodies with `413`) to bound XML
@@ -569,12 +617,12 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   resolution as the existing FTP/WebDAV fix above.
 
 - **Host header syntax not validated; malformed port crashed the request**: 
-  `HTTPProtocolHandler`, `HTTPUtils`, and `Request`
+  `HttpProtocolHandler`, `HttpUtils`, and `Request`
   now validate `Host` header syntax and guard `getServerPort()` against a
   crash on malformed input.
 
 - **DMARC `pct=` sampling used a non-cryptographic RNG**:
-  `DMARCValidator` now uses `SecureRandom` for percentage-based sampling
+  `DmarcValidator` now uses `SecureRandom` for percentage-based sampling
   decisions.
 
 - **Invalid HTTP response headers handled gracefully**:
@@ -582,14 +630,14 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   containing CR/LF) and drops the header with a warning instead of
   propagating an exception, preventing HTTP response splitting from becoming
   a server error. The `Header` constructor already rejects CR/LF via
-  `HTTPUtils.isValidHeaderValue`; a regression test was added.
+  `HttpUtils.isValidHeaderValue`; a regression test was added.
 
 - **Clarified `sendRedirect` open-redirect documentation**:
   `Response.sendRedirect()` javadoc now accurately states that the method does
   not restrict the redirect target and that same-origin/allowlist validation
   is the application's responsibility.
 
-- **Clarified HTTP client `-k` flag**: The command-line `HTTPClient`
+- **Clarified HTTP client `-k` flag**: The command-line `HttpClient`
   `-k` (skip TLS certificate verification) flag is documented as insecure and
   debugging-only; certificate verification remains enabled by default.
 
@@ -599,7 +647,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   operator; no code behavior change.
 
 - **Hardcoded DMARC TLD set replaced with a real Public Suffix List**: 
-  `DMARCValidator` replaces a hardcoded TLD set with a
+  `DmarcValidator` replaces a hardcoded TLD set with a
   proper `PublicSuffixList` implementation for organizational-domain
   determination.
 
@@ -611,21 +659,21 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
   native library (BoringSSL + quiche JNI bindings). Servers advertise HTTP/3
   availability through `Alt-Svc` headers; clients can connect directly over
   QUIC or discover HTTP/3 transparently via Alt-Svc upgrade.
-  - `HTTPClient` supports `--http3` for direct QUIC connections with optional
+  - `HttpClient` supports `--http3` for direct QUIC connections with optional
     client certificates and SNI for alternate-host Alt-Svc targets
-  - `HTTPClient` CLI (`main()`) for debugging HTTP connections across all
+  - `HttpClient` CLI (`main()`) for debugging HTTP connections across all
     protocol versions (HTTP/1.1, HTTP/2, HTTP/3), similar to curl
 
 - **MQTT broker and client**: MQTT 3.1.1 and MQTT 5.0 over TCP and WebSocket,
-  including `MQTTListener` / `DefaultMQTTService` (broker), subscription and
-  retained-message handling, and the `MQTTClient` API.
+  including `MqttListener` / `DefaultMQTTServer` (broker), subscription and
+  retained-message handling, and the `MqttClient` API.
 
 - **SOCKS proxy**: SOCKS protocol server and client implementation.
 
 ### Fixed
 
-- `HTTPClientProtocolHandler` now fires `onConnected` and
-  `onSecurityEstablished` callbacks on the `HTTPClientHandler`
+- `HttpClientProtocolHandler` now fires `onConnected` and
+  `onSecurityEstablished` callbacks on the `HttpClientHandler`
 - TLS client handshake is now initiated after TCP connect completes
 - HEAD responses no longer hang waiting for a body that will never arrive
 
@@ -643,9 +691,9 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 - **Removed `<container>` element from gumdroprc** (breaking): The standalone
   `<container>` configuration element has been removed. Container properties
   (`hot-deploy`, `realms`, `resources`, cluster settings) are now set directly
-  on the `<service>` element for `ServletService`. The `<context>` element is
+  on the `<service>` element for `ServletServer`. The `<context>` element is
   now a direct child of `<service>`, following the same pattern as `<listener>`.
-  `ServletService` creates its `Container` internally.
+  `ServletServer` creates its `Container` internally.
 
   Before:
   ```xml
@@ -653,9 +701,9 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
       <property name="hot-deploy" value="true"/>
       <context path="" root="../web"/>
   </container>
-  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
+  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer">
       <property name="container" ref="#mainContainer"/>
-      <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+      <listener class="org.bluezoo.gumdrop.http.HttpListener">
           <property name="port" value="8080"/>
       </listener>
   </service>
@@ -663,10 +711,10 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
   After:
   ```xml
-  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletService">
+  <service id="http" class="org.bluezoo.gumdrop.servlet.ServletServer">
       <property name="hot-deploy" value="true"/>
       <context path="" root="../web"/>
-      <listener class="org.bluezoo.gumdrop.http.HTTPListener">
+      <listener class="org.bluezoo.gumdrop.http.HttpListener">
           <property name="port" value="8080"/>
       </listener>
   </service>
@@ -686,7 +734,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 - **UNIX domain socket support**: Any TCP-based listener can now bind to a UNIX
   domain socket by specifying a `path` attribute instead of `port`. Once
-  accepted, connections use the same `SocketChannel`/`TCPEndpoint`/`ProtocolHandler`
+  accepted, connections use the same `SocketChannel`/`TcpEndpoint`/`ProtocolHandler`
   infrastructure as TCP. Stale socket files are cleaned up on bind and shutdown.
 
 - **Renamed `<listen>` to `<listener>` in gumdroprc**: The configuration element
@@ -704,7 +752,7 @@ Planned as **3.0.0** (major bump: Java 25 baseline and in-tree TLS engine).
 
 ### Added
 
-- **WebDAV (RFC 2518) support for file server**: The `WebDAVService` (formerly
+- **WebDAV (RFC 2518) support for file server**: The `WebdavServer` (formerly
   `FileHTTPServer`) supports distributed authoring via WebDAV when enabled with
   the `webdavEnabled` property.
   Full implementation includes:

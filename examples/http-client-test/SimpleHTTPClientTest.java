@@ -19,10 +19,10 @@
  * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPRequest;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpRequest;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -75,21 +75,21 @@ public class SimpleHTTPClientTest {
         final CountDownLatch latch = new CountDownLatch(1);
         final StringBuilder responseBody = new StringBuilder();
 
-        final HTTPClient client = new HTTPClient(TEST_HOST, TEST_PORT);
+        final HttpClient client = new HttpClient(TEST_HOST, TEST_PORT);
 
         // No need to call connect() - just make the request directly
-        HTTPRequest request = client.get("/get");
+        HttpRequest request = client.get("/get");
         request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
         request.header("Accept", "application/json");
 
-        request.send(new DefaultHTTPResponseHandler() {
+        request.send(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 System.out.println("Response: " + response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 System.out.println("Error response: " + response.getStatus());
             }
 
@@ -144,27 +144,27 @@ public class SimpleHTTPClientTest {
         final CountDownLatch latch = new CountDownLatch(1);
         final StringBuilder responseBody = new StringBuilder();
 
-        final HTTPClient client = new HTTPClient(TEST_HOST, TEST_PORT);
+        final HttpClient client = new HttpClient(TEST_HOST, TEST_PORT);
 
         // Prepare JSON body
         String jsonBody = "{\"name\":\"Gumdrop\",\"type\":\"HTTP Client\",\"version\":\"1.0\"}";
         byte[] bodyBytes = jsonBody.getBytes(StandardCharsets.UTF_8);
 
         // Create and send POST request
-        HTTPRequest request = client.post("/post");
+        HttpRequest request = client.post("/post");
         request.header("User-Agent", "Gumdrop-HTTP-Client/1.0");
         request.header("Content-Type", "application/json");
         request.header("Content-Length", String.valueOf(bodyBytes.length));
 
         // Start request body, send data, then end
-        request.startRequestBody(new DefaultHTTPResponseHandler() {
+        request.startRequestBody(new DefaultHttpResponseHandler() {
             @Override
-            public void ok(HTTPResponse response) {
+            public void ok(HttpResponse response) {
                 System.out.println("Response: " + response.getStatus());
             }
 
             @Override
-            public void error(HTTPResponse response) {
+            public void error(HttpResponse response) {
                 System.out.println("Error response: " + response.getStatus());
             }
 

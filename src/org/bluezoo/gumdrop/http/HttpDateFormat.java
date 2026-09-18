@@ -1,0 +1,425 @@
+/*
+ * HttpDateFormat.java
+ * Copyright (C) 2004 Chris Burdess
+ *
+ * This file is part of gumdrop, a multipurpose Java server.
+ * For more information please visit https://www.nongnu.org/gumdrop/
+ *
+ * gumdrop is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * gumdrop is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with gumdrop.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+package org.bluezoo.gumdrop.http;
+
+import java.text.*;
+import java.util.*;
+
+/**
+ * HTTP date formatter and parser per RFC 9110 section 5.6.7.
+ *
+ * <p>Formats dates using the preferred IMF-fixdate format:
+ * <pre>day-name "," SP date1 SP time-of-day SP GMT</pre>
+ * Example: {@code Sun, 06 Nov 1994 08:49:37 GMT}
+ *
+ * <p>Parses all three HTTP date formats that recipients MUST accept
+ * (RFC 9110 section 5.6.7):
+ * <ul>
+ * <li>IMF-fixdate (preferred): {@code Sun, 06 Nov 1994 08:49:37 GMT}</li>
+ * <li>RFC 850 (obsolete): {@code Sunday, 06-Nov-94 08:49:37 GMT}</li>
+ * <li>ANSI C asctime: {@code Sun Nov  6 08:49:37 1994}</li>
+ * </ul>
+ *
+ * <p>Instances are thread-safe: {@link #format} and {@link #parse} operate on a
+ * per-thread {@link Calendar} rather than the mutable {@link Calendar} inherited
+ * from {@link DateFormat}. This matters because a single instance is routinely
+ * shared as a {@code static} field and invoked concurrently from worker and
+ * selector-loop threads (for example the RFC 9110 {@code Date} header emitted on
+ * every HTTP response).
+ *
+ * @author <a href="mailto:dog@gnu.org">Chris Burdess</a>
+ */
+public class HttpDateFormat extends DateFormat {
+
+    private static final long serialVersionUID = 1L;
+
+    static final String[] DAYS_OF_WEEK = {null, "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+
+    static final String[] MONTHS = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    };
+
+    /**
+     * Per-thread working calendar. Each {@link #format}/{@link #parse} call fully
+     * resets it, so a single instance shared across threads never races.
+     */
+    private static final ThreadLocal<Calendar> CALENDAR =
+        new ThreadLocal<Calendar>() {
+            @Override
+            protected Calendar initialValue() {
+                return new GregorianCalendar(TimeZone.getTimeZone("GMT"));
+            }
+        };
+
+    public HttpDateFormat() {
+        // Satisfy DateFormat's contract (getCalendar/clone/equals); the hot
+        // format/parse paths use the per-thread CALENDAR above instead.
+        calendar = new GregorianCalendar(TimeZone.getTimeZone("GMT"));
+        numberFormat = new DecimalFormat();
+    }
+
+    /**
+     * Appends the textual value for the specified field to the given string
+     * buffer. This method should be avoided, use <code>format(Date)</code>
+     * instead.
+     * @param date the Date object
+     * @param buf the buffer to append to
+     * @param field the current field position
+     * @return the modified buffer
+     */
+    public StringBuffer format(Date date, StringBuffer buf, FieldPosition field) {
+        // StringBuffer is only here because it's DateFormat's abstract
+        // method signature (predates StringBuilder, fixed by the JDK) -
+        // the actual per-field appending happens on an unsynchronized
+        // StringBuilder below, with a single bulk copy into the caller's
+        // buffer, rather than paying StringBuffer's per-append
+        // synchronization overhead for each of the ~15 appends in
+        // formatMillis.
+        StringBuilder sb = new StringBuilder(29);
+        formatMillis(date.getTime(), sb);
+        buf.setLength(0);
+        buf.append(sb);
+        field.setBeginIndex(0);
+        field.setEndIndex(buf.length());
+        return buf;
+    }
+
+    /**
+     * Formats an instant given directly as epoch milliseconds, without
+     * allocating a {@link Date} object - useful for callers (such as a
+     * once-per-second header-value cache) that already have a {@code long}
+     * timestamp and would otherwise wrap it in a {@code Date} purely to
+     * satisfy this class's other {@code format} methods.
+     *
+     * @param millis the instant to format, as milliseconds since the epoch
+     * @return the IMF-fixdate string for that instant
+     */
+    public String format(long millis) {
+        StringBuilder buf = new StringBuilder(29);
+        formatMillis(millis, buf);
+        return buf.toString();
+    }
+
+    /**
+     * Renders {@code millis} as an IMF-fixdate into {@code buf}, reusing
+     * this thread's {@link #CALENDAR} instance (mutating its fields for
+     * this call) rather than allocating a new one. Takes a StringBuilder,
+     * not a StringBuffer: nothing about this private helper is dictated by
+     * an external API, so there is no reason to pay StringBuffer's
+     * synchronization cost on every one of the many appends below.
+     */
+    private void formatMillis(long millis, StringBuilder buf) {
+        Calendar calendar = CALENDAR.get();
+        calendar.clear();
+        calendar.setTimeInMillis(millis);
+        buf.setLength(0);
+
+        // Day of week
+        buf.append(DAYS_OF_WEEK[calendar.get(Calendar.DAY_OF_WEEK)]);
+        buf.append(',');
+        buf.append(' ');
+
+        // Day of month
+        int day = calendar.get(Calendar.DAY_OF_MONTH);
+        buf.append(Character.forDigit(day / 10, 10));
+        buf.append(Character.forDigit(day % 10, 10));
+        buf.append(' ');
+
+        // Month
+        buf.append(MONTHS[calendar.get(Calendar.MONTH)]);
+        buf.append(' ');
+
+        // Year
+        int year = calendar.get(Calendar.YEAR);
+        if (year < 1000) {
+            buf.append('0');
+            if (year < 100) {
+                buf.append('0');
+                if (year < 10) {
+                    buf.append('0');
+                }
+            }
+        }
+        buf.append(Integer.toString(year));
+        buf.append(' ');
+
+        // Hour
+        int hour = calendar.get(Calendar.HOUR_OF_DAY);
+        buf.append(Character.forDigit(hour / 10, 10));
+        buf.append(Character.forDigit(hour % 10, 10));
+        buf.append(':');
+
+        // Minute
+        int minute = calendar.get(Calendar.MINUTE);
+        buf.append(Character.forDigit(minute / 10, 10));
+        buf.append(Character.forDigit(minute % 10, 10));
+        buf.append(':');
+
+        // Second
+        int second = calendar.get(Calendar.SECOND);
+        buf.append(Character.forDigit(second / 10, 10));
+        buf.append(Character.forDigit(second % 10, 10));
+        buf.append(' ');
+
+        // RFC 9110 section 5.6.7: IMF-fixdate uses literal "GMT"
+        buf.append("GMT");
+    }
+
+    /**
+     * Parses the given date in the current TimeZone.
+     * @param text the formatted date to be parsed
+     * @param pos the current parse position
+     */
+    public Date parse(String text, ParsePosition pos) {
+        Calendar calendar = CALENDAR.get();
+        int date, month, year, hour, minute, second;
+        String monthText;
+        int start = 0, end = -1;
+        int len = text.length();
+        calendar.clear();
+        pos.setIndex(start);
+        try {
+            // Advance to date
+            if (Character.isLetter(text.charAt(start))) {
+                start = skipNonWhitespace(text, start);
+            }
+            // Determine mode
+            switch (start) {
+                case 3:
+                    // asctime
+                    start = skipWhitespace(text, start);
+                    pos.setIndex(start);
+                    end = skipNonWhitespace(text, start + 1);
+                    monthText = text.substring(start, end);
+                    month = -1;
+                    for (int i = 0; i < 12; i++) {
+                        if (MONTHS[i].equals(monthText)) {
+                            month = i;
+                            break;
+                        }
+                    }
+                    if (month == -1) {
+                        pos.setErrorIndex(end);
+                        return null;
+                    }
+                    // Advance to date
+                    start = skipWhitespace(text, end + 1);
+                    pos.setIndex(start);
+                    end = skipNonWhitespace(text, start + 1);
+                    date = Integer.parseInt(text.substring(start, end));
+                    // Advance to hour
+                    start = skipWhitespace(text, end + 1);
+                    pos.setIndex(start);
+                    end = skipTo(text, start + 1, ':');
+                    hour = Integer.parseInt(text.substring(start, end));
+                    // Advance to minute
+                    start = end + 1;
+                    pos.setIndex(start);
+                    end = skipTo(text, start + 1, ':');
+                    minute = Integer.parseInt(text.substring(start, end));
+                    // Advance to second
+                    start = end + 1;
+                    pos.setIndex(start);
+                    end = skipNonWhitespace(text, start + 1);
+                    second = Integer.parseInt(text.substring(start, end));
+                    // Advance to year
+                    start = skipWhitespace(text, end + 1);
+                    pos.setIndex(start);
+                    end = skipNonWhitespace(text, start + 1);
+                    year = Integer.parseInt(text.substring(start, end));
+                    break;
+                case 0:
+                case 4:
+                    // rfc822
+                    start = skipWhitespace(text, start);
+                    pos.setIndex(start);
+                    end = skipNonWhitespace(text, start + 1);
+                    date = Integer.parseInt(text.substring(start, end));
+                    // Advance to month
+                    start = skipWhitespace(text, end + 1);
+                    pos.setIndex(start);
+                    end = skipNonWhitespace(text, start + 1);
+                    monthText = text.substring(start, end);
+                    month = -1;
+                    for (int i = 0; i < 12; i++) {
+                        if (MONTHS[i].equals(monthText)) {
+                            month = i;
+                            break;
+                        }
+                    }
+                    if (month == -1) {
+                        pos.setErrorIndex(end);
+                        return null;
+                    }
+                    // Advance to year
+                    start = skipWhitespace(text, end + 1);
+                    pos.setIndex(start);
+                    end = skipNonWhitespace(text, start + 1);
+                    year = Integer.parseInt(text.substring(start, end));
+                    // Advance to hour
+                    start = skipWhitespace(text, end + 1);
+                    pos.setIndex(start);
+                    end = skipTo(text, start + 1, ':');
+                    hour = Integer.parseInt(text.substring(start, end));
+                    // Advance to minute
+                    start = end + 1;
+                    pos.setIndex(start);
+                    end = skipTo(text, start + 1, ':');
+                    minute = Integer.parseInt(text.substring(start, end));
+                    // Advance to second
+                    start = end + 1;
+                    pos.setIndex(start);
+                    end = start + 1;
+                    while (end < len && !Character.isWhitespace(text.charAt(end))) {
+                        end++;
+                    }
+                    second = Integer.parseInt(text.substring(start, end));
+                    break;
+                default:
+                    // rfc850(obsolete)
+                    start = skipWhitespace(text, start);
+                    pos.setIndex(start);
+                    end = skipTo(text, start + 1, '-');
+                    date = Integer.parseInt(text.substring(start, end));
+                    // Advance to month
+                    start = end + 1;
+                    pos.setIndex(start);
+                    end = skipTo(text, start + 1, '-');
+                    monthText = text.substring(start, end);
+                    month = -1;
+                    for (int i = 0; i < 12; i++) {
+                        if (MONTHS[i].equals(monthText)) {
+                            month = i;
+                            break;
+                        }
+                    }
+                    if (month == -1) {
+                        pos.setErrorIndex(end);
+                        return null;
+                    }
+                    // Advance to year
+                    start = end + 1;
+                    pos.setIndex(start);
+                    end = skipNonWhitespace(text, start + 1);
+                    year = 1900 + Integer.parseInt(text.substring(start, end));
+                    // Advance to hour
+                    start = skipWhitespace(text, end + 1);
+                    pos.setIndex(start);
+                    end = skipTo(text, start + 1, ':');
+                    hour = Integer.parseInt(text.substring(start, end));
+                    // Advance to minute
+                    start = end + 1;
+                    pos.setIndex(start);
+                    end = skipTo(text, start + 1, ':');
+                    minute = Integer.parseInt(text.substring(start, end));
+                    // Advance to second
+                    start = end + 1;
+                    pos.setIndex(start);
+                    end = start + 1;
+                    while (end < len && !Character.isWhitespace(text.charAt(end))) {
+                        end++;
+                    }
+                    second = Integer.parseInt(text.substring(start, end));
+            }
+
+            calendar.set(Calendar.YEAR, year);
+            calendar.set(Calendar.MONTH, month);
+            calendar.set(Calendar.DAY_OF_MONTH, date);
+            calendar.set(Calendar.HOUR_OF_DAY, hour);
+            calendar.set(Calendar.MINUTE, minute);
+            calendar.set(Calendar.SECOND, second);
+
+            if (end != len) {
+                // Timezone
+                start = skipWhitespace(text, end + 1);
+                end = start + 1;
+                while (end < len && !Character.isWhitespace(text.charAt(end))) {
+                    end++;
+                }
+                char pm = text.charAt(start);
+                if (Character.isLetter(pm)) {
+                    TimeZone tz = TimeZone.getTimeZone(text.substring(start, end));
+                    calendar.set(Calendar.ZONE_OFFSET, tz.getRawOffset());
+                } else {
+                    int zoneOffset = 0;
+                    zoneOffset += 600 * Character.digit(text.charAt(++start), 10);
+                    zoneOffset += 60 * Character.digit(text.charAt(++start), 10);
+                    zoneOffset += 10 * Character.digit(text.charAt(++start), 10);
+                    zoneOffset += Character.digit(text.charAt(++start), 10);
+                    zoneOffset *= 60000; // minutes to ms
+                    if ('-' == pm) {
+                        zoneOffset = -zoneOffset;
+                    }
+                    calendar.set(Calendar.ZONE_OFFSET, zoneOffset);
+                }
+            }
+            pos.setIndex(end);
+
+            return calendar.getTime();
+        } catch (NumberFormatException e) {
+            pos.setErrorIndex(Math.max(start, end));
+        } catch (StringIndexOutOfBoundsException e) {
+            pos.setErrorIndex(Math.max(start, end));
+        }
+        return null;
+    }
+
+    private int skipWhitespace(String text, int pos) {
+        int len = text.length();
+        while (pos < len && Character.isWhitespace(text.charAt(pos))) {
+            pos++;
+        }
+        return pos;
+    }
+
+    private int skipNonWhitespace(String text, int pos) {
+        int len = text.length();
+        while (pos < len && !Character.isWhitespace(text.charAt(pos))) {
+            pos++;
+        }
+        return pos;
+    }
+
+    private int skipTo(String text, int pos, char c) {
+        int len = text.length();
+        while (pos < len && text.charAt(pos) != c) {
+            pos++;
+        }
+        return pos;
+    }
+
+    /**
+     * Don't allow setting the calendar.
+     */
+    public void setCalendar(Calendar newCalendar) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Don't allow setting the NumberFormat.
+     */
+    public void setNumberFormat(NumberFormat newNumberFormat) {
+        throw new UnsupportedOperationException();
+    }
+
+}

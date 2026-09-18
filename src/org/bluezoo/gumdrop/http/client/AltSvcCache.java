@@ -28,11 +28,11 @@ import java.util.concurrent.ConcurrentMap;
  * Process-wide, host:port-keyed cache of h3 support discovered via Alt-Svc
  * response headers (RFC 7838).
  *
- * <p>Unlike DNS HTTPS-record discovery ({@link org.bluezoo.gumdrop.dns.DNSType#HTTPS}),
+ * <p>Unlike DNS HTTPS-record discovery ({@link org.bluezoo.gumdrop.dns.DnsType#HTTPS}),
  * Alt-Svc is only visible after already connecting once (it's a response
  * header, not something a client can look up in advance). This cache lets
  * that discovery benefit later, separate connection attempts -- by
- * {@code HTTPClient} or {@code WebSocketClient}, to the same host:port --
+ * {@code HttpClient} or {@code WebSocketClient}, to the same host:port --
  * rather than being wasted on the single connection that happened to see it.
  *
  * <p>Used as the second discovery tier: DNS HTTPS records are checked

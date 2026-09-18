@@ -14,7 +14,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Tests for {@link FTPDataConnectionCoordinator}, including RFC 4217 section 10
+ * Tests for {@link FtpDataConnectionCoordinator}, including RFC 4217 section 10
  * data connection security verification and RFC 3659 MACHINE_LISTING type.
  */
 public class FTPDataConnectionCoordinatorTest {
@@ -22,24 +22,24 @@ public class FTPDataConnectionCoordinatorTest {
     @Test
     public void testTransferTypeIncludesMachineListing() {
         // RFC 3659 section 7: MLSD uses MACHINE_LISTING
-        FTPDataConnectionCoordinator.TransferType type =
-                FTPDataConnectionCoordinator.TransferType.MACHINE_LISTING;
+        FtpDataConnectionCoordinator.TransferType type =
+                FtpDataConnectionCoordinator.TransferType.MACHINE_LISTING;
         assertNotNull(type);
         assertEquals("MACHINE_LISTING", type.name());
     }
 
     @Test
     public void testAllTransferTypes() {
-        FTPDataConnectionCoordinator.TransferType[] types =
-                FTPDataConnectionCoordinator.TransferType.values();
+        FtpDataConnectionCoordinator.TransferType[] types =
+                FtpDataConnectionCoordinator.TransferType.values();
         assertEquals("Should have 5 transfer types", 5, types.length);
     }
 
     @Test
     public void testSetControlClientAddress() throws Exception {
         // RFC 4217 section 10: control client address can be set
-        FTPDataConnectionCoordinator coordinator =
-                new FTPDataConnectionCoordinator(new StubControlConnection());
+        FtpDataConnectionCoordinator coordinator =
+                new FtpDataConnectionCoordinator(new StubControlConnection());
         InetAddress addr = InetAddress.getByName("192.168.1.100");
         coordinator.setControlClientAddress(addr);
         // No exception means success — actual IP matching is tested
@@ -49,28 +49,28 @@ public class FTPDataConnectionCoordinatorTest {
     @Test
     public void testSetupActiveModeRejectsForeignAddress() throws Exception {
         StubFTPListener listener = new StubFTPListener();
-        FTPDataConnectionCoordinator coordinator =
-                new FTPDataConnectionCoordinator(
+        FtpDataConnectionCoordinator coordinator =
+                new FtpDataConnectionCoordinator(
                         new StubControlConnection(listener));
         coordinator.setControlClientAddress(
                 InetAddress.getByName("192.168.1.100"));
 
         assertFalse(coordinator.setupActiveMode("10.0.0.1", 50000));
-        assertEquals(FTPDataConnectionCoordinator.DataConnectionMode.NONE,
+        assertEquals(FtpDataConnectionCoordinator.DataConnectionMode.NONE,
                 coordinator.getMode());
     }
 
     @Test
     public void testSetupActiveModeAcceptsMatchingAddress() throws Exception {
         StubFTPListener listener = new StubFTPListener();
-        FTPDataConnectionCoordinator coordinator =
-                new FTPDataConnectionCoordinator(
+        FtpDataConnectionCoordinator coordinator =
+                new FtpDataConnectionCoordinator(
                         new StubControlConnection(listener));
         coordinator.setControlClientAddress(
                 InetAddress.getByName("192.168.1.100"));
 
         assertTrue(coordinator.setupActiveMode("192.168.1.100", 50000));
-        assertEquals(FTPDataConnectionCoordinator.DataConnectionMode.ACTIVE,
+        assertEquals(FtpDataConnectionCoordinator.DataConnectionMode.ACTIVE,
                 coordinator.getMode());
     }
 
@@ -78,50 +78,50 @@ public class FTPDataConnectionCoordinatorTest {
     public void testSetupActiveModeAllowsBounceWhenConfigured() throws Exception {
         StubFTPListener listener = new StubFTPListener();
         listener.setAllowActiveModeBounce(true);
-        FTPDataConnectionCoordinator coordinator =
-                new FTPDataConnectionCoordinator(
+        FtpDataConnectionCoordinator coordinator =
+                new FtpDataConnectionCoordinator(
                         new StubControlConnection(listener));
         coordinator.setControlClientAddress(
                 InetAddress.getByName("192.168.1.100"));
 
         assertTrue(coordinator.setupActiveMode("10.0.0.1", 50000));
-        assertEquals(FTPDataConnectionCoordinator.DataConnectionMode.ACTIVE,
+        assertEquals(FtpDataConnectionCoordinator.DataConnectionMode.ACTIVE,
                 coordinator.getMode());
     }
 
     @Test
     public void testPendingTransferForMLSD() {
-        FTPDataConnectionCoordinator.PendingTransfer transfer =
-                new FTPDataConnectionCoordinator.PendingTransfer(
-                        FTPDataConnectionCoordinator.TransferType.MACHINE_LISTING,
+        FtpDataConnectionCoordinator.PendingTransfer transfer =
+                new FtpDataConnectionCoordinator.PendingTransfer(
+                        FtpDataConnectionCoordinator.TransferType.MACHINE_LISTING,
                         "/pub",
                         false,
                         0,
                         null,
                         null
                 );
-        assertEquals(FTPDataConnectionCoordinator.TransferType.MACHINE_LISTING,
+        assertEquals(FtpDataConnectionCoordinator.TransferType.MACHINE_LISTING,
                 transfer.getType());
         assertEquals("/pub", transfer.getPath());
     }
 
-    private static class StubControlConnection implements FTPControlConnection {
-        private final FTPListener server;
+    private static class StubControlConnection implements FtpControlConnection {
+        private final FtpListener server;
 
         StubControlConnection() {
             this(null);
         }
 
-        StubControlConnection(FTPListener server) {
+        StubControlConnection(FtpListener server) {
             this.server = server;
         }
 
         @Override
-        public FTPListener getServer() {
+        public FtpListener getServer() {
             return server;
         }
     }
 
-    private static class StubFTPListener extends FTPListener {
+    private static class StubFTPListener extends FtpListener {
     }
 }

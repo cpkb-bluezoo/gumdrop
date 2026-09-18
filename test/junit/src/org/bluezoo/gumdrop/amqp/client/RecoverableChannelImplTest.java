@@ -21,26 +21,29 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
-import org.bluezoo.gumdrop.amqp.client.handler.ChannelClosedListener;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientChannel;
-import org.bluezoo.gumdrop.amqp.client.handler.ClientConnection;
-import org.bluezoo.gumdrop.amqp.client.handler.ConfirmListener;
-import org.bluezoo.gumdrop.amqp.client.handler.DeliveryHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.FlowListener;
-import org.bluezoo.gumdrop.amqp.client.handler.PublishBody;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerCancelHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelCloseHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerChannelOpenHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerCloseHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConfirmSelectHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerConsumeHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerExchangeDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerFlowHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueBindHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerQueueDeclareHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxCommitHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxRollbackHandler;
-import org.bluezoo.gumdrop.amqp.client.handler.ServerTxSelectHandler;
+import org.bluezoo.gumdrop.amqp.BasicProperties;
+import org.bluezoo.gumdrop.amqp.FieldTable;
+
+import org.bluezoo.gumdrop.amqp.client.ChannelClosedListener;
+import org.bluezoo.gumdrop.amqp.client.ClientChannel;
+import org.bluezoo.gumdrop.amqp.client.ClientConnection;
+import org.bluezoo.gumdrop.amqp.client.ConfirmListener;
+import org.bluezoo.gumdrop.amqp.client.DeliveryHandler;
+import org.bluezoo.gumdrop.amqp.client.FlowListener;
+import org.bluezoo.gumdrop.amqp.client.PublishBody;
+import org.bluezoo.gumdrop.amqp.client.CancelHandler;
+import org.bluezoo.gumdrop.amqp.client.ChannelCloseHandler;
+import org.bluezoo.gumdrop.amqp.client.ChannelOpenHandler;
+import org.bluezoo.gumdrop.amqp.client.CloseHandler;
+import org.bluezoo.gumdrop.amqp.client.ConfirmSelectHandler;
+import org.bluezoo.gumdrop.amqp.client.ConsumeHandler;
+import org.bluezoo.gumdrop.amqp.client.ExchangeDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.FlowHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueBindHandler;
+import org.bluezoo.gumdrop.amqp.client.QueueDeclareHandler;
+import org.bluezoo.gumdrop.amqp.client.TxCommitHandler;
+import org.bluezoo.gumdrop.amqp.client.TxRollbackHandler;
+import org.bluezoo.gumdrop.amqp.client.TxSelectHandler;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -62,13 +65,13 @@ public class RecoverableChannelImplTest {
             @Override public void run() { }
         });
 
-        ch.exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+        ch.exchangeDeclare("ex", "topic", true, false, null, new ExchangeDeclareHandler() {
             @Override public void handleExchangeDeclareOk() { }
         });
-        ch.queueDeclare("q", true, false, false, null, new ServerQueueDeclareHandler() {
+        ch.queueDeclare("q", true, false, false, null, new QueueDeclareHandler() {
             @Override public void handleQueueDeclareOk(String queue, long messageCount, long consumerCount) { }
         });
-        ch.queueBind("q", "ex", "rk", null, new ServerQueueBindHandler() {
+        ch.queueBind("q", "ex", "rk", null, new QueueBindHandler() {
             @Override public void handleQueueBindOk() { }
         });
 
@@ -91,13 +94,13 @@ public class RecoverableChannelImplTest {
         });
 
         for (int i = 0; i < 1000; i++) {
-            ch.exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+            ch.exchangeDeclare("ex", "topic", true, false, null, new ExchangeDeclareHandler() {
                 @Override public void handleExchangeDeclareOk() { }
             });
-            ch.queueDeclare("q", true, false, false, null, new ServerQueueDeclareHandler() {
+            ch.queueDeclare("q", true, false, false, null, new QueueDeclareHandler() {
                 @Override public void handleQueueDeclareOk(String queue, long messageCount, long consumerCount) { }
             });
-            ch.queueBind("q", "ex", "rk", null, new ServerQueueBindHandler() {
+            ch.queueBind("q", "ex", "rk", null, new QueueBindHandler() {
                 @Override public void handleQueueBindOk() { }
             });
         }
@@ -119,10 +122,10 @@ public class RecoverableChannelImplTest {
             @Override public void run() { }
         });
 
-        ch.basicConsume("q", "tag-1", false, false, null, new NoopDeliveryHandler(), new ServerConsumeHandler() {
+        ch.basicConsume("q", "tag-1", false, false, null, new NoopDeliveryHandler(), new ConsumeHandler() {
             @Override public void handleConsumeOk(String consumerTag) { }
         });
-        ch.basicCancel("tag-1", new ServerCancelHandler() {
+        ch.basicCancel("tag-1", new CancelHandler() {
             @Override public void handleCancelOk(String consumerTag) { }
         });
 
@@ -141,7 +144,7 @@ public class RecoverableChannelImplTest {
         RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, new Runnable() {
             @Override public void run() { }
         });
-        ch.basicConsume("q", "", false, false, null, new NoopDeliveryHandler(), new ServerConsumeHandler() {
+        ch.basicConsume("q", "", false, false, null, new NoopDeliveryHandler(), new ConsumeHandler() {
             @Override public void handleConsumeOk(String consumerTag) { }
         });
 
@@ -177,17 +180,17 @@ public class RecoverableChannelImplTest {
             @Override public void run() { }
         });
 
-        ch.exchangeDeclare("ex1", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+        ch.exchangeDeclare("ex1", "topic", true, false, null, new ExchangeDeclareHandler() {
             @Override public void handleExchangeDeclareOk() { }
         });
-        ch.queueDeclare("q1", true, false, false, null, new ServerQueueDeclareHandler() {
+        ch.queueDeclare("q1", true, false, false, null, new QueueDeclareHandler() {
             @Override public void handleQueueDeclareOk(String queue, long messageCount, long consumerCount) { }
         });
-        ch.queueBind("q1", "ex1", "rk1", null, new ServerQueueBindHandler() {
+        ch.queueBind("q1", "ex1", "rk1", null, new QueueBindHandler() {
             @Override public void handleQueueBindOk() { }
         });
         DeliveryHandler deliveryHandler = new NoopDeliveryHandler();
-        ch.basicConsume("q1", "my-tag", false, false, null, deliveryHandler, new ServerConsumeHandler() {
+        ch.basicConsume("q1", "my-tag", false, false, null, deliveryHandler, new ConsumeHandler() {
             @Override public void handleConsumeOk(String consumerTag) { }
         });
 
@@ -218,10 +221,10 @@ public class RecoverableChannelImplTest {
         ch.basicAck(1L, false);
         ch.basicNack(2L, false, true);
         ch.basicReject(3L, false);
-        ch.txSelect(new ServerTxSelectHandler() {
+        ch.txSelect(new TxSelectHandler() {
             @Override public void handleTxSelectOk() { }
         });
-        ch.flow(true, new ServerFlowHandler() {
+        ch.flow(true, new FlowHandler() {
             @Override public void handleFlowOk(boolean active) { }
         });
 
@@ -254,7 +257,7 @@ public class RecoverableChannelImplTest {
         });
         ch.markDisconnected();
         try {
-            ch.exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+            ch.exchangeDeclare("ex", "topic", true, false, null, new ExchangeDeclareHandler() {
                 @Override public void handleExchangeDeclareOk() { }
             });
             fail("expected IllegalStateException");
@@ -269,11 +272,11 @@ public class RecoverableChannelImplTest {
         RecoverableChannelImpl ch = new RecoverableChannelImpl(1, first, new Runnable() {
             @Override public void run() { }
         });
-        ch.exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+        ch.exchangeDeclare("ex", "topic", true, false, null, new ExchangeDeclareHandler() {
             @Override public void handleExchangeDeclareOk() { }
         });
 
-        ch.close(200, "bye", new ServerChannelCloseHandler() {
+        ch.close(200, "bye", new ChannelCloseHandler() {
             @Override public void handleChannelCloseOk() { }
         });
 
@@ -319,7 +322,7 @@ public class RecoverableChannelImplTest {
         connection.bind(fakeConnection);
 
         final List<ClientChannel> opened = new ArrayList<>();
-        connection.channelOpen(1, new ServerChannelOpenHandler() {
+        connection.channelOpen(1, new ChannelOpenHandler() {
             @Override public void handleChannelOpenOk(ClientChannel channel) {
                 opened.add(channel);
             }
@@ -336,17 +339,17 @@ public class RecoverableChannelImplTest {
         connection.bind(fakeConnection);
 
         final List<ClientChannel> opened = new ArrayList<>();
-        connection.channelOpen(1, new ServerChannelOpenHandler() {
+        connection.channelOpen(1, new ChannelOpenHandler() {
             @Override public void handleChannelOpenOk(ClientChannel channel) {
                 opened.add(channel);
             }
         });
-        connection.channelOpen(2, new ServerChannelOpenHandler() {
+        connection.channelOpen(2, new ChannelOpenHandler() {
             @Override public void handleChannelOpenOk(ClientChannel channel) {
                 opened.add(channel);
             }
         });
-        opened.get(0).close(200, "bye", new ServerChannelCloseHandler() {
+        opened.get(0).close(200, "bye", new ChannelCloseHandler() {
             @Override public void handleChannelCloseOk() { }
         });
 
@@ -374,7 +377,7 @@ public class RecoverableChannelImplTest {
         connection.bind(fakeConnection);
 
         final List<ClientChannel> opened = new ArrayList<>();
-        connection.channelOpen(1, new ServerChannelOpenHandler() {
+        connection.channelOpen(1, new ChannelOpenHandler() {
             @Override public void handleChannelOpenOk(ClientChannel channel) {
                 opened.add(channel);
             }
@@ -406,17 +409,17 @@ public class RecoverableChannelImplTest {
         connection.bind(fakeConnection);
 
         final List<ClientChannel> opened = new ArrayList<>();
-        connection.channelOpen(1, new ServerChannelOpenHandler() {
+        connection.channelOpen(1, new ChannelOpenHandler() {
             @Override public void handleChannelOpenOk(ClientChannel channel) {
                 opened.add(channel);
             }
         });
-        connection.channelOpen(2, new ServerChannelOpenHandler() {
+        connection.channelOpen(2, new ChannelOpenHandler() {
             @Override public void handleChannelOpenOk(ClientChannel channel) {
                 opened.add(channel);
             }
         });
-        opened.get(0).exchangeDeclare("ex", "topic", true, false, null, new ServerExchangeDeclareHandler() {
+        opened.get(0).exchangeDeclare("ex", "topic", true, false, null, new ExchangeDeclareHandler() {
             @Override public void handleExchangeDeclareOk() { }
         });
 
@@ -476,26 +479,26 @@ public class RecoverableChannelImplTest {
             this.closeListener = listener;
         }
 
-        @Override public void close(int replyCode, String replyText, ServerChannelCloseHandler handler) {
+        @Override public void close(int replyCode, String replyText, ChannelCloseHandler handler) {
             handler.handleChannelCloseOk();
         }
 
         @Override public void exchangeDeclare(String exchange, String type, boolean durable,
-                boolean autoDelete, FieldTable arguments, ServerExchangeDeclareHandler handler) {
+                boolean autoDelete, FieldTable arguments, ExchangeDeclareHandler handler) {
             exchangeDeclares.add(exchange);
             callOrder.add("exchangeDeclare");
             handler.handleExchangeDeclareOk();
         }
 
         @Override public void queueDeclare(String queue, boolean durable, boolean exclusive,
-                boolean autoDelete, FieldTable arguments, ServerQueueDeclareHandler handler) {
+                boolean autoDelete, FieldTable arguments, QueueDeclareHandler handler) {
             queueDeclares.add(queue);
             callOrder.add("queueDeclare");
             handler.handleQueueDeclareOk(queue, 0, 0);
         }
 
         @Override public void queueBind(String queue, String exchange, String routingKey,
-                FieldTable arguments, ServerQueueBindHandler handler) {
+                FieldTable arguments, QueueBindHandler handler) {
             queueBinds.add(new Object[] { queue, exchange, routingKey });
             callOrder.add("queueBind");
             handler.handleQueueBindOk();
@@ -514,13 +517,13 @@ public class RecoverableChannelImplTest {
 
         @Override public void basicConsume(String queue, String consumerTag, boolean noAck,
                 boolean exclusive, FieldTable arguments, DeliveryHandler deliveryHandler,
-                ServerConsumeHandler handler) {
+                ConsumeHandler handler) {
             consumes.add(new Object[] { queue, consumerTag });
             callOrder.add("basicConsume");
             handler.handleConsumeOk(consumerTag.isEmpty() ? "generated-tag" : consumerTag);
         }
 
-        @Override public void basicCancel(String consumerTag, ServerCancelHandler handler) {
+        @Override public void basicCancel(String consumerTag, CancelHandler handler) {
             callOrder.add("basicCancel");
         }
 
@@ -536,15 +539,15 @@ public class RecoverableChannelImplTest {
             callOrder.add("basicReject");
         }
 
-        @Override public void txSelect(ServerTxSelectHandler handler) {
+        @Override public void txSelect(TxSelectHandler handler) {
             callOrder.add("txSelect");
         }
 
-        @Override public void txCommit(ServerTxCommitHandler handler) {
+        @Override public void txCommit(TxCommitHandler handler) {
             callOrder.add("txCommit");
         }
 
-        @Override public void txRollback(ServerTxRollbackHandler handler) {
+        @Override public void txRollback(TxRollbackHandler handler) {
             callOrder.add("txRollback");
         }
 
@@ -552,11 +555,11 @@ public class RecoverableChannelImplTest {
             this.flowListener = listener;
         }
 
-        @Override public void flow(boolean active, ServerFlowHandler handler) {
+        @Override public void flow(boolean active, FlowHandler handler) {
             callOrder.add("flow");
         }
 
-        @Override public void confirmSelect(ServerConfirmSelectHandler handler) {
+        @Override public void confirmSelect(ConfirmSelectHandler handler) {
             callOrder.add("confirmSelect");
             handler.handleConfirmSelectOk();
         }
@@ -570,14 +573,14 @@ public class RecoverableChannelImplTest {
         final List<Integer> openedChannelIds = new ArrayList<>();
         final java.util.Map<Integer, FakeClientChannel> channelsByid = new java.util.HashMap<>();
 
-        @Override public void channelOpen(int channelId, ServerChannelOpenHandler handler) {
+        @Override public void channelOpen(int channelId, ChannelOpenHandler handler) {
             openedChannelIds.add(channelId);
             FakeClientChannel fake = new FakeClientChannel(channelId);
             channelsByid.put(channelId, fake);
             handler.handleChannelOpenOk(fake);
         }
 
-        @Override public void close(int replyCode, String replyText, ServerCloseHandler handler) {
+        @Override public void close(int replyCode, String replyText, CloseHandler handler) {
             handler.handleCloseOk();
         }
     }

@@ -21,6 +21,7 @@
 
 package org.bluezoo.gumdrop.quic.tls;
 
+import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.quic.packet.TransportParameters;
 import org.bluezoo.gumdrop.tls.SessionTicket;
 
@@ -136,6 +137,16 @@ public interface QuicTlsEngineListener {
      * @param task the task to run on the loop thread
      */
     void execute(Runnable task);
+
+    /**
+     * Returns the {@link SelectorLoop} that owns this connection's I/O,
+     * so {@link QuicHandshakeAsyncOffload} can reach its runtime's
+     * {@link org.bluezoo.gumdrop.CryptoExecutor} without depending on a
+     * process-wide singleton.
+     *
+     * @return the owning selector loop
+     */
+    SelectorLoop getSelectorLoop();
 
     /**
      * Called (on the loop thread) when the TLS engine rejected a handshake

@@ -27,12 +27,12 @@ package org.bluezoo.gumdrop.ldap.client;
  * <p>This handler receives the result of a STARTTLS request, which
  * upgrades the connection to use TLS encryption.
  * 
- * <p>On success, the handler receives an {@link LDAPPostTLS} interface
+ * <p>On success, the handler receives an {@link LdapPostTLS} interface
  * and should proceed to bind (credentials are now protected).
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see LDAPConnected#startTLS
- * @see LDAPPostTLS
+ * @see LdapConnected#startTLS
+ * @see LdapPostTLS
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4511#section-4.14">RFC 4511 §4.14 — STARTTLS</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc4513#section-3">RFC 4513 §3 — TLS</a>
  */
@@ -46,7 +46,7 @@ public interface StartTLSResultHandler {
      * 
      * @param postTLS operations available after TLS upgrade
      */
-    void handleTLSEstablished(LDAPPostTLS postTLS);
+    void handleTLSEstablished(LdapPostTLS postTLS);
 
     /**
      * Called when STARTTLS fails.
@@ -64,7 +64,7 @@ public interface StartTLSResultHandler {
      * @param result the failure result
      * @param connection operations to continue or close
      */
-    void handleStartTLSFailure(LDAPResult result, LDAPConnected connection);
+    void handleStartTLSFailure(LdapResult result, LdapConnected connection);
 
 }
 

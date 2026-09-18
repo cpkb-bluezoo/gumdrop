@@ -21,8 +21,8 @@
 
 package org.bluezoo.gumdrop.mime;
 
-import org.bluezoo.gumdrop.mime.rfc2047.RFC2047Decoder;
-import org.bluezoo.gumdrop.mime.rfc2231.RFC2231Decoder;
+import org.bluezoo.gumdrop.mime.rfc2047.Rfc2047Decoder;
+import org.bluezoo.gumdrop.mime.rfc2231.Rfc2231Decoder;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
@@ -65,10 +65,10 @@ public final class ContentTypeParser {
 			return null;
 		}
 		value.position(start + 3);
-		int semicolonIndex = MIMEParser.indexOf(value, (byte) ';');
+		int semicolonIndex = MimeParser.indexOf(value, (byte) ';');
 		int typeEnd = semicolonIndex < 0 ? end : semicolonIndex;
 		value.position(start + 1);
-		int slashIndex = MIMEParser.indexOf(value, (byte) '/');
+		int slashIndex = MimeParser.indexOf(value, (byte) '/');
 		if (slashIndex < 0 || slashIndex >= typeEnd) {
 			value.position(start);
 			value.limit(end);
@@ -76,13 +76,13 @@ public final class ContentTypeParser {
 		}
 		value.position(start);
 		value.limit(slashIndex);
-		String primaryType = MIMEParser.decodeSlice(value, decoder);
+		String primaryType = MimeParser.decodeSlice(value, decoder);
 		value.limit(end);
 		value.position(slashIndex + 1);
 		value.limit(typeEnd);
-		String subType = MIMEParser.decodeSlice(value, decoder);
+		String subType = MimeParser.decodeSlice(value, decoder);
 		value.limit(end);
-		if (primaryType == null || subType == null || !MIMEUtils.isToken(primaryType) || !MIMEUtils.isToken(subType)) {
+		if (primaryType == null || subType == null || !MimeUtils.isToken(primaryType) || !MimeUtils.isToken(subType)) {
 			value.position(start);
 			return null;
 		}
@@ -134,18 +134,18 @@ public final class ContentTypeParser {
 				break;
 			}
 			int pos = buf.position();
-			int equalsIndex = MIMEParser.indexOf(buf, (byte) '=');
+			int equalsIndex = MimeParser.indexOf(buf, (byte) '=');
 			if (equalsIndex < 0 || equalsIndex < pos + 1) {
-				int nextSemi = MIMEParser.indexOf(buf, (byte) ';');
+				int nextSemi = MimeParser.indexOf(buf, (byte) ';');
 				buf.position(nextSemi >= 0 ? nextSemi : paramsEnd);
 				continue;
 			}
 			buf.limit(equalsIndex);
-			String name = MIMEParser.decodeSlice(buf, decoder);
+			String name = MimeParser.decodeSlice(buf, decoder);
 			buf.limit(paramsEnd);
-			if (name == null || !MIMEUtils.isToken(name)) {
+			if (name == null || !MimeUtils.isToken(name)) {
 				buf.position(equalsIndex + 1);
-				int nextSemi = MIMEParser.indexOf(buf, (byte) ';');
+				int nextSemi = MimeParser.indexOf(buf, (byte) ';');
 				buf.position(nextSemi >= 0 ? nextSemi : paramsEnd);
 				continue;
 			}
@@ -162,7 +162,7 @@ public final class ContentTypeParser {
 				valueEnd = quoteEnd;
 				buf.position(quoteEnd);
 			} else {
-				int semicolonIdx = MIMEParser.indexOf(buf, (byte) ';');
+				int semicolonIdx = MimeParser.indexOf(buf, (byte) ';');
 				if (semicolonIdx < 0) {
 					semicolonIdx = paramsEnd;
 				}
@@ -291,7 +291,7 @@ public final class ContentTypeParser {
 			}
 
 			String name = paramsPart.substring(pos, equalsIndex).trim();
-			if (!MIMEUtils.isToken(name)) {
+			if (!MimeUtils.isToken(name)) {
 				int nextSemi = paramsPart.indexOf(';', pos);
 				if (nextSemi >= 0) {
 					pos = nextSemi;
@@ -327,7 +327,7 @@ public final class ContentTypeParser {
 					semicolonIdx = len;
 				}
 				paramValue = paramsPart.substring(pos, semicolonIdx).trim();
-				if (!MIMEUtils.isToken(paramValue)) {
+				if (!MimeUtils.isToken(paramValue)) {
 					pos = semicolonIdx;
 					continue;
 				}
@@ -341,7 +341,7 @@ public final class ContentTypeParser {
 	}
 
 	/**
-	 * Processes raw parameter slices from ByteBuffer using RFC2231Decoder and RFC2047Decoder
+	 * Processes raw parameter slices from ByteBuffer using Rfc2231Decoder and Rfc2047Decoder
 	 * (ByteBuffer-in). Merges name*0/name*1 continuations into one ByteBuffer before decode.
 	 */
 	private static List<Parameter> processRawParamsFromSlices(ByteBuffer buf, List<RawParamSlice> rawParams, CharsetDecoder decoder) {
@@ -372,7 +372,7 @@ public final class ContentTypeParser {
 				String baseName = name.substring(0, name.length() - 1);
 				ByteBuffer slice = buf.duplicate();
 				slice.position(r.valueStart).limit(r.valueEnd);
-				String decoded = RFC2231Decoder.decodeParameterValue(slice, decoder);
+				String decoded = Rfc2231Decoder.decodeParameterValue(slice, decoder);
 				if (decoded != null) {
 					rfc2231Decoded.put(baseName, decoded);
 				}
@@ -400,7 +400,7 @@ public final class ContentTypeParser {
 				}
 			}
 			ByteBuffer combinedBuf = ByteBuffer.wrap(combined);
-			String decoded = RFC2231Decoder.decodeParameterValue(combinedBuf, decoder);
+			String decoded = Rfc2231Decoder.decodeParameterValue(combinedBuf, decoder);
 			if (decoded != null) {
 				rfc2231Decoded.put(baseName, decoded);
 			}
@@ -422,12 +422,12 @@ public final class ContentTypeParser {
 				if (r.quoted && r.valueEnd - r.valueStart >= 2) {
 					byte[] unescaped = unescapeQuotedValue(buf, r.valueStart + 1, r.valueEnd - 1);
 					ByteBuffer slice = ByteBuffer.wrap(unescaped);
-					String raw = MIMEParser.decodeSlice(slice, decoder);
-					finalValue = RFC2047Decoder.decodeEncodedWords(raw);
+					String raw = MimeParser.decodeSlice(slice, decoder);
+					finalValue = Rfc2047Decoder.decodeEncodedWords(raw);
 				} else {
 					ByteBuffer slice = buf.duplicate();
 					slice.position(r.valueStart).limit(r.valueEnd);
-					finalValue = RFC2047Decoder.decodeParameterValue(slice, decoder, false);
+					finalValue = Rfc2047Decoder.decodeParameterValue(slice, decoder, false);
 				}
 			}
 			seen.put(baseName, finalValue);
@@ -478,7 +478,7 @@ public final class ContentTypeParser {
 			}
 			if (name.endsWith("*") && name.length() > 1) {
 				String baseName = name.substring(0, name.length() - 1);
-				String decoded = RFC2047Decoder.decodeRFC2231Parameter(name + "=" + value);
+				String decoded = Rfc2047Decoder.decodeRFC2231Parameter(name + "=" + value);
 				rfc2231Decoded.put(baseName, decoded);
 				continue;
 			}
@@ -504,7 +504,7 @@ public final class ContentTypeParser {
 			String toDecode = quote2 >= 0
 				? baseName + "*=" + firstValue.substring(0, quote2 + 2) + encodedParts.toString()
 				: baseName + "*=" + encodedParts.toString();
-			String decoded = RFC2047Decoder.decodeRFC2231Parameter(toDecode);
+			String decoded = Rfc2047Decoder.decodeRFC2231Parameter(toDecode);
 			if (decoded != null) {
 				rfc2231Decoded.put(baseName, decoded);
 			}
@@ -523,7 +523,7 @@ public final class ContentTypeParser {
 			if (rfc2231Decoded.containsKey(baseName)) {
 				finalValue = rfc2231Decoded.get(baseName);
 			} else {
-				finalValue = RFC2047Decoder.decodeEncodedWords(r.value);
+				finalValue = Rfc2047Decoder.decodeEncodedWords(r.value);
 			}
 			seen.put(baseName, finalValue);
 			parameters.add(new Parameter(baseName, finalValue));

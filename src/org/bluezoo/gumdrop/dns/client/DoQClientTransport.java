@@ -34,7 +34,7 @@ import org.bluezoo.gumdrop.ProtocolHandler;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.SelectorLoop;
 import org.bluezoo.gumdrop.TimerHandle;
-import org.bluezoo.gumdrop.dns.DNSMessage;
+import org.bluezoo.gumdrop.dns.DnsMessage;
 import org.bluezoo.gumdrop.quic.QuicConnection;
 import org.bluezoo.gumdrop.quic.QuicEngine;
 import org.bluezoo.gumdrop.quic.QuicTransportFactory;
@@ -53,10 +53,10 @@ import org.bluezoo.gumdrop.quic.QuicTransportFactory;
  * aligning to 128-byte boundaries as recommended by RFC 8467.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see DNSClientTransport
+ * @see DnsClientTransport
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9250">RFC 9250</a>
  */
-public class DoQClientTransport implements DNSClientTransport {
+public class DoQClientTransport implements DnsClientTransport {
 
     // RFC 9250 section 4.1.1
     private static final int DEFAULT_DOQ_PORT = 853;
@@ -67,7 +67,7 @@ public class DoQClientTransport implements DNSClientTransport {
     private QuicEngine engine;
     private volatile boolean connected;
     private SelectorLoop loop;
-    private DNSClientTransportHandler handler;
+    private DnsClientTransportHandler handler;
     private String pinnedCertFingerprint;
     private Path caFile;
 
@@ -75,7 +75,7 @@ public class DoQClientTransport implements DNSClientTransport {
     // fires first (see open()) -- used to check isEstablished() so send()
     // can gate non-eligible-opcode queries behind full establishment (RFC
     // 9250 section 4.5) via QuicTransportFactory's shared SessionTicketCache/
-    // 0-RTT machinery, the same as HTTP3ClientHandler does for HTTP methods.
+    // 0-RTT machinery, the same as Http3ClientHandler does for HTTP methods.
     private QuicConnection quicConnection;
     // Queries deferred because their opcode isn't 0-RTT-eligible and the
     // connection isn't yet established -- drained once it is (see
@@ -125,7 +125,7 @@ public class DoQClientTransport implements DNSClientTransport {
 
     @Override
     public void open(InetAddress server, int port, SelectorLoop loop,
-                     DNSClientTransportHandler handler) throws IOException {
+                     DnsClientTransportHandler handler) throws IOException {
         this.loop = loop;
         this.handler = handler;
         if (port <= 0) {
@@ -205,7 +205,7 @@ public class DoQClientTransport implements DNSClientTransport {
             // RFC 9250 section 4.5: only QUERY/NOTIFY may ride 0-RTT --
             // snapshot now (the caller may reuse/refill data once this
             // call returns) and defer until the connection is fully
-            // established, mirroring HTTP3ClientHandler's method-safety
+            // established, mirroring Http3ClientHandler's method-safety
             // gating for HTTP/3 requests.
             final byte[] snapshot = new byte[data.remaining()];
             data.get(snapshot);
@@ -222,18 +222,18 @@ public class DoQClientTransport implements DNSClientTransport {
 
     // RFC 1035 section 4.1.1: the header's second byte is laid out as
     // QR(1) OPCODE(4) AA(1) TC(1) RD(1) -- checked directly against the
-    // raw wire bytes since this runs before any DNSMessage parse.
+    // raw wire bytes since this runs before any DnsMessage parse.
     private static boolean isEarlyDataEligible(ByteBuffer data) {
         if (data.remaining() < 3) {
             return false;
         }
         int opcode = (data.get(data.position() + 2) >> 3) & 0x0F;
-        return opcode == DNSMessage.OPCODE_QUERY || opcode == DNSMessage.OPCODE_NOTIFY;
+        return opcode == DnsMessage.OPCODE_QUERY || opcode == DnsMessage.OPCODE_NOTIFY;
     }
 
     private void sendNow(ByteBuffer data) {
         // RFC 9250 section 4.2.1: rewrite Message ID to 0 on the wire.
-        // DNSResolver's pendingQueries map (RFC 1035 section 7.3
+        // DnsResolver's pendingQueries map (RFC 1035 section 7.3
         // correlation) is keyed by the real, non-zero ID it allocated,
         // so that original ID is captured here and restored onto the
         // response in DoQStreamHandler.disconnected() below -- otherwise
@@ -247,7 +247,7 @@ public class DoQClientTransport implements DNSClientTransport {
             data.put(pos + 1, (byte) 0);
         }
         // RFC 9250 section 5.4: add EDNS(0) padding
-        ByteBuffer padded = DNSMessage.padToBlockSize(data, PADDING_BLOCK_SIZE);
+        ByteBuffer padded = DnsMessage.padToBlockSize(data, PADDING_BLOCK_SIZE);
         int len = padded.remaining();
         ByteBuffer framed = ByteBuffer.allocate(2 + len);
         framed.putShort((short) len);
@@ -277,13 +277,13 @@ public class DoQClientTransport implements DNSClientTransport {
 
         private static final int MAX_DNS_MESSAGE_SIZE = 65535;
 
-        private final DNSClientTransportHandler handler;
+        private final DnsClientTransportHandler handler;
         private final int originalId;
         private final ByteBuffer pendingQuery;
         private final ByteArrayOutputStream accumulator =
                 new ByteArrayOutputStream(512);
 
-        DoQStreamHandler(DNSClientTransportHandler handler, int originalId, ByteBuffer pendingQuery) {
+        DoQStreamHandler(DnsClientTransportHandler handler, int originalId, ByteBuffer pendingQuery) {
             this.handler = handler;
             this.originalId = originalId;
             this.pendingQuery = pendingQuery;
@@ -335,7 +335,7 @@ public class DoQClientTransport implements DNSClientTransport {
                 return;
             }
             // Restore the original Message ID (see sendNow) so
-            // DNSResolver's ID-keyed correlation finds the right
+            // DnsResolver's ID-keyed correlation finds the right
             // pending query -- the server's ID field is 0 per RFC 9250
             // section 4.2.1, same as what was actually sent.
             if (msgLen >= 2) {

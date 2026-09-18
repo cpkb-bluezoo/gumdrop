@@ -33,11 +33,11 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link SMTPClientLexer}, verifying exact token content
+ * Unit tests for {@link SmtpClientLexer}, verifying exact token content
  * for the {@code CODE [SEP TEXT] CRLF} reply grammar, independent of
- * {@link SMTPClientProtocolHandler}'s business logic — in particular the
+ * {@link SmtpClientProtocolHandler}'s business logic — in particular the
  * per-line {@code sawCode} tracking reset (see
- * {@link SMTPClientLexer#resetForNextLine()}), which a fixed-width-prefix
+ * {@link SmtpClientLexer#resetForNextLine()}), which a fixed-width-prefix
  * grammar needs but the command lexers' scan-for-space grammars do not.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
@@ -45,27 +45,27 @@ import static org.junit.Assert.*;
 public class SMTPClientLexerTest {
 
     static class Event {
-        final SMTPClientLexer.Token type;
+        final SmtpClientLexer.Token type;
         final String text;
-        Event(SMTPClientLexer.Token type, String text) {
+        Event(SmtpClientLexer.Token type, String text) {
             this.type = type;
             this.text = text;
         }
     }
 
-    static class RecordingHandler implements ByteStreamLexer.Handler<SMTPClientLexer.Token> {
+    static class RecordingHandler implements ByteStreamLexer.Handler<SmtpClientLexer.Token> {
         final List<Event> events = new ArrayList<Event>();
         int tokenTooLongCount;
 
         @Override
-        public boolean token(SMTPClientLexer.Token type, ByteBuffer window) {
+        public boolean token(SmtpClientLexer.Token type, ByteBuffer window) {
             byte[] copy = new byte[window.remaining()];
             window.get(copy);
             events.add(new Event(type, new String(copy, StandardCharsets.US_ASCII)));
-            if (type == SMTPClientLexer.Token.CRLF) {
+            if (type == SmtpClientLexer.Token.CRLF) {
                 lexerRef.resetForNextLine();
             }
-            return type == SMTPClientLexer.Token.DASH || type == SMTPClientLexer.Token.SP;
+            return type == SmtpClientLexer.Token.DASH || type == SmtpClientLexer.Token.SP;
         }
 
         @Override
@@ -78,12 +78,12 @@ public class SMTPClientLexerTest {
             tokenTooLongCount++;
         }
 
-        SMTPClientLexer lexerRef;
+        SmtpClientLexer lexerRef;
 
         String reconstructedText() {
             StringBuilder sb = new StringBuilder();
             for (Event e : events) {
-                if (e.type == SMTPClientLexer.Token.TEXT) {
+                if (e.type == SmtpClientLexer.Token.TEXT) {
                     sb.append(e.text);
                 }
             }
@@ -93,7 +93,7 @@ public class SMTPClientLexerTest {
         List<String> codes() {
             List<String> result = new ArrayList<String>();
             for (Event e : events) {
-                if (e.type == SMTPClientLexer.Token.CODE) {
+                if (e.type == SmtpClientLexer.Token.CODE) {
                     result.add(e.text);
                 }
             }
@@ -101,8 +101,8 @@ public class SMTPClientLexerTest {
         }
     }
 
-    private static SMTPClientLexer newLexer(RecordingHandler handler) {
-        SMTPClientLexer lexer = new SMTPClientLexer(handler, Integer.MAX_VALUE);
+    private static SmtpClientLexer newLexer(RecordingHandler handler) {
+        SmtpClientLexer lexer = new SmtpClientLexer(handler, Integer.MAX_VALUE);
         handler.lexerRef = lexer;
         return lexer;
     }
@@ -114,39 +114,39 @@ public class SMTPClientLexerTest {
     @Test
     public void testSingleLineReplyWithText() {
         RecordingHandler handler = new RecordingHandler();
-        SMTPClientLexer lexer = newLexer(handler);
+        SmtpClientLexer lexer = newLexer(handler);
         lexer.feed(bytesOf("250 OK\r\n"));
-        assertEquals(SMTPClientLexer.Token.CODE, handler.events.get(0).type);
+        assertEquals(SmtpClientLexer.Token.CODE, handler.events.get(0).type);
         assertEquals("250", handler.events.get(0).text);
-        assertEquals(SMTPClientLexer.Token.SP, handler.events.get(1).type);
+        assertEquals(SmtpClientLexer.Token.SP, handler.events.get(1).type);
         assertEquals("OK", handler.reconstructedText());
-        assertEquals(SMTPClientLexer.Token.CRLF,
+        assertEquals(SmtpClientLexer.Token.CRLF,
                 handler.events.get(handler.events.size() - 1).type);
     }
 
     @Test
     public void testBareCodeNoSeparatorNoText() {
         RecordingHandler handler = new RecordingHandler();
-        SMTPClientLexer lexer = newLexer(handler);
+        SmtpClientLexer lexer = newLexer(handler);
         lexer.feed(bytesOf("250\r\n"));
         assertEquals(2, handler.events.size());
         assertEquals("250", handler.events.get(0).text);
-        assertEquals(SMTPClientLexer.Token.CRLF, handler.events.get(1).type);
+        assertEquals(SmtpClientLexer.Token.CRLF, handler.events.get(1).type);
     }
 
     @Test
     public void testContinuationDash() {
         RecordingHandler handler = new RecordingHandler();
-        SMTPClientLexer lexer = newLexer(handler);
+        SmtpClientLexer lexer = newLexer(handler);
         lexer.feed(bytesOf("250-mail.example.com\r\n"));
-        assertEquals(SMTPClientLexer.Token.DASH, handler.events.get(1).type);
+        assertEquals(SmtpClientLexer.Token.DASH, handler.events.get(1).type);
         assertEquals("mail.example.com", handler.reconstructedText());
     }
 
     @Test
     public void testMultilineEhloReplySequence() {
         RecordingHandler handler = new RecordingHandler();
-        SMTPClientLexer lexer = newLexer(handler);
+        SmtpClientLexer lexer = newLexer(handler);
         String wire = "250-mail.example.com\r\n"
                 + "250-PIPELINING\r\n"
                 + "250-SIZE 52428800\r\n"
@@ -164,18 +164,18 @@ public class SMTPClientLexerTest {
     @Test
     public void testBlankLineEmitsNoCodeToken() {
         RecordingHandler handler = new RecordingHandler();
-        SMTPClientLexer lexer = newLexer(handler);
+        SmtpClientLexer lexer = newLexer(handler);
         lexer.feed(bytesOf("\r\n"));
         assertEquals(1, handler.events.size());
-        assertEquals(SMTPClientLexer.Token.CRLF, handler.events.get(0).type);
+        assertEquals(SmtpClientLexer.Token.CRLF, handler.events.get(0).type);
     }
 
     @Test
     public void testShortLineEmitsPartialCode() {
         RecordingHandler handler = new RecordingHandler();
-        SMTPClientLexer lexer = newLexer(handler);
+        SmtpClientLexer lexer = newLexer(handler);
         lexer.feed(bytesOf("25\r\n"));
-        assertEquals(SMTPClientLexer.Token.CODE, handler.events.get(0).type);
+        assertEquals(SmtpClientLexer.Token.CODE, handler.events.get(0).type);
         assertEquals("25", handler.events.get(0).text);
     }
 
@@ -191,7 +191,7 @@ public class SMTPClientLexerTest {
 
         for (int chunkSize = 1; chunkSize <= bytes.length; chunkSize++) {
             RecordingHandler handler = new RecordingHandler();
-            SMTPClientLexer lexer = newLexer(handler);
+            SmtpClientLexer lexer = newLexer(handler);
             ByteBuffer netIn = ByteBuffer.allocate(256);
             int offset = 0;
             while (offset < bytes.length) {

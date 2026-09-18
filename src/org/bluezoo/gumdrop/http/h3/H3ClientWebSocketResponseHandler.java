@@ -29,8 +29,8 @@ import java.util.ResourceBundle;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bluezoo.gumdrop.http.client.DefaultHTTPResponseHandler;
-import org.bluezoo.gumdrop.http.client.HTTPResponse;
+import org.bluezoo.gumdrop.http.client.DefaultHttpResponseHandler;
+import org.bluezoo.gumdrop.http.client.HttpResponse;
 import org.bluezoo.gumdrop.quic.QuicConnectionCloseException;
 import org.bluezoo.gumdrop.websocket.WebSocketConnection;
 import org.bluezoo.gumdrop.websocket.WebSocketEventHandler;
@@ -40,11 +40,11 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
 
 /**
  * RFC 9220 -- bridges a generic HTTP/3 Extended CONNECT response ({@link
- * org.bluezoo.gumdrop.http.client.HTTPResponseHandler}) to a {@link
+ * org.bluezoo.gumdrop.http.client.HttpResponseHandler}) to a {@link
  * WebSocketConnection}.
  *
  * <p>{@link H3ClientStream} has no notion of WebSocket at all -- it always
- * calls the ordinary {@link org.bluezoo.gumdrop.http.client.HTTPResponseHandler}
+ * calls the ordinary {@link org.bluezoo.gumdrop.http.client.HttpResponseHandler}
  * callback sequence, and this class is what reinterprets that sequence as
  * a WebSocket connection: {@link #header} collects {@code
  * sec-websocket-extensions}, {@link #startResponseBody} builds the {@link
@@ -57,10 +57,10 @@ import org.bluezoo.gumdrop.websocket.WebSocketSession;
  * org.bluezoo.gumdrop.websocket.client.H2WebSocketResponseHandler}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see HTTP3ClientHandler#connectWebSocket
+ * @see Http3ClientHandler#connectWebSocket
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9220">RFC 9220</a>
  */
-class H3ClientWebSocketResponseHandler extends DefaultHTTPResponseHandler {
+class H3ClientWebSocketResponseHandler extends DefaultHttpResponseHandler {
 
     private static final Logger LOGGER = Logger.getLogger(H3ClientWebSocketResponseHandler.class.getName());
     private static final ResourceBundle L10N =
@@ -69,7 +69,7 @@ class H3ClientWebSocketResponseHandler extends DefaultHTTPResponseHandler {
     private final List<WebSocketExtension> requestedExtensions;
     private final WebSocketEventHandler wsHandler;
 
-    // Bound by HTTP3ClientHandler.connectWebSocket immediately after both
+    // Bound by Http3ClientHandler.connectWebSocket immediately after both
     // this handler and its H3ClientStream are constructed -- see
     // bindStream()'s own documentation for why construction can't just
     // take this in the constructor.
@@ -88,9 +88,9 @@ class H3ClientWebSocketResponseHandler extends DefaultHTTPResponseHandler {
      * Supplies the {@link H3ClientStream} this handler was constructed
      * for, so its transport can write DATA frames back once the upgrade
      * completes. Called exactly once, by {@link
-     * HTTP3ClientHandler#connectWebSocket}, right after the {@code
+     * Http3ClientHandler#connectWebSocket}, right after the {@code
      * H3ClientStream} itself is constructed -- unlike HTTP/2's {@code
-     * H2WebSocketResponseHandler} (which receives its {@code HTTPRequest}
+     * H2WebSocketResponseHandler} (which receives its {@code HttpRequest}
      * in the constructor), this can't happen at construction time here:
      * {@code H3ClientStream}'s own constructor requires the response
      * handler already built, so the stream necessarily comes second.
@@ -102,14 +102,14 @@ class H3ClientWebSocketResponseHandler extends DefaultHTTPResponseHandler {
     }
 
     @Override
-    public void ok(HTTPResponse response) {
+    public void ok(HttpResponse response) {
         // Nothing to do yet -- sec-websocket-extensions (if any) arrives
         // via header(), and the bridge is built in startResponseBody()
         // once the header section is known to be complete.
     }
 
     @Override
-    public void error(HTTPResponse response) {
+    public void error(HttpResponse response) {
         failed = true;
         wsHandler.error(new IOException(
                 "WebSocket-over-HTTP/3 upgrade failed: " + response.getStatus()));

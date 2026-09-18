@@ -48,7 +48,7 @@ import org.bluezoo.util.ByteArrays;
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see <a href="https://www.rfc-editor.org/rfc/rfc7541">RFC 7541</a>
  */
-public class Decoder extends HPACKConstants {
+public class Decoder extends HpackConstants {
 
     /**
      * The dynamic table.

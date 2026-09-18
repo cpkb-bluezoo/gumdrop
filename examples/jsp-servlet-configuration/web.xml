@@ -16,7 +16,7 @@
     <!-- Remove this section to use Gumdrop's automatic JSP configuration -->
     <servlet>
         <servlet-name>jsp</servlet-name>
-        <servlet-class>org.bluezoo.gumdrop.servlet.jsp.JSPServlet</servlet-class>
+        <servlet-class>org.bluezoo.gumdrop.servlet.jsp.JspServlet</servlet-class>
         <description>JSP Servlet for processing JavaServer Pages</description>
         <load-on-startup>3</load-on-startup>
         

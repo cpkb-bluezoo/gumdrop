@@ -39,7 +39,7 @@ import java.util.logging.Logger;
  * <p>Gumdrop's reactor pins each connection to a single {@code SelectorLoop}
  * thread, and protocol handlers must never block it (blocking stalls every
  * other connection multiplexed on that loop). TLS handshake delegated tasks
- * ({@code SSLEngine} {@code NEED_TASK} status -- the actual RSA/ECDHE
+ * (handshake delegated tasks from the in-tree TLS engine -- RSA/ECDHE
  * key-exchange math and certificate-chain validation) have no non-blocking
  * JDK API and can take long enough to matter under load, so a burst of new
  * TLS connections without session resumption can otherwise stall every other

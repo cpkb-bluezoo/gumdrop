@@ -50,7 +50,7 @@ package org.bluezoo.gumdrop.servlet.jsp;
  * 
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
-public class DeclarationElement implements JSPElement {
+public class DeclarationElement implements JspElement {
     
     private final String declaration;
     private final int lineNumber;
@@ -132,7 +132,7 @@ public class DeclarationElement implements JSPElement {
     }
     
     @Override
-    public void accept(JSPElementVisitor visitor) throws Exception {
+    public void accept(JspElementVisitor visitor) throws Exception {
         visitor.visitDeclaration(this);
     }
     

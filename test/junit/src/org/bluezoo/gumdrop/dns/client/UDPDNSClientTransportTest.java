@@ -26,7 +26,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link UDPDNSClientTransport}.
+ * Unit tests for {@link UdpDnsClientTransport}.
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  */
@@ -34,14 +34,14 @@ public class UDPDNSClientTransportTest {
 
     @Test
     public void testImplementsInterface() {
-        UDPDNSClientTransport transport = new UDPDNSClientTransport();
-        assertTrue("Should implement DNSClientTransport",
-                transport instanceof DNSClientTransport);
+        UdpDnsClientTransport transport = new UdpDnsClientTransport();
+        assertTrue("Should implement DnsClientTransport",
+                transport instanceof DnsClientTransport);
     }
 
     @Test
     public void testCloseBeforeOpen() {
-        UDPDNSClientTransport transport = new UDPDNSClientTransport();
+        UdpDnsClientTransport transport = new UdpDnsClientTransport();
         transport.close();
     }
 

@@ -15,7 +15,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Tests for {@link FTPAsciiLineEndings}, covering RFC 959 section 3.1.1.1
+ * Tests for {@link FtpAsciiLineEndings}, covering RFC 959 section 3.1.1.1
  * NVT-ASCII line-ending conversion in both directions, including the
  * cross-chunk CRLF handling that a streaming transfer requires.
  */
@@ -39,19 +39,19 @@ public class FTPAsciiLineEndingsTest {
 
     @Test
     public void testEncodeBareLfBecomesCrlf() {
-        FTPAsciiLineEndings codec = new FTPAsciiLineEndings();
+        FtpAsciiLineEndings codec = new FtpAsciiLineEndings();
         assertEquals("a\r\nb\r\n", str(codec.encode(wrap("a\nb\n"))));
     }
 
     @Test
     public void testEncodePreservesExistingCrlf() {
-        FTPAsciiLineEndings codec = new FTPAsciiLineEndings();
+        FtpAsciiLineEndings codec = new FtpAsciiLineEndings();
         assertEquals("a\r\nb\r\n", str(codec.encode(wrap("a\r\nb\r\n"))));
     }
 
     @Test
     public void testEncodeNoNewlinesUnchanged() {
-        FTPAsciiLineEndings codec = new FTPAsciiLineEndings();
+        FtpAsciiLineEndings codec = new FtpAsciiLineEndings();
         byte[] in = {0x00, 0x01, 0x02, 0x7F, (byte) 0x80};
         byte[] out = bytes(codec.encode(ByteBuffer.wrap(in)));
         assertArrayEquals(in, out);
@@ -61,7 +61,7 @@ public class FTPAsciiLineEndingsTest {
     public void testEncodeCrlfSplitAcrossChunksNotDoubled() {
         // A CRLF straddling two reads must stay a single CRLF: the LF at the
         // start of chunk 2 must not gain a second CR.
-        FTPAsciiLineEndings codec = new FTPAsciiLineEndings();
+        FtpAsciiLineEndings codec = new FtpAsciiLineEndings();
         String c1 = str(codec.encode(wrap("line1\r")));
         String c2 = str(codec.encode(wrap("\nline2\n")));
         assertEquals("line1\r", c1);
@@ -73,19 +73,19 @@ public class FTPAsciiLineEndingsTest {
 
     @Test
     public void testDecodeStripsCr() {
-        assertEquals("a\nb\n", str(FTPAsciiLineEndings.decode(wrap("a\r\nb\r\n"))));
+        assertEquals("a\nb\n", str(FtpAsciiLineEndings.decode(wrap("a\r\nb\r\n"))));
     }
 
     @Test
     public void testDecodeBareLfUnchanged() {
-        assertEquals("a\nb\n", str(FTPAsciiLineEndings.decode(wrap("a\nb\n"))));
+        assertEquals("a\nb\n", str(FtpAsciiLineEndings.decode(wrap("a\nb\n"))));
     }
 
     @Test
     public void testDecodeCrSplitAcrossChunks() {
         // Stateless CR-stripping is inherently correct across chunk boundaries.
-        String c1 = str(FTPAsciiLineEndings.decode(wrap("line1\r")));
-        String c2 = str(FTPAsciiLineEndings.decode(wrap("\nline2\r\n")));
+        String c1 = str(FtpAsciiLineEndings.decode(wrap("line1\r")));
+        String c2 = str(FtpAsciiLineEndings.decode(wrap("\nline2\r\n")));
         assertEquals("line1", c1);
         assertEquals("\nline2\n", c2);
         assertEquals("line1\nline2\n", c1 + c2);
@@ -93,7 +93,7 @@ public class FTPAsciiLineEndingsTest {
 
     @Test
     public void testDecodeAllCrProducesEmpty() {
-        assertEquals(0, FTPAsciiLineEndings.decode(wrap("\r\r\r")).remaining());
+        assertEquals(0, FtpAsciiLineEndings.decode(wrap("\r\r\r")).remaining());
     }
 
     // ── round trip ──
@@ -101,11 +101,11 @@ public class FTPAsciiLineEndingsTest {
     @Test
     public void testRoundTripLocalThroughNetworkBackToLocal() {
         String local = "alpha\nbeta\ngamma\n";
-        FTPAsciiLineEndings encoder = new FTPAsciiLineEndings();
+        FtpAsciiLineEndings encoder = new FtpAsciiLineEndings();
         byte[] network = bytes(encoder.encode(wrap(local)));
         assertEquals("alpha\r\nbeta\r\ngamma\r\n",
                 new String(network, StandardCharsets.US_ASCII));
-        byte[] back = bytes(FTPAsciiLineEndings.decode(ByteBuffer.wrap(network)));
+        byte[] back = bytes(FtpAsciiLineEndings.decode(ByteBuffer.wrap(network)));
         assertEquals(local, new String(back, StandardCharsets.US_ASCII));
     }
 }

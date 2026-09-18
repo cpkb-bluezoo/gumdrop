@@ -21,6 +21,10 @@
 
 package org.bluezoo.gumdrop.amqp.client;
 
+import org.bluezoo.gumdrop.amqp.AmqpProtocolException;
+import org.bluezoo.gumdrop.amqp.BasicProperties;
+import org.bluezoo.gumdrop.amqp.FieldTable;
+
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
@@ -31,7 +35,7 @@ import static org.junit.Assert.*;
 public class BasicPropertiesTest {
 
     @Test
-    public void testEmptyProperties() throws AMQPProtocolException {
+    public void testEmptyProperties() throws AmqpProtocolException {
         BasicProperties props = new BasicProperties();
         ByteBuffer encoded = props.encode(0L);
         BasicProperties.Header header = BasicProperties.decode(encoded);
@@ -42,7 +46,7 @@ public class BasicPropertiesTest {
     }
 
     @Test
-    public void testAllScalarProperties() throws AMQPProtocolException {
+    public void testAllScalarProperties() throws AmqpProtocolException {
         Date ts = new Date((System.currentTimeMillis() / 1000L) * 1000L);
         BasicProperties props = new BasicProperties()
                 .withContentType("application/json")
@@ -79,7 +83,7 @@ public class BasicPropertiesTest {
     }
 
     @Test
-    public void testHeadersTable() throws AMQPProtocolException {
+    public void testHeadersTable() throws AmqpProtocolException {
         FieldTable headers = new FieldTable().put("x-retry-count", 3).put("x-source", "test");
         BasicProperties props = new BasicProperties().withHeaders(headers);
 
@@ -91,7 +95,7 @@ public class BasicPropertiesTest {
     }
 
     @Test
-    public void testOnlySetPropertiesAreEncoded() throws AMQPProtocolException {
+    public void testOnlySetPropertiesAreEncoded() throws AmqpProtocolException {
         BasicProperties props = new BasicProperties().withContentType("text/plain");
         ByteBuffer encoded = props.encode(0L);
         BasicProperties decoded = BasicProperties.decode(encoded).getProperties();
@@ -134,8 +138,8 @@ public class BasicPropertiesTest {
         assertEquals(3, FieldTable.utf8EncodeCountForTesting.get());
     }
 
-    @Test(expected = AMQPProtocolException.class)
-    public void testWrongClassIdRejected() throws AMQPProtocolException {
+    @Test(expected = AmqpProtocolException.class)
+    public void testWrongClassIdRejected() throws AmqpProtocolException {
         ByteBuffer buf = ByteBuffer.allocate(14);
         buf.putShort((short) 99); // not 60 (basic)
         buf.putShort((short) 0);

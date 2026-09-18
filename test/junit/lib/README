@@ -5,6 +5,9 @@ Run `ant resolve-test-deps` once (or any test target — it runs automatically
 from `junit-build` and `integration-build`). A plain `ant` / `ant dist` does not
 download these.
 
+Optional JaCoCo (`jacoco.version` in `boms/versions.properties`) is fetched by
+`ant resolve-jacoco` when you run `ant junit-coverage` (not part of `ant test`).
+
 Version pins: `boms/versions.properties` (`junit.version`, `hamcrest.version`;
 keep in sync with root `pom.xml` when merging Dependabot PRs).
 
@@ -12,3 +15,4 @@ keep in sync with root `pom.xml` when merging Dependabot PRs).
 |-----|--------|
 | junit-* | Maven Central |
 | hamcrest-* | Maven Central |
+| org.jacoco.{ant,core,report,agent}-* | Maven Central (coverage report only) |

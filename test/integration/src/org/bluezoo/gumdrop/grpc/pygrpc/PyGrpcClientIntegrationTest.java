@@ -22,6 +22,7 @@
 package org.bluezoo.gumdrop.grpc.pygrpc;
 
 import org.bluezoo.gumdrop.Endpoint;
+import org.bluezoo.gumdrop.Gumdrop;
 import org.bluezoo.gumdrop.SecurityInfo;
 import org.bluezoo.gumdrop.grpc.client.GrpcClient;
 import org.bluezoo.gumdrop.grpc.client.GrpcResponseHandler;
@@ -30,11 +31,12 @@ import org.bluezoo.gumdrop.grpc.proto.ProtoFile;
 import org.bluezoo.gumdrop.grpc.proto.ProtoFileParser;
 import org.bluezoo.gumdrop.grpc.proto.ProtoMessageHandler;
 import org.bluezoo.gumdrop.grpc.proto.ProtoModelSerializer;
-import org.bluezoo.gumdrop.http.client.HTTPClient;
-import org.bluezoo.gumdrop.http.client.HTTPClientHandler;
-import org.bluezoo.gumdrop.telemetry.protobuf.ByteBufferChannel;
-import org.bluezoo.gumdrop.telemetry.protobuf.ProtobufWriter;
+import org.bluezoo.gumdrop.http.HttpClient;
+import org.bluezoo.gumdrop.http.client.HttpClientHandler;
+import org.bluezoo.protobuf.ByteBufferChannel;
+import org.bluezoo.protobuf.ProtobufWriter;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -69,15 +71,24 @@ public class PyGrpcClientIntegrationTest {
     private static final long TIMEOUT_SECONDS = 10;
 
     private ProtoFile protoFile;
+    private Gumdrop gumdrop;
 
     @Before
     public void checkReachableAndParseProto() throws Exception {
         assumeTrue(PyGrpcTestSupport.NOT_REACHABLE_MESSAGE, PyGrpcTestSupport.isReachable());
         protoFile = ProtoFileParser.parse(PyGrpcTestSupport.ECHO_PROTO);
+        gumdrop = Gumdrop.boot();
     }
 
-    private HTTPClient newHttpClient() {
-        HTTPClient client = new HTTPClient(PyGrpcTestSupport.HOST, PyGrpcTestSupport.PORT);
+    @After
+    public void tearDown() {
+        if (gumdrop != null && gumdrop.isStarted()) {
+            gumdrop.shutdown();
+        }
+    }
+
+    private HttpClient newHttpClient() {
+        HttpClient client = new HttpClient(PyGrpcTestSupport.HOST, PyGrpcTestSupport.PORT);
         client.setH2WithPriorKnowledge(true);
         return client;
     }
@@ -107,14 +118,14 @@ public class PyGrpcClientIntegrationTest {
 
     @Test
     public void testSayEchoRoundTrip() throws Exception {
-        HTTPClient httpClient = newHttpClient();
+        HttpClient httpClient = newHttpClient();
         GrpcClient grpcClient = new GrpcClient(protoFile);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> error = new AtomicReference<>();
         Map<String, Object> fields = new HashMap<>();
 
-        httpClient.connect(new TestHttpHandler(error, doneLatch) {
+        httpClient.connect(gumdrop, new TestHttpHandler(error, doneLatch) {
             @Override
             public void onConnected(Endpoint endpoint) {
                 try {
@@ -149,14 +160,14 @@ public class PyGrpcClientIntegrationTest {
 
     @Test
     public void testAlwaysFailSurfacesGrpcStatus() throws Exception {
-        HTTPClient httpClient = newHttpClient();
+        HttpClient httpClient = newHttpClient();
         GrpcClient grpcClient = new GrpcClient(protoFile);
 
         CountDownLatch doneLatch = new CountDownLatch(1);
         AtomicReference<Exception> grpcError = new AtomicReference<>();
         AtomicReference<Exception> connError = new AtomicReference<>();
 
-        httpClient.connect(new TestHttpHandler(connError, doneLatch) {
+        httpClient.connect(gumdrop, new TestHttpHandler(connError, doneLatch) {
             @Override
             public void onConnected(Endpoint endpoint) {
                 try {
@@ -223,7 +234,7 @@ public class PyGrpcClientIntegrationTest {
         }
     }
 
-    private abstract class TestHttpHandler implements HTTPClientHandler {
+    private abstract class TestHttpHandler implements HttpClientHandler {
         final AtomicReference<Exception> error;
         final CountDownLatch latch;
 

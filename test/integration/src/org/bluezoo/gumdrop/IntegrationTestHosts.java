@@ -12,7 +12,7 @@ import java.net.UnknownHostException;
  * Shared loopback and TLS naming constants for integration tests.
  *
  * <p>Servers bind on {@link #LOOPBACK} ({@code ::1}, IPv6-first). Test PKI is
- * issued for {@link #TLS_SERVER_NAME}; {@link TCPTransportFactory#tlsServerNameFor}
+ * issued for {@link #TLS_SERVER_NAME}; {@link TcpTransportFactory#tlsServerNameFor}
  * maps loopback address literals to that name during hostname verification.
  */
 public final class IntegrationTestHosts {

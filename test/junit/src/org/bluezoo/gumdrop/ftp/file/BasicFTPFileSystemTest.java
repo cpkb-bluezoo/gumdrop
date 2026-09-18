@@ -1,8 +1,8 @@
 package org.bluezoo.gumdrop.ftp.file;
 
-import org.bluezoo.gumdrop.ftp.FTPFileInfo;
-import org.bluezoo.gumdrop.ftp.FTPFileOperationResult;
-import org.bluezoo.gumdrop.ftp.FTPFileSystem;
+import org.bluezoo.gumdrop.ftp.FtpFileInfo;
+import org.bluezoo.gumdrop.ftp.FtpFileOperationResult;
+import org.bluezoo.gumdrop.ftp.FtpFileSystem;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -61,7 +61,7 @@ public class BasicFTPFileSystemTest {
 
     @Test
     public void testListEmptyDirectory() {
-        List<FTPFileInfo> files = fs.listDirectory("/", null);
+        List<FtpFileInfo> files = fs.listDirectory("/", null);
         assertNotNull(files);
         assertTrue(files.isEmpty());
     }
@@ -72,7 +72,7 @@ public class BasicFTPFileSystemTest {
         Files.createFile(tempDir.resolve("file2.txt"));
         Files.createDirectory(tempDir.resolve("subdir"));
 
-        List<FTPFileInfo> files = fs.listDirectory("/", null);
+        List<FtpFileInfo> files = fs.listDirectory("/", null);
         assertNotNull(files);
         assertEquals(3, files.size());
     }
@@ -84,23 +84,23 @@ public class BasicFTPFileSystemTest {
 
     @Test
     public void testCreateDirectory() {
-        FTPFileOperationResult result = fs.createDirectory("/newdir", null);
-        assertEquals(FTPFileOperationResult.SUCCESS, result);
+        FtpFileOperationResult result = fs.createDirectory("/newdir", null);
+        assertEquals(FtpFileOperationResult.SUCCESS, result);
         assertTrue(Files.isDirectory(tempDir.resolve("newdir")));
     }
 
     @Test
     public void testCreateDirectoryAlreadyExists() throws IOException {
         Files.createDirectory(tempDir.resolve("existing"));
-        FTPFileOperationResult result = fs.createDirectory("/existing", null);
-        assertEquals(FTPFileOperationResult.ALREADY_EXISTS, result);
+        FtpFileOperationResult result = fs.createDirectory("/existing", null);
+        assertEquals(FtpFileOperationResult.ALREADY_EXISTS, result);
     }
 
     @Test
     public void testRemoveDirectory() throws IOException {
         Files.createDirectory(tempDir.resolve("toremove"));
-        FTPFileOperationResult result = fs.removeDirectory("/toremove", null);
-        assertEquals(FTPFileOperationResult.SUCCESS, result);
+        FtpFileOperationResult result = fs.removeDirectory("/toremove", null);
+        assertEquals(FtpFileOperationResult.SUCCESS, result);
         assertFalse(Files.exists(tempDir.resolve("toremove")));
     }
 
@@ -108,49 +108,49 @@ public class BasicFTPFileSystemTest {
     public void testRemoveDirectoryNotEmpty() throws IOException {
         Path dir = Files.createDirectory(tempDir.resolve("notempty"));
         Files.createFile(dir.resolve("child.txt"));
-        FTPFileOperationResult result = fs.removeDirectory("/notempty", null);
-        assertEquals(FTPFileOperationResult.DIRECTORY_NOT_EMPTY, result);
+        FtpFileOperationResult result = fs.removeDirectory("/notempty", null);
+        assertEquals(FtpFileOperationResult.DIRECTORY_NOT_EMPTY, result);
     }
 
     @Test
     public void testRemoveNonExistentDirectory() {
-        FTPFileOperationResult result = fs.removeDirectory("/nope", null);
-        assertEquals(FTPFileOperationResult.NOT_FOUND, result);
+        FtpFileOperationResult result = fs.removeDirectory("/nope", null);
+        assertEquals(FtpFileOperationResult.NOT_FOUND, result);
     }
 
     @Test
     public void testDeleteFile() throws IOException {
         Files.createFile(tempDir.resolve("delete-me.txt"));
-        FTPFileOperationResult result = fs.deleteFile("/delete-me.txt", null);
-        assertEquals(FTPFileOperationResult.SUCCESS, result);
+        FtpFileOperationResult result = fs.deleteFile("/delete-me.txt", null);
+        assertEquals(FtpFileOperationResult.SUCCESS, result);
         assertFalse(Files.exists(tempDir.resolve("delete-me.txt")));
     }
 
     @Test
     public void testDeleteFileNotFound() {
-        FTPFileOperationResult result = fs.deleteFile("/missing.txt", null);
-        assertEquals(FTPFileOperationResult.NOT_FOUND, result);
+        FtpFileOperationResult result = fs.deleteFile("/missing.txt", null);
+        assertEquals(FtpFileOperationResult.NOT_FOUND, result);
     }
 
     @Test
     public void testRename() throws IOException {
         Files.createFile(tempDir.resolve("old.txt"));
-        FTPFileOperationResult result = fs.rename("/old.txt", "/new.txt", null);
-        assertEquals(FTPFileOperationResult.SUCCESS, result);
+        FtpFileOperationResult result = fs.rename("/old.txt", "/new.txt", null);
+        assertEquals(FtpFileOperationResult.SUCCESS, result);
         assertFalse(Files.exists(tempDir.resolve("old.txt")));
         assertTrue(Files.exists(tempDir.resolve("new.txt")));
     }
 
     @Test
     public void testRenameNotFound() {
-        FTPFileOperationResult result = fs.rename("/missing.txt", "/new.txt", null);
-        assertEquals(FTPFileOperationResult.NOT_FOUND, result);
+        FtpFileOperationResult result = fs.rename("/missing.txt", "/new.txt", null);
+        assertEquals(FtpFileOperationResult.NOT_FOUND, result);
     }
 
     @Test
     public void testGetFileInfo() throws IOException {
         Files.write(tempDir.resolve("info.txt"), "hello".getBytes());
-        FTPFileInfo info = fs.getFileInfo("/info.txt", null);
+        FtpFileInfo info = fs.getFileInfo("/info.txt", null);
         assertNotNull(info);
         assertEquals("info.txt", info.getName());
         assertFalse(info.isDirectory());
@@ -160,7 +160,7 @@ public class BasicFTPFileSystemTest {
     @Test
     public void testGetFileInfoDirectory() throws IOException {
         Files.createDirectory(tempDir.resolve("mydir"));
-        FTPFileInfo info = fs.getFileInfo("/mydir", null);
+        FtpFileInfo info = fs.getFileInfo("/mydir", null);
         assertNotNull(info);
         assertTrue(info.isDirectory());
     }
@@ -173,16 +173,16 @@ public class BasicFTPFileSystemTest {
     @Test
     public void testChangeDirectory() throws IOException {
         Files.createDirectory(tempDir.resolve("sub"));
-        FTPFileSystem.DirectoryChangeResult result =
+        FtpFileSystem.DirectoryChangeResult result =
                 fs.changeDirectory("/sub", "/", null);
-        assertEquals(FTPFileOperationResult.SUCCESS, result.getResult());
+        assertEquals(FtpFileOperationResult.SUCCESS, result.getResult());
     }
 
     @Test
     public void testChangeDirectoryNotFound() {
-        FTPFileSystem.DirectoryChangeResult result =
+        FtpFileSystem.DirectoryChangeResult result =
                 fs.changeDirectory("/missing", "/", null);
-        assertEquals(FTPFileOperationResult.NOT_FOUND, result.getResult());
+        assertEquals(FtpFileOperationResult.NOT_FOUND, result.getResult());
     }
 
     @Test
@@ -199,19 +199,19 @@ public class BasicFTPFileSystemTest {
     public void testReadOnlyCreateDenied() {
         BasicFTPFileSystem roFs = new BasicFTPFileSystem(tempDir, true);
         assertTrue(roFs.isReadOnly());
-        assertEquals(FTPFileOperationResult.ACCESS_DENIED, roFs.createDirectory("/test", null));
+        assertEquals(FtpFileOperationResult.ACCESS_DENIED, roFs.createDirectory("/test", null));
     }
 
     @Test
     public void testReadOnlyDeleteDenied() {
         BasicFTPFileSystem roFs = new BasicFTPFileSystem(tempDir, true);
-        assertEquals(FTPFileOperationResult.ACCESS_DENIED, roFs.deleteFile("/test", null));
+        assertEquals(FtpFileOperationResult.ACCESS_DENIED, roFs.deleteFile("/test", null));
     }
 
     @Test
     public void testReadOnlyRenameDenied() {
         BasicFTPFileSystem roFs = new BasicFTPFileSystem(tempDir, true);
-        assertEquals(FTPFileOperationResult.ACCESS_DENIED, roFs.rename("/a", "/b", null));
+        assertEquals(FtpFileOperationResult.ACCESS_DENIED, roFs.rename("/a", "/b", null));
     }
 
     @Test
@@ -255,6 +255,6 @@ public class BasicFTPFileSystemTest {
 
     @Test
     public void testAllocateSpace() {
-        assertEquals(FTPFileOperationResult.SUCCESS, fs.allocateSpace("/test", 1024, null));
+        assertEquals(FtpFileOperationResult.SUCCESS, fs.allocateSpace("/test", 1024, null));
     }
 }

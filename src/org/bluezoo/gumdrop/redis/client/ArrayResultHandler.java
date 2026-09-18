@@ -23,7 +23,7 @@ package org.bluezoo.gumdrop.redis.client;
 
 import java.util.List;
 
-import org.bluezoo.gumdrop.redis.codec.RESPValue;
+import org.bluezoo.gumdrop.redis.codec.RespValue;
 
 /**
  * Handler for Redis commands that return a RESP Array ({@code *}).
@@ -45,20 +45,20 @@ import org.bluezoo.gumdrop.redis.codec.RESPValue;
  * </ul>
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
- * @see RESPValue
+ * @see RespValue
  */
 public interface ArrayResultHandler {
 
     /**
      * Called when the command succeeds with an array result.
      *
-     * <p>The array contains {@link RESPValue} objects which can be
+     * <p>The array contains {@link RespValue} objects which can be
      * queried for their type and converted to appropriate Java types.
      *
      * <h4>Processing example:</h4>
      * <pre>{@code
-     * void handleResult(List<RESPValue> array, RedisSession session) {
-     *     for (RESPValue value : array) {
+     * void handleResult(List<RespValue> array, RedisSession session) {
+     *     for (RespValue value : array) {
      *         if (value.isNull()) {
      *             // Handle null
      *         } else if (value.isBulkString()) {
@@ -73,7 +73,7 @@ public interface ArrayResultHandler {
      * @param array the array elements
      * @param session the session for further operations
      */
-    void handleResult(List<RESPValue> array, RedisSession session);
+    void handleResult(List<RespValue> array, RedisSession session);
 
     /**
      * Called when the command returns null (empty array).

@@ -5,138 +5,138 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link HTTPStatus}.
+ * Unit tests for {@link HttpStatus}.
  */
 public class HTTPStatusTest {
 
     @Test
     public void testInformationalCategory() {
-        assertTrue(HTTPStatus.CONTINUE.isInformational());
-        assertTrue(HTTPStatus.SWITCHING_PROTOCOLS.isInformational());
-        assertTrue(HTTPStatus.PROCESSING.isInformational());
-        assertTrue(HTTPStatus.EARLY_HINTS.isInformational());
+        assertTrue(HttpStatus.CONTINUE.isInformational());
+        assertTrue(HttpStatus.SWITCHING_PROTOCOLS.isInformational());
+        assertTrue(HttpStatus.PROCESSING.isInformational());
+        assertTrue(HttpStatus.EARLY_HINTS.isInformational());
 
-        assertFalse(HTTPStatus.OK.isInformational());
-        assertFalse(HTTPStatus.BAD_REQUEST.isInformational());
+        assertFalse(HttpStatus.OK.isInformational());
+        assertFalse(HttpStatus.BAD_REQUEST.isInformational());
     }
 
     @Test
     public void testSuccessCategory() {
-        assertTrue(HTTPStatus.OK.isSuccess());
-        assertTrue(HTTPStatus.CREATED.isSuccess());
-        assertTrue(HTTPStatus.NO_CONTENT.isSuccess());
-        assertTrue(HTTPStatus.PARTIAL_CONTENT.isSuccess());
-        assertTrue(HTTPStatus.MULTI_STATUS.isSuccess());
-        assertTrue(HTTPStatus.IM_USED.isSuccess());
+        assertTrue(HttpStatus.OK.isSuccess());
+        assertTrue(HttpStatus.CREATED.isSuccess());
+        assertTrue(HttpStatus.NO_CONTENT.isSuccess());
+        assertTrue(HttpStatus.PARTIAL_CONTENT.isSuccess());
+        assertTrue(HttpStatus.MULTI_STATUS.isSuccess());
+        assertTrue(HttpStatus.IM_USED.isSuccess());
 
-        assertFalse(HTTPStatus.CONTINUE.isSuccess());
-        assertFalse(HTTPStatus.MOVED_PERMANENTLY.isSuccess());
+        assertFalse(HttpStatus.CONTINUE.isSuccess());
+        assertFalse(HttpStatus.MOVED_PERMANENTLY.isSuccess());
     }
 
     @Test
     public void testRedirectionCategory() {
-        assertTrue(HTTPStatus.MULTIPLE_CHOICES.isRedirection());
-        assertTrue(HTTPStatus.MOVED_PERMANENTLY.isRedirection());
-        assertTrue(HTTPStatus.FOUND.isRedirection());
-        assertTrue(HTTPStatus.NOT_MODIFIED.isRedirection());
-        assertTrue(HTTPStatus.TEMPORARY_REDIRECT.isRedirection());
-        assertTrue(HTTPStatus.PERMANENT_REDIRECT.isRedirection());
+        assertTrue(HttpStatus.MULTIPLE_CHOICES.isRedirection());
+        assertTrue(HttpStatus.MOVED_PERMANENTLY.isRedirection());
+        assertTrue(HttpStatus.FOUND.isRedirection());
+        assertTrue(HttpStatus.NOT_MODIFIED.isRedirection());
+        assertTrue(HttpStatus.TEMPORARY_REDIRECT.isRedirection());
+        assertTrue(HttpStatus.PERMANENT_REDIRECT.isRedirection());
 
-        assertFalse(HTTPStatus.OK.isRedirection());
-        assertFalse(HTTPStatus.BAD_REQUEST.isRedirection());
+        assertFalse(HttpStatus.OK.isRedirection());
+        assertFalse(HttpStatus.BAD_REQUEST.isRedirection());
     }
 
     @Test
     public void testClientErrorCategory() {
-        assertTrue(HTTPStatus.BAD_REQUEST.isClientError());
-        assertTrue(HTTPStatus.UNAUTHORIZED.isClientError());
-        assertTrue(HTTPStatus.FORBIDDEN.isClientError());
-        assertTrue(HTTPStatus.NOT_FOUND.isClientError());
-        assertTrue(HTTPStatus.METHOD_NOT_ALLOWED.isClientError());
-        assertTrue(HTTPStatus.TOO_MANY_REQUESTS.isClientError());
-        assertTrue(HTTPStatus.UNAVAILABLE_FOR_LEGAL_REASONS.isClientError());
+        assertTrue(HttpStatus.BAD_REQUEST.isClientError());
+        assertTrue(HttpStatus.UNAUTHORIZED.isClientError());
+        assertTrue(HttpStatus.FORBIDDEN.isClientError());
+        assertTrue(HttpStatus.NOT_FOUND.isClientError());
+        assertTrue(HttpStatus.METHOD_NOT_ALLOWED.isClientError());
+        assertTrue(HttpStatus.TOO_MANY_REQUESTS.isClientError());
+        assertTrue(HttpStatus.UNAVAILABLE_FOR_LEGAL_REASONS.isClientError());
 
-        assertFalse(HTTPStatus.OK.isClientError());
-        assertFalse(HTTPStatus.INTERNAL_SERVER_ERROR.isClientError());
+        assertFalse(HttpStatus.OK.isClientError());
+        assertFalse(HttpStatus.INTERNAL_SERVER_ERROR.isClientError());
     }
 
     @Test
     public void testServerErrorCategory() {
-        assertTrue(HTTPStatus.INTERNAL_SERVER_ERROR.isServerError());
-        assertTrue(HTTPStatus.NOT_IMPLEMENTED.isServerError());
-        assertTrue(HTTPStatus.BAD_GATEWAY.isServerError());
-        assertTrue(HTTPStatus.SERVICE_UNAVAILABLE.isServerError());
-        assertTrue(HTTPStatus.GATEWAY_TIMEOUT.isServerError());
-        assertTrue(HTTPStatus.NETWORK_AUTHENTICATION_REQUIRED.isServerError());
+        assertTrue(HttpStatus.INTERNAL_SERVER_ERROR.isServerError());
+        assertTrue(HttpStatus.NOT_IMPLEMENTED.isServerError());
+        assertTrue(HttpStatus.BAD_GATEWAY.isServerError());
+        assertTrue(HttpStatus.SERVICE_UNAVAILABLE.isServerError());
+        assertTrue(HttpStatus.GATEWAY_TIMEOUT.isServerError());
+        assertTrue(HttpStatus.NETWORK_AUTHENTICATION_REQUIRED.isServerError());
 
-        assertFalse(HTTPStatus.OK.isServerError());
-        assertFalse(HTTPStatus.BAD_REQUEST.isServerError());
+        assertFalse(HttpStatus.OK.isServerError());
+        assertFalse(HttpStatus.BAD_REQUEST.isServerError());
     }
 
     @Test
     public void testIsError() {
-        assertTrue(HTTPStatus.BAD_REQUEST.isError());
-        assertTrue(HTTPStatus.NOT_FOUND.isError());
-        assertTrue(HTTPStatus.INTERNAL_SERVER_ERROR.isError());
-        assertTrue(HTTPStatus.SERVICE_UNAVAILABLE.isError());
+        assertTrue(HttpStatus.BAD_REQUEST.isError());
+        assertTrue(HttpStatus.NOT_FOUND.isError());
+        assertTrue(HttpStatus.INTERNAL_SERVER_ERROR.isError());
+        assertTrue(HttpStatus.SERVICE_UNAVAILABLE.isError());
 
-        assertFalse(HTTPStatus.OK.isError());
-        assertFalse(HTTPStatus.CONTINUE.isError());
-        assertFalse(HTTPStatus.MOVED_PERMANENTLY.isError());
+        assertFalse(HttpStatus.OK.isError());
+        assertFalse(HttpStatus.CONTINUE.isError());
+        assertFalse(HttpStatus.MOVED_PERMANENTLY.isError());
     }
 
     @Test
     public void testPseudoStatus() {
-        assertTrue(HTTPStatus.REDIRECT_LOOP.isPseudoStatus());
-        assertTrue(HTTPStatus.UNKNOWN.isPseudoStatus());
+        assertTrue(HttpStatus.REDIRECT_LOOP.isPseudoStatus());
+        assertTrue(HttpStatus.UNKNOWN.isPseudoStatus());
 
-        assertFalse(HTTPStatus.OK.isPseudoStatus());
-        assertFalse(HTTPStatus.INTERNAL_SERVER_ERROR.isPseudoStatus());
-        assertFalse(HTTPStatus.CONTINUE.isPseudoStatus());
+        assertFalse(HttpStatus.OK.isPseudoStatus());
+        assertFalse(HttpStatus.INTERNAL_SERVER_ERROR.isPseudoStatus());
+        assertFalse(HttpStatus.CONTINUE.isPseudoStatus());
     }
 
     @Test
     public void testPseudoStatusNotInCategories() {
-        assertFalse(HTTPStatus.REDIRECT_LOOP.isInformational());
-        assertFalse(HTTPStatus.REDIRECT_LOOP.isSuccess());
-        assertFalse(HTTPStatus.REDIRECT_LOOP.isRedirection());
-        assertFalse(HTTPStatus.REDIRECT_LOOP.isClientError());
-        assertFalse(HTTPStatus.REDIRECT_LOOP.isServerError());
-        assertFalse(HTTPStatus.REDIRECT_LOOP.isError());
+        assertFalse(HttpStatus.REDIRECT_LOOP.isInformational());
+        assertFalse(HttpStatus.REDIRECT_LOOP.isSuccess());
+        assertFalse(HttpStatus.REDIRECT_LOOP.isRedirection());
+        assertFalse(HttpStatus.REDIRECT_LOOP.isClientError());
+        assertFalse(HttpStatus.REDIRECT_LOOP.isServerError());
+        assertFalse(HttpStatus.REDIRECT_LOOP.isError());
     }
 
     @Test
     public void testFromCodeKnownStatuses() {
-        assertEquals(HTTPStatus.OK, HTTPStatus.fromCode(200));
-        assertEquals(HTTPStatus.NOT_FOUND, HTTPStatus.fromCode(404));
-        assertEquals(HTTPStatus.INTERNAL_SERVER_ERROR, HTTPStatus.fromCode(500));
-        assertEquals(HTTPStatus.CONTINUE, HTTPStatus.fromCode(100));
-        assertEquals(HTTPStatus.MOVED_PERMANENTLY, HTTPStatus.fromCode(301));
-        assertEquals(HTTPStatus.IM_A_TEAPOT, HTTPStatus.fromCode(418));
+        assertEquals(HttpStatus.OK, HttpStatus.fromCode(200));
+        assertEquals(HttpStatus.NOT_FOUND, HttpStatus.fromCode(404));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, HttpStatus.fromCode(500));
+        assertEquals(HttpStatus.CONTINUE, HttpStatus.fromCode(100));
+        assertEquals(HttpStatus.MOVED_PERMANENTLY, HttpStatus.fromCode(301));
+        assertEquals(HttpStatus.IM_A_TEAPOT, HttpStatus.fromCode(418));
     }
 
     @Test
     public void testFromCodeUnrecognized() {
-        assertEquals(HTTPStatus.INTERNAL_SERVER_ERROR, HTTPStatus.fromCode(999));
-        assertEquals(HTTPStatus.INTERNAL_SERVER_ERROR, HTTPStatus.fromCode(0));
-        assertEquals(HTTPStatus.INTERNAL_SERVER_ERROR, HTTPStatus.fromCode(600));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, HttpStatus.fromCode(999));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, HttpStatus.fromCode(0));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, HttpStatus.fromCode(600));
     }
 
     @Test
     public void testStatusCodes() {
-        assertEquals(100, HTTPStatus.CONTINUE.code);
-        assertEquals(200, HTTPStatus.OK.code);
-        assertEquals(301, HTTPStatus.MOVED_PERMANENTLY.code);
-        assertEquals(400, HTTPStatus.BAD_REQUEST.code);
-        assertEquals(404, HTTPStatus.NOT_FOUND.code);
-        assertEquals(500, HTTPStatus.INTERNAL_SERVER_ERROR.code);
-        assertEquals(-1, HTTPStatus.REDIRECT_LOOP.code);
-        assertEquals(-2, HTTPStatus.UNKNOWN.code);
+        assertEquals(100, HttpStatus.CONTINUE.code);
+        assertEquals(200, HttpStatus.OK.code);
+        assertEquals(301, HttpStatus.MOVED_PERMANENTLY.code);
+        assertEquals(400, HttpStatus.BAD_REQUEST.code);
+        assertEquals(404, HttpStatus.NOT_FOUND.code);
+        assertEquals(500, HttpStatus.INTERNAL_SERVER_ERROR.code);
+        assertEquals(-1, HttpStatus.REDIRECT_LOOP.code);
+        assertEquals(-2, HttpStatus.UNKNOWN.code);
     }
 
     @Test
     public void testCategoriesMutuallyExclusive() {
-        for (HTTPStatus status : HTTPStatus.values()) {
+        for (HttpStatus status : HttpStatus.values()) {
             if (status.isPseudoStatus()) {
                 continue;
             }
@@ -153,7 +153,7 @@ public class HTTPStatusTest {
 
     @Test
     public void testIsErrorConsistentWithClientAndServerError() {
-        for (HTTPStatus status : HTTPStatus.values()) {
+        for (HttpStatus status : HttpStatus.values()) {
             if (status.isPseudoStatus()) {
                 continue;
             }
@@ -164,12 +164,12 @@ public class HTTPStatusTest {
 
     @Test
     public void testFromCodeRoundTrip() {
-        for (HTTPStatus status : HTTPStatus.values()) {
+        for (HttpStatus status : HttpStatus.values()) {
             if (status.isPseudoStatus()) {
                 continue;
             }
             assertEquals("fromCode round-trip failed for " + status,
-                    status, HTTPStatus.fromCode(status.code));
+                    status, HttpStatus.fromCode(status.code));
         }
     }
 }

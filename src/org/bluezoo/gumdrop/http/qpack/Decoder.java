@@ -52,7 +52,7 @@ import org.bluezoo.gumdrop.http.Header;
  * @see Encoder
  * @see <a href="https://www.rfc-editor.org/rfc/rfc9204#section-4.5">RFC 9204 section 4.5</a>
  */
-public final class Decoder extends QPACKConstants implements EncoderStreamHandler {
+public final class Decoder extends QpackConstants implements EncoderStreamHandler {
 
     private final DynamicTable table;
 
@@ -254,7 +254,7 @@ public final class Decoder extends QPACKConstants implements EncoderStreamHandle
         int firstByte = block.get() & 0xff;
         boolean isStatic = (firstByte & 0x10) != 0;
         long nameIndex = PrefixedInteger.decode(block, firstByte, 4);
-        byte[] valueBytes = QPACKStrings.read(block, 7);
+        byte[] valueBytes = QpackStrings.read(block, 7);
         String name;
         if (isStatic) {
             if (nameIndex < 0 || nameIndex >= STATIC_TABLE_SIZE) {
@@ -274,8 +274,8 @@ public final class Decoder extends QPACKConstants implements EncoderStreamHandle
 
     // RFC 9204 section 4.5.6: '001|N|H|NameLen(3+)' + name bytes + value string literal
     private Header decodeLiteralFieldLineWithLiteralName(ByteBuffer block) throws ProtocolException {
-        byte[] nameBytes = QPACKStrings.read(block, 3);
-        byte[] valueBytes = QPACKStrings.read(block, 7);
+        byte[] nameBytes = QpackStrings.read(block, 3);
+        byte[] valueBytes = QpackStrings.read(block, 7);
         return new Header(decodeText(nameBytes), decodeText(valueBytes));
     }
 
@@ -296,7 +296,7 @@ public final class Decoder extends QPACKConstants implements EncoderStreamHandle
             throws ProtocolException {
         int firstByte = block.get() & 0xff;
         long nameIndex = PrefixedInteger.decode(block, firstByte, 3);
-        byte[] valueBytes = QPACKStrings.read(block, 7);
+        byte[] valueBytes = QpackStrings.read(block, 7);
         long absoluteIndex = base + nameIndex;
         Header entry = table.get(absoluteIndex);
         if (entry == null) {

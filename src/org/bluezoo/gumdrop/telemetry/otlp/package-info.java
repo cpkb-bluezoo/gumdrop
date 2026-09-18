@@ -23,13 +23,13 @@
  * OTLP export of traces, metrics, and logs to an OpenTelemetry Collector,
  * over HTTP or gRPC.
  *
- * <p>{@link org.bluezoo.gumdrop.telemetry.otlp.OTLPExporter} sends
- * OTLP/HTTP requests (protobuf-encoded, via {@link
- * org.bluezoo.gumdrop.telemetry.protobuf}) through {@link
- * org.bluezoo.gumdrop.telemetry.otlp.OTLPEndpoint}, HTTP/2 or HTTP/1.1
+ * <p>{@link org.bluezoo.gumdrop.telemetry.otlp.OtlpExporter} sends
+ * OTLP/HTTP requests (protobuf-encoded via the {@code org.bluezoo:jprotobuf}
+ * codec) through {@link
+ * org.bluezoo.gumdrop.telemetry.otlp.OtlpEndpoint}, HTTP/2 or HTTP/1.1
  * with ALPN negotiation and connection pooling keyed to a {@code
- * SelectorLoop}. {@link org.bluezoo.gumdrop.telemetry.otlp.OTLPGrpcExporter}
- * and {@link org.bluezoo.gumdrop.telemetry.otlp.OTLPGrpcEndpoint} are the
+ * SelectorLoop}. {@link org.bluezoo.gumdrop.telemetry.otlp.OtlpGrpcExporter}
+ * and {@link org.bluezoo.gumdrop.telemetry.otlp.OtlpGrpcEndpoint} are the
  * OTLP/gRPC equivalents, framing the same protobuf payloads per the gRPC
  * wire format instead. Both implement {@link
  * org.bluezoo.gumdrop.telemetry.TelemetryExporter}, loaded via the
@@ -38,6 +38,5 @@
  *
  * @author <a href='mailto:dog@gnu.org'>Chris Burdess</a>
  * @see org.bluezoo.gumdrop.telemetry.TelemetryConfig
- * @see org.bluezoo.gumdrop.telemetry.protobuf
  */
 package org.bluezoo.gumdrop.telemetry.otlp;

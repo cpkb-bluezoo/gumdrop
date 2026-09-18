@@ -22,12 +22,19 @@
 package org.bluezoo.gumdrop.servlet;
 
 import org.bluezoo.gumdrop.AbstractServerIntegrationTest;
+import org.bluezoo.gumdrop.Server;
 import org.bluezoo.gumdrop.http.HTTPClientHelper;
+import org.bluezoo.gumdrop.http.HttpServer;
+import org.bluezoo.gumdrop.http.server.Http2Listener;
+import org.bluezoo.gumdrop.servlet.server.ServletRequestHandler;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
 
 import java.io.File;
+import java.net.InetAddress;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -65,8 +72,19 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
         .build();
 
     @Override
-    protected File getTestConfigFile() {
-        return new File("test/integration/config/servlet-server-test.xml");
+    protected Collection<? extends Server> buildServers() throws Exception {
+        Container container = new Container();
+        container.setBufferSize(8192);
+        container.addContext(new Context(container, "",
+                new File("test/integration/webapp")));
+
+        HttpServer server = HttpServer.compose()
+                .listener(new Http2Listener()
+                        .port(TEST_PORT)
+                        .addresses(InetAddress.getByName("::1")))
+                .streamHandler(new ServletRequestHandler(container))
+                .server();
+        return Collections.singletonList(server);
     }
 
 
@@ -85,7 +103,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         assertEquals("Should return 200 OK", 200, response.statusCode);
         assertTrue("Response should contain expected content", 
@@ -103,7 +121,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "\r\n" +
                         body;
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         assertEquals("POST should return 200 OK", 200, response.statusCode);
         // Echo servlet should return the posted content
@@ -118,7 +136,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         assertEquals("Should return 404 for non-existent resource", 404, response.statusCode);
     }
@@ -130,7 +148,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         // Root should either return welcome file or 404
         assertTrue("Root should return 200 or 404", 
@@ -149,7 +167,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         // Headers servlet should echo back the headers
         assertTrue("Should receive successful response", 
@@ -163,7 +181,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         if (response.statusCode == 200) {
             assertTrue("Should have Content-Type header", response.hasHeader("Content-Type"));
@@ -179,7 +197,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         if (response.statusCode == 200) {
             // Should have Set-Cookie header with JSESSIONID
@@ -199,7 +217,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                          "Connection: close\r\n" +
                          "\r\n";
 
-        HTTPClientHelper.HTTPResponse response1 = HTTPClientHelper.sendRequest("::1", TEST_PORT, request1);
+        HTTPClientHelper.HttpResponse response1 = HTTPClientHelper.sendRequest("::1", TEST_PORT, request1);
 
         if (response1.statusCode == 200) {
             String setCookie = response1.getHeader("Set-Cookie");
@@ -214,7 +232,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                                  "Connection: close\r\n" +
                                  "\r\n";
 
-                HTTPClientHelper.HTTPResponse response2 = HTTPClientHelper.sendRequest("::1", TEST_PORT, request2);
+                HTTPClientHelper.HttpResponse response2 = HTTPClientHelper.sendRequest("::1", TEST_PORT, request2);
 
                 assertEquals("Second request with session should succeed", 200, response2.statusCode);
                 assertTrue("Should retrieve stored session value", 
@@ -248,7 +266,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "\r\n" +
                         body;
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         // Upload servlet should process the multipart data
         assertTrue("Multipart request should be handled", 
@@ -264,7 +282,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         // Error servlet should throw exception resulting in 500
         assertTrue("Should return 500 or 404", 
@@ -278,7 +296,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         // Diagnostic output
         System.out.println("=== testCustomErrorPage DIAGNOSTIC ===");
@@ -299,7 +317,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         if (response.statusCode == 200) {
             // Check for filter-added header
@@ -319,7 +337,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         // Forward should show content from target servlet
         assertTrue("Forward should succeed or 404", 
@@ -333,7 +351,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         // Include should embed content from target servlet
         assertTrue("Include should succeed or 404", 
@@ -349,7 +367,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         // Async servlet should complete successfully
         assertTrue("Async request should complete", 
@@ -363,7 +381,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         // Async timeout should result in error
         assertTrue("Async timeout should be handled", 
@@ -380,7 +398,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "Connection: close\r\n" +
                         "\r\n";
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         assertTrue("Context request should be handled", 
             response.statusCode == 200 || response.statusCode == 404);
@@ -399,7 +417,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "\r\n" +
                         body;
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         assertTrue("JSON request should be handled", 
             response.statusCode == 200 || response.statusCode == 404);
@@ -416,7 +434,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                         "\r\n" +
                         body;
 
-        HTTPClientHelper.HTTPResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
+        HTTPClientHelper.HttpResponse response = HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
         assertTrue("XML request should be handled", 
             response.statusCode == 200 || response.statusCode == 404);
@@ -457,7 +475,7 @@ public class ServletServiceIntegrationTest extends AbstractServerIntegrationTest
                                             "Connection: close\r\n" +
                                             "\r\n";
 
-                            HTTPClientHelper.HTTPResponse response =
+                            HTTPClientHelper.HttpResponse response =
                                 HTTPClientHelper.sendRequest("::1", TEST_PORT, request);
 
                             results[index] = (response.statusCode == 200 || response.statusCode == 404);

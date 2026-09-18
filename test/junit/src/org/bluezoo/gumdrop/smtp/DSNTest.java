@@ -5,64 +5,64 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 /**
- * Unit tests for {@link DSNNotify}, {@link DSNReturn}, and {@link BodyType}.
+ * Unit tests for {@link DsnNotify}, {@link DsnReturn}, and {@link BodyType}.
  */
 public class DSNTest {
 
     // ========================================================================
-    // DSNNotify
+    // DsnNotify
     // ========================================================================
 
     @Test
     public void testDSNNotifyParse() {
-        assertEquals(DSNNotify.NEVER, DSNNotify.parse("NEVER"));
-        assertEquals(DSNNotify.SUCCESS, DSNNotify.parse("SUCCESS"));
-        assertEquals(DSNNotify.FAILURE, DSNNotify.parse("FAILURE"));
-        assertEquals(DSNNotify.DELAY, DSNNotify.parse("DELAY"));
+        assertEquals(DsnNotify.NEVER, DsnNotify.parse("NEVER"));
+        assertEquals(DsnNotify.SUCCESS, DsnNotify.parse("SUCCESS"));
+        assertEquals(DsnNotify.FAILURE, DsnNotify.parse("FAILURE"));
+        assertEquals(DsnNotify.DELAY, DsnNotify.parse("DELAY"));
     }
 
     @Test
     public void testDSNNotifyParseCaseInsensitive() {
-        assertEquals(DSNNotify.NEVER, DSNNotify.parse("never"));
-        assertEquals(DSNNotify.SUCCESS, DSNNotify.parse("Success"));
-        assertEquals(DSNNotify.FAILURE, DSNNotify.parse("fAiLuRe"));
-        assertEquals(DSNNotify.DELAY, DSNNotify.parse("Delay"));
+        assertEquals(DsnNotify.NEVER, DsnNotify.parse("never"));
+        assertEquals(DsnNotify.SUCCESS, DsnNotify.parse("Success"));
+        assertEquals(DsnNotify.FAILURE, DsnNotify.parse("fAiLuRe"));
+        assertEquals(DsnNotify.DELAY, DsnNotify.parse("Delay"));
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testDSNNotifyParseNull() {
-        DSNNotify.parse(null);
+        DsnNotify.parse(null);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testDSNNotifyParseUnknown() {
-        DSNNotify.parse("INVALID");
+        DsnNotify.parse("INVALID");
     }
 
     // ========================================================================
-    // DSNReturn
+    // DsnReturn
     // ========================================================================
 
     @Test
     public void testDSNReturnParse() {
-        assertEquals(DSNReturn.FULL, DSNReturn.parse("FULL"));
-        assertEquals(DSNReturn.HDRS, DSNReturn.parse("HDRS"));
+        assertEquals(DsnReturn.FULL, DsnReturn.parse("FULL"));
+        assertEquals(DsnReturn.HDRS, DsnReturn.parse("HDRS"));
     }
 
     @Test
     public void testDSNReturnParseCaseInsensitive() {
-        assertEquals(DSNReturn.FULL, DSNReturn.parse("full"));
-        assertEquals(DSNReturn.HDRS, DSNReturn.parse("Hdrs"));
+        assertEquals(DsnReturn.FULL, DsnReturn.parse("full"));
+        assertEquals(DsnReturn.HDRS, DsnReturn.parse("Hdrs"));
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testDSNReturnParseNull() {
-        DSNReturn.parse(null);
+        DsnReturn.parse(null);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testDSNReturnParseUnknown() {
-        DSNReturn.parse("BODY");
+        DsnReturn.parse("BODY");
     }
 
     // ========================================================================

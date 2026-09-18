@@ -200,18 +200,18 @@ identity providers.
 <h3 id="filesystem">File System Handler</h3>
 
 <p>
-File operations are delegated to an <code>FTPConnectionHandler</code>, which
+File operations are delegated to an <code>FtpConnectionHandler</code>, which
 provides access to the underlying storage:
 </p>
 
-<h4>FTPConnectionHandler Interface</h4>
+<h4>FtpConnectionHandler Interface</h4>
 
 <p>
 The handler interface defines methods for all file operations:
 </p>
 
 <ul>
-<li><code>getFileSystem()</code> - returns the FTPFileSystem for the session</li>
+<li><code>getFileSystem()</code> - returns the FtpFileSystem for the session</li>
 <li><code>isAuthorized(operation, path, metadata)</code> - checks access rights</li>
 <li><code>handleSiteCommand(command, metadata)</code> - processes SITE commands</li>
 </ul>
@@ -253,37 +253,34 @@ based on user roles defined in the realm.
 <h4>Configuration Example</h4>
 
 <pre>
-&lt;realm id="ftpRealm" class="org.bluezoo.gumdrop.auth.BasicRealm"&gt;
-    &lt;property name="href"&gt;ftp-users.xml&lt;/property&gt;
-&lt;/realm&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
 
-&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
-    &lt;property name="realm" ref="#ftpRealm"/&gt;
-    &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener"&gt;
-        &lt;property name="port"&gt;21&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+FtpServer server = FtpServer.compose()
+        .listener(new FtpListener().port(21).bindWildcard()
+                .secure(true).tls(tls))
+        .realm(ftpRealm)
+        .sessionProvider(FtpServerSessionProviders.roleBased()
+                .realm(ftpRealm)
+                .rootDirectory(Path.of("/srv/ftp")))
+        .server();
 </pre>
 
 <h4>Filesystem-Level Enforcement</h4>
 
 <p>
-When <code>filesystem-enforcement</code> is <code>true</code> on
-<code>RoleBasedFTPService</code>, each handler's file system is wrapped in
-<code>RoleAwareFTPFileSystem</code>. This enforces read/write/delete roles at
-the filesystem operation level as a defence-in-depth layer, complementing the
-command-level checks in <code>RoleBasedFTPHandler</code>.
+When <code>filesystemEnforcement(true)</code> is set on
+<code>RoleBasedFtpSessionProvider</code>, each session's file system is
+wrapped in <code>RoleAwareFTPFileSystem</code>. This enforces read/write/delete
+roles at the filesystem operation level as a defence-in-depth layer,
+complementing the command-level checks in <code>RoleBasedFTPHandler</code>.
 </p>
 
 <h3 id="configuration">Configuration</h3>
 
-<h4>FTPListener Properties</h4>
+<h4>FtpListener Properties</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.ftp.FTPListener</code> (transport configuration):
+<code>org.bluezoo.gumdrop.ftp.FtpListener</code> (transport configuration):
 </p>
 
 <ul>
@@ -297,18 +294,19 @@ command-level checks in <code>RoleBasedFTPHandler</code>.
     when true)</li>
 </ul>
 
-<h4>RoleBasedFTPService Properties</h4>
+<h4>RoleBasedFtpSessionProvider Methods</h4>
 
 <p>
-<code>org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService</code> (service logic):
+<code>org.bluezoo.gumdrop.ftp.server.RoleBasedFtpSessionProvider</code>
+(session/authorization logic):
 </p>
 
 <ul>
-<li><code>realm</code> - reference to a Realm for authentication and RBAC</li>
-<li><code>root-directory</code> - filesystem root for FTP access</li>
-<li><code>welcome-message</code> - greeting banner text</li>
-<li><code>quota-manager</code> - reference to a QuotaManager</li>
-<li><code>filesystem-enforcement</code> - wrap filesystem in RoleAwareFTPFileSystem (default: false)</li>
+<li><code>realm(Realm)</code> - realm for authentication and RBAC</li>
+<li><code>rootDirectory(Path)</code> - filesystem root for FTP access</li>
+<li><code>welcomeMessage(String)</code> - greeting banner text</li>
+<li><code>quotaManager(QuotaManager)</code> - quota manager</li>
+<li><code>filesystemEnforcement(boolean)</code> - wrap filesystem in RoleAwareFTPFileSystem (default: false)</li>
 </ul>
 
 <h4>Passive Mode Configuration</h4>
@@ -330,30 +328,30 @@ command-level checks in <code>RoleBasedFTPHandler</code>.
 <h4>Example Configuration</h4>
 
 <pre>
-&lt;!-- FTP with explicit TLS (port 21 + AUTH TLS) --&gt;
-&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
-    &lt;property name="realm" ref="#ftpRealm"/&gt;
-    &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener"&gt;
-        &lt;property name="port"&gt;21&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-        &lt;property name="passive-port-min"&gt;50000&lt;/property&gt;
-        &lt;property name="passive-port-max"&gt;50100&lt;/property&gt;
-        &lt;property name="require-tls-for-data"&gt;true&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+TlsConfig tls = TlsConfig.keystore(Path.of("keystore.p12"), "secret");
 
-&lt;!-- FTPS with implicit TLS (port defaults to 990 when secure) --&gt;
-&lt;service id="ftps" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
-    &lt;property name="realm" ref="#ftpRealm"/&gt;
-    &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener"&gt;
-        &lt;property name="secure"&gt;true&lt;/property&gt;
-        &lt;property name="keystore-file"&gt;keystore.p12&lt;/property&gt;
-        &lt;property name="keystore-pass"&gt;secret&lt;/property&gt;
-    &lt;/listener&gt;
-&lt;/service&gt;
+// FTP with explicit TLS (port 21 + AUTH TLS)
+FtpListener explicitTls = new FtpListener().port(21).bindWildcard().tls(tls);
+explicitTls.setPasvMinPort(50000);
+explicitTls.setPasvMaxPort(50100);
+explicitTls.setRequireTLSForData(true);
+
+FtpServer server = FtpServer.compose()
+        .listener(explicitTls)
+        .realm(ftpRealm)
+        .sessionProvider(FtpServerSessionProviders.roleBased()
+                .realm(ftpRealm)
+                .rootDirectory(Path.of("/srv/ftp")))
+        .server();
+
+// FTPS with implicit TLS (port defaults to 990 when secure)
+FtpServer ftps = FtpServer.compose()
+        .listener(new FtpListener().bindWildcard().secure(true).tls(tls))
+        .realm(ftpRealm)
+        .sessionProvider(FtpServerSessionProviders.roleBased()
+                .realm(ftpRealm)
+                .rootDirectory(Path.of("/srv/ftp")))
+        .server();
 </pre>
 
 <h3 id="quota">Quota Management</h3>
@@ -420,26 +418,26 @@ ftp&gt; put largefile.zip
 <h4>QuotaManager Configuration</h4>
 
 <p>
-Quotas are managed through a <code>QuotaManager</code> configured on the
-handler factory:
+Quotas are managed through a <code>QuotaManager</code> composed onto the
+session provider:
 </p>
 
 <pre>
-&lt;component id="ftpQuota"
-              class="org.bluezoo.gumdrop.quota.RoleBasedQuotaManager"&gt;
-    &lt;property name="realm" ref="#ftpRealm"/&gt;
-    &lt;property name="storage-dir"&gt;/var/ftp/quota&lt;/property&gt;
-    &lt;property name="default-quota"&gt;100MB&lt;/property&gt;
-    &lt;property name="role-quota.premium"&gt;10GB&lt;/property&gt;
-    &lt;property name="role-quota.enterprise"&gt;unlimited&lt;/property&gt;
-&lt;/component&gt;
+RoleBasedQuotaManager ftpQuota = new RoleBasedQuotaManager();
+ftpQuota.setRealm(ftpRealm);
+ftpQuota.setStorageDir("/var/ftp/quota");
+ftpQuota.setDefaultQuota("100MB");
+ftpQuota.setRoleQuota("premium", "10GB");
+ftpQuota.setRoleQuota("enterprise", "unlimited");
 
-&lt;service id="ftp" class="org.bluezoo.gumdrop.ftp.file.RoleBasedFTPService"&gt;
-    &lt;property name="realm" ref="#ftpRealm"/&gt;
-    &lt;property name="root-directory"&gt;/srv/ftp&lt;/property&gt;
-    &lt;property name="quota-manager" ref="#ftpQuota"/&gt;
-    &lt;listener class="org.bluezoo.gumdrop.ftp.FTPListener" port="21"/&gt;
-&lt;/service&gt;
+FtpServer server = FtpServer.compose()
+        .listener(new FtpListener().port(21).bindWildcard())
+        .realm(ftpRealm)
+        .sessionProvider(FtpServerSessionProviders.roleBased()
+                .realm(ftpRealm)
+                .rootDirectory(Path.of("/srv/ftp"))
+                .quotaManager(ftpQuota))
+        .server();
 </pre>
 
 <h4>Quota Policy Hierarchy</h4>
